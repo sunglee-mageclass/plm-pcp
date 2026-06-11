@@ -88,9 +88,20 @@ function PlanejamentoPage() {
       return (data ?? []) as Opt[];
     },
   });
-  const { data: meses = [] } = useOpts("meses");
-  const { data: anos = [] } = useOpts("anos");
+  const { data: meses = [] } = useOpts("meses", "mes");
+  const { data: anos = [] } = useOpts("anos", "ano");
   const { data: categorias = [] } = useOpts("categorias_produto");
+  const { data: artigos = [] } = useQuery({
+    queryKey: ["artigos-planejamento"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("artigos")
+        .select("id, nome, unidade_medida")
+        .order("nome");
+      if (error) throw error;
+      return (data ?? []) as { id: string; nome: string; unidade_medida: string | null }[];
+    },
+  });
 
   const { data: modelos = [] } = useQuery({
     queryKey: ["modelos-planejamento"],
