@@ -69,6 +69,13 @@ function TercDetailPage() {
     queryFn: async () => (await supabase.from("categorias_terceirizado").select("id, nome").order("nome")).data ?? [],
   });
 
+  const { data: tenantCfg } = useQuery({
+    queryKey: ["tenant_config", "oficina"],
+    queryFn: async () => (await supabase.from("tenant_config").select("oficina_posicao, oficina_interna").maybeSingle()).data,
+  });
+  const oficinaEmTerc = ((tenantCfg as any)?.oficina_posicao ?? "terceirizados") === "terceirizados";
+  const oficinaInterna = Boolean((tenantCfg as any)?.oficina_interna);
+
   const { data: terceirizados = [] } = useQuery({
     queryKey: ["terceirizados-all"],
     queryFn: async () => (await supabase.from("terceirizados").select("id, nome_responsavel, categoria_terceirizado_id")).data ?? [],
