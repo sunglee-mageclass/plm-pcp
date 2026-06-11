@@ -450,7 +450,20 @@ function CadDetailPage() {
     return Array.from(set);
   }, [grades]);
 
+  const gradeTotalGeral = useMemo(
+    () => grades.reduce((a, g) => a + (g.grade_total_planejada || 0), 0),
+    [grades],
+  );
+  // sync derived qty into aviamentos so save persists current values
+  useEffect(() => {
+    setAviamentos((prev) => prev.map((a) => {
+      const qEnviar = Number((a.consumo * gradeTotalGeral).toFixed(4));
+      return { ...a, grade_total: gradeTotalGeral, quantidade_enviar: qEnviar };
+    }));
+  }, [gradeTotalGeral]);
+
   const firstPhoto = (modelo?.fotos_modelo as string[] | null)?.[0] ?? null;
+  const handlePrint = () => window.print();
 
   return (
     <div className="container mx-auto p-6 space-y-6">
