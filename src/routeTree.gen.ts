@@ -22,6 +22,7 @@ import { Route as AuthenticatedCadastroRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
 import { Route as AuthenticatedCadastroIndexRouteImport } from './routes/_authenticated/cadastro.index'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
+import { Route as AuthenticatedCadastroServicoRouteImport } from './routes/_authenticated/cadastro.servico'
 import { Route as AuthenticatedCadastroColaboradoresRouteImport } from './routes/_authenticated/cadastro.colaboradores'
 import { Route as AuthenticatedCadastroAtributosRouteImport } from './routes/_authenticated/cadastro.atributos'
 import { Route as AuthenticatedAdminUsuariosLojaRouteImport } from './routes/_authenticated/admin/usuarios-loja'
@@ -96,6 +97,12 @@ const AuthenticatedAdminIndexRoute = AuthenticatedAdminIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthenticatedAdminRoute,
 } as any)
+const AuthenticatedCadastroServicoRoute =
+  AuthenticatedCadastroServicoRouteImport.update({
+    id: '/servico',
+    path: '/servico',
+    getParentRoute: () => AuthenticatedCadastroRoute,
+  } as any)
 const AuthenticatedCadastroColaboradoresRoute =
   AuthenticatedCadastroColaboradoresRouteImport.update({
     id: '/colaboradores',
@@ -149,6 +156,7 @@ export interface FileRoutesByFullPath {
   '/admin/usuarios-loja': typeof AuthenticatedAdminUsuariosLojaRoute
   '/cadastro/atributos': typeof AuthenticatedCadastroAtributosRoute
   '/cadastro/colaboradores': typeof AuthenticatedCadastroColaboradoresRoute
+  '/cadastro/servico': typeof AuthenticatedCadastroServicoRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/cadastro/': typeof AuthenticatedCadastroIndexRoute
 }
@@ -167,6 +175,7 @@ export interface FileRoutesByTo {
   '/admin/usuarios-loja': typeof AuthenticatedAdminUsuariosLojaRoute
   '/cadastro/atributos': typeof AuthenticatedCadastroAtributosRoute
   '/cadastro/colaboradores': typeof AuthenticatedCadastroColaboradoresRoute
+  '/cadastro/servico': typeof AuthenticatedCadastroServicoRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/cadastro': typeof AuthenticatedCadastroIndexRoute
 }
@@ -189,6 +198,7 @@ export interface FileRoutesById {
   '/_authenticated/admin/usuarios-loja': typeof AuthenticatedAdminUsuariosLojaRoute
   '/_authenticated/cadastro/atributos': typeof AuthenticatedCadastroAtributosRoute
   '/_authenticated/cadastro/colaboradores': typeof AuthenticatedCadastroColaboradoresRoute
+  '/_authenticated/cadastro/servico': typeof AuthenticatedCadastroServicoRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/_authenticated/cadastro/': typeof AuthenticatedCadastroIndexRoute
 }
@@ -211,6 +221,7 @@ export interface FileRouteTypes {
     | '/admin/usuarios-loja'
     | '/cadastro/atributos'
     | '/cadastro/colaboradores'
+    | '/cadastro/servico'
     | '/admin/'
     | '/cadastro/'
   fileRoutesByTo: FileRoutesByTo
@@ -229,6 +240,7 @@ export interface FileRouteTypes {
     | '/admin/usuarios-loja'
     | '/cadastro/atributos'
     | '/cadastro/colaboradores'
+    | '/cadastro/servico'
     | '/admin'
     | '/cadastro'
   id:
@@ -250,6 +262,7 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/usuarios-loja'
     | '/_authenticated/cadastro/atributos'
     | '/_authenticated/cadastro/colaboradores'
+    | '/_authenticated/cadastro/servico'
     | '/_authenticated/admin/'
     | '/_authenticated/cadastro/'
   fileRoutesById: FileRoutesById
@@ -353,6 +366,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminIndexRouteImport
       parentRoute: typeof AuthenticatedAdminRoute
     }
+    '/_authenticated/cadastro/servico': {
+      id: '/_authenticated/cadastro/servico'
+      path: '/servico'
+      fullPath: '/cadastro/servico'
+      preLoaderRoute: typeof AuthenticatedCadastroServicoRouteImport
+      parentRoute: typeof AuthenticatedCadastroRoute
+    }
     '/_authenticated/cadastro/colaboradores': {
       id: '/_authenticated/cadastro/colaboradores'
       path: '/colaboradores'
@@ -420,6 +440,7 @@ const AuthenticatedAdminRouteWithChildren =
 interface AuthenticatedCadastroRouteChildren {
   AuthenticatedCadastroAtributosRoute: typeof AuthenticatedCadastroAtributosRoute
   AuthenticatedCadastroColaboradoresRoute: typeof AuthenticatedCadastroColaboradoresRoute
+  AuthenticatedCadastroServicoRoute: typeof AuthenticatedCadastroServicoRoute
   AuthenticatedCadastroIndexRoute: typeof AuthenticatedCadastroIndexRoute
 }
 
@@ -427,6 +448,7 @@ const AuthenticatedCadastroRouteChildren: AuthenticatedCadastroRouteChildren = {
   AuthenticatedCadastroAtributosRoute: AuthenticatedCadastroAtributosRoute,
   AuthenticatedCadastroColaboradoresRoute:
     AuthenticatedCadastroColaboradoresRoute,
+  AuthenticatedCadastroServicoRoute: AuthenticatedCadastroServicoRoute,
   AuthenticatedCadastroIndexRoute: AuthenticatedCadastroIndexRoute,
 }
 
