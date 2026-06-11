@@ -3,10 +3,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { artigoLabel } from "@/lib/artigo-label";
 import { Field, FieldSelectOpt } from "./shared";
 import { TIPOS, TIPO_LABEL, type TecidoBlock } from "./types";
 
-type ArtigoOpt = { id: string; nome: string };
+type ArtigoOpt = { id: string; nome: string; unidade_medida?: string | null };
 
 export function ModeloTecidosSection({
   blocks,
