@@ -50,6 +50,7 @@ export type Database = {
           composicao: string | null
           created_at: string | null
           empresa_id: string | null
+          etiqueta_lavagem_urls: string[]
           historico_precos: Json | null
           id: string
           largura_estimada: number | null
@@ -67,6 +68,7 @@ export type Database = {
           composicao?: string | null
           created_at?: string | null
           empresa_id?: string | null
+          etiqueta_lavagem_urls?: string[]
           historico_precos?: Json | null
           id?: string
           largura_estimada?: number | null
@@ -84,6 +86,7 @@ export type Database = {
           composicao?: string | null
           created_at?: string | null
           empresa_id?: string | null
+          etiqueta_lavagem_urls?: string[]
           historico_precos?: Json | null
           id?: string
           largura_estimada?: number | null
