@@ -314,20 +314,21 @@ export function AppSidebar() {
 function ThemeToggleButton({ collapsed }: { collapsed: boolean }) {
   const { theme, toggleTheme } = useTheme();
   const isDark = theme === "dark";
+  if (collapsed) return null;
   return (
     <TooltipProvider delayDuration={100}>
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
             variant="ghost"
-            size={collapsed ? "icon" : "sm"}
+            size="icon"
             onClick={toggleTheme}
-            className="justify-start"
+            className="h-7 w-7 shrink-0"
           >
             {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="right">
+        <TooltipContent side="bottom">
           <p>{isDark ? "Mudar para tema claro" : "Mudar para tema escuro"}</p>
         </TooltipContent>
       </Tooltip>
