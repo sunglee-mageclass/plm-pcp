@@ -74,9 +74,16 @@ export function TecidoGroup({
                 return (
                   <div key={i.tempId} className="flex items-center gap-3">
                     <span className="text-sm flex-1">{v?.nome_variante ?? v?.codigo_variante ?? "—"}</span>
-                    <Input type="number" step="0.01" className="w-32"
-                      value={i.quantidade_pedida}
-                      onChange={(e) => setQtd(i.tempId, "quantidade_pedida", Number(e.target.value))} />
+                    <div className="relative w-32">
+                      <Input type="number" step="0.01" className={sufixo ? "pr-10" : ""}
+                        value={i.quantidade_pedida}
+                        onChange={(e) => setQtd(i.tempId, "quantidade_pedida", Number(e.target.value))} />
+                      {sufixo && (
+                        <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                          {sufixo}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 );
               })}
