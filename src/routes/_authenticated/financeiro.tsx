@@ -78,7 +78,7 @@ function FinanceiroPage() {
       if (tecidoRes.error) throw tecidoRes.error;
       if (aviamentoRes.error) throw aviamentoRes.error;
 
-      const empMap = new Map((empresasRes.data ?? []).map((e: any) => [e.id, e.nome as string]));
+      const empMap = new Map((empresasRes.data ?? []).map((e: any) => [e.id, e.nome_fantasia as string]));
       const tecMap = new Map((tecidoRes.data ?? []).map((o: any) => [o.id, o.numero_pedido as string | null]));
       const aviMap = new Map((aviamentoRes.data ?? []).map((o: any) => [o.id, o.numero_pedido as string | null]));
 
