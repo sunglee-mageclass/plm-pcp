@@ -30,6 +30,7 @@ import { Route as AuthenticatedAdminUsuariosLojaRouteImport } from './routes/_au
 import { Route as AuthenticatedAdminUsuariosRouteImport } from './routes/_authenticated/admin/usuarios'
 import { Route as AuthenticatedAdminLojasRouteImport } from './routes/_authenticated/admin/lojas'
 import { Route as AuthenticatedAdminConfiguracoesRouteImport } from './routes/_authenticated/admin/configuracoes'
+import { Route as AuthenticatedCadastroTecidosIndexRouteImport } from './routes/_authenticated/cadastro.tecidos.index'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -145,6 +146,12 @@ const AuthenticatedAdminConfiguracoesRoute =
     path: '/configuracoes',
     getParentRoute: () => AuthenticatedAdminRoute,
   } as any)
+const AuthenticatedCadastroTecidosIndexRoute =
+  AuthenticatedCadastroTecidosIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedCadastroTecidosRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -164,9 +171,10 @@ export interface FileRoutesByFullPath {
   '/cadastro/atributos': typeof AuthenticatedCadastroAtributosRoute
   '/cadastro/colaboradores': typeof AuthenticatedCadastroColaboradoresRoute
   '/cadastro/servico': typeof AuthenticatedCadastroServicoRoute
-  '/cadastro/tecidos': typeof AuthenticatedCadastroTecidosRoute
+  '/cadastro/tecidos': typeof AuthenticatedCadastroTecidosRouteWithChildren
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/cadastro/': typeof AuthenticatedCadastroIndexRoute
+  '/cadastro/tecidos/': typeof AuthenticatedCadastroTecidosIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -184,9 +192,9 @@ export interface FileRoutesByTo {
   '/cadastro/atributos': typeof AuthenticatedCadastroAtributosRoute
   '/cadastro/colaboradores': typeof AuthenticatedCadastroColaboradoresRoute
   '/cadastro/servico': typeof AuthenticatedCadastroServicoRoute
-  '/cadastro/tecidos': typeof AuthenticatedCadastroTecidosRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/cadastro': typeof AuthenticatedCadastroIndexRoute
+  '/cadastro/tecidos': typeof AuthenticatedCadastroTecidosIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -208,9 +216,10 @@ export interface FileRoutesById {
   '/_authenticated/cadastro/atributos': typeof AuthenticatedCadastroAtributosRoute
   '/_authenticated/cadastro/colaboradores': typeof AuthenticatedCadastroColaboradoresRoute
   '/_authenticated/cadastro/servico': typeof AuthenticatedCadastroServicoRoute
-  '/_authenticated/cadastro/tecidos': typeof AuthenticatedCadastroTecidosRoute
+  '/_authenticated/cadastro/tecidos': typeof AuthenticatedCadastroTecidosRouteWithChildren
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/_authenticated/cadastro/': typeof AuthenticatedCadastroIndexRoute
+  '/_authenticated/cadastro/tecidos/': typeof AuthenticatedCadastroTecidosIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -235,6 +244,7 @@ export interface FileRouteTypes {
     | '/cadastro/tecidos'
     | '/admin/'
     | '/cadastro/'
+    | '/cadastro/tecidos/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -252,9 +262,9 @@ export interface FileRouteTypes {
     | '/cadastro/atributos'
     | '/cadastro/colaboradores'
     | '/cadastro/servico'
-    | '/cadastro/tecidos'
     | '/admin'
     | '/cadastro'
+    | '/cadastro/tecidos'
   id:
     | '__root__'
     | '/'
@@ -278,6 +288,7 @@ export interface FileRouteTypes {
     | '/_authenticated/cadastro/tecidos'
     | '/_authenticated/admin/'
     | '/_authenticated/cadastro/'
+    | '/_authenticated/cadastro/tecidos/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -435,6 +446,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminConfiguracoesRouteImport
       parentRoute: typeof AuthenticatedAdminRoute
     }
+    '/_authenticated/cadastro/tecidos/': {
+      id: '/_authenticated/cadastro/tecidos/'
+      path: '/'
+      fullPath: '/cadastro/tecidos/'
+      preLoaderRoute: typeof AuthenticatedCadastroTecidosIndexRouteImport
+      parentRoute: typeof AuthenticatedCadastroTecidosRoute
+    }
   }
 }
 
@@ -457,11 +475,26 @@ const AuthenticatedAdminRouteChildren: AuthenticatedAdminRouteChildren = {
 const AuthenticatedAdminRouteWithChildren =
   AuthenticatedAdminRoute._addFileChildren(AuthenticatedAdminRouteChildren)
 
+interface AuthenticatedCadastroTecidosRouteChildren {
+  AuthenticatedCadastroTecidosIndexRoute: typeof AuthenticatedCadastroTecidosIndexRoute
+}
+
+const AuthenticatedCadastroTecidosRouteChildren: AuthenticatedCadastroTecidosRouteChildren =
+  {
+    AuthenticatedCadastroTecidosIndexRoute:
+      AuthenticatedCadastroTecidosIndexRoute,
+  }
+
+const AuthenticatedCadastroTecidosRouteWithChildren =
+  AuthenticatedCadastroTecidosRoute._addFileChildren(
+    AuthenticatedCadastroTecidosRouteChildren,
+  )
+
 interface AuthenticatedCadastroRouteChildren {
   AuthenticatedCadastroAtributosRoute: typeof AuthenticatedCadastroAtributosRoute
   AuthenticatedCadastroColaboradoresRoute: typeof AuthenticatedCadastroColaboradoresRoute
   AuthenticatedCadastroServicoRoute: typeof AuthenticatedCadastroServicoRoute
-  AuthenticatedCadastroTecidosRoute: typeof AuthenticatedCadastroTecidosRoute
+  AuthenticatedCadastroTecidosRoute: typeof AuthenticatedCadastroTecidosRouteWithChildren
   AuthenticatedCadastroIndexRoute: typeof AuthenticatedCadastroIndexRoute
 }
 
@@ -470,7 +503,8 @@ const AuthenticatedCadastroRouteChildren: AuthenticatedCadastroRouteChildren = {
   AuthenticatedCadastroColaboradoresRoute:
     AuthenticatedCadastroColaboradoresRoute,
   AuthenticatedCadastroServicoRoute: AuthenticatedCadastroServicoRoute,
-  AuthenticatedCadastroTecidosRoute: AuthenticatedCadastroTecidosRoute,
+  AuthenticatedCadastroTecidosRoute:
+    AuthenticatedCadastroTecidosRouteWithChildren,
   AuthenticatedCadastroIndexRoute: AuthenticatedCadastroIndexRoute,
 }
 
@@ -513,3 +547,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
