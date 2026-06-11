@@ -40,6 +40,8 @@ export type OC = {
   anexo_pedido_url: string | null;
   nf_url: string | null;
   etiqueta_lavagem_urls: string[] | null;
+  etiqueta_lavagem_url_1: string | null;
+  etiqueta_lavagem_url_2: string | null;
   observacoes_entrega: string | null;
   observacoes_defeitos: string | null;
   status: string | null;
@@ -63,6 +65,8 @@ export type Draft = {
   modelo_sugerido_url: string | null;
   nf_url: string | null;
   etiqueta_lavagem_urls: string[];
+  etiqueta_lavagem_url_1: string | null;
+  etiqueta_lavagem_url_2: string | null;
 };
 
 export type ItemDraft = {
@@ -92,6 +96,8 @@ export function emptyDraft(): Draft {
     modelo_sugerido_url: null,
     nf_url: null,
     etiqueta_lavagem_urls: [],
+    etiqueta_lavagem_url_1: null,
+    etiqueta_lavagem_url_2: null,
   };
 }
 
