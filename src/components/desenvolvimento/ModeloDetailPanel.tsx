@@ -232,7 +232,19 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
 
   const isAprovado = (draft?.status_desenvolvimento ?? "").toLowerCase() === "aprovado";
   const isReprovado = (draft?.status_desenvolvimento ?? "").toLowerCase() === "reprovado";
-  const canEnviarCad = isAprovado && (draft?.ref ?? "").trim() !== "" && !draft?.enviado_cad;
+  const hasTecidoComVariante = blocks.some(
+    (b) => b.tipo === "tecido" && !!b.artigo_id && b.variantes.some((v) => !!v),
+  );
+  const gradeTotalGeral = grades.reduce((s, g) => s + (g.grade_total || 0), 0);
+  const canEnviarCad =
+    isAprovado &&
+    (draft?.ref ?? "").trim() !== "" &&
+    (draft?.nome ?? "").trim() !== "" &&
+    !!(modelo as any)?.estilista_id &&
+    !!(modelo as any)?.categoria_principal_id &&
+    hasTecidoComVariante &&
+    gradeTotalGeral > 0 &&
+    !draft?.enviado_cad;
 
   const save = useMutation({
     mutationFn: async () => {
