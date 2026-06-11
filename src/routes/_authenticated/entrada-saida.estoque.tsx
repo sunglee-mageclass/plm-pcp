@@ -110,8 +110,8 @@ function TecidosTab() {
       // Reservado: modelos aprovados e não enviados ao CAD
       // Conta variantes por modelo_tecido para distribuir
       const variantesByModTec = new Map<string, string[]>();
-      for (const mv of modTecVar.data ?? []) {
-        if (!mv.variante_tecido_id) continue;
+      for (const mv of (modTecVar.data ?? []) as any[]) {
+        if (!mv.variante_tecido_id || !mv.modelo_tecido_id) continue;
         const arr = variantesByModTec.get(mv.modelo_tecido_id) ?? [];
         arr.push(mv.variante_tecido_id);
         variantesByModTec.set(mv.modelo_tecido_id, arr);
