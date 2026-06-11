@@ -93,16 +93,23 @@ function TecidoBlockEditor({ block, artigos, onChangeBlock, onChangeVariante }: 
             {Array.from({ length: 10 }).map((_, i) => {
               const prevFilled = i === 0 || !!block.variantes[i - 1];
               if (!prevFilled) return null;
+              const current = block.variantes[i];
+              const usedElsewhere = new Set(
+                block.variantes.filter((v, j) => j !== i && !!v) as string[],
+              );
+              const available = variantesArtigo.filter(
+                (v) => v.id === current || !usedElsewhere.has(v.id),
+              );
               return (
                 <Select
                   key={i}
-                  value={block.variantes[i] ?? ""}
+                  value={current ?? ""}
                   onValueChange={(v) => onChangeVariante(i, v === "__none__" ? null : v)}
                 >
                   <SelectTrigger><SelectValue placeholder={`Variante ${i + 1}`} /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__">— Remover —</SelectItem>
-                    {variantesArtigo.map((v) => <SelectItem key={v.id} value={v.id}>{v.nome}</SelectItem>)}
+                    {available.map((v) => <SelectItem key={v.id} value={v.id}>{v.nome}</SelectItem>)}
                   </SelectContent>
                 </Select>
               );

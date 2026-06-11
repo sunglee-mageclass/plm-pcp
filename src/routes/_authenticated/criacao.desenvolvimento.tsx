@@ -21,12 +21,20 @@ type Opt = { id: string; nome: string };
 type KanbanStatus = { key: string; label: string; color?: string };
 
 const DEFAULT_STATUSES: KanbanStatus[] = [
-  { key: "novo", label: "Novo", color: "#64748b" },
-  { key: "desenho_tecnico", label: "Desenho Técnico", color: "#3b82f6" },
-  { key: "modelagem", label: "Modelagem", color: "#8b5cf6" },
-  { key: "piloto", label: "Piloto", color: "#f59e0b" },
-  { key: "aprovacao", label: "Aprovação", color: "#10b981" },
-  { key: "concluido", label: "Concluído", color: "#059669" },
+  { key: "em_modelagem", label: "Em Modelagem", color: "#3b82f6" },
+  { key: "corte_piloto_1", label: "Corte de Piloto I", color: "#6366f1" },
+  { key: "corte_piloto_2", label: "Corte de Piloto II", color: "#6366f1" },
+  { key: "corte_piloto_3", label: "Corte de Piloto III", color: "#6366f1" },
+  { key: "em_pilotagem", label: "Em Pilotagem", color: "#8b5cf6" },
+  { key: "prova_roupa_1", label: "Prova de Roupa I", color: "#a855f7" },
+  { key: "prova_roupa_2", label: "Prova de Roupa II", color: "#a855f7" },
+  { key: "prova_roupa_3", label: "Prova de Roupa III", color: "#a855f7" },
+  { key: "prova_roupa_4", label: "Prova de Roupa IV", color: "#a855f7" },
+  { key: "prova_roupa_5", label: "Prova de Roupa V", color: "#a855f7" },
+  { key: "em_ajuste", label: "Em Ajuste", color: "#f59e0b" },
+  { key: "stand_by", label: "Stand By", color: "#64748b" },
+  { key: "reprovado", label: "Reprovado", color: "#ef4444" },
+  { key: "aprovado", label: "Aprovado", color: "#10b981" },
 ];
 
 type Modelo = {
@@ -105,8 +113,8 @@ function DesenvolvimentoPage() {
   const { data: estilistas = [] } = useColaboradoresByTipo("estilista");
   const { data: modelistas = [] } = useColaboradoresByTipo("modelista");
   const { data: piloteiros = [] } = useColaboradoresByTipo("piloteiro");
-  const { data: meses = [] } = useOpts("meses");
-  const { data: anos = [] } = useOpts("anos");
+  const { data: meses = [] } = useOpts("meses", "mes");
+  const { data: anos = [] } = useOpts("anos", "ano");
   const { data: categorias = [] } = useOpts("categorias_produto");
 
   const { data: statusKanban = DEFAULT_STATUSES } = useQuery({
@@ -228,7 +236,13 @@ function DesenvolvimentoPage() {
           <FilterSelect label="Coleção" value={fColecao} onChange={setFColecao} options={[{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))]} />
           <div className="grid gap-1">
             <Label className="text-xs">Semana</Label>
-            <Input value={fSemana} onChange={(e) => setFSemana(e.target.value)} placeholder="Ex: 1" />
+            <Select value={fSemana || "all"} onValueChange={(v) => setFSemana(v === "all" ? "" : v)}>
+              <SelectTrigger><SelectValue placeholder="Todas" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas</SelectItem>
+                {["1","2","3","4","5"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
           <FilterSelect label="Mês" value={fMes} onChange={setFMes} options={[{ id: "all", nome: "Todos" }, ...meses]} />
           <FilterSelect label="Ano" value={fAno} onChange={setFAno} options={[{ id: "all", nome: "Todos" }, ...anos]} />

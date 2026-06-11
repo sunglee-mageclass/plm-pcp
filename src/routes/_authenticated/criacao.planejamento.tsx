@@ -88,9 +88,20 @@ function PlanejamentoPage() {
       return (data ?? []) as Opt[];
     },
   });
-  const { data: meses = [] } = useOpts("meses");
-  const { data: anos = [] } = useOpts("anos");
+  const { data: meses = [] } = useOpts("meses", "mes");
+  const { data: anos = [] } = useOpts("anos", "ano");
   const { data: categorias = [] } = useOpts("categorias_produto");
+  const { data: artigos = [] } = useQuery({
+    queryKey: ["artigos-planejamento"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("artigos")
+        .select("id, nome, unidade_medida")
+        .order("nome");
+      if (error) throw error;
+      return (data ?? []) as { id: string; nome: string; unidade_medida: string | null }[];
+    },
+  });
 
   const { data: modelos = [] } = useQuery({
     queryKey: ["modelos-planejamento"],
@@ -147,7 +158,13 @@ function PlanejamentoPage() {
           <FilterSelect label="Estilista" value={fEstilista} onChange={setFEstilista} options={[{ id: "all", nome: "Todos" }, ...estilistas]} />
           <div className="grid gap-1">
             <Label className="text-xs">Semana</Label>
-            <Input value={fSemana} onChange={(e) => setFSemana(e.target.value)} placeholder="Ex: 1" />
+            <Select value={fSemana || "all"} onValueChange={(v) => setFSemana(v === "all" ? "" : v)}>
+              <SelectTrigger><SelectValue placeholder="Todas" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas</SelectItem>
+                {["1","2","3","4","5"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
           <FilterSelect label="Mês" value={fMes} onChange={setFMes} options={[{ id: "all", nome: "Todos" }, ...meses]} />
           <FilterSelect label="Ano" value={fAno} onChange={setFAno} options={[{ id: "all", nome: "Todos" }, ...anos]} />
@@ -173,6 +190,7 @@ function PlanejamentoPage() {
           meses={meses}
           anos={anos}
           categorias={categorias}
+          artigos={artigos}
           onClose={() => { setOpenNew(false); setOpenId(null); }}
           onSaved={() => qc.invalidateQueries({ queryKey: ["modelos-planejamento"] })}
         />
@@ -254,6 +272,7 @@ type Draft = {
   ano_id: string | null;
   categoria_principal_id: string | null;
   categoria_secundaria_id: string | null;
+  tecidos_planejados: string[];
   status_planejamento: string;
   fotos_modelo: string[];
   fotos_referencia: string[];
@@ -262,20 +281,23 @@ type Draft = {
 const emptyDraft = (): Draft => ({
   nome: "", estilista_id: null, colecao: "", semana: "", mes_id: null, ano_id: null,
   categoria_principal_id: null, categoria_secundaria_id: null,
+  tecidos_planejados: [],
   status_planejamento: "em_planejamento", fotos_modelo: [], fotos_referencia: [],
   observacoes_gerais: "",
 });
 
+type ArtigoOpt = { id: string; nome: string; unidade_medida: string | null };
+
 function ModeloDialog({
-  modeloId, estilistas, meses, anos, categorias, onClose, onSaved,
+  modeloId, estilistas, meses, anos, categorias, artigos, onClose, onSaved,
 }: {
   modeloId: string | null; estilistas: Opt[]; meses: Opt[]; anos: Opt[]; categorias: Opt[];
+  artigos: ArtigoOpt[];
   onClose: () => void; onSaved: () => void;
 }) {
   const isEdit = !!modeloId;
   const qc = useQueryClient();
   const [draft, setDraft] = useState<Draft>(emptyDraft());
-  const [tecidoText, setTecidoText] = useState("");
   const [confirmDel, setConfirmDel] = useState(false);
 
   useQuery({
@@ -295,6 +317,7 @@ function ModeloDialog({
           ano_id: data.ano_id,
           categoria_principal_id: data.categoria_principal_id,
           categoria_secundaria_id: data.categoria_secundaria_id,
+          tecidos_planejados: (data as any).tecidos_planejados ?? [],
           status_planejamento: data.status_planejamento ?? "em_planejamento",
           fotos_modelo: data.fotos_modelo ?? [],
           fotos_referencia: data.fotos_referencia ?? [],
@@ -361,12 +384,52 @@ function ModeloDialog({
             <FieldText label="Nome do Modelo" value={draft.nome} onChange={(v) => setDraft((d) => ({ ...d, nome: v }))} />
             <FieldSelect label="Estilista" value={draft.estilista_id} onChange={(v) => setDraft((d) => ({ ...d, estilista_id: v }))} options={estilistas} />
             <FieldText label="Coleção" value={draft.colecao} onChange={(v) => setDraft((d) => ({ ...d, colecao: v }))} />
-            <FieldText label="Semana" value={draft.semana} onChange={(v) => setDraft((d) => ({ ...d, semana: v }))} />
+            <div className="grid gap-1">
+              <Label>Semana</Label>
+              <Select value={draft.semana || ""} onValueChange={(v) => setDraft((d) => ({ ...d, semana: v }))}>
+                <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                <SelectContent>
+                  {["1","2","3","4","5"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
             <FieldSelect label="Mês" value={draft.mes_id} onChange={(v) => setDraft((d) => ({ ...d, mes_id: v }))} options={meses} />
             <FieldSelect label="Ano" value={draft.ano_id} onChange={(v) => setDraft((d) => ({ ...d, ano_id: v }))} options={anos} />
-            <FieldSelect label="Categoria Principal" value={draft.categoria_principal_id} onChange={(v) => setDraft((d) => ({ ...d, categoria_principal_id: v }))} options={categorias} />
-            <FieldSelect label="Categoria Secundária" value={draft.categoria_secundaria_id} onChange={(v) => setDraft((d) => ({ ...d, categoria_secundaria_id: v }))} options={categorias} />
-            <FieldText label="Tecido Planejado" value={tecidoText} onChange={setTecidoText} />
+            <FieldSelect
+              label="Categoria Principal"
+              value={draft.categoria_principal_id}
+              onChange={(v) => {
+                const cat = categorias.find((c) => c.id === v);
+                const isConjunto = (cat?.nome ?? "").toLowerCase() === "conjunto";
+                setDraft((d) => ({
+                  ...d,
+                  categoria_principal_id: v,
+                  categoria_secundaria_id: isConjunto ? d.categoria_secundaria_id : null,
+                }));
+              }}
+              options={categorias}
+            />
+            {(() => {
+              const cat = categorias.find((c) => c.id === draft.categoria_principal_id);
+              const isConjunto = (cat?.nome ?? "").toLowerCase() === "conjunto";
+              if (!isConjunto) return null;
+              return (
+                <FieldSelect
+                  label="Categoria Secundária"
+                  value={draft.categoria_secundaria_id}
+                  onChange={(v) => setDraft((d) => ({ ...d, categoria_secundaria_id: v }))}
+                  options={categorias.filter((c) => c.id !== draft.categoria_principal_id)}
+                />
+              );
+            })()}
+            <div className="sm:col-span-2">
+              <MultiArtigosField
+                label="Tecido Planejado"
+                value={draft.tecidos_planejados}
+                onChange={(v) => setDraft((d) => ({ ...d, tecidos_planejados: v }))}
+                artigos={artigos}
+              />
+            </div>
             <div className="grid gap-1">
               <Label>Status</Label>
               <Select value={draft.status_planejamento} onValueChange={(v) => setDraft((d) => ({ ...d, status_planejamento: v }))}>
@@ -419,6 +482,50 @@ function ModeloDialog({
     </Dialog>
   );
 }
+
+function MultiArtigosField({ label, value, onChange, artigos }: {
+  label: string; value: string[]; onChange: (v: string[]) => void; artigos: ArtigoOpt[];
+}) {
+  const available = artigos.filter((a) => !value.includes(a.id));
+  const byId = Object.fromEntries(artigos.map((a) => [a.id, a]));
+  return (
+    <div className="grid gap-1">
+      <Label>{label}</Label>
+      <div className="flex flex-wrap gap-1 mb-1">
+        {value.length === 0 && <span className="text-xs text-muted-foreground">Nenhum tecido selecionado</span>}
+        {value.map((id) => {
+          const a = byId[id];
+          return (
+            <Badge key={id} variant="secondary" className="gap-1">
+              {a ? (a.unidade_medida ? `${a.nome} [${a.unidade_medida}]` : a.nome) : id}
+              <button
+                type="button"
+                onClick={() => onChange(value.filter((x) => x !== id))}
+                className="ml-1 hover:text-destructive"
+                aria-label="Remover"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </Badge>
+          );
+        })}
+      </div>
+      {available.length > 0 && (
+        <Select value="" onValueChange={(v) => v && onChange([...value, v])}>
+          <SelectTrigger><SelectValue placeholder="Adicionar tecido…" /></SelectTrigger>
+          <SelectContent>
+            {available.map((a) => (
+              <SelectItem key={a.id} value={a.id}>
+                {a.unidade_medida ? `${a.nome} [${a.unidade_medida}]` : a.nome}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+    </div>
+  );
+}
+
 
 function FieldText({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (

@@ -68,7 +68,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     if (Array.isArray(raw) && raw.length > 0) {
       return raw.map((x: any) => typeof x === "string" ? x : (x?.nome ?? x?.label ?? String(x)));
     }
-    return ["PP", "P", "M", "G", "GG"];
+    return ["34|PPP", "36|PP", "38|P", "40|M", "42|G", "44|GG"];
   }, [tenantCfg]);
 
   const { data: artigos = [] } = useQuery({
@@ -178,6 +178,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         custo_terceirizados_previsto: Number(modelo.custo_terceirizados_previsto ?? 0),
         proporcoes: (modelo.proporcoes ?? {}) as Record<string, number>,
         enviado_cad: !!modelo.enviado_cad,
+        fotos_modelo: (modelo.fotos_modelo ?? []) as string[],
+        fotos_referencia: (modelo.fotos_referencia ?? []) as string[],
       });
     }
   }, [modelo]);
@@ -284,6 +286,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         custo_aviamento_total: totals.aviamento,
         custo_peca_previsto: totals.peca,
         proporcoes: draft.proporcoes ?? {},
+        fotos_modelo: draft.fotos_modelo ?? [],
+        fotos_referencia: draft.fotos_referencia ?? [],
       };
       const { error: e1 } = await supabase.from("modelos").update(payload).eq("id", modeloId);
       if (e1) throw e1;
@@ -560,6 +564,10 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 onUploadFicha={uploadFicha}
                 observacoesGerais={draft.observacoes_gerais}
                 onChangeObservacoes={(v) => setDraft({ ...draft, observacoes_gerais: v })}
+                fotosModelo={draft.fotos_modelo ?? []}
+                fotosReferencia={draft.fotos_referencia ?? []}
+                onChangeFotosModelo={(p) => setDraft({ ...draft, fotos_modelo: p })}
+                onChangeFotosReferencia={(p) => setDraft({ ...draft, fotos_referencia: p })}
               />
             </AccordionContent>
           </AccordionItem>

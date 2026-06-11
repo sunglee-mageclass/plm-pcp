@@ -52,10 +52,11 @@ export function ModeloGradeSection({
                 <div className="flex items-center gap-2">
                   <Label className="text-xs">Grade Total</Label>
                   <Input
-                    className="w-24"
+                    className="w-24 bg-muted"
                     type="number"
+                    readOnly
+                    tabIndex={-1}
                     value={g.grade_total}
-                    onChange={(e) => onChangeGradeTotal(n, Number(e.target.value) || 0)}
                   />
                 </div>
               </div>
@@ -64,6 +65,7 @@ export function ModeloGradeSection({
                   <Field key={t} label={t}>
                     <Input
                       type="number"
+                      min={0}
                       value={g.grades[t] ?? 0}
                       onChange={(e) => onChangeGradeCell(n, t, Number(e.target.value) || 0)}
                     />
