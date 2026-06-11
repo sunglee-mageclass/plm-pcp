@@ -61,6 +61,41 @@ function OcTecidoPage() {
 
   const empresaMap = useMemo(() => Object.fromEntries(empresas.map((e) => [e.id, e.nome_fantasia])), [empresas]);
 
+  const ocIds = useMemo(() => ocs.map((o) => o.id), [ocs]);
+  const { data: qtdRecebidaByOc = {} } = useQuery({
+    queryKey: ["ocs_tecido_qtd_recebida", ocIds],
+    enabled: tab === "recebido" && ocIds.length > 0,
+    queryFn: async () => {
+      const { data: items, error } = await supabase
+        .from("ocs_tecido_itens")
+        .select("oc_tecido_id, artigo_id, quantidade_recebida")
+        .in("oc_tecido_id", ocIds);
+      if (error) throw error;
+      const artIds = Array.from(new Set((items ?? []).map((i) => i.artigo_id).filter(Boolean))) as string[];
+      const artRes = artIds.length
+        ? await supabase.from("artigos").select("id, unidade_medida").in("id", artIds)
+        : { data: [] as { id: string; unidade_medida: string | null }[], error: null };
+      if (artRes.error) throw artRes.error;
+      const unidadeById = Object.fromEntries((artRes.data ?? []).map((a) => [a.id, a.unidade_medida ?? ""]));
+      const sums: Record<string, Record<string, number>> = {};
+      for (const it of items ?? []) {
+        if (!it.oc_tecido_id || it.quantidade_recebida == null) continue;
+        const unidade = (it.artigo_id ? unidadeById[it.artigo_id] : "") || "—";
+        const sufixo = unidade === "kg" ? "kg" : unidade === "metro" ? "m" : "";
+        const key = sufixo || "—";
+        sums[it.oc_tecido_id] ||= {};
+        sums[it.oc_tecido_id][key] = (sums[it.oc_tecido_id][key] ?? 0) + Number(it.quantidade_recebida ?? 0);
+      }
+      const out: Record<string, string> = {};
+      for (const [ocId, parts] of Object.entries(sums)) {
+        out[ocId] = Object.entries(parts)
+          .map(([u, v]) => `${v.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}${u !== "—" ? ` ${u}` : ""}`)
+          .join(" + ");
+      }
+      return out;
+    },
+  });
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       <header className="flex items-start justify-between gap-4">
