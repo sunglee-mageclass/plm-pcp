@@ -303,28 +303,28 @@ function OficinaDetailPage() {
           </div>
 
           <h2 style={{ fontSize: 14, fontWeight: 700, marginTop: 16, marginBottom: 6 }}>Grade por Variante</h2>
-          <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse", marginBottom: 12 }}>
+          <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse", marginBottom: 12, pageBreakInside: "avoid" }}>
             <thead>
               <tr style={{ background: "#eee" }}>
                 <th style={{ border: "1px solid #999", padding: 4, textAlign: "left" }}>Variante</th>
-                {Array.from({ length: 10 }, (_, i) => (
-                  <th key={i} style={{ border: "1px solid #999", padding: 4 }}>{i + 1}</th>
+                {tamanhos.map((t) => (
+                  <th key={t} style={{ border: "1px solid #999", padding: 4 }}>{t}</th>
                 ))}
                 <th style={{ border: "1px solid #999", padding: 4 }}>Total</th>
               </tr>
             </thead>
             <tbody>
               {(grades as any[]).length === 0 && (
-                <tr><td colSpan={12} style={{ border: "1px solid #999", padding: 8, textAlign: "center" }}>Sem grade definida.</td></tr>
+                <tr><td colSpan={tamanhos.length + 2} style={{ border: "1px solid #999", padding: 8, textAlign: "center" }}>Sem grade definida.</td></tr>
               )}
               {(grades as any[]).map((g) => {
                 const gr = g.grades_planejadas ?? {};
                 return (
                   <tr key={g.variante_numero}>
                     <td style={{ border: "1px solid #999", padding: 4 }}>Variante {g.variante_numero}</td>
-                    {Array.from({ length: 10 }, (_, i) => (
-                      <td key={i} style={{ border: "1px solid #999", padding: 4, textAlign: "center" }}>
-                        {gr[String(i + 1)] ?? gr[i + 1] ?? ""}
+                    {tamanhos.map((t) => (
+                      <td key={t} style={{ border: "1px solid #999", padding: 4, textAlign: "center" }}>
+                        {gr[t] ?? ""}
                       </td>
                     ))}
                     <td style={{ border: "1px solid #999", padding: 4, textAlign: "center", fontWeight: 700 }}>
@@ -337,14 +337,15 @@ function OficinaDetailPage() {
           </table>
 
           <h2 style={{ fontSize: 14, fontWeight: 700, marginTop: 12, marginBottom: 4 }}>Observações Técnicas</h2>
-          <p style={{ fontSize: 11, whiteSpace: "pre-wrap", border: "1px solid #ccc", padding: 8, minHeight: 40 }}>
+          <p style={{ fontSize: 11, whiteSpace: "pre-wrap", border: "1px solid #ccc", padding: 8, minHeight: 40, pageBreakInside: "avoid" }}>
             {(modelo as any)?.observacoes_tecnicas || "—"}
           </p>
 
           <h2 style={{ fontSize: 14, fontWeight: 700, marginTop: 12, marginBottom: 4 }}>Observação de Partes do Molde</h2>
-          <p style={{ fontSize: 11, whiteSpace: "pre-wrap", border: "1px solid #ccc", padding: 8, minHeight: 40 }}>
+          <p style={{ fontSize: 11, whiteSpace: "pre-wrap", border: "1px solid #ccc", padding: 8, minHeight: 40, pageBreakInside: "avoid" }}>
             {form.observacoes_molde || "—"}
           </p>
+
 
           <div style={{ display: "flex", gap: 32, marginTop: 48 }}>
             <div style={{ flex: 1 }}>
