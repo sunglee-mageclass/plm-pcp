@@ -1,14 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { Palette } from "lucide-react";
-import { ModulePage } from "@/components/module-page";
+import { createFileRoute, Outlet } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_authenticated/criacao")({
-  component: () => (
-    <ModulePage
-      icon={Palette}
-      title="Criação"
-      description="Desenvolvimento de coleções, fichas técnicas e moodboards."
-      subPages={["Coleções", "Modelos", "Fichas técnicas", "Moodboards", "Tendências"]}
-    />
-  ),
+  component: () => <Outlet />,
 });
