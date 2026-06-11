@@ -391,11 +391,6 @@ function OcDialog({
               tecido2Aberto={tecido2Aberto}
             />
           )}
-              setQtd={setQtd}
-              totalPrevisto={totalPrevisto}
-              totalReal={totalReal}
-            />
-          )}
         </div>
 
         <DialogFooter className="gap-2">
