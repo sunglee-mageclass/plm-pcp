@@ -29,15 +29,16 @@ import {
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
+import { PAGES_CATALOG } from "@/lib/permissions-catalog";
 
-const mainItems = [
-  { title: "Dashboard", url: "/dashboard", icon: BarChart3 },
-  { title: "Cadastro", url: "/cadastro", icon: ClipboardList },
-  { title: "Entrada e Saída", url: "/entrada-saida", icon: Package },
-  { title: "Criação", url: "/criacao", icon: Palette },
-  { title: "Produção", url: "/producao", icon: Factory },
-  { title: "Financeiro", url: "/financeiro", icon: DollarSign },
-];
+const MODULE_META: Record<string, { title: string; icon: typeof BarChart3 }> = {
+  dashboard: { title: "Dashboard", icon: BarChart3 },
+  cadastro: { title: "Cadastro", icon: ClipboardList },
+  entrada_saida: { title: "Entrada e Saída", icon: Package },
+  criacao: { title: "Criação", icon: Palette },
+  producao: { title: "Produção", icon: Factory },
+  financeiro: { title: "Financeiro", icon: DollarSign },
+};
 
 const systemItems = [
   { title: "Configurações", url: "/configuracoes", icon: Settings },
@@ -47,7 +48,19 @@ export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const { isAdmin, isSuperAdmin, user, signOut } = useAuth();
+  const { isAdmin, isSuperAdmin, isTenantAdmin, canView, user, signOut } = useAuth();
+
+  const visibleMainItems = PAGES_CATALOG
+    .filter((m) =>
+      isAdmin || isSuperAdmin || isTenantAdmin
+        ? true
+        : m.pages.some((p) => canView(p.key)),
+    )
+    .map((m) => ({
+      url: m.basePath,
+      title: MODULE_META[m.module]?.title ?? m.label,
+      icon: MODULE_META[m.module]?.icon ?? BarChart3,
+    }));
 
   const isActive = (path: string) => pathname === path || pathname.startsWith(path + "/");
 
