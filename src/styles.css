@@ -121,10 +121,12 @@
   }
 }
 
+.print-area { display: none; }
+
 @media print {
   body * { visibility: hidden !important; }
   .print-area, .print-area * { visibility: visible !important; }
-  .print-area { position: absolute; left: 0; top: 0; width: 100%; padding: 16px; background: white; color: black; }
+  .print-area { display: block !important; position: absolute; left: 0; top: 0; width: 100%; padding: 16px; background: white; color: black; }
   .no-print { display: none !important; }
   [data-sidebar="sidebar"], header { display: none !important; }
   @page { margin: 12mm; }
