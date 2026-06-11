@@ -93,17 +93,24 @@ function FinanceiroPage() {
 /* ============================ CALENDÁRIO ============================ */
 
 function CalendarioView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolean }) {
-  const [cursor, setCursor] = useState(() => {
+  const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
+  const autoJumped = useRef(false);
+
+  // Quando as parcelas chegarem, se o mês atual estiver vazio, salta para o mês da próxima parcela
+  useEffect(() => {
+    if (autoJumped.current || parcelas.length === 0) return;
     const now = startOfMonth(new Date());
-    // Se não houver parcelas no mês atual, ir para o mês da próxima parcela
     const hasCurrent = parcelas.some((p) => isSameMonth(parseISO(p.data_vencimento), now));
-    if (hasCurrent || parcelas.length === 0) return now;
+    if (hasCurrent) { autoJumped.current = true; return; }
     const future = parcelas
       .map((p) => parseISO(p.data_vencimento))
       .filter((d) => d >= now)
       .sort((a, b) => a.getTime() - b.getTime())[0];
-    return future ? startOfMonth(future) : now;
-  });
+    if (future) setCursor(startOfMonth(future));
+    autoJumped.current = true;
+  }, [parcelas]);
+
+
   const monthStart = startOfMonth(cursor);
   const monthEnd = endOfMonth(cursor);
   const gridStart = startOfWeek(monthStart, { weekStartsOn: 0 });
