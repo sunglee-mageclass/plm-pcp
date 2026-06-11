@@ -125,6 +125,7 @@ function OcTecidoPage() {
         ocs={ocs}
         empresaMap={empresaMap}
         onRowClick={(id) => { setEditingId(id); setOpenNew(true); }}
+        qtdRecebidaByOc={qtdRecebidaByOc}
       />
 
       {openNew && (
