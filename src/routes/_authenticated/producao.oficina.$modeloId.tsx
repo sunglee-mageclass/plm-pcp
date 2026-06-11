@@ -204,20 +204,25 @@ function OficinaDetailPage() {
         </header>
 
         <Card className="p-5 space-y-4">
-          <h3 className="font-semibold text-lg">Oficina</h3>
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-lg">Oficina</h3>
+            {oficinaInterna && <Badge className="bg-primary text-primary-foreground">Oficina Interna</Badge>}
+          </div>
 
           <div className="grid gap-4 md:grid-cols-3">
-            <div>
-              <Label className="text-xs">Oficina (responsável)</Label>
-              <Select value={form.terceirizado_id} onValueChange={(v) => setForm((f) => ({ ...f, terceirizado_id: v }))}>
-                <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
-                <SelectContent>
-                  {(terceirizados as any[]).map((t) => (
-                    <SelectItem key={t.id} value={t.id}>{t.nome_responsavel}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {!oficinaInterna && (
+              <div>
+                <Label className="text-xs">Oficina (responsável)</Label>
+                <Select value={form.terceirizado_id} onValueChange={(v) => setForm((f) => ({ ...f, terceirizado_id: v }))}>
+                  <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                  <SelectContent>
+                    {(terceirizados as any[]).map((t) => (
+                      <SelectItem key={t.id} value={t.id}>{t.nome_responsavel}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div>
               <Label className="text-xs">Preço por Peça</Label>
               <Input type="number" step="0.01" value={form.preco_por_peca}
