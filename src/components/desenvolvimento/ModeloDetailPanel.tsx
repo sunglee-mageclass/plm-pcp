@@ -882,7 +882,7 @@ function useOpts(table: string) {
     queryFn: async () => {
       const { data, error } = await supabase.from(table as any).select("id, nome").order("nome");
       if (error) throw error;
-      return (data ?? []) as Opt[];
+      return ((data ?? []) as unknown) as Opt[];
     },
   });
 }
