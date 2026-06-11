@@ -42,6 +42,8 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { PAGES_CATALOG } from "@/lib/permissions-catalog";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 
 const MODULE_META: Record<string, { title: string; icon: typeof BarChart3 }> = {
   dashboard: { title: "Dashboard", icon: BarChart3 },
@@ -83,6 +85,15 @@ export function AppSidebar() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { isAdmin, isSuperAdmin, isTenantAdmin, canView, user, signOut } = useAuth();
 
+  const { data: tenantCfg } = useQuery({
+    queryKey: ["tenant_config", "oficina_posicao"],
+    queryFn: async () => {
+      const { data } = await supabase.from("tenant_config").select("oficina_posicao").maybeSingle();
+      return data as { oficina_posicao?: "terceirizados" | "acabamento" } | null;
+    },
+  });
+  const oficinaPos = tenantCfg?.oficina_posicao ?? "terceirizados";
+
   const visibleMainItems = PAGES_CATALOG
     .filter((m) =>
       isAdmin || isSuperAdmin || isTenantAdmin
@@ -90,7 +101,18 @@ export function AppSidebar() {
         : m.pages.some((p) => canView(p.key)),
     )
     .map((m) => {
-      const subs = m.pages
+      let pages = m.pages;
+      if (m.module === "producao" && oficinaPos === "acabamento") {
+        const oficina = pages.find((p) => p.key === "producao_oficina");
+        const rest = pages.filter((p) => p.key !== "producao_oficina");
+        if (oficina) {
+          const cqIdx = rest.findIndex((p) => p.key === "producao_cq");
+          if (cqIdx >= 0) rest.splice(cqIdx + 1, 0, oficina);
+          else rest.push(oficina);
+        }
+        pages = rest;
+      }
+      const subs = pages
         .filter((p) => PAGE_URLS[p.key] && (isAdmin || isSuperAdmin || isTenantAdmin || canView(p.key)))
         .map((p) => ({ key: p.key, label: p.label, url: PAGE_URLS[p.key] }));
       return {
