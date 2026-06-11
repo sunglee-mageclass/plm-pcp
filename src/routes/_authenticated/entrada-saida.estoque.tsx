@@ -283,7 +283,8 @@ function AviamentosTab() {
         (modelos.data ?? []).filter((m: any) => m.data_aprovacao && !m.enviado_cad).map((m: any) => m.id),
       );
       const gradeByModelo = new Map<string, number>();
-      for (const g of modGrades.data ?? []) {
+      for (const g of (modGrades.data ?? []) as any[]) {
+        if (!g.modelo_id) continue;
         gradeByModelo.set(g.modelo_id, (gradeByModelo.get(g.modelo_id) ?? 0) + num(g.grade_total));
       }
 
