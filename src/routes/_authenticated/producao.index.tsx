@@ -27,13 +27,12 @@ function ProducaoIndex() {
     },
   });
 
-  // Default order: cad, terceirizados, oficina
-  // oficina_posicao: 'antes_terceirizados' | 'depois_terceirizados' | 'paralelo' (default)
-  const pos = (cfg as any)?.oficina_posicao ?? "depois_terceirizados";
+  // oficina_posicao: 'terceirizados' (default) | 'acabamento' — oficina vira sub-item dessa etapa
+  const pos = (cfg as any)?.oficina_posicao ?? "terceirizados";
   const ordered: (keyof typeof SECTIONS)[] =
-    pos === "antes_terceirizados"
-      ? ["cad", "oficina", "terceirizados", "cq", "acabamento", "direcionamento", "lancamentos"]
-      : ["cad", "terceirizados", "oficina", "cq", "acabamento", "direcionamento", "lancamentos"];
+    pos === "acabamento"
+      ? ["cad", "terceirizados", "cq", "acabamento", "direcionamento", "lancamentos"]
+      : ["cad", "terceirizados", "cq", "acabamento", "direcionamento", "lancamentos"];
 
   return (
     <div className="container mx-auto p-6 space-y-6">

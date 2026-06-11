@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Sparkles, Save, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Sparkles, Save, Plus, Trash2, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -60,14 +60,16 @@ function AcabDetailPage() {
   });
 
   const { data: tenantCfg } = useQuery({
-    queryKey: ["tenant_config", "etapas"],
-    queryFn: async () => (await supabase.from("tenant_config").select("etapas_acabamento").maybeSingle()).data,
+    queryKey: ["tenant_config", "etapas-oficina"],
+    queryFn: async () => (await supabase.from("tenant_config").select("etapas_acabamento, oficina_posicao, oficina_interna").maybeSingle()).data,
   });
   const etapas = useMemo<string[]>(() => {
     const e = (tenantCfg as any)?.etapas_acabamento;
     if (Array.isArray(e) && e.length) return e.map(String);
     return ["Passadoria", "Embalagem", "Etiqueta"];
   }, [tenantCfg]);
+  const oficinaEmAcab = ((tenantCfg as any)?.oficina_posicao ?? "terceirizados") === "acabamento";
+  const oficinaInterna = Boolean((tenantCfg as any)?.oficina_interna);
 
   const { data: terceirizados = [] } = useQuery({
     queryKey: ["terceirizados-all"],
@@ -201,6 +203,14 @@ function AcabDetailPage() {
               </Button>
             );
           })}
+          {oficinaEmAcab && (
+            <Link to="/producao/oficina/$modeloId" params={{ modeloId }}>
+              <Button type="button" variant="secondary" size="sm">
+                <Wrench className="h-3.5 w-3.5 mr-1" />
+                Oficina{oficinaInterna ? " (Interna)" : ""}
+              </Button>
+            </Link>
+          )}
         </div>
       </Card>
 

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Users, Save, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Users, Save, Plus, Trash2, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -68,6 +68,13 @@ function TercDetailPage() {
     queryKey: ["categorias_terceirizado"],
     queryFn: async () => (await supabase.from("categorias_terceirizado").select("id, nome").order("nome")).data ?? [],
   });
+
+  const { data: tenantCfg } = useQuery({
+    queryKey: ["tenant_config", "oficina"],
+    queryFn: async () => (await supabase.from("tenant_config").select("oficina_posicao, oficina_interna").maybeSingle()).data,
+  });
+  const oficinaEmTerc = ((tenantCfg as any)?.oficina_posicao ?? "terceirizados") === "terceirizados";
+  const oficinaInterna = Boolean((tenantCfg as any)?.oficina_interna);
 
   const { data: terceirizados = [] } = useQuery({
     queryKey: ["terceirizados-all"],
@@ -272,6 +279,14 @@ function TercDetailPage() {
           })}
           {(categorias as any[]).length === 0 && (
             <p className="text-sm text-muted-foreground">Cadastre categorias em Cadastro &gt; Atributos.</p>
+          )}
+          {oficinaEmTerc && (
+            <Link to="/producao/oficina/$modeloId" params={{ modeloId }}>
+              <Button type="button" variant="secondary" size="sm">
+                <Wrench className="h-3.5 w-3.5 mr-1" />
+                Oficina{oficinaInterna ? " (Interna)" : ""}
+              </Button>
+            </Link>
           )}
         </div>
       </Card>
