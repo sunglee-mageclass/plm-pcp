@@ -13,7 +13,10 @@ import {
   Store,
   Users,
   ChevronRight,
+  Sun,
+  Moon,
 } from "lucide-react";
+import { useTheme } from "@/hooks/useTheme";
 
 import {
   Sidebar,
@@ -265,6 +268,7 @@ export function AppSidebar() {
         {!collapsed && user && (
           <div className="px-2 py-1 text-xs text-muted-foreground truncate">{user.email}</div>
         )}
+        <ThemeToggleButton collapsed={collapsed} />
         <Button
           variant="ghost"
           size={collapsed ? "icon" : "sm"}
@@ -276,5 +280,22 @@ export function AppSidebar() {
         </Button>
       </SidebarFooter>
     </Sidebar>
+  );
+}
+
+function ThemeToggleButton({ collapsed }: { collapsed: boolean }) {
+  const { theme, toggleTheme } = useTheme();
+  const isDark = theme === "dark";
+  return (
+    <Button
+      variant="ghost"
+      size={collapsed ? "icon" : "sm"}
+      onClick={toggleTheme}
+      className="justify-start gap-2"
+      title={isDark ? "Tema Dia" : "Tema Noite"}
+    >
+      {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+      {!collapsed && <span>{isDark ? "Tema Dia" : "Tema Noite"}</span>}
+    </Button>
   );
 }
