@@ -221,39 +221,27 @@ function ModeloCard({ modelo, estilistaNome, onOpen }: {
   );
 }
 
-/* Signed URL hook scoped to modelos bucket — reusing useSignedUrl with prefix won't work since it's tied
-   to a different bucket. Inline a small helper here. */
-function useSignedUrlBucket(path: string | null | undefined) {
-  // Reuse the global hook is bound to tecido-variantes; build a tiny ad-hoc one.
-  return useSignedFromBucket(path, BUCKET);
-}
-// dedicated cache per bucket
+/* Signed URL hook scoped to modelos bucket */
 const _cache = new Map<string, { url: string; exp: number }>();
-function useSignedFromBucket(path: string | null | undefined, bucket: string) {
-  const [u, set] = useStateLazy(path);
-  return u;
-  function useStateLazy(p: string | null | undefined) {
-    // minimal state hook wrap
-    const [state, setState] = useStateInner<string | null>(null);
-    useEffectInner(() => {
-      let alive = true;
-      if (!p) { setState(null); return; }
-      const cached = _cache.get(`${bucket}:${p}`);
-      const now = Date.now();
-      if (cached && cached.exp > now + 60_000) { setState(cached.url); return; }
-      supabase.storage.from(bucket).createSignedUrl(p, 3600).then(({ data }) => {
-        if (!alive || !data?.signedUrl) return;
-        _cache.set(`${bucket}:${p}`, { url: data.signedUrl, exp: now + 3600_000 });
-        setState(data.signedUrl);
-      });
-      return () => { alive = false; };
-    }, [p]);
-    return [state, setState] as const;
-  }
+function useSignedUrlBucket(path: string | null | undefined) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    if (!path) { setUrl(null); return; }
+    const key = `${BUCKET}:${path}`;
+    const cached = _cache.get(key);
+    const now = Date.now();
+    if (cached && cached.exp > now + 60_000) { setUrl(cached.url); return; }
+    supabase.storage.from(BUCKET).createSignedUrl(path, 3600).then(({ data }) => {
+      if (!alive || !data?.signedUrl) return;
+      _cache.set(key, { url: data.signedUrl, exp: now + 3600_000 });
+      setUrl(data.signedUrl);
+    });
+    return () => { alive = false; };
+  }, [path]);
+  return url;
 }
-// re-export react hooks under aliases so the nested defs above work
-import { useState as useStateInner, useEffect as useEffectInner } from "react";
-void useSignedUrl;
+
 
 /* ============ DIALOG ============ */
 
