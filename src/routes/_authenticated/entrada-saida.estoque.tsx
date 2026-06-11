@@ -79,11 +79,11 @@ function TecidosTab() {
         gradeTotalByModelo.set(g.modelo_id, (gradeTotalByModelo.get(g.modelo_id) ?? 0) + num(g.grade_total));
       }
 
-      // Map por variante: previsao_receb (metros), recebido (metros), baixa (metros)
-      type Acc = { previsto: number; recebido: number; baixa: number; reservado: number };
+      // Map por variante: prevReceb (qtd OC encomendada), recebido (metros), baixa (metros), reservado (metros)
+      type Acc = { prevReceb: number; recebido: number; baixa: number; reservado: number };
       const byVar = new Map<string, Acc>();
       const get = (id: string) => {
-        if (!byVar.has(id)) byVar.set(id, { previsto: 0, recebido: 0, baixa: 0, reservado: 0 });
+        if (!byVar.has(id)) byVar.set(id, { prevReceb: 0, recebido: 0, baixa: 0, reservado: 0 });
         return byVar.get(id)!;
       };
 
@@ -96,9 +96,11 @@ function TecidosTab() {
         const art: any = artById.get(it.artigo_id);
         const acc = get(it.variante_tecido_id);
         if ((it as any).ocs_tecido?.status === "encomendado") {
-          acc.previsto += toMetros(art, num(it.quantidade_pedida));
+          acc.prevReceb += num(it.quantidade_pedida);
         }
-        acc.recebido += toMetros(art, num(it.quantidade_recebida));
+        if ((it as any).ocs_tecido?.status === "recebido") {
+          acc.recebido += toMetros(art, num(it.quantidade_recebida));
+        }
       }
 
       for (const cv of cadTecVar.data ?? []) {
@@ -130,7 +132,7 @@ function TecidosTab() {
       const variantesArr = variantes.data ?? [];
       const rows = variantesArr.map((v: any) => {
         const a: any = artById.get(v.artigo_id);
-        const acc = byVar.get(v.id) ?? { previsto: 0, recebido: 0, baixa: 0, reservado: 0 };
+        const acc = byVar.get(v.id) ?? { prevReceb: 0, recebido: 0, baixa: 0, reservado: 0 };
         const fisico = acc.recebido - acc.baixa;
         const previsto = fisico - acc.reservado;
         return {
@@ -142,7 +144,10 @@ function TecidosTab() {
           fornecedorId: a?.empresa_id ?? null,
           categoria: a?.categorias_tecido?.nome ?? "—",
           categoriaId: a?.categoria_tecido_id ?? null,
-          ...acc,
+          prevReceb: acc.prevReceb,
+          recebido: acc.recebido,
+          baixa: acc.baixa,
+          reservado: acc.reservado,
           fisico,
           previsto,
         };
