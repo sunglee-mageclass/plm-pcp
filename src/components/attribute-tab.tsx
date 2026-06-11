@@ -127,6 +127,9 @@ export function AttributeTab({ config }: { config: AttributeTabConfig }) {
         }
         payload[config.extra.field] = newExtra || null;
       }
+      if (config.fixedFilter) {
+        payload[config.fixedFilter.field] = config.fixedFilter.value;
+      }
       const { error } = await supabase.from(config.table as any).insert(payload);
       if (error) throw error;
     },
