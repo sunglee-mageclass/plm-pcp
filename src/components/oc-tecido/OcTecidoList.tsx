@@ -11,6 +11,7 @@ export function OcTecidoList({
   filterEmpresa, setFilterEmpresa,
   filterResp, setFilterResp,
   empresas, estilistas, ocs, empresaMap, onRowClick,
+  qtdRecebidaByOc,
 }: {
   tab: OCStatus;
   setTab: (t: OCStatus) => void;
@@ -23,6 +24,7 @@ export function OcTecidoList({
   ocs: OC[];
   empresaMap: Record<string, string>;
   onRowClick: (id: string) => void;
+  qtdRecebidaByOc?: Record<string, string>;
 }) {
   return (
     <Tabs value={tab} onValueChange={(v) => setTab(v as OCStatus)}>
@@ -31,11 +33,11 @@ export function OcTecidoList({
         <TabsTrigger value="recebido">Recebidos</TabsTrigger>
       </TabsList>
 
-      <Card className="p-4 mt-4 flex flex-wrap gap-3 items-end">
+      <Card className="p-3 mt-4 flex flex-wrap gap-3 items-end">
         <div className="grid gap-1">
           <Label className="text-xs">Fornecedor</Label>
           <Select value={filterEmpresa} onValueChange={setFilterEmpresa}>
-            <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-44 h-8 text-sm"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos</SelectItem>
               {empresas.map((e) => <SelectItem key={e.id} value={e.id}>{e.nome_fantasia}</SelectItem>)}
@@ -46,7 +48,7 @@ export function OcTecidoList({
           <div className="grid gap-1">
             <Label className="text-xs">Responsável</Label>
             <Select value={filterResp} onValueChange={setFilterResp}>
-              <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-44 h-8 text-sm"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos</SelectItem>
                 {estilistas.map((e) => <SelectItem key={e.id} value={e.id}>{e.nome}</SelectItem>)}
@@ -96,18 +98,20 @@ export function OcTecidoList({
                 <TableHead>Nº Pedido</TableHead>
                 <TableHead>Fornecedor</TableHead>
                 <TableHead>Data Entrega</TableHead>
+                <TableHead>Qtd Recebida</TableHead>
                 <TableHead>Valor Real</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {ocs.length === 0 && (
-                <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-8">Nenhuma OC recebida.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">Nenhuma OC recebida.</TableCell></TableRow>
               )}
               {ocs.map((o) => (
                 <TableRow key={o.id} className="cursor-pointer" onClick={() => onRowClick(o.id)}>
                   <TableCell className="font-medium">{o.numero_pedido ?? "—"}</TableCell>
                   <TableCell>{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</TableCell>
                   <TableCell>{fmtDate(o.data_entrega)}</TableCell>
+                  <TableCell>{qtdRecebidaByOc?.[o.id] ?? "—"}</TableCell>
                   <TableCell>{fmtMoney(o.valor_real_total)}</TableCell>
                 </TableRow>
               ))}
