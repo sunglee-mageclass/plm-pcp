@@ -21,6 +21,7 @@ import { Route as AuthenticatedConfiguracoesRouteImport } from './routes/_authen
 import { Route as AuthenticatedCadastroRouteImport } from './routes/_authenticated/cadastro'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
 import { Route as AuthenticatedEntradaSaidaIndexRouteImport } from './routes/_authenticated/entrada-saida.index'
+import { Route as AuthenticatedCriacaoIndexRouteImport } from './routes/_authenticated/criacao.index'
 import { Route as AuthenticatedCadastroIndexRouteImport } from './routes/_authenticated/cadastro.index'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
 import { Route as AuthenticatedEntradaSaidaOcTecidoRouteImport } from './routes/_authenticated/entrada-saida.oc-tecido'
@@ -98,6 +99,12 @@ const AuthenticatedEntradaSaidaIndexRoute =
     id: '/',
     path: '/',
     getParentRoute: () => AuthenticatedEntradaSaidaRoute,
+  } as any)
+const AuthenticatedCriacaoIndexRoute =
+  AuthenticatedCriacaoIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedCriacaoRoute,
   } as any)
 const AuthenticatedCadastroIndexRoute =
   AuthenticatedCadastroIndexRouteImport.update({
@@ -194,7 +201,7 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AuthenticatedAdminRouteWithChildren
   '/cadastro': typeof AuthenticatedCadastroRouteWithChildren
   '/configuracoes': typeof AuthenticatedConfiguracoesRoute
-  '/criacao': typeof AuthenticatedCriacaoRoute
+  '/criacao': typeof AuthenticatedCriacaoRouteWithChildren
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/entrada-saida': typeof AuthenticatedEntradaSaidaRouteWithChildren
   '/financeiro': typeof AuthenticatedFinanceiroRoute
@@ -212,6 +219,7 @@ export interface FileRoutesByFullPath {
   '/entrada-saida/oc-tecido': typeof AuthenticatedEntradaSaidaOcTecidoRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/cadastro/': typeof AuthenticatedCadastroIndexRoute
+  '/criacao/': typeof AuthenticatedCriacaoIndexRoute
   '/entrada-saida/': typeof AuthenticatedEntradaSaidaIndexRoute
   '/cadastro/tecidos/$artigoId': typeof AuthenticatedCadastroTecidosArtigoIdRoute
   '/cadastro/tecidos/': typeof AuthenticatedCadastroTecidosIndexRoute
@@ -220,7 +228,6 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/configuracoes': typeof AuthenticatedConfiguracoesRoute
-  '/criacao': typeof AuthenticatedCriacaoRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/financeiro': typeof AuthenticatedFinanceiroRoute
   '/producao': typeof AuthenticatedProducaoRoute
@@ -236,6 +243,7 @@ export interface FileRoutesByTo {
   '/entrada-saida/oc-tecido': typeof AuthenticatedEntradaSaidaOcTecidoRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/cadastro': typeof AuthenticatedCadastroIndexRoute
+  '/criacao': typeof AuthenticatedCriacaoIndexRoute
   '/entrada-saida': typeof AuthenticatedEntradaSaidaIndexRoute
   '/cadastro/tecidos/$artigoId': typeof AuthenticatedCadastroTecidosArtigoIdRoute
   '/cadastro/tecidos': typeof AuthenticatedCadastroTecidosIndexRoute
@@ -248,7 +256,7 @@ export interface FileRoutesById {
   '/_authenticated/admin': typeof AuthenticatedAdminRouteWithChildren
   '/_authenticated/cadastro': typeof AuthenticatedCadastroRouteWithChildren
   '/_authenticated/configuracoes': typeof AuthenticatedConfiguracoesRoute
-  '/_authenticated/criacao': typeof AuthenticatedCriacaoRoute
+  '/_authenticated/criacao': typeof AuthenticatedCriacaoRouteWithChildren
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/entrada-saida': typeof AuthenticatedEntradaSaidaRouteWithChildren
   '/_authenticated/financeiro': typeof AuthenticatedFinanceiroRoute
@@ -266,6 +274,7 @@ export interface FileRoutesById {
   '/_authenticated/entrada-saida/oc-tecido': typeof AuthenticatedEntradaSaidaOcTecidoRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/_authenticated/cadastro/': typeof AuthenticatedCadastroIndexRoute
+  '/_authenticated/criacao/': typeof AuthenticatedCriacaoIndexRoute
   '/_authenticated/entrada-saida/': typeof AuthenticatedEntradaSaidaIndexRoute
   '/_authenticated/cadastro/tecidos/$artigoId': typeof AuthenticatedCadastroTecidosArtigoIdRoute
   '/_authenticated/cadastro/tecidos/': typeof AuthenticatedCadastroTecidosIndexRoute
@@ -296,6 +305,7 @@ export interface FileRouteTypes {
     | '/entrada-saida/oc-tecido'
     | '/admin/'
     | '/cadastro/'
+    | '/criacao/'
     | '/entrada-saida/'
     | '/cadastro/tecidos/$artigoId'
     | '/cadastro/tecidos/'
@@ -304,7 +314,6 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/configuracoes'
-    | '/criacao'
     | '/dashboard'
     | '/financeiro'
     | '/producao'
@@ -320,6 +329,7 @@ export interface FileRouteTypes {
     | '/entrada-saida/oc-tecido'
     | '/admin'
     | '/cadastro'
+    | '/criacao'
     | '/entrada-saida'
     | '/cadastro/tecidos/$artigoId'
     | '/cadastro/tecidos'
@@ -349,6 +359,7 @@ export interface FileRouteTypes {
     | '/_authenticated/entrada-saida/oc-tecido'
     | '/_authenticated/admin/'
     | '/_authenticated/cadastro/'
+    | '/_authenticated/criacao/'
     | '/_authenticated/entrada-saida/'
     | '/_authenticated/cadastro/tecidos/$artigoId'
     | '/_authenticated/cadastro/tecidos/'
@@ -445,6 +456,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/entrada-saida/'
       preLoaderRoute: typeof AuthenticatedEntradaSaidaIndexRouteImport
       parentRoute: typeof AuthenticatedEntradaSaidaRoute
+    }
+    '/_authenticated/criacao/': {
+      id: '/_authenticated/criacao/'
+      path: '/'
+      fullPath: '/criacao/'
+      preLoaderRoute: typeof AuthenticatedCriacaoIndexRouteImport
+      parentRoute: typeof AuthenticatedCriacaoRoute
     }
     '/_authenticated/cadastro/': {
       id: '/_authenticated/cadastro/'
@@ -616,6 +634,17 @@ const AuthenticatedCadastroRouteWithChildren =
     AuthenticatedCadastroRouteChildren,
   )
 
+interface AuthenticatedCriacaoRouteChildren {
+  AuthenticatedCriacaoIndexRoute: typeof AuthenticatedCriacaoIndexRoute
+}
+
+const AuthenticatedCriacaoRouteChildren: AuthenticatedCriacaoRouteChildren = {
+  AuthenticatedCriacaoIndexRoute: AuthenticatedCriacaoIndexRoute,
+}
+
+const AuthenticatedCriacaoRouteWithChildren =
+  AuthenticatedCriacaoRoute._addFileChildren(AuthenticatedCriacaoRouteChildren)
+
 interface AuthenticatedEntradaSaidaRouteChildren {
   AuthenticatedEntradaSaidaOcAviamentoRoute: typeof AuthenticatedEntradaSaidaOcAviamentoRoute
   AuthenticatedEntradaSaidaOcTecidoRoute: typeof AuthenticatedEntradaSaidaOcTecidoRoute
@@ -640,7 +669,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRouteWithChildren
   AuthenticatedCadastroRoute: typeof AuthenticatedCadastroRouteWithChildren
   AuthenticatedConfiguracoesRoute: typeof AuthenticatedConfiguracoesRoute
-  AuthenticatedCriacaoRoute: typeof AuthenticatedCriacaoRoute
+  AuthenticatedCriacaoRoute: typeof AuthenticatedCriacaoRouteWithChildren
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedEntradaSaidaRoute: typeof AuthenticatedEntradaSaidaRouteWithChildren
   AuthenticatedFinanceiroRoute: typeof AuthenticatedFinanceiroRoute
@@ -651,7 +680,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAdminRoute: AuthenticatedAdminRouteWithChildren,
   AuthenticatedCadastroRoute: AuthenticatedCadastroRouteWithChildren,
   AuthenticatedConfiguracoesRoute: AuthenticatedConfiguracoesRoute,
-  AuthenticatedCriacaoRoute: AuthenticatedCriacaoRoute,
+  AuthenticatedCriacaoRoute: AuthenticatedCriacaoRouteWithChildren,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedEntradaSaidaRoute: AuthenticatedEntradaSaidaRouteWithChildren,
   AuthenticatedFinanceiroRoute: AuthenticatedFinanceiroRoute,
@@ -670,3 +699,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
