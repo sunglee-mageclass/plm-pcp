@@ -597,9 +597,19 @@ function OcDialog({
                   )}
                 </div>
               </div>
-              <div className="text-sm">
-                Mensagem: <Badge variant="outline">{mensagemEntrega(draft.data_prevista_entrega, draft.data_entrega)}</Badge>
-              </div>
+              {(() => {
+                const m = mensagemEntrega(draft.data_prevista_entrega, draft.data_entrega);
+                const cls =
+                  m.tone === "atrasado" ? "bg-destructive text-destructive-foreground border-transparent" :
+                  m.tone === "adiantado" ? "bg-green-600 text-white border-transparent" :
+                  m.tone === "no_prazo" ? "bg-blue-600 text-white border-transparent" :
+                  "";
+                return (
+                  <div className="text-sm">
+                    Mensagem: <Badge variant="outline" className={cls}>{m.text}</Badge>
+                  </div>
+                );
+              })()}
             </>
           )}
         </div>
