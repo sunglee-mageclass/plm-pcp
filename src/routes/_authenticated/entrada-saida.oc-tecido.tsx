@@ -422,16 +422,19 @@ function OcDialog({
   const artigoIdFor = (n: 1 | 2) => itemsBy(n)[0]?.artigo_id ?? null;
 
   const setArtigo = (n: 1 | 2, artigoId: string) => {
-    setItems((prev) => prev.filter((i) => i.artigo_numero !== n).concat([{
-      tempId: crypto.randomUUID(),
-      artigo_numero: n,
-      artigo_id: artigoId,
-      variante_tecido_id: "",
-      quantidade_pedida: 0,
-      quantidade_recebida: null,
-    }]).filter((x) => x.variante_tecido_id || x.artigo_numero !== n));
-    // simplify: ensure at least empty placeholder gone — we keep an empty placeholder row to attach selected variants
+    setItems((prev) => [
+      ...prev.filter((i) => i.artigo_numero !== n),
+      {
+        tempId: crypto.randomUUID(),
+        artigo_numero: n,
+        artigo_id: artigoId,
+        variante_tecido_id: "",
+        quantidade_pedida: 0,
+        quantidade_recebida: null,
+      },
+    ]);
   };
+
 
   const toggleVariante = (n: 1 | 2, varId: string, checked: boolean) => {
     const artigoId = artigoIdFor(n);
