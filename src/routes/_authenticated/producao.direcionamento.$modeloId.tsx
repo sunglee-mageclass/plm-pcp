@@ -168,12 +168,18 @@ function DirDetailPage() {
       {variantes.map((v) => {
         const realTotal = tamanhos.reduce((s, t) => s + Number(v.real?.[t] ?? 0), 0);
         const ecTotal = tamanhos.reduce((s, t) => s + Number(v.ecommerce?.[t] ?? 0), 0);
+        const overSizes = tamanhos.filter((t) => Number(v.ecommerce?.[t] ?? 0) > Number(v.real?.[t] ?? 0));
         return (
           <Card key={v.variante_numero} className="p-5 space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold">Variante {v.variante_numero}</h3>
               <div className="text-xs text-muted-foreground">Grade Real Total: <strong>{realTotal}</strong></div>
             </div>
+            {overSizes.length > 0 && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/10 text-destructive text-sm px-3 py-2">
+                E-commerce excede a Grade Real nos tamanhos: <strong>{overSizes.join(", ")}</strong>.
+              </div>
+            )}
 
             <div className="overflow-x-auto">
               <table className="w-full text-sm border-collapse">

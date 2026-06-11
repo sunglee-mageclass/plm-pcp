@@ -430,6 +430,7 @@ function CadDetailPage() {
           saving={saveAll.isPending}
           enviando={enviarCorte.isPending}
           enviado={!!cadRow?.enviado_corte}
+          dataEnviado={cadRow?.data_enviado_corte}
         />
 
         {/* SEÇÃO 1 */}
@@ -485,16 +486,18 @@ function CadDetailPage() {
         />
       </div>
 
-      <CadFichaCorte
-        modelo={modelo}
-        cadRow={cadRow}
-        previsaoEntrega={previsaoEntrega}
-        tecidos={tecidos}
-        grades={grades}
-        tamanhosAll={tamanhosAll}
-        aviamentos={aviamentos}
-        gradeTotalGeral={gradeTotalGeral}
-      />
+      {!cadRow?.enviado_corte && (
+        <CadFichaCorte
+          modelo={modelo}
+          cadRow={cadRow}
+          previsaoEntrega={previsaoEntrega}
+          tecidos={tecidos}
+          grades={grades}
+          tamanhosAll={tamanhosAll}
+          aviamentos={aviamentos}
+          gradeTotalGeral={gradeTotalGeral}
+        />
+      )}
     </>
   );
 }

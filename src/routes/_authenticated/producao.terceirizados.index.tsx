@@ -24,21 +24,33 @@ function TercListPage() {
       const { data, error } = await supabase
         .from("modelos")
         .select(
-          "id, ref, nome, colecao, mes_id, ano_id, categoria_principal_id, categorias_produto:categoria_principal_id(nome), cad(id, status_corte)",
+          "id, ref, nome, colecao, mes_id, ano_id, categoria_principal_id, categorias_produto:categoria_principal_id(nome), cad(id, status_corte, producao_terceirizados(data_enviado, data_entregue, ativo))",
         )
         .eq("enviado_cad", true)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return (data ?? []).map((m: any) => ({
-        modelo_id: m.id,
-        ref: m.ref,
-        nome: m.nome,
-        colecao: m.colecao,
-        mes_id: m.mes_id,
-        ano_id: m.ano_id,
-        categoria_nome: m.categorias_produto?.nome ?? null,
-        cad_id: m.cad?.[0]?.id ?? null,
-      }));
+      return (data ?? []).map((m: any) => {
+        const tercs = (m.cad?.[0]?.producao_terceirizados ?? []).filter((t: any) => t.ativo !== false);
+        let statusGeral: "sem" | "pendente" | "em_andamento" | "finalizado" = "sem";
+        if (tercs.length > 0) {
+          const todosEntregues = tercs.every((t: any) => !!t.data_entregue);
+          const algumEnviado = tercs.some((t: any) => !!t.data_enviado);
+          if (todosEntregues) statusGeral = "finalizado";
+          else if (algumEnviado) statusGeral = "em_andamento";
+          else statusGeral = "pendente";
+        }
+        return {
+          modelo_id: m.id,
+          ref: m.ref,
+          nome: m.nome,
+          colecao: m.colecao,
+          mes_id: m.mes_id,
+          ano_id: m.ano_id,
+          categoria_nome: m.categorias_produto?.nome ?? null,
+          cad_id: m.cad?.[0]?.id ?? null,
+          statusGeral,
+        };
+      });
     },
   });
 
@@ -110,14 +122,15 @@ function TercListPage() {
               <th className="px-4 py-2">Nome</th>
               <th className="px-4 py-2">Categoria</th>
               <th className="px-4 py-2">Coleção</th>
+              <th className="px-4 py-2">Status</th>
             </tr>
           </thead>
           <tbody>
             {isLoading && (
-              <tr><td className="px-4 py-6 text-muted-foreground" colSpan={4}>Carregando…</td></tr>
+              <tr><td className="px-4 py-6 text-muted-foreground" colSpan={5}>Carregando…</td></tr>
             )}
             {!isLoading && filtered.length === 0 && (
-              <tr><td className="px-4 py-6 text-muted-foreground" colSpan={4}>Nenhum modelo disponível.</td></tr>
+              <tr><td className="px-4 py-6 text-muted-foreground" colSpan={5}>Nenhum modelo disponível.</td></tr>
             )}
             {filtered.map((r: any) => (
               <tr key={r.modelo_id} className="border-t hover:bg-muted/30">
@@ -133,6 +146,7 @@ function TercListPage() {
                 </td>
                 <td className="px-4 py-2 text-muted-foreground">{r.categoria_nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground">{r.colecao ?? "—"}</td>
+                <td className="px-4 py-2"><StatusBadge status={r.statusGeral} /></td>
               </tr>
             ))}
           </tbody>
@@ -140,4 +154,11 @@ function TercListPage() {
       </Card>
     </div>
   );
+}
+
+function StatusBadge({ status }: { status: "sem" | "pendente" | "em_andamento" | "finalizado" }) {
+  if (status === "finalizado") return <Badge className="bg-emerald-500 hover:bg-emerald-500 text-white">Finalizado</Badge>;
+  if (status === "em_andamento") return <Badge className="bg-amber-500 hover:bg-amber-500 text-white">Em andamento</Badge>;
+  if (status === "pendente") return <Badge variant="secondary">Pendente</Badge>;
+  return <Badge variant="outline" className="text-muted-foreground">Sem terc.</Badge>;
 }
