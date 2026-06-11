@@ -64,8 +64,9 @@ function FinanceiroPage() {
 
       const [empresasRes, tecidoRes, aviamentoRes] = await Promise.all([
         empresaIds.length
-          ? supabase.from("empresas").select("id,nome").in("id", empresaIds)
+          ? supabase.from("empresas").select("id,nome_fantasia").in("id", empresaIds)
           : Promise.resolve({ data: [], error: null } as const),
+
         tecidoIds.length
           ? supabase.from("ocs_tecido").select("id,numero_pedido").in("id", tecidoIds)
           : Promise.resolve({ data: [], error: null } as const),
