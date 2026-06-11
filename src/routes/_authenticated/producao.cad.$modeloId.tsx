@@ -48,6 +48,17 @@ type GradeRow = {
   grade_total_real: number;
 };
 
+type AviamentoRow = {
+  id?: string;
+  numero: number;
+  aviamento_id: string | null;
+  aviamento_nome?: string | null;
+  consumo: number;
+  grade_total: number; // computed display only
+  quantidade_enviar: number;
+  quantidade_separar: number;
+};
+
 function calcCusto(consumo: number, loss: number, preco: number) {
   return Number((consumo * (1 + loss / 100) * preco).toFixed(2));
 }
