@@ -24,6 +24,8 @@ export function TecidoGroup({
   const [search, setSearch] = useState("");
   const filteredArtigos = artigos.filter((a) => a.nome.toLowerCase().includes(search.toLowerCase()));
   const selectedIds = new Set(items.map((i) => i.variante_tecido_id));
+  const artigoAtual = artigos.find((a) => a.id === artigoId) ?? null;
+  const sufixo = unidadeSufixo(artigoAtual?.unidade_medida);
 
   return (
     <Card className="p-4 space-y-3">
