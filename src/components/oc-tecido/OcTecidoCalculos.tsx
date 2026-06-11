@@ -78,7 +78,15 @@ export function OcTecidoCalculos({
       <div className="flex gap-6 justify-end mt-3 text-sm">
         <div>Total Previsto: <b>{fmtMoney(totalPrevisto)}</b></div>
         <div>Total Real: <b>{fmtMoney(totalReal)}</b></div>
-        <div>Mensagem: <Badge variant="outline">{mensagemEntrega(dataPrevista, dataEntrega)}</Badge></div>
+        {(() => {
+          const m = mensagemEntrega(dataPrevista, dataEntrega);
+          const cls =
+            m.tone === "atrasado" ? "bg-destructive text-destructive-foreground border-transparent" :
+            m.tone === "adiantado" ? "bg-green-600 text-white border-transparent" :
+            m.tone === "no_prazo" ? "bg-blue-600 text-white border-transparent" :
+            "";
+          return <div>Mensagem: <Badge variant="outline" className={cls}>{m.text}</Badge></div>;
+        })()}
       </div>
     </Card>
   );
