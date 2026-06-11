@@ -286,6 +286,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         custo_aviamento_total: totals.aviamento,
         custo_peca_previsto: totals.peca,
         proporcoes: draft.proporcoes ?? {},
+        fotos_modelo: draft.fotos_modelo ?? [],
+        fotos_referencia: draft.fotos_referencia ?? [],
       };
       const { error: e1 } = await supabase.from("modelos").update(payload).eq("id", modeloId);
       if (e1) throw e1;
