@@ -61,14 +61,51 @@ function OcTecidoPage() {
 
   const empresaMap = useMemo(() => Object.fromEntries(empresas.map((e) => [e.id, e.nome_fantasia])), [empresas]);
 
+  const ocIds = useMemo(() => ocs.map((o) => o.id), [ocs]);
+  const { data: qtdRecebidaByOc = {} } = useQuery({
+    queryKey: ["ocs_tecido_qtd_recebida", ocIds],
+    enabled: tab === "recebido" && ocIds.length > 0,
+    queryFn: async () => {
+      const { data: items, error } = await supabase
+        .from("ocs_tecido_itens")
+        .select("oc_tecido_id, artigo_id, quantidade_recebida")
+        .in("oc_tecido_id", ocIds);
+      if (error) throw error;
+      const artIds = Array.from(new Set((items ?? []).map((i) => i.artigo_id).filter(Boolean))) as string[];
+      const artRes = artIds.length
+        ? await supabase.from("artigos").select("id, unidade_medida").in("id", artIds)
+        : { data: [] as { id: string; unidade_medida: string | null }[], error: null };
+      if (artRes.error) throw artRes.error;
+      const unidadeById = Object.fromEntries((artRes.data ?? []).map((a) => [a.id, a.unidade_medida ?? ""]));
+      const sums: Record<string, Record<string, number>> = {};
+      for (const it of items ?? []) {
+        if (!it.oc_tecido_id || it.quantidade_recebida == null) continue;
+        const unidade = (it.artigo_id ? unidadeById[it.artigo_id] : "") || "—";
+        const sufixo = unidade === "kg" ? "kg" : unidade === "metro" ? "m" : "";
+        const key = sufixo || "—";
+        sums[it.oc_tecido_id] ||= {};
+        sums[it.oc_tecido_id][key] = (sums[it.oc_tecido_id][key] ?? 0) + Number(it.quantidade_recebida ?? 0);
+      }
+      const out: Record<string, string> = {};
+      for (const [ocId, parts] of Object.entries(sums)) {
+        out[ocId] = Object.entries(parts)
+          .map(([u, v]) => `${v.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}${u !== "—" ? ` ${u}` : ""}`)
+          .join(" + ");
+      }
+      return out;
+    },
+  });
+
   return (
     <div className="container mx-auto p-6 space-y-6">
-      <header className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Scissors className="h-7 w-7 text-primary" />
+      <header className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-4">
+          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+            <Scissors className="h-6 w-6" />
+          </div>
           <div>
-            <h1 className="text-2xl font-bold">OC de Tecido</h1>
-            <p className="text-sm text-muted-foreground">Ordens de compra de tecidos.</p>
+            <h1 className="text-2xl font-semibold tracking-tight">OC de Tecido</h1>
+            <p className="text-sm text-muted-foreground mt-1">Ordens de compra de tecidos.</p>
           </div>
         </div>
         <Button onClick={() => { setEditingId(null); setOpenNew(true); }}>
@@ -88,6 +125,7 @@ function OcTecidoPage() {
         ocs={ocs}
         empresaMap={empresaMap}
         onRowClick={(id) => { setEditingId(id); setOpenNew(true); }}
+        qtdRecebidaByOc={qtdRecebidaByOc}
       />
 
       {openNew && (
@@ -146,6 +184,8 @@ function OcDialog({
           modelo_sugerido_url: oc.modelo_sugerido_url,
           nf_url: oc.nf_url,
           etiqueta_lavagem_urls: oc.etiqueta_lavagem_urls ?? [],
+          etiqueta_lavagem_url_1: (oc as { etiqueta_lavagem_url_1?: string | null }).etiqueta_lavagem_url_1 ?? null,
+          etiqueta_lavagem_url_2: (oc as { etiqueta_lavagem_url_2?: string | null }).etiqueta_lavagem_url_2 ?? null,
         });
         setStatus((oc.status as OCStatus) ?? "encomendado");
         setRespMode(oc.responsavel_id ? "select" : "text");
@@ -272,13 +312,6 @@ function OcDialog({
       toast.success("Arquivo enviado");
     } catch (e: any) { toast.error(e.message); }
   };
-  const handleEtiquetaUpload = async (file: File) => {
-    try {
-      const path = await uploadFile(file, "etiqueta");
-      setDraft((d) => ({ ...d, etiqueta_lavagem_urls: [...d.etiqueta_lavagem_urls, path].slice(0, 2) }));
-      toast.success("Etiqueta enviada");
-    } catch (e: any) { toast.error(e.message); }
-  };
 
   const saveMutation = useMutation({
     mutationFn: async (markReceived: boolean) => {
@@ -297,6 +330,8 @@ function OcDialog({
         modelo_sugerido_url: draft.modelo_sugerido_url,
         nf_url: draft.nf_url,
         etiqueta_lavagem_urls: draft.etiqueta_lavagem_urls,
+        etiqueta_lavagem_url_1: draft.etiqueta_lavagem_url_1,
+        etiqueta_lavagem_url_2: draft.etiqueta_lavagem_url_2,
         data_entrega: draft.data_entrega || null,
         valor_previsto_total: totalPrevisto,
         valor_real_total: totalReal,
@@ -383,13 +418,13 @@ function OcDialog({
               draft={draft}
               setDraft={setDraft}
               handleSingleUpload={handleSingleUpload}
-              handleEtiquetaUpload={handleEtiquetaUpload}
               items={items}
               artigoMap={artigoMap}
               varianteMap={varianteMap}
               setQtd={setQtd}
               totalPrevisto={totalPrevisto}
               totalReal={totalReal}
+              tecido2Aberto={tecido2Aberto}
             />
           )}
         </div>

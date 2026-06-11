@@ -1,7 +1,7 @@
 import { createFileRoute, Navigate } from "@tanstack/react-router";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Store, Plus, Search, Upload } from "lucide-react";
+import { Store, Plus, Search, Upload, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -35,6 +35,7 @@ function LojasPage() {
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
+  const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
 
   const { data: tenants = [], isLoading } = useQuery({
     queryKey: ["admin", "tenants"],
@@ -111,7 +112,7 @@ function LojasPage() {
               <TableHead>Nome</TableHead>
               <TableHead>CNPJ</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead className="text-right">Ativar/Desativar</TableHead>
+              <TableHead className="text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -139,10 +140,20 @@ function LojasPage() {
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Switch
-                      checked={t.ativo}
-                      onCheckedChange={(checked) => toggleAtivo.mutate({ id: t.id, ativo: checked })}
-                    />
+                    <div className="inline-flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setEditingTenant(t)}
+                        aria-label="Editar loja"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Switch
+                        checked={t.ativo}
+                        onCheckedChange={(checked) => toggleAtivo.mutate({ id: t.id, ativo: checked })}
+                      />
+                    </div>
                   </TableCell>
                 </TableRow>
               ))
@@ -150,6 +161,12 @@ function LojasPage() {
           </TableBody>
         </Table>
       </div>
+
+      <Dialog open={!!editingTenant} onOpenChange={(o) => !o && setEditingTenant(null)}>
+        {editingTenant && (
+          <EditarLojaModal tenant={editingTenant} onClose={() => setEditingTenant(null)} />
+        )}
+      </Dialog>
     </div>
   );
 }
@@ -220,6 +237,95 @@ function NovaLojaModal({ onClose }: { onClose: () => void }) {
             <div className="flex items-center gap-2">
               <Input
                 id="logo"
+                type="file"
+                accept="image/*"
+                onChange={(e) => setLogoFile(e.target.files?.[0] ?? null)}
+              />
+              <Upload className="h-4 w-4 text-muted-foreground" />
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button type="submit" disabled={submitting}>{submitting ? "Salvando…" : "Salvar"}</Button>
+        </DialogFooter>
+      </form>
+    </DialogContent>
+  );
+}
+
+function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [nome, setNome] = useState(tenant.nome);
+  const [cnpj, setCnpj] = useState(tenant.cnpj ?? "");
+  const [contato, setContato] = useState(tenant.contato ?? "");
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    setNome(tenant.nome);
+    setCnpj(tenant.cnpj ?? "");
+    setContato(tenant.contato ?? "");
+    setLogoFile(null);
+  }, [tenant]);
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!nome.trim()) { toast.error("Nome obrigatório"); return; }
+    setSubmitting(true);
+    try {
+      let logo_url: string | null | undefined = undefined;
+      if (logoFile) {
+        const path = `${crypto.randomUUID()}-${logoFile.name}`;
+        const { error: upErr } = await supabase.storage
+          .from("tenant-logos").upload(path, logoFile, { upsert: false });
+        if (upErr) throw upErr;
+        const { data: signed } = await supabase.storage
+          .from("tenant-logos").createSignedUrl(path, 60 * 60 * 24 * 365 * 10);
+        logo_url = signed?.signedUrl ?? null;
+      }
+      const payload: { nome: string; cnpj: string | null; contato: string | null; logo_url?: string | null } = {
+        nome: nome.trim(),
+        cnpj: cnpj || null,
+        contato: contato || null,
+      };
+      if (logo_url !== undefined) payload.logo_url = logo_url;
+      const { error } = await supabase.from("tenants").update(payload).eq("id", tenant.id);
+      if (error) throw error;
+      toast.success("Loja atualizada");
+      qc.invalidateQueries({ queryKey: ["admin", "tenants"] });
+      onClose();
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <DialogContent>
+      <form onSubmit={onSubmit}>
+        <DialogHeader>
+          <DialogTitle>Editar Loja</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-4">
+          <div>
+            <Label htmlFor="edit-nome">Nome *</Label>
+            <Input id="edit-nome" value={nome} onChange={(e) => setNome(e.target.value)} required maxLength={255} />
+          </div>
+          <div>
+            <Label htmlFor="edit-cnpj">CNPJ</Label>
+            <Input id="edit-cnpj" value={cnpj} onChange={(e) => setCnpj(e.target.value)} maxLength={18} />
+          </div>
+          <div>
+            <Label htmlFor="edit-contato">Contato</Label>
+            <Input id="edit-contato" value={contato} onChange={(e) => setContato(e.target.value)} maxLength={500} />
+          </div>
+          <div>
+            <Label htmlFor="edit-logo">Logo {tenant.logo_url ? "(substituir)" : ""}</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="edit-logo"
                 type="file"
                 accept="image/*"
                 onChange={(e) => setLogoFile(e.target.files?.[0] ?? null)}

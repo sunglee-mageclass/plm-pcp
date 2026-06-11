@@ -140,11 +140,12 @@ export function AppSidebar() {
             P+
           </div>
           {!collapsed && (
-            <div className="flex flex-col">
+            <div className="flex flex-col flex-1 min-w-0">
               <span className="text-sm font-semibold leading-none">PLM+PCP</span>
               <span className="text-xs text-muted-foreground mt-0.5">Moda & Confecção</span>
             </div>
           )}
+          <ThemeToggleButton collapsed={collapsed} />
         </div>
       </SidebarHeader>
 
@@ -296,7 +297,6 @@ export function AppSidebar() {
         {!collapsed && user && (
           <div className="px-2 py-1 text-xs text-muted-foreground truncate">{user.email}</div>
         )}
-        <ThemeToggleButton collapsed={collapsed} />
         <Button
           variant="ghost"
           size={collapsed ? "icon" : "sm"}
@@ -314,20 +314,21 @@ export function AppSidebar() {
 function ThemeToggleButton({ collapsed }: { collapsed: boolean }) {
   const { theme, toggleTheme } = useTheme();
   const isDark = theme === "dark";
+  if (collapsed) return null;
   return (
     <TooltipProvider delayDuration={100}>
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
             variant="ghost"
-            size={collapsed ? "icon" : "sm"}
+            size="icon"
             onClick={toggleTheme}
-            className="justify-start"
+            className="h-7 w-7 shrink-0"
           >
             {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="right">
+        <TooltipContent side="bottom">
           <p>{isDark ? "Mudar para tema claro" : "Mudar para tema escuro"}</p>
         </TooltipContent>
       </Tooltip>

@@ -125,6 +125,8 @@ function FinanceiroPage() {
 /* ============================ CALENDÁRIO ============================ */
 
 function CalendarioView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolean }) {
+  const [detalheId, setDetalheId] = useState<string | null>(null);
+  const [pagandoId, setPagandoId] = useState<string | null>(null);
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
   const autoJumped = useRef(false);
 
@@ -207,9 +209,14 @@ function CalendarioView({ parcelas, loading }: { parcelas: Parcela[]; loading: b
                   else if (st === "vencido") color = "bg-destructive/20 text-destructive";
                   else if (diff <= 3) color = "bg-yellow-500/20 text-yellow-700 dark:text-yellow-300";
                   return (
-                    <div key={p.id} className={cn("px-1.5 py-0.5 rounded truncate", color)}>
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setDetalheId(p.id)}
+                      className={cn("w-full text-left px-1.5 py-0.5 rounded truncate hover:ring-1 hover:ring-primary", color)}
+                    >
                       {p.empresas?.nome ?? "—"} · {brl(Number(p.valor))}
-                    </div>
+                    </button>
                   );
                 })}
                 {items.length > 3 && <div className="text-[10px] text-muted-foreground">+{items.length - 3}</div>}
@@ -227,7 +234,59 @@ function CalendarioView({ parcelas, loading }: { parcelas: Parcela[]; loading: b
       </div>
 
       {loading && <p className="text-sm text-muted-foreground mt-2">Carregando…</p>}
+
+      <ParcelaDetailDialog
+        parcela={detalheId ? parcelas.find((p) => p.id === detalheId) ?? null : null}
+        onClose={() => setDetalheId(null)}
+        onMarkPaid={(id) => { setDetalheId(null); setPagandoId(id); }}
+      />
+      <PagarDialog parcelaId={pagandoId} onClose={() => setPagandoId(null)} />
     </Card>
+  );
+}
+
+function ParcelaDetailDialog({
+  parcela, onClose, onMarkPaid,
+}: {
+  parcela: Parcela | null;
+  onClose: () => void;
+  onMarkPaid: (id: string) => void;
+}) {
+  if (!parcela) return null;
+  const st = effectiveStatus(parcela);
+  const ocNumero = parcela.ocs_tecido?.numero_pedido ?? parcela.ocs_aviamento?.numero_pedido ?? "—";
+  const tipoLabel = parcela.tipo_oc === "tecido" ? "OC de Tecido" : parcela.tipo_oc === "aviamento" ? "OC de Aviamento" : parcela.tipo_oc;
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Detalhes da Parcela</DialogTitle></DialogHeader>
+        <div className="space-y-2 text-sm">
+          <div><span className="text-muted-foreground">Fornecedor:</span> <b>{parcela.empresas?.nome ?? "—"}</b></div>
+          <div><span className="text-muted-foreground">Origem:</span> {tipoLabel} · Nº {ocNumero}</div>
+          <div><span className="text-muted-foreground">Parcela:</span> {parcela.numero_parcela}</div>
+          <div><span className="text-muted-foreground">Valor:</span> <b>{brl(Number(parcela.valor))}</b></div>
+          <div><span className="text-muted-foreground">Vencimento:</span> {format(parseISO(parcela.data_vencimento), "dd/MM/yyyy")}</div>
+          <div>
+            <span className="text-muted-foreground">Status:</span>{" "}
+            <Badge variant={st === "pago" ? "default" : st === "vencido" ? "destructive" : "secondary"}>
+              {st === "a_pagar" ? "A pagar" : st === "pago" ? "Pago" : "Vencido"}
+            </Badge>
+          </div>
+          {parcela.data_pagamento && (
+            <div><span className="text-muted-foreground">Pago em:</span> {format(parseISO(parcela.data_pagamento), "dd/MM/yyyy")}</div>
+          )}
+          {parcela.comprovante_url && (
+            <div><a href={parcela.comprovante_url} target="_blank" rel="noreferrer" className="text-primary">Ver comprovante</a></div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>Fechar</Button>
+          {st !== "pago" && (
+            <Button onClick={() => onMarkPaid(parcela.id)}>Marcar pago</Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
