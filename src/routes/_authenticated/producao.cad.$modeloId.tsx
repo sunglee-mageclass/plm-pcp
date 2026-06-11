@@ -325,6 +325,14 @@ function CadDetailPage() {
       return next;
     });
   };
+  const updateAvi = (i: number, patch: Partial<AviamentoRow>) => {
+    setAviamentos((prev) => {
+      const next = [...prev];
+      next[i] = { ...next[i], ...patch };
+      return next;
+    });
+  };
+
 
   // --- mutations ---
   const saveAll = useMutation({
