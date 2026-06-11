@@ -338,6 +338,7 @@ function OcDialog({
     queryKey: ["oc-tecido", ocId],
     enabled: !!ocId,
     queryFn: async () => {
+      if (!ocId) return null;
       const { data: oc, error: e1 } = await supabase.from("ocs_tecido").select("*").eq("id", ocId).maybeSingle();
       if (e1) throw e1;
       const { data: its, error: e2 } = await supabase.from("ocs_tecido_itens").select("*").eq("oc_tecido_id", ocId);
