@@ -430,6 +430,7 @@ function CadDetailPage() {
           saving={saveAll.isPending}
           enviando={enviarCorte.isPending}
           enviado={!!cadRow?.enviado_corte}
+          dataEnviado={cadRow?.data_enviado_corte}
         />
 
         {/* SEÇÃO 1 */}
