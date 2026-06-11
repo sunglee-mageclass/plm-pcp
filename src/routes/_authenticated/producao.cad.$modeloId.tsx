@@ -385,6 +385,25 @@ function CadDetailPage() {
         );
         if (ge) throw ge;
       }
+      // Aviamentos (Explosão)
+      await supabase.from("cad_aviamentos").delete().eq("cad_id", cad_id!);
+      if (aviamentos.length > 0) {
+        const { error: ae } = await supabase.from("cad_aviamentos").insert(
+          aviamentos.map((a) => ({
+            cad_id,
+            aviamento_id: a.aviamento_id,
+            numero: a.numero,
+            consumo: a.consumo,
+            quantidade_enviar: a.quantidade_enviar,
+            quantidade_separar: a.quantidade_separar,
+          })),
+        );
+        if (ae) throw ae;
+      }
+      // Previsão de entrega
+      if (previsaoEntrega) {
+        await supabase.from("cad").update({ data_previsao_corte: previsaoEntrega }).eq("id", cad_id!);
+      }
       return cad_id;
     },
     onSuccess: () => {
@@ -392,6 +411,7 @@ function CadDetailPage() {
       qc.invalidateQueries({ queryKey: ["cad-row", modeloId] });
       qc.invalidateQueries({ queryKey: ["cad-tecidos"] });
       qc.invalidateQueries({ queryKey: ["cad-grades-rows"] });
+      qc.invalidateQueries({ queryKey: ["cad-aviamentos-rows"] });
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao salvar"),
   });
