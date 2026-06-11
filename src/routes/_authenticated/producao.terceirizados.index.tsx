@@ -122,14 +122,15 @@ function TercListPage() {
               <th className="px-4 py-2">Nome</th>
               <th className="px-4 py-2">Categoria</th>
               <th className="px-4 py-2">Coleção</th>
+              <th className="px-4 py-2">Status</th>
             </tr>
           </thead>
           <tbody>
             {isLoading && (
-              <tr><td className="px-4 py-6 text-muted-foreground" colSpan={4}>Carregando…</td></tr>
+              <tr><td className="px-4 py-6 text-muted-foreground" colSpan={5}>Carregando…</td></tr>
             )}
             {!isLoading && filtered.length === 0 && (
-              <tr><td className="px-4 py-6 text-muted-foreground" colSpan={4}>Nenhum modelo disponível.</td></tr>
+              <tr><td className="px-4 py-6 text-muted-foreground" colSpan={5}>Nenhum modelo disponível.</td></tr>
             )}
             {filtered.map((r: any) => (
               <tr key={r.modelo_id} className="border-t hover:bg-muted/30">
@@ -145,6 +146,7 @@ function TercListPage() {
                 </td>
                 <td className="px-4 py-2 text-muted-foreground">{r.categoria_nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground">{r.colecao ?? "—"}</td>
+                <td className="px-4 py-2"><StatusBadge status={r.statusGeral} /></td>
               </tr>
             ))}
           </tbody>
@@ -152,4 +154,11 @@ function TercListPage() {
       </Card>
     </div>
   );
+}
+
+function StatusBadge({ status }: { status: "sem" | "pendente" | "em_andamento" | "finalizado" }) {
+  if (status === "finalizado") return <Badge className="bg-emerald-500 hover:bg-emerald-500 text-white">Finalizado</Badge>;
+  if (status === "em_andamento") return <Badge className="bg-amber-500 hover:bg-amber-500 text-white">Em andamento</Badge>;
+  if (status === "pendente") return <Badge variant="secondary">Pendente</Badge>;
+  return <Badge variant="outline" className="text-muted-foreground">Sem terc.</Badge>;
 }
