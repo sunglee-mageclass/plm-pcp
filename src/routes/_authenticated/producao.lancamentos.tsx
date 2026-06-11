@@ -14,7 +14,7 @@ export const Route = createFileRoute("/_authenticated/producao/lancamentos")({
   component: LancamentosPage,
 });
 
-type Card = {
+type LancCard = {
   modelo_id: string;
   cad_id: string;
   ref: string | null;
@@ -37,7 +37,7 @@ function LancamentosPage() {
   const [fMes, setFMes] = useState("all");
   const [fAno, setFAno] = useState("all");
 
-  const { data: cards = [], isLoading } = useQuery<Card[]>({
+  const { data: cards = [], isLoading } = useQuery<LancCard[]>({
     queryKey: ["lancamentos-cards"],
     queryFn: async () => {
       // Modelos com CAD existente e que tenham direcionamento (fluxo completo)
@@ -101,7 +101,7 @@ function LancamentosPage() {
   });
 
   const uploadMut = useMutation({
-    mutationFn: async (args: { card: Card; file: File }) => {
+    mutationFn: async (args: { card: LancCard; file: File }) => {
       const { card, file } = args;
       const ext = file.name.split(".").pop() ?? "jpg";
       const path = `${card.modelo_id}/${Date.now()}.${ext}`;
@@ -191,7 +191,7 @@ function LancamentosPage() {
   );
 }
 
-function LancamentoCard(props: { card: Card; onUpload: (f: File) => void; uploading: boolean }) {
+function LancamentoCard(props: { card: LancCard; onUpload: (f: File) => void; uploading: boolean }) {
   const { card, onUpload, uploading } = props;
   const ref = useRef<HTMLInputElement>(null);
 
