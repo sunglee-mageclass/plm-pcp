@@ -113,8 +113,8 @@ function DesenvolvimentoPage() {
   const { data: estilistas = [] } = useColaboradoresByTipo("estilista");
   const { data: modelistas = [] } = useColaboradoresByTipo("modelista");
   const { data: piloteiros = [] } = useColaboradoresByTipo("piloteiro");
-  const { data: meses = [] } = useOpts("meses");
-  const { data: anos = [] } = useOpts("anos");
+  const { data: meses = [] } = useOpts("meses", "mes");
+  const { data: anos = [] } = useOpts("anos", "ano");
   const { data: categorias = [] } = useOpts("categorias_produto");
 
   const { data: statusKanban = DEFAULT_STATUSES } = useQuery({
