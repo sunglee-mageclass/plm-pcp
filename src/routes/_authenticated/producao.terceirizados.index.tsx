@@ -24,21 +24,33 @@ function TercListPage() {
       const { data, error } = await supabase
         .from("modelos")
         .select(
-          "id, ref, nome, colecao, mes_id, ano_id, categoria_principal_id, categorias_produto:categoria_principal_id(nome), cad(id, status_corte)",
+          "id, ref, nome, colecao, mes_id, ano_id, categoria_principal_id, categorias_produto:categoria_principal_id(nome), cad(id, status_corte, producao_terceirizados(data_enviado, data_entregue, ativo))",
         )
         .eq("enviado_cad", true)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return (data ?? []).map((m: any) => ({
-        modelo_id: m.id,
-        ref: m.ref,
-        nome: m.nome,
-        colecao: m.colecao,
-        mes_id: m.mes_id,
-        ano_id: m.ano_id,
-        categoria_nome: m.categorias_produto?.nome ?? null,
-        cad_id: m.cad?.[0]?.id ?? null,
-      }));
+      return (data ?? []).map((m: any) => {
+        const tercs = (m.cad?.[0]?.producao_terceirizados ?? []).filter((t: any) => t.ativo !== false);
+        let statusGeral: "sem" | "pendente" | "em_andamento" | "finalizado" = "sem";
+        if (tercs.length > 0) {
+          const todosEntregues = tercs.every((t: any) => !!t.data_entregue);
+          const algumEnviado = tercs.some((t: any) => !!t.data_enviado);
+          if (todosEntregues) statusGeral = "finalizado";
+          else if (algumEnviado) statusGeral = "em_andamento";
+          else statusGeral = "pendente";
+        }
+        return {
+          modelo_id: m.id,
+          ref: m.ref,
+          nome: m.nome,
+          colecao: m.colecao,
+          mes_id: m.mes_id,
+          ano_id: m.ano_id,
+          categoria_nome: m.categorias_produto?.nome ?? null,
+          cad_id: m.cad?.[0]?.id ?? null,
+          statusGeral,
+        };
+      });
     },
   });
 
