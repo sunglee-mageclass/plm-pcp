@@ -100,6 +100,7 @@ function DesenvolvimentoPage() {
   const [fAno, setFAno] = useState("all");
   const [fColecao, setFColecao] = useState("all");
   const [dragOver, setDragOver] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
 
   const { data: estilistas = [] } = useColaboradoresByTipo("estilista");
   const { data: modelistas = [] } = useColaboradoresByTipo("modelista");
