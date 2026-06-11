@@ -32,8 +32,8 @@ function ProducaoIndex() {
   const pos = (cfg as any)?.oficina_posicao ?? "depois_terceirizados";
   const ordered: (keyof typeof SECTIONS)[] =
     pos === "antes_terceirizados"
-      ? ["cad", "oficina", "terceirizados", "cq"]
-      : ["cad", "terceirizados", "oficina", "cq"];
+      ? ["cad", "oficina", "terceirizados", "cq", "acabamento", "direcionamento", "lancamentos"]
+      : ["cad", "terceirizados", "oficina", "cq", "acabamento", "direcionamento", "lancamentos"];
 
   return (
     <div className="container mx-auto p-6 space-y-6">
