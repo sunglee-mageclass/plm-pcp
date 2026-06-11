@@ -55,20 +55,28 @@ export function OcTecidoCalculos({
           {items.filter((i) => i.variante_tecido_id).map((i) => {
             const a = i.artigo_id ? artigoMap[i.artigo_id] : null;
             const v = varianteMap[i.variante_tecido_id];
+            const sufixo = unidadeSufixo(a?.unidade_medida);
             return (
               <TableRow key={i.tempId}>
                 <TableCell>
-                  <div className="text-sm">{a?.nome ?? "—"}</div>
+                  <div className="text-sm">{artigoLabel(a)}</div>
                   <div className="text-xs text-muted-foreground">{v?.nome_variante ?? v?.codigo_variante ?? "—"}</div>
                 </TableCell>
-                <TableCell>{i.quantidade_pedida}</TableCell>
+                <TableCell>{i.quantidade_pedida}{sufixo ? ` ${sufixo}` : ""}</TableCell>
                 <TableCell>
-                  <Input type="number" step="0.01" className="w-24"
-                    value={i.quantidade_recebida ?? ""}
-                    onChange={(e) => setQtd(i.tempId, "quantidade_recebida", Number(e.target.value))} />
+                  <div className="relative w-24">
+                    <Input type="number" step="0.01" className={sufixo ? "pr-10" : ""}
+                      value={i.quantidade_recebida ?? ""}
+                      onChange={(e) => setQtd(i.tempId, "quantidade_recebida", Number(e.target.value))} />
+                    {sufixo && (
+                      <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                        {sufixo}
+                      </span>
+                    )}
+                  </div>
                 </TableCell>
-                <TableCell>{metragemPedida(i).toFixed(2)}</TableCell>
-                <TableCell>{metragemRecebida(i).toFixed(2)}</TableCell>
+                <TableCell>{metragemPedida(i).toFixed(2)} m</TableCell>
+                <TableCell>{metragemRecebida(i).toFixed(2)} m</TableCell>
                 <TableCell>{fmtMoney(valorPrev(i))}</TableCell>
                 <TableCell>{fmtMoney(valorReal(i))}</TableCell>
               </TableRow>
