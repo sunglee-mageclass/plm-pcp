@@ -556,7 +556,7 @@ function VariantesSection({ artigoId }: { artigoId: string }) {
       <AlertDialog open={!!removeTarget} onOpenChange={(o) => !o && setRemoveTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remover variante?</AlertDialogTitle>
+            <AlertDialogTitle>Isso irá excluir a variante. Tem certeza?</AlertDialogTitle>
             <AlertDialogDescription>
               A cor{" "}
               <strong>
