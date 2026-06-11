@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { artigoLabel, unidadeSufixo } from "@/lib/artigo-label";
 import { fmtMoney, mensagemEntrega, type Artigo, type ItemDraft, type Variante } from "./shared";
 
 export function OcTecidoCalculos({
