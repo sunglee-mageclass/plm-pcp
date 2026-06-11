@@ -562,6 +562,10 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 onUploadFicha={uploadFicha}
                 observacoesGerais={draft.observacoes_gerais}
                 onChangeObservacoes={(v) => setDraft({ ...draft, observacoes_gerais: v })}
+                fotosModelo={draft.fotos_modelo ?? []}
+                fotosReferencia={draft.fotos_referencia ?? []}
+                onChangeFotosModelo={(p) => setDraft({ ...draft, fotos_modelo: p })}
+                onChangeFotosReferencia={(p) => setDraft({ ...draft, fotos_referencia: p })}
               />
             </AccordionContent>
           </AccordionItem>
