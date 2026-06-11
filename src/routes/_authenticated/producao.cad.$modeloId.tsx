@@ -60,7 +60,7 @@ function CadDetailPage() {
       const { data, error } = await supabase
         .from("modelo_tecidos")
         .select(
-          "id, numero, tipo, artigo_id, consumo, loss_percent, artigos:artigo_id(nome, preco_por_metro), modelo_tecido_variantes(id, variante_tecido_id, ordem, variantes_tecido:variante_tecido_id(nome))",
+          "id, numero, tipo, artigo_id, consumo, loss_percent, artigos:artigo_id(nome, preco_por_metro, unidade_medida), modelo_tecido_variantes(id, variante_tecido_id, ordem, variantes_tecido:variante_tecido_id(nome))",
         )
         .eq("modelo_id", modeloId)
         .order("tipo")
@@ -77,7 +77,7 @@ function CadDetailPage() {
       const { data, error } = await supabase
         .from("cad_tecidos")
         .select(
-          "*, artigos:artigo_id(nome, preco_por_metro), cad_tecido_variantes(*, variantes_tecido:variante_tecido_id(nome))",
+          "*, artigos:artigo_id(nome, preco_por_metro, unidade_medida), cad_tecido_variantes(*, variantes_tecido:variante_tecido_id(nome))",
         )
         .eq("cad_id", cadRow!.id);
       if (error) throw error;
@@ -152,7 +152,7 @@ function CadDetailPage() {
         custo_cad: Number(t.custo_cad ?? 0),
         tamanho_folha: Number(t.tamanho_folha ?? 0),
         preco: Number(t.artigos?.preco_por_metro ?? 0),
-        artigo_nome: t.artigos?.nome,
+        artigo_nome: t.artigos?.nome ? (t.artigos?.unidade_medida ? `${t.artigos.nome} [${t.artigos.unidade_medida}]` : t.artigos.nome) : null,
         variantes: (t.cad_tecido_variantes ?? []).map((v: any) => ({
           id: v.id,
           variante_tecido_id: v.variante_tecido_id,
@@ -177,7 +177,7 @@ function CadDetailPage() {
           custo_cad: calcCusto(consumo, loss, preco),
           tamanho_folha: 0,
           preco,
-          artigo_nome: mt.artigos?.nome,
+          artigo_nome: mt.artigos?.nome ? (mt.artigos?.unidade_medida ? `${mt.artigos.nome} [${mt.artigos.unidade_medida}]` : mt.artigos.nome) : null,
           variantes: (mt.modelo_tecido_variantes ?? []).map((v: any) => ({
             variante_tecido_id: v.variante_tecido_id,
             variante_nome: v.variantes_tecido?.nome,

@@ -3,10 +3,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { artigoLabel } from "@/lib/artigo-label";
 import { Field, FieldSelectOpt } from "./shared";
 import { TIPOS, TIPO_LABEL, type TecidoBlock } from "./types";
 
-type ArtigoOpt = { id: string; nome: string };
+type ArtigoOpt = { id: string; nome: string; unidade_medida?: string | null };
 
 export function ModeloTecidosSection({
   blocks,
@@ -72,7 +73,7 @@ function TecidoBlockEditor({ block, artigos, onChangeBlock, onChangeVariante }: 
           label={`${TIPO_LABEL[block.tipo]} ${block.numero} — Artigo`}
           value={block.artigo_id}
           onChange={(v) => onChangeBlock({ artigo_id: v, variantes: Array(10).fill(null) })}
-          options={artigos.map((a) => ({ id: a.id, nome: a.nome }))}
+          options={artigos.map((a) => ({ id: a.id, nome: artigoLabel(a) }))}
         />
         <Field label="Custo Previsto">
           <Input readOnly value={block.custo_previsto.toFixed(2)} />

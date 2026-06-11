@@ -5,6 +5,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { artigoLabel, unidadeSufixo } from "@/lib/artigo-label";
 import type { Artigo, ItemDraft, Variante } from "./shared";
 
 export function TecidoGroup({
@@ -23,6 +24,8 @@ export function TecidoGroup({
   const [search, setSearch] = useState("");
   const filteredArtigos = artigos.filter((a) => a.nome.toLowerCase().includes(search.toLowerCase()));
   const selectedIds = new Set(items.map((i) => i.variante_tecido_id));
+  const artigoAtual = artigos.find((a) => a.id === artigoId) ?? null;
+  const sufixo = unidadeSufixo(artigoAtual?.unidade_medida);
 
   return (
     <Card className="p-4 space-y-3">
@@ -39,7 +42,7 @@ export function TecidoGroup({
           <Select value={artigoId ?? ""} onValueChange={onArtigoChange}>
             <SelectTrigger className="w-72"><SelectValue placeholder="Selecionar artigo…" /></SelectTrigger>
             <SelectContent>
-              {filteredArtigos.map((a) => <SelectItem key={a.id} value={a.id}>{a.nome}</SelectItem>)}
+              {filteredArtigos.map((a) => <SelectItem key={a.id} value={a.id}>{artigoLabel(a)}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
@@ -71,9 +74,16 @@ export function TecidoGroup({
                 return (
                   <div key={i.tempId} className="flex items-center gap-3">
                     <span className="text-sm flex-1">{v?.nome_variante ?? v?.codigo_variante ?? "—"}</span>
-                    <Input type="number" step="0.01" className="w-32"
-                      value={i.quantidade_pedida}
-                      onChange={(e) => setQtd(i.tempId, "quantidade_pedida", Number(e.target.value))} />
+                    <div className="relative w-32">
+                      <Input type="number" step="0.01" className={sufixo ? "pr-10" : ""}
+                        value={i.quantidade_pedida}
+                        onChange={(e) => setQtd(i.tempId, "quantidade_pedida", Number(e.target.value))} />
+                      {sufixo && (
+                        <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                          {sufixo}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 );
               })}
