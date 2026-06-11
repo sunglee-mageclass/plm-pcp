@@ -178,6 +178,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         custo_terceirizados_previsto: Number(modelo.custo_terceirizados_previsto ?? 0),
         proporcoes: (modelo.proporcoes ?? {}) as Record<string, number>,
         enviado_cad: !!modelo.enviado_cad,
+        fotos_modelo: (modelo.fotos_modelo ?? []) as string[],
+        fotos_referencia: (modelo.fotos_referencia ?? []) as string[],
       });
     }
   }, [modelo]);
