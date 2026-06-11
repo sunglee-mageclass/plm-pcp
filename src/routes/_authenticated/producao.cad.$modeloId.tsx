@@ -472,6 +472,9 @@ function CadDetailPage() {
           <ArrowLeft className="h-4 w-4" /> Voltar
         </Link>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={handlePrint}>
+            <Printer className="h-4 w-4 mr-1" /> Imprimir Ficha
+          </Button>
           <Button variant="outline" onClick={() => saveAll.mutate()} disabled={saveAll.isPending}>
             <Save className="h-4 w-4 mr-1" /> Salvar
           </Button>
