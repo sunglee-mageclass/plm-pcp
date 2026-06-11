@@ -3,7 +3,7 @@ import { Shield } from "lucide-react";
 import { ModulePage } from "@/components/module-page";
 import { useAuth } from "@/hooks/useAuth";
 
-export const Route = createFileRoute("/_authenticated/admin")({
+export const Route = createFileRoute("/_authenticated/admin/")({
   component: AdminPage,
 });
 
