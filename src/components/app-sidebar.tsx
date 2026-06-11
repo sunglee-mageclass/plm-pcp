@@ -42,6 +42,8 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { PAGES_CATALOG } from "@/lib/permissions-catalog";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 
 const MODULE_META: Record<string, { title: string; icon: typeof BarChart3 }> = {
   dashboard: { title: "Dashboard", icon: BarChart3 },
