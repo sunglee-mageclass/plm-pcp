@@ -13,7 +13,10 @@ import {
   Store,
   Users,
   ChevronRight,
+  Sun,
+  Moon,
 } from "lucide-react";
+import { useTheme } from "@/hooks/useTheme";
 
 import {
   Sidebar,
