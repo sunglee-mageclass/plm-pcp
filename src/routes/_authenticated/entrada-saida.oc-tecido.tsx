@@ -223,12 +223,21 @@ function OcDialog({
     const artigoId = artigoIdFor(n);
     if (!artigoId) return;
     setItems((prev) => {
-      const others = prev.filter((i) => !(i.artigo_numero === n && i.variante_tecido_id === varId));
-      if (!checked) return others;
-      const selectedCount = prev.filter((i) => i.artigo_numero === n && i.variante_tecido_id).length;
-      if (selectedCount >= 10) { toast.error("Limite de 10 variantes por tecido"); return prev; }
+      // Lista ordenada das variantes selecionadas para este tecido
+      const selected = prev.filter((i) => i.artigo_numero === n && i.variante_tecido_id);
+      const others = prev.filter((i) => i.artigo_numero !== n || !i.variante_tecido_id);
+      if (!checked) {
+        // Remover essa variante e todas as subsequentes (cascade)
+        const idx = selected.findIndex((i) => i.variante_tecido_id === varId);
+        if (idx < 0) return prev;
+        const kept = selected.slice(0, idx);
+        return [...others, ...kept];
+      }
+      if (selected.some((i) => i.variante_tecido_id === varId)) return prev;
+      if (selected.length >= 10) { toast.error("Limite de 10 variantes por tecido"); return prev; }
       return [
-        ...others.filter((i) => i.artigo_numero !== n || i.variante_tecido_id),
+        ...others,
+        ...selected,
         {
           tempId: crypto.randomUUID(),
           artigo_numero: n,
