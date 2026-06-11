@@ -294,7 +294,15 @@ function TercDetailPage() {
               </Button>
             );
           })}
-          {(categorias as any[]).length === 0 && (
+          {categoriasLoading && (
+            <p className="text-sm text-muted-foreground">Carregando categorias…</p>
+          )}
+          {categoriasError && (
+            <p className="text-sm text-destructive">
+              Erro ao carregar categorias: {(categoriasError as any)?.message ?? "desconhecido"}
+            </p>
+          )}
+          {!categoriasLoading && !categoriasError && (categorias as any[]).length === 0 && (
             <p className="text-sm text-muted-foreground">Cadastre categorias em Cadastro &gt; Atributos.</p>
           )}
           {oficinaEmTerc && (
