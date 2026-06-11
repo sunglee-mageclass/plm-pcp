@@ -63,12 +63,14 @@ function OcTecidoPage() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
-      <header className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Scissors className="h-7 w-7 text-primary" />
+      <header className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-4">
+          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+            <Scissors className="h-6 w-6" />
+          </div>
           <div>
-            <h1 className="text-2xl font-bold">OC de Tecido</h1>
-            <p className="text-sm text-muted-foreground">Ordens de compra de tecidos.</p>
+            <h1 className="text-2xl font-semibold tracking-tight">OC de Tecido</h1>
+            <p className="text-sm text-muted-foreground mt-1">Ordens de compra de tecidos.</p>
           </div>
         </div>
         <Button onClick={() => { setEditingId(null); setOpenNew(true); }}>
