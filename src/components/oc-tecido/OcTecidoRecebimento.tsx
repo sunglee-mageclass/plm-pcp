@@ -1,5 +1,3 @@
-import { Upload } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -9,19 +7,20 @@ import { OcTecidoCalculos } from "./OcTecidoCalculos";
 import type { Artigo, Draft, ItemDraft, Variante } from "./shared";
 
 export function OcTecidoRecebimento({
-  draft, setDraft, handleSingleUpload, handleEtiquetaUpload,
+  draft, setDraft, handleSingleUpload,
   items, artigoMap, varianteMap, setQtd, totalPrevisto, totalReal,
+  tecido2Aberto,
 }: {
   draft: Draft;
   setDraft: React.Dispatch<React.SetStateAction<Draft>>;
   handleSingleUpload: (file: File, key: keyof Draft) => void;
-  handleEtiquetaUpload: (file: File) => void;
   items: ItemDraft[];
   artigoMap: Record<string, Artigo>;
   varianteMap: Record<string, Variante>;
   setQtd: (tempId: string, field: "quantidade_pedida" | "quantidade_recebida", v: number) => void;
   totalPrevisto: number;
   totalReal: number;
+  tecido2Aberto: boolean;
 }) {
   return (
     <>
@@ -39,24 +38,21 @@ export function OcTecidoRecebimento({
             onClear={() => setDraft((d) => ({ ...d, nf_url: null }))} />
         </div>
 
-        <div className="grid gap-2">
-          <Label>Etiquetas de Lavagem (até 2)</Label>
-          <div className="flex flex-wrap gap-2">
-            {draft.etiqueta_lavagem_urls.map((p, i) => (
-              <Badge key={i} variant="secondary" className="gap-2">
-                {p.split("/").pop()}
-                <button onClick={() => setDraft((d) => ({ ...d, etiqueta_lavagem_urls: d.etiqueta_lavagem_urls.filter((_, j) => j !== i) }))}>
-                  ×
-                </button>
-              </Badge>
-            ))}
-            {draft.etiqueta_lavagem_urls.length < 2 && (
-              <label className="inline-flex items-center gap-2 text-sm border rounded-md px-3 py-1.5 cursor-pointer hover:bg-accent">
-                <Upload className="h-4 w-4" /> Adicionar
-                <input type="file" className="hidden" onChange={(e) => e.target.files?.[0] && handleEtiquetaUpload(e.target.files[0])} />
-              </label>
-            )}
-          </div>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <FileField
+            label="Etiqueta de Lavagem — Tecido 1"
+            path={draft.etiqueta_lavagem_url_1}
+            onChange={(f) => handleSingleUpload(f, "etiqueta_lavagem_url_1")}
+            onClear={() => setDraft((d) => ({ ...d, etiqueta_lavagem_url_1: null }))}
+          />
+          {tecido2Aberto && (
+            <FileField
+              label="Etiqueta de Lavagem — Tecido 2"
+              path={draft.etiqueta_lavagem_url_2}
+              onChange={(f) => handleSingleUpload(f, "etiqueta_lavagem_url_2")}
+              onClear={() => setDraft((d) => ({ ...d, etiqueta_lavagem_url_2: null }))}
+            />
+          )}
         </div>
 
         <div className="grid gap-1">
