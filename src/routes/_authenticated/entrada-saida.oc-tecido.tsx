@@ -46,7 +46,7 @@ type Variante = {
 };
 type OCItem = {
   id: string;
-  oc_tecido_id: string;
+  oc_tecido_id: string | null;
   artigo_id: string | null;
   artigo_numero: number | null;
   variante_tecido_id: string | null;
