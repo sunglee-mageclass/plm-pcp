@@ -79,11 +79,11 @@ function TecidosTab() {
         gradeTotalByModelo.set(g.modelo_id, (gradeTotalByModelo.get(g.modelo_id) ?? 0) + num(g.grade_total));
       }
 
-      // Map por variante: previsao_receb (metros), recebido (metros), baixa (metros)
-      type Acc = { previsto: number; recebido: number; baixa: number; reservado: number };
+      // Map por variante: prevReceb (qtd OC encomendada), recebido (metros), baixa (metros), reservado (metros)
+      type Acc = { prevReceb: number; recebido: number; baixa: number; reservado: number };
       const byVar = new Map<string, Acc>();
       const get = (id: string) => {
-        if (!byVar.has(id)) byVar.set(id, { previsto: 0, recebido: 0, baixa: 0, reservado: 0 });
+        if (!byVar.has(id)) byVar.set(id, { prevReceb: 0, recebido: 0, baixa: 0, reservado: 0 });
         return byVar.get(id)!;
       };
 
@@ -96,9 +96,11 @@ function TecidosTab() {
         const art: any = artById.get(it.artigo_id);
         const acc = get(it.variante_tecido_id);
         if ((it as any).ocs_tecido?.status === "encomendado") {
-          acc.previsto += toMetros(art, num(it.quantidade_pedida));
+          acc.prevReceb += num(it.quantidade_pedida);
         }
-        acc.recebido += toMetros(art, num(it.quantidade_recebida));
+        if ((it as any).ocs_tecido?.status === "recebido") {
+          acc.recebido += toMetros(art, num(it.quantidade_recebida));
+        }
       }
 
       for (const cv of cadTecVar.data ?? []) {
@@ -130,7 +132,7 @@ function TecidosTab() {
       const variantesArr = variantes.data ?? [];
       const rows = variantesArr.map((v: any) => {
         const a: any = artById.get(v.artigo_id);
-        const acc = byVar.get(v.id) ?? { previsto: 0, recebido: 0, baixa: 0, reservado: 0 };
+        const acc = byVar.get(v.id) ?? { prevReceb: 0, recebido: 0, baixa: 0, reservado: 0 };
         const fisico = acc.recebido - acc.baixa;
         const previsto = fisico - acc.reservado;
         return {
@@ -142,7 +144,10 @@ function TecidosTab() {
           fornecedorId: a?.empresa_id ?? null,
           categoria: a?.categorias_tecido?.nome ?? "—",
           categoriaId: a?.categoria_tecido_id ?? null,
-          ...acc,
+          prevReceb: acc.prevReceb,
+          recebido: acc.recebido,
+          baixa: acc.baixa,
+          reservado: acc.reservado,
           fisico,
           previsto,
         };
@@ -239,7 +244,7 @@ function TecidosTab() {
                 {g.rows.map((r: any) => (
                   <tr key={r.varId} className={cn("border-b last:border-0", r.fisico <= 0 && "bg-destructive/10")}>
                     <td className="py-2 pr-3">{r.nomeVariante}</td>
-                    <td className="py-2 pr-3 text-right">{fmt(r.previsto + 0 || r.previsto)}</td>
+                    <td className="py-2 pr-3 text-right">{fmt(r.prevReceb)}</td>
                     <td className="py-2 pr-3 text-right">{fmt(r.recebido)}</td>
                     <td className="py-2 pr-3 text-right">{fmt(r.baixa)}</td>
                     <td className={cn("py-2 pr-3 text-right font-medium", r.fisico <= 0 && "text-destructive")}>{fmt(r.fisico)}</td>
@@ -288,18 +293,18 @@ function AviamentosTab() {
         gradeByModelo.set(g.modelo_id, (gradeByModelo.get(g.modelo_id) ?? 0) + num(g.grade_total));
       }
 
-      type Acc = { previsto: number; recebido: number; baixa: number; reservado: number };
+      type Acc = { prevReceb: number; recebido: number; baixa: number; reservado: number };
       const byAv = new Map<string, Acc>();
       const get = (id: string) => {
-        if (!byAv.has(id)) byAv.set(id, { previsto: 0, recebido: 0, baixa: 0, reservado: 0 });
+        if (!byAv.has(id)) byAv.set(id, { prevReceb: 0, recebido: 0, baixa: 0, reservado: 0 });
         return byAv.get(id)!;
       };
 
       for (const it of ocItens.data ?? []) {
         if (!it.aviamento_id) continue;
         const acc = get(it.aviamento_id);
-        if ((it as any).ocs_aviamento?.status === "encomendado") acc.previsto += num(it.quantidade_pedida);
-        acc.recebido += num(it.quantidade_recebida);
+        if ((it as any).ocs_aviamento?.status === "encomendado") acc.prevReceb += num(it.quantidade_pedida);
+        if ((it as any).ocs_aviamento?.status === "recebido") acc.recebido += num(it.quantidade_recebida);
       }
       for (const c of cadAv.data ?? []) {
         if (!c.aviamento_id) continue;
@@ -313,7 +318,7 @@ function AviamentosTab() {
       }
 
       const rows = (aviamentos.data ?? []).map((a: any) => {
-        const acc = byAv.get(a.id) ?? { previsto: 0, recebido: 0, baixa: 0, reservado: 0 };
+        const acc = byAv.get(a.id) ?? { prevReceb: 0, recebido: 0, baixa: 0, reservado: 0 };
         const fisico = acc.recebido - acc.baixa;
         const previsto = fisico - acc.reservado;
         return {
@@ -323,7 +328,10 @@ function AviamentosTab() {
           fornecedorId: a.empresa_id,
           categoria: a.categorias_aviamento?.nome ?? "—",
           categoriaId: a.categoria_aviamento_id,
-          ...acc,
+          prevReceb: acc.prevReceb,
+          recebido: acc.recebido,
+          baixa: acc.baixa,
+          reservado: acc.reservado,
           fisico,
           previsto,
         };
@@ -410,7 +418,7 @@ function AviamentosTab() {
                   <td className="py-2 pr-3">{r.nome}</td>
                   <td className="py-2 pr-3">{r.fornecedor}</td>
                   <td className="py-2 pr-3">{r.categoria}</td>
-                  <td className="py-2 pr-3 text-right">{fmt(r.previsto + 0 || r.previsto)}</td>
+                  <td className="py-2 pr-3 text-right">{fmt(r.prevReceb)}</td>
                   <td className="py-2 pr-3 text-right">{fmt(r.recebido)}</td>
                   <td className="py-2 pr-3 text-right">{fmt(r.baixa)}</td>
                   <td className={cn("py-2 pr-3 text-right font-medium", r.fisico <= 0 && "text-destructive")}>{fmt(r.fisico)}</td>
