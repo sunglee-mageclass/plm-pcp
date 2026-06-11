@@ -17,6 +17,12 @@ import {
   Moon,
 } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import {
   Sidebar,
