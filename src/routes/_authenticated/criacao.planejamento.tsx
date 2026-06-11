@@ -190,6 +190,7 @@ function PlanejamentoPage() {
           meses={meses}
           anos={anos}
           categorias={categorias}
+          artigos={artigos}
           onClose={() => { setOpenNew(false); setOpenId(null); }}
           onSaved={() => qc.invalidateQueries({ queryKey: ["modelos-planejamento"] })}
         />
