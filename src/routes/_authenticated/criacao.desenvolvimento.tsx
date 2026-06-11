@@ -263,6 +263,7 @@ function DesenvolvimentoPage() {
                     modelo={m}
                     estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
                     categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
+                    onOpen={() => setOpenId(m.id)}
                   />
                 ))}
               </div>
@@ -270,6 +271,8 @@ function DesenvolvimentoPage() {
           );
         })}
       </div>
+
+      <ModeloDetailPanel modeloId={openId} onClose={() => setOpenId(null)} />
     </div>
   );
 }
