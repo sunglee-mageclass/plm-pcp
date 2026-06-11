@@ -274,9 +274,9 @@ function ModeloDialog({
 }) {
   const isEdit = !!modeloId;
   const qc = useQueryClient();
-  const [draft, setDraft] = useStateInner<Draft>(emptyDraft());
-  const [tecidoText, setTecidoText] = useStateInner("");
-  const [confirmDel, setConfirmDel] = useStateInner(false);
+  const [draft, setDraft] = useState<Draft>(emptyDraft());
+  const [tecidoText, setTecidoText] = useState("");
+  const [confirmDel, setConfirmDel] = useState(false);
 
   useQuery({
     queryKey: ["modelo", modeloId],
