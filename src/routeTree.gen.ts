@@ -25,6 +25,7 @@ import { Route as AuthenticatedEntradaSaidaIndexRouteImport } from './routes/_au
 import { Route as AuthenticatedCriacaoIndexRouteImport } from './routes/_authenticated/criacao.index'
 import { Route as AuthenticatedCadastroIndexRouteImport } from './routes/_authenticated/cadastro.index'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
+import { Route as AuthenticatedProducaoTerceirizadosRouteImport } from './routes/_authenticated/producao.terceirizados'
 import { Route as AuthenticatedProducaoCadRouteImport } from './routes/_authenticated/producao.cad'
 import { Route as AuthenticatedEntradaSaidaOcTecidoRouteImport } from './routes/_authenticated/entrada-saida.oc-tecido'
 import { Route as AuthenticatedEntradaSaidaOcAviamentoRouteImport } from './routes/_authenticated/entrada-saida.oc-aviamento'
@@ -39,8 +40,10 @@ import { Route as AuthenticatedAdminUsuariosLojaRouteImport } from './routes/_au
 import { Route as AuthenticatedAdminUsuariosRouteImport } from './routes/_authenticated/admin/usuarios'
 import { Route as AuthenticatedAdminLojasRouteImport } from './routes/_authenticated/admin/lojas'
 import { Route as AuthenticatedAdminConfiguracoesRouteImport } from './routes/_authenticated/admin/configuracoes'
+import { Route as AuthenticatedProducaoTerceirizadosIndexRouteImport } from './routes/_authenticated/producao.terceirizados.index'
 import { Route as AuthenticatedProducaoCadIndexRouteImport } from './routes/_authenticated/producao.cad.index'
 import { Route as AuthenticatedCadastroTecidosIndexRouteImport } from './routes/_authenticated/cadastro.tecidos.index'
+import { Route as AuthenticatedProducaoTerceirizadosModeloIdRouteImport } from './routes/_authenticated/producao.terceirizados.$modeloId'
 import { Route as AuthenticatedProducaoCadModeloIdRouteImport } from './routes/_authenticated/producao.cad.$modeloId'
 import { Route as AuthenticatedCadastroTecidosArtigoIdRouteImport } from './routes/_authenticated/cadastro.tecidos.$artigoId'
 
@@ -129,6 +132,12 @@ const AuthenticatedAdminIndexRoute = AuthenticatedAdminIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthenticatedAdminRouteRoute,
 } as any)
+const AuthenticatedProducaoTerceirizadosRoute =
+  AuthenticatedProducaoTerceirizadosRouteImport.update({
+    id: '/terceirizados',
+    path: '/terceirizados',
+    getParentRoute: () => AuthenticatedProducaoRoute,
+  } as any)
 const AuthenticatedProducaoCadRoute =
   AuthenticatedProducaoCadRouteImport.update({
     id: '/cad',
@@ -212,6 +221,12 @@ const AuthenticatedAdminConfiguracoesRoute =
     path: '/configuracoes',
     getParentRoute: () => AuthenticatedAdminRouteRoute,
   } as any)
+const AuthenticatedProducaoTerceirizadosIndexRoute =
+  AuthenticatedProducaoTerceirizadosIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedProducaoTerceirizadosRoute,
+  } as any)
 const AuthenticatedProducaoCadIndexRoute =
   AuthenticatedProducaoCadIndexRouteImport.update({
     id: '/',
@@ -223,6 +238,12 @@ const AuthenticatedCadastroTecidosIndexRoute =
     id: '/',
     path: '/',
     getParentRoute: () => AuthenticatedCadastroTecidosRoute,
+  } as any)
+const AuthenticatedProducaoTerceirizadosModeloIdRoute =
+  AuthenticatedProducaoTerceirizadosModeloIdRouteImport.update({
+    id: '/$modeloId',
+    path: '/$modeloId',
+    getParentRoute: () => AuthenticatedProducaoTerceirizadosRoute,
   } as any)
 const AuthenticatedProducaoCadModeloIdRoute =
   AuthenticatedProducaoCadModeloIdRouteImport.update({
@@ -262,6 +283,7 @@ export interface FileRoutesByFullPath {
   '/entrada-saida/oc-aviamento': typeof AuthenticatedEntradaSaidaOcAviamentoRoute
   '/entrada-saida/oc-tecido': typeof AuthenticatedEntradaSaidaOcTecidoRoute
   '/producao/cad': typeof AuthenticatedProducaoCadRouteWithChildren
+  '/producao/terceirizados': typeof AuthenticatedProducaoTerceirizadosRouteWithChildren
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/cadastro/': typeof AuthenticatedCadastroIndexRoute
   '/criacao/': typeof AuthenticatedCriacaoIndexRoute
@@ -269,8 +291,10 @@ export interface FileRoutesByFullPath {
   '/producao/': typeof AuthenticatedProducaoIndexRoute
   '/cadastro/tecidos/$artigoId': typeof AuthenticatedCadastroTecidosArtigoIdRoute
   '/producao/cad/$modeloId': typeof AuthenticatedProducaoCadModeloIdRoute
+  '/producao/terceirizados/$modeloId': typeof AuthenticatedProducaoTerceirizadosModeloIdRoute
   '/cadastro/tecidos/': typeof AuthenticatedCadastroTecidosIndexRoute
   '/producao/cad/': typeof AuthenticatedProducaoCadIndexRoute
+  '/producao/terceirizados/': typeof AuthenticatedProducaoTerceirizadosIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -297,8 +321,10 @@ export interface FileRoutesByTo {
   '/producao': typeof AuthenticatedProducaoIndexRoute
   '/cadastro/tecidos/$artigoId': typeof AuthenticatedCadastroTecidosArtigoIdRoute
   '/producao/cad/$modeloId': typeof AuthenticatedProducaoCadModeloIdRoute
+  '/producao/terceirizados/$modeloId': typeof AuthenticatedProducaoTerceirizadosModeloIdRoute
   '/cadastro/tecidos': typeof AuthenticatedCadastroTecidosIndexRoute
   '/producao/cad': typeof AuthenticatedProducaoCadIndexRoute
+  '/producao/terceirizados': typeof AuthenticatedProducaoTerceirizadosIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -327,6 +353,7 @@ export interface FileRoutesById {
   '/_authenticated/entrada-saida/oc-aviamento': typeof AuthenticatedEntradaSaidaOcAviamentoRoute
   '/_authenticated/entrada-saida/oc-tecido': typeof AuthenticatedEntradaSaidaOcTecidoRoute
   '/_authenticated/producao/cad': typeof AuthenticatedProducaoCadRouteWithChildren
+  '/_authenticated/producao/terceirizados': typeof AuthenticatedProducaoTerceirizadosRouteWithChildren
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/_authenticated/cadastro/': typeof AuthenticatedCadastroIndexRoute
   '/_authenticated/criacao/': typeof AuthenticatedCriacaoIndexRoute
@@ -334,8 +361,10 @@ export interface FileRoutesById {
   '/_authenticated/producao/': typeof AuthenticatedProducaoIndexRoute
   '/_authenticated/cadastro/tecidos/$artigoId': typeof AuthenticatedCadastroTecidosArtigoIdRoute
   '/_authenticated/producao/cad/$modeloId': typeof AuthenticatedProducaoCadModeloIdRoute
+  '/_authenticated/producao/terceirizados/$modeloId': typeof AuthenticatedProducaoTerceirizadosModeloIdRoute
   '/_authenticated/cadastro/tecidos/': typeof AuthenticatedCadastroTecidosIndexRoute
   '/_authenticated/producao/cad/': typeof AuthenticatedProducaoCadIndexRoute
+  '/_authenticated/producao/terceirizados/': typeof AuthenticatedProducaoTerceirizadosIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -364,6 +393,7 @@ export interface FileRouteTypes {
     | '/entrada-saida/oc-aviamento'
     | '/entrada-saida/oc-tecido'
     | '/producao/cad'
+    | '/producao/terceirizados'
     | '/admin/'
     | '/cadastro/'
     | '/criacao/'
@@ -371,8 +401,10 @@ export interface FileRouteTypes {
     | '/producao/'
     | '/cadastro/tecidos/$artigoId'
     | '/producao/cad/$modeloId'
+    | '/producao/terceirizados/$modeloId'
     | '/cadastro/tecidos/'
     | '/producao/cad/'
+    | '/producao/terceirizados/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -399,8 +431,10 @@ export interface FileRouteTypes {
     | '/producao'
     | '/cadastro/tecidos/$artigoId'
     | '/producao/cad/$modeloId'
+    | '/producao/terceirizados/$modeloId'
     | '/cadastro/tecidos'
     | '/producao/cad'
+    | '/producao/terceirizados'
   id:
     | '__root__'
     | '/'
@@ -428,6 +462,7 @@ export interface FileRouteTypes {
     | '/_authenticated/entrada-saida/oc-aviamento'
     | '/_authenticated/entrada-saida/oc-tecido'
     | '/_authenticated/producao/cad'
+    | '/_authenticated/producao/terceirizados'
     | '/_authenticated/admin/'
     | '/_authenticated/cadastro/'
     | '/_authenticated/criacao/'
@@ -435,8 +470,10 @@ export interface FileRouteTypes {
     | '/_authenticated/producao/'
     | '/_authenticated/cadastro/tecidos/$artigoId'
     | '/_authenticated/producao/cad/$modeloId'
+    | '/_authenticated/producao/terceirizados/$modeloId'
     | '/_authenticated/cadastro/tecidos/'
     | '/_authenticated/producao/cad/'
+    | '/_authenticated/producao/terceirizados/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -559,6 +596,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminIndexRouteImport
       parentRoute: typeof AuthenticatedAdminRouteRoute
     }
+    '/_authenticated/producao/terceirizados': {
+      id: '/_authenticated/producao/terceirizados'
+      path: '/terceirizados'
+      fullPath: '/producao/terceirizados'
+      preLoaderRoute: typeof AuthenticatedProducaoTerceirizadosRouteImport
+      parentRoute: typeof AuthenticatedProducaoRoute
+    }
     '/_authenticated/producao/cad': {
       id: '/_authenticated/producao/cad'
       path: '/cad'
@@ -657,6 +701,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminConfiguracoesRouteImport
       parentRoute: typeof AuthenticatedAdminRouteRoute
     }
+    '/_authenticated/producao/terceirizados/': {
+      id: '/_authenticated/producao/terceirizados/'
+      path: '/'
+      fullPath: '/producao/terceirizados/'
+      preLoaderRoute: typeof AuthenticatedProducaoTerceirizadosIndexRouteImport
+      parentRoute: typeof AuthenticatedProducaoTerceirizadosRoute
+    }
     '/_authenticated/producao/cad/': {
       id: '/_authenticated/producao/cad/'
       path: '/'
@@ -670,6 +721,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/cadastro/tecidos/'
       preLoaderRoute: typeof AuthenticatedCadastroTecidosIndexRouteImport
       parentRoute: typeof AuthenticatedCadastroTecidosRoute
+    }
+    '/_authenticated/producao/terceirizados/$modeloId': {
+      id: '/_authenticated/producao/terceirizados/$modeloId'
+      path: '/$modeloId'
+      fullPath: '/producao/terceirizados/$modeloId'
+      preLoaderRoute: typeof AuthenticatedProducaoTerceirizadosModeloIdRouteImport
+      parentRoute: typeof AuthenticatedProducaoTerceirizadosRoute
     }
     '/_authenticated/producao/cad/$modeloId': {
       id: '/_authenticated/producao/cad/$modeloId'
@@ -806,13 +864,34 @@ const AuthenticatedProducaoCadRouteWithChildren =
     AuthenticatedProducaoCadRouteChildren,
   )
 
+interface AuthenticatedProducaoTerceirizadosRouteChildren {
+  AuthenticatedProducaoTerceirizadosModeloIdRoute: typeof AuthenticatedProducaoTerceirizadosModeloIdRoute
+  AuthenticatedProducaoTerceirizadosIndexRoute: typeof AuthenticatedProducaoTerceirizadosIndexRoute
+}
+
+const AuthenticatedProducaoTerceirizadosRouteChildren: AuthenticatedProducaoTerceirizadosRouteChildren =
+  {
+    AuthenticatedProducaoTerceirizadosModeloIdRoute:
+      AuthenticatedProducaoTerceirizadosModeloIdRoute,
+    AuthenticatedProducaoTerceirizadosIndexRoute:
+      AuthenticatedProducaoTerceirizadosIndexRoute,
+  }
+
+const AuthenticatedProducaoTerceirizadosRouteWithChildren =
+  AuthenticatedProducaoTerceirizadosRoute._addFileChildren(
+    AuthenticatedProducaoTerceirizadosRouteChildren,
+  )
+
 interface AuthenticatedProducaoRouteChildren {
   AuthenticatedProducaoCadRoute: typeof AuthenticatedProducaoCadRouteWithChildren
+  AuthenticatedProducaoTerceirizadosRoute: typeof AuthenticatedProducaoTerceirizadosRouteWithChildren
   AuthenticatedProducaoIndexRoute: typeof AuthenticatedProducaoIndexRoute
 }
 
 const AuthenticatedProducaoRouteChildren: AuthenticatedProducaoRouteChildren = {
   AuthenticatedProducaoCadRoute: AuthenticatedProducaoCadRouteWithChildren,
+  AuthenticatedProducaoTerceirizadosRoute:
+    AuthenticatedProducaoTerceirizadosRouteWithChildren,
   AuthenticatedProducaoIndexRoute: AuthenticatedProducaoIndexRoute,
 }
 

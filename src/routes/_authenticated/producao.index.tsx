@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Factory, Scissors } from "lucide-react";
+import { Factory, Scissors, Users } from "lucide-react";
 import { Card } from "@/components/ui/card";
 
 export const Route = createFileRoute("/_authenticated/producao/")({
@@ -8,6 +8,7 @@ export const Route = createFileRoute("/_authenticated/producao/")({
 
 const sections = [
   { to: "/producao/cad", title: "CAD", desc: "Modelos enviados ao CAD.", icon: Scissors },
+  { to: "/producao/terceirizados", title: "Terceirizados", desc: "Serviços terceirizados por REF.", icon: Users },
 ];
 
 function ProducaoIndex() {
