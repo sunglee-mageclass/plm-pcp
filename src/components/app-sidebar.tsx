@@ -122,16 +122,48 @@ export function AppSidebar() {
           <SidebarGroupLabel>Operação</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {visibleMainItems.map((item) => (
-                <SidebarMenuItem key={item.url}>
-                  <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
-                    <Link to={item.url}>
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {visibleMainItems.map((item) => {
+                const active = isActive(item.url);
+                if (item.subs.length === 0) {
+                  return (
+                    <SidebarMenuItem key={item.url}>
+                      <SidebarMenuButton asChild isActive={active} tooltip={item.title}>
+                        <Link to={item.url}>
+                          <item.icon className="h-4 w-4" />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                }
+                return (
+                  <Collapsible key={item.url} defaultOpen={active} className="group/collapsible">
+                    <SidebarMenuItem>
+                      <CollapsibleTrigger asChild>
+                        <SidebarMenuButton isActive={active} tooltip={item.title}>
+                          <item.icon className="h-4 w-4" />
+                          <span>{item.title}</span>
+                          <ChevronRight className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90" />
+                        </SidebarMenuButton>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <SidebarMenuSub>
+                          {item.subs.map((sub) => (
+                            <SidebarMenuSubItem key={sub.key}>
+                              <SidebarMenuSubButton asChild isActive={isActive(sub.url)}>
+                                <Link to={sub.url}>
+                                  <span>{sub.label}</span>
+                                </Link>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          ))}
+                        </SidebarMenuSub>
+                      </CollapsibleContent>
+                    </SidebarMenuItem>
+                  </Collapsible>
+                );
+              })}
+
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
