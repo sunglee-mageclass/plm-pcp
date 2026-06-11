@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ModeloDetailPanel } from "@/components/desenvolvimento/ModeloDetailPanel";
 
 export const Route = createFileRoute("/_authenticated/criacao/desenvolvimento")({
   component: DesenvolvimentoPage,
@@ -99,6 +100,7 @@ function DesenvolvimentoPage() {
   const [fAno, setFAno] = useState("all");
   const [fColecao, setFColecao] = useState("all");
   const [dragOver, setDragOver] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
 
   const { data: estilistas = [] } = useColaboradoresByTipo("estilista");
   const { data: modelistas = [] } = useColaboradoresByTipo("modelista");
@@ -261,6 +263,7 @@ function DesenvolvimentoPage() {
                     modelo={m}
                     estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
                     categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
+                    onOpen={() => setOpenId(m.id)}
                   />
                 ))}
               </div>
@@ -268,6 +271,8 @@ function DesenvolvimentoPage() {
           );
         })}
       </div>
+
+      <ModeloDetailPanel modeloId={openId} onClose={() => setOpenId(null)} />
     </div>
   );
 }
@@ -288,8 +293,8 @@ function FilterSelect({ label, value, onChange, options }: {
   );
 }
 
-function KanbanCard({ modelo, estilistaNome, categoriaNome }: {
-  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null;
+function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen }: {
+  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; onOpen: () => void;
 }) {
   const photo = modelo.fotos_modelo?.[0] ?? null;
   const url = useSignedUrlBucket(photo);
@@ -301,9 +306,7 @@ function KanbanCard({ modelo, estilistaNome, categoriaNome }: {
         e.dataTransfer.effectAllowed = "move";
       }}
       className="bg-card border rounded-md p-2 cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow"
-      onClick={() => {
-        // detail panel will be wired in the next prompt
-      }}
+      onClick={onOpen}
     >
       <div className="flex gap-2">
         <div className="h-14 w-14 shrink-0 rounded bg-muted overflow-hidden flex items-center justify-center">
