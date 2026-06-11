@@ -677,6 +677,9 @@ export type Database = {
           data_conserto_prevista: string | null
           data_lavagem_entregue: string | null
           data_lavagem_enviado: string | null
+          data_recebimento_entregue: string | null
+          data_recebimento_enviado_oficina: string | null
+          data_recebimento_prevista: string | null
           id: string
           observacoes_cq: string | null
           pecas_faltantes: number | null
@@ -692,6 +695,9 @@ export type Database = {
           data_conserto_prevista?: string | null
           data_lavagem_entregue?: string | null
           data_lavagem_enviado?: string | null
+          data_recebimento_entregue?: string | null
+          data_recebimento_enviado_oficina?: string | null
+          data_recebimento_prevista?: string | null
           id?: string
           observacoes_cq?: string | null
           pecas_faltantes?: number | null
@@ -707,6 +713,9 @@ export type Database = {
           data_conserto_prevista?: string | null
           data_lavagem_entregue?: string | null
           data_lavagem_enviado?: string | null
+          data_recebimento_entregue?: string | null
+          data_recebimento_enviado_oficina?: string | null
+          data_recebimento_prevista?: string | null
           id?: string
           observacoes_cq?: string | null
           pecas_faltantes?: number | null

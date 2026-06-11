@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Factory, Scissors, Users, Wrench } from "lucide-react";
+import { Factory, Scissors, Users, Wrench, ClipboardCheck } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 
@@ -12,6 +12,7 @@ const SECTIONS = {
   cad: { to: "/producao/cad", title: "CAD", desc: "Modelos enviados ao CAD.", icon: Scissors },
   terceirizados: { to: "/producao/terceirizados", title: "Terceirizados", desc: "Serviços terceirizados por REF.", icon: Users },
   oficina: { to: "/producao/oficina", title: "Oficina", desc: "Costura e montagem por REF.", icon: Wrench },
+  cq: { to: "/producao/cq", title: "Controle de Qualidade", desc: "Recebimento, conserto, lavagem, defeito.", icon: ClipboardCheck },
 } as const;
 
 function ProducaoIndex() {
@@ -28,8 +29,8 @@ function ProducaoIndex() {
   const pos = (cfg as any)?.oficina_posicao ?? "depois_terceirizados";
   const ordered: (keyof typeof SECTIONS)[] =
     pos === "antes_terceirizados"
-      ? ["cad", "oficina", "terceirizados"]
-      : ["cad", "terceirizados", "oficina"];
+      ? ["cad", "oficina", "terceirizados", "cq"]
+      : ["cad", "terceirizados", "oficina", "cq"];
 
   return (
     <div className="container mx-auto p-6 space-y-6">
