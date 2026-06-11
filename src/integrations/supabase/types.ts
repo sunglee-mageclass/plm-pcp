@@ -1296,6 +1296,7 @@ export type Database = {
           semana: string | null
           status_desenvolvimento: string | null
           status_planejamento: string | null
+          tecidos_planejados: string[]
           tenant_id: string | null
         }
         Insert: {
@@ -1337,6 +1338,7 @@ export type Database = {
           semana?: string | null
           status_desenvolvimento?: string | null
           status_planejamento?: string | null
+          tecidos_planejados?: string[]
           tenant_id?: string | null
         }
         Update: {
@@ -1378,6 +1380,7 @@ export type Database = {
           semana?: string | null
           status_desenvolvimento?: string | null
           status_planejamento?: string | null
+          tecidos_planejados?: string[]
           tenant_id?: string | null
         }
         Relationships: [

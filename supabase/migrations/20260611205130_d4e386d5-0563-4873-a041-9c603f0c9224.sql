@@ -1,0 +1,1 @@
+ALTER TABLE public.modelos ADD COLUMN IF NOT EXISTS tecidos_planejados uuid[] NOT NULL DEFAULT '{}';
