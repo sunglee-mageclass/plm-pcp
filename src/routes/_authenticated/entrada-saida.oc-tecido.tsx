@@ -301,6 +301,8 @@ function OcDialog({
         modelo_sugerido_url: draft.modelo_sugerido_url,
         nf_url: draft.nf_url,
         etiqueta_lavagem_urls: draft.etiqueta_lavagem_urls,
+        etiqueta_lavagem_url_1: draft.etiqueta_lavagem_url_1,
+        etiqueta_lavagem_url_2: draft.etiqueta_lavagem_url_2,
         data_entrega: draft.data_entrega || null,
         valor_previsto_total: totalPrevisto,
         valor_real_total: totalReal,
