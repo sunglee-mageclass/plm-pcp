@@ -384,12 +384,52 @@ function ModeloDialog({
             <FieldText label="Nome do Modelo" value={draft.nome} onChange={(v) => setDraft((d) => ({ ...d, nome: v }))} />
             <FieldSelect label="Estilista" value={draft.estilista_id} onChange={(v) => setDraft((d) => ({ ...d, estilista_id: v }))} options={estilistas} />
             <FieldText label="Coleção" value={draft.colecao} onChange={(v) => setDraft((d) => ({ ...d, colecao: v }))} />
-            <FieldText label="Semana" value={draft.semana} onChange={(v) => setDraft((d) => ({ ...d, semana: v }))} />
+            <div className="grid gap-1">
+              <Label>Semana</Label>
+              <Select value={draft.semana || ""} onValueChange={(v) => setDraft((d) => ({ ...d, semana: v }))}>
+                <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                <SelectContent>
+                  {["1","2","3","4","5"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
             <FieldSelect label="Mês" value={draft.mes_id} onChange={(v) => setDraft((d) => ({ ...d, mes_id: v }))} options={meses} />
             <FieldSelect label="Ano" value={draft.ano_id} onChange={(v) => setDraft((d) => ({ ...d, ano_id: v }))} options={anos} />
-            <FieldSelect label="Categoria Principal" value={draft.categoria_principal_id} onChange={(v) => setDraft((d) => ({ ...d, categoria_principal_id: v }))} options={categorias} />
-            <FieldSelect label="Categoria Secundária" value={draft.categoria_secundaria_id} onChange={(v) => setDraft((d) => ({ ...d, categoria_secundaria_id: v }))} options={categorias} />
-            <FieldText label="Tecido Planejado" value={tecidoText} onChange={setTecidoText} />
+            <FieldSelect
+              label="Categoria Principal"
+              value={draft.categoria_principal_id}
+              onChange={(v) => {
+                const cat = categorias.find((c) => c.id === v);
+                const isConjunto = (cat?.nome ?? "").toLowerCase() === "conjunto";
+                setDraft((d) => ({
+                  ...d,
+                  categoria_principal_id: v,
+                  categoria_secundaria_id: isConjunto ? d.categoria_secundaria_id : null,
+                }));
+              }}
+              options={categorias}
+            />
+            {(() => {
+              const cat = categorias.find((c) => c.id === draft.categoria_principal_id);
+              const isConjunto = (cat?.nome ?? "").toLowerCase() === "conjunto";
+              if (!isConjunto) return null;
+              return (
+                <FieldSelect
+                  label="Categoria Secundária"
+                  value={draft.categoria_secundaria_id}
+                  onChange={(v) => setDraft((d) => ({ ...d, categoria_secundaria_id: v }))}
+                  options={categorias.filter((c) => c.id !== draft.categoria_principal_id)}
+                />
+              );
+            })()}
+            <div className="sm:col-span-2">
+              <MultiArtigosField
+                label="Tecido Planejado"
+                value={draft.tecidos_planejados}
+                onChange={(v) => setDraft((d) => ({ ...d, tecidos_planejados: v }))}
+                artigos={artigos}
+              />
+            </div>
             <div className="grid gap-1">
               <Label>Status</Label>
               <Select value={draft.status_planejamento} onValueChange={(v) => setDraft((d) => ({ ...d, status_planejamento: v }))}>
