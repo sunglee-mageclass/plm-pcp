@@ -152,7 +152,7 @@ function CadDetailPage() {
         custo_cad: Number(t.custo_cad ?? 0),
         tamanho_folha: Number(t.tamanho_folha ?? 0),
         preco: Number(t.artigos?.preco_por_metro ?? 0),
-        artigo_nome: t.artigos?.nome,
+        artigo_nome: t.artigos?.nome ? (t.artigos?.unidade_medida ? `${t.artigos.nome} [${t.artigos.unidade_medida}]` : t.artigos.nome) : null,
         variantes: (t.cad_tecido_variantes ?? []).map((v: any) => ({
           id: v.id,
           variante_tecido_id: v.variante_tecido_id,
