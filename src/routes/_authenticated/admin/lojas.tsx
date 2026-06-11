@@ -1,7 +1,7 @@
 import { createFileRoute, Navigate } from "@tanstack/react-router";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Store, Plus, Search, Upload } from "lucide-react";
+import { Store, Plus, Search, Upload, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -35,6 +35,7 @@ function LojasPage() {
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
+  const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
 
   const { data: tenants = [], isLoading } = useQuery({
     queryKey: ["admin", "tenants"],
@@ -111,7 +112,7 @@ function LojasPage() {
               <TableHead>Nome</TableHead>
               <TableHead>CNPJ</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead className="text-right">Ativar/Desativar</TableHead>
+              <TableHead className="text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -139,10 +140,20 @@ function LojasPage() {
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Switch
-                      checked={t.ativo}
-                      onCheckedChange={(checked) => toggleAtivo.mutate({ id: t.id, ativo: checked })}
-                    />
+                    <div className="inline-flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setEditingTenant(t)}
+                        aria-label="Editar loja"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Switch
+                        checked={t.ativo}
+                        onCheckedChange={(checked) => toggleAtivo.mutate({ id: t.id, ativo: checked })}
+                      />
+                    </div>
                   </TableCell>
                 </TableRow>
               ))
@@ -150,6 +161,12 @@ function LojasPage() {
           </TableBody>
         </Table>
       </div>
+
+      <Dialog open={!!editingTenant} onOpenChange={(o) => !o && setEditingTenant(null)}>
+        {editingTenant && (
+          <EditarLojaModal tenant={editingTenant} onClose={() => setEditingTenant(null)} />
+        )}
+      </Dialog>
     </div>
   );
 }
