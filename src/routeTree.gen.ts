@@ -23,6 +23,7 @@ import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedEntradaSaidaIndexRouteImport } from './routes/_authenticated/entrada-saida.index'
 import { Route as AuthenticatedCadastroIndexRouteImport } from './routes/_authenticated/cadastro.index'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
+import { Route as AuthenticatedEntradaSaidaOcTecidoRouteImport } from './routes/_authenticated/entrada-saida.oc-tecido'
 import { Route as AuthenticatedCadastroTecidosRouteImport } from './routes/_authenticated/cadastro.tecidos'
 import { Route as AuthenticatedCadastroServicoRouteImport } from './routes/_authenticated/cadastro.servico'
 import { Route as AuthenticatedCadastroColaboradoresRouteImport } from './routes/_authenticated/cadastro.colaboradores'
@@ -108,6 +109,12 @@ const AuthenticatedAdminIndexRoute = AuthenticatedAdminIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthenticatedAdminRoute,
 } as any)
+const AuthenticatedEntradaSaidaOcTecidoRoute =
+  AuthenticatedEntradaSaidaOcTecidoRouteImport.update({
+    id: '/oc-tecido',
+    path: '/oc-tecido',
+    getParentRoute: () => AuthenticatedEntradaSaidaRoute,
+  } as any)
 const AuthenticatedCadastroTecidosRoute =
   AuthenticatedCadastroTecidosRouteImport.update({
     id: '/tecidos',
@@ -194,6 +201,7 @@ export interface FileRoutesByFullPath {
   '/cadastro/colaboradores': typeof AuthenticatedCadastroColaboradoresRoute
   '/cadastro/servico': typeof AuthenticatedCadastroServicoRoute
   '/cadastro/tecidos': typeof AuthenticatedCadastroTecidosRouteWithChildren
+  '/entrada-saida/oc-tecido': typeof AuthenticatedEntradaSaidaOcTecidoRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/cadastro/': typeof AuthenticatedCadastroIndexRoute
   '/entrada-saida/': typeof AuthenticatedEntradaSaidaIndexRoute
@@ -216,6 +224,7 @@ export interface FileRoutesByTo {
   '/cadastro/aviamentos': typeof AuthenticatedCadastroAviamentosRoute
   '/cadastro/colaboradores': typeof AuthenticatedCadastroColaboradoresRoute
   '/cadastro/servico': typeof AuthenticatedCadastroServicoRoute
+  '/entrada-saida/oc-tecido': typeof AuthenticatedEntradaSaidaOcTecidoRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/cadastro': typeof AuthenticatedCadastroIndexRoute
   '/entrada-saida': typeof AuthenticatedEntradaSaidaIndexRoute
@@ -244,6 +253,7 @@ export interface FileRoutesById {
   '/_authenticated/cadastro/colaboradores': typeof AuthenticatedCadastroColaboradoresRoute
   '/_authenticated/cadastro/servico': typeof AuthenticatedCadastroServicoRoute
   '/_authenticated/cadastro/tecidos': typeof AuthenticatedCadastroTecidosRouteWithChildren
+  '/_authenticated/entrada-saida/oc-tecido': typeof AuthenticatedEntradaSaidaOcTecidoRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/_authenticated/cadastro/': typeof AuthenticatedCadastroIndexRoute
   '/_authenticated/entrada-saida/': typeof AuthenticatedEntradaSaidaIndexRoute
@@ -272,6 +282,7 @@ export interface FileRouteTypes {
     | '/cadastro/colaboradores'
     | '/cadastro/servico'
     | '/cadastro/tecidos'
+    | '/entrada-saida/oc-tecido'
     | '/admin/'
     | '/cadastro/'
     | '/entrada-saida/'
@@ -294,6 +305,7 @@ export interface FileRouteTypes {
     | '/cadastro/aviamentos'
     | '/cadastro/colaboradores'
     | '/cadastro/servico'
+    | '/entrada-saida/oc-tecido'
     | '/admin'
     | '/cadastro'
     | '/entrada-saida'
@@ -321,6 +333,7 @@ export interface FileRouteTypes {
     | '/_authenticated/cadastro/colaboradores'
     | '/_authenticated/cadastro/servico'
     | '/_authenticated/cadastro/tecidos'
+    | '/_authenticated/entrada-saida/oc-tecido'
     | '/_authenticated/admin/'
     | '/_authenticated/cadastro/'
     | '/_authenticated/entrada-saida/'
@@ -433,6 +446,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin/'
       preLoaderRoute: typeof AuthenticatedAdminIndexRouteImport
       parentRoute: typeof AuthenticatedAdminRoute
+    }
+    '/_authenticated/entrada-saida/oc-tecido': {
+      id: '/_authenticated/entrada-saida/oc-tecido'
+      path: '/oc-tecido'
+      fullPath: '/entrada-saida/oc-tecido'
+      preLoaderRoute: typeof AuthenticatedEntradaSaidaOcTecidoRouteImport
+      parentRoute: typeof AuthenticatedEntradaSaidaRoute
     }
     '/_authenticated/cadastro/tecidos': {
       id: '/_authenticated/cadastro/tecidos'
@@ -577,11 +597,14 @@ const AuthenticatedCadastroRouteWithChildren =
   )
 
 interface AuthenticatedEntradaSaidaRouteChildren {
+  AuthenticatedEntradaSaidaOcTecidoRoute: typeof AuthenticatedEntradaSaidaOcTecidoRoute
   AuthenticatedEntradaSaidaIndexRoute: typeof AuthenticatedEntradaSaidaIndexRoute
 }
 
 const AuthenticatedEntradaSaidaRouteChildren: AuthenticatedEntradaSaidaRouteChildren =
   {
+    AuthenticatedEntradaSaidaOcTecidoRoute:
+      AuthenticatedEntradaSaidaOcTecidoRoute,
     AuthenticatedEntradaSaidaIndexRoute: AuthenticatedEntradaSaidaIndexRoute,
   }
 
@@ -624,3 +647,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
