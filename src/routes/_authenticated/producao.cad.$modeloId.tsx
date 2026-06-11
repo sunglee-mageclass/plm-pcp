@@ -60,7 +60,7 @@ function CadDetailPage() {
       const { data, error } = await supabase
         .from("modelo_tecidos")
         .select(
-          "id, numero, tipo, artigo_id, consumo, loss_percent, artigos:artigo_id(nome, preco_por_metro), modelo_tecido_variantes(id, variante_tecido_id, ordem, variantes_tecido:variante_tecido_id(nome))",
+          "id, numero, tipo, artigo_id, consumo, loss_percent, artigos:artigo_id(nome, preco_por_metro, unidade_medida), modelo_tecido_variantes(id, variante_tecido_id, ordem, variantes_tecido:variante_tecido_id(nome))",
         )
         .eq("modelo_id", modeloId)
         .order("tipo")
