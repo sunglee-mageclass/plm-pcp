@@ -685,8 +685,7 @@ function CadDetailPage() {
     </div>
 
     {/* SEÇÃO 5 — Ficha de Corte (print) */}
-    <div className="print-area" style={{ display: "none" }}>
-      <style>{`.print-area{display:block !important}`}</style>
+    <div className="print-area">
       <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Ficha de Corte</h1>
       <div style={{ fontSize: 12, marginBottom: 12 }}>REF: <b>{modelo?.ref ?? "—"}</b> &nbsp;|&nbsp; Modelo: <b>{modelo?.nome ?? "—"}</b></div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12, marginBottom: 12 }}>
