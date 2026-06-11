@@ -75,9 +75,9 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     queryKey: ["artigos-all"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("artigos").select("id, nome, preco, preco_por_metro").order("nome");
+        .from("artigos").select("id, nome, preco, preco_por_metro, unidade_medida").order("nome");
       if (error) throw error;
-      return (data ?? []) as { id: string; nome: string; preco: number | null; preco_por_metro: number | null }[];
+      return (data ?? []) as { id: string; nome: string; preco: number | null; preco_por_metro: number | null; unidade_medida: string | null }[];
     },
   });
   const artigoMap = useMemo(() => Object.fromEntries(artigos.map((a) => [a.id, a])), [artigos]);
