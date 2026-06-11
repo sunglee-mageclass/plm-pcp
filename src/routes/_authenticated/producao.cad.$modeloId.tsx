@@ -362,7 +362,7 @@ function CadDetailPage() {
           <Button variant="outline" onClick={() => saveAll.mutate()} disabled={saveAll.isPending}>
             <Save className="h-4 w-4 mr-1" /> Salvar
           </Button>
-          <Button onClick={() => enviarCorte.mutate()} disabled={enviarCorte.isPending || cadRow?.enviado_corte}>
+          <Button onClick={() => enviarCorte.mutate()} disabled={enviarCorte.isPending || !!cadRow?.enviado_corte}>
             <Send className="h-4 w-4 mr-1" /> {cadRow?.enviado_corte ? "Enviado ao corte" : "Enviar ao Corte"}
           </Button>
         </div>
