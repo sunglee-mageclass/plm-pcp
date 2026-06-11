@@ -293,8 +293,8 @@ function FilterSelect({ label, value, onChange, options }: {
   );
 }
 
-function KanbanCard({ modelo, estilistaNome, categoriaNome }: {
-  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null;
+function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen }: {
+  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; onOpen: () => void;
 }) {
   const photo = modelo.fotos_modelo?.[0] ?? null;
   const url = useSignedUrlBucket(photo);
@@ -306,9 +306,7 @@ function KanbanCard({ modelo, estilistaNome, categoriaNome }: {
         e.dataTransfer.effectAllowed = "move";
       }}
       className="bg-card border rounded-md p-2 cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow"
-      onClick={() => {
-        // detail panel will be wired in the next prompt
-      }}
+      onClick={onOpen}
     >
       <div className="flex gap-2">
         <div className="h-14 w-14 shrink-0 rounded bg-muted overflow-hidden flex items-center justify-center">
