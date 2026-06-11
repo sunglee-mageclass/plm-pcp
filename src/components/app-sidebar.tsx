@@ -12,6 +12,7 @@ import {
   Crown,
   Store,
   Users,
+  ChevronRight,
 } from "lucide-react";
 
 import {
@@ -25,8 +26,16 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   useSidebar,
 } from "@/components/ui/sidebar";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { PAGES_CATALOG } from "@/lib/permissions-catalog";
@@ -38,6 +47,27 @@ const MODULE_META: Record<string, { title: string; icon: typeof BarChart3 }> = {
   criacao: { title: "Criação", icon: Palette },
   producao: { title: "Produção", icon: Factory },
   financeiro: { title: "Financeiro", icon: DollarSign },
+};
+
+// Map of page key -> URL for sidebar subitems. Modules without an entry render as a single direct link.
+const PAGE_URLS: Record<string, string> = {
+  cadastro_atributos: "/cadastro/atributos",
+  cadastro_colaboradores: "/cadastro/colaboradores",
+  cadastro_servico: "/cadastro/servico",
+  cadastro_tecidos: "/cadastro/tecidos",
+  cadastro_aviamentos: "/cadastro/aviamentos",
+  entrada_oc_tecido: "/entrada-saida/oc-tecido",
+  entrada_oc_aviamento: "/entrada-saida/oc-aviamento",
+  entrada_estoque: "/entrada-saida/estoque",
+  criacao_planejamento: "/criacao/planejamento",
+  criacao_desenvolvimento: "/criacao/desenvolvimento",
+  producao_cad: "/producao/cad",
+  producao_terceirizados: "/producao/terceirizados",
+  producao_oficina: "/producao/oficina",
+  producao_cq: "/producao/cq",
+  producao_acabamento: "/producao/acabamento",
+  producao_direcionamento: "/producao/direcionamento",
+  producao_lancamentos: "/producao/lancamentos",
 };
 
 const systemItems = [
@@ -56,13 +86,20 @@ export function AppSidebar() {
         ? true
         : m.pages.some((p) => canView(p.key)),
     )
-    .map((m) => ({
-      url: m.basePath,
-      title: MODULE_META[m.module]?.title ?? m.label,
-      icon: MODULE_META[m.module]?.icon ?? BarChart3,
-    }));
+    .map((m) => {
+      const subs = m.pages
+        .filter((p) => PAGE_URLS[p.key] && (isAdmin || isSuperAdmin || isTenantAdmin || canView(p.key)))
+        .map((p) => ({ key: p.key, label: p.label, url: PAGE_URLS[p.key] }));
+      return {
+        url: m.basePath,
+        title: MODULE_META[m.module]?.title ?? m.label,
+        icon: MODULE_META[m.module]?.icon ?? BarChart3,
+        subs,
+      };
+    });
 
   const isActive = (path: string) => pathname === path || pathname.startsWith(path + "/");
+
 
   return (
     <Sidebar collapsible="icon">
@@ -85,16 +122,48 @@ export function AppSidebar() {
           <SidebarGroupLabel>Operação</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {visibleMainItems.map((item) => (
-                <SidebarMenuItem key={item.url}>
-                  <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
-                    <Link to={item.url}>
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {visibleMainItems.map((item) => {
+                const active = isActive(item.url);
+                if (item.subs.length === 0) {
+                  return (
+                    <SidebarMenuItem key={item.url}>
+                      <SidebarMenuButton asChild isActive={active} tooltip={item.title}>
+                        <Link to={item.url}>
+                          <item.icon className="h-4 w-4" />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                }
+                return (
+                  <Collapsible key={item.url} defaultOpen={active} className="group/collapsible">
+                    <SidebarMenuItem>
+                      <CollapsibleTrigger asChild>
+                        <SidebarMenuButton isActive={active} tooltip={item.title}>
+                          <item.icon className="h-4 w-4" />
+                          <span>{item.title}</span>
+                          <ChevronRight className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90" />
+                        </SidebarMenuButton>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <SidebarMenuSub>
+                          {item.subs.map((sub) => (
+                            <SidebarMenuSubItem key={sub.key}>
+                              <SidebarMenuSubButton asChild isActive={isActive(sub.url)}>
+                                <Link to={sub.url}>
+                                  <span>{sub.label}</span>
+                                </Link>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          ))}
+                        </SidebarMenuSub>
+                      </CollapsibleContent>
+                    </SidebarMenuItem>
+                  </Collapsible>
+                );
+              })}
+
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
