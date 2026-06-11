@@ -317,6 +317,7 @@ function ModeloDialog({
           ano_id: data.ano_id,
           categoria_principal_id: data.categoria_principal_id,
           categoria_secundaria_id: data.categoria_secundaria_id,
+          tecidos_planejados: (data as any).tecidos_planejados ?? [],
           status_planejamento: data.status_planejamento ?? "em_planejamento",
           fotos_modelo: data.fotos_modelo ?? [],
           fotos_referencia: data.fotos_referencia ?? [],
