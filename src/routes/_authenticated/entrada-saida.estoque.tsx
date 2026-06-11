@@ -178,7 +178,7 @@ function TecidosTab() {
   const grouped = useMemo(() => {
     const map = new Map<string, { artigoNome: string; rows: any[] }>();
     for (const r of filtered) {
-      const g = map.get(r.artigoId) ?? { artigoNome: r.artigoNome, rows: [] };
+      const g = map.get(r.artigoId) ?? { artigoNome: r.artigoNome, rows: [] as any[] };
       g.rows.push(r);
       map.set(r.artigoId, g);
     }
