@@ -167,10 +167,10 @@ function AviamentosGallery() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("intervalos_largura")
-        .select("id,nome")
-        .order("nome");
+        .select("id,intervalo")
+        .order("intervalo");
       if (error) throw error;
-      return (data ?? []) as Option[];
+      return (data ?? []).map((r: any) => ({ id: r.id, nome: r.intervalo })) as Option[];
     },
   });
 
