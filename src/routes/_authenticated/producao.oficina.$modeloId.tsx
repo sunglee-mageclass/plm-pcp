@@ -59,8 +59,8 @@ function OficinaDetailPage() {
   });
 
   const { data: tenantCfg } = useQuery({
-    queryKey: ["tenant-cfg-tam"],
-    queryFn: async () => (await supabase.from("tenant_config").select("tamanhos_grade").maybeSingle()).data,
+    queryKey: ["tenant-cfg-oficina"],
+    queryFn: async () => (await supabase.from("tenant_config").select("tamanhos_grade, oficina_interna").maybeSingle()).data,
   });
   const tamanhos: string[] = useMemo(() => {
     const raw = (tenantCfg as any)?.tamanhos_grade;
@@ -69,6 +69,7 @@ function OficinaDetailPage() {
     }
     return ["PP", "P", "M", "G", "GG"];
   }, [tenantCfg]);
+  const oficinaInterna = Boolean((tenantCfg as any)?.oficina_interna);
 
   const { data: grades = [] } = useQuery({
     queryKey: ["cad-grades", cad?.id],
