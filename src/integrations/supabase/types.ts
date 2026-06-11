@@ -1576,6 +1576,8 @@ export type Database = {
           data_pedido: string | null
           data_prevista_entrega: string | null
           empresa_id: string | null
+          etiqueta_lavagem_url_1: string | null
+          etiqueta_lavagem_url_2: string | null
           etiqueta_lavagem_urls: string[] | null
           id: string
           modelo_sugerido_url: string | null
@@ -1599,6 +1601,8 @@ export type Database = {
           data_pedido?: string | null
           data_prevista_entrega?: string | null
           empresa_id?: string | null
+          etiqueta_lavagem_url_1?: string | null
+          etiqueta_lavagem_url_2?: string | null
           etiqueta_lavagem_urls?: string[] | null
           id?: string
           modelo_sugerido_url?: string | null
@@ -1622,6 +1626,8 @@ export type Database = {
           data_pedido?: string | null
           data_prevista_entrega?: string | null
           empresa_id?: string | null
+          etiqueta_lavagem_url_1?: string | null
+          etiqueta_lavagem_url_2?: string | null
           etiqueta_lavagem_urls?: string[] | null
           id?: string
           modelo_sugerido_url?: string | null
