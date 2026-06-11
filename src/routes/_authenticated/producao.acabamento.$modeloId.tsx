@@ -66,7 +66,7 @@ function AcabDetailPage() {
   const etapas = useMemo<string[]>(() => {
     const e = (tenantCfg as any)?.etapas_acabamento;
     if (Array.isArray(e) && e.length) return e.map(String);
-    return ["Passadoria", "Embalagem", "Etiqueta"];
+    return ["Caseado", "Botão", "Passadoria"];
   }, [tenantCfg]);
   const oficinaEmAcab = ((tenantCfg as any)?.oficina_posicao ?? "terceirizados") === "acabamento";
   const oficinaInterna = Boolean((tenantCfg as any)?.oficina_interna);
