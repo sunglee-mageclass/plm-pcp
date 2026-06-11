@@ -73,7 +73,7 @@ function TecidoBlockEditor({ block, artigos, onChangeBlock, onChangeVariante }: 
           label={`${TIPO_LABEL[block.tipo]} ${block.numero} — Artigo`}
           value={block.artigo_id}
           onChange={(v) => onChangeBlock({ artigo_id: v, variantes: Array(10).fill(null) })}
-          options={artigos.map((a) => ({ id: a.id, nome: a.nome }))}
+          options={artigos.map((a) => ({ id: a.id, nome: artigoLabel(a) }))}
         />
         <Field label="Custo Previsto">
           <Input readOnly value={block.custo_previsto.toFixed(2)} />
