@@ -203,6 +203,14 @@ function AcabDetailPage() {
               </Button>
             );
           })}
+          {oficinaEmAcab && (
+            <Link to="/producao/oficina/$modeloId" params={{ modeloId }}>
+              <Button type="button" variant="secondary" size="sm">
+                <Wrench className="h-3.5 w-3.5 mr-1" />
+                Oficina{oficinaInterna ? " (Interna)" : ""}
+              </Button>
+            </Link>
+          )}
         </div>
       </Card>
 
