@@ -140,11 +140,12 @@ export function AppSidebar() {
             P+
           </div>
           {!collapsed && (
-            <div className="flex flex-col">
+            <div className="flex flex-col flex-1 min-w-0">
               <span className="text-sm font-semibold leading-none">PLM+PCP</span>
               <span className="text-xs text-muted-foreground mt-0.5">Moda & Confecção</span>
             </div>
           )}
+          <ThemeToggleButton collapsed={collapsed} />
         </div>
       </SidebarHeader>
 
@@ -296,7 +297,6 @@ export function AppSidebar() {
         {!collapsed && user && (
           <div className="px-2 py-1 text-xs text-muted-foreground truncate">{user.email}</div>
         )}
-        <ThemeToggleButton collapsed={collapsed} />
         <Button
           variant="ghost"
           size={collapsed ? "icon" : "sm"}
