@@ -416,14 +416,27 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       const props = draft?.proporcoes ?? {};
       const sum = tamanhos.reduce((s, t) => s + (Number(props[t]) || 0), 0);
       const next: Record<string, number> = { ...cur.grades };
-      if (sum > 0) {
+      if (sum > 0 && total > 0) {
         tamanhos.forEach((t) => {
           next[t] = Math.round(((Number(props[t]) || 0) / sum) * total);
         });
+        const rounded = tamanhos.reduce((s, t) => s + (next[t] || 0), 0);
+        const diff = total - rounded;
+        if (diff !== 0) {
+          // distribui a diferença no tamanho com maior proporção
+          let maxTam = tamanhos[0];
+          let maxProp = -Infinity;
+          tamanhos.forEach((t) => {
+            const p = Number(props[t]) || 0;
+            if (p > maxProp) { maxProp = p; maxTam = t; }
+          });
+          next[maxTam] = Math.max(0, (next[maxTam] || 0) + diff);
+        }
+      } else {
+        tamanhos.forEach((t) => { next[t] = 0; });
       }
       const others = gs.filter((g) => g.variante_numero !== n);
-      const realTotal = tamanhos.reduce((s, t) => s + (next[t] || 0), 0);
-      return [...others, { variante_numero: n, grades: next, grade_total: realTotal }].sort((a, b) => a.variante_numero - b.variante_numero);
+      return [...others, { variante_numero: n, grades: next, grade_total: total }].sort((a, b) => a.variante_numero - b.variante_numero);
     });
   };
   const updateGradeCell = (n: number, tam: string, qty: number) => {
