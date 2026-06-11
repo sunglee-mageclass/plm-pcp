@@ -1,5 +1,3 @@
-import { useState } from "react";
-import { Search } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -21,8 +19,6 @@ export function TecidoGroup({
   setQtd: (tempId: string, field: "quantidade_pedida" | "quantidade_recebida", v: number) => void;
   varianteMap: Record<string, Variante>;
 }) {
-  const [search, setSearch] = useState("");
-  const filteredArtigos = artigos.filter((a) => a.nome.toLowerCase().includes(search.toLowerCase()));
   const selectedIds = new Set(items.map((i) => i.variante_tecido_id));
   const artigoAtual = artigos.find((a) => a.id === artigoId) ?? null;
   const sufixo = unidadeSufixo(artigoAtual?.unidade_medida);
@@ -34,18 +30,12 @@ export function TecidoGroup({
       </div>
       <div className="grid gap-1">
         <Label>Artigo</Label>
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <Search className="h-4 w-4 absolute left-2 top-2.5 text-muted-foreground" />
-            <Input className="pl-8" placeholder="Pesquisar artigo…" value={search} onChange={(e) => setSearch(e.target.value)} />
-          </div>
-          <Select value={artigoId ?? ""} onValueChange={onArtigoChange}>
-            <SelectTrigger className="w-72"><SelectValue placeholder="Selecionar artigo…" /></SelectTrigger>
-            <SelectContent>
-              {filteredArtigos.map((a) => <SelectItem key={a.id} value={a.id}>{artigoLabel(a)}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
+        <Select value={artigoId ?? ""} onValueChange={onArtigoChange}>
+          <SelectTrigger><SelectValue placeholder="Selecionar artigo…" /></SelectTrigger>
+          <SelectContent>
+            {artigos.map((a) => <SelectItem key={a.id} value={a.id}>{artigoLabel(a)}</SelectItem>)}
+          </SelectContent>
+        </Select>
       </div>
 
       {artigoId && (
