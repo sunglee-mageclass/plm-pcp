@@ -272,6 +272,7 @@ type Draft = {
   ano_id: string | null;
   categoria_principal_id: string | null;
   categoria_secundaria_id: string | null;
+  tecidos_planejados: string[];
   status_planejamento: string;
   fotos_modelo: string[];
   fotos_referencia: string[];
@@ -280,20 +281,23 @@ type Draft = {
 const emptyDraft = (): Draft => ({
   nome: "", estilista_id: null, colecao: "", semana: "", mes_id: null, ano_id: null,
   categoria_principal_id: null, categoria_secundaria_id: null,
+  tecidos_planejados: [],
   status_planejamento: "em_planejamento", fotos_modelo: [], fotos_referencia: [],
   observacoes_gerais: "",
 });
 
+type ArtigoOpt = { id: string; nome: string; unidade_medida: string | null };
+
 function ModeloDialog({
-  modeloId, estilistas, meses, anos, categorias, onClose, onSaved,
+  modeloId, estilistas, meses, anos, categorias, artigos, onClose, onSaved,
 }: {
   modeloId: string | null; estilistas: Opt[]; meses: Opt[]; anos: Opt[]; categorias: Opt[];
+  artigos: ArtigoOpt[];
   onClose: () => void; onSaved: () => void;
 }) {
   const isEdit = !!modeloId;
   const qc = useQueryClient();
   const [draft, setDraft] = useState<Draft>(emptyDraft());
-  const [tecidoText, setTecidoText] = useState("");
   const [confirmDel, setConfirmDel] = useState(false);
 
   useQuery({
