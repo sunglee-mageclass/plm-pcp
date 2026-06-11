@@ -451,9 +451,16 @@ function VariantesSection({ artigoId }: { artigoId: string }) {
 
   const addCorMut = useMutation({
     mutationFn: async (corId: string) => {
+      const { data: art } = await supabase
+        .from("artigos")
+        .select("nome")
+        .eq("id", artigoId)
+        .single();
+      const corNome = coresMap.get(corId) ?? "";
+      const nomeVariante = `${art?.nome ?? ""} - ${corNome}`.trim();
       const { error } = await supabase
         .from("variantes_tecido")
-        .insert({ artigo_id: artigoId, cor_id: corId });
+        .insert({ artigo_id: artigoId, cor_id: corId, nome_variante: nomeVariante });
       if (error) throw error;
     },
     onSuccess: () => {
