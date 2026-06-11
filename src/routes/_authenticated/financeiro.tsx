@@ -51,14 +51,45 @@ function FinanceiroPage() {
   const { data: parcelas = [], isLoading } = useQuery({
     queryKey: ["parcelas"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data: rows, error } = await supabase
         .from("parcelas")
-        .select("*, empresas(nome), ocs_tecido(numero_pedido), ocs_aviamento(numero_pedido)")
+        .select("*")
         .order("data_vencimento", { ascending: true });
       if (error) throw error;
-      return (data ?? []) as unknown as Parcela[];
+      const list = (rows ?? []) as unknown as Parcela[];
+
+      const empresaIds = Array.from(new Set(list.map((p) => p.empresa_id).filter(Boolean))) as string[];
+      const tecidoIds = Array.from(new Set(list.map((p) => p.oc_tecido_id).filter(Boolean))) as string[];
+      const aviamentoIds = Array.from(new Set(list.map((p) => p.oc_aviamento_id).filter(Boolean))) as string[];
+
+      const [empresasRes, tecidoRes, aviamentoRes] = await Promise.all([
+        empresaIds.length
+          ? supabase.from("empresas").select("id,nome").in("id", empresaIds)
+          : Promise.resolve({ data: [], error: null } as const),
+        tecidoIds.length
+          ? supabase.from("ocs_tecido").select("id,numero_pedido").in("id", tecidoIds)
+          : Promise.resolve({ data: [], error: null } as const),
+        aviamentoIds.length
+          ? supabase.from("ocs_aviamento").select("id,numero_pedido").in("id", aviamentoIds)
+          : Promise.resolve({ data: [], error: null } as const),
+      ]);
+      if (empresasRes.error) throw empresasRes.error;
+      if (tecidoRes.error) throw tecidoRes.error;
+      if (aviamentoRes.error) throw aviamentoRes.error;
+
+      const empMap = new Map((empresasRes.data ?? []).map((e: any) => [e.id, e.nome as string]));
+      const tecMap = new Map((tecidoRes.data ?? []).map((o: any) => [o.id, o.numero_pedido as string | null]));
+      const aviMap = new Map((aviamentoRes.data ?? []).map((o: any) => [o.id, o.numero_pedido as string | null]));
+
+      return list.map((p) => ({
+        ...p,
+        empresas: p.empresa_id ? { nome: empMap.get(p.empresa_id) ?? "—" } : null,
+        ocs_tecido: p.oc_tecido_id ? { numero_pedido: tecMap.get(p.oc_tecido_id) ?? null } : null,
+        ocs_aviamento: p.oc_aviamento_id ? { numero_pedido: aviMap.get(p.oc_aviamento_id) ?? null } : null,
+      }));
     },
   });
+
 
   return (
     <div className="container mx-auto p-6 space-y-6">
