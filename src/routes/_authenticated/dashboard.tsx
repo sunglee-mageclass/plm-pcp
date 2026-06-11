@@ -30,9 +30,15 @@ function Dashboard() {
         <TabsList>
           <TabsTrigger value="colecao">Coleção</TabsTrigger>
           <TabsTrigger value="estoque">Estoque</TabsTrigger>
+          <TabsTrigger value="producao">Produção</TabsTrigger>
+          <TabsTrigger value="financeiro">Financeiro</TabsTrigger>
+          <TabsTrigger value="custos">Custos</TabsTrigger>
         </TabsList>
         <TabsContent value="colecao" className="mt-4"><ColecaoTab /></TabsContent>
         <TabsContent value="estoque" className="mt-4"><EstoqueTab /></TabsContent>
+        <TabsContent value="producao" className="mt-4"><ProducaoTab /></TabsContent>
+        <TabsContent value="financeiro" className="mt-4"><FinanceiroTab /></TabsContent>
+        <TabsContent value="custos" className="mt-4"><CustosTab /></TabsContent>
       </Tabs>
     </div>
   );
