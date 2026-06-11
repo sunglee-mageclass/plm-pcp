@@ -250,8 +250,43 @@ function CadDetailPage() {
       }));
     }
     setGrades(initialGrades);
+
+    // Grade total geral (soma planejada de todas as variantes) — usado para seed/calculo de aviamentos
+    const gradeTotalGeral = initialGrades.reduce((a, g) => a + (g.grade_total_planejada || 0), 0);
+
+    let initialAvi: AviamentoRow[];
+    if ((cadAviamentos as any[]).length > 0) {
+      initialAvi = (cadAviamentos as any[]).map((a) => ({
+        id: a.id,
+        numero: a.numero,
+        aviamento_id: a.aviamento_id,
+        aviamento_nome: a.aviamentos?.codigo_nome,
+        consumo: Number(a.consumo ?? 0),
+        grade_total: gradeTotalGeral,
+        quantidade_enviar: Number(a.quantidade_enviar ?? 0),
+        quantidade_separar: Number(a.quantidade_separar ?? 0),
+      }));
+    } else {
+      initialAvi = (modeloAviamentos as any[]).map((ma) => {
+        const consumo = Number(ma.consumo ?? 0);
+        const qEnviar = Number((consumo * gradeTotalGeral).toFixed(4));
+        return {
+          numero: ma.numero,
+          aviamento_id: ma.aviamento_id,
+          aviamento_nome: ma.aviamentos?.codigo_nome,
+          consumo,
+          grade_total: gradeTotalGeral,
+          quantidade_enviar: qEnviar,
+          quantidade_separar: qEnviar,
+        };
+      });
+    }
+    setAviamentos(initialAvi);
+
+    if (cadRow?.data_previsao_corte) setPrevisaoEntrega(cadRow.data_previsao_corte);
+
     setSeeded(true);
-  }, [modelo, cadRow, cadTecidos, modeloTecidos, cadGrades, modeloGrades, seeded]);
+  }, [modelo, cadRow, cadTecidos, modeloTecidos, cadGrades, modeloGrades, cadAviamentos, modeloAviamentos, seeded]);
 
   // --- helpers ---
   const updateTec = (i: number, patch: Partial<TecidoRow>) => {
