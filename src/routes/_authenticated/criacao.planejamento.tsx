@@ -483,6 +483,50 @@ function ModeloDialog({
   );
 }
 
+function MultiArtigosField({ label, value, onChange, artigos }: {
+  label: string; value: string[]; onChange: (v: string[]) => void; artigos: ArtigoOpt[];
+}) {
+  const available = artigos.filter((a) => !value.includes(a.id));
+  const byId = Object.fromEntries(artigos.map((a) => [a.id, a]));
+  return (
+    <div className="grid gap-1">
+      <Label>{label}</Label>
+      <div className="flex flex-wrap gap-1 mb-1">
+        {value.length === 0 && <span className="text-xs text-muted-foreground">Nenhum tecido selecionado</span>}
+        {value.map((id) => {
+          const a = byId[id];
+          return (
+            <Badge key={id} variant="secondary" className="gap-1">
+              {a ? (a.unidade_medida ? `${a.nome} [${a.unidade_medida}]` : a.nome) : id}
+              <button
+                type="button"
+                onClick={() => onChange(value.filter((x) => x !== id))}
+                className="ml-1 hover:text-destructive"
+                aria-label="Remover"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </Badge>
+          );
+        })}
+      </div>
+      {available.length > 0 && (
+        <Select value="" onValueChange={(v) => v && onChange([...value, v])}>
+          <SelectTrigger><SelectValue placeholder="Adicionar tecido…" /></SelectTrigger>
+          <SelectContent>
+            {available.map((a) => (
+              <SelectItem key={a.id} value={a.id}>
+                {a.unidade_medida ? `${a.nome} [${a.unidade_medida}]` : a.nome}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+    </div>
+  );
+}
+
+
 function FieldText({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
     <div className="grid gap-1">
