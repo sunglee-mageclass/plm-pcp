@@ -83,7 +83,15 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { title: "PLM+PCP — Gestão de Moda & Confecção" },
       { name: "description", content: "Sistema de gestão de criação e produção para moda e confecção." },
     ],
-    links: [{ rel: "stylesheet", href: appCss }],
+    links: [
+      { rel: "stylesheet", href: appCss },
+      { rel: "preconnect", href: "https://fonts.googleapis.com" },
+      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Outfit:wght@500;600;700&display=swap",
+      },
+    ],
   }),
   shellComponent: RootShell,
   component: RootComponent,
