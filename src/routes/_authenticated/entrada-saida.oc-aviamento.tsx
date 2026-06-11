@@ -354,7 +354,13 @@ function OcDialog({
     if (items.length >= 10) { toast.error("Máximo de 10 aviamentos por OC"); return; }
     setItems((p) => [...p, { tempId: crypto.randomUUID(), aviamento_id: "", quantidade_pedida: 0, quantidade_recebida: null }]);
   };
-  const removeItem = (tempId: string) => setItems((p) => p.filter((i) => i.tempId !== tempId));
+  const removeItem = (tempId: string) =>
+    setItems((p) => {
+      const idx = p.findIndex((i) => i.tempId === tempId);
+      if (idx < 0) return p;
+      // Remove o item e todos os subsequentes (cascade)
+      return p.slice(0, idx);
+    });
   const updateItem = (tempId: string, patch: Partial<ItemDraft>) =>
     setItems((p) => p.map((i) => i.tempId === tempId ? { ...i, ...patch } : i));
 
@@ -424,6 +430,10 @@ function OcDialog({
   });
 
   const canShowRecebimento = isEdit && status === "encomendado";
+  const canMarkReceived =
+    canShowRecebimento &&
+    !!draft.data_entrega &&
+    items.some((i) => (i.quantidade_recebida ?? 0) > 0);
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -597,7 +607,7 @@ function OcDialog({
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
           {canShowRecebimento && (
-            <Button variant="secondary" onClick={() => saveMutation.mutate(true)} disabled={saveMutation.isPending}>
+            <Button variant="secondary" onClick={() => saveMutation.mutate(true)} disabled={saveMutation.isPending || !canMarkReceived}>
               Marcar como Recebido
             </Button>
           )}
