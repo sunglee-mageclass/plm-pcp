@@ -93,11 +93,22 @@ function FinanceiroPage() {
 /* ============================ CALENDÁRIO ============================ */
 
 function CalendarioView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolean }) {
-  const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
+  const [cursor, setCursor] = useState(() => {
+    const now = startOfMonth(new Date());
+    // Se não houver parcelas no mês atual, ir para o mês da próxima parcela
+    const hasCurrent = parcelas.some((p) => isSameMonth(parseISO(p.data_vencimento), now));
+    if (hasCurrent || parcelas.length === 0) return now;
+    const future = parcelas
+      .map((p) => parseISO(p.data_vencimento))
+      .filter((d) => d >= now)
+      .sort((a, b) => a.getTime() - b.getTime())[0];
+    return future ? startOfMonth(future) : now;
+  });
   const monthStart = startOfMonth(cursor);
   const monthEnd = endOfMonth(cursor);
   const gridStart = startOfWeek(monthStart, { weekStartsOn: 0 });
   const gridEnd = endOfWeek(monthEnd, { weekStartsOn: 0 });
+
 
   const days: Date[] = [];
   for (let d = gridStart; d <= gridEnd; d = addDays(d, 1)) days.push(d);
