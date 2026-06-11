@@ -248,7 +248,7 @@ function TercDetailPage() {
             {modelo?.ref ?? "…"} — {modelo?.nome ?? ""}
           </h1>
           <p className="text-sm text-muted-foreground">
-            {(modelo as any)?.categorias_produto?.nome ?? "—"} • {modelo?.colecao ?? "—"}
+            {(modelo as any)?.categoria_nome ?? "—"} • {modelo?.colecao ?? "—"}
           </p>
         </div>
       </header>
