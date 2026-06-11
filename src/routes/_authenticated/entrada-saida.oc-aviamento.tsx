@@ -354,7 +354,13 @@ function OcDialog({
     if (items.length >= 10) { toast.error("Máximo de 10 aviamentos por OC"); return; }
     setItems((p) => [...p, { tempId: crypto.randomUUID(), aviamento_id: "", quantidade_pedida: 0, quantidade_recebida: null }]);
   };
-  const removeItem = (tempId: string) => setItems((p) => p.filter((i) => i.tempId !== tempId));
+  const removeItem = (tempId: string) =>
+    setItems((p) => {
+      const idx = p.findIndex((i) => i.tempId === tempId);
+      if (idx < 0) return p;
+      // Remove o item e todos os subsequentes (cascade)
+      return p.slice(0, idx);
+    });
   const updateItem = (tempId: string, patch: Partial<ItemDraft>) =>
     setItems((p) => p.map((i) => i.tempId === tempId ? { ...i, ...patch } : i));
 
