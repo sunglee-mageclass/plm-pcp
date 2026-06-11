@@ -154,6 +154,30 @@ export function AppSidebar() {
             </SidebarGroupContent>
           </SidebarGroup>
         )}
+
+        {isTenantAdmin && !isSuperAdmin && (
+          <SidebarGroup>
+            <SidebarGroupLabel className="flex items-center gap-1">
+              <Shield className="h-3 w-3" /> Admin da Loja
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={isActive("/admin/usuarios-loja")}
+                    tooltip="Usuários da Loja"
+                  >
+                    <Link to="/admin/usuarios-loja">
+                      <Users className="h-4 w-4" />
+                      <span>Usuários da Loja</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
 
       <SidebarFooter className="border-t">
