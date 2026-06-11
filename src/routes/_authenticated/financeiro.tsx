@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -51,14 +51,46 @@ function FinanceiroPage() {
   const { data: parcelas = [], isLoading } = useQuery({
     queryKey: ["parcelas"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data: rows, error } = await supabase
         .from("parcelas")
-        .select("*, empresas(nome), ocs_tecido(numero_pedido), ocs_aviamento(numero_pedido)")
+        .select("*")
         .order("data_vencimento", { ascending: true });
       if (error) throw error;
-      return (data ?? []) as unknown as Parcela[];
+      const list = (rows ?? []) as unknown as Parcela[];
+
+      const empresaIds = Array.from(new Set(list.map((p) => p.empresa_id).filter(Boolean))) as string[];
+      const tecidoIds = Array.from(new Set(list.map((p) => p.oc_tecido_id).filter(Boolean))) as string[];
+      const aviamentoIds = Array.from(new Set(list.map((p) => p.oc_aviamento_id).filter(Boolean))) as string[];
+
+      const [empresasRes, tecidoRes, aviamentoRes] = await Promise.all([
+        empresaIds.length
+          ? supabase.from("empresas").select("id,nome_fantasia").in("id", empresaIds)
+          : Promise.resolve({ data: [], error: null } as const),
+
+        tecidoIds.length
+          ? supabase.from("ocs_tecido").select("id,numero_pedido").in("id", tecidoIds)
+          : Promise.resolve({ data: [], error: null } as const),
+        aviamentoIds.length
+          ? supabase.from("ocs_aviamento").select("id,numero_pedido").in("id", aviamentoIds)
+          : Promise.resolve({ data: [], error: null } as const),
+      ]);
+      if (empresasRes.error) throw empresasRes.error;
+      if (tecidoRes.error) throw tecidoRes.error;
+      if (aviamentoRes.error) throw aviamentoRes.error;
+
+      const empMap = new Map((empresasRes.data ?? []).map((e: any) => [e.id, e.nome_fantasia as string]));
+      const tecMap = new Map((tecidoRes.data ?? []).map((o: any) => [o.id, o.numero_pedido as string | null]));
+      const aviMap = new Map((aviamentoRes.data ?? []).map((o: any) => [o.id, o.numero_pedido as string | null]));
+
+      return list.map((p) => ({
+        ...p,
+        empresas: p.empresa_id ? { nome: empMap.get(p.empresa_id) ?? "—" } : null,
+        ocs_tecido: p.oc_tecido_id ? { numero_pedido: tecMap.get(p.oc_tecido_id) ?? null } : null,
+        ocs_aviamento: p.oc_aviamento_id ? { numero_pedido: aviMap.get(p.oc_aviamento_id) ?? null } : null,
+      }));
     },
   });
+
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -94,10 +126,28 @@ function FinanceiroPage() {
 
 function CalendarioView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolean }) {
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
+  const autoJumped = useRef(false);
+
+  // Quando as parcelas chegarem, se o mês atual estiver vazio, salta para o mês da próxima parcela
+  useEffect(() => {
+    if (autoJumped.current || parcelas.length === 0) return;
+    const now = startOfMonth(new Date());
+    const hasCurrent = parcelas.some((p) => isSameMonth(parseISO(p.data_vencimento), now));
+    if (hasCurrent) { autoJumped.current = true; return; }
+    const future = parcelas
+      .map((p) => parseISO(p.data_vencimento))
+      .filter((d) => d >= now)
+      .sort((a, b) => a.getTime() - b.getTime())[0];
+    if (future) setCursor(startOfMonth(future));
+    autoJumped.current = true;
+  }, [parcelas]);
+
+
   const monthStart = startOfMonth(cursor);
   const monthEnd = endOfMonth(cursor);
   const gridStart = startOfWeek(monthStart, { weekStartsOn: 0 });
   const gridEnd = endOfWeek(monthEnd, { weekStartsOn: 0 });
+
 
   const days: Date[] = [];
   for (let d = gridStart; d <= gridEnd; d = addDays(d, 1)) days.push(d);
