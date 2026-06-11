@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Factory, Scissors, Users, Wrench } from "lucide-react";
+import { Factory, Scissors, Users, Wrench, ClipboardCheck } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 
@@ -12,6 +12,7 @@ const SECTIONS = {
   cad: { to: "/producao/cad", title: "CAD", desc: "Modelos enviados ao CAD.", icon: Scissors },
   terceirizados: { to: "/producao/terceirizados", title: "Terceirizados", desc: "Serviços terceirizados por REF.", icon: Users },
   oficina: { to: "/producao/oficina", title: "Oficina", desc: "Costura e montagem por REF.", icon: Wrench },
+  cq: { to: "/producao/cq", title: "Controle de Qualidade", desc: "Recebimento, conserto, lavagem, defeito.", icon: ClipboardCheck },
 } as const;
 
 function ProducaoIndex() {
