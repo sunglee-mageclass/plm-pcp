@@ -20,7 +20,9 @@ import { Route as AuthenticatedCriacaoRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedConfiguracoesRouteImport } from './routes/_authenticated/configuracoes'
 import { Route as AuthenticatedCadastroRouteImport } from './routes/_authenticated/cadastro'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
+import { Route as AuthenticatedCadastroIndexRouteImport } from './routes/_authenticated/cadastro.index'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
+import { Route as AuthenticatedCadastroAtributosRouteImport } from './routes/_authenticated/cadastro.atributos'
 import { Route as AuthenticatedAdminUsuariosLojaRouteImport } from './routes/_authenticated/admin/usuarios-loja'
 import { Route as AuthenticatedAdminUsuariosRouteImport } from './routes/_authenticated/admin/usuarios'
 import { Route as AuthenticatedAdminLojasRouteImport } from './routes/_authenticated/admin/lojas'
@@ -82,11 +84,23 @@ const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedCadastroIndexRoute =
+  AuthenticatedCadastroIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedCadastroRoute,
+  } as any)
 const AuthenticatedAdminIndexRoute = AuthenticatedAdminIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AuthenticatedAdminRoute,
 } as any)
+const AuthenticatedCadastroAtributosRoute =
+  AuthenticatedCadastroAtributosRouteImport.update({
+    id: '/atributos',
+    path: '/atributos',
+    getParentRoute: () => AuthenticatedCadastroRoute,
+  } as any)
 const AuthenticatedAdminUsuariosLojaRoute =
   AuthenticatedAdminUsuariosLojaRouteImport.update({
     id: '/usuarios-loja',
@@ -115,7 +129,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/admin': typeof AuthenticatedAdminRouteWithChildren
-  '/cadastro': typeof AuthenticatedCadastroRoute
+  '/cadastro': typeof AuthenticatedCadastroRouteWithChildren
   '/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/criacao': typeof AuthenticatedCriacaoRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
@@ -126,12 +140,13 @@ export interface FileRoutesByFullPath {
   '/admin/lojas': typeof AuthenticatedAdminLojasRoute
   '/admin/usuarios': typeof AuthenticatedAdminUsuariosRoute
   '/admin/usuarios-loja': typeof AuthenticatedAdminUsuariosLojaRoute
+  '/cadastro/atributos': typeof AuthenticatedCadastroAtributosRoute
   '/admin/': typeof AuthenticatedAdminIndexRoute
+  '/cadastro/': typeof AuthenticatedCadastroIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
-  '/cadastro': typeof AuthenticatedCadastroRoute
   '/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/criacao': typeof AuthenticatedCriacaoRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
@@ -142,7 +157,9 @@ export interface FileRoutesByTo {
   '/admin/lojas': typeof AuthenticatedAdminLojasRoute
   '/admin/usuarios': typeof AuthenticatedAdminUsuariosRoute
   '/admin/usuarios-loja': typeof AuthenticatedAdminUsuariosLojaRoute
+  '/cadastro/atributos': typeof AuthenticatedCadastroAtributosRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
+  '/cadastro': typeof AuthenticatedCadastroIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -150,7 +167,7 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/auth': typeof AuthRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRouteWithChildren
-  '/_authenticated/cadastro': typeof AuthenticatedCadastroRoute
+  '/_authenticated/cadastro': typeof AuthenticatedCadastroRouteWithChildren
   '/_authenticated/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/_authenticated/criacao': typeof AuthenticatedCriacaoRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
@@ -161,7 +178,9 @@ export interface FileRoutesById {
   '/_authenticated/admin/lojas': typeof AuthenticatedAdminLojasRoute
   '/_authenticated/admin/usuarios': typeof AuthenticatedAdminUsuariosRoute
   '/_authenticated/admin/usuarios-loja': typeof AuthenticatedAdminUsuariosLojaRoute
+  '/_authenticated/cadastro/atributos': typeof AuthenticatedCadastroAtributosRoute
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
+  '/_authenticated/cadastro/': typeof AuthenticatedCadastroIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -180,12 +199,13 @@ export interface FileRouteTypes {
     | '/admin/lojas'
     | '/admin/usuarios'
     | '/admin/usuarios-loja'
+    | '/cadastro/atributos'
     | '/admin/'
+    | '/cadastro/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/auth'
-    | '/cadastro'
     | '/configuracoes'
     | '/criacao'
     | '/dashboard'
@@ -196,7 +216,9 @@ export interface FileRouteTypes {
     | '/admin/lojas'
     | '/admin/usuarios'
     | '/admin/usuarios-loja'
+    | '/cadastro/atributos'
     | '/admin'
+    | '/cadastro'
   id:
     | '__root__'
     | '/'
@@ -214,7 +236,9 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/lojas'
     | '/_authenticated/admin/usuarios'
     | '/_authenticated/admin/usuarios-loja'
+    | '/_authenticated/cadastro/atributos'
     | '/_authenticated/admin/'
+    | '/_authenticated/cadastro/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -302,12 +326,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/cadastro/': {
+      id: '/_authenticated/cadastro/'
+      path: '/'
+      fullPath: '/cadastro/'
+      preLoaderRoute: typeof AuthenticatedCadastroIndexRouteImport
+      parentRoute: typeof AuthenticatedCadastroRoute
+    }
     '/_authenticated/admin/': {
       id: '/_authenticated/admin/'
       path: '/'
       fullPath: '/admin/'
       preLoaderRoute: typeof AuthenticatedAdminIndexRouteImport
       parentRoute: typeof AuthenticatedAdminRoute
+    }
+    '/_authenticated/cadastro/atributos': {
+      id: '/_authenticated/cadastro/atributos'
+      path: '/atributos'
+      fullPath: '/cadastro/atributos'
+      preLoaderRoute: typeof AuthenticatedCadastroAtributosRouteImport
+      parentRoute: typeof AuthenticatedCadastroRoute
     }
     '/_authenticated/admin/usuarios-loja': {
       id: '/_authenticated/admin/usuarios-loja'
@@ -359,9 +397,24 @@ const AuthenticatedAdminRouteChildren: AuthenticatedAdminRouteChildren = {
 const AuthenticatedAdminRouteWithChildren =
   AuthenticatedAdminRoute._addFileChildren(AuthenticatedAdminRouteChildren)
 
+interface AuthenticatedCadastroRouteChildren {
+  AuthenticatedCadastroAtributosRoute: typeof AuthenticatedCadastroAtributosRoute
+  AuthenticatedCadastroIndexRoute: typeof AuthenticatedCadastroIndexRoute
+}
+
+const AuthenticatedCadastroRouteChildren: AuthenticatedCadastroRouteChildren = {
+  AuthenticatedCadastroAtributosRoute: AuthenticatedCadastroAtributosRoute,
+  AuthenticatedCadastroIndexRoute: AuthenticatedCadastroIndexRoute,
+}
+
+const AuthenticatedCadastroRouteWithChildren =
+  AuthenticatedCadastroRoute._addFileChildren(
+    AuthenticatedCadastroRouteChildren,
+  )
+
 interface AuthenticatedRouteChildren {
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRouteWithChildren
-  AuthenticatedCadastroRoute: typeof AuthenticatedCadastroRoute
+  AuthenticatedCadastroRoute: typeof AuthenticatedCadastroRouteWithChildren
   AuthenticatedConfiguracoesRoute: typeof AuthenticatedConfiguracoesRoute
   AuthenticatedCriacaoRoute: typeof AuthenticatedCriacaoRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
@@ -372,7 +425,7 @@ interface AuthenticatedRouteChildren {
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAdminRoute: AuthenticatedAdminRouteWithChildren,
-  AuthenticatedCadastroRoute: AuthenticatedCadastroRoute,
+  AuthenticatedCadastroRoute: AuthenticatedCadastroRouteWithChildren,
   AuthenticatedConfiguracoesRoute: AuthenticatedConfiguracoesRoute,
   AuthenticatedCriacaoRoute: AuthenticatedCriacaoRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
