@@ -428,14 +428,14 @@ function ProducaoTab() {
       if (lancSet.has(c.modelo_id)) etapa = "Lançado";
       else if (dirSet.has(c.id)) etapa = "Direcionamento";
       else if (acabSet.has(c.id)) etapa = "Acabamento";
-      else if (cqSet.has(c.id)) etapa = "CQ";
+      else if (cqSet.has(c.id)) etapa = "Controle de Qualidade";
       else if (oficSet.has(c.id)) etapa = "Oficina";
       else if (tercSet.has(c.id)) etapa = "Terceirizado";
       return { id: c.id, ref: mod?.ref ?? "—", nome: mod?.nome ?? "—", etapa };
     });
   }, [data]);
 
-  const etapas = ["CAD", "Terceirizado", "Oficina", "CQ", "Acabamento", "Direcionamento", "Lançado"];
+  const etapas = ["CAD", "Terceirizado", "Oficina", "Controle de Qualidade", "Acabamento", "Direcionamento", "Lançado"];
 
   const slaPorTerc = useMemo(() => {
     if (!data) return [];

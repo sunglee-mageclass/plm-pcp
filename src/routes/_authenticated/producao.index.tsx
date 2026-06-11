@@ -40,7 +40,7 @@ function ProducaoIndex() {
         <Factory className="h-7 w-7 text-primary" />
         <div>
           <h1 className="text-2xl font-bold">Produção</h1>
-          <p className="text-sm text-muted-foreground">CAD, terceirizados, oficina, CQ, acabamento e lançamentos.</p>
+          <p className="text-sm text-muted-foreground">CAD, terceirizados, oficina, Controle de Qualidade, acabamento e lançamentos.</p>
         </div>
       </header>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

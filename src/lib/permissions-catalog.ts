@@ -43,7 +43,7 @@ export const PAGES_CATALOG: ModuleDef[] = [
       { key: "producao_cad", label: "CAD" },
       { key: "producao_terceirizados", label: "Terceirizados" },
       { key: "producao_oficina", label: "Oficina" },
-      { key: "producao_cq", label: "CQ" },
+      { key: "producao_cq", label: "Controle de Qualidade" },
       { key: "producao_acabamento", label: "Acabamento" },
       { key: "producao_direcionamento", label: "Direcionamento" },
       { key: "producao_lancamentos", label: "Lançamentos" },
