@@ -444,7 +444,7 @@ function ProducaoTab() {
     const all = [...(data.terc as any[]), ...(data.acab as any[])];
     for (const t of all) {
       if (!t.terceirizado_id) continue;
-      const row = byTerc.get(t.terceirizado_id) ?? { nome: nome.get(t.terceirizado_id) ?? "—", dias: [], atrasos: 0, total: 0 };
+      const row = byTerc.get(t.terceirizado_id) ?? { nome: nome.get(t.terceirizado_id) ?? "—", dias: [] as number[], atrasos: 0, total: 0 };
       if (t.data_enviado && t.data_entregue) {
         const d = (new Date(t.data_entregue).getTime() - new Date(t.data_enviado).getTime()) / 86400000;
         row.dias.push(d);
