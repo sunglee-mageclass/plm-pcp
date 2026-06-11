@@ -1,88 +1,52 @@
-## Objetivo
+## Diagnóstico — Terceirizados (botões de categoria vazios)
 
-Dividir `src/components/desenvolvimento/ModeloDetailPanel.tsx` (899 linhas) em 6 subcomponentes focados, mantendo `ModeloDetailPanel` como orquestrador de state e mutations.
+### O que já foi verificado
 
-## Estrutura de arquivos
-
-```text
-src/components/desenvolvimento/
-├── ModeloDetailPanel.tsx              (orquestrador, ~200 linhas)
-├── modelo-detail/
-│   ├── types.ts                       (TecidoBlock, AviamentoRow, GradeRow, Opt, constantes)
-│   ├── hooks.ts                       (useModeloData, useOptions, useMutations)
-│   ├── ModeloInfoSection.tsx
-│   ├── ModeloTecidosSection.tsx
-│   ├── ModeloAviamentosSection.tsx
-│   ├── ModeloGradeSection.tsx
-│   ├── ModeloCustosSection.tsx
-│   └── ModeloAnexosSection.tsx
-```
-
-## Estratégia de state
-
-State e mutations ficam no parent (`ModeloDetailPanel`). Cada seção recebe seu slice + callback de update — padrão controlado, sem Context:
+1. **Banco** — A tabela `categorias_terceirizado` tem **3 registros** para o tenant do usuário logado (`Corte`, `Costura`, `Caseado`).
+2. **RLS** — Política `tenant_select` em `categorias_terceirizado` usa `(tenant_id = get_user_tenant_id())`. Correto.
+3. **Componente** `producao.terceirizados.$modeloId.tsx` — A query e o `map` dos botões **estão corretos** e **não são gated** por nenhum estado (rendem direto de `categorias`):
 
 ```tsx
-<ModeloTecidosSection
-  blocks={tecidoBlocks}
-  artigosOpts={artigos}
-  onChange={setTecidoBlocks}
-  disabled={isSaving}
-/>
+const { data: categorias = [] } = useQuery({
+  queryKey: ["categorias_terceirizado"],
+  queryFn: async () =>
+    (await supabase.from("categorias_terceirizado").select("id, nome").order("nome")).data ?? [],
+});
+...
+{(categorias as any[]).map((c) => <Button ...>{c.nome}</Button>)}
 ```
 
-Vantagens: tipagem explícita, fácil de testar, sem re-renders desnecessários via Context.
+4. Sem logs de console nem requests de rede capturados no snapshot atual — não há erro visível.
 
-## Responsabilidades por componente
+### Hipótese mais provável (causa raiz)
 
-| Componente | Props principais | Responsabilidade |
-|---|---|---|
-| `ModeloInfoSection` | `modelo`, `colaboradores`, `onChange` | Nome, REF, status, estilista, modelista, piloteiros 1-3, datas, coleção, semana/mês/ano |
-| `ModeloTecidosSection` | `blocks: TecidoBlock[]`, `artigos`, `onChange` | Renderiza 9 blocos (3 tipos × 3 numerados), cada um com até 10 variantes |
-| `ModeloAviamentosSection` | `rows: AviamentoRow[]`, `aviamentos`, `onChange` | 10 linhas de aviamento com consumo/loss/custo |
-| `ModeloGradeSection` | `grades: GradeRow[]`, `tamanhos`, `onChange` | Tabela proporções por variante + cálculo automático de total |
-| `ModeloCustosSection` | `tecidoBlocks`, `aviamentos`, `servicos` | Read-only; soma `custo_previsto` de tecidos/aviamentos/serviços |
-| `ModeloAnexosSection` | `modelo`, `onUpload`, `onRemove` | Ficha de medida (upload), observações (textarea), fotos (galeria + upload) |
+A query `["terc-modelo", modeloId]` usa um embed com **ambiguidade potencial** em `modelos`:
 
-## Parent (ModeloDetailPanel) após refatoração
-
-```tsx
-export function ModeloDetailPanel({ modeloId, onClose }) {
-  const { modelo, setModelo, tecidoBlocks, setTecidoBlocks, ... } = useModeloData(modeloId);
-  const { artigos, aviamentos, colaboradores, tamanhos } = useOptions();
-  const saveMutation = useSaveModelo(modeloId);
-
-  return (
-    <Sheet open={!!modeloId} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent className="...">
-        <SheetHeader>...</SheetHeader>
-        <Accordion type="multiple">
-          <AccordionItem value="info">
-            <ModeloInfoSection modelo={modelo} colaboradores={colaboradores} onChange={setModelo} />
-          </AccordionItem>
-          <AccordionItem value="tecidos">
-            <ModeloTecidosSection blocks={tecidoBlocks} artigos={artigos} onChange={setTecidoBlocks} />
-          </AccordionItem>
-          {/* …aviamentos, grade, custos, anexos */}
-        </Accordion>
-        <Button onClick={() => saveMutation.mutate()}>Salvar</Button>
-      </SheetContent>
-    </Sheet>
-  );
-}
+```ts
+.select("id, ref, nome, colecao, categorias_produto:categoria_principal_id(nome)")
+.single()
 ```
 
-## Passos de execução
+`modelos` tem **duas FKs** apontando para `categorias_produto` (`categoria_principal_id` e `categoria_secundaria_id`). Se o PostgREST não resolver a desambiguação por nome de coluna nesta versão, retorna **400** e o `useQuery` do modelo entra em erro. Isso por si só **não esconde os botões** (são queries independentes), mas indica o mesmo padrão de falha silenciosa do Financeiro.
 
-1. Criar `modelo-detail/types.ts` extraindo `TecidoBlock`, `AviamentoRow`, `GradeRow`, `Opt`, `TIPOS`, `STATUS_DESENV_OPTS`, `BUCKET`, helpers como `makeEmptyBlocks`.
-2. Criar `modelo-detail/hooks.ts` com `useModeloData(modeloId)` (carrega modelo + relacionados) e `useOptions()` (artigos, aviamentos, colaboradores por tipo, tamanhos).
-3. Criar os 6 arquivos de seção, cada um exportando um componente puro (props in → JSX out).
-4. Reescrever `ModeloDetailPanel.tsx` apenas com Sheet + Accordion + composição das seções + mutation de salvar.
-5. Validar build e abrir o painel em `/criacao/desenvolvimento` para confirmar comportamento idêntico (campos, upload de fotos, cálculo de grade, salvar).
+Causa real mais provável dos botões não aparecerem: **erro silencioso em uma das queries que disparam re-render** ou um erro de runtime mais cedo no componente (ex.: `modelo` undefined em algum acesso) que faz o React **abortar a render antes do Card de categorias**. Como o snapshot não tem console, preciso instrumentar.
 
-## Notas técnicas
+### Plano de correção
 
-- Nenhuma mudança de schema, mutation ou query — apenas reorganização visual.
-- Mantém uma única chamada de save (mutation no parent) para preservar atomicidade.
-- Uploads de fotos/ficha continuam no parent (precisam de `modeloId` + invalidate de queries); `ModeloAnexosSection` recebe handlers prontos.
-- Cálculos derivados (`ModeloCustosSection`, total de grade) usam `useMemo` dentro da seção.
+1. **Adicionar diagnóstico mínimo** no componente: logar `categorias`, `error` da query, e o tamanho de `(categorias as any[])` para confirmar via console se os dados chegam.
+2. **Endurecer a query de `modelo`** trocando o embed ambíguo por **queries separadas** (mesmo padrão que aplicamos no Financeiro):
+   - `modelos`: só colunas escalares.
+   - `categorias_produto` separado, por `categoria_principal_id`.
+3. **Endurecer a query de `categorias_terceirizado`**: tratar erro explicitamente (não engolir com `?? []`), e exibir uma mensagem se falhar.
+4. **Verificar live** abrindo uma REF: confirmar nas DevTools que `GET /rest/v1/categorias_terceirizado` retorna 200 com 3 itens.
+5. Se os 3 itens chegarem e os botões ainda não renderizarem, suspeitar de **erro de runtime acima** (ex.: acesso a `modelo.categorias_produto.nome` quando `modelo` é `undefined`). Adicionar `?.` em todos os acessos derivados de `modelo`.
+
+### Arquivos a editar
+
+- `src/routes/_authenticated/producao.terceirizados.$modeloId.tsx`
+
+### Critério de sucesso
+
+- Ao abrir `/producao/terceirizados/<modeloId>`, aparecem 3 botões (`Corte`, `Costura`, `Caseado`).
+- Clicar em um botão adiciona um bloco com os campos (Responsável, Preço, Datas, Quantidades).
+- Salvar persiste em `producao_terceirizados` com `ativo=true`.
