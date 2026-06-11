@@ -77,7 +77,7 @@ function CadDetailPage() {
       const { data, error } = await supabase
         .from("cad_tecidos")
         .select(
-          "*, artigos:artigo_id(nome, preco_por_metro), cad_tecido_variantes(*, variantes_tecido:variante_tecido_id(nome))",
+          "*, artigos:artigo_id(nome, preco_por_metro, unidade_medida), cad_tecido_variantes(*, variantes_tecido:variante_tecido_id(nome))",
         )
         .eq("cad_id", cadRow!.id);
       if (error) throw error;
