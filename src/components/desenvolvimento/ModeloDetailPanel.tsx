@@ -68,7 +68,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     if (Array.isArray(raw) && raw.length > 0) {
       return raw.map((x: any) => typeof x === "string" ? x : (x?.nome ?? x?.label ?? String(x)));
     }
-    return ["PP", "P", "M", "G", "GG"];
+    return ["34|PPP", "36|PP", "38|P", "40|M", "42|G", "44|GG"];
   }, [tenantCfg]);
 
   const { data: artigos = [] } = useQuery({
