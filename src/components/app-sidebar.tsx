@@ -9,6 +9,9 @@ import {
   DollarSign,
   BarChart3,
   LogOut,
+  Crown,
+  Store,
+  Users,
 } from "lucide-react";
 
 import {
@@ -44,7 +47,7 @@ export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const { isAdmin, user, signOut } = useAuth();
+  const { isAdmin, isSuperAdmin, user, signOut } = useAuth();
 
   const isActive = (path: string) => pathname === path || pathname.startsWith(path + "/");
 
@@ -110,6 +113,34 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {isSuperAdmin && (
+          <SidebarGroup>
+            <SidebarGroupLabel className="flex items-center gap-1">
+              <Crown className="h-3 w-3" /> Admin Mestre
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={isActive("/admin/lojas")} tooltip="Lojas">
+                    <Link to="/admin/lojas">
+                      <Store className="h-4 w-4" />
+                      <span>Gerenciar Lojas</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={isActive("/admin/usuarios")} tooltip="Usuários">
+                    <Link to="/admin/usuarios">
+                      <Users className="h-4 w-4" />
+                      <span>Gerenciar Usuários</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
 
       <SidebarFooter className="border-t">
