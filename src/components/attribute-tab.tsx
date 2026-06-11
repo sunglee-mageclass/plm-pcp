@@ -58,6 +58,7 @@ export type AttributeTabConfig = {
   plural: string; // for headers
   usage: UsageRef[];
   extra?: ExtraSelect;
+  fixedFilter?: { field: string; value: string };
 };
 
 type Row = Record<string, any>;
@@ -73,12 +74,15 @@ export function AttributeTab({ config }: { config: AttributeTabConfig }) {
   const [deleteRow, setDeleteRow] = useState<Row | null>(null);
   const [deleteUsage, setDeleteUsage] = useState<number | null>(null);
 
-  const listKey = ["attr", config.table];
+  const listKey = ["attr", config.table, config.fixedFilter?.value ?? ""];
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: listKey,
     queryFn: async () => {
       let q = supabase.from(config.table as any).select("*").order(config.nameField);
+      if (config.fixedFilter) {
+        q = q.eq(config.fixedFilter.field, config.fixedFilter.value);
+      }
       const { data, error } = await q;
       if (error) throw error;
       return (data ?? []) as Row[];
@@ -122,6 +126,9 @@ export function AttributeTab({ config }: { config: AttributeTabConfig }) {
           throw new Error(`Selecione ${config.extra.label}.`);
         }
         payload[config.extra.field] = newExtra || null;
+      }
+      if (config.fixedFilter) {
+        payload[config.fixedFilter.field] = config.fixedFilter.value;
       }
       const { error } = await supabase.from(config.table as any).insert(payload);
       if (error) throw error;
