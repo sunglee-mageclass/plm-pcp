@@ -240,6 +240,257 @@ export type Database = {
           },
         ]
       }
+      cad: {
+        Row: {
+          created_at: string | null
+          data_corte_pronto: string | null
+          data_enviado_corte: string | null
+          data_previsao_corte: string | null
+          enviado_corte: boolean | null
+          ficha_medida_url: string | null
+          id: string
+          modelo_id: string | null
+          observacoes_tecnicas: string | null
+          proporcoes_replanejadas: Json | null
+          status_corte: string | null
+          tenant_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          data_corte_pronto?: string | null
+          data_enviado_corte?: string | null
+          data_previsao_corte?: string | null
+          enviado_corte?: boolean | null
+          ficha_medida_url?: string | null
+          id?: string
+          modelo_id?: string | null
+          observacoes_tecnicas?: string | null
+          proporcoes_replanejadas?: Json | null
+          status_corte?: string | null
+          tenant_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          data_corte_pronto?: string | null
+          data_enviado_corte?: string | null
+          data_previsao_corte?: string | null
+          enviado_corte?: boolean | null
+          ficha_medida_url?: string | null
+          id?: string
+          modelo_id?: string | null
+          observacoes_tecnicas?: string | null
+          proporcoes_replanejadas?: Json | null
+          status_corte?: string | null
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cad_modelo_id_fkey"
+            columns: ["modelo_id"]
+            isOneToOne: false
+            referencedRelation: "modelos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cad_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cad_aviamentos: {
+        Row: {
+          aviamento_id: string | null
+          cad_id: string | null
+          consumo: number | null
+          created_at: string | null
+          id: string
+          numero: number
+          quantidade_enviar: number | null
+          quantidade_separar: number | null
+        }
+        Insert: {
+          aviamento_id?: string | null
+          cad_id?: string | null
+          consumo?: number | null
+          created_at?: string | null
+          id?: string
+          numero: number
+          quantidade_enviar?: number | null
+          quantidade_separar?: number | null
+        }
+        Update: {
+          aviamento_id?: string | null
+          cad_id?: string | null
+          consumo?: number | null
+          created_at?: string | null
+          id?: string
+          numero?: number
+          quantidade_enviar?: number | null
+          quantidade_separar?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cad_aviamentos_aviamento_id_fkey"
+            columns: ["aviamento_id"]
+            isOneToOne: false
+            referencedRelation: "aviamentos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cad_aviamentos_cad_id_fkey"
+            columns: ["cad_id"]
+            isOneToOne: false
+            referencedRelation: "cad"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cad_grades: {
+        Row: {
+          cad_id: string | null
+          created_at: string | null
+          grade_total_planejada: number | null
+          grade_total_real: number | null
+          grades_planejadas: Json
+          grades_reais: Json | null
+          id: string
+          variante_numero: number
+        }
+        Insert: {
+          cad_id?: string | null
+          created_at?: string | null
+          grade_total_planejada?: number | null
+          grade_total_real?: number | null
+          grades_planejadas: Json
+          grades_reais?: Json | null
+          id?: string
+          variante_numero: number
+        }
+        Update: {
+          cad_id?: string | null
+          created_at?: string | null
+          grade_total_planejada?: number | null
+          grade_total_real?: number | null
+          grades_planejadas?: Json
+          grades_reais?: Json | null
+          id?: string
+          variante_numero?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cad_grades_cad_id_fkey"
+            columns: ["cad_id"]
+            isOneToOne: false
+            referencedRelation: "cad"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cad_tecido_variantes: {
+        Row: {
+          cad_tecido_id: string | null
+          created_at: string | null
+          id: string
+          metragem_enviada: number | null
+          metragem_planejada: number | null
+          ordem: number
+          quantidade_folhas: number | null
+          variante_tecido_id: string | null
+        }
+        Insert: {
+          cad_tecido_id?: string | null
+          created_at?: string | null
+          id?: string
+          metragem_enviada?: number | null
+          metragem_planejada?: number | null
+          ordem: number
+          quantidade_folhas?: number | null
+          variante_tecido_id?: string | null
+        }
+        Update: {
+          cad_tecido_id?: string | null
+          created_at?: string | null
+          id?: string
+          metragem_enviada?: number | null
+          metragem_planejada?: number | null
+          ordem?: number
+          quantidade_folhas?: number | null
+          variante_tecido_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cad_tecido_variantes_cad_tecido_id_fkey"
+            columns: ["cad_tecido_id"]
+            isOneToOne: false
+            referencedRelation: "cad_tecidos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cad_tecido_variantes_variante_tecido_id_fkey"
+            columns: ["variante_tecido_id"]
+            isOneToOne: false
+            referencedRelation: "variantes_tecido"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cad_tecidos: {
+        Row: {
+          artigo_id: string | null
+          cad_id: string | null
+          consumo_cad: number | null
+          created_at: string | null
+          custo_cad: number | null
+          id: string
+          loss_percent_cad: number | null
+          numero: number
+          tamanho_folha: number | null
+          tipo: string
+        }
+        Insert: {
+          artigo_id?: string | null
+          cad_id?: string | null
+          consumo_cad?: number | null
+          created_at?: string | null
+          custo_cad?: number | null
+          id?: string
+          loss_percent_cad?: number | null
+          numero: number
+          tamanho_folha?: number | null
+          tipo?: string
+        }
+        Update: {
+          artigo_id?: string | null
+          cad_id?: string | null
+          consumo_cad?: number | null
+          created_at?: string | null
+          custo_cad?: number | null
+          id?: string
+          loss_percent_cad?: number | null
+          numero?: number
+          tamanho_folha?: number | null
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cad_tecidos_artigo_id_fkey"
+            columns: ["artigo_id"]
+            isOneToOne: false
+            referencedRelation: "artigos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cad_tecidos_cad_id_fkey"
+            columns: ["cad_id"]
+            isOneToOne: false
+            referencedRelation: "cad"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       categorias_aviamento: {
         Row: {
           created_at: string | null
@@ -417,6 +668,69 @@ export type Database = {
           },
         ]
       }
+      controle_qualidade: {
+        Row: {
+          cad_id: string | null
+          created_at: string | null
+          data_conserto_entregue: string | null
+          data_conserto_enviado: string | null
+          data_conserto_prevista: string | null
+          data_lavagem_entregue: string | null
+          data_lavagem_enviado: string | null
+          id: string
+          observacoes_cq: string | null
+          pecas_faltantes: number | null
+          pecas_incompletas: number | null
+          pecas_sem_etiqueta: number | null
+          tenant_id: string | null
+        }
+        Insert: {
+          cad_id?: string | null
+          created_at?: string | null
+          data_conserto_entregue?: string | null
+          data_conserto_enviado?: string | null
+          data_conserto_prevista?: string | null
+          data_lavagem_entregue?: string | null
+          data_lavagem_enviado?: string | null
+          id?: string
+          observacoes_cq?: string | null
+          pecas_faltantes?: number | null
+          pecas_incompletas?: number | null
+          pecas_sem_etiqueta?: number | null
+          tenant_id?: string | null
+        }
+        Update: {
+          cad_id?: string | null
+          created_at?: string | null
+          data_conserto_entregue?: string | null
+          data_conserto_enviado?: string | null
+          data_conserto_prevista?: string | null
+          data_lavagem_entregue?: string | null
+          data_lavagem_enviado?: string | null
+          id?: string
+          observacoes_cq?: string | null
+          pecas_faltantes?: number | null
+          pecas_incompletas?: number | null
+          pecas_sem_etiqueta?: number | null
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "controle_qualidade_cad_id_fkey"
+            columns: ["cad_id"]
+            isOneToOne: false
+            referencedRelation: "cad"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "controle_qualidade_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cores: {
         Row: {
           created_at: string | null
@@ -439,6 +753,98 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "cores_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cq_variantes: {
+        Row: {
+          controle_qualidade_id: string | null
+          created_at: string | null
+          destino_defeito: string | null
+          etapa: string
+          grade_total: number | null
+          grades: Json
+          id: string
+          variante_numero: number
+        }
+        Insert: {
+          controle_qualidade_id?: string | null
+          created_at?: string | null
+          destino_defeito?: string | null
+          etapa: string
+          grade_total?: number | null
+          grades: Json
+          id?: string
+          variante_numero: number
+        }
+        Update: {
+          controle_qualidade_id?: string | null
+          created_at?: string | null
+          destino_defeito?: string | null
+          etapa?: string
+          grade_total?: number | null
+          grades?: Json
+          id?: string
+          variante_numero?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cq_variantes_controle_qualidade_id_fkey"
+            columns: ["controle_qualidade_id"]
+            isOneToOne: false
+            referencedRelation: "controle_qualidade"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      direcionamento: {
+        Row: {
+          cad_id: string | null
+          created_at: string | null
+          ecommerce: Json | null
+          ecommerce_total: number | null
+          id: string
+          loja_fisica: Json | null
+          loja_fisica_total: number | null
+          tenant_id: string | null
+          variante_numero: number
+        }
+        Insert: {
+          cad_id?: string | null
+          created_at?: string | null
+          ecommerce?: Json | null
+          ecommerce_total?: number | null
+          id?: string
+          loja_fisica?: Json | null
+          loja_fisica_total?: number | null
+          tenant_id?: string | null
+          variante_numero: number
+        }
+        Update: {
+          cad_id?: string | null
+          created_at?: string | null
+          ecommerce?: Json | null
+          ecommerce_total?: number | null
+          id?: string
+          loja_fisica?: Json | null
+          loja_fisica_total?: number | null
+          tenant_id?: string | null
+          variante_numero?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "direcionamento_cad_id_fkey"
+            columns: ["cad_id"]
+            isOneToOne: false
+            referencedRelation: "cad"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "direcionamento_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -507,6 +913,70 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "intervalos_largura_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lancamentos: {
+        Row: {
+          ano_lancamento: string | null
+          cad_id: string | null
+          created_at: string | null
+          data_lancamento: string | null
+          foto_peca_amostra: string | null
+          id: string
+          mes_lancamento: string | null
+          modelo_id: string | null
+          semana_lancamento: string | null
+          tenant_id: string | null
+          verificado: boolean | null
+        }
+        Insert: {
+          ano_lancamento?: string | null
+          cad_id?: string | null
+          created_at?: string | null
+          data_lancamento?: string | null
+          foto_peca_amostra?: string | null
+          id?: string
+          mes_lancamento?: string | null
+          modelo_id?: string | null
+          semana_lancamento?: string | null
+          tenant_id?: string | null
+          verificado?: boolean | null
+        }
+        Update: {
+          ano_lancamento?: string | null
+          cad_id?: string | null
+          created_at?: string | null
+          data_lancamento?: string | null
+          foto_peca_amostra?: string | null
+          id?: string
+          mes_lancamento?: string | null
+          modelo_id?: string | null
+          semana_lancamento?: string | null
+          tenant_id?: string | null
+          verificado?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lancamentos_cad_id_fkey"
+            columns: ["cad_id"]
+            isOneToOne: false
+            referencedRelation: "cad"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lancamentos_modelo_id_fkey"
+            columns: ["modelo_id"]
+            isOneToOne: false
+            referencedRelation: "modelos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lancamentos_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -597,6 +1067,961 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      modelo_aviamentos: {
+        Row: {
+          aviamento_id: string | null
+          consumo: number | null
+          created_at: string | null
+          custo_previsto: number | null
+          id: string
+          loss_percent: number | null
+          modelo_id: string | null
+          numero: number
+        }
+        Insert: {
+          aviamento_id?: string | null
+          consumo?: number | null
+          created_at?: string | null
+          custo_previsto?: number | null
+          id?: string
+          loss_percent?: number | null
+          modelo_id?: string | null
+          numero: number
+        }
+        Update: {
+          aviamento_id?: string | null
+          consumo?: number | null
+          created_at?: string | null
+          custo_previsto?: number | null
+          id?: string
+          loss_percent?: number | null
+          modelo_id?: string | null
+          numero?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "modelo_aviamentos_aviamento_id_fkey"
+            columns: ["aviamento_id"]
+            isOneToOne: false
+            referencedRelation: "aviamentos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelo_aviamentos_modelo_id_fkey"
+            columns: ["modelo_id"]
+            isOneToOne: false
+            referencedRelation: "modelos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      modelo_grades: {
+        Row: {
+          created_at: string | null
+          grade_total: number | null
+          grades: Json
+          id: string
+          modelo_id: string | null
+          variante_numero: number
+        }
+        Insert: {
+          created_at?: string | null
+          grade_total?: number | null
+          grades: Json
+          id?: string
+          modelo_id?: string | null
+          variante_numero: number
+        }
+        Update: {
+          created_at?: string | null
+          grade_total?: number | null
+          grades?: Json
+          id?: string
+          modelo_id?: string | null
+          variante_numero?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "modelo_grades_modelo_id_fkey"
+            columns: ["modelo_id"]
+            isOneToOne: false
+            referencedRelation: "modelos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      modelo_tecido_variantes: {
+        Row: {
+          created_at: string | null
+          id: string
+          modelo_tecido_id: string | null
+          ordem: number
+          variante_tecido_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          modelo_tecido_id?: string | null
+          ordem: number
+          variante_tecido_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          modelo_tecido_id?: string | null
+          ordem?: number
+          variante_tecido_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "modelo_tecido_variantes_modelo_tecido_id_fkey"
+            columns: ["modelo_tecido_id"]
+            isOneToOne: false
+            referencedRelation: "modelo_tecidos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelo_tecido_variantes_variante_tecido_id_fkey"
+            columns: ["variante_tecido_id"]
+            isOneToOne: false
+            referencedRelation: "variantes_tecido"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      modelo_tecidos: {
+        Row: {
+          artigo_id: string | null
+          consumo: number | null
+          created_at: string | null
+          custo_previsto: number | null
+          id: string
+          loss_percent: number | null
+          modelo_id: string | null
+          numero: number
+          tipo: string
+        }
+        Insert: {
+          artigo_id?: string | null
+          consumo?: number | null
+          created_at?: string | null
+          custo_previsto?: number | null
+          id?: string
+          loss_percent?: number | null
+          modelo_id?: string | null
+          numero: number
+          tipo?: string
+        }
+        Update: {
+          artigo_id?: string | null
+          consumo?: number | null
+          created_at?: string | null
+          custo_previsto?: number | null
+          id?: string
+          loss_percent?: number | null
+          modelo_id?: string | null
+          numero?: number
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "modelo_tecidos_artigo_id_fkey"
+            columns: ["artigo_id"]
+            isOneToOne: false
+            referencedRelation: "artigos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelo_tecidos_modelo_id_fkey"
+            columns: ["modelo_id"]
+            isOneToOne: false
+            referencedRelation: "modelos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      modelos: {
+        Row: {
+          ajustes_prova: string | null
+          ano_id: string | null
+          categoria_principal_id: string | null
+          categoria_secundaria_id: string | null
+          colecao: string | null
+          created_at: string | null
+          custo_aviamento_total: number | null
+          custo_entretela_total: number | null
+          custo_forro_total: number | null
+          custo_peca_previsto: number | null
+          custo_tecido_total: number | null
+          custo_terceirizados_previsto: number | null
+          data_aprovacao: string | null
+          data_desenho_tecnico: string | null
+          data_piloto1: string | null
+          data_piloto2: string | null
+          data_piloto3: string | null
+          enviado_cad: boolean | null
+          estilista_id: string | null
+          ficha_medida_url: string | null
+          fotos_modelo: string[] | null
+          fotos_referencia: string[] | null
+          id: string
+          linha_id: string | null
+          mes_id: string | null
+          modelista_id: string | null
+          motivo_cancelamento: string | null
+          nome: string
+          observacoes_gerais: string | null
+          observacoes_tecnicas: string | null
+          piloteiro1_id: string | null
+          piloteiro2_id: string | null
+          piloteiro3_id: string | null
+          proporcoes: Json | null
+          ref: string | null
+          semana: string | null
+          status_desenvolvimento: string | null
+          status_planejamento: string | null
+          tenant_id: string | null
+        }
+        Insert: {
+          ajustes_prova?: string | null
+          ano_id?: string | null
+          categoria_principal_id?: string | null
+          categoria_secundaria_id?: string | null
+          colecao?: string | null
+          created_at?: string | null
+          custo_aviamento_total?: number | null
+          custo_entretela_total?: number | null
+          custo_forro_total?: number | null
+          custo_peca_previsto?: number | null
+          custo_tecido_total?: number | null
+          custo_terceirizados_previsto?: number | null
+          data_aprovacao?: string | null
+          data_desenho_tecnico?: string | null
+          data_piloto1?: string | null
+          data_piloto2?: string | null
+          data_piloto3?: string | null
+          enviado_cad?: boolean | null
+          estilista_id?: string | null
+          ficha_medida_url?: string | null
+          fotos_modelo?: string[] | null
+          fotos_referencia?: string[] | null
+          id?: string
+          linha_id?: string | null
+          mes_id?: string | null
+          modelista_id?: string | null
+          motivo_cancelamento?: string | null
+          nome: string
+          observacoes_gerais?: string | null
+          observacoes_tecnicas?: string | null
+          piloteiro1_id?: string | null
+          piloteiro2_id?: string | null
+          piloteiro3_id?: string | null
+          proporcoes?: Json | null
+          ref?: string | null
+          semana?: string | null
+          status_desenvolvimento?: string | null
+          status_planejamento?: string | null
+          tenant_id?: string | null
+        }
+        Update: {
+          ajustes_prova?: string | null
+          ano_id?: string | null
+          categoria_principal_id?: string | null
+          categoria_secundaria_id?: string | null
+          colecao?: string | null
+          created_at?: string | null
+          custo_aviamento_total?: number | null
+          custo_entretela_total?: number | null
+          custo_forro_total?: number | null
+          custo_peca_previsto?: number | null
+          custo_tecido_total?: number | null
+          custo_terceirizados_previsto?: number | null
+          data_aprovacao?: string | null
+          data_desenho_tecnico?: string | null
+          data_piloto1?: string | null
+          data_piloto2?: string | null
+          data_piloto3?: string | null
+          enviado_cad?: boolean | null
+          estilista_id?: string | null
+          ficha_medida_url?: string | null
+          fotos_modelo?: string[] | null
+          fotos_referencia?: string[] | null
+          id?: string
+          linha_id?: string | null
+          mes_id?: string | null
+          modelista_id?: string | null
+          motivo_cancelamento?: string | null
+          nome?: string
+          observacoes_gerais?: string | null
+          observacoes_tecnicas?: string | null
+          piloteiro1_id?: string | null
+          piloteiro2_id?: string | null
+          piloteiro3_id?: string | null
+          proporcoes?: Json | null
+          ref?: string | null
+          semana?: string | null
+          status_desenvolvimento?: string | null
+          status_planejamento?: string | null
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "modelos_ano_id_fkey"
+            columns: ["ano_id"]
+            isOneToOne: false
+            referencedRelation: "anos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelos_categoria_principal_id_fkey"
+            columns: ["categoria_principal_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_produto"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelos_categoria_secundaria_id_fkey"
+            columns: ["categoria_secundaria_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_produto"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelos_estilista_id_fkey"
+            columns: ["estilista_id"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelos_linha_id_fkey"
+            columns: ["linha_id"]
+            isOneToOne: false
+            referencedRelation: "linhas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelos_mes_id_fkey"
+            columns: ["mes_id"]
+            isOneToOne: false
+            referencedRelation: "meses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelos_modelista_id_fkey"
+            columns: ["modelista_id"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelos_piloteiro1_id_fkey"
+            columns: ["piloteiro1_id"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelos_piloteiro2_id_fkey"
+            columns: ["piloteiro2_id"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelos_piloteiro3_id_fkey"
+            columns: ["piloteiro3_id"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelos_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ocs_aviamento: {
+        Row: {
+          created_at: string | null
+          data_entrega: string | null
+          data_pedido: string | null
+          data_prevista_entrega: string | null
+          empresa_id: string | null
+          id: string
+          nf_url: string | null
+          numero_pedido: string | null
+          prazo_pagamento: string | null
+          quantidade_prazos: number | null
+          responsavel_nome: string | null
+          status: string | null
+          tenant_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          data_entrega?: string | null
+          data_pedido?: string | null
+          data_prevista_entrega?: string | null
+          empresa_id?: string | null
+          id?: string
+          nf_url?: string | null
+          numero_pedido?: string | null
+          prazo_pagamento?: string | null
+          quantidade_prazos?: number | null
+          responsavel_nome?: string | null
+          status?: string | null
+          tenant_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          data_entrega?: string | null
+          data_pedido?: string | null
+          data_prevista_entrega?: string | null
+          empresa_id?: string | null
+          id?: string
+          nf_url?: string | null
+          numero_pedido?: string | null
+          prazo_pagamento?: string | null
+          quantidade_prazos?: number | null
+          responsavel_nome?: string | null
+          status?: string | null
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ocs_aviamento_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_aviamento_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ocs_aviamento_itens: {
+        Row: {
+          aviamento_id: string | null
+          created_at: string | null
+          id: string
+          oc_aviamento_id: string | null
+          quantidade_pedida: number | null
+          quantidade_recebida: number | null
+        }
+        Insert: {
+          aviamento_id?: string | null
+          created_at?: string | null
+          id?: string
+          oc_aviamento_id?: string | null
+          quantidade_pedida?: number | null
+          quantidade_recebida?: number | null
+        }
+        Update: {
+          aviamento_id?: string | null
+          created_at?: string | null
+          id?: string
+          oc_aviamento_id?: string | null
+          quantidade_pedida?: number | null
+          quantidade_recebida?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ocs_aviamento_itens_aviamento_id_fkey"
+            columns: ["aviamento_id"]
+            isOneToOne: false
+            referencedRelation: "aviamentos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_aviamento_itens_oc_aviamento_id_fkey"
+            columns: ["oc_aviamento_id"]
+            isOneToOne: false
+            referencedRelation: "ocs_aviamento"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ocs_tecido: {
+        Row: {
+          anexo_pedido_url: string | null
+          created_at: string | null
+          data_entrega: string | null
+          data_pedido: string | null
+          data_prevista_entrega: string | null
+          empresa_id: string | null
+          etiqueta_lavagem_urls: string[] | null
+          id: string
+          modelo_sugerido_url: string | null
+          nf_url: string | null
+          numero_pedido: string | null
+          observacoes_defeitos: string | null
+          observacoes_entrega: string | null
+          prazo_pagamento: string | null
+          quantidade_prazos: number | null
+          responsavel_id: string | null
+          responsavel_nome: string | null
+          status: string | null
+          tenant_id: string | null
+          valor_previsto_total: number | null
+          valor_real_total: number | null
+        }
+        Insert: {
+          anexo_pedido_url?: string | null
+          created_at?: string | null
+          data_entrega?: string | null
+          data_pedido?: string | null
+          data_prevista_entrega?: string | null
+          empresa_id?: string | null
+          etiqueta_lavagem_urls?: string[] | null
+          id?: string
+          modelo_sugerido_url?: string | null
+          nf_url?: string | null
+          numero_pedido?: string | null
+          observacoes_defeitos?: string | null
+          observacoes_entrega?: string | null
+          prazo_pagamento?: string | null
+          quantidade_prazos?: number | null
+          responsavel_id?: string | null
+          responsavel_nome?: string | null
+          status?: string | null
+          tenant_id?: string | null
+          valor_previsto_total?: number | null
+          valor_real_total?: number | null
+        }
+        Update: {
+          anexo_pedido_url?: string | null
+          created_at?: string | null
+          data_entrega?: string | null
+          data_pedido?: string | null
+          data_prevista_entrega?: string | null
+          empresa_id?: string | null
+          etiqueta_lavagem_urls?: string[] | null
+          id?: string
+          modelo_sugerido_url?: string | null
+          nf_url?: string | null
+          numero_pedido?: string | null
+          observacoes_defeitos?: string | null
+          observacoes_entrega?: string | null
+          prazo_pagamento?: string | null
+          quantidade_prazos?: number | null
+          responsavel_id?: string | null
+          responsavel_nome?: string | null
+          status?: string | null
+          tenant_id?: string | null
+          valor_previsto_total?: number | null
+          valor_real_total?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ocs_tecido_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_tecido_responsavel_id_fkey"
+            columns: ["responsavel_id"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_tecido_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ocs_tecido_itens: {
+        Row: {
+          artigo_id: string | null
+          artigo_numero: number | null
+          created_at: string | null
+          id: string
+          oc_tecido_id: string | null
+          quantidade_pedida: number | null
+          quantidade_recebida: number | null
+          variante_tecido_id: string | null
+        }
+        Insert: {
+          artigo_id?: string | null
+          artigo_numero?: number | null
+          created_at?: string | null
+          id?: string
+          oc_tecido_id?: string | null
+          quantidade_pedida?: number | null
+          quantidade_recebida?: number | null
+          variante_tecido_id?: string | null
+        }
+        Update: {
+          artigo_id?: string | null
+          artigo_numero?: number | null
+          created_at?: string | null
+          id?: string
+          oc_tecido_id?: string | null
+          quantidade_pedida?: number | null
+          quantidade_recebida?: number | null
+          variante_tecido_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ocs_tecido_itens_artigo_id_fkey"
+            columns: ["artigo_id"]
+            isOneToOne: false
+            referencedRelation: "artigos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_tecido_itens_oc_tecido_id_fkey"
+            columns: ["oc_tecido_id"]
+            isOneToOne: false
+            referencedRelation: "ocs_tecido"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_tecido_itens_variante_tecido_id_fkey"
+            columns: ["variante_tecido_id"]
+            isOneToOne: false
+            referencedRelation: "variantes_tecido"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      parcelas: {
+        Row: {
+          comprovante_url: string | null
+          created_at: string | null
+          data_pagamento: string | null
+          data_vencimento: string
+          empresa_id: string | null
+          id: string
+          numero_parcela: number
+          oc_aviamento_id: string | null
+          oc_tecido_id: string | null
+          status: string | null
+          tenant_id: string | null
+          tipo_oc: string
+          valor: number
+        }
+        Insert: {
+          comprovante_url?: string | null
+          created_at?: string | null
+          data_pagamento?: string | null
+          data_vencimento: string
+          empresa_id?: string | null
+          id?: string
+          numero_parcela: number
+          oc_aviamento_id?: string | null
+          oc_tecido_id?: string | null
+          status?: string | null
+          tenant_id?: string | null
+          tipo_oc: string
+          valor: number
+        }
+        Update: {
+          comprovante_url?: string | null
+          created_at?: string | null
+          data_pagamento?: string | null
+          data_vencimento?: string
+          empresa_id?: string | null
+          id?: string
+          numero_parcela?: number
+          oc_aviamento_id?: string | null
+          oc_tecido_id?: string | null
+          status?: string | null
+          tenant_id?: string | null
+          tipo_oc?: string
+          valor?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "parcelas_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parcelas_oc_aviamento_id_fkey"
+            columns: ["oc_aviamento_id"]
+            isOneToOne: false
+            referencedRelation: "ocs_aviamento"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parcelas_oc_tecido_id_fkey"
+            columns: ["oc_tecido_id"]
+            isOneToOne: false
+            referencedRelation: "ocs_tecido"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parcelas_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      producao_acabamento: {
+        Row: {
+          ativo: boolean | null
+          aviamentos_utilizados: Json | null
+          cad_id: string | null
+          created_at: string | null
+          data_entregue: string | null
+          data_enviado: string | null
+          data_prevista: string | null
+          id: string
+          observacao: string | null
+          preco_por_peca: number | null
+          quantidade_defeito: number | null
+          quantidade_enviada: number | null
+          quantidade_recebida: number | null
+          status: string | null
+          tenant_id: string | null
+          terceirizado_id: string | null
+          tipo: string
+        }
+        Insert: {
+          ativo?: boolean | null
+          aviamentos_utilizados?: Json | null
+          cad_id?: string | null
+          created_at?: string | null
+          data_entregue?: string | null
+          data_enviado?: string | null
+          data_prevista?: string | null
+          id?: string
+          observacao?: string | null
+          preco_por_peca?: number | null
+          quantidade_defeito?: number | null
+          quantidade_enviada?: number | null
+          quantidade_recebida?: number | null
+          status?: string | null
+          tenant_id?: string | null
+          terceirizado_id?: string | null
+          tipo: string
+        }
+        Update: {
+          ativo?: boolean | null
+          aviamentos_utilizados?: Json | null
+          cad_id?: string | null
+          created_at?: string | null
+          data_entregue?: string | null
+          data_enviado?: string | null
+          data_prevista?: string | null
+          id?: string
+          observacao?: string | null
+          preco_por_peca?: number | null
+          quantidade_defeito?: number | null
+          quantidade_enviada?: number | null
+          quantidade_recebida?: number | null
+          status?: string | null
+          tenant_id?: string | null
+          terceirizado_id?: string | null
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "producao_acabamento_cad_id_fkey"
+            columns: ["cad_id"]
+            isOneToOne: false
+            referencedRelation: "cad"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "producao_acabamento_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "producao_acabamento_terceirizado_id_fkey"
+            columns: ["terceirizado_id"]
+            isOneToOne: false
+            referencedRelation: "terceirizados"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      producao_oficina: {
+        Row: {
+          cad_id: string | null
+          created_at: string | null
+          data_entregue: string | null
+          data_enviado: string | null
+          data_prevista: string | null
+          id: string
+          observacao: string | null
+          observacoes_molde: string | null
+          preco_por_peca: number | null
+          quantidade_defeito: number | null
+          quantidade_enviada: number | null
+          quantidade_recebida: number | null
+          status: string | null
+          tenant_id: string | null
+          terceirizado_id: string | null
+        }
+        Insert: {
+          cad_id?: string | null
+          created_at?: string | null
+          data_entregue?: string | null
+          data_enviado?: string | null
+          data_prevista?: string | null
+          id?: string
+          observacao?: string | null
+          observacoes_molde?: string | null
+          preco_por_peca?: number | null
+          quantidade_defeito?: number | null
+          quantidade_enviada?: number | null
+          quantidade_recebida?: number | null
+          status?: string | null
+          tenant_id?: string | null
+          terceirizado_id?: string | null
+        }
+        Update: {
+          cad_id?: string | null
+          created_at?: string | null
+          data_entregue?: string | null
+          data_enviado?: string | null
+          data_prevista?: string | null
+          id?: string
+          observacao?: string | null
+          observacoes_molde?: string | null
+          preco_por_peca?: number | null
+          quantidade_defeito?: number | null
+          quantidade_enviada?: number | null
+          quantidade_recebida?: number | null
+          status?: string | null
+          tenant_id?: string | null
+          terceirizado_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "producao_oficina_cad_id_fkey"
+            columns: ["cad_id"]
+            isOneToOne: false
+            referencedRelation: "cad"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "producao_oficina_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "producao_oficina_terceirizado_id_fkey"
+            columns: ["terceirizado_id"]
+            isOneToOne: false
+            referencedRelation: "terceirizados"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      producao_terceirizados: {
+        Row: {
+          ativo: boolean | null
+          aviamentos_enviados: Json | null
+          cad_id: string | null
+          categoria_terceirizado_id: string | null
+          created_at: string | null
+          data_entregue: string | null
+          data_enviado: string | null
+          data_prevista: string | null
+          id: string
+          observacao: string | null
+          preco_metro_unidade: number | null
+          quantidade_defeito: number | null
+          quantidade_enviada: number | null
+          quantidade_recebida: number | null
+          status: string | null
+          tenant_id: string | null
+          terceirizado_id: string | null
+        }
+        Insert: {
+          ativo?: boolean | null
+          aviamentos_enviados?: Json | null
+          cad_id?: string | null
+          categoria_terceirizado_id?: string | null
+          created_at?: string | null
+          data_entregue?: string | null
+          data_enviado?: string | null
+          data_prevista?: string | null
+          id?: string
+          observacao?: string | null
+          preco_metro_unidade?: number | null
+          quantidade_defeito?: number | null
+          quantidade_enviada?: number | null
+          quantidade_recebida?: number | null
+          status?: string | null
+          tenant_id?: string | null
+          terceirizado_id?: string | null
+        }
+        Update: {
+          ativo?: boolean | null
+          aviamentos_enviados?: Json | null
+          cad_id?: string | null
+          categoria_terceirizado_id?: string | null
+          created_at?: string | null
+          data_entregue?: string | null
+          data_enviado?: string | null
+          data_prevista?: string | null
+          id?: string
+          observacao?: string | null
+          preco_metro_unidade?: number | null
+          quantidade_defeito?: number | null
+          quantidade_enviada?: number | null
+          quantidade_recebida?: number | null
+          status?: string | null
+          tenant_id?: string | null
+          terceirizado_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "producao_terceirizados_cad_id_fkey"
+            columns: ["cad_id"]
+            isOneToOne: false
+            referencedRelation: "cad"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "producao_terceirizados_categoria_terceirizado_id_fkey"
+            columns: ["categoria_terceirizado_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_terceirizado"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "producao_terceirizados_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "producao_terceirizados_terceirizado_id_fkey"
+            columns: ["terceirizado_id"]
+            isOneToOne: false
+            referencedRelation: "terceirizados"
             referencedColumns: ["id"]
           },
         ]
