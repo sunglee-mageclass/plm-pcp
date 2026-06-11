@@ -349,7 +349,7 @@ function CqDetailPage() {
           </div>
         </div>
         <div>
-          <Label className="text-xs">Observações CQ</Label>
+          <Label className="text-xs">Observações do Controle de Qualidade</Label>
           <Textarea rows={3} value={form.observacoes_cq}
             onChange={(e) => setForm((f) => ({ ...f, observacoes_cq: e.target.value }))} />
         </div>
