@@ -9,6 +9,9 @@ import {
   DollarSign,
   BarChart3,
   LogOut,
+  Crown,
+  Store,
+  Users,
 } from "lucide-react";
 
 import {
@@ -44,7 +47,7 @@ export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const { isAdmin, user, signOut } = useAuth();
+  const { isAdmin, isSuperAdmin, user, signOut } = useAuth();
 
   const isActive = (path: string) => pathname === path || pathname.startsWith(path + "/");
 
