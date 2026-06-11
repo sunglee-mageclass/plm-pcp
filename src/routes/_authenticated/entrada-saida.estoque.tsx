@@ -293,18 +293,18 @@ function AviamentosTab() {
         gradeByModelo.set(g.modelo_id, (gradeByModelo.get(g.modelo_id) ?? 0) + num(g.grade_total));
       }
 
-      type Acc = { previsto: number; recebido: number; baixa: number; reservado: number };
+      type Acc = { prevReceb: number; recebido: number; baixa: number; reservado: number };
       const byAv = new Map<string, Acc>();
       const get = (id: string) => {
-        if (!byAv.has(id)) byAv.set(id, { previsto: 0, recebido: 0, baixa: 0, reservado: 0 });
+        if (!byAv.has(id)) byAv.set(id, { prevReceb: 0, recebido: 0, baixa: 0, reservado: 0 });
         return byAv.get(id)!;
       };
 
       for (const it of ocItens.data ?? []) {
         if (!it.aviamento_id) continue;
         const acc = get(it.aviamento_id);
-        if ((it as any).ocs_aviamento?.status === "encomendado") acc.previsto += num(it.quantidade_pedida);
-        acc.recebido += num(it.quantidade_recebida);
+        if ((it as any).ocs_aviamento?.status === "encomendado") acc.prevReceb += num(it.quantidade_pedida);
+        if ((it as any).ocs_aviamento?.status === "recebido") acc.recebido += num(it.quantidade_recebida);
       }
       for (const c of cadAv.data ?? []) {
         if (!c.aviamento_id) continue;
@@ -318,7 +318,7 @@ function AviamentosTab() {
       }
 
       const rows = (aviamentos.data ?? []).map((a: any) => {
-        const acc = byAv.get(a.id) ?? { previsto: 0, recebido: 0, baixa: 0, reservado: 0 };
+        const acc = byAv.get(a.id) ?? { prevReceb: 0, recebido: 0, baixa: 0, reservado: 0 };
         const fisico = acc.recebido - acc.baixa;
         const previsto = fisico - acc.reservado;
         return {
@@ -328,7 +328,10 @@ function AviamentosTab() {
           fornecedorId: a.empresa_id,
           categoria: a.categorias_aviamento?.nome ?? "—",
           categoriaId: a.categoria_aviamento_id,
-          ...acc,
+          prevReceb: acc.prevReceb,
+          recebido: acc.recebido,
+          baixa: acc.baixa,
+          reservado: acc.reservado,
           fisico,
           previsto,
         };
