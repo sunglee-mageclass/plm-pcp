@@ -127,9 +127,35 @@ function CadDetailPage() {
     },
   });
 
+  const { data: modeloAviamentos = [] } = useQuery({
+    queryKey: ["cad-modelo-aviamentos", modeloId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("modelo_aviamentos")
+        .select("id, numero, aviamento_id, consumo, aviamentos:aviamento_id(codigo_nome)")
+        .eq("modelo_id", modeloId)
+        .order("numero");
+      return data ?? [];
+    },
+  });
+  const { data: cadAviamentos = [] } = useQuery({
+    queryKey: ["cad-aviamentos-rows", cadRow?.id],
+    enabled: !!cadRow?.id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("cad_aviamentos")
+        .select("*, aviamentos:aviamento_id(codigo_nome)")
+        .eq("cad_id", cadRow!.id)
+        .order("numero");
+      return data ?? [];
+    },
+  });
+
   // --- local editable state, seeded from cad rows or modelo defaults ---
   const [tecidos, setTecidos] = useState<TecidoRow[]>([]);
   const [grades, setGrades] = useState<GradeRow[]>([]);
+  const [aviamentos, setAviamentos] = useState<AviamentoRow[]>([]);
+  const [previsaoEntrega, setPrevisaoEntrega] = useState("");
   const [seeded, setSeeded] = useState(false);
 
   useEffect(() => {
