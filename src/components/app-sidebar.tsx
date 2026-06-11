@@ -17,6 +17,12 @@ import {
   Moon,
 } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import {
   Sidebar,
@@ -309,15 +315,22 @@ function ThemeToggleButton({ collapsed }: { collapsed: boolean }) {
   const { theme, toggleTheme } = useTheme();
   const isDark = theme === "dark";
   return (
-    <Button
-      variant="ghost"
-      size={collapsed ? "icon" : "sm"}
-      onClick={toggleTheme}
-      className="justify-start gap-2"
-      title={isDark ? "Tema Dia" : "Tema Noite"}
-    >
-      {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-      {!collapsed && <span>{isDark ? "Tema Dia" : "Tema Noite"}</span>}
-    </Button>
+    <TooltipProvider delayDuration={100}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size={collapsed ? "icon" : "sm"}
+            onClick={toggleTheme}
+            className="justify-start"
+          >
+            {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          <p>{isDark ? "Mudar para tema claro" : "Mudar para tema escuro"}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
