@@ -1,76 +1,29 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Send, Plus, X, Upload, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Card } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 
-const BUCKET = "modelos";
-
-type Opt = { id: string; nome: string };
-
-type TecidoBlock = {
-  id?: string;
-  tipo: "tecido" | "forro" | "entretela";
-  numero: number;
-  artigo_id: string | null;
-  consumo: number;
-  loss_percent: number;
-  custo_previsto: number;
-  variantes: (string | null)[]; // up to 10
-};
-
-type AviamentoRow = {
-  id?: string;
-  aviamento_id: string | null;
-  consumo: number;
-  loss_percent: number;
-  custo_previsto: number;
-};
-
-type GradeRow = {
-  variante_numero: number;
-  grades: Record<string, number>;
-  grade_total: number;
-};
-
-const TIPOS: TecidoBlock["tipo"][] = ["tecido", "forro", "entretela"];
-const TIPO_LABEL: Record<TecidoBlock["tipo"], string> = {
-  tecido: "Tecido",
-  forro: "Forro",
-  entretela: "Entretela",
-};
-
-const STATUS_DESENV_OPTS = [
-  { value: "novo", label: "Novo" },
-  { value: "desenho_tecnico", label: "Desenho Técnico" },
-  { value: "modelagem", label: "Modelagem" },
-  { value: "piloto", label: "Piloto" },
-  { value: "aprovado", label: "Aprovado" },
-  { value: "reprovado", label: "Reprovado" },
-];
-
-function makeEmptyBlocks(): TecidoBlock[] {
-  const arr: TecidoBlock[] = [];
-  TIPOS.forEach((t) => {
-    for (let n = 1; n <= 3; n++) {
-      arr.push({
-        tipo: t, numero: n, artigo_id: null, consumo: 0, loss_percent: 0, custo_previsto: 0,
-        variantes: Array(10).fill(null),
-      });
-    }
-  });
-  return arr;
-}
+import {
+  BUCKET,
+  makeEmptyBlocks,
+  recomputeAviamento,
+  recomputeBlock,
+  type AviamentoRow,
+  type GradeRow,
+  type Opt,
+  type TecidoBlock,
+} from "./modelo-detail/types";
+import { ModeloInfoSection } from "./modelo-detail/ModeloInfoSection";
+import { ModeloTecidosSection } from "./modelo-detail/ModeloTecidosSection";
+import { ModeloAviamentosSection } from "./modelo-detail/ModeloAviamentosSection";
+import { ModeloGradeSection } from "./modelo-detail/ModeloGradeSection";
+import { ModeloCustosSection } from "./modelo-detail/ModeloCustosSection";
+import { ModeloAnexosSection } from "./modelo-detail/ModeloAnexosSection";
 
 export function ModeloDetailPanel({ modeloId, onClose }: {
   modeloId: string | null;
@@ -89,17 +42,15 @@ export function ModeloDetailPanel({ modeloId, onClose }: {
 function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => void }) {
   const qc = useQueryClient();
 
-  // Reference data
   const linhas = useOpts("linhas");
   const modelistas = useColabs("modelista");
   const piloteiros = useColabs("piloteiro");
+
   const { data: tenantCfg } = useQuery({
     queryKey: ["tenant-config-grade"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("tenant_config")
-        .select("tamanhos_grade")
-        .maybeSingle();
+        .from("tenant_config").select("tamanhos_grade").maybeSingle();
       if (error) throw error;
       return data;
     },
@@ -116,9 +67,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     queryKey: ["artigos-all"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("artigos")
-        .select("id, nome, preco, preco_por_metro")
-        .order("nome");
+        .from("artigos").select("id, nome, preco, preco_por_metro").order("nome");
       if (error) throw error;
       return (data ?? []) as { id: string; nome: string; preco: number | null; preco_por_metro: number | null }[];
     },
@@ -129,16 +78,13 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     queryKey: ["aviamentos-all"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("aviamentos")
-        .select("id, codigo_nome, preco")
-        .order("codigo_nome");
+        .from("aviamentos").select("id, codigo_nome, preco").order("codigo_nome");
       if (error) throw error;
       return (data ?? []) as { id: string; codigo_nome: string; preco: number | null }[];
     },
   });
   const aviamentoMap = useMemo(() => Object.fromEntries(aviamentos.map((a) => [a.id, a])), [aviamentos]);
 
-  // Modelo + children
   const { data: modelo, isLoading: loadingModelo } = useQuery({
     queryKey: ["modelo-detail", modeloId],
     queryFn: async () => {
@@ -176,8 +122,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       const { data, error } = await supabase
         .from("modelo_aviamentos")
         .select("id, aviamento_id, numero, consumo, loss_percent, custo_previsto")
-        .eq("modelo_id", modeloId)
-        .order("numero");
+        .eq("modelo_id", modeloId).order("numero");
       if (error) throw error;
       return data ?? [];
     },
@@ -189,14 +134,12 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       const { data, error } = await supabase
         .from("modelo_grades")
         .select("variante_numero, grades, grade_total")
-        .eq("modelo_id", modeloId)
-        .order("variante_numero");
+        .eq("modelo_id", modeloId).order("variante_numero");
       if (error) throw error;
       return data ?? [];
     },
   });
 
-  // Local draft
   const [draft, setDraft] = useState<any | null>(null);
   const [blocks, setBlocks] = useState<TecidoBlock[]>(makeEmptyBlocks());
   const [aviamentosState, setAviamentosState] = useState<AviamentoRow[]>([]);
@@ -275,7 +218,6 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     setGrades(rows);
   }, [gradesData]);
 
-  // Derived totals
   const totals = useMemo(() => {
     const sum = (tipo: TecidoBlock["tipo"]) =>
       blocks.filter((b) => b.tipo === tipo).reduce((s, b) => s + (b.custo_previsto || 0), 0);
@@ -292,7 +234,6 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const isReprovado = (draft?.status_desenvolvimento ?? "").toLowerCase() === "reprovado";
   const canEnviarCad = isAprovado && (draft?.ref ?? "").trim() !== "" && !draft?.enviado_cad;
 
-  // Mutations
   const save = useMutation({
     mutationFn: async () => {
       if (!draft) return;
@@ -326,13 +267,10 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       const { error: e1 } = await supabase.from("modelos").update(payload).eq("id", modeloId);
       if (e1) throw e1;
 
-      // Replace tecidos + variants
       const { error: eDelV } = await supabase
         .from("modelo_tecido_variantes")
         .delete()
-        .in("modelo_tecido_id",
-          (tecidosData?.tecidos ?? []).map((t: any) => t.id)
-        );
+        .in("modelo_tecido_id", (tecidosData?.tecidos ?? []).map((t: any) => t.id));
       if (eDelV && (tecidosData?.tecidos?.length ?? 0) > 0) throw eDelV;
       const { error: eDelT } = await supabase
         .from("modelo_tecidos").delete().eq("modelo_id", modeloId);
@@ -364,7 +302,6 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         }
       }
 
-      // Replace aviamentos
       const { error: eDelA } = await supabase
         .from("modelo_aviamentos").delete().eq("modelo_id", modeloId);
       if (eDelA) throw eDelA;
@@ -379,7 +316,6 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         if (eA) throw eA;
       }
 
-      // Replace grades
       const { error: eDelG } = await supabase
         .from("modelo_grades").delete().eq("modelo_id", modeloId);
       if (eDelG) throw eDelG;
@@ -431,7 +367,6 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     onError: (e: any) => toast.error(e.message ?? "Erro ao enviar para CAD"),
   });
 
-  // Helpers
   const updateBlock = (idx: number, patch: Partial<TecidoBlock>) => {
     setBlocks((bs) => bs.map((b, i) => i === idx ? recomputeBlock({ ...b, ...patch }, artigoMap) : b));
   };
@@ -440,7 +375,6 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       if (i !== idx) return b;
       const variantes = [...b.variantes];
       variantes[vIdx] = value;
-      // If removed intermediate, clear following
       if (!value) for (let k = vIdx + 1; k < variantes.length; k++) variantes[k] = null;
       return { ...b, variantes };
     }));
@@ -455,12 +389,6 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   };
   const removeAviamento = (idx: number) => setAviamentosState((rows) => rows.filter((_, i) => i !== idx));
 
-  const ensureGrade = (n: number): GradeRow => {
-    const found = grades.find((g) => g.variante_numero === n);
-    if (found) return found;
-    const empty: GradeRow = { variante_numero: n, grades: {}, grade_total: 0 };
-    return empty;
-  };
   const updateGradeTotal = (n: number, total: number) => {
     setGrades((gs) => {
       const cur = gs.find((g) => g.variante_numero === n) ?? { variante_numero: n, grades: {}, grade_total: 0 };
@@ -521,234 +449,84 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
 
       <div className="mt-4">
         <Accordion type="multiple" defaultValue={["s1"]}>
-          {/* SECTION 1 */}
           <AccordionItem value="s1">
             <AccordionTrigger>1. Informações Básicas</AccordionTrigger>
-            <AccordionContent className="space-y-3">
-              <div className="grid sm:grid-cols-2 gap-3">
-                <Field label="Nome">
-                  <Input value={draft.nome} onChange={(e) => setDraft({ ...draft, nome: e.target.value })} />
-                </Field>
-                <Field label="Status">
-                  <Select value={draft.status_desenvolvimento} onValueChange={(v) => setDraft({ ...draft, status_desenvolvimento: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {STATUS_DESENV_OPTS.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </Field>
-                {isAprovado && (
-                  <Field label="REF">
-                    <Input value={draft.ref} onChange={(e) => setDraft({ ...draft, ref: e.target.value })} />
-                  </Field>
-                )}
-                {isReprovado && (
-                  <Field label="Motivo do Cancelamento" full>
-                    <Textarea rows={2} value={draft.motivo_cancelamento} onChange={(e) => setDraft({ ...draft, motivo_cancelamento: e.target.value })} />
-                  </Field>
-                )}
-                <FieldSelectOpt label="Linha" value={draft.linha_id} onChange={(v) => setDraft({ ...draft, linha_id: v })} options={linhas.data ?? []} />
-                <FieldSelectOpt label="Modelista" value={draft.modelista_id} onChange={(v) => setDraft({ ...draft, modelista_id: v })} options={modelistas.data ?? []} />
-                <FieldSelectOpt label="Piloteiro 1" value={draft.piloteiro1_id} onChange={(v) => setDraft({ ...draft, piloteiro1_id: v })} options={piloteiros.data ?? []} />
-                <Field label="Data Piloto 1">
-                  <Input type="date" value={draft.data_piloto1 ?? ""} onChange={(e) => setDraft({ ...draft, data_piloto1: e.target.value })} />
-                </Field>
-                <FieldSelectOpt label="Piloteiro 2" value={draft.piloteiro2_id} onChange={(v) => setDraft({ ...draft, piloteiro2_id: v })} options={piloteiros.data ?? []} />
-                <Field label="Data Piloto 2">
-                  <Input type="date" value={draft.data_piloto2 ?? ""} onChange={(e) => setDraft({ ...draft, data_piloto2: e.target.value })} />
-                </Field>
-                <FieldSelectOpt label="Piloteiro 3" value={draft.piloteiro3_id} onChange={(v) => setDraft({ ...draft, piloteiro3_id: v })} options={piloteiros.data ?? []} />
-                <Field label="Data Piloto 3">
-                  <Input type="date" value={draft.data_piloto3 ?? ""} onChange={(e) => setDraft({ ...draft, data_piloto3: e.target.value })} />
-                </Field>
-                <Field label="Data Desenho Técnico">
-                  <Input type="date" value={draft.data_desenho_tecnico ?? ""} onChange={(e) => setDraft({ ...draft, data_desenho_tecnico: e.target.value })} />
-                </Field>
-                <Field label="Data Aprovação">
-                  <Input type="date" value={draft.data_aprovacao ?? ""} onChange={(e) => setDraft({ ...draft, data_aprovacao: e.target.value })} />
-                </Field>
-              </div>
-              <Field label="Observações Técnicas" full>
-                <Textarea rows={3} value={draft.observacoes_tecnicas} onChange={(e) => setDraft({ ...draft, observacoes_tecnicas: e.target.value })} />
-              </Field>
-              <Field label="Ajustes na Prova" full>
-                <Textarea rows={3} value={draft.ajustes_prova} onChange={(e) => setDraft({ ...draft, ajustes_prova: e.target.value })} />
-              </Field>
-              {canEnviarCad && (
-                <Button onClick={() => enviarCad.mutate()} disabled={enviarCad.isPending} className="w-full">
-                  <Send className="h-4 w-4 mr-2" /> Enviar para o CAD
-                </Button>
-              )}
-              {draft.enviado_cad && (
-                <p className="text-xs text-muted-foreground text-center">✓ Já enviado para o CAD</p>
-              )}
+            <AccordionContent>
+              <ModeloInfoSection
+                draft={draft}
+                setDraft={setDraft}
+                linhas={linhas.data ?? []}
+                modelistas={modelistas.data ?? []}
+                piloteiros={piloteiros.data ?? []}
+                isAprovado={isAprovado}
+                isReprovado={isReprovado}
+                canEnviarCad={canEnviarCad}
+                onEnviarCad={() => enviarCad.mutate()}
+                enviarCadPending={enviarCad.isPending}
+              />
             </AccordionContent>
           </AccordionItem>
 
-          {/* SECTION 2 */}
           <AccordionItem value="s2">
             <AccordionTrigger>2. Tecidos / Forros / Entretelas</AccordionTrigger>
-            <AccordionContent className="space-y-3">
-              {TIPOS.map((tipo) => (
-                <div key={tipo} className="space-y-2">
-                  <p className="text-sm font-semibold">{TIPO_LABEL[tipo]}</p>
-                  {[1, 2, 3].map((numero) => {
-                    const idx = blocks.findIndex((b) => b.tipo === tipo && b.numero === numero);
-                    const b = blocks[idx];
-                    return (
-                      <TecidoBlockEditor
-                        key={`${tipo}-${numero}`}
-                        block={b}
-                        artigos={artigos}
-                        onChangeBlock={(p) => updateBlock(idx, p)}
-                        onChangeVariante={(vi, val) => updateBlockVariante(idx, vi, val)}
-                      />
-                    );
-                  })}
-                </div>
-              ))}
+            <AccordionContent>
+              <ModeloTecidosSection
+                blocks={blocks}
+                artigos={artigos}
+                onChangeBlock={updateBlock}
+                onChangeVariante={updateBlockVariante}
+              />
             </AccordionContent>
           </AccordionItem>
 
-          {/* SECTION 3 */}
           <AccordionItem value="s3">
             <AccordionTrigger>3. Aviamentos</AccordionTrigger>
-            <AccordionContent className="space-y-2">
-              {aviamentosState.map((r, i) => (
-                <Card key={i} className="p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">Aviamento {i + 1}</span>
-                    <Button variant="ghost" size="sm" onClick={() => removeAviamento(i)}>
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  <div className="grid sm:grid-cols-2 gap-2">
-                    <FieldSelectOpt
-                      label="Aviamento"
-                      value={r.aviamento_id}
-                      onChange={(v) => updateAviamento(i, { aviamento_id: v })}
-                      options={aviamentos.map((a) => ({ id: a.id, nome: a.codigo_nome }))}
-                    />
-                    <Field label="Custo Previsto">
-                      <Input readOnly value={r.custo_previsto.toFixed(2)} />
-                    </Field>
-                    <Field label="Consumo">
-                      <Input type="number" step="0.001" value={r.consumo} onChange={(e) => updateAviamento(i, { consumo: Number(e.target.value) || 0 })} />
-                    </Field>
-                    <Field label="% Loss">
-                      <Input type="number" step="0.01" value={r.loss_percent} onChange={(e) => updateAviamento(i, { loss_percent: Number(e.target.value) || 0 })} />
-                    </Field>
-                  </div>
-                </Card>
-              ))}
-              {aviamentosState.length < 10 && (
-                <Button variant="outline" size="sm" onClick={addAviamento}>
-                  <Plus className="h-4 w-4 mr-1" /> Adicionar Aviamento
-                </Button>
-              )}
+            <AccordionContent>
+              <ModeloAviamentosSection
+                rows={aviamentosState}
+                aviamentos={aviamentos}
+                onChangeRow={updateAviamento}
+                onAdd={addAviamento}
+                onRemove={removeAviamento}
+              />
             </AccordionContent>
           </AccordionItem>
 
-          {/* SECTION 4 */}
           <AccordionItem value="s4">
             <AccordionTrigger>4. Grade</AccordionTrigger>
-            <AccordionContent className="space-y-3">
-              <div>
-                <p className="text-xs font-semibold mb-2">Proporções por Tamanho</p>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                  {tamanhos.map((t) => (
-                    <Field key={t} label={t}>
-                      <Input
-                        type="number"
-                        value={draft.proporcoes?.[t] ?? 0}
-                        onChange={(e) => updateProporcao(t, Number(e.target.value) || 0)}
-                      />
-                    </Field>
-                  ))}
-                </div>
-              </div>
-              <Separator />
-              <div className="space-y-2">
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => {
-                  const g = ensureGrade(n);
-                  const hasAny = g.grade_total > 0 || Object.values(g.grades).some((v) => v > 0);
-                  if (!hasAny && n > 1 && !grades.find((x) => x.variante_numero === n - 1 && (x.grade_total > 0))) return null;
-                  return (
-                    <Card key={n} className="p-3 space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-semibold">Variante {n}</span>
-                        <div className="flex items-center gap-2">
-                          <Label className="text-xs">Grade Total</Label>
-                          <Input
-                            className="w-24"
-                            type="number"
-                            value={g.grade_total}
-                            onChange={(e) => updateGradeTotal(n, Number(e.target.value) || 0)}
-                          />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                        {tamanhos.map((t) => (
-                          <Field key={t} label={t}>
-                            <Input
-                              type="number"
-                              value={g.grades[t] ?? 0}
-                              onChange={(e) => updateGradeCell(n, t, Number(e.target.value) || 0)}
-                            />
-                          </Field>
-                        ))}
-                      </div>
-                    </Card>
-                  );
-                })}
-              </div>
+            <AccordionContent>
+              <ModeloGradeSection
+                tamanhos={tamanhos}
+                proporcoes={draft.proporcoes ?? {}}
+                onChangeProporcao={updateProporcao}
+                grades={grades}
+                onChangeGradeTotal={updateGradeTotal}
+                onChangeGradeCell={updateGradeCell}
+              />
             </AccordionContent>
           </AccordionItem>
 
-          {/* SECTION 5 */}
           <AccordionItem value="s5">
             <AccordionTrigger>5. Custos</AccordionTrigger>
             <AccordionContent>
-              <Card className="p-4 space-y-1.5 text-sm">
-                <Row label="Tecido" value={totals.tecido} />
-                <Row label="Forro" value={totals.forro} />
-                <Row label="Entretela" value={totals.entretela} />
-                <Row label="Aviamento" value={totals.aviamento} />
-                <div className="flex justify-between items-center">
-                  <Label>Terceirizados</Label>
-                  <Input
-                    className="w-32 text-right"
-                    type="number"
-                    step="0.01"
-                    value={draft.custo_terceirizados_previsto}
-                    onChange={(e) => setDraft({ ...draft, custo_terceirizados_previsto: Number(e.target.value) || 0 })}
-                  />
-                </div>
-                <Separator className="my-2" />
-                <Row label="Custo de 1 Peça" value={totals.peca} strong />
-              </Card>
+              <ModeloCustosSection
+                totals={totals}
+                custoTerceirizados={draft.custo_terceirizados_previsto}
+                onChangeTerceirizados={(v) => setDraft({ ...draft, custo_terceirizados_previsto: v })}
+              />
             </AccordionContent>
           </AccordionItem>
 
-          {/* SECTION 6 */}
           <AccordionItem value="s6">
             <AccordionTrigger>6. Anexos</AccordionTrigger>
-            <AccordionContent className="space-y-3">
-              <div className="grid gap-2">
-                <Label>Ficha de Medida</Label>
-                <div className="flex items-center gap-2">
-                  <label className="inline-flex items-center gap-2 text-sm border rounded-md px-3 py-2 cursor-pointer hover:bg-accent">
-                    {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Enviar arquivo
-                    <input type="file" className="hidden" onChange={(e) => e.target.files?.[0] && uploadFicha(e.target.files[0])} />
-                  </label>
-                  {draft.ficha_medida_url && (
-                    <span className="text-xs text-muted-foreground truncate">{draft.ficha_medida_url.split("/").pop()}</span>
-                  )}
-                </div>
-              </div>
-              <Field label="Observações Gerais" full>
-                <Textarea rows={4} value={draft.observacoes_gerais} onChange={(e) => setDraft({ ...draft, observacoes_gerais: e.target.value })} />
-              </Field>
+            <AccordionContent>
+              <ModeloAnexosSection
+                fichaMedidaUrl={draft.ficha_medida_url}
+                uploading={uploading}
+                onUploadFicha={uploadFicha}
+                observacoesGerais={draft.observacoes_gerais}
+                onChangeObservacoes={(v) => setDraft({ ...draft, observacoes_gerais: v })}
+              />
             </AccordionContent>
           </AccordionItem>
         </Accordion>
@@ -761,118 +539,6 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         </Button>
       </div>
     </>
-  );
-}
-
-function recomputeBlock(b: TecidoBlock, artigoMap: Record<string, any>): TecidoBlock {
-  const preco = b.artigo_id ? Number(artigoMap[b.artigo_id]?.preco ?? 0) : 0;
-  const custo = preco * (b.consumo || 0) * (1 + (b.loss_percent || 0) / 100);
-  return { ...b, custo_previsto: Math.round(custo * 100) / 100 };
-}
-function recomputeAviamento(r: AviamentoRow, aviamentoMap: Record<string, any>): AviamentoRow {
-  const preco = r.aviamento_id ? Number(aviamentoMap[r.aviamento_id]?.preco ?? 0) : 0;
-  const custo = preco * (r.consumo || 0) * (1 + (r.loss_percent || 0) / 100);
-  return { ...r, custo_previsto: Math.round(custo * 100) / 100 };
-}
-
-function TecidoBlockEditor({ block, artigos, onChangeBlock, onChangeVariante }: {
-  block: TecidoBlock;
-  artigos: { id: string; nome: string }[];
-  onChangeBlock: (p: Partial<TecidoBlock>) => void;
-  onChangeVariante: (vIdx: number, val: string | null) => void;
-}) {
-  const { data: variantesArtigo = [] } = useQuery({
-    queryKey: ["variantes-artigo", block.artigo_id],
-    enabled: !!block.artigo_id,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("variantes_tecido")
-        .select("id, nome_variante, codigo_variante")
-        .eq("artigo_id", block.artigo_id!);
-      if (error) throw error;
-      return (data ?? []).map((v: any) => ({
-        id: v.id, nome: v.nome_variante || v.codigo_variante || v.id,
-      }));
-    },
-  });
-
-  return (
-    <Card className="p-3 space-y-2">
-      <div className="grid sm:grid-cols-2 gap-2">
-        <FieldSelectOpt
-          label={`${TIPO_LABEL[block.tipo]} ${block.numero} — Artigo`}
-          value={block.artigo_id}
-          onChange={(v) => onChangeBlock({ artigo_id: v, variantes: Array(10).fill(null) })}
-          options={artigos.map((a) => ({ id: a.id, nome: a.nome }))}
-        />
-        <Field label="Custo Previsto">
-          <Input readOnly value={block.custo_previsto.toFixed(2)} />
-        </Field>
-        <Field label="Consumo">
-          <Input type="number" step="0.001" value={block.consumo} onChange={(e) => onChangeBlock({ consumo: Number(e.target.value) || 0 })} />
-        </Field>
-        <Field label="% Loss">
-          <Input type="number" step="0.01" value={block.loss_percent} onChange={(e) => onChangeBlock({ loss_percent: Number(e.target.value) || 0 })} />
-        </Field>
-      </div>
-
-      {block.artigo_id && (
-        <div className="space-y-1">
-          <p className="text-xs text-muted-foreground">Variantes</p>
-          <div className="grid sm:grid-cols-2 gap-2">
-            {Array.from({ length: 10 }).map((_, i) => {
-              const prevFilled = i === 0 || !!block.variantes[i - 1];
-              if (!prevFilled) return null;
-              return (
-                <Select
-                  key={i}
-                  value={block.variantes[i] ?? ""}
-                  onValueChange={(v) => onChangeVariante(i, v === "__none__" ? null : v)}
-                >
-                  <SelectTrigger><SelectValue placeholder={`Variante ${i + 1}`} /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">— Remover —</SelectItem>
-                    {variantesArtigo.map((v) => <SelectItem key={v.id} value={v.id}>{v.nome}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </Card>
-  );
-}
-
-function Field({ label, children, full }: { label: string; children: React.ReactNode; full?: boolean }) {
-  return (
-    <div className={`grid gap-1 ${full ? "sm:col-span-2" : ""}`}>
-      <Label className="text-xs">{label}</Label>
-      {children}
-    </div>
-  );
-}
-function FieldSelectOpt({ label, value, onChange, options }: {
-  label: string; value: string | null | undefined; onChange: (v: string | null) => void; options: Opt[];
-}) {
-  return (
-    <Field label={label}>
-      <Select value={value ?? ""} onValueChange={(v) => onChange(v === "__none__" ? null : v)}>
-        <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="__none__">— Nenhum —</SelectItem>
-          {options.map((o) => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
-        </SelectContent>
-      </Select>
-    </Field>
-  );
-}
-function Row({ label, value, strong }: { label: string; value: number; strong?: boolean }) {
-  return (
-    <div className={`flex justify-between ${strong ? "font-semibold text-base" : ""}`}>
-      <span>{label}</span>
-      <span>R$ {value.toFixed(2)}</span>
-    </div>
   );
 }
 
