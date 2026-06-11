@@ -238,7 +238,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     return { tecido, forro, entretela, aviamento, terceirizados, peca };
   }, [blocks, aviamentosState, draft?.custo_terceirizados_previsto]);
 
-  const isAprovado = (draft?.status_desenvolvimento ?? "").toLowerCase() === "aprovado";
+  const curStatus = (draft?.status_desenvolvimento ?? "").toLowerCase();
+  const isAprovado = curStatus === "aprovado" || lastStatusKeys.includes(curStatus);
   const isReprovado = (draft?.status_desenvolvimento ?? "").toLowerCase() === "reprovado";
   const hasTecidoComVariante = blocks.some(
     (b) => b.tipo === "tecido" && !!b.artigo_id && b.variantes.some((v) => !!v),
