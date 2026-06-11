@@ -74,7 +74,8 @@ function TecidosTab() {
       // Simplificação aceitável quando a grade é distribuída entre variantes do artigo do modelo.
       const modGrades = await supabase.from("modelo_grades").select("modelo_id, variante_numero, grade_total");
       const gradeTotalByModelo = new Map<string, number>();
-      for (const g of modGrades.data ?? []) {
+      for (const g of (modGrades.data ?? []) as any[]) {
+        if (!g.modelo_id) continue;
         gradeTotalByModelo.set(g.modelo_id, (gradeTotalByModelo.get(g.modelo_id) ?? 0) + num(g.grade_total));
       }
 
