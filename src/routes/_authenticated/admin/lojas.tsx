@@ -284,7 +284,7 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
           .from("tenant-logos").createSignedUrl(path, 60 * 60 * 24 * 365 * 10);
         logo_url = signed?.signedUrl ?? null;
       }
-      const payload: Record<string, unknown> = {
+      const payload: { nome: string; cnpj: string | null; contato: string | null; logo_url?: string | null } = {
         nome: nome.trim(),
         cnpj: cnpj || null,
         contato: contato || null,
