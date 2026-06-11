@@ -148,6 +148,8 @@ function OcDialog({
           modelo_sugerido_url: oc.modelo_sugerido_url,
           nf_url: oc.nf_url,
           etiqueta_lavagem_urls: oc.etiqueta_lavagem_urls ?? [],
+          etiqueta_lavagem_url_1: (oc as { etiqueta_lavagem_url_1?: string | null }).etiqueta_lavagem_url_1 ?? null,
+          etiqueta_lavagem_url_2: (oc as { etiqueta_lavagem_url_2?: string | null }).etiqueta_lavagem_url_2 ?? null,
         });
         setStatus((oc.status as OCStatus) ?? "encomendado");
         setRespMode(oc.responsavel_id ? "select" : "text");
