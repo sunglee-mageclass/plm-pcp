@@ -617,7 +617,12 @@ function OcDialog({
 
             <div className="grid gap-1">
               <Label>Prazo de Pagamento</Label>
-              <Input value={draft.prazo_pagamento} onChange={(e) => setDraft((d) => ({ ...d, prazo_pagamento: e.target.value }))} placeholder="Ex: 30/60/90" />
+              <Input value={draft.prazo_pagamento} onChange={(e) => {
+                const v = e.target.value;
+                const parts = v.split(/[\/,\-\s]+/).filter((p) => p.trim() !== "" && !isNaN(Number(p)));
+                const qtd = parts.length > 0 ? Math.max(1, Math.min(6, parts.length)) : 1;
+                setDraft((d) => ({ ...d, prazo_pagamento: v, quantidade_prazos: qtd }));
+              }} placeholder="Ex: 30/60/90" />
             </div>
 
             <div className="grid gap-1">
