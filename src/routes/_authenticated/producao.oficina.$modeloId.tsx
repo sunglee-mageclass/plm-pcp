@@ -58,6 +58,18 @@ function OficinaDetailPage() {
     queryFn: async () => (await supabase.from("terceirizados").select("id, nome_responsavel")).data ?? [],
   });
 
+  const { data: tenantCfg } = useQuery({
+    queryKey: ["tenant-cfg-tam"],
+    queryFn: async () => (await supabase.from("tenant_config").select("tamanhos_grade").maybeSingle()).data,
+  });
+  const tamanhos: string[] = useMemo(() => {
+    const raw = (tenantCfg as any)?.tamanhos_grade;
+    if (Array.isArray(raw) && raw.length > 0) {
+      return raw.map((x: any) => typeof x === "string" ? x : (x?.nome ?? x?.label ?? String(x)));
+    }
+    return ["PP", "P", "M", "G", "GG"];
+  }, [tenantCfg]);
+
   const { data: grades = [] } = useQuery({
     queryKey: ["cad-grades", cad?.id],
     enabled: !!cad?.id,
