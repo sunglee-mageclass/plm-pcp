@@ -60,14 +60,16 @@ function AcabDetailPage() {
   });
 
   const { data: tenantCfg } = useQuery({
-    queryKey: ["tenant_config", "etapas"],
-    queryFn: async () => (await supabase.from("tenant_config").select("etapas_acabamento").maybeSingle()).data,
+    queryKey: ["tenant_config", "etapas-oficina"],
+    queryFn: async () => (await supabase.from("tenant_config").select("etapas_acabamento, oficina_posicao, oficina_interna").maybeSingle()).data,
   });
   const etapas = useMemo<string[]>(() => {
     const e = (tenantCfg as any)?.etapas_acabamento;
     if (Array.isArray(e) && e.length) return e.map(String);
     return ["Passadoria", "Embalagem", "Etiqueta"];
   }, [tenantCfg]);
+  const oficinaEmAcab = ((tenantCfg as any)?.oficina_posicao ?? "terceirizados") === "acabamento";
+  const oficinaInterna = Boolean((tenantCfg as any)?.oficina_interna);
 
   const { data: terceirizados = [] } = useQuery({
     queryKey: ["terceirizados-all"],
