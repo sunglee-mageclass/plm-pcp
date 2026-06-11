@@ -20,6 +20,8 @@ import { Route as AuthenticatedCriacaoRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedConfiguracoesRouteImport } from './routes/_authenticated/configuracoes'
 import { Route as AuthenticatedCadastroRouteImport } from './routes/_authenticated/cadastro'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
+import { Route as AuthenticatedAdminUsuariosRouteImport } from './routes/_authenticated/admin/usuarios'
+import { Route as AuthenticatedAdminLojasRouteImport } from './routes/_authenticated/admin/lojas'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -77,11 +79,22 @@ const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedAdminUsuariosRoute =
+  AuthenticatedAdminUsuariosRouteImport.update({
+    id: '/usuarios',
+    path: '/usuarios',
+    getParentRoute: () => AuthenticatedAdminRoute,
+  } as any)
+const AuthenticatedAdminLojasRoute = AuthenticatedAdminLojasRouteImport.update({
+  id: '/lojas',
+  path: '/lojas',
+  getParentRoute: () => AuthenticatedAdminRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
-  '/admin': typeof AuthenticatedAdminRoute
+  '/admin': typeof AuthenticatedAdminRouteWithChildren
   '/cadastro': typeof AuthenticatedCadastroRoute
   '/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/criacao': typeof AuthenticatedCriacaoRoute
@@ -89,11 +102,13 @@ export interface FileRoutesByFullPath {
   '/entrada-saida': typeof AuthenticatedEntradaSaidaRoute
   '/financeiro': typeof AuthenticatedFinanceiroRoute
   '/producao': typeof AuthenticatedProducaoRoute
+  '/admin/lojas': typeof AuthenticatedAdminLojasRoute
+  '/admin/usuarios': typeof AuthenticatedAdminUsuariosRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
-  '/admin': typeof AuthenticatedAdminRoute
+  '/admin': typeof AuthenticatedAdminRouteWithChildren
   '/cadastro': typeof AuthenticatedCadastroRoute
   '/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/criacao': typeof AuthenticatedCriacaoRoute
@@ -101,13 +116,15 @@ export interface FileRoutesByTo {
   '/entrada-saida': typeof AuthenticatedEntradaSaidaRoute
   '/financeiro': typeof AuthenticatedFinanceiroRoute
   '/producao': typeof AuthenticatedProducaoRoute
+  '/admin/lojas': typeof AuthenticatedAdminLojasRoute
+  '/admin/usuarios': typeof AuthenticatedAdminUsuariosRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/auth': typeof AuthRoute
-  '/_authenticated/admin': typeof AuthenticatedAdminRoute
+  '/_authenticated/admin': typeof AuthenticatedAdminRouteWithChildren
   '/_authenticated/cadastro': typeof AuthenticatedCadastroRoute
   '/_authenticated/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/_authenticated/criacao': typeof AuthenticatedCriacaoRoute
@@ -115,6 +132,8 @@ export interface FileRoutesById {
   '/_authenticated/entrada-saida': typeof AuthenticatedEntradaSaidaRoute
   '/_authenticated/financeiro': typeof AuthenticatedFinanceiroRoute
   '/_authenticated/producao': typeof AuthenticatedProducaoRoute
+  '/_authenticated/admin/lojas': typeof AuthenticatedAdminLojasRoute
+  '/_authenticated/admin/usuarios': typeof AuthenticatedAdminUsuariosRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -129,6 +148,8 @@ export interface FileRouteTypes {
     | '/entrada-saida'
     | '/financeiro'
     | '/producao'
+    | '/admin/lojas'
+    | '/admin/usuarios'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -141,6 +162,8 @@ export interface FileRouteTypes {
     | '/entrada-saida'
     | '/financeiro'
     | '/producao'
+    | '/admin/lojas'
+    | '/admin/usuarios'
   id:
     | '__root__'
     | '/'
@@ -154,6 +177,8 @@ export interface FileRouteTypes {
     | '/_authenticated/entrada-saida'
     | '/_authenticated/financeiro'
     | '/_authenticated/producao'
+    | '/_authenticated/admin/lojas'
+    | '/_authenticated/admin/usuarios'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -241,11 +266,38 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/admin/usuarios': {
+      id: '/_authenticated/admin/usuarios'
+      path: '/usuarios'
+      fullPath: '/admin/usuarios'
+      preLoaderRoute: typeof AuthenticatedAdminUsuariosRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
+    '/_authenticated/admin/lojas': {
+      id: '/_authenticated/admin/lojas'
+      path: '/lojas'
+      fullPath: '/admin/lojas'
+      preLoaderRoute: typeof AuthenticatedAdminLojasRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
   }
 }
 
+interface AuthenticatedAdminRouteChildren {
+  AuthenticatedAdminLojasRoute: typeof AuthenticatedAdminLojasRoute
+  AuthenticatedAdminUsuariosRoute: typeof AuthenticatedAdminUsuariosRoute
+}
+
+const AuthenticatedAdminRouteChildren: AuthenticatedAdminRouteChildren = {
+  AuthenticatedAdminLojasRoute: AuthenticatedAdminLojasRoute,
+  AuthenticatedAdminUsuariosRoute: AuthenticatedAdminUsuariosRoute,
+}
+
+const AuthenticatedAdminRouteWithChildren =
+  AuthenticatedAdminRoute._addFileChildren(AuthenticatedAdminRouteChildren)
+
 interface AuthenticatedRouteChildren {
-  AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
+  AuthenticatedAdminRoute: typeof AuthenticatedAdminRouteWithChildren
   AuthenticatedCadastroRoute: typeof AuthenticatedCadastroRoute
   AuthenticatedConfiguracoesRoute: typeof AuthenticatedConfiguracoesRoute
   AuthenticatedCriacaoRoute: typeof AuthenticatedCriacaoRoute
@@ -256,7 +308,7 @@ interface AuthenticatedRouteChildren {
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
-  AuthenticatedAdminRoute: AuthenticatedAdminRoute,
+  AuthenticatedAdminRoute: AuthenticatedAdminRouteWithChildren,
   AuthenticatedCadastroRoute: AuthenticatedCadastroRoute,
   AuthenticatedConfiguracoesRoute: AuthenticatedConfiguracoesRoute,
   AuthenticatedCriacaoRoute: AuthenticatedCriacaoRoute,
@@ -278,3 +330,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
