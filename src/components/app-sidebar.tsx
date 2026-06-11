@@ -174,6 +174,18 @@ export function AppSidebar() {
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={isActive("/admin/configuracoes")}
+                    tooltip="Configurações da Loja"
+                  >
+                    <Link to="/admin/configuracoes">
+                      <Settings className="h-4 w-4" />
+                      <span>Configurações da Loja</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
