@@ -21,12 +21,20 @@ type Opt = { id: string; nome: string };
 type KanbanStatus = { key: string; label: string; color?: string };
 
 const DEFAULT_STATUSES: KanbanStatus[] = [
-  { key: "novo", label: "Novo", color: "#64748b" },
-  { key: "desenho_tecnico", label: "Desenho Técnico", color: "#3b82f6" },
-  { key: "modelagem", label: "Modelagem", color: "#8b5cf6" },
-  { key: "piloto", label: "Piloto", color: "#f59e0b" },
-  { key: "aprovacao", label: "Aprovação", color: "#10b981" },
-  { key: "concluido", label: "Concluído", color: "#059669" },
+  { key: "em_modelagem", label: "Em Modelagem", color: "#3b82f6" },
+  { key: "corte_piloto_1", label: "Corte de Piloto I", color: "#6366f1" },
+  { key: "corte_piloto_2", label: "Corte de Piloto II", color: "#6366f1" },
+  { key: "corte_piloto_3", label: "Corte de Piloto III", color: "#6366f1" },
+  { key: "em_pilotagem", label: "Em Pilotagem", color: "#8b5cf6" },
+  { key: "prova_roupa_1", label: "Prova de Roupa I", color: "#a855f7" },
+  { key: "prova_roupa_2", label: "Prova de Roupa II", color: "#a855f7" },
+  { key: "prova_roupa_3", label: "Prova de Roupa III", color: "#a855f7" },
+  { key: "prova_roupa_4", label: "Prova de Roupa IV", color: "#a855f7" },
+  { key: "prova_roupa_5", label: "Prova de Roupa V", color: "#a855f7" },
+  { key: "em_ajuste", label: "Em Ajuste", color: "#f59e0b" },
+  { key: "stand_by", label: "Stand By", color: "#64748b" },
+  { key: "reprovado", label: "Reprovado", color: "#ef4444" },
+  { key: "aprovado", label: "Aprovado", color: "#10b981" },
 ];
 
 type Modelo = {
