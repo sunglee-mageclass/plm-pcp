@@ -50,11 +50,19 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     queryKey: ["tenant-config-grade"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("tenant_config").select("tamanhos_grade").maybeSingle();
+        .from("tenant_config").select("tamanhos_grade, status_kanban").maybeSingle();
       if (error) throw error;
       return data;
     },
   });
+  const lastStatusKeys = useMemo(() => {
+    const raw = (tenantCfg as any)?.status_kanban;
+    if (!Array.isArray(raw) || raw.length === 0) return ["aprovado"];
+    const last = raw[raw.length - 1];
+    const key = typeof last === "string" ? last : (last?.key ?? last?.id ?? last?.value ?? last?.slug ?? last?.label ?? last?.nome ?? last?.name ?? "");
+    const label = typeof last === "string" ? last : (last?.label ?? last?.nome ?? last?.name ?? key);
+    return [String(key).toLowerCase(), String(label).toLowerCase()].filter(Boolean);
+  }, [tenantCfg]);
   const tamanhos: string[] = useMemo(() => {
     const raw = (tenantCfg as any)?.tamanhos_grade;
     if (Array.isArray(raw) && raw.length > 0) {
@@ -230,7 +238,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     return { tecido, forro, entretela, aviamento, terceirizados, peca };
   }, [blocks, aviamentosState, draft?.custo_terceirizados_previsto]);
 
-  const isAprovado = (draft?.status_desenvolvimento ?? "").toLowerCase() === "aprovado";
+  const curStatus = (draft?.status_desenvolvimento ?? "").toLowerCase();
+  const isAprovado = curStatus === "aprovado" || lastStatusKeys.includes(curStatus);
   const isReprovado = (draft?.status_desenvolvimento ?? "").toLowerCase() === "reprovado";
   const hasTecidoComVariante = blocks.some(
     (b) => b.tipo === "tecido" && !!b.artigo_id && b.variantes.some((v) => !!v),
