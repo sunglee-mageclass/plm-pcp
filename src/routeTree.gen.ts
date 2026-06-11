@@ -25,6 +25,7 @@ import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authentic
 import { Route as AuthenticatedCadastroTecidosRouteImport } from './routes/_authenticated/cadastro.tecidos'
 import { Route as AuthenticatedCadastroServicoRouteImport } from './routes/_authenticated/cadastro.servico'
 import { Route as AuthenticatedCadastroColaboradoresRouteImport } from './routes/_authenticated/cadastro.colaboradores'
+import { Route as AuthenticatedCadastroAviamentosRouteImport } from './routes/_authenticated/cadastro.aviamentos'
 import { Route as AuthenticatedCadastroAtributosRouteImport } from './routes/_authenticated/cadastro.atributos'
 import { Route as AuthenticatedAdminUsuariosLojaRouteImport } from './routes/_authenticated/admin/usuarios-loja'
 import { Route as AuthenticatedAdminUsuariosRouteImport } from './routes/_authenticated/admin/usuarios'
@@ -118,6 +119,12 @@ const AuthenticatedCadastroColaboradoresRoute =
     path: '/colaboradores',
     getParentRoute: () => AuthenticatedCadastroRoute,
   } as any)
+const AuthenticatedCadastroAviamentosRoute =
+  AuthenticatedCadastroAviamentosRouteImport.update({
+    id: '/aviamentos',
+    path: '/aviamentos',
+    getParentRoute: () => AuthenticatedCadastroRoute,
+  } as any)
 const AuthenticatedCadastroAtributosRoute =
   AuthenticatedCadastroAtributosRouteImport.update({
     id: '/atributos',
@@ -176,6 +183,7 @@ export interface FileRoutesByFullPath {
   '/admin/usuarios': typeof AuthenticatedAdminUsuariosRoute
   '/admin/usuarios-loja': typeof AuthenticatedAdminUsuariosLojaRoute
   '/cadastro/atributos': typeof AuthenticatedCadastroAtributosRoute
+  '/cadastro/aviamentos': typeof AuthenticatedCadastroAviamentosRoute
   '/cadastro/colaboradores': typeof AuthenticatedCadastroColaboradoresRoute
   '/cadastro/servico': typeof AuthenticatedCadastroServicoRoute
   '/cadastro/tecidos': typeof AuthenticatedCadastroTecidosRouteWithChildren
@@ -198,6 +206,7 @@ export interface FileRoutesByTo {
   '/admin/usuarios': typeof AuthenticatedAdminUsuariosRoute
   '/admin/usuarios-loja': typeof AuthenticatedAdminUsuariosLojaRoute
   '/cadastro/atributos': typeof AuthenticatedCadastroAtributosRoute
+  '/cadastro/aviamentos': typeof AuthenticatedCadastroAviamentosRoute
   '/cadastro/colaboradores': typeof AuthenticatedCadastroColaboradoresRoute
   '/cadastro/servico': typeof AuthenticatedCadastroServicoRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
@@ -223,6 +232,7 @@ export interface FileRoutesById {
   '/_authenticated/admin/usuarios': typeof AuthenticatedAdminUsuariosRoute
   '/_authenticated/admin/usuarios-loja': typeof AuthenticatedAdminUsuariosLojaRoute
   '/_authenticated/cadastro/atributos': typeof AuthenticatedCadastroAtributosRoute
+  '/_authenticated/cadastro/aviamentos': typeof AuthenticatedCadastroAviamentosRoute
   '/_authenticated/cadastro/colaboradores': typeof AuthenticatedCadastroColaboradoresRoute
   '/_authenticated/cadastro/servico': typeof AuthenticatedCadastroServicoRoute
   '/_authenticated/cadastro/tecidos': typeof AuthenticatedCadastroTecidosRouteWithChildren
@@ -249,6 +259,7 @@ export interface FileRouteTypes {
     | '/admin/usuarios'
     | '/admin/usuarios-loja'
     | '/cadastro/atributos'
+    | '/cadastro/aviamentos'
     | '/cadastro/colaboradores'
     | '/cadastro/servico'
     | '/cadastro/tecidos'
@@ -271,6 +282,7 @@ export interface FileRouteTypes {
     | '/admin/usuarios'
     | '/admin/usuarios-loja'
     | '/cadastro/atributos'
+    | '/cadastro/aviamentos'
     | '/cadastro/colaboradores'
     | '/cadastro/servico'
     | '/admin'
@@ -295,6 +307,7 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/usuarios'
     | '/_authenticated/admin/usuarios-loja'
     | '/_authenticated/cadastro/atributos'
+    | '/_authenticated/cadastro/aviamentos'
     | '/_authenticated/cadastro/colaboradores'
     | '/_authenticated/cadastro/servico'
     | '/_authenticated/cadastro/tecidos'
@@ -424,6 +437,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedCadastroColaboradoresRouteImport
       parentRoute: typeof AuthenticatedCadastroRoute
     }
+    '/_authenticated/cadastro/aviamentos': {
+      id: '/_authenticated/cadastro/aviamentos'
+      path: '/aviamentos'
+      fullPath: '/cadastro/aviamentos'
+      preLoaderRoute: typeof AuthenticatedCadastroAviamentosRouteImport
+      parentRoute: typeof AuthenticatedCadastroRoute
+    }
     '/_authenticated/cadastro/atributos': {
       id: '/_authenticated/cadastro/atributos'
       path: '/atributos'
@@ -515,6 +535,7 @@ const AuthenticatedCadastroTecidosRouteWithChildren =
 
 interface AuthenticatedCadastroRouteChildren {
   AuthenticatedCadastroAtributosRoute: typeof AuthenticatedCadastroAtributosRoute
+  AuthenticatedCadastroAviamentosRoute: typeof AuthenticatedCadastroAviamentosRoute
   AuthenticatedCadastroColaboradoresRoute: typeof AuthenticatedCadastroColaboradoresRoute
   AuthenticatedCadastroServicoRoute: typeof AuthenticatedCadastroServicoRoute
   AuthenticatedCadastroTecidosRoute: typeof AuthenticatedCadastroTecidosRouteWithChildren
@@ -523,6 +544,7 @@ interface AuthenticatedCadastroRouteChildren {
 
 const AuthenticatedCadastroRouteChildren: AuthenticatedCadastroRouteChildren = {
   AuthenticatedCadastroAtributosRoute: AuthenticatedCadastroAtributosRoute,
+  AuthenticatedCadastroAviamentosRoute: AuthenticatedCadastroAviamentosRoute,
   AuthenticatedCadastroColaboradoresRoute:
     AuthenticatedCadastroColaboradoresRoute,
   AuthenticatedCadastroServicoRoute: AuthenticatedCadastroServicoRoute,
