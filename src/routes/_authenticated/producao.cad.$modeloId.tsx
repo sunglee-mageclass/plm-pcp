@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Scissors, Send, Save, ImageIcon } from "lucide-react";
+import { ArrowLeft, Scissors, Send, Save, ImageIcon, Printer, Package } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -46,6 +46,17 @@ type GradeRow = {
   grades_reais: Record<string, number>;
   grade_total_planejada: number;
   grade_total_real: number;
+};
+
+type AviamentoRow = {
+  id?: string;
+  numero: number;
+  aviamento_id: string | null;
+  aviamento_nome?: string | null;
+  consumo: number;
+  grade_total: number; // computed display only
+  quantidade_enviar: number;
+  quantidade_separar: number;
 };
 
 function calcCusto(consumo: number, loss: number, preco: number) {
@@ -127,9 +138,35 @@ function CadDetailPage() {
     },
   });
 
+  const { data: modeloAviamentos = [] } = useQuery({
+    queryKey: ["cad-modelo-aviamentos", modeloId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("modelo_aviamentos")
+        .select("id, numero, aviamento_id, consumo, aviamentos:aviamento_id(codigo_nome)")
+        .eq("modelo_id", modeloId)
+        .order("numero");
+      return data ?? [];
+    },
+  });
+  const { data: cadAviamentos = [] } = useQuery({
+    queryKey: ["cad-aviamentos-rows", cadRow?.id],
+    enabled: !!cadRow?.id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("cad_aviamentos")
+        .select("*, aviamentos:aviamento_id(codigo_nome)")
+        .eq("cad_id", cadRow!.id)
+        .order("numero");
+      return data ?? [];
+    },
+  });
+
   // --- local editable state, seeded from cad rows or modelo defaults ---
   const [tecidos, setTecidos] = useState<TecidoRow[]>([]);
   const [grades, setGrades] = useState<GradeRow[]>([]);
+  const [aviamentos, setAviamentos] = useState<AviamentoRow[]>([]);
+  const [previsaoEntrega, setPrevisaoEntrega] = useState("");
   const [seeded, setSeeded] = useState(false);
 
   useEffect(() => {
@@ -213,8 +250,43 @@ function CadDetailPage() {
       }));
     }
     setGrades(initialGrades);
+
+    // Grade total geral (soma planejada de todas as variantes) — usado para seed/calculo de aviamentos
+    const gradeTotalGeral = initialGrades.reduce((a, g) => a + (g.grade_total_planejada || 0), 0);
+
+    let initialAvi: AviamentoRow[];
+    if ((cadAviamentos as any[]).length > 0) {
+      initialAvi = (cadAviamentos as any[]).map((a) => ({
+        id: a.id,
+        numero: a.numero,
+        aviamento_id: a.aviamento_id,
+        aviamento_nome: a.aviamentos?.codigo_nome,
+        consumo: Number(a.consumo ?? 0),
+        grade_total: gradeTotalGeral,
+        quantidade_enviar: Number(a.quantidade_enviar ?? 0),
+        quantidade_separar: Number(a.quantidade_separar ?? 0),
+      }));
+    } else {
+      initialAvi = (modeloAviamentos as any[]).map((ma) => {
+        const consumo = Number(ma.consumo ?? 0);
+        const qEnviar = Number((consumo * gradeTotalGeral).toFixed(4));
+        return {
+          numero: ma.numero,
+          aviamento_id: ma.aviamento_id,
+          aviamento_nome: ma.aviamentos?.codigo_nome,
+          consumo,
+          grade_total: gradeTotalGeral,
+          quantidade_enviar: qEnviar,
+          quantidade_separar: qEnviar,
+        };
+      });
+    }
+    setAviamentos(initialAvi);
+
+    if (cadRow?.data_previsao_corte) setPrevisaoEntrega(cadRow.data_previsao_corte);
+
     setSeeded(true);
-  }, [modelo, cadRow, cadTecidos, modeloTecidos, cadGrades, modeloGrades, seeded]);
+  }, [modelo, cadRow, cadTecidos, modeloTecidos, cadGrades, modeloGrades, cadAviamentos, modeloAviamentos, seeded]);
 
   // --- helpers ---
   const updateTec = (i: number, patch: Partial<TecidoRow>) => {
@@ -253,6 +325,14 @@ function CadDetailPage() {
       return next;
     });
   };
+  const updateAvi = (i: number, patch: Partial<AviamentoRow>) => {
+    setAviamentos((prev) => {
+      const next = [...prev];
+      next[i] = { ...next[i], ...patch };
+      return next;
+    });
+  };
+
 
   // --- mutations ---
   const saveAll = useMutation({
@@ -313,6 +393,25 @@ function CadDetailPage() {
         );
         if (ge) throw ge;
       }
+      // Aviamentos (Explosão)
+      await supabase.from("cad_aviamentos").delete().eq("cad_id", cad_id!);
+      if (aviamentos.length > 0) {
+        const { error: ae } = await supabase.from("cad_aviamentos").insert(
+          aviamentos.map((a) => ({
+            cad_id,
+            aviamento_id: a.aviamento_id,
+            numero: a.numero,
+            consumo: a.consumo,
+            quantidade_enviar: a.quantidade_enviar,
+            quantidade_separar: a.quantidade_separar,
+          })),
+        );
+        if (ae) throw ae;
+      }
+      // Previsão de entrega
+      if (previsaoEntrega) {
+        await supabase.from("cad").update({ data_previsao_corte: previsaoEntrega }).eq("id", cad_id!);
+      }
       return cad_id;
     },
     onSuccess: () => {
@@ -320,6 +419,7 @@ function CadDetailPage() {
       qc.invalidateQueries({ queryKey: ["cad-row", modeloId] });
       qc.invalidateQueries({ queryKey: ["cad-tecidos"] });
       qc.invalidateQueries({ queryKey: ["cad-grades-rows"] });
+      qc.invalidateQueries({ queryKey: ["cad-aviamentos-rows"] });
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao salvar"),
   });
@@ -350,15 +450,32 @@ function CadDetailPage() {
     return Array.from(set);
   }, [grades]);
 
+  const gradeTotalGeral = useMemo(
+    () => grades.reduce((a, g) => a + (g.grade_total_planejada || 0), 0),
+    [grades],
+  );
+  // sync derived qty into aviamentos so save persists current values
+  useEffect(() => {
+    setAviamentos((prev) => prev.map((a) => {
+      const qEnviar = Number((a.consumo * gradeTotalGeral).toFixed(4));
+      return { ...a, grade_total: gradeTotalGeral, quantidade_enviar: qEnviar };
+    }));
+  }, [gradeTotalGeral]);
+
   const firstPhoto = (modelo?.fotos_modelo as string[] | null)?.[0] ?? null;
+  const handlePrint = () => window.print();
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <>
+    <div className="container mx-auto p-6 space-y-6 no-print">
       <div className="flex items-center justify-between gap-3">
         <Link to="/producao/cad" className="text-sm text-muted-foreground hover:underline flex items-center gap-1">
           <ArrowLeft className="h-4 w-4" /> Voltar
         </Link>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={handlePrint}>
+            <Printer className="h-4 w-4 mr-1" /> Imprimir Ficha
+          </Button>
           <Button variant="outline" onClick={() => saveAll.mutate()} disabled={saveAll.isPending}>
             <Save className="h-4 w-4 mr-1" /> Salvar
           </Button>
@@ -504,9 +621,156 @@ function CadDetailPage() {
           </div>
         ))}
       </Card>
+
+      {/* Datas de corte */}
+      <Card className="p-5 grid gap-3 md:grid-cols-3">
+        <Field label="Data Enviado ao Corte">
+          <Input value={cadRow?.data_enviado_corte ?? ""} readOnly className="bg-muted" />
+        </Field>
+        <Field label="Previsão de Entrega do Corte">
+          <Input type="date" value={previsaoEntrega} onChange={(e) => setPrevisaoEntrega(e.target.value)} />
+        </Field>
+        <Field label="Data Corte Pronto">
+          <Input value={cadRow?.data_corte_pronto ?? ""} readOnly className="bg-muted" />
+        </Field>
+      </Card>
+
+      {/* SEÇÃO 6 — Explosão de Aviamentos */}
+      <Card className="p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold flex items-center gap-2">
+            <Package className="h-4 w-4" /> Explosão de Aviamentos
+          </h2>
+          <span className="text-xs text-muted-foreground">Grade total geral: <b>{gradeTotalGeral}</b></span>
+        </div>
+        {aviamentos.length === 0 && (
+          <p className="text-sm text-muted-foreground">Nenhum aviamento neste modelo.</p>
+        )}
+        {aviamentos.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="px-2 py-1 text-left">Aviamento</th>
+                  <th className="px-2 py-1">Consumo</th>
+                  <th className="px-2 py-1">Grade Total</th>
+                  <th className="px-2 py-1">Qtd a Enviar</th>
+                  <th className="px-2 py-1">Qtd a Separar</th>
+                </tr>
+              </thead>
+              <tbody>
+                {aviamentos.map((a, i) => (
+                  <tr key={`${a.aviamento_id}-${i}`} className="border-t">
+                    <td className="px-2 py-1">{a.aviamento_nome ?? "—"}</td>
+                    <td className="px-2 py-1">
+                      <Input type="number" step="0.0001" value={a.consumo}
+                        onChange={(e) => updateAvi(i, { consumo: Number(e.target.value), quantidade_enviar: Number((Number(e.target.value) * gradeTotalGeral).toFixed(4)) })} />
+                    </td>
+                    <td className="px-2 py-1 text-center font-medium">{gradeTotalGeral}</td>
+                    <td className="px-2 py-1 text-center font-medium">{a.quantidade_enviar.toFixed(2)}</td>
+                    <td className="px-2 py-1">
+                      <Input type="number" step="0.01" value={a.quantidade_separar}
+                        onChange={(e) => updateAvi(i, { quantidade_separar: Number(e.target.value) })} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground">
+          Ao salvar, as quantidades são registradas em <code>cad_aviamentos</code> para baixa futura no estoque (Módulo 2B).
+        </p>
+      </Card>
     </div>
+
+    {/* SEÇÃO 5 — Ficha de Corte (print) */}
+    <div className="print-area">
+      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Ficha de Corte</h1>
+      <div style={{ fontSize: 12, marginBottom: 12 }}>REF: <b>{modelo?.ref ?? "—"}</b> &nbsp;|&nbsp; Modelo: <b>{modelo?.nome ?? "—"}</b></div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12, marginBottom: 12 }}>
+        <div>Estilista: {modelo?.estilista?.nome ?? "—"}</div>
+        <div>Coleção: {modelo?.colecao ?? "—"}</div>
+        <div>Categoria: {modelo?.cat_p?.nome ?? "—"}</div>
+        <div>Sub-categoria: {modelo?.cat_s?.nome ?? "—"}</div>
+        <div>Data Enviado ao Corte: {cadRow?.data_enviado_corte ?? "_____________"}</div>
+        <div>Previsão de Entrega: {previsaoEntrega || "_____________"}</div>
+      </div>
+
+      <h3 style={{ fontSize: 14, fontWeight: 600, marginTop: 12 }}>Tecidos</h3>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, marginTop: 4 }}>
+        <thead><tr style={{ background: "#eee" }}>
+          <th style={cellH}>Tipo</th><th style={cellH}>Artigo</th><th style={cellH}>Consumo</th><th style={cellH}>%Loss</th><th style={cellH}>Folha (m)</th>
+        </tr></thead>
+        <tbody>
+          {tecidos.map((t, i) => (
+            <tr key={i}>
+              <td style={cell}>{t.tipo} {t.numero}</td>
+              <td style={cell}>{t.artigo_nome ?? "—"}</td>
+              <td style={cell}>{t.consumo_cad}</td>
+              <td style={cell}>{t.loss_percent_cad}%</td>
+              <td style={cell}>{t.tamanho_folha}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <h3 style={{ fontSize: 14, fontWeight: 600, marginTop: 12 }}>Grade Planejada (total: {gradeTotalGeral})</h3>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, marginTop: 4 }}>
+        <thead><tr style={{ background: "#eee" }}>
+          <th style={cellH}>Variante</th>
+          {tamanhosAll.map((t) => <th key={t} style={cellH}>{t}</th>)}
+          <th style={cellH}>Total</th>
+        </tr></thead>
+        <tbody>
+          {grades.map((g) => (
+            <tr key={g.variante_numero}>
+              <td style={cell}>V{g.variante_numero}</td>
+              {tamanhosAll.map((t) => <td key={t} style={cell}>{g.grades_planejadas[t] ?? 0}</td>)}
+              <td style={cell}>{g.grade_total_planejada}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <h3 style={{ fontSize: 14, fontWeight: 600, marginTop: 12 }}>Aviamentos</h3>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, marginTop: 4 }}>
+        <thead><tr style={{ background: "#eee" }}>
+          <th style={cellH}>Aviamento</th><th style={cellH}>Consumo</th><th style={cellH}>Qtd a Enviar</th><th style={cellH}>Qtd a Separar</th>
+        </tr></thead>
+        <tbody>
+          {aviamentos.map((a, i) => (
+            <tr key={i}>
+              <td style={cell}>{a.aviamento_nome ?? "—"}</td>
+              <td style={cell}>{a.consumo}</td>
+              <td style={cell}>{a.quantidade_enviar.toFixed(2)}</td>
+              <td style={cell}>{a.quantidade_separar.toFixed(2)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <div style={{ marginTop: 40, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 32, fontSize: 12 }}>
+        <div>
+          <div style={{ borderTop: "1px solid #000", paddingTop: 4 }}>Nome (Cortador)</div>
+        </div>
+        <div>
+          <div style={{ borderTop: "1px solid #000", paddingTop: 4 }}>Assinatura</div>
+        </div>
+        <div>
+          <div style={{ borderTop: "1px solid #000", paddingTop: 4 }}>Nome (Recebedor)</div>
+        </div>
+        <div>
+          <div style={{ borderTop: "1px solid #000", paddingTop: 4 }}>Assinatura</div>
+        </div>
+      </div>
+    </div>
+    </>
   );
 }
+
+const cellH: React.CSSProperties = { border: "1px solid #999", padding: "4px 6px", textAlign: "left", fontWeight: 600 };
+const cell: React.CSSProperties = { border: "1px solid #999", padding: "4px 6px" };
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
