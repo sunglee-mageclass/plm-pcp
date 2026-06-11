@@ -418,7 +418,7 @@ function AviamentosTab() {
                   <td className="py-2 pr-3">{r.nome}</td>
                   <td className="py-2 pr-3">{r.fornecedor}</td>
                   <td className="py-2 pr-3">{r.categoria}</td>
-                  <td className="py-2 pr-3 text-right">{fmt(r.previsto + 0 || r.previsto)}</td>
+                  <td className="py-2 pr-3 text-right">{fmt(r.prevReceb)}</td>
                   <td className="py-2 pr-3 text-right">{fmt(r.recebido)}</td>
                   <td className="py-2 pr-3 text-right">{fmt(r.baixa)}</td>
                   <td className={cn("py-2 pr-3 text-right font-medium", r.fisico <= 0 && "text-destructive")}>{fmt(r.fisico)}</td>
