@@ -1,52 +1,42 @@
-## Diagnóstico — Terceirizados (botões de categoria vazios)
+# Refatorar UI da página Cadastro > Atributos
 
-### O que já foi verificado
+## Recomendação: Abordagem 1 (layout de 2 colunas com menu vertical agrupado)
 
-1. **Banco** — A tabela `categorias_terceirizado` tem **3 registros** para o tenant do usuário logado (`Corte`, `Costura`, `Caseado`).
-2. **RLS** — Política `tenant_select` em `categorias_terceirizado` usa `(tenant_id = get_user_tenant_id())`. Correto.
-3. **Componente** `producao.terceirizados.$modeloId.tsx` — A query e o `map` dos botões **estão corretos** e **não são gated** por nenhum estado (rendem direto de `categorias`):
+Razões:
+- Mantém 1 clique para trocar de atributo (a Alternativa 2 exige 2 cliques: card → painel → voltar).
+- 12 itens cabem confortavelmente em coluna vertical com agrupamento por seção, o que reduz a poluição visual sem perder densidade.
+- Padrão já presente no projeto (sidebar agrupada por módulo), então é coerente com o resto.
+- A coluna direita pode reaproveitar 100% do componente `AttributeTab` existente — refator é só na casca da página.
 
-```tsx
-const { data: categorias = [] } = useQuery({
-  queryKey: ["categorias_terceirizado"],
-  queryFn: async () =>
-    (await supabase.from("categorias_terceirizado").select("id, nome").order("nome")).data ?? [],
-});
-...
-{(categorias as any[]).map((c) => <Button ...>{c.nome}</Button>)}
-```
+A Alternativa 2 (grid de cards) seria preferível só se houvessem 20+ atributos ou se a contagem por atributo fosse a informação principal — não é o caso aqui.
 
-4. Sem logs de console nem requests de rede capturados no snapshot atual — não há erro visível.
+## Mudanças
 
-### Hipótese mais provável (causa raiz)
+### 1. `src/routes/_authenticated/cadastro.atributos.tsx`
+- Remover `Tabs`/`TabsList`/`TabsTrigger`/`TabsContent`.
+- Manter o array `TABS` (renomear para `ATTRIBUTES`) e adicionar campo `group` em cada item:
+  - GERAL: cores, anos, meses
+  - FORNECEDOR: cat_fornecedor
+  - TECIDO: cat_tecido
+  - AVIAMENTO: cat_aviamento, subcat_aviamento, material_aviamento, intervalo_largura
+  - PRODUTO: cat_produto, linha
+  - TERCEIRIZADO: cat_terceirizado
+- Estado local `selected` (default: primeiro atributo).
+- Layout flex em 2 colunas:
+  - Esquerda: `w-60 border-r` com lista vertical agrupada. Cada grupo tem um label pequeno em maiúsculas (text-xs, muted) e botões dos atributos abaixo. Item ativo: `bg-muted text-foreground font-medium`; inativo: `text-muted-foreground hover:bg-muted/50`.
+  - Direita: `flex-1` renderiza `<AttributeTab config={selected.config} />` dentro de um container com header (`h2` com o nome plural do atributo + badge com contagem de itens).
 
-A query `["terc-modelo", modeloId]` usa um embed com **ambiguidade potencial** em `modelos`:
+### 2. Contagem de itens no header
+- Buscar a contagem via `supabase.from(table).select('id', { count: 'exact', head: true })` filtrado por `tenant_id` (mesmo padrão usado em `AttributeTab`).
+- Encapsular em um pequeno hook `useAttributeCount(table)` usando TanStack Query, ou ler do próprio `AttributeTab` se ele já expõe — preferir hook isolado no arquivo da página para não tocar no componente compartilhado.
 
-```ts
-.select("id, ref, nome, colecao, categorias_produto:categoria_principal_id(nome)")
-.single()
-```
+### 3. Responsividade
+- Em telas `< md`, colapsar a coluna esquerda em um `Select` no topo (mesma lista de opções agrupadas). Mantém usabilidade em tablet sem reescrever lógica.
 
-`modelos` tem **duas FKs** apontando para `categorias_produto` (`categoria_principal_id` e `categoria_secundaria_id`). Se o PostgREST não resolver a desambiguação por nome de coluna nesta versão, retorna **400** e o `useQuery` do modelo entra em erro. Isso por si só **não esconde os botões** (são queries independentes), mas indica o mesmo padrão de falha silenciosa do Financeiro.
+## O que NÃO muda
+- `AttributeTab` continua igual.
+- Comportamento de CRUD, validação, exclusão.
+- Rota e permissões.
 
-Causa real mais provável dos botões não aparecerem: **erro silencioso em uma das queries que disparam re-render** ou um erro de runtime mais cedo no componente (ex.: `modelo` undefined em algum acesso) que faz o React **abortar a render antes do Card de categorias**. Como o snapshot não tem console, preciso instrumentar.
-
-### Plano de correção
-
-1. **Adicionar diagnóstico mínimo** no componente: logar `categorias`, `error` da query, e o tamanho de `(categorias as any[])` para confirmar via console se os dados chegam.
-2. **Endurecer a query de `modelo`** trocando o embed ambíguo por **queries separadas** (mesmo padrão que aplicamos no Financeiro):
-   - `modelos`: só colunas escalares.
-   - `categorias_produto` separado, por `categoria_principal_id`.
-3. **Endurecer a query de `categorias_terceirizado`**: tratar erro explicitamente (não engolir com `?? []`), e exibir uma mensagem se falhar.
-4. **Verificar live** abrindo uma REF: confirmar nas DevTools que `GET /rest/v1/categorias_terceirizado` retorna 200 com 3 itens.
-5. Se os 3 itens chegarem e os botões ainda não renderizarem, suspeitar de **erro de runtime acima** (ex.: acesso a `modelo.categorias_produto.nome` quando `modelo` é `undefined`). Adicionar `?.` em todos os acessos derivados de `modelo`.
-
-### Arquivos a editar
-
-- `src/routes/_authenticated/producao.terceirizados.$modeloId.tsx`
-
-### Critério de sucesso
-
-- Ao abrir `/producao/terceirizados/<modeloId>`, aparecem 3 botões (`Corte`, `Costura`, `Caseado`).
-- Clicar em um botão adiciona um bloco com os campos (Responsável, Preço, Datas, Quantidades).
-- Salvar persiste em `producao_terceirizados` com `ativo=true`.
+## Pergunta para confirmar
+- Manter a Coluna esquerda **sempre visível** (não colapsável) em desktop? Ou quer um botão para esconder e ganhar mais espaço horizontal no CRUD?
