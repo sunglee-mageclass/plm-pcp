@@ -22,6 +22,7 @@ import { Route as AuthenticatedCadastroRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
 import { Route as AuthenticatedCadastroIndexRouteImport } from './routes/_authenticated/cadastro.index'
 import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated/admin/index'
+import { Route as AuthenticatedCadastroTecidosRouteImport } from './routes/_authenticated/cadastro.tecidos'
 import { Route as AuthenticatedCadastroServicoRouteImport } from './routes/_authenticated/cadastro.servico'
 import { Route as AuthenticatedCadastroColaboradoresRouteImport } from './routes/_authenticated/cadastro.colaboradores'
 import { Route as AuthenticatedCadastroAtributosRouteImport } from './routes/_authenticated/cadastro.atributos'
@@ -29,6 +30,8 @@ import { Route as AuthenticatedAdminUsuariosLojaRouteImport } from './routes/_au
 import { Route as AuthenticatedAdminUsuariosRouteImport } from './routes/_authenticated/admin/usuarios'
 import { Route as AuthenticatedAdminLojasRouteImport } from './routes/_authenticated/admin/lojas'
 import { Route as AuthenticatedAdminConfiguracoesRouteImport } from './routes/_authenticated/admin/configuracoes'
+import { Route as AuthenticatedCadastroTecidosIndexRouteImport } from './routes/_authenticated/cadastro.tecidos.index'
+import { Route as AuthenticatedCadastroTecidosArtigoIdRouteImport } from './routes/_authenticated/cadastro.tecidos.$artigoId'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -97,6 +100,12 @@ const AuthenticatedAdminIndexRoute = AuthenticatedAdminIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AuthenticatedAdminRoute,
 } as any)
+const AuthenticatedCadastroTecidosRoute =
+  AuthenticatedCadastroTecidosRouteImport.update({
+    id: '/tecidos',
+    path: '/tecidos',
+    getParentRoute: () => AuthenticatedCadastroRoute,
+  } as any)
 const AuthenticatedCadastroServicoRoute =
   AuthenticatedCadastroServicoRouteImport.update({
     id: '/servico',
@@ -138,6 +147,18 @@ const AuthenticatedAdminConfiguracoesRoute =
     path: '/configuracoes',
     getParentRoute: () => AuthenticatedAdminRoute,
   } as any)
+const AuthenticatedCadastroTecidosIndexRoute =
+  AuthenticatedCadastroTecidosIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedCadastroTecidosRoute,
+  } as any)
+const AuthenticatedCadastroTecidosArtigoIdRoute =
+  AuthenticatedCadastroTecidosArtigoIdRouteImport.update({
+    id: '/$artigoId',
+    path: '/$artigoId',
+    getParentRoute: () => AuthenticatedCadastroTecidosRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -157,8 +178,11 @@ export interface FileRoutesByFullPath {
   '/cadastro/atributos': typeof AuthenticatedCadastroAtributosRoute
   '/cadastro/colaboradores': typeof AuthenticatedCadastroColaboradoresRoute
   '/cadastro/servico': typeof AuthenticatedCadastroServicoRoute
+  '/cadastro/tecidos': typeof AuthenticatedCadastroTecidosRouteWithChildren
   '/admin/': typeof AuthenticatedAdminIndexRoute
   '/cadastro/': typeof AuthenticatedCadastroIndexRoute
+  '/cadastro/tecidos/$artigoId': typeof AuthenticatedCadastroTecidosArtigoIdRoute
+  '/cadastro/tecidos/': typeof AuthenticatedCadastroTecidosIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -178,6 +202,8 @@ export interface FileRoutesByTo {
   '/cadastro/servico': typeof AuthenticatedCadastroServicoRoute
   '/admin': typeof AuthenticatedAdminIndexRoute
   '/cadastro': typeof AuthenticatedCadastroIndexRoute
+  '/cadastro/tecidos/$artigoId': typeof AuthenticatedCadastroTecidosArtigoIdRoute
+  '/cadastro/tecidos': typeof AuthenticatedCadastroTecidosIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -199,8 +225,11 @@ export interface FileRoutesById {
   '/_authenticated/cadastro/atributos': typeof AuthenticatedCadastroAtributosRoute
   '/_authenticated/cadastro/colaboradores': typeof AuthenticatedCadastroColaboradoresRoute
   '/_authenticated/cadastro/servico': typeof AuthenticatedCadastroServicoRoute
+  '/_authenticated/cadastro/tecidos': typeof AuthenticatedCadastroTecidosRouteWithChildren
   '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
   '/_authenticated/cadastro/': typeof AuthenticatedCadastroIndexRoute
+  '/_authenticated/cadastro/tecidos/$artigoId': typeof AuthenticatedCadastroTecidosArtigoIdRoute
+  '/_authenticated/cadastro/tecidos/': typeof AuthenticatedCadastroTecidosIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -222,8 +251,11 @@ export interface FileRouteTypes {
     | '/cadastro/atributos'
     | '/cadastro/colaboradores'
     | '/cadastro/servico'
+    | '/cadastro/tecidos'
     | '/admin/'
     | '/cadastro/'
+    | '/cadastro/tecidos/$artigoId'
+    | '/cadastro/tecidos/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -243,6 +275,8 @@ export interface FileRouteTypes {
     | '/cadastro/servico'
     | '/admin'
     | '/cadastro'
+    | '/cadastro/tecidos/$artigoId'
+    | '/cadastro/tecidos'
   id:
     | '__root__'
     | '/'
@@ -263,8 +297,11 @@ export interface FileRouteTypes {
     | '/_authenticated/cadastro/atributos'
     | '/_authenticated/cadastro/colaboradores'
     | '/_authenticated/cadastro/servico'
+    | '/_authenticated/cadastro/tecidos'
     | '/_authenticated/admin/'
     | '/_authenticated/cadastro/'
+    | '/_authenticated/cadastro/tecidos/$artigoId'
+    | '/_authenticated/cadastro/tecidos/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -366,6 +403,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminIndexRouteImport
       parentRoute: typeof AuthenticatedAdminRoute
     }
+    '/_authenticated/cadastro/tecidos': {
+      id: '/_authenticated/cadastro/tecidos'
+      path: '/tecidos'
+      fullPath: '/cadastro/tecidos'
+      preLoaderRoute: typeof AuthenticatedCadastroTecidosRouteImport
+      parentRoute: typeof AuthenticatedCadastroRoute
+    }
     '/_authenticated/cadastro/servico': {
       id: '/_authenticated/cadastro/servico'
       path: '/servico'
@@ -415,6 +459,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminConfiguracoesRouteImport
       parentRoute: typeof AuthenticatedAdminRoute
     }
+    '/_authenticated/cadastro/tecidos/': {
+      id: '/_authenticated/cadastro/tecidos/'
+      path: '/'
+      fullPath: '/cadastro/tecidos/'
+      preLoaderRoute: typeof AuthenticatedCadastroTecidosIndexRouteImport
+      parentRoute: typeof AuthenticatedCadastroTecidosRoute
+    }
+    '/_authenticated/cadastro/tecidos/$artigoId': {
+      id: '/_authenticated/cadastro/tecidos/$artigoId'
+      path: '/$artigoId'
+      fullPath: '/cadastro/tecidos/$artigoId'
+      preLoaderRoute: typeof AuthenticatedCadastroTecidosArtigoIdRouteImport
+      parentRoute: typeof AuthenticatedCadastroTecidosRoute
+    }
   }
 }
 
@@ -437,10 +495,29 @@ const AuthenticatedAdminRouteChildren: AuthenticatedAdminRouteChildren = {
 const AuthenticatedAdminRouteWithChildren =
   AuthenticatedAdminRoute._addFileChildren(AuthenticatedAdminRouteChildren)
 
+interface AuthenticatedCadastroTecidosRouteChildren {
+  AuthenticatedCadastroTecidosArtigoIdRoute: typeof AuthenticatedCadastroTecidosArtigoIdRoute
+  AuthenticatedCadastroTecidosIndexRoute: typeof AuthenticatedCadastroTecidosIndexRoute
+}
+
+const AuthenticatedCadastroTecidosRouteChildren: AuthenticatedCadastroTecidosRouteChildren =
+  {
+    AuthenticatedCadastroTecidosArtigoIdRoute:
+      AuthenticatedCadastroTecidosArtigoIdRoute,
+    AuthenticatedCadastroTecidosIndexRoute:
+      AuthenticatedCadastroTecidosIndexRoute,
+  }
+
+const AuthenticatedCadastroTecidosRouteWithChildren =
+  AuthenticatedCadastroTecidosRoute._addFileChildren(
+    AuthenticatedCadastroTecidosRouteChildren,
+  )
+
 interface AuthenticatedCadastroRouteChildren {
   AuthenticatedCadastroAtributosRoute: typeof AuthenticatedCadastroAtributosRoute
   AuthenticatedCadastroColaboradoresRoute: typeof AuthenticatedCadastroColaboradoresRoute
   AuthenticatedCadastroServicoRoute: typeof AuthenticatedCadastroServicoRoute
+  AuthenticatedCadastroTecidosRoute: typeof AuthenticatedCadastroTecidosRouteWithChildren
   AuthenticatedCadastroIndexRoute: typeof AuthenticatedCadastroIndexRoute
 }
 
@@ -449,6 +526,8 @@ const AuthenticatedCadastroRouteChildren: AuthenticatedCadastroRouteChildren = {
   AuthenticatedCadastroColaboradoresRoute:
     AuthenticatedCadastroColaboradoresRoute,
   AuthenticatedCadastroServicoRoute: AuthenticatedCadastroServicoRoute,
+  AuthenticatedCadastroTecidosRoute:
+    AuthenticatedCadastroTecidosRouteWithChildren,
   AuthenticatedCadastroIndexRoute: AuthenticatedCadastroIndexRoute,
 }
 
