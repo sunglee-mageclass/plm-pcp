@@ -306,8 +306,8 @@ function AviamentosTab() {
         if (!(c as any).cad?.enviado_corte) continue;
         get(c.aviamento_id).baixa += num(c.quantidade_enviar);
       }
-      for (const m of modAv.data ?? []) {
-        if (!m.aviamento_id || !aprovadoNaoCad.has(m.modelo_id)) continue;
+      for (const m of (modAv.data ?? []) as any[]) {
+        if (!m.aviamento_id || !m.modelo_id || !aprovadoNaoCad.has(m.modelo_id)) continue;
         const gt = gradeByModelo.get(m.modelo_id) ?? 0;
         get(m.aviamento_id).reservado += num(m.consumo) * gt;
       }
