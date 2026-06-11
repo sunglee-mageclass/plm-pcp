@@ -177,7 +177,7 @@ function CadDetailPage() {
           custo_cad: calcCusto(consumo, loss, preco),
           tamanho_folha: 0,
           preco,
-          artigo_nome: mt.artigos?.nome,
+          artigo_nome: mt.artigos?.nome ? (mt.artigos?.unidade_medida ? `${mt.artigos.nome} [${mt.artigos.unidade_medida}]` : mt.artigos.nome) : null,
           variantes: (mt.modelo_tecido_variantes ?? []).map((v: any) => ({
             variante_tecido_id: v.variante_tecido_id,
             variante_nome: v.variantes_tecido?.nome,
