@@ -276,13 +276,6 @@ function OcDialog({
       toast.success("Arquivo enviado");
     } catch (e: any) { toast.error(e.message); }
   };
-  const handleEtiquetaUpload = async (file: File) => {
-    try {
-      const path = await uploadFile(file, "etiqueta");
-      setDraft((d) => ({ ...d, etiqueta_lavagem_urls: [...d.etiqueta_lavagem_urls, path].slice(0, 2) }));
-      toast.success("Etiqueta enviada");
-    } catch (e: any) { toast.error(e.message); }
-  };
 
   const saveMutation = useMutation({
     mutationFn: async (markReceived: boolean) => {
@@ -389,10 +382,15 @@ function OcDialog({
               draft={draft}
               setDraft={setDraft}
               handleSingleUpload={handleSingleUpload}
-              handleEtiquetaUpload={handleEtiquetaUpload}
               items={items}
               artigoMap={artigoMap}
               varianteMap={varianteMap}
+              setQtd={setQtd}
+              totalPrevisto={totalPrevisto}
+              totalReal={totalReal}
+              tecido2Aberto={tecido2Aberto}
+            />
+          )}
               setQtd={setQtd}
               totalPrevisto={totalPrevisto}
               totalReal={totalReal}
