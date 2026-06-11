@@ -466,7 +466,7 @@ function CadDetailPage() {
   const handlePrint = () => window.print();
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto p-6 space-y-6 no-print">
       <div className="flex items-center justify-between gap-3">
         <Link to="/producao/cad" className="text-sm text-muted-foreground hover:underline flex items-center gap-1">
           <ArrowLeft className="h-4 w-4" /> Voltar
