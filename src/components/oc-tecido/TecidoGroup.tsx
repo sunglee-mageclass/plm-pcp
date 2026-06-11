@@ -42,7 +42,7 @@ export function TecidoGroup({
           <Select value={artigoId ?? ""} onValueChange={onArtigoChange}>
             <SelectTrigger className="w-72"><SelectValue placeholder="Selecionar artigo…" /></SelectTrigger>
             <SelectContent>
-              {filteredArtigos.map((a) => <SelectItem key={a.id} value={a.id}>{a.nome}</SelectItem>)}
+              {filteredArtigos.map((a) => <SelectItem key={a.id} value={a.id}>{artigoLabel(a)}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
