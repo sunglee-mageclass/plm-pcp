@@ -48,11 +48,21 @@ function TercDetailPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, ref, nome, colecao, categorias_produto:categoria_principal_id(nome)")
+        .select("id, ref, nome, colecao, categoria_principal_id")
         .eq("id", modeloId)
-        .single();
+        .maybeSingle();
       if (error) throw error;
-      return data;
+      if (!data) return null;
+      let categoria_nome: string | null = null;
+      if (data.categoria_principal_id) {
+        const { data: cat } = await supabase
+          .from("categorias_produto")
+          .select("nome")
+          .eq("id", data.categoria_principal_id)
+          .maybeSingle();
+        categoria_nome = cat?.nome ?? null;
+      }
+      return { ...data, categoria_nome };
     },
   });
 
@@ -64,9 +74,16 @@ function TercDetailPage() {
     },
   });
 
-  const { data: categorias = [] } = useQuery({
+  const { data: categorias = [], error: categoriasError, isLoading: categoriasLoading } = useQuery({
     queryKey: ["categorias_terceirizado"],
-    queryFn: async () => (await supabase.from("categorias_terceirizado").select("id, nome").order("nome")).data ?? [],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("categorias_terceirizado")
+        .select("id, nome")
+        .order("nome");
+      if (error) throw error;
+      return data ?? [];
+    },
   });
 
   const { data: tenantCfg } = useQuery({
