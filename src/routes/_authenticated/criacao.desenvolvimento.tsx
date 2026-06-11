@@ -236,7 +236,13 @@ function DesenvolvimentoPage() {
           <FilterSelect label="Coleção" value={fColecao} onChange={setFColecao} options={[{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))]} />
           <div className="grid gap-1">
             <Label className="text-xs">Semana</Label>
-            <Input value={fSemana} onChange={(e) => setFSemana(e.target.value)} placeholder="Ex: 1" />
+            <Select value={fSemana || "all"} onValueChange={(v) => setFSemana(v === "all" ? "" : v)}>
+              <SelectTrigger><SelectValue placeholder="Todas" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas</SelectItem>
+                {["1","2","3","4","5"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
           <FilterSelect label="Mês" value={fMes} onChange={setFMes} options={[{ id: "all", nome: "Todos" }, ...meses]} />
           <FilterSelect label="Ano" value={fAno} onChange={setFAno} options={[{ id: "all", nome: "Todos" }, ...anos]} />
