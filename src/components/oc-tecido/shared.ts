@@ -103,12 +103,12 @@ export function fmtDate(v: string | null | undefined) {
   if (!v) return "—";
   try { return format(parseISO(v), "dd/MM/yyyy"); } catch { return v; }
 }
-export function mensagemEntrega(prevista?: string | null, entregue?: string | null) {
-  if (!prevista || !entregue) return "—";
+export function mensagemEntrega(prevista?: string | null, entregue?: string | null): { text: string; tone: "neutral" | "atrasado" | "adiantado" | "no_prazo" } {
+  if (!prevista || !entregue) return { text: "—", tone: "neutral" };
   const diff = differenceInCalendarDays(parseISO(entregue), parseISO(prevista));
-  if (diff === 0) return "No prazo";
-  if (diff > 0) return `Atrasado ${diff} dia${diff > 1 ? "s" : ""}`;
-  return `Adiantado ${-diff} dia${-diff > 1 ? "s" : ""}`;
+  if (diff === 0) return { text: "Entrega no prazo", tone: "no_prazo" };
+  if (diff > 0) return { text: `Pedido atrasado ${diff} dia${diff > 1 ? "s" : ""}`, tone: "atrasado" };
+  return { text: `Pedido adiantado ${-diff} dia${-diff > 1 ? "s" : ""}`, tone: "adiantado" };
 }
 
 export async function uploadFile(file: File, prefix: string) {
