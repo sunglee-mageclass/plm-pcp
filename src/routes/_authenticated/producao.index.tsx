@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Factory, Scissors, Users, Wrench, ClipboardCheck } from "lucide-react";
+import { Factory, Scissors, Users, Wrench, ClipboardCheck, Sparkles, Compass, Rocket } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 
@@ -13,6 +13,9 @@ const SECTIONS = {
   terceirizados: { to: "/producao/terceirizados", title: "Terceirizados", desc: "Serviços terceirizados por REF.", icon: Users },
   oficina: { to: "/producao/oficina", title: "Oficina", desc: "Costura e montagem por REF.", icon: Wrench },
   cq: { to: "/producao/cq", title: "Controle de Qualidade", desc: "Recebimento, conserto, lavagem, defeito.", icon: ClipboardCheck },
+  acabamento: { to: "/producao/acabamento", title: "Acabamento", desc: "Etapas de acabamento por REF.", icon: Sparkles },
+  direcionamento: { to: "/producao/direcionamento", title: "Direcionamento", desc: "E-commerce vs Loja Física.", icon: Compass },
+  lancamentos: { to: "/producao/lancamentos", title: "Lançamentos", desc: "Produtos finalizados.", icon: Rocket },
 } as const;
 
 function ProducaoIndex() {
@@ -29,8 +32,8 @@ function ProducaoIndex() {
   const pos = (cfg as any)?.oficina_posicao ?? "depois_terceirizados";
   const ordered: (keyof typeof SECTIONS)[] =
     pos === "antes_terceirizados"
-      ? ["cad", "oficina", "terceirizados", "cq"]
-      : ["cad", "terceirizados", "oficina", "cq"];
+      ? ["cad", "oficina", "terceirizados", "cq", "acabamento", "direcionamento", "lancamentos"]
+      : ["cad", "terceirizados", "oficina", "cq", "acabamento", "direcionamento", "lancamentos"];
 
   return (
     <div className="container mx-auto p-6 space-y-6">
