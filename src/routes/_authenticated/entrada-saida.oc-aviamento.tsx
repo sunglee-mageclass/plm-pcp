@@ -342,6 +342,7 @@ function OcDialog({
         aviamento_id: i.aviamento_id,
         quantidade_pedida: Number(i.quantidade_pedida ?? 0),
         quantidade_recebida: i.quantidade_recebida == null ? null : Number(i.quantidade_recebida),
+        cancelado: !!i.cancelado,
       }));
       setItems(mapped);
       setOriginalItemIds(mapped.map((m) => m.id).filter((x): x is string => !!x));
