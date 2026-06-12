@@ -44,7 +44,7 @@ function AuthenticatedLayout() {
           <header className="h-14 flex items-center gap-2 border-b px-4 bg-card">
             <SidebarTrigger />
             <div className="ml-2 text-sm font-medium text-muted-foreground">
-              {identity.nome_sistema}
+              {moduleLabel}
             </div>
           </header>
           <main className="flex-1 p-6 overflow-auto">
