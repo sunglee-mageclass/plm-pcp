@@ -294,8 +294,9 @@ export function AppSidebar() {
           size={collapsed ? "icon" : "sm"}
           onClick={signOut}
           className="justify-start gap-2"
+          aria-label="Sair da conta"
         >
-          <LogOut className="h-4 w-4" />
+          <LogOut className="h-4 w-4" aria-hidden="true" />
           {!collapsed && <span>Sair</span>}
         </Button>
       </SidebarFooter>
@@ -316,8 +317,9 @@ function ThemeToggleButton({ collapsed }: { collapsed: boolean }) {
             size="icon"
             onClick={toggleTheme}
             className="h-7 w-7 shrink-0"
+            aria-label={isDark ? "Mudar para tema claro" : "Mudar para tema escuro"}
           >
-            {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            {isDark ? <Sun className="h-4 w-4" aria-hidden="true" /> : <Moon className="h-4 w-4" aria-hidden="true" />}
           </Button>
         </TooltipTrigger>
         <TooltipContent side="bottom">

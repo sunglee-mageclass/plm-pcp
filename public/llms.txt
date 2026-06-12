@@ -1,0 +1,8 @@
+# sisTrama
+
+> sisTrama é um sistema multi-tenant de PLM + PCP para moda e confecção, cobrindo cadastro de matéria-prima, criação, produção, estoque e financeiro.
+
+## Pages
+
+- [Início](/): Redireciona para login ou painel conforme a sessão.
+- [Entrar](/auth): Tela de autenticação por e-mail/senha ou OAuth.

@@ -299,7 +299,7 @@ function OficinaDetailPage() {
 
           <div style={{ display: "flex", gap: 16, marginBottom: 16 }}>
             {fotos[0] && (
-              <img src={fotos[0]} alt="Modelo" style={{ width: 180, height: 240, objectFit: "cover", border: "1px solid #ccc" }} />
+              <img src={fotos[0]} alt={`Modelo ${modelo?.ref ?? ""} ${modelo?.nome ?? ""}`.trim() || "Foto do modelo"} style={{ width: 180, height: 240, objectFit: "cover", border: "1px solid #ccc" }} />
             )}
             <div style={{ fontSize: 12, lineHeight: 1.6 }}>
               <div><strong>REF:</strong> {modelo?.ref ?? "—"}</div>

@@ -80,8 +80,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "PLM+PCP — Gestão de Moda & Confecção" },
-      { name: "description", content: "Sistema de gestão de criação e produção para moda e confecção." },
+      { title: "sisTrama — PLM + PCP para Moda e Confecção" },
+      { name: "description", content: "sisTrama: sistema multi-tenant de PLM e PCP para gestão de criação, produção, estoque e financeiro em moda e confecção." },
+      { property: "og:site_name", content: "sisTrama" },
+      { property: "og:type", content: "website" },
+      { property: "og:title", content: "sisTrama — PLM + PCP para Moda e Confecção" },
+      { property: "og:description", content: "Gestão integrada de criação, produção, estoque e financeiro para confecção." },
+      { property: "og:url", content: "https://sistrama.lovable.app/" },
+      { name: "twitter:card", content: "summary" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
