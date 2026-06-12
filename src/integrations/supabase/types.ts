@@ -2172,6 +2172,7 @@ export type Database = {
           campos_editaveis: Json | null
           corte_interno: boolean | null
           created_at: string | null
+          estoque_critico_threshold: number
           etapas_acabamento: Json | null
           formato_mes: string | null
           id: string
@@ -2186,6 +2187,7 @@ export type Database = {
           campos_editaveis?: Json | null
           corte_interno?: boolean | null
           created_at?: string | null
+          estoque_critico_threshold?: number
           etapas_acabamento?: Json | null
           formato_mes?: string | null
           id?: string
@@ -2200,6 +2202,7 @@ export type Database = {
           campos_editaveis?: Json | null
           corte_interno?: boolean | null
           created_at?: string | null
+          estoque_critico_threshold?: number
           etapas_acabamento?: Json | null
           formato_mes?: string | null
           id?: string
