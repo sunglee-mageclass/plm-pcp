@@ -458,7 +458,7 @@ function AviamentoModal({
   const [form, setForm] = useState<FormState>(emptyForm);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const fotoUrl = useSignedUrl(form.foto_url);
+  const fotoUrl = useSignedUrl(form.foto_url, "aviamentos");
 
   useEffect(() => {
     if (initial) {
