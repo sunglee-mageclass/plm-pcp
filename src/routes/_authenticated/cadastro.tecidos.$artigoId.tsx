@@ -96,9 +96,25 @@ function TecidoDetail() {
   });
 
   const [form, setForm] = useState<Artigo | null>(null);
+  const [catIds, setCatIds] = useState<string[]>([]);
   useEffect(() => {
     if (artigo) setForm(artigo);
   }, [artigo]);
+
+  const { data: catLinks = [] } = useQuery({
+    queryKey: ["artigo-cats", artigoId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("artigo_categorias_tecido")
+        .select("categoria_tecido_id")
+        .eq("artigo_id", artigoId);
+      if (error) throw error;
+      return (data ?? []).map((r: any) => r.categoria_tecido_id as string);
+    },
+  });
+  useEffect(() => {
+    setCatIds(catLinks);
+  }, [catLinks]);
 
   const { data: empresas = [] } = useQuery({
     queryKey: ["empresas-options"],
