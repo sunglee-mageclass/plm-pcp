@@ -1076,3 +1076,409 @@ function EmpresasMultiCatTab() {
   );
 }
 
+// ============ Terceirizados (multi-categoria) ============
+
+type TerceirizadoRow = {
+  id: string;
+  nome_responsavel: string;
+};
+
+function CategoriasTerceirizadoMultiSelect({
+  options,
+  value,
+  onChange,
+  placeholder = "Selecione categorias…",
+}: {
+  options: CatOption[];
+  value: string[];
+  onChange: (v: string[]) => void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const selectedLabels = options.filter((o) => value.includes(o.id)).map((o) => o.nome);
+  const toggle = (id: string) => {
+    if (value.includes(id)) onChange(value.filter((v) => v !== id));
+    else onChange([...value, id]);
+  };
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button type="button" variant="outline" className="w-full justify-between font-normal">
+          <span className="truncate text-left">
+            {selectedLabels.length === 0
+              ? placeholder
+              : selectedLabels.length <= 2
+                ? selectedLabels.join(", ")
+                : `${selectedLabels.length} categorias`}
+          </span>
+          <ChevronsUpDown className="h-4 w-4 opacity-50 shrink-0 ml-2" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 p-2" align="start">
+        <div className="max-h-64 overflow-y-auto space-y-1">
+          {options.length === 0 ? (
+            <div className="text-sm text-muted-foreground p-2">Nenhuma categoria cadastrada.</div>
+          ) : (
+            options.map((o) => (
+              <label
+                key={o.id}
+                className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer"
+              >
+                <Checkbox
+                  checked={value.includes(o.id)}
+                  onCheckedChange={() => toggle(o.id)}
+                />
+                <span className="text-sm">{o.nome}</span>
+              </label>
+            ))
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function TerceirizadosMultiCatTab() {
+  const qc = useQueryClient();
+  const [search, setSearch] = useState("");
+  const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [nome, setNome] = useState("");
+  const [cats, setCats] = useState<string[]>([]);
+  const [deleteRow, setDeleteRow] = useState<TerceirizadoRow | null>(null);
+  const [deleteUsage, setDeleteUsage] = useState<number | null>(null);
+
+  const { data: terceirizados = [], isLoading } = useQuery({
+    queryKey: ["terceirizados-multi"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("terceirizados")
+        .select("id, nome_responsavel")
+        .order("nome_responsavel");
+      if (error) throw error;
+      return (data ?? []) as TerceirizadoRow[];
+    },
+  });
+
+  const { data: catsTerc = [] } = useQuery({
+    queryKey: ["cat-terceirizado-options"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("categorias_terceirizado")
+        .select("id, nome")
+        .order("nome");
+      if (error) throw error;
+      return (data ?? []) as CatOption[];
+    },
+  });
+
+  const { data: links = [] } = useQuery({
+    queryKey: ["terceirizado-categorias-links"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("terceirizado_categorias")
+        .select("terceirizado_id, categoria_terceirizado_id");
+      if (error) throw error;
+      return (data ?? []) as { terceirizado_id: string; categoria_terceirizado_id: string }[];
+    },
+  });
+
+  const linksByTerc = useMemo(() => {
+    const m = new Map<string, string[]>();
+    links.forEach((l) => {
+      const arr = m.get(l.terceirizado_id) ?? [];
+      arr.push(l.categoria_terceirizado_id);
+      m.set(l.terceirizado_id, arr);
+    });
+    return m;
+  }, [links]);
+
+  const catsMap = useMemo(() => {
+    const m = new Map<string, string>();
+    catsTerc.forEach((c) => m.set(c.id, c.nome));
+    return m;
+  }, [catsTerc]);
+
+  const filtered = useMemo(() => {
+    const s = search.trim().toLowerCase();
+    if (!s) return terceirizados;
+    return terceirizados.filter((t) => t.nome_responsavel.toLowerCase().includes(s));
+  }, [terceirizados, search]);
+
+  const resetForm = () => {
+    setEditingId(null);
+    setNome("");
+    setCats([]);
+  };
+
+  const openCreate = () => {
+    resetForm();
+    setOpen(true);
+  };
+
+  const openEdit = (t: TerceirizadoRow) => {
+    setEditingId(t.id);
+    setNome(t.nome_responsavel);
+    setCats(linksByTerc.get(t.id) ?? []);
+    setOpen(true);
+  };
+
+  const saveMut = useMutation({
+    mutationFn: async () => {
+      const v = nome.trim();
+      if (!v) throw new Error("Informe o nome do responsável.");
+      if (cats.length === 0)
+        throw new Error("Selecione ao menos uma categoria do terceirizado.");
+
+      let tercId = editingId;
+      if (editingId) {
+        const { error } = await supabase
+          .from("terceirizados")
+          .update({
+            nome_responsavel: v,
+            // Mantém a primeira categoria também na coluna legada para compatibilidade
+            categoria_terceirizado_id: cats[0],
+          })
+          .eq("id", editingId);
+        if (error) throw error;
+      } else {
+        const { data, error } = await supabase
+          .from("terceirizados")
+          .insert({ nome_responsavel: v, categoria_terceirizado_id: cats[0] })
+          .select("id")
+          .single();
+        if (error) throw error;
+        tercId = data.id;
+      }
+
+      const { error: delErr } = await supabase
+        .from("terceirizado_categorias")
+        .delete()
+        .eq("terceirizado_id", tercId!);
+      if (delErr) throw delErr;
+
+      const { error: insErr } = await supabase
+        .from("terceirizado_categorias")
+        .insert(
+          cats.map((cid) => ({
+            terceirizado_id: tercId!,
+            categoria_terceirizado_id: cid,
+          })),
+        );
+      if (insErr) throw insErr;
+    },
+    onSuccess: () => {
+      toast.success(editingId ? "Terceirizado atualizado." : "Terceirizado criado.");
+      setOpen(false);
+      resetForm();
+      qc.invalidateQueries({ queryKey: ["terceirizados-multi"] });
+      qc.invalidateQueries({ queryKey: ["terceirizado-categorias-links"] });
+      qc.invalidateQueries({ queryKey: ["terceirizados-all"] });
+      qc.invalidateQueries({ queryKey: ["servico-count", "terceirizados"] });
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao salvar."),
+  });
+
+  const startDelete = async (row: TerceirizadoRow) => {
+    setDeleteRow(row);
+    setDeleteUsage(null);
+    let total = 0;
+    const refs: { table: string; column: string }[] = [
+      { table: "producao_terceirizados", column: "terceirizado_id" },
+      { table: "producao_oficina", column: "terceirizado_id" },
+      { table: "producao_acabamento", column: "terceirizado_id" },
+    ];
+    for (const r of refs) {
+      const { count } = await supabase
+        .from(r.table as any)
+        .select("*", { count: "exact", head: true })
+        .eq(r.column, row.id);
+      total += count ?? 0;
+    }
+    setDeleteUsage(total);
+  };
+
+  const deleteMut = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("terceirizados").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Excluído.");
+      setDeleteRow(null);
+      setDeleteUsage(null);
+      qc.invalidateQueries({ queryKey: ["terceirizados-multi"] });
+      qc.invalidateQueries({ queryKey: ["servico-count", "terceirizados"] });
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao excluir."),
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Buscar terceirizados…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <Button onClick={openCreate}>
+          <Plus className="h-4 w-4 mr-1" /> Novo
+        </Button>
+      </div>
+
+      <div className="rounded-lg border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Nome do Responsável</TableHead>
+              <TableHead>Categorias do Terceirizado</TableHead>
+              <TableHead className="w-32 text-right">Ações</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading ? (
+              <TableRow>
+                <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
+                  Carregando…
+                </TableCell>
+              </TableRow>
+            ) : filtered.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
+                  Nenhum terceirizado encontrado.
+                </TableCell>
+              </TableRow>
+            ) : (
+              filtered.map((row) => {
+                const ids = linksByTerc.get(row.id) ?? [];
+                return (
+                  <TableRow key={row.id}>
+                    <TableCell>
+                      <button
+                        type="button"
+                        className="text-left hover:underline"
+                        onClick={() => openEdit(row)}
+                      >
+                        {row.nome_responsavel}
+                      </button>
+                    </TableCell>
+                    <TableCell>
+                      {ids.length === 0 ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          {ids.map((cid) => (
+                            <Badge key={cid} variant="secondary">
+                              {catsMap.get(cid) ?? "—"}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button size="icon" variant="ghost" onClick={() => openEdit(row)}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button size="icon" variant="ghost" onClick={() => startDelete(row)}>
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      <div className="text-xs text-muted-foreground">
+        <Badge variant="secondary">{filtered.length}</Badge> registro(s)
+      </div>
+
+      <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) resetForm(); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingId ? "Editar terceirizado" : "Novo terceirizado"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label>Nome do responsável</Label>
+              <Input autoFocus value={nome} onChange={(e) => setNome(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>
+                Categorias do Terceirizado <span className="text-destructive">*</span>
+              </Label>
+              <CategoriasTerceirizadoMultiSelect
+                options={catsTerc}
+                value={cats}
+                onChange={setCats}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+              {saveMut.isPending ? "Salvando…" : "Salvar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={!!deleteRow}
+        onOpenChange={(o) => {
+          if (!o) {
+            setDeleteRow(null);
+            setDeleteUsage(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir terceirizado?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteUsage === null ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Verificando uso…
+                </span>
+              ) : deleteUsage > 0 ? (
+                <>
+                  Este terceirizado está em uso em <strong>{deleteUsage}</strong> registro(s).
+                  Deseja excluir mesmo assim?
+                </>
+              ) : (
+                <>
+                  Tem certeza que deseja excluir <strong>{deleteRow?.nome_responsavel}</strong>?
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                if (deleteRow) deleteMut.mutate(deleteRow.id);
+              }}
+              disabled={deleteUsage === null || deleteMut.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+
