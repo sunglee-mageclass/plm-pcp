@@ -177,9 +177,7 @@ function ServicoPage() {
 
           {selected === "empresa" && <EmpresasMultiCatTab />}
           {selected === "representante" && <RepresentantesTab />}
-          {selected === "terceirizado" && (
-            <AttributeTab config={terceirizadoConfig} />
-          )}
+          {selected === "terceirizado" && <TerceirizadosMultiCatTab />}
         </div>
       </div>
     </div>
