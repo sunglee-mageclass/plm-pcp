@@ -115,6 +115,7 @@ function TecidoBlockEditor({
   artigos,
   onChangeBlock,
   onChangeVariante,
+  onChangeOcLink,
   onRemove,
   removable,
 }: {
@@ -122,6 +123,7 @@ function TecidoBlockEditor({
   artigos: ArtigoOpt[];
   onChangeBlock: (p: Partial<TecidoBlock>) => void;
   onChangeVariante: (vIdx: number, val: string | null) => void;
+  onChangeOcLink: (vIdx: number, val: string | null) => void;
   onRemove: () => void;
   removable: boolean;
 }) {
