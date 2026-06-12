@@ -278,7 +278,7 @@ function AviamentosTab() {
   const { data, isLoading, error } = useQuery({
     queryKey: ["estoque-aviamentos"],
     queryFn: async () => {
-      const [aviamentos, ocItens, cadAv, modAv, modelos, modGrades] = await Promise.all([
+      const [aviamentosRes, ocItensRes, cadAvRes, modAvRes, modelosRes, modGradesRes] = await Promise.all([
         supabase.from("aviamentos").select("id, codigo_nome, empresa_id, categoria_aviamento_id, empresas(nome), categorias_aviamento(nome)"),
         supabase.from("ocs_aviamento_itens").select("aviamento_id, quantidade_pedida, quantidade_recebida, oc_aviamento_id, ocs_aviamento!inner(status)"),
         supabase.from("cad_aviamentos").select("aviamento_id, quantidade_enviar, quantidade_separar, cad!inner(enviado_corte)"),
@@ -286,6 +286,17 @@ function AviamentosTab() {
         supabase.from("modelos").select("id, data_aprovacao, enviado_cad"),
         supabase.from("modelo_grades").select("modelo_id, grade_total"),
       ]);
+
+      for (const r of [aviamentosRes, ocItensRes, cadAvRes, modAvRes, modelosRes, modGradesRes]) {
+        if (r.error) throw r.error;
+      }
+
+      const aviamentos = aviamentosRes;
+      const ocItens = ocItensRes;
+      const cadAv = cadAvRes;
+      const modAv = modAvRes;
+      const modelos = modelosRes;
+      const modGrades = modGradesRes;
 
       const aprovadoNaoCad = new Set(
         (modelos.data ?? []).filter((m: any) => m.data_aprovacao && !m.enviado_cad).map((m: any) => m.id),
