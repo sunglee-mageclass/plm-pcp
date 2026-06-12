@@ -285,6 +285,7 @@ function OcDialog({
         variante_tecido_id: "",
         quantidade_pedida: 0,
         quantidade_recebida: null,
+        cancelado: false,
       },
     ]);
   };
