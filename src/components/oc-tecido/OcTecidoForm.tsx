@@ -35,7 +35,7 @@ export function OcTecidoForm({
   setTecido2Aberto: (v: boolean) => void;
   removeTecido2: () => void;
   handleSingleUpload: (file: File, key: keyof Draft) => void;
-})
+}) {
   return (
     <>
       <div className="grid sm:grid-cols-2 gap-4">
@@ -80,7 +80,7 @@ export function OcTecidoForm({
           <Label>Prazo de Pagamento</Label>
           <Input value={draft.prazo_pagamento} onChange={(e) => {
             const v = e.target.value;
-            const parts = v.split(/[\/,\-\s]+/).filter((p) => p.trim() !== "" && !isNaN(Number(p)));
+            const parts = v.split(/[\/,-\s]+/).filter((p) => p.trim() !== "" && !isNaN(Number(p)));
             const qtd = parts.length > 0 ? Math.max(1, Math.min(6, parts.length)) : 1;
             setDraft((d) => ({ ...d, prazo_pagamento: v, quantidade_prazos: qtd }));
           }} placeholder="Ex: 30/60/90" />
@@ -132,8 +132,6 @@ export function OcTecidoForm({
         toggleVariante={(vid, c) => toggleVariante(1, vid, c)}
         setQtd={setQtd}
         varianteMap={varianteMap}
-        toggleCancelado={toggleCancelado}
-        canCancel={canCancel}
       />
 
       {!tecido2Aberto ? (
@@ -152,8 +150,6 @@ export function OcTecidoForm({
             toggleVariante={(vid, c) => toggleVariante(2, vid, c)}
             setQtd={setQtd}
             varianteMap={varianteMap}
-            toggleCancelado={toggleCancelado}
-            canCancel={canCancel}
           />
           <Button variant="ghost" size="sm" onClick={removeTecido2}>
             <Trash2 className="h-4 w-4 mr-1" /> Remover Tecido 2
