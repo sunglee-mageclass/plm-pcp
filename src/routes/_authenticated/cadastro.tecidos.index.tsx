@@ -303,6 +303,7 @@ function TecidosGallery() {
               artigo={a}
               fornecedor={a.empresa_id ? empresasMap.get(a.empresa_id) ?? null : null}
               fotoPath={firstVarMap.get(a.id) ?? null}
+              onDelete={() => startDelete(a)}
             />
           ))}
         </div>
@@ -314,6 +315,54 @@ function TecidosGallery() {
         onSubmit={(f) => createMut.mutate(f)}
         loading={createMut.isPending}
       />
+
+      <AlertDialog
+        open={!!deleteRow}
+        onOpenChange={(o) => {
+          if (!o) {
+            setDeleteRow(null);
+            setDeleteUsage(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir tecido?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteUsage === null ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Verificando uso…
+                </span>
+              ) : deleteUsage > 0 ? (
+                <>
+                  Este tecido está em uso em <strong>{deleteUsage}</strong> registro(s)
+                  (OCs, modelos ou CADs). A exclusão pode falhar se houver vínculos
+                  protegidos.
+                </>
+              ) : (
+                <>
+                  Tem certeza que deseja excluir <strong>{deleteRow?.nome}</strong>?
+                  Todas as variantes serão removidas.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                if (deleteRow) deleteMut.mutate(deleteRow.id);
+              }}
+              disabled={deleteUsage === null || deleteMut.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
