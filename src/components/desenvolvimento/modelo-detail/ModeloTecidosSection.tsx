@@ -187,19 +187,27 @@ function TecidoBlockEditor({
               const available = variantesArtigo.filter(
                 (v) => v.id === current || !usedElsewhere.has(v.id),
               );
-              return (
-                <Select
-                  key={i}
-                  value={current ?? ""}
-                  onValueChange={(v) => onChangeVariante(i, v === "__none__" ? null : v)}
-                >
-                  <SelectTrigger><SelectValue placeholder={`Variante ${i + 1}`} /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">— Remover —</SelectItem>
-                    {available.map((v) => <SelectItem key={v.id} value={v.id}>{v.nome}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              );
+                return (
+                  <div key={i} className="space-y-1">
+                    <Select
+                      value={current ?? ""}
+                      onValueChange={(v) => onChangeVariante(i, v === "__none__" ? null : v)}
+                    >
+                      <SelectTrigger><SelectValue placeholder={`Variante ${i + 1}`} /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">— Remover —</SelectItem>
+                        {available.map((v) => <SelectItem key={v.id} value={v.id}>{v.nome}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    {current && (
+                      <OcLinkSelect
+                        varianteId={current}
+                        value={block.oc_links?.[i] ?? null}
+                        onChange={(val) => onChangeOcLink(i, val)}
+                      />
+                    )}
+                  </div>
+                );
             })}
           </div>
         </div>
