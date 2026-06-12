@@ -325,12 +325,20 @@ function ModeloDialog({
       if (isEdit && modeloId) {
         const { error } = await supabase.from("modelos").update(payload).eq("id", modeloId);
         if (error) throw error;
+        await syncTecidosToDesenvolvimento(modeloId, draft.tecidos_planejados);
       } else {
-        const { error } = await supabase.from("modelos").insert(payload);
+        const { data: inserted, error } = await supabase.from("modelos").insert(payload).select("id").single();
         if (error) throw error;
+        if (inserted?.id) await syncTecidosToDesenvolvimento(inserted.id, draft.tecidos_planejados);
       }
     },
-    onSuccess: () => { toast.success("Modelo salvo"); onSaved(); onClose(); },
+    onSuccess: () => {
+      toast.success("Modelo salvo");
+      qc.invalidateQueries({ queryKey: ["modelo"] });
+      qc.invalidateQueries({ queryKey: ["modelo-tecidos"] });
+      onSaved();
+      onClose();
+    },
     onError: (e: any) => toast.error(e.message ?? "Erro"),
   });
 
