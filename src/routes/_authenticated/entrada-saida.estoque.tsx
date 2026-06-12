@@ -318,7 +318,9 @@ function AviamentosTab() {
       for (const c of cadAv.data ?? []) {
         if (!c.aviamento_id) continue;
         if (!(c as any).cad?.enviado_corte) continue;
-        get(c.aviamento_id).baixa += num(c.quantidade_enviar);
+        const separar = num((c as any).quantidade_separar);
+        const baixa = separar > 0 ? separar : num(c.quantidade_enviar);
+        get(c.aviamento_id).baixa += baixa;
       }
       for (const m of (modAv.data ?? []) as any[]) {
         if (!m.aviamento_id || !m.modelo_id || !aprovadoNaoCad.has(m.modelo_id)) continue;
