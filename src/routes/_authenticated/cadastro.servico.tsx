@@ -65,24 +65,8 @@ export const Route = createFileRoute("/_authenticated/cadastro/servico")({
   ),
 });
 
-const terceirizadoConfig: AttributeTabConfig = {
-  table: "terceirizados",
-  nameField: "nome_responsavel",
-  singular: "Terceirizado",
-  plural: "Terceirizados",
-  usage: [
-    { table: "producao_terceirizados", column: "terceirizado_id" },
-    { table: "producao_oficina", column: "terceirizado_id" },
-    { table: "producao_acabamento", column: "terceirizado_id" },
-  ],
-  extra: {
-    field: "categoria_terceirizado_id",
-    label: "Categoria do Terceirizado",
-    from: "categorias_terceirizado",
-    optionLabel: "nome",
-    required: true,
-  },
-};
+// Terceirizado now supports multiple categorias via terceirizado_categorias junction;
+// see TerceirizadosMultiCatTab below.
 
 
 type SectionKey = "empresa" | "representante" | "terceirizado";
