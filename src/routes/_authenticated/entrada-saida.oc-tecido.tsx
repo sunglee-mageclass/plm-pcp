@@ -500,6 +500,7 @@ function OcDialog({
               tecido2Aberto={tecido2Aberto}
               artigoId1={artigoIdFor(1)}
               artigoId2={artigoIdFor(2)}
+              readOnly={isReadOnlyRecebimento}
             />
           )}
         </div>
