@@ -43,6 +43,45 @@ export type Database = {
           },
         ]
       }
+      artigo_categorias_tecido: {
+        Row: {
+          artigo_id: string
+          categoria_tecido_id: string
+          created_at: string
+          id: string
+          tenant_id: string | null
+        }
+        Insert: {
+          artigo_id: string
+          categoria_tecido_id: string
+          created_at?: string
+          id?: string
+          tenant_id?: string | null
+        }
+        Update: {
+          artigo_id?: string
+          categoria_tecido_id?: string
+          created_at?: string
+          id?: string
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "artigo_categorias_tecido_artigo_id_fkey"
+            columns: ["artigo_id"]
+            isOneToOne: false
+            referencedRelation: "artigos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "artigo_categorias_tecido_categoria_tecido_id_fkey"
+            columns: ["categoria_tecido_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_tecido"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       artigos: {
         Row: {
           ano_id: string | null

@@ -103,6 +103,17 @@ function TecidosGallery() {
     },
   });
 
+  const { data: artigoCatLinks = [] } = useQuery({
+    queryKey: ["artigo-cats-all"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("artigo_categorias_tecido")
+        .select("artigo_id, categoria_tecido_id");
+      if (error) throw error;
+      return (data ?? []) as { artigo_id: string; categoria_tecido_id: string }[];
+    },
+  });
+
   const { data: empresas = [] } = useQuery({
     queryKey: ["empresas-options"],
     queryFn: async () => {
@@ -140,11 +151,25 @@ function TecidosGallery() {
     [empresas],
   );
 
+  const catsByArtigo = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    artigoCatLinks.forEach((l) => {
+      const s = m.get(l.artigo_id) ?? new Set<string>();
+      s.add(l.categoria_tecido_id);
+      m.set(l.artigo_id, s);
+    });
+    return m;
+  }, [artigoCatLinks]);
+
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
     let list = artigos.filter((a) => {
       if (empresaFilter !== "all" && a.empresa_id !== empresaFilter) return false;
-      if (catFilter !== "all" && a.categoria_tecido_id !== catFilter) return false;
+      if (catFilter !== "all") {
+        const cs = catsByArtigo.get(a.id);
+        const matches = (cs && cs.has(catFilter)) || a.categoria_tecido_id === catFilter;
+        if (!matches) return false;
+      }
       if (s && !a.nome.toLowerCase().includes(s)) return false;
       return true;
     });
@@ -161,7 +186,7 @@ function TecidosGallery() {
       }
     });
     return list;
-  }, [artigos, empresaFilter, catFilter, sort, search]);
+  }, [artigos, empresaFilter, catFilter, sort, search, catsByArtigo]);
 
   const createMut = useMutation({
     mutationFn: async (form: { nome: string; unidade_medida: string }) => {

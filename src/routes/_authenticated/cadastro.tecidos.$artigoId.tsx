@@ -11,6 +11,7 @@ import {
   Loader2,
   ChevronDown,
   ChevronUp,
+  ChevronsUpDown,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -95,9 +96,25 @@ function TecidoDetail() {
   });
 
   const [form, setForm] = useState<Artigo | null>(null);
+  const [catIds, setCatIds] = useState<string[]>([]);
   useEffect(() => {
     if (artigo) setForm(artigo);
   }, [artigo]);
+
+  const { data: catLinks = [] } = useQuery({
+    queryKey: ["artigo-cats", artigoId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("artigo_categorias_tecido")
+        .select("categoria_tecido_id")
+        .eq("artigo_id", artigoId);
+      if (error) throw error;
+      return (data ?? []).map((r: any) => r.categoria_tecido_id as string);
+    },
+  });
+  useEffect(() => {
+    setCatIds(catLinks);
+  }, [catLinks]);
 
   const { data: empresas = [] } = useQuery({
     queryKey: ["empresas-options"],
@@ -135,7 +152,7 @@ function TecidoDetail() {
         nome: form.nome,
         empresa_id: form.empresa_id || null,
         largura_estimada: form.largura_estimada ?? null,
-        categoria_tecido_id: form.categoria_tecido_id || null,
+        categoria_tecido_id: catIds[0] || null,
         composicao: form.composicao || null,
         mes_id: form.mes_id || null,
         ano_id: form.ano_id || null,
@@ -145,11 +162,26 @@ function TecidoDetail() {
       };
       const { error } = await supabase.from("artigos").update(payload).eq("id", artigoId);
       if (error) throw error;
+
+      // Sync junction
+      const { error: delErr } = await supabase
+        .from("artigo_categorias_tecido")
+        .delete()
+        .eq("artigo_id", artigoId);
+      if (delErr) throw delErr;
+      if (catIds.length > 0) {
+        const { error: insErr } = await supabase
+          .from("artigo_categorias_tecido")
+          .insert(catIds.map((cid) => ({ artigo_id: artigoId, categoria_tecido_id: cid })));
+        if (insErr) throw insErr;
+      }
     },
     onSuccess: () => {
       toast.success("Tecido atualizado.");
       qc.invalidateQueries({ queryKey: ["artigo", artigoId] });
       qc.invalidateQueries({ queryKey: ["artigos"] });
+      qc.invalidateQueries({ queryKey: ["artigo-cats", artigoId] });
+      qc.invalidateQueries({ queryKey: ["artigo-cats-all"] });
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao salvar."),
   });
@@ -239,22 +271,24 @@ function TecidoDetail() {
             />
           </Field>
 
-          <Field label="Categoria do Tecido">
-            <Select
-              value={form.categoria_tecido_id ?? ""}
-              onValueChange={(v) => setForm({ ...form, categoria_tecido_id: v || null })}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Selecione…" />
-              </SelectTrigger>
-              <SelectContent>
-                {categorias.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.nome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <Field label="Categorias do Tecido">
+            <CategoriasTecidoMultiSelect
+              options={categorias}
+              value={catIds}
+              onChange={setCatIds}
+            />
+            {catIds.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-1.5">
+                {catIds.map((cid) => {
+                  const nome = categorias.find((c) => c.id === cid)?.nome ?? "—";
+                  return (
+                    <Badge key={cid} variant="secondary">
+                      {nome}
+                    </Badge>
+                  );
+                })}
+              </div>
+            )}
           </Field>
 
           <Field label="Composição" className="md:col-span-2">
@@ -712,3 +746,59 @@ function VariantRow({
     </li>
   );
 }
+
+function CategoriasTecidoMultiSelect({
+  options,
+  value,
+  onChange,
+  placeholder = "Selecione categorias…",
+}: {
+  options: { id: string; nome: string }[];
+  value: string[];
+  onChange: (v: string[]) => void;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const selectedLabels = options.filter((o) => value.includes(o.id)).map((o) => o.nome);
+  const toggle = (id: string) => {
+    if (value.includes(id)) onChange(value.filter((v) => v !== id));
+    else onChange([...value, id]);
+  };
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button type="button" variant="outline" className="w-full justify-between font-normal">
+          <span className="truncate text-left">
+            {selectedLabels.length === 0
+              ? placeholder
+              : selectedLabels.length <= 2
+                ? selectedLabels.join(", ")
+                : `${selectedLabels.length} categorias`}
+          </span>
+          <ChevronsUpDown className="h-4 w-4 opacity-50 shrink-0 ml-2" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 p-2" align="start">
+        <div className="max-h-64 overflow-y-auto space-y-1">
+          {options.length === 0 ? (
+            <div className="text-sm text-muted-foreground p-2">Nenhuma categoria cadastrada.</div>
+          ) : (
+            options.map((o) => (
+              <label
+                key={o.id}
+                className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer"
+              >
+                <Checkbox
+                  checked={value.includes(o.id)}
+                  onCheckedChange={() => toggle(o.id)}
+                />
+                <span className="text-sm">{o.nome}</span>
+              </label>
+            ))
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+

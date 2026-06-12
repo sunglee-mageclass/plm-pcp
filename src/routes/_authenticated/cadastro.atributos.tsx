@@ -99,7 +99,7 @@ const ATTRIBUTES: AttributeItem[] = [
       nameField: "nome",
       singular: "Categoria de Tecido",
       plural: "Categorias de Tecido",
-      usage: [{ table: "artigos", column: "categoria_tecido_id" }],
+      usage: [{ table: "artigo_categorias_tecido", column: "categoria_tecido_id" }],
     },
   },
   {
