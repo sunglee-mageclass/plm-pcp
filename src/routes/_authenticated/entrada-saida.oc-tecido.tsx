@@ -462,10 +462,43 @@ function OcDialog({
 
   const canShowRecebimento = isEdit && (status === "encomendado" || status === "recebido");
   const isReadOnlyRecebimento = isEdit && status === "recebido";
+  const artigoIdsForEtiqueta = useMemo(
+    () => [artigoIdFor(1), artigoIdFor(2)].filter((x): x is string => !!x),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [items],
+  );
+  const { data: etiquetasByArtigo = {} } = useQuery({
+    queryKey: ["artigos-etiquetas", artigoIdsForEtiqueta],
+    enabled: artigoIdsForEtiqueta.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("artigos")
+        .select("id, etiqueta_lavagem_urls")
+        .in("id", artigoIdsForEtiqueta);
+      if (error) throw error;
+      const m: Record<string, string[]> = {};
+      for (const r of (data ?? []) as Array<{ id: string; etiqueta_lavagem_urls: string[] | null }>) {
+        m[r.id] = r.etiqueta_lavagem_urls ?? [];
+      }
+      return m;
+    },
+  });
+
+  const parcelas = draft.parcelas_recebimento ?? [];
+  const todasParcelasOk =
+    parcelas.length > 0 && parcelas.every((p) => !!p.data && p.recebido === true);
+  const todasEtiquetasOk =
+    artigoIdsForEtiqueta.length > 0 &&
+    artigoIdsForEtiqueta.every((id) => (etiquetasByArtigo[id]?.length ?? 0) > 0);
+  const algumaQtdRecebida = items.some((i) => (i.quantidade_recebida ?? 0) > 0);
+
   const canMarkReceived =
-    isEdit && status === "encomendado" &&
-    !!draft.data_entrega &&
-    items.some((i) => (i.quantidade_recebida ?? 0) > 0);
+    isEdit &&
+    status === "encomendado" &&
+    algumaQtdRecebida &&
+    todasParcelasOk &&
+    todasEtiquetasOk &&
+    !!draft.nf_url;
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
