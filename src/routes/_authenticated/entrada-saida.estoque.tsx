@@ -403,6 +403,7 @@ function AviamentosTab() {
   const [search, setSearch] = useState("");
   const [fornecedor, setFornecedor] = useState<string>("all");
   const [categoria, setCategoria] = useState<string>("all");
+  const [estoqueFilter, setEstoqueFilter] = useState<string>("all");
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["estoque-aviamentos"],
