@@ -371,51 +371,68 @@ function TecidoCard({
   artigo,
   fornecedor,
   fotoPath,
+  onDelete,
 }: {
   artigo: Artigo;
   fornecedor: string | null;
   fotoPath: string | null;
+  onDelete: () => void;
 }) {
   const url = useSignedUrl(fotoPath);
   return (
-    <Link
-      to="/cadastro/tecidos/$artigoId"
-      params={{ artigoId: artigo.id }}
-      className="group"
-    >
-      <Card className="overflow-hidden h-full transition-shadow group-hover:shadow-md">
-        <div className="aspect-square bg-muted relative">
-          {url ? (
-            <img
-              src={url}
-              alt={artigo.nome}
-              className="w-full h-full object-cover"
-              loading="lazy"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-              <ImageOff className="h-10 w-10" />
-            </div>
-          )}
-        </div>
-        <div className="p-3 space-y-1">
-          <h3 className="font-medium leading-tight line-clamp-1">{artigo.nome}</h3>
-          <p className="text-xs text-muted-foreground line-clamp-1">{fornecedor ?? "—"}</p>
-          <p className="text-sm font-semibold text-primary">
-            {artigo.preco != null
-              ? new Intl.NumberFormat("pt-BR", {
-                  style: "currency",
-                  currency: "BRL",
-                }).format(Number(artigo.preco))
-              : "—"}
-            <span className="text-xs text-muted-foreground font-normal">
-              {" "}
-              / {artigo.unidade_medida}
-            </span>
-          </p>
-        </div>
-      </Card>
-    </Link>
+    <div className="group relative">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onDelete();
+        }}
+        className="absolute top-2 right-2 z-10 h-8 w-8 rounded-md bg-background/80 backdrop-blur-sm border flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive hover:text-destructive-foreground"
+        aria-label="Excluir tecido"
+        title="Excluir tecido"
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
+      <Link
+        to="/cadastro/tecidos/$artigoId"
+        params={{ artigoId: artigo.id }}
+        className="block"
+      >
+        <Card className="overflow-hidden h-full transition-shadow group-hover:shadow-md">
+          <div className="aspect-square bg-muted relative">
+            {url ? (
+              <img
+                src={url}
+                alt={artigo.nome}
+                className="w-full h-full object-cover"
+                loading="lazy"
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                <ImageOff className="h-10 w-10" />
+              </div>
+            )}
+          </div>
+          <div className="p-3 space-y-1">
+            <h3 className="font-medium leading-tight line-clamp-1">{artigo.nome}</h3>
+            <p className="text-xs text-muted-foreground line-clamp-1">{fornecedor ?? "—"}</p>
+            <p className="text-sm font-semibold text-primary">
+              {artigo.preco != null
+                ? new Intl.NumberFormat("pt-BR", {
+                    style: "currency",
+                    currency: "BRL",
+                  }).format(Number(artigo.preco))
+                : "—"}
+              <span className="text-xs text-muted-foreground font-normal">
+                {" "}
+                / {artigo.unidade_medida}
+              </span>
+            </p>
+          </div>
+        </Card>
+      </Link>
+    </div>
   );
 }
 
