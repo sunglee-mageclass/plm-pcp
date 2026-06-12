@@ -17,8 +17,13 @@ import {
   type OC, type OCItem, type OCStatus, type Variante,
 } from "@/components/oc-tecido/shared";
 
+import { RequirePermission } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/entrada-saida/oc-tecido")({
-  component: OcTecidoPage,
+  component: () => (
+    <RequirePermission page="entrada_oc_tecido">
+      <OcTecidoPage />
+    </RequirePermission>
+  ),
 });
 
 function OcTecidoPage() {
