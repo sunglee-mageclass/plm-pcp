@@ -10,9 +10,19 @@ export const Route = createFileRoute("/_authenticated")({
   component: AuthenticatedLayout,
 });
 
+function useModuleLabel() {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  if (pathname.startsWith("/admin")) return "Admin";
+  for (const mod of PAGES_CATALOG) {
+    if (pathname.startsWith(mod.basePath)) return mod.label;
+  }
+  return "sisTrama";
+}
+
 function AuthenticatedLayout() {
   const { user, loading } = useAuth();
   const identity = useApplySystemIdentity();
+  const moduleLabel = useModuleLabel();
 
   if (loading) {
     return (
