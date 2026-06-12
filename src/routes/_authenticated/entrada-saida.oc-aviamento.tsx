@@ -494,19 +494,16 @@ function OcDialog({
 
   const canShowRecebimento = isEdit && status === "encomendado";
   const parcelas = draft.parcelas_recebimento ?? [];
-  const allParcelasFilled = parcelas.length > 0 && parcelas.every((p) => !!p.data && p.recebido);
   const canMarkReceived =
     canShowRecebimento &&
     items.some((i) => (i.quantidade_recebida ?? 0) > 0) &&
-    allParcelasFilled &&
+    !!draft.data_entrega &&
     !!draft.nf_url;
 
   const getMissingRequirements = (): string[] => {
     const m: string[] = [];
     if (!items.some((i) => (i.quantidade_recebida ?? 0) > 0)) m.push("Preencha a quantidade recebida de pelo menos um aviamento");
-    if (parcelas.length === 0) m.push("Defina a quantidade de parcelas de recebimento");
-    if (parcelas.some((p) => !p.data)) m.push("Preencha a data de todas as parcelas");
-    if (parcelas.some((p) => !p.recebido)) m.push("Marque todas as parcelas como recebidas");
+    if (!draft.data_entrega) m.push("Informe a data da entrega");
     if (!draft.nf_url) m.push("Anexe a nota fiscal");
     return m;
   };
@@ -591,10 +588,6 @@ function OcDialog({
               <Input type="date" value={draft.data_prevista_entrega} onChange={(e) => setDraft((d) => ({ ...d, data_prevista_entrega: e.target.value }))} />
             </div>
 
-            <div className="grid gap-1">
-              <Label>Qtd de Prazos</Label>
-              <Input type="number" value={draft.quantidade_prazos} readOnly disabled />
-            </div>
 
             <div className="grid gap-1">
               <Label>Qtd. Parcelas de Recebimento</Label>
