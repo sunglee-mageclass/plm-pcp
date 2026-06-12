@@ -325,6 +325,9 @@ function OcDialog({
   const setQtd = (tempId: string, field: "quantidade_pedida" | "quantidade_recebida", v: number) => {
     setItems((prev) => prev.map((i) => i.tempId === tempId ? { ...i, [field]: v } : i));
   };
+  const toggleCancelado = (tempId: string, value: boolean) => {
+    setItems((prev) => prev.map((i) => i.tempId === tempId ? { ...i, cancelado: value } : i));
+  };
 
   const valorPrev = (it: ItemDraft) => {
     const a = it.artigo_id ? artigoMap[it.artigo_id] : null;
