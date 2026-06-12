@@ -105,11 +105,13 @@ function OcAviamentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("empresas")
-        .select("id, nome_fantasia, categorias_fornecedor(nome)")
+        .select("id, nome_fantasia, empresa_categorias_fornecedor!inner(categorias_fornecedor!inner(nome))")
+        .eq("empresa_categorias_fornecedor.categorias_fornecedor.nome", "Aviamento")
         .order("nome_fantasia");
       if (error) throw error;
-      return ((data ?? []) as Array<Empresa & { categorias_fornecedor: { nome: string } | null }>)
-        .filter((e) => !e.categorias_fornecedor || (e.categorias_fornecedor.nome ?? "").trim().toLowerCase() === "aviamento")
+      const seen = new Set<string>();
+      return ((data ?? []) as Array<{ id: string; nome_fantasia: string }>)
+        .filter((e) => (seen.has(e.id) ? false : (seen.add(e.id), true)))
         .map(({ id, nome_fantasia }) => ({ id, nome_fantasia })) as Empresa[];
     },
   });
@@ -535,7 +537,16 @@ function OcDialog({
 
             <div className="grid gap-1">
               <Label>Prazo de Pagamento</Label>
-              <Input value={draft.prazo_pagamento} onChange={(e) => setDraft((d) => ({ ...d, prazo_pagamento: e.target.value }))} placeholder="Ex: 30/60/90" />
+              <Input
+                value={draft.prazo_pagamento}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  const parts = v.split("/").map((s) => s.trim()).filter(Boolean);
+                  const q = Math.max(1, Math.min(6, parts.length || 1));
+                  setDraft((d) => ({ ...d, prazo_pagamento: v, quantidade_prazos: q }));
+                }}
+                placeholder="Ex: 30/60/90"
+              />
             </div>
 
             <div className="grid gap-1">
@@ -548,9 +559,8 @@ function OcDialog({
             </div>
 
             <div className="grid gap-1">
-              <Label>Qtd de Prazos (1-6)</Label>
-              <Input type="number" min={1} max={6} value={draft.quantidade_prazos}
-                onChange={(e) => setDraft((d) => ({ ...d, quantidade_prazos: Math.max(1, Math.min(6, Number(e.target.value) || 1)) }))} />
+              <Label>Qtd de Prazos</Label>
+              <Input type="number" value={draft.quantidade_prazos} readOnly disabled />
             </div>
           </div>
 
