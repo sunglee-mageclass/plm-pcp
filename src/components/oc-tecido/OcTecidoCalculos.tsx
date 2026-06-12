@@ -34,10 +34,10 @@ export function OcTecidoCalculos({
     const a = it.artigo_id ? artigoMap[it.artigo_id] : null;
     return (a?.preco ?? 0) * it.quantidade_pedida;
   };
-  const valorReal = (it: ItemDraft) => {
+  const hasKg = items.some((it) => {
     const a = it.artigo_id ? artigoMap[it.artigo_id] : null;
-    return (a?.preco ?? 0) * (it.quantidade_recebida ?? 0);
-  };
+    return a?.unidade_medida === "kg";
+  });
 
   return (
     <Card className="p-3">
@@ -46,9 +46,9 @@ export function OcTecidoCalculos({
           <TableRow>
             <TableHead>Tecido / Variante</TableHead>
             <TableHead>Qtd Pedida</TableHead>
+            {hasKg && <TableHead>Metr. Pedida</TableHead>}
+            {hasKg && <TableHead>Metr. Recebida</TableHead>}
             <TableHead>Qtd Recebida</TableHead>
-            <TableHead>Metr. Pedida</TableHead>
-            <TableHead>Metr. Recebida</TableHead>
             <TableHead>Valor Prev.</TableHead>
             <TableHead>Valor Real</TableHead>
           </TableRow>
