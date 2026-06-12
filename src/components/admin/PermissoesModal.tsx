@@ -26,7 +26,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
   const callTenant = useServerFn(savePermissions);
   const callSuper = useServerFn(savePermissionsAsSuperAdmin);
 
-  const { data: existing = [], isLoading } = useQuery({
+  const { data: existing, isLoading } = useQuery({
     queryKey: ["perms", user.id],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -41,7 +41,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
   const initial = useMemo<PermState>(() => {
     const base: PermState = {};
     for (const key of ALL_PAGE_KEYS) base[key] = { pode_ver: false, pode_editar: false };
-    for (const p of existing) {
+    for (const p of existing ?? []) {
       base[p.pagina] = { pode_ver: !!p.pode_ver, pode_editar: !!p.pode_editar };
     }
     return base;
