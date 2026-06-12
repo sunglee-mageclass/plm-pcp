@@ -82,7 +82,7 @@ function TecidosTab() {
     queryKey: ["estoque-tecidos"],
     queryFn: async () => {
       const [variantesRes, ocItensRes, cadTecVarRes, modTecRes, modTecVarRes, modelosRes, modGradesRes] = await Promise.all([
-        supabase.from("variantes_tecido").select("id, artigo_id, nome_variante, codigo_variante, cores(nome), artigos(id, nome, unidade_medida, rendimento, empresa_id, categoria_tecido_id, empresas(nome), categorias_tecido(nome))"),
+        supabase.from("variantes_tecido").select("id, artigo_id, nome_variante, codigo_variante, cores(nome), artigos(id, nome, unidade_medida, rendimento, empresa_id, categoria_tecido_id, empresas(nome_fantasia), categorias_tecido(nome))"),
         supabase.from("ocs_tecido_itens").select("artigo_id, variante_tecido_id, quantidade_pedida, quantidade_recebida, oc_tecido_id, ocs_tecido!inner(status)"),
         supabase.from("cad_tecido_variantes").select("variante_tecido_id, metragem_enviada, cad_tecidos!inner(artigo_id, cad!inner(enviado_corte))"),
         supabase.from("modelo_tecidos").select("id, modelo_id, artigo_id, consumo, loss_percent"),
@@ -178,7 +178,7 @@ function TecidosTab() {
           nomeVariante: v.nome_variante || v.codigo_variante || v.cores?.nome || "—",
           artigoId: v.artigo_id,
           artigoNome: a?.nome ?? "—",
-          fornecedor: a?.empresas?.nome ?? "—",
+          fornecedor: a?.empresas?.nome_fantasia ?? "—",
           fornecedorId: a?.empresa_id ?? null,
           categoria: a?.categorias_tecido?.nome ?? "—",
           categoriaId: a?.categoria_tecido_id ?? null,
@@ -197,7 +197,7 @@ function TecidosTab() {
 
   const fornecedores = useMemo(() => {
     const m = new Map<string, string>();
-    for (const a of (data?.artigos ?? []) as any[]) if (a.empresa_id) m.set(a.empresa_id, a.empresas?.nome ?? "—");
+    for (const a of (data?.artigos ?? []) as any[]) if (a.empresa_id) m.set(a.empresa_id, a.empresas?.nome_fantasia ?? "—");
     return Array.from(m, ([id, nome]) => ({ id, nome }));
   }, [data]);
 
@@ -359,7 +359,7 @@ function AviamentosTab() {
     queryKey: ["estoque-aviamentos"],
     queryFn: async () => {
       const [aviamentosRes, ocItensRes, cadAvRes, modAvRes, modelosRes, modGradesRes] = await Promise.all([
-        supabase.from("aviamentos").select("id, codigo_nome, empresa_id, categoria_aviamento_id, empresas(nome), categorias_aviamento(nome)"),
+        supabase.from("aviamentos").select("id, codigo_nome, empresa_id, categoria_aviamento_id, empresas(nome_fantasia), categorias_aviamento(nome)"),
         supabase.from("ocs_aviamento_itens").select("aviamento_id, quantidade_pedida, quantidade_recebida, oc_aviamento_id, ocs_aviamento!inner(status)"),
         supabase.from("cad_aviamentos").select("aviamento_id, quantidade_enviar, quantidade_separar, cad!inner(enviado_corte)"),
         supabase.from("modelo_aviamentos").select("modelo_id, aviamento_id, consumo"),
@@ -420,7 +420,7 @@ function AviamentosTab() {
         return {
           id: a.id,
           nome: a.codigo_nome,
-          fornecedor: a.empresas?.nome ?? "—",
+          fornecedor: a.empresas?.nome_fantasia ?? "—",
           fornecedorId: a.empresa_id,
           categoria: a.categorias_aviamento?.nome ?? "—",
           categoriaId: a.categoria_aviamento_id,
@@ -439,7 +439,7 @@ function AviamentosTab() {
 
   const fornecedores = useMemo(() => {
     const m = new Map<string, string>();
-    for (const a of (data?.aviamentos ?? []) as any[]) if (a.empresa_id) m.set(a.empresa_id, a.empresas?.nome ?? "—");
+    for (const a of (data?.aviamentos ?? []) as any[]) if (a.empresa_id) m.set(a.empresa_id, a.empresas?.nome_fantasia ?? "—");
     return Array.from(m, ([id, nome]) => ({ id, nome }));
   }, [data]);
   const categorias = useMemo(() => {
