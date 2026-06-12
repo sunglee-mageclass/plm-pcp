@@ -1,5 +1,6 @@
 import { cell, cellH } from "./types";
 import type { AviamentoRow, GradeRow, TecidoRow } from "./types";
+import { EtiquetaLavagemArtigoView } from "@/components/shared/EtiquetaLavagemArtigo";
 
 type Props = {
   modelo: any;
@@ -65,6 +66,18 @@ export function CadFichaCorte({
             ))}
           </tbody>
         </table>
+        {tecidos.some((t) => (t.etiqueta_lavagem_urls ?? []).length > 0) && (
+          <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+            {tecidos.map((t, i) =>
+              t.artigo_id && (t.etiqueta_lavagem_urls ?? []).length > 0 ? (
+                <div key={i} style={{ fontSize: 11 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 2 }}>{t.tipo} {t.numero} — {t.artigo_nome}</div>
+                  <EtiquetaLavagemArtigoView artigoId={t.artigo_id} label="" size="sm" />
+                </div>
+              ) : null,
+            )}
+          </div>
+        )}
       </section>
 
       <section className="print-section" style={section}>
