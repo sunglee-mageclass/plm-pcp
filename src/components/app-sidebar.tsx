@@ -326,3 +326,27 @@ function ThemeToggleButton({ collapsed }: { collapsed: boolean }) {
     </TooltipProvider>
   );
 }
+
+function SystemBrand({ collapsed }: { collapsed: boolean }) {
+  const identity = useSystemIdentity();
+  const initials = (identity.nome_sistema || "P+").slice(0, 2).toUpperCase();
+  return (
+    <>
+      <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold text-sm overflow-hidden">
+        {identity.logoSignedUrl ? (
+          <img src={identity.logoSignedUrl} alt={identity.nome_sistema} className="h-full w-full object-contain" />
+        ) : (
+          initials
+        )}
+      </div>
+      {!collapsed && (
+        <div className="flex flex-col flex-1 min-w-0">
+          <span className="text-sm font-semibold leading-none truncate">{identity.nome_sistema}</span>
+          {identity.subtitulo && (
+            <span className="text-xs text-muted-foreground mt-0.5 truncate">{identity.subtitulo}</span>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
