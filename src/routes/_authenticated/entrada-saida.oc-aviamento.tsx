@@ -308,6 +308,7 @@ function OcDialog({
   const qc = useQueryClient();
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [items, setItems] = useState<ItemDraft[]>([]);
+  const [originalItemIds, setOriginalItemIds] = useState<string[]>([]);
   const [status, setStatus] = useState<OCStatus>("encomendado");
   const [respMode, setRespMode] = useState<"select" | "text">("select");
 
