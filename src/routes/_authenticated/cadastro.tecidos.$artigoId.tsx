@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ImagePreview } from "@/components/shared/ImagePreview";
 import {
   Select,
   SelectTrigger,
@@ -682,7 +683,9 @@ function VariantRow({
       <div className="flex items-center gap-3 p-2">
         <div className="h-12 w-12 rounded bg-muted overflow-hidden flex items-center justify-center shrink-0">
           {photoUrl ? (
-            <img src={photoUrl} alt={corLabel} className="w-full h-full object-cover" />
+            <ImagePreview src={photoUrl} alt={corLabel}>
+              <img src={photoUrl} alt={corLabel} className="w-full h-full object-cover" />
+            </ImagePreview>
           ) : (
             <ImageOff className="h-5 w-5 text-muted-foreground" />
           )}
