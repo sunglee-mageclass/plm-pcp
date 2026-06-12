@@ -116,9 +116,8 @@ export function OcTecidoForm({
         </div>
 
         <div className="grid gap-1">
-          <Label>Qtd de Prazos (1-6)</Label>
-          <Input type="number" min={1} max={6} value={draft.quantidade_prazos}
-            onChange={(e) => setDraft((d) => ({ ...d, quantidade_prazos: Math.max(1, Math.min(6, Number(e.target.value) || 1)) }))} />
+          <Label>Qtd de Prazos</Label>
+          <Input type="number" value={draft.quantidade_prazos} readOnly disabled />
         </div>
       </div>
 
