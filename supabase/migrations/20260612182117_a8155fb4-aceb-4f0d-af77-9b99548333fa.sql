@@ -1,0 +1,2 @@
+ALTER TABLE public.ocs_tecido_itens ADD COLUMN IF NOT EXISTS cancelado boolean NOT NULL DEFAULT false;
+ALTER TABLE public.ocs_aviamento_itens ADD COLUMN IF NOT EXISTS cancelado boolean NOT NULL DEFAULT false;

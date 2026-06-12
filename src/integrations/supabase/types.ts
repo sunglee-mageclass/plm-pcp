@@ -1723,6 +1723,7 @@ export type Database = {
       ocs_aviamento_itens: {
         Row: {
           aviamento_id: string | null
+          cancelado: boolean
           created_at: string | null
           id: string
           oc_aviamento_id: string | null
@@ -1731,6 +1732,7 @@ export type Database = {
         }
         Insert: {
           aviamento_id?: string | null
+          cancelado?: boolean
           created_at?: string | null
           id?: string
           oc_aviamento_id?: string | null
@@ -1739,6 +1741,7 @@ export type Database = {
         }
         Update: {
           aviamento_id?: string | null
+          cancelado?: boolean
           created_at?: string | null
           id?: string
           oc_aviamento_id?: string | null
@@ -1869,6 +1872,7 @@ export type Database = {
         Row: {
           artigo_id: string | null
           artigo_numero: number | null
+          cancelado: boolean
           created_at: string | null
           id: string
           oc_tecido_id: string | null
@@ -1879,6 +1883,7 @@ export type Database = {
         Insert: {
           artigo_id?: string | null
           artigo_numero?: number | null
+          cancelado?: boolean
           created_at?: string | null
           id?: string
           oc_tecido_id?: string | null
@@ -1889,6 +1894,7 @@ export type Database = {
         Update: {
           artigo_id?: string | null
           artigo_numero?: number | null
+          cancelado?: boolean
           created_at?: string | null
           id?: string
           oc_tecido_id?: string | null
