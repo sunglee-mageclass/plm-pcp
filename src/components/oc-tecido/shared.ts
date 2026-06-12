@@ -24,6 +24,7 @@ export type OCItem = {
   variante_tecido_id: string | null;
   quantidade_pedida: number | null;
   quantidade_recebida: number | null;
+  cancelado: boolean | null;
 };
 export type OC = {
   id: string;
@@ -77,6 +78,7 @@ export type ItemDraft = {
   variante_tecido_id: string;
   quantidade_pedida: number;
   quantidade_recebida: number | null;
+  cancelado: boolean;
 };
 
 export function emptyDraft(): Draft {

@@ -226,6 +226,7 @@ function OcDialog({
         variante_tecido_id: i.variante_tecido_id ?? "",
         quantidade_pedida: Number(i.quantidade_pedida ?? 0),
         quantidade_recebida: i.quantidade_recebida == null ? null : Number(i.quantidade_recebida),
+        cancelado: !!(i as any).cancelado,
       }));
       setItems(mapped);
       setOriginalItemIds(mapped.map((m) => m.id).filter((x): x is string => !!x));
@@ -284,6 +285,7 @@ function OcDialog({
         variante_tecido_id: "",
         quantidade_pedida: 0,
         quantidade_recebida: null,
+        cancelado: false,
       },
     ]);
   };
@@ -314,6 +316,7 @@ function OcDialog({
           variante_tecido_id: varId,
           quantidade_pedida: 0,
           quantidade_recebida: null,
+          cancelado: false,
         },
       ];
     });
@@ -321,6 +324,9 @@ function OcDialog({
 
   const setQtd = (tempId: string, field: "quantidade_pedida" | "quantidade_recebida", v: number) => {
     setItems((prev) => prev.map((i) => i.tempId === tempId ? { ...i, [field]: v } : i));
+  };
+  const toggleCancelado = (tempId: string, value: boolean) => {
+    setItems((prev) => prev.map((i) => i.tempId === tempId ? { ...i, cancelado: value } : i));
   };
 
   const valorPrev = (it: ItemDraft) => {
@@ -399,7 +405,8 @@ function OcDialog({
               variante_tecido_id: it.variante_tecido_id,
               quantidade_pedida: it.quantidade_pedida,
               quantidade_recebida: it.quantidade_recebida,
-            })
+              cancelado: it.cancelado,
+            } as any)
             .eq("id", it.id!);
           if (error) throw error;
         }
@@ -413,7 +420,8 @@ function OcDialog({
               variante_tecido_id: i.variante_tecido_id,
               quantidade_pedida: i.quantidade_pedida,
               quantidade_recebida: i.quantidade_recebida,
-            })));
+              cancelado: i.cancelado,
+            })) as any);
           if (error) throw error;
         }
 
@@ -438,7 +446,8 @@ function OcDialog({
               variante_tecido_id: i.variante_tecido_id,
               quantidade_pedida: i.quantidade_pedida,
               quantidade_recebida: i.quantidade_recebida,
-            })));
+              cancelado: i.cancelado,
+            })) as any);
           if (itErr) throw itErr;
         }
 
@@ -548,6 +557,8 @@ function OcDialog({
             setArtigo={setArtigo}
             toggleVariante={toggleVariante}
             setQtd={setQtd}
+            toggleCancelado={toggleCancelado}
+            canCancel={status === "encomendado"}
             tecido2Aberto={tecido2Aberto}
             setTecido2Aberto={setTecido2Aberto}
             removeTecido2={() => {

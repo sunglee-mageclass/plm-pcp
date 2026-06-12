@@ -4,10 +4,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { artigoLabel, unidadeSufixo } from "@/lib/artigo-label";
+import { cn } from "@/lib/utils";
 import type { Artigo, ItemDraft, Variante } from "./shared";
 
 export function TecidoGroup({
   n, artigos, artigoId, onArtigoChange, variantes, items, toggleVariante, setQtd, varianteMap,
+  toggleCancelado, canCancel,
 }: {
   n: 1 | 2;
   artigos: Artigo[];
@@ -18,6 +20,8 @@ export function TecidoGroup({
   toggleVariante: (vid: string, checked: boolean) => void;
   setQtd: (tempId: string, field: "quantidade_pedida" | "quantidade_recebida", v: number) => void;
   varianteMap: Record<string, Variante>;
+  toggleCancelado?: (tempId: string, value: boolean) => void;
+  canCancel?: boolean;
 }) {
   const selectedIds = new Set(items.map((i) => i.variante_tecido_id));
   const artigoAtual = artigos.find((a) => a.id === artigoId) ?? null;
@@ -63,9 +67,12 @@ export function TecidoGroup({
                 const v = varianteMap[i.variante_tecido_id];
                 return (
                   <div key={i.tempId} className="flex items-center gap-3">
-                    <span className="text-sm flex-1">{v?.nome_variante ?? v?.codigo_variante ?? "—"}</span>
+                    <span className={cn("text-sm flex-1", i.cancelado && "line-through text-muted-foreground")}>
+                      {v?.nome_variante ?? v?.codigo_variante ?? "—"}
+                    </span>
                     <div className="relative w-32">
                       <Input type="number" step="0.01" className={sufixo ? "pr-10" : ""}
+                        disabled={i.cancelado}
                         value={i.quantidade_pedida}
                         onChange={(e) => setQtd(i.tempId, "quantidade_pedida", Number(e.target.value))} />
                       {sufixo && (
@@ -74,6 +81,15 @@ export function TecidoGroup({
                         </span>
                       )}
                     </div>
+                    {canCancel && toggleCancelado && (
+                      <label className="flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap" title="Marcar como cancelado (não contabiliza no estoque)">
+                        <Checkbox
+                          checked={i.cancelado}
+                          onCheckedChange={(c) => toggleCancelado(i.tempId, !!c)}
+                        />
+                        Cancelar
+                      </label>
+                    )}
                   </div>
                 );
               })}

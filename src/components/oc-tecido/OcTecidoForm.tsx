@@ -14,6 +14,7 @@ export function OcTecidoForm({
   empresas, estilistas,
   artigos, variantesByArtigo, varianteMap,
   itemsBy, artigoIdFor, setArtigo, toggleVariante, setQtd,
+  toggleCancelado, canCancel,
   tecido2Aberto, setTecido2Aberto, removeTecido2,
   handleSingleUpload,
 }: {
@@ -31,6 +32,8 @@ export function OcTecidoForm({
   setArtigo: (n: 1 | 2, artigoId: string) => void;
   toggleVariante: (n: 1 | 2, varId: string, checked: boolean) => void;
   setQtd: (tempId: string, field: "quantidade_pedida" | "quantidade_recebida", v: number) => void;
+  toggleCancelado: (tempId: string, value: boolean) => void;
+  canCancel: boolean;
   tecido2Aberto: boolean;
   setTecido2Aberto: (v: boolean) => void;
   removeTecido2: () => void;
@@ -132,6 +135,8 @@ export function OcTecidoForm({
         toggleVariante={(vid, c) => toggleVariante(1, vid, c)}
         setQtd={setQtd}
         varianteMap={varianteMap}
+        toggleCancelado={toggleCancelado}
+        canCancel={canCancel}
       />
 
       {!tecido2Aberto ? (
@@ -150,6 +155,8 @@ export function OcTecidoForm({
             toggleVariante={(vid, c) => toggleVariante(2, vid, c)}
             setQtd={setQtd}
             varianteMap={varianteMap}
+            toggleCancelado={toggleCancelado}
+            canCancel={canCancel}
           />
           <Button variant="ghost" size="sm" onClick={removeTecido2}>
             <Trash2 className="h-4 w-4 mr-1" /> Remover Tecido 2

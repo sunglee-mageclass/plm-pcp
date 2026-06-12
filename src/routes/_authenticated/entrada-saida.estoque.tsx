@@ -84,7 +84,7 @@ function TecidosTab() {
     queryFn: async () => {
       const [variantesRes, ocItensRes, cadTecVarRes, modTecRes, modTecVarRes, modelosRes, modGradesRes] = await Promise.all([
         supabase.from("variantes_tecido").select("id, artigo_id, nome_variante, codigo_variante, cores(nome), artigos(id, nome, unidade_medida, rendimento, empresa_id, categoria_tecido_id, empresas(nome_fantasia), categorias_tecido(nome))"),
-        supabase.from("ocs_tecido_itens").select("artigo_id, variante_tecido_id, quantidade_pedida, quantidade_recebida, oc_tecido_id, ocs_tecido!inner(status)"),
+        supabase.from("ocs_tecido_itens").select("artigo_id, variante_tecido_id, quantidade_pedida, quantidade_recebida, cancelado, oc_tecido_id, ocs_tecido!inner(status)"),
         supabase.from("cad_tecido_variantes").select("variante_tecido_id, metragem_enviada, cad_tecidos!inner(artigo_id, cad!inner(enviado_corte))"),
         supabase.from("modelo_tecidos").select("id, modelo_id, artigo_id, consumo, loss_percent"),
         supabase.from("modelo_tecido_variantes").select("variante_tecido_id, modelo_tecido_id, ordem"),
@@ -134,6 +134,7 @@ function TecidosTab() {
 
       for (const it of ocItens) {
         if (!it.variante_tecido_id) continue;
+        if ((it as any).cancelado) continue;
         const art: any = it.artigo_id ? artById.get(it.artigo_id) : undefined;
         const acc = get(it.variante_tecido_id);
         if ((it as any).ocs_tecido?.status === "encomendado") {
@@ -300,7 +301,8 @@ function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
         .from("ocs_tecido_itens")
         .select("id, quantidade_pedida, oc_tecido_id, artigo_id, ocs_tecido!inner(numero_pedido, data_prevista_entrega, status, empresas(nome_fantasia)), artigos(unidade_medida, rendimento)")
         .eq("variante_tecido_id", row.varId)
-        .eq("ocs_tecido.status", "encomendado");
+        .eq("ocs_tecido.status", "encomendado")
+        .eq("cancelado" as any, false);
       if (error) throw error;
       return (data ?? []) as any[];
     },
@@ -410,7 +412,7 @@ function AviamentosTab() {
     queryFn: async () => {
       const [aviamentosRes, ocItensRes, cadAvRes, modAvRes, modelosRes, modGradesRes] = await Promise.all([
         supabase.from("aviamentos").select("id, codigo_nome, empresa_id, categoria_aviamento_id, empresas(nome_fantasia), categorias_aviamento(nome)"),
-        supabase.from("ocs_aviamento_itens").select("aviamento_id, quantidade_pedida, quantidade_recebida, oc_aviamento_id, ocs_aviamento!inner(status)"),
+        supabase.from("ocs_aviamento_itens").select("aviamento_id, quantidade_pedida, quantidade_recebida, cancelado, oc_aviamento_id, ocs_aviamento!inner(status)"),
         supabase.from("cad_aviamentos").select("aviamento_id, quantidade_enviar, quantidade_separar, cad!inner(enviado_corte)"),
         supabase.from("modelo_aviamentos").select("modelo_id, aviamento_id, consumo"),
         supabase.from("modelos").select("id, data_aprovacao, enviado_cad"),
@@ -446,6 +448,7 @@ function AviamentosTab() {
 
       for (const it of ocItens.data ?? []) {
         if (!it.aviamento_id) continue;
+        if ((it as any).cancelado) continue;
         const acc = get(it.aviamento_id);
         if ((it as any).ocs_aviamento?.status === "encomendado") acc.prevReceb += num(it.quantidade_pedida);
         if ((it as any).ocs_aviamento?.status === "recebido") acc.recebido += num(it.quantidade_recebida);
@@ -567,7 +570,8 @@ function AviamentoRow({ row, threshold }: { row: any; threshold: number }) {
         .from("ocs_aviamento_itens")
         .select("id, quantidade_pedida, ocs_aviamento!inner(numero_pedido, data_prevista_entrega, status, empresas(nome_fantasia))")
         .eq("aviamento_id", row.id)
-        .eq("ocs_aviamento.status", "encomendado");
+        .eq("ocs_aviamento.status", "encomendado")
+        .eq("cancelado" as any, false);
       if (error) throw error;
       return (data ?? []) as any[];
     },

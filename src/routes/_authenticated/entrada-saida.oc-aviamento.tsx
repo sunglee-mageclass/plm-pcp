@@ -62,6 +62,7 @@ type ItemDraft = {
   aviamento_id: string;
   quantidade_pedida: number;
   quantidade_recebida: number | null;
+  cancelado: boolean;
 };
 
 function fmtMoney(v: number | null | undefined) {
@@ -341,6 +342,7 @@ function OcDialog({
         aviamento_id: i.aviamento_id,
         quantidade_pedida: Number(i.quantidade_pedida ?? 0),
         quantidade_recebida: i.quantidade_recebida == null ? null : Number(i.quantidade_recebida),
+        cancelado: !!i.cancelado,
       }));
       setItems(mapped);
       setOriginalItemIds(mapped.map((m) => m.id).filter((x): x is string => !!x));
@@ -362,7 +364,7 @@ function OcDialog({
 
   const addItem = () => {
     if (items.length >= 10) { toast.error("Máximo de 10 aviamentos por OC"); return; }
-    setItems((p) => [...p, { tempId: crypto.randomUUID(), aviamento_id: "", quantidade_pedida: 0, quantidade_recebida: null }]);
+    setItems((p) => [...p, { tempId: crypto.randomUUID(), aviamento_id: "", quantidade_pedida: 0, quantidade_recebida: null, cancelado: false }]);
   };
   const removeItem = (tempId: string) =>
     setItems((p) => {
@@ -435,7 +437,8 @@ function OcDialog({
               aviamento_id: it.aviamento_id,
               quantidade_pedida: it.quantidade_pedida,
               quantidade_recebida: it.quantidade_recebida,
-            })
+              cancelado: it.cancelado,
+            } as any)
             .eq("id", it.id!);
           if (error) throw error;
         }
@@ -447,7 +450,8 @@ function OcDialog({
               aviamento_id: i.aviamento_id,
               quantidade_pedida: i.quantidade_pedida,
               quantidade_recebida: i.quantidade_recebida,
-            })));
+              cancelado: i.cancelado,
+            })) as any);
           if (error) throw error;
         }
 
@@ -470,7 +474,8 @@ function OcDialog({
               aviamento_id: i.aviamento_id,
               quantidade_pedida: i.quantidade_pedida,
               quantidade_recebida: i.quantidade_recebida,
-            })));
+              cancelado: i.cancelado,
+            })) as any);
           if (itErr) throw itErr;
         }
 
@@ -638,7 +643,7 @@ function OcDialog({
               </TableHeader>
               <TableBody>
                 {items.map((i) => (
-                  <TableRow key={i.tempId}>
+                  <TableRow key={i.tempId} className={i.cancelado ? "opacity-50" : ""}>
                     <TableCell>
                       <Select value={i.aviamento_id} onValueChange={(v) => updateItem(i.tempId, { aviamento_id: v })}>
                         <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
@@ -653,20 +658,33 @@ function OcDialog({
                     </TableCell>
                     <TableCell>
                       <Input type="number" step="0.01" value={i.quantidade_pedida}
+                        disabled={i.cancelado}
                         onChange={(e) => updateItem(i.tempId, { quantidade_pedida: Number(e.target.value) })} />
                     </TableCell>
                     {canShowRecebimento && (
                       <TableCell>
                         <Input type="number" step="0.01" value={i.quantidade_recebida ?? ""}
+                          disabled={i.cancelado}
                           onChange={(e) => updateItem(i.tempId, { quantidade_recebida: e.target.value === "" ? null : Number(e.target.value) })} />
                       </TableCell>
                     )}
                     <TableCell className="text-sm">{fmtMoney(valorPrev(i))}</TableCell>
                     {canShowRecebimento && <TableCell className="text-sm">{fmtMoney(valorReal(i))}</TableCell>}
                     <TableCell>
-                      <Button size="icon" variant="ghost" onClick={() => removeItem(i.tempId)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        {status === "encomendado" && (
+                          <label className="flex items-center gap-1 text-xs text-muted-foreground" title="Cancelar item">
+                            <Checkbox
+                              checked={i.cancelado}
+                              onCheckedChange={(c) => updateItem(i.tempId, { cancelado: !!c })}
+                            />
+                            X
+                          </label>
+                        )}
+                        <Button size="icon" variant="ghost" onClick={() => removeItem(i.tempId)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
