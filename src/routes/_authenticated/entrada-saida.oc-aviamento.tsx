@@ -408,11 +408,6 @@ function OcDialog({
         status: markReceived ? "recebido" : status,
       };
 
-      // CRITICAL: salvar itens ANTES de atualizar o status para 'recebido',
-      // pois o trigger gerar_parcelas_oc_aviamento lê os itens no momento do UPDATE
-      // e tem proteção anti-duplicação (parcelas erradas ficariam permanentes).
-      let ocIdLocal = ocId;
-      const finalStatus: OCStatus = markReceived ? "recebido" : status;
 
       // CRITICAL: salvar itens ANTES de atualizar o status para 'recebido',
       // pois o trigger gerar_parcelas_oc_aviamento lê os itens no momento do UPDATE
