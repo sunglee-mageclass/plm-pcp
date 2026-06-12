@@ -173,7 +173,7 @@ function TecidosTab() {
         const a: any = v.artigos ?? artById.get(v.artigo_id);
         const acc = byVar.get(v.id) ?? { prevReceb: 0, recebido: 0, baixa: 0, reservado: 0 };
         const fisico = acc.recebido - acc.baixa;
-        const previsto = fisico - acc.reservado;
+        const previsto = fisico + acc.prevReceb - acc.reservado;
         return {
           varId: v.id,
           nomeVariante: v.nome_variante || v.codigo_variante || v.cores?.nome || "—",
