@@ -420,6 +420,32 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         }
       }
 
+      // Persistir vínculos OC-variante (sobrevive ao save destrutivo)
+      const { error: eDelL } = await supabase
+        .from("modelo_tecido_oc_links" as any)
+        .delete().eq("modelo_id", modeloId);
+      if (eDelL) throw eDelL;
+      const linksToInsert: any[] = [];
+      blocks.forEach((b) => {
+        if (!b.artigo_id) return;
+        b.variantes.forEach((vid, i) => {
+          const ocItem = b.oc_links?.[i];
+          if (vid && ocItem) {
+            linksToInsert.push({
+              modelo_id: modeloId,
+              tipo: b.tipo, numero: b.numero, ordem: i + 1,
+              variante_tecido_id: vid,
+              oc_tecido_item_id: ocItem,
+            });
+          }
+        });
+      });
+      if (linksToInsert.length > 0) {
+        const { error: eL } = await supabase
+          .from("modelo_tecido_oc_links" as any).insert(linksToInsert);
+        if (eL) throw eL;
+      }
+
       const { error: eDelA } = await supabase
         .from("modelo_aviamentos").delete().eq("modelo_id", modeloId);
       if (eDelA) throw eDelA;
