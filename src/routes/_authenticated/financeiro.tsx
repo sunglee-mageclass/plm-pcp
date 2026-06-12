@@ -16,6 +16,7 @@ import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, addM
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
+import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } from "recharts";
 
 import { RequirePermission } from "@/components/RequirePermission";
@@ -308,7 +309,7 @@ function ParcelaDetailDialog({
             <div><span className="text-muted-foreground">Pago em:</span> {format(parseISO(parcela.data_pagamento), "dd/MM/yyyy")}</div>
           )}
           {parcela.comprovante_url && (
-            <div><a href={parcela.comprovante_url} target="_blank" rel="noreferrer" className="text-primary">Ver comprovante</a></div>
+            <div><ComprovanteLink value={parcela.comprovante_url} label="Ver comprovante" className="text-primary" /></div>
           )}
         </div>
         <DialogFooter className="gap-2">
@@ -333,6 +334,15 @@ function ParcelaDetailDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+function ComprovanteLink({ value, label, className }: { value: string; label: string; className?: string }) {
+  // Compat: registros antigos guardavam a signed URL inteira; novos guardam o path do bucket.
+  const isPath = !value.startsWith("http");
+  const signedUrl = useSignedUrl(isPath ? value : null, "comprovantes");
+  const href = isPath ? signedUrl : value;
+  if (!href) return null;
+  return <a href={href} target="_blank" rel="noreferrer" className={className}>{label}</a>;
 }
 
 function Legend2({ color, label }: { color: string; label: string }) {
@@ -437,7 +447,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
                         <Button size="sm" variant="outline" onClick={() => setPagandoId(p.id)}>Marcar pago</Button>
                       )}
                       {p.comprovante_url && (
-                        <a href={p.comprovante_url} target="_blank" rel="noreferrer" className="text-xs text-primary ml-2">comprovante</a>
+                        <ComprovanteLink value={p.comprovante_url} label="comprovante" className="text-xs text-primary ml-2" />
                       )}
                     </td>
                   </tr>
@@ -466,20 +476,18 @@ function PagarDialog({ parcelaId, onClose }: { parcelaId: string | null; onClose
     mutationFn: async () => {
       if (!parcelaId) return;
       setUploading(true);
-      let url: string | null = null;
+      let path: string | null = null;
       if (file) {
         const { tenantPrefix } = await import("@/lib/storage-tenant");
         const tenant = await tenantPrefix();
         const ext = file.name.split(".").pop() ?? "bin";
-        const path = `${tenant}/${parcelaId}/${Date.now()}.${ext}`;
+        path = `${tenant}/${parcelaId}/${Date.now()}.${ext}`;
         const { error: upErr } = await supabase.storage.from("comprovantes").upload(path, file, { upsert: true });
         if (upErr) throw upErr;
-        const { data: signed } = await supabase.storage.from("comprovantes").createSignedUrl(path, 60 * 60 * 24 * 365);
-        url = signed?.signedUrl ?? null;
       }
       const { error } = await supabase
         .from("parcelas")
-        .update({ status: "pago", data_pagamento: dataPag, ...(url ? { comprovante_url: url } : {}) })
+        .update({ status: "pago", data_pagamento: dataPag, ...(path ? { comprovante_url: path } : {}) })
         .eq("id", parcelaId);
       if (error) throw error;
     },
