@@ -1,0 +1,1 @@
+ALTER TABLE public.ocs_aviamento ADD COLUMN IF NOT EXISTS parcelas_recebimento jsonb NOT NULL DEFAULT '[]'::jsonb;

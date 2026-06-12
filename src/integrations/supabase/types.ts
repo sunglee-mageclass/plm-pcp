@@ -1664,6 +1664,7 @@ export type Database = {
           id: string
           nf_url: string | null
           numero_pedido: string | null
+          parcelas_recebimento: Json
           prazo_pagamento: string | null
           quantidade_prazos: number | null
           responsavel_nome: string | null
@@ -1679,6 +1680,7 @@ export type Database = {
           id?: string
           nf_url?: string | null
           numero_pedido?: string | null
+          parcelas_recebimento?: Json
           prazo_pagamento?: string | null
           quantidade_prazos?: number | null
           responsavel_nome?: string | null
@@ -1694,6 +1696,7 @@ export type Database = {
           id?: string
           nf_url?: string | null
           numero_pedido?: string | null
+          parcelas_recebimento?: Json
           prazo_pagamento?: string | null
           quantidade_prazos?: number | null
           responsavel_nome?: string | null
