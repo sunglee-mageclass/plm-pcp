@@ -118,13 +118,13 @@ export function EtiquetaLavagemArtigoView({
       <p className="text-xs text-muted-foreground">{label}</p>
       <div className="flex gap-2 flex-wrap">
         {urls.map((p) => (
-          <a key={p} href={signed[p]} target="_blank" rel="noreferrer" title="Abrir etiqueta">
+          <ImagePreview key={p} src={signed[p]} alt="Etiqueta de lavagem">
             <img
               src={signed[p]}
               alt="Etiqueta de lavagem"
-              className={`${dim} object-cover rounded border bg-muted`}
+              className={`${dim} object-cover rounded border bg-muted cursor-zoom-in`}
             />
-          </a>
+          </ImagePreview>
         ))}
       </div>
     </div>
