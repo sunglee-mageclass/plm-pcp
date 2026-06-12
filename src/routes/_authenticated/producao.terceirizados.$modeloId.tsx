@@ -332,7 +332,7 @@ function TercDetailPage() {
       {/* Blocos */}
       {blocos.map((b, idx) => {
         const catNome = (categorias as any[]).find((c) => c.id === b.categoria_terceirizado_id)?.nome ?? "—";
-        const responsaveis = (terceirizados as any[]).filter((t) => t.categoria_terceirizado_id === b.categoria_terceirizado_id);
+        const responsaveis = (terceirizados as any[]).filter((t) => (t.categorias_ids ?? []).includes(b.categoria_terceirizado_id));
         return (
           <Card key={b.categoria_terceirizado_id} className="p-5 space-y-4">
             <div className="flex items-center justify-between">
