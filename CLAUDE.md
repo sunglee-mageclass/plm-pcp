@@ -75,22 +75,29 @@ Scripts: `npm run dev` · `npm run build` · `npm run lint`
   manualmente (ver Prompt 12).
 - Não usar `localStorage` em lógica de auth/tenant — vem do contexto/Supabase.
 
-## ⚠️ Bugs conhecidos / backlog
+## Estado dos bugs (verificado em 12/06/2026, commit f736b85)
 
-Há um documento com 18 prompts de correção (`plm-pcp-status-e-prompts.md`).
-Os críticos, em resumo:
+A maioria do backlog já foi corrigida. Padrões a **preservar** (não regredir):
 
-1. **Parcelas (OC)**: o save atualiza a OC ANTES de salvar os itens, e o
-   trigger de parcelas lê itens velhos. Correção: salvar itens primeiro,
-   depois chamar RPC `recalcular_parcelas_oc` (já desenhada na migração).
-2. **Storage sem isolamento por tenant**: policies dos 8 buckets não checam
-   tenant. Path de upload deve ser `{tenant_id}/...`.
-3. **Itens de OC delete+insert não-atômico**: IDs mudam a cada save.
-   (Nuance: itens de tecido podem repetir variante — não usar UNIQUE ingênuo.)
-4. **Estoque**: reserva dividida igual entre variantes (devia usar grade por
-   variante); baixa de aviamento usa campo calculado em vez do real.
+1. **Parcelas (OC)** — ✅ corrigido. O save salva os itens ANTES de marcar
+   status='recebido' (ver comentário "CRITICAL" em `oc-aviamento.tsx`). RPC
+   `recalcular_parcelas` no banco. Não volte a atualizar status antes dos itens.
+2. **Storage por tenant** — ✅ corrigido. Todos os buckets (tecido-variantes,
+   aviamentos, artigos, modelos, oc-tecido, oc-aviamento, comprovantes,
+   lancamentos) usam `(storage.foldername(name))[1] = get_user_tenant_id()`.
+   Uploads usam o helper `@/lib/storage-tenant` (`tenantPrefix()`) para montar
+   o path `{tenant}/...`. Todo upload novo DEVE usar esse helper.
+3. **Itens de OC** — ✅ agora é diff incremental por id (update/insert/delete
+   seletivo), não delete-tudo. IDs preservados.
+4. **Estoque** — ✅ reserva usa `grade_total` por `variante_numero` (não mais
+   divisão igual); baixa de aviamento lê `quantidade_separar`. Estoque usa
+   embed de `artigos(...)` na query de variantes (resolve o título "—").
+5. **Segurança** — trigger `prevent_users_self_role_change` impede auto-escalar
+   role; EXECUTE revogado de `anon` nas funções SECURITY DEFINER.
 
-Ao tocar OC/estoque/parcelas, **não reintroduza** esses padrões.
+**Antes de afirmar que algo está quebrado, faça `git pull` e verifique** — o
+repo muda rápido (Lovable + VS Code). Backlog histórico em
+`plm-pcp-status-e-prompts.md`, mas confira contra o código atual antes de usar.
 
 ## O que NÃO fazer
 
