@@ -557,8 +557,6 @@ function OcDialog({
             setArtigo={setArtigo}
             toggleVariante={toggleVariante}
             setQtd={setQtd}
-            toggleCancelado={toggleCancelado}
-            canCancel={status === "encomendado"}
             tecido2Aberto={tecido2Aberto}
             setTecido2Aberto={setTecido2Aberto}
             removeTecido2={() => {
@@ -583,6 +581,8 @@ function OcDialog({
               artigoId1={artigoIdFor(1)}
               artigoId2={artigoIdFor(2)}
               readOnly={isReadOnlyRecebimento}
+              toggleCancelado={toggleCancelado}
+              canCancel={status === "encomendado"}
             />
           )}
         </div>
