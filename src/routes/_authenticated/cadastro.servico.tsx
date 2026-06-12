@@ -62,23 +62,20 @@ export const Route = createFileRoute("/_authenticated/cadastro/servico")({
   ),
 });
 
-const empresaConfig: AttributeTabConfig = {
-  table: "empresas",
-  nameField: "nome_fantasia",
-  singular: "Empresa",
-  plural: "Empresas",
+const terceirizadoConfig: AttributeTabConfig = {
+  table: "terceirizados",
+  nameField: "nome_responsavel",
+  singular: "Terceirizado",
+  plural: "Terceirizados",
   usage: [
-    { table: "representantes", column: "empresa_id" },
-    { table: "aviamentos", column: "empresa_id" },
-    { table: "ocs_tecido", column: "empresa_id" },
-    { table: "ocs_aviamento", column: "empresa_id" },
-    { table: "parcelas", column: "empresa_id" },
-    { table: "artigos", column: "empresa_id" },
+    { table: "producao_terceirizados", column: "terceirizado_id" },
+    { table: "producao_oficina", column: "terceirizado_id" },
+    { table: "producao_acabamento", column: "terceirizado_id" },
   ],
   extra: {
-    field: "categoria_fornecedor_id",
-    label: "Categoria do Fornecedor",
-    from: "categorias_fornecedor",
+    field: "categoria_terceirizado_id",
+    label: "Categoria do Terceirizado",
+    from: "categorias_terceirizado",
     optionLabel: "nome",
     required: true,
   },
