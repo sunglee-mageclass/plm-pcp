@@ -51,8 +51,8 @@ export function OcTecidoCalculos({
             <TableHead>Tecido / Variante</TableHead>
             <TableHead>Qtd Pedida</TableHead>
             {hasKg && <TableHead>Metr. Pedida</TableHead>}
-            {hasKg && <TableHead>Metr. Recebida</TableHead>}
             <TableHead>Qtd Recebida</TableHead>
+            {hasKg && <TableHead>Metr. Recebida</TableHead>}
             <TableHead>Valor Prev.</TableHead>
             <TableHead>Valor Real</TableHead>
           </TableRow>
