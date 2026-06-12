@@ -283,6 +283,42 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     (b) => b.tipo === "tecido" && !!b.artigo_id && b.variantes.some((v) => !!v),
   );
   const gradeTotalGeral = grades.reduce((s, g) => s + (g.grade_total || 0), 0);
+
+  const tecido1VarianteIds = useMemo(() => {
+    const t1 = blocks.find((b) => b.tipo === "tecido" && b.numero === 1);
+    if (!t1) return [] as string[];
+    const out: string[] = [];
+    for (const v of t1.variantes) {
+      if (!v) break;
+      out.push(v);
+    }
+    return out;
+  }, [blocks]);
+
+  const { data: tecido1VariantesLabels = {} } = useQuery({
+    queryKey: ["variantes-labels", tecido1VarianteIds.join(",")],
+    enabled: tecido1VarianteIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("variantes_tecido")
+        .select("id, nome_variante, codigo_variante")
+        .in("id", tecido1VarianteIds);
+      if (error) throw error;
+      const map: Record<string, string> = {};
+      (data ?? []).forEach((v: any) => {
+        map[v.id] = v.nome_variante || v.codigo_variante || "";
+      });
+      return map;
+    },
+  });
+
+  const tecido1VariantesInfo = useMemo(
+    () => tecido1VarianteIds.map((id, i) => ({
+      numero: i + 1,
+      label: tecido1VariantesLabels[id] ?? "",
+    })),
+    [tecido1VarianteIds, tecido1VariantesLabels],
+  );
   const canEnviarCad =
     isAprovado &&
     (draft?.ref ?? "").trim() !== "" &&
