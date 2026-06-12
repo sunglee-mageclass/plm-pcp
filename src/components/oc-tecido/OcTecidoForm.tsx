@@ -7,7 +7,7 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { FileField } from "./FileField";
 import { TecidoGroup } from "./TecidoGroup";
-import type { Artigo, Colab, Draft, Empresa, ItemDraft, Variante } from "./shared";
+import type { Artigo, Colab, Draft, Empresa, ItemDraft, ParcelaRecebimento, Variante } from "./shared";
 
 export function OcTecidoForm({
   draft, setDraft, respMode, setRespMode,
