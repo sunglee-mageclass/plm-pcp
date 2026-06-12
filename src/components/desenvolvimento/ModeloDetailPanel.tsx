@@ -478,6 +478,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       toast.success("Modelo salvo");
       qc.invalidateQueries({ queryKey: ["modelo-detail", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-tecidos", modeloId] });
+      qc.invalidateQueries({ queryKey: ["modelo-tecido-oc-links", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-aviamentos", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-grades", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
