@@ -222,21 +222,30 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   useEffect(() => {
     if (!tecidosData || !modelo) return;
     const empty = makeEmptyBlocks();
+    const linksByKey = new Map<string, string>();
+    (ocLinksData ?? []).forEach((l: any) => {
+      linksByKey.set(`${l.tipo}-${l.numero}-${l.ordem}`, l.oc_tecido_item_id);
+    });
     tecidosData.tecidos.forEach((t: any) => {
       const idx = empty.findIndex((b) => b.tipo === t.tipo && b.numero === t.numero);
       if (idx >= 0) {
         const variantes = Array(10).fill(null) as (string | null)[];
+        const oc_links = Array(10).fill(null) as (string | null)[];
         tecidosData.variantes
           .filter((v: any) => v.modelo_tecido_id === t.id)
           .forEach((v: any) => {
             const ord = (v.ordem ?? 1) - 1;
-            if (ord >= 0 && ord < 10) variantes[ord] = v.variante_tecido_id;
+            if (ord >= 0 && ord < 10) {
+              variantes[ord] = v.variante_tecido_id;
+              oc_links[ord] = linksByKey.get(`${t.tipo}-${t.numero}-${v.ordem ?? ord + 1}`) ?? null;
+            }
           });
         empty[idx] = {
           id: t.id, tipo: t.tipo, numero: t.numero,
           artigo_id: t.artigo_id, consumo: Number(t.consumo ?? 0),
           loss_percent: Number(t.loss_percent ?? 0), custo_previsto: Number(t.custo_previsto ?? 0),
           variantes,
+          oc_links,
         };
       }
     });
@@ -254,7 +263,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       });
     }
     setBlocks(empty);
-  }, [tecidosData, modelo]);
+  }, [tecidosData, modelo, ocLinksData]);
 
   useEffect(() => {
     if (!aviamentosData) return;
