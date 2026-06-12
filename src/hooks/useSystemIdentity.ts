@@ -12,7 +12,7 @@ export type SystemIdentity = {
 
 const DEFAULTS: SystemIdentity = {
   id: "",
-  nome_sistema: "PLM+PCP",
+  nome_sistema: "sisTrama",
   subtitulo: "Moda & Confecção",
   logo_url: null,
   favicon_url: null,
