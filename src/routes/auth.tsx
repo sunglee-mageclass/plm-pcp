@@ -83,7 +83,7 @@ function AuthPage() {
             {identity.logoSignedUrl ? (
               <img src={identity.logoSignedUrl} alt={identity.nome_sistema} className="h-full w-full object-contain" />
             ) : (
-              (identity.nome_sistema || "P+").slice(0, 2).toUpperCase()
+              (identity.nome_sistema || "SI").slice(0, 2).toUpperCase()
             )}
           </div>
           <h1 className="text-2xl font-semibold tracking-tight">{identity.nome_sistema}</h1>

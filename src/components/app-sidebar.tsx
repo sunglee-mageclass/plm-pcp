@@ -329,7 +329,7 @@ function ThemeToggleButton({ collapsed }: { collapsed: boolean }) {
 
 function SystemBrand({ collapsed }: { collapsed: boolean }) {
   const identity = useSystemIdentity();
-  const initials = (identity.nome_sistema || "P+").slice(0, 2).toUpperCase();
+  const initials = (identity.nome_sistema || "SI").slice(0, 2).toUpperCase();
   return (
     <>
       <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold text-sm overflow-hidden">

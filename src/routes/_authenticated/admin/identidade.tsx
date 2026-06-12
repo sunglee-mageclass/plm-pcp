@@ -89,7 +89,7 @@ function IdentidadePage() {
       const { error } = await supabase
         .from("system_settings")
         .update({
-          nome_sistema: nome.trim() || "PLM+PCP",
+          nome_sistema: nome.trim() || "sisTrama",
           subtitulo: subtitulo.trim(),
           logo_url: logoPath,
           favicon_url: faviconPath,
@@ -127,7 +127,7 @@ function IdentidadePage() {
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="nome">Nome do Sistema</Label>
-            <Input id="nome" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="PLM+PCP" />
+            <Input id="nome" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="sisTrama" />
           </div>
           <div className="space-y-2">
             <Label htmlFor="subtitulo">Subtítulo</Label>
