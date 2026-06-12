@@ -430,18 +430,38 @@ function CadDetailPage() {
   const firstPhoto = (modelo?.fotos_modelo as string[] | null)?.[0] ?? null;
   const handlePrint = () => window.print();
 
+  const [confirmZeroOpen, setConfirmZeroOpen] = useState(false);
+  const variantesZeradas = useMemo(() => {
+    let n = 0;
+    for (const t of tecidos) {
+      for (const v of t.variantes) {
+        if (Number(v.metragem_planejada ?? 0) > 0 && Number(v.metragem_enviada ?? 0) === 0) n += 1;
+      }
+    }
+    return n;
+  }, [tecidos]);
+
+  const handleEnviar = () => {
+    if (variantesZeradas > 0) {
+      setConfirmZeroOpen(true);
+      return;
+    }
+    enviarCorte.mutate();
+  };
+
   return (
     <>
       <div className="container mx-auto p-6 space-y-6 no-print">
         <CadActions
           onPrint={handlePrint}
           onSave={() => saveAll.mutate()}
-          onEnviar={() => enviarCorte.mutate()}
+          onEnviar={handleEnviar}
           saving={saveAll.isPending}
           enviando={enviarCorte.isPending}
           enviado={!!cadRow?.enviado_corte}
           dataEnviado={cadRow?.data_enviado_corte}
         />
+
 
         {/* SEÇÃO 1 */}
         <Card className="p-5 flex gap-5">
