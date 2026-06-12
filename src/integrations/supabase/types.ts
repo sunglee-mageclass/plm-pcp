@@ -2459,6 +2459,23 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      dashboard_colecao: {
+        Args: {
+          p_ano?: string
+          p_colecao?: string
+          p_estilista?: string
+          p_mes?: string
+          p_semana?: number
+        }
+        Returns: Json
+      }
+      dashboard_custos: {
+        Args: { p_categoria?: string; p_colecao?: string; p_mes?: string }
+        Returns: Json
+      }
+      dashboard_estoque: { Args: never; Returns: Json }
+      dashboard_financeiro: { Args: never; Returns: Json }
+      dashboard_producao: { Args: never; Returns: Json }
       get_user_tenant_id: { Args: never; Returns: string }
       has_role: {
         Args: {
