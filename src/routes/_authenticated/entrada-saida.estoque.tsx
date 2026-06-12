@@ -251,6 +251,7 @@ function TecidosTab() {
             <table className="w-full text-sm">
               <thead className="text-left text-muted-foreground">
                 <tr className="border-b">
+                  <th className="py-2 pr-3 w-6"></th>
                   <th className="py-2 pr-3">Variante</th>
                   <th className="py-2 pr-3 text-right">Prev. Receb.</th>
                   <th className="py-2 pr-3 text-right">Recebido</th>
@@ -262,15 +263,7 @@ function TecidosTab() {
               </thead>
               <tbody>
                 {g.rows.map((r: any) => (
-                  <tr key={r.varId} className={cn("border-b last:border-0", r.fisico <= threshold && "bg-destructive/10")}>
-                    <td className="py-2 pr-3">{r.nomeVariante}</td>
-                    <td className="py-2 pr-3 text-right">{fmt(r.prevReceb)}</td>
-                    <td className="py-2 pr-3 text-right">{fmt(r.recebido)}</td>
-                    <td className="py-2 pr-3 text-right">{fmt(r.baixa)}</td>
-                    <td className={cn("py-2 pr-3 text-right font-medium", r.fisico <= threshold && "text-destructive")}>{fmt(r.fisico)}</td>
-                    <td className="py-2 pr-3 text-right">{fmt(r.reservado)}</td>
-                    <td className="py-2 pr-3 text-right">{fmt(r.previsto)}</td>
-                  </tr>
+                  <VarianteRow key={r.varId} row={r} threshold={threshold} />
                 ))}
               </tbody>
             </table>
