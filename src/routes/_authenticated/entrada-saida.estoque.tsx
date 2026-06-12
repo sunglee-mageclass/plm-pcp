@@ -61,12 +61,11 @@ function TecidosTab() {
   const [fornecedor, setFornecedor] = useState<string>("all");
   const [categoria, setCategoria] = useState<string>("all");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["estoque-tecidos"],
     queryFn: async () => {
-      const [artigos, variantes, ocItens, cadTecVar, modTec, modTecVar, modelos, modGrades] = await Promise.all([
-        supabase.from("artigos").select("id, nome, unidade_medida, rendimento, empresa_id, categoria_tecido_id, empresas(nome), categorias_tecido(nome)"),
-        supabase.from("variantes_tecido").select("id, artigo_id, nome_variante, codigo_variante, cores(nome)"),
+      const [variantesRes, ocItensRes, cadTecVarRes, modTecRes, modTecVarRes, modelosRes, modGradesRes] = await Promise.all([
+        supabase.from("variantes_tecido").select("id, artigo_id, nome_variante, codigo_variante, cores(nome), artigos(id, nome, unidade_medida, rendimento, empresa_id, categoria_tecido_id, empresas(nome), categorias_tecido(nome))"),
         supabase.from("ocs_tecido_itens").select("artigo_id, variante_tecido_id, quantidade_pedida, quantidade_recebida, oc_tecido_id, ocs_tecido!inner(status)"),
         supabase.from("cad_tecido_variantes").select("variante_tecido_id, metragem_enviada, cad_tecidos!inner(artigo_id, cad!inner(enviado_corte))"),
         supabase.from("modelo_tecidos").select("id, modelo_id, artigo_id, consumo, loss_percent"),
@@ -75,20 +74,36 @@ function TecidosTab() {
         supabase.from("modelo_grades").select("modelo_id, variante_numero, grade_total"),
       ]);
 
-      const modeloAprovadoNaoCad = new Set(
-        (modelos.data ?? []).filter((m: any) => m.data_aprovacao && !m.enviado_cad).map((m: any) => m.id),
-      );
-      const modTecById = new Map((modTec.data ?? []).map((m: any) => [m.id, m]));
+      for (const r of [variantesRes, ocItensRes, cadTecVarRes, modTecRes, modTecVarRes, modelosRes, modGradesRes]) {
+        if (r.error) throw r.error;
+      }
 
-      // grade_total por (modelo_id, variante_numero)
+      const variantes = variantesRes.data ?? [];
+      const ocItens = ocItensRes.data ?? [];
+      const cadTecVar = cadTecVarRes.data ?? [];
+      const modTec = modTecRes.data ?? [];
+      const modTecVar = modTecVarRes.data ?? [];
+      const modelos = modelosRes.data ?? [];
+      const modGrades = modGradesRes.data ?? [];
+
+      const modeloAprovadoNaoCad = new Set(
+        modelos.filter((m: any) => m.data_aprovacao && !m.enviado_cad).map((m: any) => m.id),
+      );
+      const modTecById = new Map((modTec).map((m: any) => [m.id, m]));
+
       const gradeByModeloVar = new Map<string, number>();
-      for (const g of (modGrades.data ?? []) as any[]) {
+      for (const g of modGrades as any[]) {
         if (!g.modelo_id || g.variante_numero == null) continue;
         const k = `${g.modelo_id}::${g.variante_numero}`;
         gradeByModeloVar.set(k, (gradeByModeloVar.get(k) ?? 0) + num(g.grade_total));
       }
 
-      // Map por variante: prevReceb (qtd OC encomendada), recebido (metros), baixa (metros), reservado (metros)
+      // Build artById from embedded artigos on variantes
+      const artById = new Map<string, any>();
+      for (const v of variantes as any[]) {
+        if (v.artigos && v.artigo_id) artById.set(v.artigo_id, v.artigos);
+      }
+
       type Acc = { prevReceb: number; recebido: number; baixa: number; reservado: number };
       const byVar = new Map<string, Acc>();
       const get = (id: string) => {
@@ -96,13 +111,12 @@ function TecidosTab() {
         return byVar.get(id)!;
       };
 
-      const artById = new Map((artigos.data ?? []).map((a: any) => [a.id, a]));
       const toMetros = (a: any, qtd: number) =>
         a?.unidade_medida === "kg" ? qtd * num(a.rendimento) : qtd;
 
-      for (const it of ocItens.data ?? []) {
+      for (const it of ocItens) {
         if (!it.variante_tecido_id) continue;
-        const art: any = artById.get(it.artigo_id);
+        const art: any = it.artigo_id ? artById.get(it.artigo_id) : undefined;
         const acc = get(it.variante_tecido_id);
         if ((it as any).ocs_tecido?.status === "encomendado") {
           acc.prevReceb += num(it.quantidade_pedida);
@@ -112,16 +126,14 @@ function TecidosTab() {
         }
       }
 
-      for (const cv of cadTecVar.data ?? []) {
+      for (const cv of cadTecVar) {
         if (!cv.variante_tecido_id) continue;
         if (!(cv as any).cad_tecidos?.cad?.enviado_corte) continue;
         get(cv.variante_tecido_id).baixa += num(cv.metragem_enviada);
       }
 
-      // Reservado: por variante usando modelo_grades.variante_numero alinhado com modelo_tecido_variantes.ordem
-      // Agrupa variantes por modelo_tecido_id, ordenadas por `ordem`
       const variantesByModTec = new Map<string, { ordem: number; varId: string }[]>();
-      for (const mv of (modTecVar.data ?? []) as any[]) {
+      for (const mv of modTecVar as any[]) {
         if (!mv.variante_tecido_id || !mv.modelo_tecido_id) continue;
         const arr = variantesByModTec.get(mv.modelo_tecido_id) ?? [];
         arr.push({ ordem: num(mv.ordem), varId: mv.variante_tecido_id });
@@ -133,18 +145,14 @@ function TecidosTab() {
         const consumoComLoss = num(mt.consumo) * (1 + num(mt.loss_percent) / 100);
         const sorted = [...vars].sort((a, b) => a.ordem - b.ordem);
         sorted.forEach((v, idx) => {
-          // variante_numero é 1-indexado; usa `ordem` quando definida, senão posição+1
           const numeroVariante = v.ordem > 0 ? v.ordem : idx + 1;
           const gradeTotal = gradeByModeloVar.get(`${mt.modelo_id}::${numeroVariante}`) ?? 0;
           get(v.varId).reservado += consumoComLoss * gradeTotal;
         });
       }
 
-
-      // Build rows grouped by artigo
-      const variantesArr = variantes.data ?? [];
-      const rows = variantesArr.map((v: any) => {
-        const a: any = artById.get(v.artigo_id);
+      const rows = (variantes as any[]).map((v: any) => {
+        const a: any = v.artigos ?? artById.get(v.artigo_id);
         const acc = byVar.get(v.id) ?? { prevReceb: 0, recebido: 0, baixa: 0, reservado: 0 };
         const fisico = acc.recebido - acc.baixa;
         const previsto = fisico - acc.reservado;
@@ -166,7 +174,7 @@ function TecidosTab() {
         };
       });
 
-      return { rows, artigos: artigos.data ?? [] };
+      return { rows, artigos: Array.from(artById.values()) };
     },
   });
 
@@ -192,13 +200,14 @@ function TecidosTab() {
     );
   }, [data, search, fornecedor, categoria]);
 
-  // Group by artigo
+  // Group by artigo (key = artigoId, fallback para variantes sem artigo)
   const grouped = useMemo(() => {
-    const map = new Map<string, { artigoNome: string; rows: any[] }>();
+    const map = new Map<string, { artigoId: string; artigoNome: string; rows: any[] }>();
     for (const r of filtered) {
-      const g = map.get(r.artigoId) ?? { artigoNome: r.artigoNome, rows: [] as any[] };
+      const key = r.artigoId ?? `sem-artigo-${r.varId}`;
+      const g = map.get(key) ?? { artigoId: key, artigoNome: r.artigoNome, rows: [] as any[] };
       g.rows.push(r);
-      map.set(r.artigoId, g);
+      map.set(key, g);
     }
     return Array.from(map.values());
   }, [filtered]);
@@ -216,9 +225,10 @@ function TecidosTab() {
       </div>
 
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+      {error && <p className="text-sm text-destructive">Erro ao carregar estoque: {(error as Error).message}</p>}
 
       {grouped.map((g) => (
-        <Card key={g.artigoNome} className="p-4">
+        <Card key={g.artigoId} className="p-4">
           <h3 className="font-semibold mb-3">{g.artigoNome}</h3>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -265,10 +275,10 @@ function AviamentosTab() {
   const [fornecedor, setFornecedor] = useState<string>("all");
   const [categoria, setCategoria] = useState<string>("all");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["estoque-aviamentos"],
     queryFn: async () => {
-      const [aviamentos, ocItens, cadAv, modAv, modelos, modGrades] = await Promise.all([
+      const [aviamentosRes, ocItensRes, cadAvRes, modAvRes, modelosRes, modGradesRes] = await Promise.all([
         supabase.from("aviamentos").select("id, codigo_nome, empresa_id, categoria_aviamento_id, empresas(nome), categorias_aviamento(nome)"),
         supabase.from("ocs_aviamento_itens").select("aviamento_id, quantidade_pedida, quantidade_recebida, oc_aviamento_id, ocs_aviamento!inner(status)"),
         supabase.from("cad_aviamentos").select("aviamento_id, quantidade_enviar, quantidade_separar, cad!inner(enviado_corte)"),
@@ -276,6 +286,17 @@ function AviamentosTab() {
         supabase.from("modelos").select("id, data_aprovacao, enviado_cad"),
         supabase.from("modelo_grades").select("modelo_id, grade_total"),
       ]);
+
+      for (const r of [aviamentosRes, ocItensRes, cadAvRes, modAvRes, modelosRes, modGradesRes]) {
+        if (r.error) throw r.error;
+      }
+
+      const aviamentos = aviamentosRes;
+      const ocItens = ocItensRes;
+      const cadAv = cadAvRes;
+      const modAv = modAvRes;
+      const modelos = modelosRes;
+      const modGrades = modGradesRes;
 
       const aprovadoNaoCad = new Set(
         (modelos.data ?? []).filter((m: any) => m.data_aprovacao && !m.enviado_cad).map((m: any) => m.id),
@@ -370,6 +391,7 @@ function AviamentosTab() {
       </div>
 
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+      {error && <p className="text-sm text-destructive">Erro ao carregar estoque: {(error as Error).message}</p>}
 
       <Card className="p-4">
         <div className="overflow-x-auto">
