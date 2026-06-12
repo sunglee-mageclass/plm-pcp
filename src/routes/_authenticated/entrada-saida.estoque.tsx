@@ -570,7 +570,8 @@ function AviamentoRow({ row, threshold }: { row: any; threshold: number }) {
         .from("ocs_aviamento_itens")
         .select("id, quantidade_pedida, ocs_aviamento!inner(numero_pedido, data_prevista_entrega, status, empresas(nome_fantasia))")
         .eq("aviamento_id", row.id)
-        .eq("ocs_aviamento.status", "encomendado");
+        .eq("ocs_aviamento.status", "encomendado")
+        .eq("cancelado" as any, false);
       if (error) throw error;
       return (data ?? []) as any[];
     },
