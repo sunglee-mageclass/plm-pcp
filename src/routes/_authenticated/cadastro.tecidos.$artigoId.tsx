@@ -152,7 +152,7 @@ function TecidoDetail() {
         nome: form.nome,
         empresa_id: form.empresa_id || null,
         largura_estimada: form.largura_estimada ?? null,
-        categoria_tecido_id: form.categoria_tecido_id || null,
+        categoria_tecido_id: catIds[0] || null,
         composicao: form.composicao || null,
         mes_id: form.mes_id || null,
         ano_id: form.ano_id || null,
@@ -162,11 +162,26 @@ function TecidoDetail() {
       };
       const { error } = await supabase.from("artigos").update(payload).eq("id", artigoId);
       if (error) throw error;
+
+      // Sync junction
+      const { error: delErr } = await supabase
+        .from("artigo_categorias_tecido")
+        .delete()
+        .eq("artigo_id", artigoId);
+      if (delErr) throw delErr;
+      if (catIds.length > 0) {
+        const { error: insErr } = await supabase
+          .from("artigo_categorias_tecido")
+          .insert(catIds.map((cid) => ({ artigo_id: artigoId, categoria_tecido_id: cid })));
+        if (insErr) throw insErr;
+      }
     },
     onSuccess: () => {
       toast.success("Tecido atualizado.");
       qc.invalidateQueries({ queryKey: ["artigo", artigoId] });
       qc.invalidateQueries({ queryKey: ["artigos"] });
+      qc.invalidateQueries({ queryKey: ["artigo-cats", artigoId] });
+      qc.invalidateQueries({ queryKey: ["artigo-cats-all"] });
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao salvar."),
   });
