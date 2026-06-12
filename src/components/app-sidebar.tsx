@@ -81,9 +81,7 @@ const PAGE_URLS: Record<string, string> = {
   producao_lancamentos: "/producao/lancamentos",
 };
 
-const systemItems = [
-  { title: "Configurações", url: "/configuracoes", icon: Settings },
-];
+const systemItems: { title: string; url: string; icon: typeof Settings }[] = [];
 
 export function AppSidebar() {
   const { state } = useSidebar();
