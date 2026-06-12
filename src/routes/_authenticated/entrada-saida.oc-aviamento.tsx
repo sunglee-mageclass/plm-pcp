@@ -588,10 +588,6 @@ function OcDialog({
               <Input type="date" value={draft.data_prevista_entrega} onChange={(e) => setDraft((d) => ({ ...d, data_prevista_entrega: e.target.value }))} />
             </div>
 
-            <div className="grid gap-1">
-              <Label>Qtd de Prazos</Label>
-              <Input type="number" value={draft.quantidade_prazos} readOnly disabled />
-            </div>
 
             <div className="grid gap-1">
               <Label>Qtd. Parcelas de Recebimento</Label>
