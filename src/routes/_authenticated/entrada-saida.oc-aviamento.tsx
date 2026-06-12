@@ -712,6 +712,50 @@ function OcDialog({
                   )}
                 </div>
               </div>
+
+              <div className="grid gap-2">
+                <Label className="text-sm">Parcelas de Recebimento</Label>
+                {parcelas.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Defina a quantidade de parcelas no campo acima.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {parcelas.map((p, idx) => (
+                      <div key={idx} className="flex items-center gap-3 rounded-md border p-2">
+                        <span className="text-xs font-medium w-20">Parcela {idx + 1}</span>
+                        <Input
+                          type="date"
+                          className="flex-1 max-w-[200px]"
+                          value={p.data}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setDraft((d) => {
+                              const arr = [...(d.parcelas_recebimento ?? [])];
+                              arr[idx] = { ...arr[idx], data: val };
+                              return { ...d, parcelas_recebimento: arr };
+                            });
+                          }}
+                        />
+                        <label className="flex items-center gap-2 text-xs">
+                          <Checkbox
+                            checked={p.recebido}
+                            onCheckedChange={(checked) => {
+                              setDraft((d) => {
+                                const arr = [...(d.parcelas_recebimento ?? [])];
+                                arr[idx] = { ...arr[idx], recebido: !!checked };
+                                return { ...d, parcelas_recebimento: arr };
+                              });
+                            }}
+                          />
+                          Recebida
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="text-sm">
                 <OcPrazoBadge dataPrevista={draft.data_prevista_entrega} dataEntrega={draft.data_entrega} />
               </div>
@@ -722,7 +766,7 @@ function OcDialog({
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
           {canShowRecebimento && (
-            <Button variant="secondary" onClick={() => saveMutation.mutate(true)} disabled={saveMutation.isPending || !canMarkReceived}>
+            <Button variant="secondary" onClick={handleMarkReceived} disabled={saveMutation.isPending}>
               Marcar como Recebido
             </Button>
           )}
