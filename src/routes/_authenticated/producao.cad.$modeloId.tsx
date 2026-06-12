@@ -528,6 +528,29 @@ function CadDetailPage() {
           gradeTotalGeral={gradeTotalGeral}
         />
       )}
+
+      <AlertDialog open={confirmZeroOpen} onOpenChange={setConfirmZeroOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Variantes sem metragem enviada</AlertDialogTitle>
+            <AlertDialogDescription>
+              {variantesZeradas} variante(s) com metragem planejada estão com metragem enviada = 0.
+              A baixa de estoque ficará zerada para elas. Enviar mesmo assim?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmZeroOpen(false);
+                enviarCorte.mutate();
+              }}
+            >
+              Enviar mesmo assim
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
