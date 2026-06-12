@@ -13,7 +13,7 @@ import {
 import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 import { AttributeTab, type AttributeTabConfig } from "@/components/attribute-tab";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
