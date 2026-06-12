@@ -463,8 +463,16 @@ function AviamentoModal({
 }) {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [uploading, setUploading] = useState(false);
+  const [localPreview, setLocalPreview] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const fotoUrl = useSignedUrl(form.foto_url, "aviamentos");
+  const signedUrl = useSignedUrl(form.foto_url, "aviamentos");
+  const fotoUrl = localPreview ?? signedUrl;
+
+  useEffect(() => {
+    return () => {
+      if (localPreview) URL.revokeObjectURL(localPreview);
+    };
+  }, [localPreview]);
 
   useEffect(() => {
     if (initial) {
