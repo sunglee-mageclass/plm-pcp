@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/useAuth";
 import {
   createTenantUser, resetUserPassword, toggleUserAtivo,
 } from "@/lib/admin.functions";
+import { PermissoesModal } from "@/components/admin/PermissoesModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
