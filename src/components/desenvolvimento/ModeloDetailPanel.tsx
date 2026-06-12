@@ -671,6 +671,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 artigos={artigos}
                 onChangeBlock={updateBlock}
                 onChangeVariante={updateBlockVariante}
+                onChangeOcLink={updateBlockOcLink}
               />
             </AccordionContent>
           </AccordionItem>
