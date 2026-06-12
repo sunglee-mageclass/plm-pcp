@@ -447,9 +447,10 @@ function OcDialog({
     onError: (e: any) => toast.error(e.message ?? "Erro ao salvar"),
   });
 
-  const canShowRecebimento = isEdit && status === "encomendado";
+  const canShowRecebimento = isEdit && (status === "encomendado" || status === "recebido");
+  const isReadOnlyRecebimento = isEdit && status === "recebido";
   const canMarkReceived =
-    canShowRecebimento &&
+    isEdit && status === "encomendado" &&
     !!draft.data_entrega &&
     items.some((i) => (i.quantidade_recebida ?? 0) > 0);
 
@@ -499,6 +500,7 @@ function OcDialog({
               tecido2Aberto={tecido2Aberto}
               artigoId1={artigoIdFor(1)}
               artigoId2={artigoIdFor(2)}
+              readOnly={isReadOnlyRecebimento}
             />
           )}
         </div>

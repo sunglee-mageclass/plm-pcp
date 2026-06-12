@@ -10,7 +10,7 @@ import type { Artigo, Draft, ItemDraft, Variante } from "./shared";
 export function OcTecidoRecebimento({
   draft, setDraft, handleSingleUpload,
   items, artigoMap, varianteMap, setQtd, totalPrevisto, totalReal,
-  tecido2Aberto, artigoId1, artigoId2,
+  tecido2Aberto, artigoId1, artigoId2, readOnly = false,
 }: {
   draft: Draft;
   setDraft: React.Dispatch<React.SetStateAction<Draft>>;
@@ -24,6 +24,7 @@ export function OcTecidoRecebimento({
   tecido2Aberto: boolean;
   artigoId1: string | null;
   artigoId2: string | null;
+  readOnly?: boolean;
 }) {
   return (
     <>
@@ -34,11 +35,20 @@ export function OcTecidoRecebimento({
         <div className="grid sm:grid-cols-2 gap-4">
           <div className="grid gap-1">
             <Label>Data da Entrega</Label>
-            <Input type="date" value={draft.data_entrega} onChange={(e) => setDraft((d) => ({ ...d, data_entrega: e.target.value }))} />
+            <Input
+              type="date"
+              value={draft.data_entrega}
+              onChange={(e) => setDraft((d) => ({ ...d, data_entrega: e.target.value }))}
+              disabled={readOnly}
+            />
           </div>
-          <FileField label="Nota Fiscal" path={draft.nf_url}
+          <FileField
+            label="Nota Fiscal"
+            path={draft.nf_url}
             onChange={(f) => handleSingleUpload(f, "nf_url")}
-            onClear={() => setDraft((d) => ({ ...d, nf_url: null }))} />
+            onClear={() => setDraft((d) => ({ ...d, nf_url: null }))}
+            disabled={readOnly}
+          />
         </div>
 
         <div className="rounded-md border p-3 space-y-3 bg-muted/30">
@@ -62,7 +72,11 @@ export function OcTecidoRecebimento({
 
         <div className="grid gap-1">
           <Label>Observações sobre Defeitos</Label>
-          <Textarea value={draft.observacoes_defeitos} onChange={(e) => setDraft((d) => ({ ...d, observacoes_defeitos: e.target.value }))} />
+          <Textarea
+            value={draft.observacoes_defeitos}
+            onChange={(e) => setDraft((d) => ({ ...d, observacoes_defeitos: e.target.value }))}
+            disabled={readOnly}
+          />
         </div>
 
         <OcTecidoCalculos
@@ -74,6 +88,7 @@ export function OcTecidoRecebimento({
           totalReal={totalReal}
           dataPrevista={draft.data_prevista_entrega}
           dataEntrega={draft.data_entrega}
+          readOnly={readOnly}
         />
       </div>
     </>
