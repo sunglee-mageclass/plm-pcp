@@ -287,7 +287,7 @@ function AviamentosTab() {
       const [aviamentos, ocItens, cadAv, modAv, modelos, modGrades] = await Promise.all([
         supabase.from("aviamentos").select("id, codigo_nome, empresa_id, categoria_aviamento_id, empresas(nome), categorias_aviamento(nome)"),
         supabase.from("ocs_aviamento_itens").select("aviamento_id, quantidade_pedida, quantidade_recebida, oc_aviamento_id, ocs_aviamento!inner(status)"),
-        supabase.from("cad_aviamentos").select("aviamento_id, quantidade_enviar, cad!inner(enviado_corte)"),
+        supabase.from("cad_aviamentos").select("aviamento_id, quantidade_enviar, quantidade_separar, cad!inner(enviado_corte)"),
         supabase.from("modelo_aviamentos").select("modelo_id, aviamento_id, consumo"),
         supabase.from("modelos").select("id, data_aprovacao, enviado_cad"),
         supabase.from("modelo_grades").select("modelo_id, grade_total"),
