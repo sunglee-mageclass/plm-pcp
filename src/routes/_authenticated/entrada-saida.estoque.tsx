@@ -275,7 +275,7 @@ function AviamentosTab() {
   const [fornecedor, setFornecedor] = useState<string>("all");
   const [categoria, setCategoria] = useState<string>("all");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["estoque-aviamentos"],
     queryFn: async () => {
       const [aviamentos, ocItens, cadAv, modAv, modelos, modGrades] = await Promise.all([
