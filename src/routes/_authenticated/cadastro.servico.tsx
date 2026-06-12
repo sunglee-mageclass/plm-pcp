@@ -367,18 +367,24 @@ function RepresentantesTab() {
       if (form.modoNovaEmpresa) {
         const nome = form.novaEmpresa.trim();
         if (!nome) throw new Error("Informe o nome da nova empresa.");
-        if (!form.novaEmpresaCategoria)
-          throw new Error("Selecione a categoria do fornecedor.");
+        if (form.novaEmpresaCategorias.length === 0)
+          throw new Error("Selecione ao menos uma categoria do fornecedor.");
         const { data: empresa, error: errE } = await supabase
           .from("empresas")
-          .insert({
-            nome_fantasia: nome,
-            categoria_fornecedor_id: form.novaEmpresaCategoria,
-          })
+          .insert({ nome_fantasia: nome })
           .select("id")
           .single();
         if (errE) throw errE;
         empresaId = empresa.id;
+        const { error: errLink } = await supabase
+          .from("empresa_categorias_fornecedor")
+          .insert(
+            form.novaEmpresaCategorias.map((cid) => ({
+              empresa_id: empresaId!,
+              categoria_fornecedor_id: cid,
+            })),
+          );
+        if (errLink) throw errLink;
       }
 
       const payload = {
