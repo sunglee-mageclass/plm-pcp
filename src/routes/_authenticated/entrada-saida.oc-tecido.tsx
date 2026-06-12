@@ -484,10 +484,25 @@ function OcDialog({
     },
   });
 
+  const parcelas = draft.parcelas_recebimento ?? [];
+  const todasParcelasOk =
+    parcelas.length > 0 && parcelas.every((p) => !!p.data && p.recebido === true);
+  const todasEtiquetasOk =
+    artigoIdsForEtiqueta.length > 0 &&
+    artigoIdsForEtiqueta.every((id) => (etiquetasByArtigo[id]?.length ?? 0) > 0);
+  const algumaQtdRecebida = items.some((i) => (i.quantidade_recebida ?? 0) > 0);
+
+  const canMarkReceived =
+    isEdit &&
+    status === "encomendado" &&
+    algumaQtdRecebida &&
+    todasParcelasOk &&
+    todasEtiquetasOk &&
+    !!draft.nf_url;
+
   const getMissingRequirements = (): string[] => {
     const missing: string[] = [];
     if (!algumaQtdRecebida) missing.push("Preencha a quantidade recebida de pelo menos uma variante.");
-    const parcelas = draft.parcelas_recebimento ?? [];
     if (parcelas.length === 0) {
       missing.push("Defina a quantidade de parcelas de recebimento.");
     } else {
