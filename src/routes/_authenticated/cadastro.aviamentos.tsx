@@ -542,8 +542,10 @@ function AviamentoModal({
   const handleUpload = async (file: File) => {
     setUploading(true);
     try {
+      const { tenantPrefix } = await import("@/lib/storage-tenant");
+      const tenant = await tenantPrefix();
       const ext = file.name.split(".").pop() ?? "jpg";
-      const path = `${crypto.randomUUID()}.${ext}`;
+      const path = `${tenant}/${crypto.randomUUID()}.${ext}`;
       const { error } = await supabase.storage.from("aviamentos").upload(path, file, {
         cacheControl: "3600",
         upsert: false,

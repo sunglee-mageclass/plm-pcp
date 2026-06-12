@@ -423,8 +423,10 @@ function PagarDialog({ parcelaId, onClose }: { parcelaId: string | null; onClose
       setUploading(true);
       let url: string | null = null;
       if (file) {
+        const { tenantPrefix } = await import("@/lib/storage-tenant");
+        const tenant = await tenantPrefix();
         const ext = file.name.split(".").pop() ?? "bin";
-        const path = `${parcelaId}/${Date.now()}.${ext}`;
+        const path = `${tenant}/${parcelaId}/${Date.now()}.${ext}`;
         const { error: upErr } = await supabase.storage.from("comprovantes").upload(path, file, { upsert: true });
         if (upErr) throw upErr;
         const { data: signed } = await supabase.storage.from("comprovantes").createSignedUrl(path, 60 * 60 * 24 * 365);

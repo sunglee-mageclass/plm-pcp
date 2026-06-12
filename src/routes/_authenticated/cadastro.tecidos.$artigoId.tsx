@@ -614,8 +614,10 @@ function VariantRow({
   const onUpload = async (file: File) => {
     setUploading(true);
     try {
+      const { tenantPrefix } = await import("@/lib/storage-tenant");
+      const tenant = await tenantPrefix();
       const ext = file.name.split(".").pop() ?? "jpg";
-      const path = `${variante.artigo_id}/${variante.id}-${Date.now()}.${ext}`;
+      const path = `${tenant}/${variante.artigo_id}/${variante.id}-${Date.now()}.${ext}`;
       const { error: upErr } = await supabase.storage
         .from(VARIANT_BUCKET)
         .upload(path, file, { upsert: true });
