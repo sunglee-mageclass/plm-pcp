@@ -38,6 +38,15 @@ export const Route = createFileRoute("/_authenticated/admin/configuracoes")({
   component: ConfiguracoesLojaPage,
 });
 
+const FIELD_LABEL_DEFAULTS: Record<string, string> = {
+  colecao: "Coleção",
+  ref: "REF",
+  estilista: "Estilista",
+  modelista: "Modelista",
+  piloteiro: "Piloteiro",
+  linha: "Linha",
+};
+
 const DEFAULTS = {
   usa_pl: true,
   corte_interno: false,
@@ -62,6 +71,7 @@ const DEFAULTS = {
     "Reprovado",
     "Aprovado",
   ],
+  campos_editaveis: {} as Record<string, string>,
 };
 
 type ConfigState = typeof DEFAULTS;
@@ -109,6 +119,10 @@ function ConfiguracoesLojaPage() {
       status_kanban: Array.isArray(r.status_kanban)
         ? r.status_kanban
         : DEFAULTS.status_kanban,
+      campos_editaveis:
+        r.campos_editaveis && typeof r.campos_editaveis === "object" && !Array.isArray(r.campos_editaveis)
+          ? (r.campos_editaveis as Record<string, string>)
+          : DEFAULTS.campos_editaveis,
     });
   }, [data?.cfg]);
 
@@ -239,6 +253,33 @@ function ConfiguracoesLojaPage() {
               <SelectItem value="numeral_descrito">Numeral + Descrito (01 - Janeiro)</SelectItem>
             </SelectContent>
           </Select>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Nomes de Campos</CardTitle>
+          <CardDescription>
+            Personalize como rótulos aparecem no sistema (ex: trocar "Coleção" por "Drop").
+            Deixe em branco para manter o nome padrão.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {Object.entries(FIELD_LABEL_DEFAULTS).map(([key, padrao]) => (
+            <div key={key} className="grid grid-cols-1 md:grid-cols-[200px_1fr] items-center gap-2">
+              <Label className="text-sm text-muted-foreground">{padrao}</Label>
+              <Input
+                placeholder={padrao}
+                value={cfg.campos_editaveis[key] ?? ""}
+                onChange={(e) =>
+                  setCfg({
+                    ...cfg,
+                    campos_editaveis: { ...cfg.campos_editaveis, [key]: e.target.value },
+                  })
+                }
+              />
+            </div>
+          ))}
         </CardContent>
       </Card>
     </div>
