@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
   Shield,
@@ -134,7 +135,7 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="border-b">
-        <div className="flex items-center gap-2 px-2 py-3">
+        <div className={cn("flex items-center py-3", collapsed ? "justify-center px-1" : "gap-2 px-2")}>
           <SystemBrand collapsed={collapsed} />
           <ThemeToggleButton collapsed={collapsed} />
         </div>
@@ -332,7 +333,7 @@ function SystemBrand({ collapsed }: { collapsed: boolean }) {
   const initials = (identity.nome_sistema || "SI").slice(0, 2).toUpperCase();
   return (
     <>
-      <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold text-sm overflow-hidden">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold text-sm overflow-hidden aspect-square">
         {identity.logoSignedUrl ? (
           <img src={identity.logoSignedUrl} alt={identity.nome_sistema} className="h-full w-full object-contain" />
         ) : (
