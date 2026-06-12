@@ -292,6 +292,19 @@ function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
       return (data ?? []) as Array<any>;
     },
   });
+  const { data: pendentes = [], isLoading: loadingPend } = useQuery({
+    queryKey: ["estoque-tecido-pendentes-oc", row.varId, row.artigoId],
+    enabled: open,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("ocs_tecido_itens")
+        .select("id, quantidade_pedida, oc_tecido_id, artigo_id, ocs_tecido!inner(numero_pedido, data_prevista_entrega, status, empresas(nome_fantasia)), artigos(unidade_medida, rendimento)")
+        .eq("variante_tecido_id", row.varId)
+        .eq("ocs_tecido.status", "encomendado");
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
   return (
     <>
       <tr className={cn("border-b last:border-0 cursor-pointer", row.fisico <= threshold && "bg-destructive/10")} onClick={() => setOpen((o) => !o)}>
@@ -307,42 +320,75 @@ function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
       {open && (
         <tr className="bg-muted/30">
           <td></td>
-          <td colSpan={7} className="py-2 pr-3">
-            {isLoading && <p className="text-xs text-muted-foreground">Carregando…</p>}
-            {!isLoading && detalhe.length === 0 && (
-              <p className="text-xs text-muted-foreground">Nenhuma OC recebida para esta variante.</p>
-            )}
-            {detalhe.length > 0 && (
-              <table className="w-full text-xs">
-                <thead className="text-left text-muted-foreground">
-                  <tr className="border-b">
-                    <th className="py-1 pr-3">OC</th>
-                    <th className="py-1 pr-3">Fornecedor</th>
-                    <th className="py-1 pr-3">Entrega</th>
-                    <th className="py-1 pr-3 text-right">Recebido</th>
-                    <th className="py-1 pr-3 text-right">Baixado</th>
-                    <th className="py-1 pr-3 text-right">Reservado</th>
-                    <th className="py-1 pr-3 text-right">Sobra</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {detalhe.map((d: any) => {
-                    const sobra = Number(d.recebido_m ?? 0) - Number(d.baixado_m ?? 0) - Number(d.reservado_m ?? 0);
-                    return (
-                      <tr key={d.oc_tecido_item_id} className="border-b last:border-0">
-                        <td className="py-1 pr-3">#{d.numero_pedido ?? "—"}</td>
-                        <td className="py-1 pr-3">{d.fornecedor ?? "—"}</td>
-                        <td className="py-1 pr-3">{d.data_entrega ? new Date(d.data_entrega).toLocaleDateString("pt-BR") : "—"}</td>
-                        <td className="py-1 pr-3 text-right">{fmt(Number(d.recebido_m ?? 0))}</td>
-                        <td className="py-1 pr-3 text-right">{fmt(Number(d.baixado_m ?? 0))}</td>
-                        <td className="py-1 pr-3 text-right">{fmt(Number(d.reservado_m ?? 0))}</td>
-                        <td className={cn("py-1 pr-3 text-right font-medium", sobra <= 0 && "text-destructive")}>{fmt(sobra)}</td>
+          <td colSpan={7} className="py-2 pr-3 space-y-3">
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground mb-1">OCs Recebidas</p>
+              {isLoading && <p className="text-xs text-muted-foreground">Carregando…</p>}
+              {!isLoading && detalhe.length === 0 && (
+                <p className="text-xs text-muted-foreground">Nenhuma OC recebida para esta variante.</p>
+              )}
+              {detalhe.length > 0 && (
+                <table className="w-full text-xs">
+                  <thead className="text-left text-muted-foreground">
+                    <tr className="border-b">
+                      <th className="py-1 pr-3">OC</th>
+                      <th className="py-1 pr-3">Fornecedor</th>
+                      <th className="py-1 pr-3">Entrega</th>
+                      <th className="py-1 pr-3 text-right">Recebido</th>
+                      <th className="py-1 pr-3 text-right">Baixado</th>
+                      <th className="py-1 pr-3 text-right">Reservado</th>
+                      <th className="py-1 pr-3 text-right">Sobra</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detalhe.map((d: any) => {
+                      const sobra = Number(d.recebido_m ?? 0) - Number(d.baixado_m ?? 0) - Number(d.reservado_m ?? 0);
+                      return (
+                        <tr key={d.oc_tecido_item_id} className="border-b last:border-0">
+                          <td className="py-1 pr-3">#{d.numero_pedido ?? "—"}</td>
+                          <td className="py-1 pr-3">{d.fornecedor ?? "—"}</td>
+                          <td className="py-1 pr-3">{d.data_entrega ? new Date(d.data_entrega).toLocaleDateString("pt-BR") : "—"}</td>
+                          <td className="py-1 pr-3 text-right">{fmt(Number(d.recebido_m ?? 0))}</td>
+                          <td className="py-1 pr-3 text-right">{fmt(Number(d.baixado_m ?? 0))}</td>
+                          <td className="py-1 pr-3 text-right">{fmt(Number(d.reservado_m ?? 0))}</td>
+                          <td className={cn("py-1 pr-3 text-right font-medium", sobra <= 0 && "text-destructive")}>{fmt(sobra)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground mb-1">OCs Pendentes (Prev. Recebimento)</p>
+              {loadingPend && <p className="text-xs text-muted-foreground">Carregando…</p>}
+              {!loadingPend && pendentes.length === 0 && (
+                <p className="text-xs text-muted-foreground">Nenhuma OC pendente para esta variante.</p>
+              )}
+              {pendentes.length > 0 && (
+                <table className="w-full text-xs">
+                  <thead className="text-left text-muted-foreground">
+                    <tr className="border-b">
+                      <th className="py-1 pr-3">OC</th>
+                      <th className="py-1 pr-3">Fornecedor</th>
+                      <th className="py-1 pr-3">Entrega Prev.</th>
+                      <th className="py-1 pr-3 text-right">Qtd Pedida</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendentes.map((p: any) => (
+                      <tr key={p.id} className="border-b last:border-0">
+                        <td className="py-1 pr-3">#{p.ocs_tecido?.numero_pedido ?? "—"}</td>
+                        <td className="py-1 pr-3">{p.ocs_tecido?.empresas?.nome_fantasia ?? "—"}</td>
+                        <td className="py-1 pr-3">{p.ocs_tecido?.data_prevista_entrega ? new Date(p.ocs_tecido.data_prevista_entrega).toLocaleDateString("pt-BR") : "—"}</td>
+                        <td className="py-1 pr-3 text-right">{fmt(Number(p.quantidade_pedida ?? 0))}</td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </td>
         </tr>
       )}
