@@ -70,7 +70,6 @@ export function OcTecidoCalculos({
                 </TableCell>
                 <TableCell>{i.quantidade_pedida}{sufixo ? ` ${sufixo}` : ""}</TableCell>
                 {hasKg && <TableCell>{metragemPedida(i).toFixed(2)} m</TableCell>}
-                {hasKg && <TableCell>{metragemRecebida(i).toFixed(2)} m</TableCell>}
                 <TableCell>
                   {readOnly ? (
                     <span className="text-sm">
@@ -89,6 +88,7 @@ export function OcTecidoCalculos({
                     </div>
                   )}
                 </TableCell>
+                {hasKg && <TableCell>{metragemRecebida(i).toFixed(2)} m</TableCell>}
                 <TableCell>{fmtMoney(valorPrev(i))}</TableCell>
                 <TableCell>{fmtMoney(valorReal(i))}</TableCell>
               </TableRow>
