@@ -414,22 +414,51 @@ function OcDialog({
       let ocIdLocal = ocId;
       const finalStatus: OCStatus = markReceived ? "recebido" : status;
 
+      // CRITICAL: salvar itens ANTES de atualizar o status para 'recebido',
+      // pois o trigger gerar_parcelas_oc_aviamento lê os itens no momento do UPDATE
+      // e tem proteção anti-duplicação (parcelas erradas ficariam permanentes).
+      let ocIdLocal = ocId;
+      const finalStatus: OCStatus = markReceived ? "recebido" : status;
+      const validItems = items.filter((i) => i.aviamento_id);
+
       if (isEdit && ocIdLocal) {
-        // 1) Salvar itens primeiro
-        await supabase.from("ocs_aviamento_itens").delete().eq("oc_aviamento_id", ocIdLocal);
-        const rows = items
-          .filter((i) => i.aviamento_id)
-          .map((i) => ({
-            oc_aviamento_id: ocIdLocal,
-            aviamento_id: i.aviamento_id,
-            quantidade_pedida: i.quantidade_pedida,
-            quantidade_recebida: i.quantidade_recebida,
-          }));
-        if (rows.length > 0) {
-          const { error: itErr } = await supabase.from("ocs_aviamento_itens").insert(rows);
-          if (itErr) throw itErr;
+        // Diff: UPDATE (com id), INSERT (sem id), DELETE só dos removidos.
+        const currentIds = new Set(
+          validItems.map((i) => i.id).filter((x): x is string => !!x),
+        );
+        const toDelete = originalItemIds.filter((id) => !currentIds.has(id));
+        const toUpdate = validItems.filter((i) => i.id);
+        const toInsert = validItems.filter((i) => !i.id);
+
+        if (toDelete.length > 0) {
+          const { error } = await supabase
+            .from("ocs_aviamento_itens").delete().in("id", toDelete);
+          if (error) throw error;
         }
-        // 2) Depois atualizar a OC (dispara o trigger já com itens corretos)
+        for (const it of toUpdate) {
+          const { error } = await supabase
+            .from("ocs_aviamento_itens")
+            .update({
+              aviamento_id: it.aviamento_id,
+              quantidade_pedida: it.quantidade_pedida,
+              quantidade_recebida: it.quantidade_recebida,
+            })
+            .eq("id", it.id!);
+          if (error) throw error;
+        }
+        if (toInsert.length > 0) {
+          const { error } = await supabase
+            .from("ocs_aviamento_itens")
+            .insert(toInsert.map((i) => ({
+              oc_aviamento_id: ocIdLocal,
+              aviamento_id: i.aviamento_id,
+              quantidade_pedida: i.quantidade_pedida,
+              quantidade_recebida: i.quantidade_recebida,
+            })));
+          if (error) throw error;
+        }
+
+        // Depois atualizar a OC (dispara o trigger já com itens corretos)
         const { error } = await supabase.from("ocs_aviamento").update(payload).eq("id", ocIdLocal);
         if (error) throw error;
       } else {
@@ -440,16 +469,15 @@ function OcDialog({
         if (error) throw error;
         ocIdLocal = data.id;
 
-        const rows = items
-          .filter((i) => i.aviamento_id)
-          .map((i) => ({
-            oc_aviamento_id: ocIdLocal,
-            aviamento_id: i.aviamento_id,
-            quantidade_pedida: i.quantidade_pedida,
-            quantidade_recebida: i.quantidade_recebida,
-          }));
-        if (rows.length > 0) {
-          const { error: itErr } = await supabase.from("ocs_aviamento_itens").insert(rows);
+        if (validItems.length > 0) {
+          const { error: itErr } = await supabase
+            .from("ocs_aviamento_itens")
+            .insert(validItems.map((i) => ({
+              oc_aviamento_id: ocIdLocal,
+              aviamento_id: i.aviamento_id,
+              quantidade_pedida: i.quantidade_pedida,
+              quantidade_recebida: i.quantidade_recebida,
+            })));
           if (itErr) throw itErr;
         }
 
