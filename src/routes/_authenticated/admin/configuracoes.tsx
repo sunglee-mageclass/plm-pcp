@@ -255,6 +255,33 @@ function ConfiguracoesLojaPage() {
           </Select>
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Nomes de Campos</CardTitle>
+          <CardDescription>
+            Personalize como rótulos aparecem no sistema (ex: trocar "Coleção" por "Drop").
+            Deixe em branco para manter o nome padrão.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {Object.entries(FIELD_LABEL_DEFAULTS).map(([key, padrao]) => (
+            <div key={key} className="grid grid-cols-1 md:grid-cols-[200px_1fr] items-center gap-2">
+              <Label className="text-sm text-muted-foreground">{padrao}</Label>
+              <Input
+                placeholder={padrao}
+                value={cfg.campos_editaveis[key] ?? ""}
+                onChange={(e) =>
+                  setCfg({
+                    ...cfg,
+                    campos_editaveis: { ...cfg.campos_editaveis, [key]: e.target.value },
+                  })
+                }
+              />
+            </div>
+          ))}
+        </CardContent>
+      </Card>
     </div>
   );
 }
