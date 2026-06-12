@@ -14,7 +14,6 @@ export function OcTecidoForm({
   empresas, estilistas,
   artigos, variantesByArtigo, varianteMap,
   itemsBy, artigoIdFor, setArtigo, toggleVariante, setQtd,
-  toggleCancelado, canCancel,
   tecido2Aberto, setTecido2Aberto, removeTecido2,
   handleSingleUpload,
 }: {
@@ -32,13 +31,11 @@ export function OcTecidoForm({
   setArtigo: (n: 1 | 2, artigoId: string) => void;
   toggleVariante: (n: 1 | 2, varId: string, checked: boolean) => void;
   setQtd: (tempId: string, field: "quantidade_pedida" | "quantidade_recebida", v: number) => void;
-  toggleCancelado: (tempId: string, value: boolean) => void;
-  canCancel: boolean;
   tecido2Aberto: boolean;
   setTecido2Aberto: (v: boolean) => void;
   removeTecido2: () => void;
   handleSingleUpload: (file: File, key: keyof Draft) => void;
-}) {
+})
   return (
     <>
       <div className="grid sm:grid-cols-2 gap-4">
