@@ -484,21 +484,31 @@ function OcDialog({
     },
   });
 
-  const parcelas = draft.parcelas_recebimento ?? [];
-  const todasParcelasOk =
-    parcelas.length > 0 && parcelas.every((p) => !!p.data && p.recebido === true);
-  const todasEtiquetasOk =
-    artigoIdsForEtiqueta.length > 0 &&
-    artigoIdsForEtiqueta.every((id) => (etiquetasByArtigo[id]?.length ?? 0) > 0);
-  const algumaQtdRecebida = items.some((i) => (i.quantidade_recebida ?? 0) > 0);
+  const getMissingRequirements = (): string[] => {
+    const missing: string[] = [];
+    if (!algumaQtdRecebida) missing.push("Preencha a quantidade recebida de pelo menos uma variante.");
+    const parcelas = draft.parcelas_recebimento ?? [];
+    if (parcelas.length === 0) {
+      missing.push("Defina a quantidade de parcelas de recebimento.");
+    } else {
+      if (!parcelas.every((p) => !!p.data)) missing.push("Preencha as datas de todas as parcelas de recebimento.");
+      if (!parcelas.every((p) => p.recebido === true)) missing.push("Marque todas as parcelas como recebidas.");
+    }
+    if (!todasEtiquetasOk) missing.push("Anexe a etiqueta de lavagem de todos os artigos.");
+    if (!draft.nf_url) missing.push("Anexe a nota fiscal (NF).");
+    return missing;
+  };
 
-  const canMarkReceived =
-    isEdit &&
-    status === "encomendado" &&
-    algumaQtdRecebida &&
-    todasParcelasOk &&
-    todasEtiquetasOk &&
-    !!draft.nf_url;
+  const handleMarkReceived = () => {
+    if (!canMarkReceived) {
+      const missing = getMissingRequirements();
+      toast.error("Não é possível marcar como recebido:", {
+        description: missing.join(" "),
+      });
+      return;
+    }
+    saveMutation.mutate(true);
+  };
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
