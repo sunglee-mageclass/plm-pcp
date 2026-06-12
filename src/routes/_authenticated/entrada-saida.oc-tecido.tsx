@@ -211,6 +211,9 @@ function OcDialog({
           anexo_pedido_url: oc.anexo_pedido_url,
           modelo_sugerido_url: oc.modelo_sugerido_url,
           nf_url: oc.nf_url,
+          parcelas_recebimento: Array.isArray((oc as any).parcelas_recebimento)
+            ? ((oc as any).parcelas_recebimento as { data: string; recebido: boolean }[])
+            : [],
         });
         setStatus((oc.status as OCStatus) ?? "encomendado");
         setRespMode(oc.responsavel_id ? "select" : "text");
@@ -341,6 +344,10 @@ function OcDialog({
 
   const saveMutation = useMutation({
     mutationFn: async (markReceived: boolean) => {
+      const parcelas = draft.parcelas_recebimento ?? [];
+      const lastDate = parcelas.length > 0
+        ? [...parcelas].map((p) => p.data).filter(Boolean).sort().slice(-1)[0] ?? draft.data_entrega
+        : draft.data_entrega;
       const payload: any = {
         numero_pedido: draft.numero_pedido || null,
         responsavel_id: respMode === "select" ? draft.responsavel_id : null,
@@ -355,7 +362,8 @@ function OcDialog({
         anexo_pedido_url: draft.anexo_pedido_url,
         modelo_sugerido_url: draft.modelo_sugerido_url,
         nf_url: draft.nf_url,
-        data_entrega: draft.data_entrega || null,
+        data_entrega: markReceived ? (lastDate || null) : (draft.data_entrega || null),
+        parcelas_recebimento: parcelas,
         valor_previsto_total: totalPrevisto,
         valor_real_total: totalReal,
         status: markReceived ? "recebido" : status,
@@ -454,10 +462,43 @@ function OcDialog({
 
   const canShowRecebimento = isEdit && (status === "encomendado" || status === "recebido");
   const isReadOnlyRecebimento = isEdit && status === "recebido";
+  const artigoIdsForEtiqueta = useMemo(
+    () => [artigoIdFor(1), artigoIdFor(2)].filter((x): x is string => !!x),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [items],
+  );
+  const { data: etiquetasByArtigo = {} } = useQuery({
+    queryKey: ["artigos-etiquetas", artigoIdsForEtiqueta],
+    enabled: artigoIdsForEtiqueta.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("artigos")
+        .select("id, etiqueta_lavagem_urls")
+        .in("id", artigoIdsForEtiqueta);
+      if (error) throw error;
+      const m: Record<string, string[]> = {};
+      for (const r of (data ?? []) as Array<{ id: string; etiqueta_lavagem_urls: string[] | null }>) {
+        m[r.id] = r.etiqueta_lavagem_urls ?? [];
+      }
+      return m;
+    },
+  });
+
+  const parcelas = draft.parcelas_recebimento ?? [];
+  const todasParcelasOk =
+    parcelas.length > 0 && parcelas.every((p) => !!p.data && p.recebido === true);
+  const todasEtiquetasOk =
+    artigoIdsForEtiqueta.length > 0 &&
+    artigoIdsForEtiqueta.every((id) => (etiquetasByArtigo[id]?.length ?? 0) > 0);
+  const algumaQtdRecebida = items.some((i) => (i.quantidade_recebida ?? 0) > 0);
+
   const canMarkReceived =
-    isEdit && status === "encomendado" &&
-    !!draft.data_entrega &&
-    items.some((i) => (i.quantidade_recebida ?? 0) > 0);
+    isEdit &&
+    status === "encomendado" &&
+    algumaQtdRecebida &&
+    todasParcelasOk &&
+    todasEtiquetasOk &&
+    !!draft.nf_url;
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>

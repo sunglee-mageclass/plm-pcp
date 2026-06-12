@@ -49,6 +49,8 @@ export type OC = {
   valor_real_total: number | null;
 };
 
+export type ParcelaRecebimento = { data: string; recebido: boolean };
+
 export type Draft = {
   numero_pedido: string;
   responsavel_id: string | null;
@@ -64,6 +66,7 @@ export type Draft = {
   anexo_pedido_url: string | null;
   modelo_sugerido_url: string | null;
   nf_url: string | null;
+  parcelas_recebimento: ParcelaRecebimento[];
 };
 
 export type ItemDraft = {
@@ -92,6 +95,7 @@ export function emptyDraft(): Draft {
     anexo_pedido_url: null,
     modelo_sugerido_url: null,
     nf_url: null,
+    parcelas_recebimento: [],
   };
 }
 

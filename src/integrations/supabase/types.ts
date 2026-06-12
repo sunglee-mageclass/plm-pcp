@@ -1776,6 +1776,7 @@ export type Database = {
           numero_pedido: string | null
           observacoes_defeitos: string | null
           observacoes_entrega: string | null
+          parcelas_recebimento: Json
           prazo_pagamento: string | null
           quantidade_prazos: number | null
           responsavel_id: string | null
@@ -1801,6 +1802,7 @@ export type Database = {
           numero_pedido?: string | null
           observacoes_defeitos?: string | null
           observacoes_entrega?: string | null
+          parcelas_recebimento?: Json
           prazo_pagamento?: string | null
           quantidade_prazos?: number | null
           responsavel_id?: string | null
@@ -1826,6 +1828,7 @@ export type Database = {
           numero_pedido?: string | null
           observacoes_defeitos?: string | null
           observacoes_entrega?: string | null
+          parcelas_recebimento?: Json
           prazo_pagamento?: string | null
           quantidade_prazos?: number | null
           responsavel_id?: string | null

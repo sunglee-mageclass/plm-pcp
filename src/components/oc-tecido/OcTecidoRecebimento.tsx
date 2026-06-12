@@ -2,10 +2,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { FileField } from "./FileField";
 import { OcTecidoCalculos } from "./OcTecidoCalculos";
 import { EtiquetaLavagemArtigoEditor } from "@/components/shared/EtiquetaLavagemArtigo";
-import type { Artigo, Draft, ItemDraft, Variante } from "./shared";
+import type { Artigo, Draft, ItemDraft, ParcelaRecebimento, Variante } from "./shared";
 
 export function OcTecidoRecebimento({
   draft, setDraft, handleSingleUpload,
@@ -34,11 +35,22 @@ export function OcTecidoRecebimento({
 
         <div className="grid sm:grid-cols-2 gap-4">
           <div className="grid gap-1">
-            <Label>Data da Entrega</Label>
+            <Label>Qtd. Parcelas de Recebimento</Label>
             <Input
-              type="date"
-              value={draft.data_entrega}
-              onChange={(e) => setDraft((d) => ({ ...d, data_entrega: e.target.value }))}
+              type="number"
+              min={1}
+              max={24}
+              value={draft.parcelas_recebimento?.length || 1}
+              onChange={(e) => {
+                const n = Math.max(1, Math.min(24, Number(e.target.value) || 1));
+                setDraft((d) => {
+                  const prev: ParcelaRecebimento[] = d.parcelas_recebimento ?? [];
+                  const next: ParcelaRecebimento[] = Array.from({ length: n }, (_, i) =>
+                    prev[i] ?? { data: "", recebido: false },
+                  );
+                  return { ...d, parcelas_recebimento: next };
+                });
+              }}
               disabled={readOnly}
             />
           </div>
@@ -49,6 +61,54 @@ export function OcTecidoRecebimento({
             onClear={() => setDraft((d) => ({ ...d, nf_url: null }))}
             disabled={readOnly}
           />
+        </div>
+
+        <div className="rounded-md border p-3 space-y-2">
+          <Label className="text-sm">Parcelas de Recebimento</Label>
+          {(draft.parcelas_recebimento?.length ?? 0) === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Defina a quantidade de parcelas acima.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {(draft.parcelas_recebimento ?? []).map((p, idx) => (
+                <div
+                  key={idx}
+                  className="grid grid-cols-[40px_1fr_auto] items-center gap-3"
+                >
+                  <span className="text-sm text-muted-foreground">#{idx + 1}</span>
+                  <Input
+                    type="date"
+                    value={p.data}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setDraft((d) => {
+                        const arr = [...(d.parcelas_recebimento ?? [])];
+                        arr[idx] = { ...arr[idx], data: v };
+                        return { ...d, parcelas_recebimento: arr };
+                      });
+                    }}
+                    disabled={readOnly}
+                  />
+                  <label className="inline-flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={p.recebido}
+                      onCheckedChange={(v) => {
+                        const checked = v === true;
+                        setDraft((d) => {
+                          const arr = [...(d.parcelas_recebimento ?? [])];
+                          arr[idx] = { ...arr[idx], recebido: checked };
+                          return { ...d, parcelas_recebimento: arr };
+                        });
+                      }}
+                      disabled={readOnly}
+                    />
+                    Recebida
+                  </label>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="rounded-md border p-3 space-y-3 bg-muted/30">
