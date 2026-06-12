@@ -55,9 +55,25 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       return data;
     },
   });
+  const DEFAULT_KANBAN_STATUS: { value: string; label: string }[] = [
+    { value: "em_modelagem", label: "Em Modelagem" },
+    { value: "corte_piloto_1", label: "Corte de Piloto I" },
+    { value: "corte_piloto_2", label: "Corte de Piloto II" },
+    { value: "corte_piloto_3", label: "Corte de Piloto III" },
+    { value: "em_pilotagem", label: "Em Pilotagem" },
+    { value: "prova_roupa_1", label: "Prova de Roupa I" },
+    { value: "prova_roupa_2", label: "Prova de Roupa II" },
+    { value: "prova_roupa_3", label: "Prova de Roupa III" },
+    { value: "prova_roupa_4", label: "Prova de Roupa IV" },
+    { value: "prova_roupa_5", label: "Prova de Roupa V" },
+    { value: "em_ajuste", label: "Em Ajuste" },
+    { value: "stand_by", label: "Stand By" },
+    { value: "reprovado", label: "Reprovado" },
+    { value: "aprovado", label: "Aprovado" },
+  ];
   const statusOptions = useMemo(() => {
     const raw = (tenantCfg as any)?.status_kanban;
-    if (!Array.isArray(raw) || raw.length === 0) return [] as { value: string; label: string }[];
+    if (!Array.isArray(raw) || raw.length === 0) return DEFAULT_KANBAN_STATUS;
     return raw.map((s: any, i: number) => {
       if (typeof s === "string") return { value: s, label: s };
       const key = s?.key ?? s?.id ?? s?.value ?? s?.slug ?? `s${i}`;
