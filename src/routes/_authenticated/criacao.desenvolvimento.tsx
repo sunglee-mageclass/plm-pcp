@@ -217,17 +217,19 @@ function DesenvolvimentoPage() {
     updateStatus.mutate({ id, status: statusKey });
   };
 
+  const firstStatusKey = statusKanban[0]?.key;
+
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      <header className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Hammer className="h-7 w-7 text-primary" />
-          <div>
-            <h1 className="text-2xl font-bold">Desenvolvimento</h1>
+    <div className="container mx-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <Hammer className="h-7 w-7 shrink-0 text-primary" />
+          <div className="min-w-0">
+            <h1 className="truncate text-xl sm:text-2xl font-bold">Desenvolvimento</h1>
             <p className="text-sm text-muted-foreground">Kanban dos modelos planejados.</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
           <SearchToggle value={search} onChange={setSearch} placeholder="Pesquisar por nome…" />
           <FilterButton
             filters={[
@@ -243,7 +245,8 @@ function DesenvolvimentoPage() {
         </div>
       </header>
 
-      <div className="flex gap-4 overflow-x-auto pb-4">
+      {/* Desktop: Kanban horizontal com drag-and-drop */}
+      <div className="hidden md:flex gap-4 overflow-x-auto pb-4">
         {statusKanban.map((s) => {
           const cards = byStatus.get(s.key) ?? [];
           const isOver = dragOver === s.key;
@@ -280,7 +283,90 @@ function DesenvolvimentoPage() {
         })}
       </div>
 
+      {/* Mobile: lista agrupada por status com seletor para mover */}
+      <div className="md:hidden">
+        <Accordion type="multiple" defaultValue={firstStatusKey ? [firstStatusKey] : []} className="space-y-2">
+          {statusKanban.map((s) => {
+            const cards = byStatus.get(s.key) ?? [];
+            return (
+              <AccordionItem key={s.key} value={s.key} className="rounded-lg border bg-muted/30 px-3">
+                <AccordionTrigger className="py-2 hover:no-underline">
+                  <div className="flex flex-1 items-center justify-between gap-2 pr-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: s.color ?? "#64748b" }} />
+                      <span className="truncate text-sm font-semibold">{s.label}</span>
+                    </div>
+                    <span className="text-xs text-muted-foreground shrink-0">{cards.length}</span>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="pb-3">
+                  {cards.length === 0 ? (
+                    <p className="text-xs text-muted-foreground text-center py-4">Sem cards</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {cards.map((m) => (
+                        <MobileCard
+                          key={m.id}
+                          modelo={m}
+                          estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
+                          categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
+                          statuses={statusKanban}
+                          onOpen={() => setOpenId(m.id)}
+                          onChangeStatus={(status) => updateStatus.mutate({ id: m.id, status })}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </AccordionContent>
+              </AccordionItem>
+            );
+          })}
+        </Accordion>
+      </div>
+
       <ModeloDetailPanel modeloId={openId} onClose={() => setOpenId(null)} />
+    </div>
+  );
+}
+
+function MobileCard({ modelo, estilistaNome, categoriaNome, statuses, onOpen, onChangeStatus }: {
+  modelo: Modelo;
+  estilistaNome: string | null;
+  categoriaNome: string | null;
+  statuses: KanbanStatus[];
+  onOpen: () => void;
+  onChangeStatus: (status: string) => void;
+}) {
+  const photo = modelo.fotos_modelo?.[0] ?? null;
+  const url = useSignedUrlBucket(photo);
+  const current = modelo.status_desenvolvimento ?? statuses[0]?.key ?? "";
+  return (
+    <div className="bg-card border rounded-md p-2">
+      <div className="flex gap-2" onClick={onOpen} role="button">
+        <div className="h-14 w-14 shrink-0 rounded bg-muted overflow-hidden flex items-center justify-center">
+          {url ? <img src={url} alt={modelo.nome ?? ""} className="h-full w-full object-cover" />
+               : <ImageIcon className="h-6 w-6 text-muted-foreground" />}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium truncate">{modelo.nome ?? "Sem nome"}</p>
+          <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
+          <p className="text-xs text-muted-foreground truncate">{categoriaNome ?? "—"}</p>
+        </div>
+      </div>
+      <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+        <Select value={current} onValueChange={onChangeStatus}>
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue placeholder="Mover para…" />
+          </SelectTrigger>
+          <SelectContent>
+            {statuses.map((s) => (
+              <SelectItem key={s.key} value={s.key} className="text-sm">
+                {s.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
     </div>
   );
 }
