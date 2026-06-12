@@ -16,8 +16,13 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 
+import { RequirePermission } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/cadastro/colaboradores")({
-  component: ColaboradoresPage,
+  component: () => (
+    <RequirePermission page="cadastro_colaboradores">
+      <ColaboradoresPage />
+    </RequirePermission>
+  ),
 });
 
 type GroupKey = "COLABORADORES";
