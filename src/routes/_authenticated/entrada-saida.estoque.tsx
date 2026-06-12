@@ -60,14 +60,15 @@ function TecidosTab() {
   const { data, isLoading } = useQuery({
     queryKey: ["estoque-tecidos"],
     queryFn: async () => {
-      const [artigos, variantes, ocItens, cadTecVar, modTec, modTecVar, modelos] = await Promise.all([
+      const [artigos, variantes, ocItens, cadTecVar, modTec, modTecVar, modelos, modGrades] = await Promise.all([
         supabase.from("artigos").select("id, nome, unidade_medida, rendimento, empresa_id, categoria_tecido_id, empresas(nome), categorias_tecido(nome)"),
         supabase.from("variantes_tecido").select("id, artigo_id, nome_variante, codigo_variante, cores(nome)"),
         supabase.from("ocs_tecido_itens").select("artigo_id, variante_tecido_id, quantidade_pedida, quantidade_recebida, oc_tecido_id, ocs_tecido!inner(status)"),
         supabase.from("cad_tecido_variantes").select("variante_tecido_id, metragem_enviada, cad_tecidos!inner(artigo_id, cad!inner(enviado_corte))"),
         supabase.from("modelo_tecidos").select("id, modelo_id, artigo_id, consumo, loss_percent"),
-        supabase.from("modelo_tecido_variantes").select("variante_tecido_id, modelo_tecido_id"),
+        supabase.from("modelo_tecido_variantes").select("variante_tecido_id, modelo_tecido_id, ordem"),
         supabase.from("modelos").select("id, data_aprovacao, enviado_cad"),
+        supabase.from("modelo_grades").select("modelo_id, variante_numero, grade_total"),
       ]);
 
       const modeloAprovadoNaoCad = new Set(
@@ -75,15 +76,12 @@ function TecidosTab() {
       );
       const modTecById = new Map((modTec.data ?? []).map((m: any) => [m.id, m]));
 
-      // Grades para reservado: precisamos do total de peças por variante. Como o "reservado" envolve metragem planejada,
-      // usamos consumo*(1+loss) por peça. Como não há grade por variante no modelo (variante é só identidade),
-      // aplicamos uma aproximação: reservado_metragem_por_artigo = consumo*(1+loss) * grade_total_modelo / num_variantes.
-      // Simplificação aceitável quando a grade é distribuída entre variantes do artigo do modelo.
-      const modGrades = await supabase.from("modelo_grades").select("modelo_id, variante_numero, grade_total");
-      const gradeTotalByModelo = new Map<string, number>();
+      // grade_total por (modelo_id, variante_numero)
+      const gradeByModeloVar = new Map<string, number>();
       for (const g of (modGrades.data ?? []) as any[]) {
-        if (!g.modelo_id) continue;
-        gradeTotalByModelo.set(g.modelo_id, (gradeTotalByModelo.get(g.modelo_id) ?? 0) + num(g.grade_total));
+        if (!g.modelo_id || g.variante_numero == null) continue;
+        const k = `${g.modelo_id}::${g.variante_numero}`;
+        gradeByModeloVar.set(k, (gradeByModeloVar.get(k) ?? 0) + num(g.grade_total));
       }
 
       // Map por variante: prevReceb (qtd OC encomendada), recebido (metros), baixa (metros), reservado (metros)
@@ -116,24 +114,28 @@ function TecidosTab() {
         get(cv.variante_tecido_id).baixa += num(cv.metragem_enviada);
       }
 
-      // Reservado: modelos aprovados e não enviados ao CAD
-      // Conta variantes por modelo_tecido para distribuir
-      const variantesByModTec = new Map<string, string[]>();
+      // Reservado: por variante usando modelo_grades.variante_numero alinhado com modelo_tecido_variantes.ordem
+      // Agrupa variantes por modelo_tecido_id, ordenadas por `ordem`
+      const variantesByModTec = new Map<string, { ordem: number; varId: string }[]>();
       for (const mv of (modTecVar.data ?? []) as any[]) {
         if (!mv.variante_tecido_id || !mv.modelo_tecido_id) continue;
         const arr = variantesByModTec.get(mv.modelo_tecido_id) ?? [];
-        arr.push(mv.variante_tecido_id);
+        arr.push({ ordem: num(mv.ordem), varId: mv.variante_tecido_id });
         variantesByModTec.set(mv.modelo_tecido_id, arr);
       }
       for (const [mtId, vars] of variantesByModTec) {
         const mt: any = modTecById.get(mtId);
         if (!mt || !modeloAprovadoNaoCad.has(mt.modelo_id)) continue;
         const consumoComLoss = num(mt.consumo) * (1 + num(mt.loss_percent) / 100);
-        const gradeTotal = gradeTotalByModelo.get(mt.modelo_id) ?? 0;
-        const metragemTotal = consumoComLoss * gradeTotal;
-        const por = vars.length ? metragemTotal / vars.length : 0;
-        for (const vId of vars) get(vId).reservado += por;
+        const sorted = [...vars].sort((a, b) => a.ordem - b.ordem);
+        sorted.forEach((v, idx) => {
+          // variante_numero é 1-indexado; usa `ordem` quando definida, senão posição+1
+          const numeroVariante = v.ordem > 0 ? v.ordem : idx + 1;
+          const gradeTotal = gradeByModeloVar.get(`${mt.modelo_id}::${numeroVariante}`) ?? 0;
+          get(v.varId).reservado += consumoComLoss * gradeTotal;
+        });
       }
+
 
       // Build rows grouped by artigo
       const variantesArr = variantes.data ?? [];
@@ -285,7 +287,7 @@ function AviamentosTab() {
       const [aviamentos, ocItens, cadAv, modAv, modelos, modGrades] = await Promise.all([
         supabase.from("aviamentos").select("id, codigo_nome, empresa_id, categoria_aviamento_id, empresas(nome), categorias_aviamento(nome)"),
         supabase.from("ocs_aviamento_itens").select("aviamento_id, quantidade_pedida, quantidade_recebida, oc_aviamento_id, ocs_aviamento!inner(status)"),
-        supabase.from("cad_aviamentos").select("aviamento_id, quantidade_enviar, cad!inner(enviado_corte)"),
+        supabase.from("cad_aviamentos").select("aviamento_id, quantidade_enviar, quantidade_separar, cad!inner(enviado_corte)"),
         supabase.from("modelo_aviamentos").select("modelo_id, aviamento_id, consumo"),
         supabase.from("modelos").select("id, data_aprovacao, enviado_cad"),
         supabase.from("modelo_grades").select("modelo_id, grade_total"),
@@ -316,7 +318,9 @@ function AviamentosTab() {
       for (const c of cadAv.data ?? []) {
         if (!c.aviamento_id) continue;
         if (!(c as any).cad?.enviado_corte) continue;
-        get(c.aviamento_id).baixa += num(c.quantidade_enviar);
+        const separar = num((c as any).quantidade_separar);
+        const baixa = separar > 0 ? separar : num(c.quantidade_enviar);
+        get(c.aviamento_id).baixa += baixa;
       }
       for (const m of (modAv.data ?? []) as any[]) {
         if (!m.aviamento_id || !m.modelo_id || !aprovadoNaoCad.has(m.modelo_id)) continue;

@@ -21,6 +21,16 @@ import { CadTecidosSection } from "@/components/producao/cad/CadTecidosSection";
 import { CadGradeSection } from "@/components/producao/cad/CadGradeSection";
 import { CadExplosaoSection } from "@/components/producao/cad/CadExplosaoSection";
 import { CadFichaCorte } from "@/components/producao/cad/CadFichaCorte";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export const Route = createFileRoute("/_authenticated/producao/cad/$modeloId")({
   component: CadDetailPage,
@@ -420,18 +430,38 @@ function CadDetailPage() {
   const firstPhoto = (modelo?.fotos_modelo as string[] | null)?.[0] ?? null;
   const handlePrint = () => window.print();
 
+  const [confirmZeroOpen, setConfirmZeroOpen] = useState(false);
+  const variantesZeradas = useMemo(() => {
+    let n = 0;
+    for (const t of tecidos) {
+      for (const v of t.variantes) {
+        if (Number(v.metragem_planejada ?? 0) > 0 && Number(v.metragem_enviada ?? 0) === 0) n += 1;
+      }
+    }
+    return n;
+  }, [tecidos]);
+
+  const handleEnviar = () => {
+    if (variantesZeradas > 0) {
+      setConfirmZeroOpen(true);
+      return;
+    }
+    enviarCorte.mutate();
+  };
+
   return (
     <>
       <div className="container mx-auto p-6 space-y-6 no-print">
         <CadActions
           onPrint={handlePrint}
           onSave={() => saveAll.mutate()}
-          onEnviar={() => enviarCorte.mutate()}
+          onEnviar={handleEnviar}
           saving={saveAll.isPending}
           enviando={enviarCorte.isPending}
           enviado={!!cadRow?.enviado_corte}
           dataEnviado={cadRow?.data_enviado_corte}
         />
+
 
         {/* SEÇÃO 1 */}
         <Card className="p-5 flex gap-5">
@@ -498,6 +528,29 @@ function CadDetailPage() {
           gradeTotalGeral={gradeTotalGeral}
         />
       )}
+
+      <AlertDialog open={confirmZeroOpen} onOpenChange={setConfirmZeroOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Variantes sem metragem enviada</AlertDialogTitle>
+            <AlertDialogDescription>
+              {variantesZeradas} variante(s) com metragem planejada estão com metragem enviada = 0.
+              A baixa de estoque ficará zerada para elas. Enviar mesmo assim?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmZeroOpen(false);
+                enviarCorte.mutate();
+              }}
+            >
+              Enviar mesmo assim
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
