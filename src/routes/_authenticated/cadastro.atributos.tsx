@@ -197,7 +197,7 @@ const ATTRIBUTES: AttributeItem[] = [
       singular: "Categoria de Terceirizado",
       plural: "Categorias de Terceirizado",
       usage: [
-        { table: "terceirizados", column: "categoria_terceirizado_id" },
+        { table: "terceirizado_categorias", column: "categoria_terceirizado_id" },
         { table: "producao_terceirizados", column: "categoria_terceirizado_id" },
       ],
     },

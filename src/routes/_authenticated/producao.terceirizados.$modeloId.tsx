@@ -95,7 +95,20 @@ function TercDetailPage() {
 
   const { data: terceirizados = [] } = useQuery({
     queryKey: ["terceirizados-all"],
-    queryFn: async () => (await supabase.from("terceirizados").select("id, nome_responsavel, categoria_terceirizado_id")).data ?? [],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("terceirizados")
+        .select("id, nome_responsavel, categoria_terceirizado_id, terceirizado_categorias(categoria_terceirizado_id)");
+      return (data ?? []).map((t: any) => ({
+        ...t,
+        categorias_ids: [
+          ...(Array.isArray(t.terceirizado_categorias)
+            ? t.terceirizado_categorias.map((j: any) => j.categoria_terceirizado_id)
+            : []),
+          ...(t.categoria_terceirizado_id ? [t.categoria_terceirizado_id] : []),
+        ].filter((v, i, a) => a.indexOf(v) === i),
+      }));
+    },
   });
 
   const { data: aviamentosModelo = [] } = useQuery({
@@ -319,7 +332,7 @@ function TercDetailPage() {
       {/* Blocos */}
       {blocos.map((b, idx) => {
         const catNome = (categorias as any[]).find((c) => c.id === b.categoria_terceirizado_id)?.nome ?? "—";
-        const responsaveis = (terceirizados as any[]).filter((t) => t.categoria_terceirizado_id === b.categoria_terceirizado_id);
+        const responsaveis = (terceirizados as any[]).filter((t) => (t.categorias_ids ?? []).includes(b.categoria_terceirizado_id));
         return (
           <Card key={b.categoria_terceirizado_id} className="p-5 space-y-4">
             <div className="flex items-center justify-between">

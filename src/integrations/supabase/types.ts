@@ -2438,6 +2438,45 @@ export type Database = {
         }
         Relationships: []
       }
+      terceirizado_categorias: {
+        Row: {
+          categoria_terceirizado_id: string
+          created_at: string
+          id: string
+          tenant_id: string | null
+          terceirizado_id: string
+        }
+        Insert: {
+          categoria_terceirizado_id: string
+          created_at?: string
+          id?: string
+          tenant_id?: string | null
+          terceirizado_id: string
+        }
+        Update: {
+          categoria_terceirizado_id?: string
+          created_at?: string
+          id?: string
+          tenant_id?: string | null
+          terceirizado_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "terceirizado_categorias_categoria_terceirizado_id_fkey"
+            columns: ["categoria_terceirizado_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_terceirizado"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "terceirizado_categorias_terceirizado_id_fkey"
+            columns: ["terceirizado_id"]
+            isOneToOne: false
+            referencedRelation: "terceirizados"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       terceirizados: {
         Row: {
           categoria_terceirizado_id: string | null
