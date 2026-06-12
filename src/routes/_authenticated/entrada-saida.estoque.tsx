@@ -23,6 +23,22 @@ export const Route = createFileRoute("/_authenticated/entrada-saida/estoque")({
 const num = (v: any) => Number(v ?? 0) || 0;
 const fmt = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
 
+function useEstoqueThreshold() {
+  const { data } = useQuery({
+    queryKey: ["tenant-config-threshold"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("tenant_config")
+        .select("estoque_critico_threshold")
+        .maybeSingle();
+      if (error) throw error;
+      return Number((data as any)?.estoque_critico_threshold ?? 0) || 0;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+  return data ?? 0;
+}
+
 function EstoquePage() {
   const [tab, setTab] = useState("tecidos");
   return (
@@ -57,6 +73,7 @@ function EstoquePage() {
 /* ============================= TECIDOS ============================= */
 
 function TecidosTab() {
+  const threshold = useEstoqueThreshold();
   const [search, setSearch] = useState("");
   const [fornecedor, setFornecedor] = useState<string>("all");
   const [categoria, setCategoria] = useState<string>("all");
@@ -245,12 +262,12 @@ function TecidosTab() {
               </thead>
               <tbody>
                 {g.rows.map((r: any) => (
-                  <tr key={r.varId} className={cn("border-b last:border-0", r.fisico <= 0 && "bg-destructive/10")}>
+                  <tr key={r.varId} className={cn("border-b last:border-0", r.fisico <= threshold && "bg-destructive/10")}>
                     <td className="py-2 pr-3">{r.nomeVariante}</td>
                     <td className="py-2 pr-3 text-right">{fmt(r.prevReceb)}</td>
                     <td className="py-2 pr-3 text-right">{fmt(r.recebido)}</td>
                     <td className="py-2 pr-3 text-right">{fmt(r.baixa)}</td>
-                    <td className={cn("py-2 pr-3 text-right font-medium", r.fisico <= 0 && "text-destructive")}>{fmt(r.fisico)}</td>
+                    <td className={cn("py-2 pr-3 text-right font-medium", r.fisico <= threshold && "text-destructive")}>{fmt(r.fisico)}</td>
                     <td className="py-2 pr-3 text-right">{fmt(r.reservado)}</td>
                     <td className="py-2 pr-3 text-right">{fmt(r.previsto)}</td>
                   </tr>
@@ -271,6 +288,7 @@ function TecidosTab() {
 /* ============================ AVIAMENTOS ============================ */
 
 function AviamentosTab() {
+  const threshold = useEstoqueThreshold();
   const [search, setSearch] = useState("");
   const [fornecedor, setFornecedor] = useState<string>("all");
   const [categoria, setCategoria] = useState<string>("all");
@@ -411,14 +429,14 @@ function AviamentosTab() {
             </thead>
             <tbody>
               {filtered.map((r: any) => (
-                <tr key={r.id} className={cn("border-b last:border-0", r.fisico <= 0 && "bg-destructive/10")}>
+                <tr key={r.id} className={cn("border-b last:border-0", r.fisico <= threshold && "bg-destructive/10")}>
                   <td className="py-2 pr-3">{r.nome}</td>
                   <td className="py-2 pr-3">{r.fornecedor}</td>
                   <td className="py-2 pr-3">{r.categoria}</td>
                   <td className="py-2 pr-3 text-right">{fmt(r.prevReceb)}</td>
                   <td className="py-2 pr-3 text-right">{fmt(r.recebido)}</td>
                   <td className="py-2 pr-3 text-right">{fmt(r.baixa)}</td>
-                  <td className={cn("py-2 pr-3 text-right font-medium", r.fisico <= 0 && "text-destructive")}>{fmt(r.fisico)}</td>
+                  <td className={cn("py-2 pr-3 text-right font-medium", r.fisico <= threshold && "text-destructive")}>{fmt(r.fisico)}</td>
                   <td className="py-2 pr-3 text-right">{fmt(r.reservado)}</td>
                   <td className="py-2 pr-3 text-right">{fmt(r.previsto)}</td>
                 </tr>

@@ -72,6 +72,7 @@ const DEFAULTS = {
     "Aprovado",
   ],
   campos_editaveis: {} as Record<string, string>,
+  estoque_critico_threshold: 0 as number,
 };
 
 type ConfigState = typeof DEFAULTS;
@@ -123,6 +124,7 @@ function ConfiguracoesLojaPage() {
         r.campos_editaveis && typeof r.campos_editaveis === "object" && !Array.isArray(r.campos_editaveis)
           ? (r.campos_editaveis as Record<string, string>)
           : DEFAULTS.campos_editaveis,
+      estoque_critico_threshold: Number(r.estoque_critico_threshold ?? 0) || 0,
     });
   }, [data?.cfg]);
 
@@ -280,6 +282,29 @@ function ConfiguracoesLojaPage() {
               />
             </div>
           ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Alertas</CardTitle>
+          <CardDescription>Limites para destacar itens críticos no estoque e no dashboard.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <Label>Alertar quando estoque ficar abaixo de (metros/unidades)</Label>
+          <Input
+            type="number"
+            min={0}
+            step="0.01"
+            className="w-full md:w-72"
+            value={cfg.estoque_critico_threshold}
+            onChange={(e) =>
+              setCfg({ ...cfg, estoque_critico_threshold: Number(e.target.value) || 0 })
+            }
+          />
+          <p className="text-xs text-muted-foreground">
+            Itens com estoque igual ou abaixo desse valor aparecem em vermelho.
+          </p>
         </CardContent>
       </Card>
     </div>
