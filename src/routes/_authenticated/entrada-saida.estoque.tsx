@@ -225,9 +225,10 @@ function TecidosTab() {
       </div>
 
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+      {error && <p className="text-sm text-destructive">Erro ao carregar estoque: {(error as Error).message}</p>}
 
       {grouped.map((g) => (
-        <Card key={g.artigoNome} className="p-4">
+        <Card key={g.artigoId} className="p-4">
           <h3 className="font-semibold mb-3">{g.artigoNome}</h3>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
