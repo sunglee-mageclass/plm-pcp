@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 const BUCKET = "tecido-variantes";
 const cache = new Map<string, { url: string; exp: number }>();
 
-export function useSignedUrl(path: string | null | undefined) {
+export function useSignedUrl(path: string | null | undefined, bucket: string = BUCKET) {
   const [url, setUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -13,24 +13,25 @@ export function useSignedUrl(path: string | null | undefined) {
       setUrl(null);
       return;
     }
+    const key = `${bucket}/${path}`;
     const now = Date.now();
-    const cached = cache.get(path);
+    const cached = cache.get(key);
     if (cached && cached.exp > now + 60_000) {
       setUrl(cached.url);
       return;
     }
     supabase.storage
-      .from(BUCKET)
+      .from(bucket)
       .createSignedUrl(path, 3600)
       .then(({ data }) => {
         if (!alive || !data?.signedUrl) return;
-        cache.set(path, { url: data.signedUrl, exp: now + 3600_000 });
+        cache.set(key, { url: data.signedUrl, exp: now + 3600_000 });
         setUrl(data.signedUrl);
       });
     return () => {
       alive = false;
     };
-  }, [path]);
+  }, [path, bucket]);
 
   return url;
 }
