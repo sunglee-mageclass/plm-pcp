@@ -394,9 +394,9 @@ function CustosTab() {
     queryKey: ["dash-custos", colecao, mes, categoria],
     queryFn: async () => {
       const { data, error } = await supabase.rpc("dashboard_custos", {
-        p_colecao: colecao === "all" ? null : colecao,
-        p_mes: mes === "all" ? null : mes,
-        p_categoria: categoria === "all" ? null : categoria,
+        p_colecao: colecao === "all" ? undefined : colecao,
+        p_mes: mes === "all" ? undefined : mes,
+        p_categoria: categoria === "all" ? undefined : categoria,
       });
       if (error) throw error;
       return data as any;
