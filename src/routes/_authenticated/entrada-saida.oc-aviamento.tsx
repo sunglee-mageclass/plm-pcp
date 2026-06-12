@@ -388,6 +388,7 @@ function OcDialog({
 
   const saveMutation = useMutation({
     mutationFn: async (markReceived: boolean) => {
+      const parcelas = draft.parcelas_recebimento ?? [];
       const payload: any = {
         numero_pedido: draft.numero_pedido || null,
         responsavel_nome: respMode === "select"
@@ -400,6 +401,7 @@ function OcDialog({
         prazo_pagamento: draft.prazo_pagamento || null,
         quantidade_prazos: draft.quantidade_prazos,
         nf_url: draft.nf_url,
+        parcelas_recebimento: parcelas,
         status: markReceived ? "recebido" : status,
       };
 
