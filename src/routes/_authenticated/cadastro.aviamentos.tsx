@@ -48,6 +48,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
+import { ImagePreview } from "@/components/shared/ImagePreview";
 
 import { RequirePermission } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/cadastro/aviamentos")({
