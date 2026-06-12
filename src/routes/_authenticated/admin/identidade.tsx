@@ -89,7 +89,7 @@ function IdentidadePage() {
       const { error } = await supabase
         .from("system_settings")
         .update({
-          nome_sistema: nome.trim() || "PLM+PCP",
+          nome_sistema: nome.trim() || "sisTrama",
           subtitulo: subtitulo.trim(),
           logo_url: logoPath,
           favicon_url: faviconPath,
