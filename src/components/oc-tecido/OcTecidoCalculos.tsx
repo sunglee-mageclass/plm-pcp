@@ -34,6 +34,10 @@ export function OcTecidoCalculos({
     const a = it.artigo_id ? artigoMap[it.artigo_id] : null;
     return (a?.preco ?? 0) * it.quantidade_pedida;
   };
+  const valorReal = (it: ItemDraft) => {
+    const a = it.artigo_id ? artigoMap[it.artigo_id] : null;
+    return (a?.preco ?? 0) * (it.quantidade_recebida ?? 0);
+  };
   const hasKg = items.some((it) => {
     const a = it.artigo_id ? artigoMap[it.artigo_id] : null;
     return a?.unidade_medida === "kg";
@@ -65,6 +69,8 @@ export function OcTecidoCalculos({
                   <div className="text-xs text-muted-foreground">{v?.nome_variante ?? v?.codigo_variante ?? "—"}</div>
                 </TableCell>
                 <TableCell>{i.quantidade_pedida}{sufixo ? ` ${sufixo}` : ""}</TableCell>
+                {hasKg && <TableCell>{metragemPedida(i).toFixed(2)} m</TableCell>}
+                {hasKg && <TableCell>{metragemRecebida(i).toFixed(2)} m</TableCell>}
                 <TableCell>
                   {readOnly ? (
                     <span className="text-sm">
@@ -83,8 +89,6 @@ export function OcTecidoCalculos({
                     </div>
                   )}
                 </TableCell>
-                <TableCell>{metragemPedida(i).toFixed(2)} m</TableCell>
-                <TableCell>{metragemRecebida(i).toFixed(2)} m</TableCell>
                 <TableCell>{fmtMoney(valorPrev(i))}</TableCell>
                 <TableCell>{fmtMoney(valorReal(i))}</TableCell>
               </TableRow>
