@@ -40,7 +40,7 @@ function AuthenticatedLayout() {
     <SidebarProvider>
       <div className="flex min-h-screen w-full bg-background">
         <AppSidebar />
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 min-w-0 flex flex-col">
           <header className="h-14 flex items-center gap-2 border-b px-4 bg-card">
             <SidebarTrigger />
             <div className="ml-2 text-sm font-medium text-muted-foreground">
