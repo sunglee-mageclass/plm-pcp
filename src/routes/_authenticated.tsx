@@ -1,8 +1,9 @@
-import { createFileRoute, Outlet, Navigate } from "@tanstack/react-router";
+import { createFileRoute, Outlet, Navigate, useRouterState } from "@tanstack/react-router";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { useAuth } from "@/hooks/useAuth";
 import { useApplySystemIdentity } from "@/hooks/useSystemIdentity";
+import { PAGES_CATALOG } from "@/lib/permissions-catalog";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
