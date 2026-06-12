@@ -325,6 +325,9 @@ function OcDialog({
           prazo_pagamento: oc.prazo_pagamento ?? "",
           quantidade_prazos: oc.quantidade_prazos ?? 1,
           nf_url: oc.nf_url,
+          parcelas_recebimento: Array.isArray((oc as any).parcelas_recebimento)
+            ? ((oc as any).parcelas_recebimento as ParcelaRecebimento[])
+            : [],
         });
         setStatus((oc.status as OCStatus) ?? "encomendado");
         const matchEst = estilistas.find((e) => e.nome === oc.responsavel_nome);
