@@ -405,7 +405,8 @@ function OcDialog({
               variante_tecido_id: it.variante_tecido_id,
               quantidade_pedida: it.quantidade_pedida,
               quantidade_recebida: it.quantidade_recebida,
-            })
+              cancelado: it.cancelado,
+            } as any)
             .eq("id", it.id!);
           if (error) throw error;
         }
