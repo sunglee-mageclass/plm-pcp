@@ -78,6 +78,7 @@ export type ItemDraft = {
   variante_tecido_id: string;
   quantidade_pedida: number;
   quantidade_recebida: number | null;
+  cancelado: boolean;
 };
 
 export function emptyDraft(): Draft {
