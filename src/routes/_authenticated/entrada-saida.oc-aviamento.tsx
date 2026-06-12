@@ -257,6 +257,7 @@ function OcAviamentoPage() {
 
 /* ============= DIALOG ============= */
 
+type ParcelaRecebimento = { data: string; recebido: boolean };
 type Draft = {
   numero_pedido: string;
   responsavel_nome: string;
@@ -268,6 +269,7 @@ type Draft = {
   prazo_pagamento: string;
   quantidade_prazos: number;
   nf_url: string | null;
+  parcelas_recebimento: ParcelaRecebimento[];
 };
 function emptyDraft(): Draft {
   return {
@@ -281,6 +283,7 @@ function emptyDraft(): Draft {
     prazo_pagamento: "",
     quantidade_prazos: 1,
     nf_url: null,
+    parcelas_recebimento: [],
   };
 }
 
