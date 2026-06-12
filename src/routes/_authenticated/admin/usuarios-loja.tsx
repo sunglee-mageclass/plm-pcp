@@ -1,18 +1,17 @@
 import { createFileRoute, Navigate } from "@tanstack/react-router";
-import { useState, useMemo } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Users, Plus, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { createStoreUser, savePermissions } from "@/lib/tenant-admin.functions";
-import { PAGES_CATALOG, ALL_PAGE_KEYS } from "@/lib/permissions-catalog";
+import { createStoreUser } from "@/lib/tenant-admin.functions";
+import { PermissoesModal } from "@/components/admin/PermissoesModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
