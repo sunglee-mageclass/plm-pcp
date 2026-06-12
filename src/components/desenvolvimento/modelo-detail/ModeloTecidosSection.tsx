@@ -9,6 +9,7 @@ import { artigoLabel } from "@/lib/artigo-label";
 import { Plus, Trash2 } from "lucide-react";
 import { Field, FieldSelectOpt } from "./shared";
 import { TIPOS, TIPO_LABEL, type TecidoBlock } from "./types";
+import { EtiquetaLavagemArtigoView } from "@/components/shared/EtiquetaLavagemArtigo";
 
 type ArtigoOpt = { id: string; nome: string; unidade_medida?: string | null };
 
@@ -162,6 +163,10 @@ function TecidoBlockEditor({
           <Input type="number" step="0.01" value={block.loss_percent} onChange={(e) => onChangeBlock({ loss_percent: Number(e.target.value) || 0 })} />
         </Field>
       </div>
+
+      {block.artigo_id && (
+        <EtiquetaLavagemArtigoView artigoId={block.artigo_id} size="sm" />
+      )}
 
       {block.artigo_id && (
         <div className="space-y-1">
