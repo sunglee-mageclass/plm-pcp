@@ -226,6 +226,7 @@ function OcDialog({
         variante_tecido_id: i.variante_tecido_id ?? "",
         quantidade_pedida: Number(i.quantidade_pedida ?? 0),
         quantidade_recebida: i.quantidade_recebida == null ? null : Number(i.quantidade_recebida),
+        cancelado: !!(i as any).cancelado,
       }));
       setItems(mapped);
       setOriginalItemIds(mapped.map((m) => m.id).filter((x): x is string => !!x));
