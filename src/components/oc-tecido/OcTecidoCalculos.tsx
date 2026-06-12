@@ -8,7 +8,7 @@ import { fmtMoney, type Artigo, type ItemDraft, type Variante } from "./shared";
 
 export function OcTecidoCalculos({
   items, artigoMap, varianteMap, setQtd,
-  totalPrevisto, totalReal, dataPrevista, dataEntrega,
+  totalPrevisto, totalReal, dataPrevista, dataEntrega, readOnly = false,
 }: {
   items: ItemDraft[];
   artigoMap: Record<string, Artigo>;
@@ -18,6 +18,7 @@ export function OcTecidoCalculos({
   totalReal: number;
   dataPrevista: string;
   dataEntrega: string;
+  readOnly?: boolean;
 }) {
   const metragemPedida = (it: ItemDraft) => {
     const a = it.artigo_id ? artigoMap[it.artigo_id] : null;
