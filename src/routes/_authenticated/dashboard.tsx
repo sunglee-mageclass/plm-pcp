@@ -393,20 +393,15 @@ function CustosTab() {
 
   return (
     <div className="space-y-4">
-      <Card className="p-4 grid gap-3 sm:grid-cols-3">
-        <div>
-          <Label>Coleção</Label>
-          <Select value={colecao} onValueChange={setColecao}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas</SelectItem>
-              {colecoes.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <FilterSelect label="Mês" value={mes} onChange={setMes} options={[{ id: "all", nome: "Todos" }, ...meses]} />
-        <FilterSelect label="Categoria" value={categoria} onChange={setCategoria} options={[{ id: "all", nome: "Todas" }, ...categorias]} />
-      </Card>
+      <div className="flex items-center justify-end gap-2">
+        <FilterButton
+          filters={[
+            { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
+            { label: "Mês", value: mes, onChange: setMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
+            { label: "Categoria", value: categoria, onChange: setCategoria, options: [{ id: "all", nome: "Todas" }, ...categorias] },
+          ]}
+        />
+      </div>
 
       <Card className="p-4">
         <h3 className="font-semibold mb-3">Custo previsto vs real</h3>
