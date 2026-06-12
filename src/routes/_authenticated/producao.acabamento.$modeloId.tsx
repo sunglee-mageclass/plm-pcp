@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useReadOnly } from "@/components/RequirePermission";
 
 export const Route = createFileRoute("/_authenticated/producao/acabamento/$modeloId")({
   component: AcabDetailPage,
@@ -41,6 +42,7 @@ const STATUS_COLORS: Record<string, string> = {
 function AcabDetailPage() {
   const { modeloId } = Route.useParams();
   const qc = useQueryClient();
+  const readOnly = useReadOnly();
 
   const { data: modelo } = useQuery({
     queryKey: ["acab-modelo", modeloId],
@@ -176,10 +178,11 @@ function AcabDetailPage() {
         <Link to="/producao/acabamento" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
           <ArrowLeft className="h-4 w-4" /> Voltar
         </Link>
-        <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+        <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
           <Save className="h-4 w-4 mr-2" /> Salvar
         </Button>
       </div>
+      <fieldset disabled={readOnly} className="contents">
 
       <header className="flex items-center gap-3">
         <Sparkles className="h-7 w-7 text-primary" />
@@ -315,6 +318,7 @@ function AcabDetailPage() {
           Este modelo ainda não tem registro de CAD. Abra a página de CAD desse modelo antes de salvar.
         </Card>
       )}
+      </fieldset>
     </div>
   );
 }

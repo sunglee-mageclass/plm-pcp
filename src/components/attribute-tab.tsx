@@ -40,6 +40,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { useReadOnly } from "@/components/RequirePermission";
 
 export type UsageRef = { table: string; column: string };
 
@@ -65,6 +66,7 @@ type Row = Record<string, any>;
 
 export function AttributeTab({ config }: { config: AttributeTabConfig }) {
   const qc = useQueryClient();
+  const readOnly = useReadOnly();
   const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -281,8 +283,9 @@ export function AttributeTab({ config }: { config: AttributeTabConfig }) {
                     ) : (
                       <button
                         type="button"
-                        className="text-left hover:underline"
+                        className="text-left hover:underline disabled:opacity-100 disabled:cursor-default disabled:no-underline"
                         onClick={() => startEdit(row)}
+                        disabled={readOnly}
                       >
                         {row[config.nameField]}
                       </button>
@@ -293,6 +296,7 @@ export function AttributeTab({ config }: { config: AttributeTabConfig }) {
                       <Select
                         value={row[config.extra.field] ?? ""}
                         onValueChange={(v) => updateExtraMut.mutate({ id: row.id, value: v })}
+                        disabled={readOnly}
                       >
                         <SelectTrigger className="h-8 w-56">
                           <SelectValue placeholder="—">
@@ -310,7 +314,7 @@ export function AttributeTab({ config }: { config: AttributeTabConfig }) {
                     </TableCell>
                   )}
                   <TableCell className="text-right">
-                    <Button size="icon" variant="ghost" onClick={() => startEdit(row)}>
+                    <Button size="icon" variant="ghost" onClick={() => startEdit(row)} disabled={readOnly}>
                       <Pencil className="h-4 w-4" />
                     </Button>
                     <Button size="icon" variant="ghost" onClick={() => startDelete(row)}>

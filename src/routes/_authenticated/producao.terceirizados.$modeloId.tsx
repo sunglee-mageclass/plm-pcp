@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useReadOnly } from "@/components/RequirePermission";
 
 export const Route = createFileRoute("/_authenticated/producao/terceirizados/$modeloId")({
   component: TercDetailPage,
@@ -42,6 +43,7 @@ const STATUS_COLORS: Record<string, string> = {
 function TercDetailPage() {
   const { modeloId } = Route.useParams();
   const qc = useQueryClient();
+  const readOnly = useReadOnly();
 
   const { data: modelo } = useQuery({
     queryKey: ["terc-modelo", modeloId],
@@ -249,10 +251,11 @@ function TercDetailPage() {
         <Link to="/producao/terceirizados" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
           <ArrowLeft className="h-4 w-4" /> Voltar
         </Link>
-        <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+        <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
           <Save className="h-4 w-4 mr-2" /> Salvar
         </Button>
       </div>
+      <fieldset disabled={readOnly} className="contents">
 
       <header className="flex items-center gap-3">
         <Users className="h-7 w-7 text-primary" />
@@ -479,6 +482,7 @@ function TercDetailPage() {
           Atenção: este modelo ainda não possui um registro de CAD. Abra a página de CAD desse modelo antes de salvar.
         </Card>
       )}
+      </fieldset>
     </div>
   );
 }

@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
+import { Lock } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
 interface Props {
@@ -7,8 +8,16 @@ interface Props {
   children: ReactNode;
 }
 
+// Propagates "read only" mode through the React tree so portaled content
+// (Dialog/Sheet, which render outside the page's DOM subtree) can also
+// disable their own form controls. Pages don't read this directly.
+const ReadOnlyContext = createContext(false);
+export function useReadOnly() {
+  return useContext(ReadOnlyContext);
+}
+
 export function RequirePermission({ page, anyOf, children }: Props) {
-  const { canView, loading } = useAuth();
+  const { canView, canEdit, loading } = useAuth();
   if (loading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
@@ -29,5 +38,19 @@ export function RequirePermission({ page, anyOf, children }: Props) {
       </div>
     );
   }
-  return <>{children}</>;
+
+  const editable =
+    (page ? canEdit(page) : false) ||
+    (anyOf ? anyOf.some((p) => canEdit(p)) : false);
+  if (editable) return <>{children}</>;
+
+  return (
+    <ReadOnlyContext.Provider value={true}>
+      <div className="mb-4 flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+        <Lock className="h-4 w-4 shrink-0" />
+        Modo somente leitura — você não tem permissão de edição nesta área.
+      </div>
+      {children}
+    </ReadOnlyContext.Provider>
+  );
 }

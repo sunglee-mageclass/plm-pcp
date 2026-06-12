@@ -47,6 +47,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
+import { useReadOnly } from "@/components/RequirePermission";
 
 export const Route = createFileRoute("/_authenticated/cadastro/tecidos/$artigoId")({
   component: TecidoDetail,
@@ -82,6 +83,7 @@ type Cor = { id: string; nome: string };
 function TecidoDetail() {
   const { artigoId } = Route.useParams();
   const qc = useQueryClient();
+  const readOnly = useReadOnly();
 
   const { data: artigo, isLoading } = useQuery({
     queryKey: ["artigo", artigoId],
@@ -232,7 +234,7 @@ function TecidoDetail() {
             <p className="text-sm text-muted-foreground">Detalhes do tecido</p>
           </div>
         </div>
-        <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+        <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
           <Save className="h-4 w-4 mr-1" />
           {saveMut.isPending ? "Salvando…" : "Salvar"}
         </Button>
@@ -243,6 +245,7 @@ function TecidoDetail() {
           <CardTitle>Informações</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
+        <fieldset disabled={readOnly} className="contents">
           <Field label="Nome">
             <Input
               value={form.nome}
@@ -402,6 +405,7 @@ function TecidoDetail() {
               className="bg-muted/50"
             />
           </Field>
+        </fieldset>
         </CardContent>
       </Card>
 
@@ -438,7 +442,7 @@ function TecidoDetail() {
         </CardContent>
       </Card>
 
-      <VariantesSection artigoId={artigoId} />
+      <VariantesSection artigoId={artigoId} readOnly={readOnly} />
     </div>
   );
 }
@@ -462,7 +466,7 @@ function Field({
 
 // ============= Variants =============
 
-function VariantesSection({ artigoId }: { artigoId: string }) {
+function VariantesSection({ artigoId, readOnly }: { artigoId: string; readOnly: boolean }) {
   const qc = useQueryClient();
   const [removeTarget, setRemoveTarget] = useState<Variante | null>(null);
 
@@ -550,7 +554,7 @@ function VariantesSection({ artigoId }: { artigoId: string }) {
       <CardContent className="space-y-4">
         <Popover>
           <PopoverTrigger asChild>
-            <Button variant="outline" className="w-full justify-between">
+            <Button variant="outline" className="w-full justify-between" disabled={readOnly}>
               Selecionar cores{" "}
               <Badge variant="secondary" className="ml-2">
                 {selectedCorIds.size}
@@ -591,6 +595,7 @@ function VariantesSection({ artigoId }: { artigoId: string }) {
                 variante={v}
                 corLabel={v.cor_id ? coresMap.get(v.cor_id) ?? "—" : "—"}
                 onRemove={() => setRemoveTarget(v)}
+                readOnly={readOnly}
               />
             ))}
           </ul>
@@ -631,10 +636,12 @@ function VariantRow({
   variante,
   corLabel,
   onRemove,
+  readOnly,
 }: {
   variante: Variante;
   corLabel: string;
   onRemove: () => void;
+  readOnly: boolean;
 }) {
   const qc = useQueryClient();
   const [expanded, setExpanded] = useState(false);
@@ -699,7 +706,7 @@ function VariantRow({
         <Button variant="ghost" size="icon" onClick={() => setExpanded((v) => !v)}>
           {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
         </Button>
-        <Button variant="ghost" size="icon" onClick={onRemove}>
+        <Button variant="ghost" size="icon" onClick={onRemove} disabled={readOnly}>
           <Trash2 className="h-4 w-4 text-destructive" />
         </Button>
       </div>
@@ -713,6 +720,7 @@ function VariantRow({
               onBlur={() =>
                 nome !== (variante.nome_variante ?? "") && saveMut.mutate({ nome_variante: nome })
               }
+              readOnly={readOnly}
             />
           </div>
           <div className="space-y-1.5">
@@ -724,6 +732,7 @@ function VariantRow({
                 codigo !== (variante.codigo_variante ?? "") &&
                 saveMut.mutate({ codigo_variante: codigo })
               }
+              readOnly={readOnly}
             />
           </div>
           <div className="space-y-1.5">
@@ -743,7 +752,7 @@ function VariantRow({
               variant="outline"
               className="w-full"
               onClick={() => inputRef.current?.click()}
-              disabled={uploading}
+              disabled={uploading || readOnly}
             >
               {uploading ? (
                 <Loader2 className="h-4 w-4 mr-1 animate-spin" />

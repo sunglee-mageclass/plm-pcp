@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 
-import { RequirePermission } from "@/components/RequirePermission";
+import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/producao/lancamentos")({
   component: () => (
     <RequirePermission page="producao_lancamentos">
@@ -37,6 +37,7 @@ type LancCard = {
 
 function LancamentosPage() {
   const qc = useQueryClient();
+  const readOnly = useReadOnly();
   const [q, setQ] = useState("");
   const [fColecao, setFColecao] = useState("all");
   const [fSemana, setFSemana] = useState("all");
@@ -170,15 +171,15 @@ function LancamentosPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
         {filtered.map((c) => (
-          <LancamentoCard key={c.modelo_id} card={c} onUpload={(file) => uploadMut.mutate({ card: c, file })} uploading={uploadMut.isPending} />
+          <LancamentoCard key={c.modelo_id} card={c} onUpload={(file) => uploadMut.mutate({ card: c, file })} uploading={uploadMut.isPending} readOnly={readOnly} />
         ))}
       </div>
     </div>
   );
 }
 
-function LancamentoCard(props: { card: LancCard; onUpload: (f: File) => void; uploading: boolean }) {
-  const { card, onUpload, uploading } = props;
+function LancamentoCard(props: { card: LancCard; onUpload: (f: File) => void; uploading: boolean; readOnly: boolean }) {
+  const { card, onUpload, uploading, readOnly } = props;
   const ref = useRef<HTMLInputElement>(null);
 
   const { data: amostraUrl } = useQuery({
@@ -236,7 +237,7 @@ function LancamentoCard(props: { card: LancCard; onUpload: (f: File) => void; up
             e.target.value = "";
           }}
         />
-        <Button size="sm" variant="outline" className="w-full" onClick={() => ref.current?.click()} disabled={uploading}>
+        <Button size="sm" variant="outline" className="w-full" onClick={() => ref.current?.click()} disabled={uploading || readOnly}>
           <Upload className="h-3.5 w-3.5 mr-1" />
           {card.lancamento?.foto_peca_amostra ? "Trocar foto" : "Enviar foto"}
         </Button>

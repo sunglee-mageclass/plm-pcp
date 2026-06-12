@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { useReadOnly } from "@/components/RequirePermission";
 
 export const Route = createFileRoute("/_authenticated/producao/cq/$modeloId")({
   component: CqDetailPage,
@@ -36,6 +37,7 @@ function emptyGrades(): GradesByEtapa {
 function CqDetailPage() {
   const { modeloId } = Route.useParams();
   const qc = useQueryClient();
+  const readOnly = useReadOnly();
 
   const { data: modelo } = useQuery({
     queryKey: ["cq-modelo", modeloId],
@@ -231,10 +233,11 @@ function CqDetailPage() {
         <Link to="/producao/cq" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
           <ArrowLeft className="h-4 w-4" /> Voltar
         </Link>
-        <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+        <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
           <Save className="h-4 w-4 mr-2" /> Salvar
         </Button>
       </div>
+      <fieldset disabled={readOnly} className="contents">
 
       <header className="flex items-center gap-3">
         <ClipboardCheck className="h-7 w-7 text-primary" />
@@ -354,6 +357,7 @@ function CqDetailPage() {
             onChange={(e) => setForm((f) => ({ ...f, observacoes_cq: e.target.value }))} />
         </div>
       </Card>
+      </fieldset>
     </div>
   );
 }

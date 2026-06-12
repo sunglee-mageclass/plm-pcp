@@ -31,6 +31,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useReadOnly } from "@/components/RequirePermission";
 
 export const Route = createFileRoute("/_authenticated/producao/cad/$modeloId")({
   component: CadDetailPage,
@@ -39,6 +40,7 @@ export const Route = createFileRoute("/_authenticated/producao/cad/$modeloId")({
 function CadDetailPage() {
   const { modeloId } = Route.useParams();
   const qc = useQueryClient();
+  const readOnly = useReadOnly();
 
   // --- queries ---
   const { data: modelo } = useQuery({
@@ -465,9 +467,10 @@ function CadDetailPage() {
           enviando={enviarCorte.isPending}
           enviado={!!cadRow?.enviado_corte}
           dataEnviado={cadRow?.data_enviado_corte}
+          readOnly={readOnly}
         />
 
-
+        <fieldset disabled={readOnly} className="contents">
         {/* SEÇÃO 1 */}
         <Card className="p-5 flex gap-5">
           <div className="h-32 w-32 rounded-md bg-muted overflow-hidden flex items-center justify-center">
@@ -519,6 +522,7 @@ function CadDetailPage() {
           gradeTotalGeral={gradeTotalGeral}
           updateAvi={updateAvi}
         />
+        </fieldset>
       </div>
 
       {!cadRow?.enviado_corte && (

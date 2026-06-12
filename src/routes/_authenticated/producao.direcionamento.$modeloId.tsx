@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useReadOnly } from "@/components/RequirePermission";
 
 export const Route = createFileRoute("/_authenticated/producao/direcionamento/$modeloId")({
   component: DirDetailPage,
@@ -22,6 +23,7 @@ type VarState = {
 function DirDetailPage() {
   const { modeloId } = Route.useParams();
   const qc = useQueryClient();
+  const readOnly = useReadOnly();
 
   const { data: modelo } = useQuery({
     queryKey: ["dir-modelo", modeloId],
@@ -142,10 +144,11 @@ function DirDetailPage() {
         <Link to="/producao/direcionamento" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
           <ArrowLeft className="h-4 w-4" /> Voltar
         </Link>
-        <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+        <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
           <Save className="h-4 w-4 mr-2" /> Salvar
         </Button>
       </div>
+      <fieldset disabled={readOnly} className="contents">
 
       <header className="flex items-center gap-3">
         <Compass className="h-7 w-7 text-primary" />
@@ -233,6 +236,7 @@ function DirDetailPage() {
           </Card>
         );
       })}
+      </fieldset>
     </div>
   );
 }

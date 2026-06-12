@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Hammer, ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -104,6 +105,8 @@ function normalizeStatuses(raw: any): KanbanStatus[] {
 
 function DesenvolvimentoPage() {
   const qc = useQueryClient();
+  const { canEdit } = useAuth();
+  const editable = canEdit("criacao_desenvolvimento");
   const [search, setSearch] = useState("");
   const [fEstilista, setFEstilista] = useState("all");
   const [fModelista, setFModelista] = useState("all");
@@ -275,6 +278,7 @@ function DesenvolvimentoPage() {
                     estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
                     categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
                     onOpen={() => setOpenId(m.id)}
+                    draggable={editable}
                   />
                 ))}
               </div>
@@ -313,6 +317,7 @@ function DesenvolvimentoPage() {
                           statuses={statusKanban}
                           onOpen={() => setOpenId(m.id)}
                           onChangeStatus={(status) => updateStatus.mutate({ id: m.id, status })}
+                          editable={editable}
                         />
                       ))}
                     </div>
@@ -329,13 +334,14 @@ function DesenvolvimentoPage() {
   );
 }
 
-function MobileCard({ modelo, estilistaNome, categoriaNome, statuses, onOpen, onChangeStatus }: {
+function MobileCard({ modelo, estilistaNome, categoriaNome, statuses, onOpen, onChangeStatus, editable }: {
   modelo: Modelo;
   estilistaNome: string | null;
   categoriaNome: string | null;
   statuses: KanbanStatus[];
   onOpen: () => void;
   onChangeStatus: (status: string) => void;
+  editable: boolean;
 }) {
   const photo = modelo.fotos_modelo?.[0] ?? null;
   const url = useSignedUrlBucket(photo);
@@ -354,7 +360,7 @@ function MobileCard({ modelo, estilistaNome, categoriaNome, statuses, onOpen, on
         </div>
       </div>
       <div className="mt-2" onClick={(e) => e.stopPropagation()}>
-        <Select value={current} onValueChange={onChangeStatus}>
+        <Select value={current} onValueChange={onChangeStatus} disabled={!editable}>
           <SelectTrigger className="h-8 text-xs">
             <SelectValue placeholder="Mover para…" />
           </SelectTrigger>
@@ -372,19 +378,19 @@ function MobileCard({ modelo, estilistaNome, categoriaNome, statuses, onOpen, on
 }
 
 
-function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen }: {
-  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; onOpen: () => void;
+function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: isDraggable }: {
+  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; onOpen: () => void; draggable: boolean;
 }) {
   const photo = modelo.fotos_modelo?.[0] ?? null;
   const url = useSignedUrlBucket(photo);
   return (
     <div
-      draggable
+      draggable={isDraggable}
       onDragStart={(e) => {
         e.dataTransfer.setData("text/plain", modelo.id);
         e.dataTransfer.effectAllowed = "move";
       }}
-      className="bg-card border rounded-md p-2 cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow"
+      className={`bg-card border rounded-md p-2 hover:shadow-md transition-shadow ${isDraggable ? "cursor-grab active:cursor-grabbing" : ""}`}
       onClick={onOpen}
     >
       <div className="flex gap-2">

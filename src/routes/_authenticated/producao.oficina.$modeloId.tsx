@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useReadOnly } from "@/components/RequirePermission";
 
 export const Route = createFileRoute("/_authenticated/producao/oficina/$modeloId")({
   component: OficinaDetailPage,
@@ -31,6 +32,7 @@ function computeStatus(b: { data_enviado: string | null; data_entregue: string |
 function OficinaDetailPage() {
   const { modeloId } = Route.useParams();
   const qc = useQueryClient();
+  const readOnly = useReadOnly();
 
   const { data: modelo } = useQuery({
     queryKey: ["oficina-modelo", modeloId],
@@ -185,7 +187,7 @@ function OficinaDetailPage() {
           <Button variant="outline" onClick={handlePrint}>
             <Printer className="h-4 w-4 mr-2" /> Imprimir Ficha de Oficina
           </Button>
-          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
             <Save className="h-4 w-4 mr-2" /> Salvar
           </Button>
         </div>
@@ -204,6 +206,7 @@ function OficinaDetailPage() {
         </header>
 
         <Card className="p-5 space-y-4">
+          <fieldset disabled={readOnly} className="contents">
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-lg">Oficina</h3>
             {oficinaInterna && <Badge className="bg-primary text-primary-foreground">Oficina Interna</Badge>}
@@ -276,6 +279,7 @@ function OficinaDetailPage() {
             <Textarea rows={3} value={form.observacoes_molde}
               onChange={(e) => setForm((f) => ({ ...f, observacoes_molde: e.target.value }))} />
           </div>
+          </fieldset>
         </Card>
 
         {!cad?.id && (
