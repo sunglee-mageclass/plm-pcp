@@ -2469,6 +2469,10 @@ export type Database = {
       }
       is_super_admin: { Args: never; Returns: boolean }
       is_tenant_admin: { Args: never; Returns: boolean }
+      recalcular_parcelas: {
+        Args: { _oc_id: string; _tipo: string }
+        Returns: Json
+      }
     }
     Enums: {
       app_role: "admin" | "user" | "super_admin" | "tenant_admin"
