@@ -22,7 +22,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, Cart
 import { RequirePermission } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/financeiro")({
   component: () => (
-    <RequirePermission anyOf={["financeiro_parcelas","financeiro_calendario"]}>
+    <RequirePermission anyOf={["financeiro_parcelas","financeiro_calendario","financeiro_resumo"]}>
       <FinanceiroPage />
     </RequirePermission>
   ),

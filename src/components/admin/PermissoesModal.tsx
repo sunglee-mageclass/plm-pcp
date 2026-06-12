@@ -102,6 +102,11 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
       <DialogHeader>
         <DialogTitle>Permissões — {user.nome}</DialogTitle>
       </DialogHeader>
+      <p className="text-xs text-muted-foreground -mt-2">
+        <strong>Leitor:</strong> pode acessar e visualizar a página, sem alterar dados.{" "}
+        <strong>Editor:</strong> pode visualizar e também criar, editar ou excluir
+        registros (inclui acesso de leitor).
+      </p>
       <div className="space-y-6 py-2">
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Carregando…</p>
@@ -119,17 +124,17 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                       <Checkbox
                         checked={allVer}
                         onCheckedChange={(v) => toggleAllInModule(m.module, "pode_ver", !!v)}
-                        aria-label={`Marcar todos ver em ${m.label}`}
+                        aria-label={`Marcar todos como leitor em ${m.label}`}
                       />
-                      <span>Ver</span>
+                      <span>Leitor</span>
                     </div>
                     <div className="flex justify-center items-center gap-1">
                       <Checkbox
                         checked={allEdit}
                         onCheckedChange={(v) => toggleAllInModule(m.module, "pode_editar", !!v)}
-                        aria-label={`Marcar todos editar em ${m.label}`}
+                        aria-label={`Marcar todos como editor em ${m.label}`}
                       />
-                      <span>Editar</span>
+                      <span>Editor</span>
                     </div>
                   </div>
                   {m.pages.map((p) => (
