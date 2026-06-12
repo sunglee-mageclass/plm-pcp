@@ -595,6 +595,26 @@ function OcDialog({
               <Label>Qtd de Prazos</Label>
               <Input type="number" value={draft.quantidade_prazos} readOnly disabled />
             </div>
+
+            <div className="grid gap-1">
+              <Label>Qtd. Parcelas de Recebimento</Label>
+              <Input
+                type="number"
+                min={1}
+                max={24}
+                value={draft.parcelas_recebimento?.length || 1}
+                onChange={(e) => {
+                  const n = Math.max(1, Math.min(24, Number(e.target.value) || 1));
+                  setDraft((d) => {
+                    const prev = d.parcelas_recebimento ?? [];
+                    const next: ParcelaRecebimento[] = Array.from({ length: n }, (_, i) =>
+                      prev[i] ?? { data: "", recebido: false },
+                    );
+                    return { ...d, parcelas_recebimento: next };
+                  });
+                }}
+              />
+            </div>
           </div>
 
           <Separator />
