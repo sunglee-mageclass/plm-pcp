@@ -2283,6 +2283,39 @@ export type Database = {
           },
         ]
       }
+      system_settings: {
+        Row: {
+          created_at: string
+          favicon_url: string | null
+          id: string
+          logo_url: string | null
+          nome_sistema: string
+          singleton: boolean
+          subtitulo: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          favicon_url?: string | null
+          id?: string
+          logo_url?: string | null
+          nome_sistema?: string
+          singleton?: boolean
+          subtitulo?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          favicon_url?: string | null
+          id?: string
+          logo_url?: string | null
+          nome_sistema?: string
+          singleton?: boolean
+          subtitulo?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       tenant_config: {
         Row: {
           campos_editaveis: Json | null
