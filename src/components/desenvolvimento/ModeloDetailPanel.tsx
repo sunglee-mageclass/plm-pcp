@@ -147,6 +147,18 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     },
   });
 
+  const { data: ocLinksData } = useQuery({
+    queryKey: ["modelo-tecido-oc-links", modeloId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("modelo_tecido_oc_links" as any)
+        .select("tipo, numero, ordem, oc_tecido_item_id")
+        .eq("modelo_id", modeloId);
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+
   const { data: aviamentosData } = useQuery({
     queryKey: ["modelo-aviamentos", modeloId],
     queryFn: async () => {
@@ -210,21 +222,30 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   useEffect(() => {
     if (!tecidosData || !modelo) return;
     const empty = makeEmptyBlocks();
+    const linksByKey = new Map<string, string>();
+    (ocLinksData ?? []).forEach((l: any) => {
+      linksByKey.set(`${l.tipo}-${l.numero}-${l.ordem}`, l.oc_tecido_item_id);
+    });
     tecidosData.tecidos.forEach((t: any) => {
       const idx = empty.findIndex((b) => b.tipo === t.tipo && b.numero === t.numero);
       if (idx >= 0) {
         const variantes = Array(10).fill(null) as (string | null)[];
+        const oc_links = Array(10).fill(null) as (string | null)[];
         tecidosData.variantes
           .filter((v: any) => v.modelo_tecido_id === t.id)
           .forEach((v: any) => {
             const ord = (v.ordem ?? 1) - 1;
-            if (ord >= 0 && ord < 10) variantes[ord] = v.variante_tecido_id;
+            if (ord >= 0 && ord < 10) {
+              variantes[ord] = v.variante_tecido_id;
+              oc_links[ord] = linksByKey.get(`${t.tipo}-${t.numero}-${v.ordem ?? ord + 1}`) ?? null;
+            }
           });
         empty[idx] = {
           id: t.id, tipo: t.tipo, numero: t.numero,
           artigo_id: t.artigo_id, consumo: Number(t.consumo ?? 0),
           loss_percent: Number(t.loss_percent ?? 0), custo_previsto: Number(t.custo_previsto ?? 0),
           variantes,
+          oc_links,
         };
       }
     });
@@ -242,7 +263,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       });
     }
     setBlocks(empty);
-  }, [tecidosData, modelo]);
+  }, [tecidosData, modelo, ocLinksData]);
 
   useEffect(() => {
     if (!aviamentosData) return;
@@ -399,6 +420,32 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         }
       }
 
+      // Persistir vínculos OC-variante (sobrevive ao save destrutivo)
+      const { error: eDelL } = await supabase
+        .from("modelo_tecido_oc_links" as any)
+        .delete().eq("modelo_id", modeloId);
+      if (eDelL) throw eDelL;
+      const linksToInsert: any[] = [];
+      blocks.forEach((b) => {
+        if (!b.artigo_id) return;
+        b.variantes.forEach((vid, i) => {
+          const ocItem = b.oc_links?.[i];
+          if (vid && ocItem) {
+            linksToInsert.push({
+              modelo_id: modeloId,
+              tipo: b.tipo, numero: b.numero, ordem: i + 1,
+              variante_tecido_id: vid,
+              oc_tecido_item_id: ocItem,
+            });
+          }
+        });
+      });
+      if (linksToInsert.length > 0) {
+        const { error: eL } = await supabase
+          .from("modelo_tecido_oc_links" as any).insert(linksToInsert);
+        if (eL) throw eL;
+      }
+
       const { error: eDelA } = await supabase
         .from("modelo_aviamentos").delete().eq("modelo_id", modeloId);
       if (eDelA) throw eDelA;
@@ -431,6 +478,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       toast.success("Modelo salvo");
       qc.invalidateQueries({ queryKey: ["modelo-detail", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-tecidos", modeloId] });
+      qc.invalidateQueries({ queryKey: ["modelo-tecido-oc-links", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-aviamentos", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-grades", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
@@ -491,9 +539,24 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     setBlocks((bs) => bs.map((b, i) => {
       if (i !== idx) return b;
       const variantes = [...b.variantes];
+      const oc_links = [...(b.oc_links ?? Array(10).fill(null))];
       variantes[vIdx] = value;
-      if (!value) for (let k = vIdx + 1; k < variantes.length; k++) variantes[k] = null;
-      return { ...b, variantes };
+      if (!value) {
+        oc_links[vIdx] = null;
+        for (let k = vIdx + 1; k < variantes.length; k++) { variantes[k] = null; oc_links[k] = null; }
+      } else if (oc_links[vIdx] && variantes[vIdx] !== value) {
+        // variante mudou: invalida vínculo
+        oc_links[vIdx] = null;
+      }
+      return { ...b, variantes, oc_links };
+    }));
+  };
+  const updateBlockOcLink = (idx: number, vIdx: number, value: string | null) => {
+    setBlocks((bs) => bs.map((b, i) => {
+      if (i !== idx) return b;
+      const oc_links = [...(b.oc_links ?? Array(10).fill(null))];
+      oc_links[vIdx] = value;
+      return { ...b, oc_links };
     }));
   };
 
@@ -608,6 +671,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 artigos={artigos}
                 onChangeBlock={updateBlock}
                 onChangeVariante={updateBlockVariante}
+                onChangeOcLink={updateBlockOcLink}
               />
             </AccordionContent>
           </AccordionItem>

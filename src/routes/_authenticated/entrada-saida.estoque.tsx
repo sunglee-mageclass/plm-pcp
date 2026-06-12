@@ -251,6 +251,7 @@ function TecidosTab() {
             <table className="w-full text-sm">
               <thead className="text-left text-muted-foreground">
                 <tr className="border-b">
+                  <th className="py-2 pr-3 w-6"></th>
                   <th className="py-2 pr-3">Variante</th>
                   <th className="py-2 pr-3 text-right">Prev. Receb.</th>
                   <th className="py-2 pr-3 text-right">Recebido</th>
@@ -262,15 +263,7 @@ function TecidosTab() {
               </thead>
               <tbody>
                 {g.rows.map((r: any) => (
-                  <tr key={r.varId} className={cn("border-b last:border-0", r.fisico <= threshold && "bg-destructive/10")}>
-                    <td className="py-2 pr-3">{r.nomeVariante}</td>
-                    <td className="py-2 pr-3 text-right">{fmt(r.prevReceb)}</td>
-                    <td className="py-2 pr-3 text-right">{fmt(r.recebido)}</td>
-                    <td className="py-2 pr-3 text-right">{fmt(r.baixa)}</td>
-                    <td className={cn("py-2 pr-3 text-right font-medium", r.fisico <= threshold && "text-destructive")}>{fmt(r.fisico)}</td>
-                    <td className="py-2 pr-3 text-right">{fmt(r.reservado)}</td>
-                    <td className="py-2 pr-3 text-right">{fmt(r.previsto)}</td>
-                  </tr>
+                  <VarianteRow key={r.varId} row={r} threshold={threshold} />
                 ))}
               </tbody>
             </table>
@@ -282,6 +275,75 @@ function TecidosTab() {
         <p className="text-sm text-muted-foreground">Nenhuma variante encontrada.</p>
       )}
     </div>
+  );
+}
+
+function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
+  const [open, setOpen] = useState(false);
+  const { data: detalhe = [], isLoading } = useQuery({
+    queryKey: ["estoque-tecido-detalhe-oc", row.varId],
+    enabled: open,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("detalhe_estoque_variante" as any, { _variante_id: row.varId });
+      if (error) throw error;
+      return (data ?? []) as Array<any>;
+    },
+  });
+  return (
+    <>
+      <tr className={cn("border-b last:border-0 cursor-pointer", row.fisico <= threshold && "bg-destructive/10")} onClick={() => setOpen((o) => !o)}>
+        <td className="py-2 pr-3 text-muted-foreground">{open ? "▾" : "▸"}</td>
+        <td className="py-2 pr-3">{row.nomeVariante}</td>
+        <td className="py-2 pr-3 text-right">{fmt(row.prevReceb)}</td>
+        <td className="py-2 pr-3 text-right">{fmt(row.recebido)}</td>
+        <td className="py-2 pr-3 text-right">{fmt(row.baixa)}</td>
+        <td className={cn("py-2 pr-3 text-right font-medium", row.fisico <= threshold && "text-destructive")}>{fmt(row.fisico)}</td>
+        <td className="py-2 pr-3 text-right">{fmt(row.reservado)}</td>
+        <td className="py-2 pr-3 text-right">{fmt(row.previsto)}</td>
+      </tr>
+      {open && (
+        <tr className="bg-muted/30">
+          <td></td>
+          <td colSpan={7} className="py-2 pr-3">
+            {isLoading && <p className="text-xs text-muted-foreground">Carregando…</p>}
+            {!isLoading && detalhe.length === 0 && (
+              <p className="text-xs text-muted-foreground">Nenhuma OC recebida para esta variante.</p>
+            )}
+            {detalhe.length > 0 && (
+              <table className="w-full text-xs">
+                <thead className="text-left text-muted-foreground">
+                  <tr className="border-b">
+                    <th className="py-1 pr-3">OC</th>
+                    <th className="py-1 pr-3">Fornecedor</th>
+                    <th className="py-1 pr-3">Entrega</th>
+                    <th className="py-1 pr-3 text-right">Recebido</th>
+                    <th className="py-1 pr-3 text-right">Baixado</th>
+                    <th className="py-1 pr-3 text-right">Reservado</th>
+                    <th className="py-1 pr-3 text-right">Sobra</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detalhe.map((d: any) => {
+                    const sobra = Number(d.recebido_m ?? 0) - Number(d.baixado_m ?? 0) - Number(d.reservado_m ?? 0);
+                    return (
+                      <tr key={d.oc_tecido_item_id} className="border-b last:border-0">
+                        <td className="py-1 pr-3">#{d.numero_pedido ?? "—"}</td>
+                        <td className="py-1 pr-3">{d.fornecedor ?? "—"}</td>
+                        <td className="py-1 pr-3">{d.data_entrega ? new Date(d.data_entrega).toLocaleDateString("pt-BR") : "—"}</td>
+                        <td className="py-1 pr-3 text-right">{fmt(Number(d.recebido_m ?? 0))}</td>
+                        <td className="py-1 pr-3 text-right">{fmt(Number(d.baixado_m ?? 0))}</td>
+                        <td className="py-1 pr-3 text-right">{fmt(Number(d.reservado_m ?? 0))}</td>
+                        <td className={cn("py-1 pr-3 text-right font-medium", sobra <= 0 && "text-destructive")}>{fmt(sobra)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 

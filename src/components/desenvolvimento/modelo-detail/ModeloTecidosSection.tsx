@@ -18,11 +18,13 @@ export function ModeloTecidosSection({
   artigos,
   onChangeBlock,
   onChangeVariante,
+  onChangeOcLink,
 }: {
   blocks: TecidoBlock[];
   artigos: ArtigoOpt[];
   onChangeBlock: (idx: number, patch: Partial<TecidoBlock>) => void;
   onChangeVariante: (idx: number, vIdx: number, value: string | null) => void;
+  onChangeOcLink: (idx: number, vIdx: number, value: string | null) => void;
 }) {
   const [visible, setVisible] = useState<Set<string>>(new Set());
 
@@ -79,6 +81,7 @@ export function ModeloTecidosSection({
                     artigos={artigos}
                     onChangeBlock={(p) => onChangeBlock(idx, p)}
                     onChangeVariante={(vi, val) => onChangeVariante(idx, vi, val)}
+                    onChangeOcLink={(vi, val) => onChangeOcLink(idx, vi, val)}
                     onRemove={() => hideBlock(idx, tipo, b.numero)}
                     removable={!(tipo === "tecido" && b.numero === 1)}
                   />
@@ -112,6 +115,7 @@ function TecidoBlockEditor({
   artigos,
   onChangeBlock,
   onChangeVariante,
+  onChangeOcLink,
   onRemove,
   removable,
 }: {
@@ -119,6 +123,7 @@ function TecidoBlockEditor({
   artigos: ArtigoOpt[];
   onChangeBlock: (p: Partial<TecidoBlock>) => void;
   onChangeVariante: (vIdx: number, val: string | null) => void;
+  onChangeOcLink: (vIdx: number, val: string | null) => void;
   onRemove: () => void;
   removable: boolean;
 }) {
@@ -182,23 +187,81 @@ function TecidoBlockEditor({
               const available = variantesArtigo.filter(
                 (v) => v.id === current || !usedElsewhere.has(v.id),
               );
-              return (
-                <Select
-                  key={i}
-                  value={current ?? ""}
-                  onValueChange={(v) => onChangeVariante(i, v === "__none__" ? null : v)}
-                >
-                  <SelectTrigger><SelectValue placeholder={`Variante ${i + 1}`} /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">— Remover —</SelectItem>
-                    {available.map((v) => <SelectItem key={v.id} value={v.id}>{v.nome}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              );
+                return (
+                  <div key={i} className="space-y-1">
+                    <Select
+                      value={current ?? ""}
+                      onValueChange={(v) => onChangeVariante(i, v === "__none__" ? null : v)}
+                    >
+                      <SelectTrigger><SelectValue placeholder={`Variante ${i + 1}`} /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">— Remover —</SelectItem>
+                        {available.map((v) => <SelectItem key={v.id} value={v.id}>{v.nome}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    {current && (
+                      <OcLinkSelect
+                        varianteId={current}
+                        value={block.oc_links?.[i] ?? null}
+                        onChange={(val) => onChangeOcLink(i, val)}
+                      />
+                    )}
+                  </div>
+                );
             })}
           </div>
         </div>
       )}
     </Card>
+  );
+}
+
+function OcLinkSelect({
+  varianteId,
+  value,
+  onChange,
+}: {
+  varianteId: string;
+  value: string | null;
+  onChange: (val: string | null) => void;
+}) {
+  const { data: ocs = [] } = useQuery({
+    queryKey: ["ocs-disponiveis-variante", varianteId],
+    enabled: !!varianteId,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("ocs_disponiveis_variante" as any, { _variante_id: varianteId });
+      if (error) throw error;
+      return (data ?? []) as Array<{ oc_tecido_item_id: string; numero_pedido: string; data_entrega: string | null; saldo_m: number }>;
+    },
+  });
+
+  // Garante que o vínculo atual aparece mesmo que saldo == 0 (já consumido pelo próprio modelo)
+  const options = [...ocs];
+  if (value && !options.find((o) => o.oc_tecido_item_id === value)) {
+    options.unshift({ oc_tecido_item_id: value, numero_pedido: "(vínculo)", data_entrega: null, saldo_m: 0 });
+  }
+
+  return (
+    <Select
+      value={value ?? "__fifo__"}
+      onValueChange={(v) => onChange(v === "__fifo__" ? null : v)}
+    >
+      <SelectTrigger className="h-8 text-xs">
+        <SelectValue placeholder="Sem vínculo (FIFO no corte)" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="__fifo__">Sem vínculo (FIFO no corte)</SelectItem>
+        {options.map((o) => {
+          const entrega = o.data_entrega
+            ? new Date(o.data_entrega).toLocaleDateString("pt-BR")
+            : "—";
+          return (
+            <SelectItem key={o.oc_tecido_item_id} value={o.oc_tecido_item_id}>
+              OC {o.numero_pedido} · {entrega} · {Number(o.saldo_m).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}m
+            </SelectItem>
+          );
+        })}
+      </SelectContent>
+    </Select>
   );
 }

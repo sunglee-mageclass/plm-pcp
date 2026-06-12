@@ -903,6 +903,61 @@ export type Database = {
           },
         ]
       }
+      estoque_tecido_baixas: {
+        Row: {
+          cad_id: string
+          created_at: string
+          id: string
+          oc_tecido_item_id: string
+          origem: string
+          quantidade: number
+          tenant_id: string
+          variante_tecido_id: string
+        }
+        Insert: {
+          cad_id: string
+          created_at?: string
+          id?: string
+          oc_tecido_item_id: string
+          origem: string
+          quantidade: number
+          tenant_id: string
+          variante_tecido_id: string
+        }
+        Update: {
+          cad_id?: string
+          created_at?: string
+          id?: string
+          oc_tecido_item_id?: string
+          origem?: string
+          quantidade?: number
+          tenant_id?: string
+          variante_tecido_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "estoque_tecido_baixas_cad_id_fkey"
+            columns: ["cad_id"]
+            isOneToOne: false
+            referencedRelation: "cad"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "estoque_tecido_baixas_oc_tecido_item_id_fkey"
+            columns: ["oc_tecido_item_id"]
+            isOneToOne: false
+            referencedRelation: "ocs_tecido_itens"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "estoque_tecido_baixas_variante_tecido_id_fkey"
+            columns: ["variante_tecido_id"]
+            isOneToOne: false
+            referencedRelation: "variantes_tecido"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       intervalos_largura: {
         Row: {
           created_at: string | null
@@ -1162,6 +1217,67 @@ export type Database = {
             columns: ["modelo_id"]
             isOneToOne: false
             referencedRelation: "modelos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      modelo_tecido_oc_links: {
+        Row: {
+          created_at: string
+          id: string
+          modelo_id: string
+          numero: number
+          oc_tecido_item_id: string
+          ordem: number
+          tenant_id: string
+          tipo: string
+          updated_at: string
+          variante_tecido_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          modelo_id: string
+          numero: number
+          oc_tecido_item_id: string
+          ordem: number
+          tenant_id: string
+          tipo: string
+          updated_at?: string
+          variante_tecido_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          modelo_id?: string
+          numero?: number
+          oc_tecido_item_id?: string
+          ordem?: number
+          tenant_id?: string
+          tipo?: string
+          updated_at?: string
+          variante_tecido_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "modelo_tecido_oc_links_modelo_id_fkey"
+            columns: ["modelo_id"]
+            isOneToOne: false
+            referencedRelation: "modelos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelo_tecido_oc_links_oc_tecido_item_id_fkey"
+            columns: ["oc_tecido_item_id"]
+            isOneToOne: false
+            referencedRelation: "ocs_tecido_itens"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelo_tecido_oc_links_variante_tecido_id_fkey"
+            columns: ["variante_tecido_id"]
+            isOneToOne: false
+            referencedRelation: "variantes_tecido"
             referencedColumns: ["id"]
           },
         ]
@@ -2462,6 +2578,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      baixar_estoque_tecido_corte: { Args: { _cad_id: string }; Returns: Json }
       dashboard_colecao: {
         Args: {
           p_ano?: string
@@ -2479,6 +2596,10 @@ export type Database = {
       dashboard_estoque: { Args: never; Returns: Json }
       dashboard_financeiro: { Args: never; Returns: Json }
       dashboard_producao: { Args: never; Returns: Json }
+      detalhe_estoque_variante: {
+        Args: { _variante_id: string }
+        Returns: Json
+      }
       get_user_tenant_id: { Args: never; Returns: string }
       has_role: {
         Args: {
@@ -2489,9 +2610,19 @@ export type Database = {
       }
       is_super_admin: { Args: never; Returns: boolean }
       is_tenant_admin: { Args: never; Returns: boolean }
+      ocs_disponiveis_variante: {
+        Args: { _variante_id: string }
+        Returns: Json
+      }
       recalcular_parcelas: {
         Args: { _oc_id: string; _tipo: string }
         Returns: Json
+      }
+      saldo_oc_item_m: {
+        Args: { _item_id: string }
+        Returns: {
+          saldo_m: number
+        }[]
       }
     }
     Enums: {

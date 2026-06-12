@@ -1,50 +1,84 @@
-## Plano de correções
+## Objetivo
+Adicionar rastreabilidade de estoque **por OC** (lote) sobre o estoque geral atual, mantendo as fórmulas existentes intactas.
 
-### 1. Cabeçalho padrão (Serviços, OC Tecido, OC Aviamento, Estoque)
-Trocar o `<header>` atual destas 4 páginas pelo mesmo padrão do Atributos: ícone em quadrado `h-12 w-12` com fundo `bg-primary text-primary-foreground`, título `text-2xl font-semibold tracking-tight`, subtítulo `text-sm text-muted-foreground`. Padronizar espaçamento da página (`space-y-6`).
+## Desenho de Banco
 
-Arquivos:
-- `src/routes/_authenticated/cadastro.servico.tsx`
-- `src/routes/_authenticated/entrada-saida.oc-tecido.tsx`
-- `src/routes/_authenticated/entrada-saida.oc-aviamento.tsx`
-- `src/routes/_authenticated/entrada-saida.estoque.tsx`
+### 1. Vínculo OC ↔ Desenvolvimento (reserva manual)
+Nova tabela ligando a variante escolhida no Modelo a uma OC específica:
 
-### 2. Financeiro — calendário clicável
-Cada item dentro da célula vira `<button>` que abre `ParcelaDetailDialog` mostrando: fornecedor, nº pedido, parcela X/Y, valor, vencimento, status, link do comprovante e botão "Marcar pago" (reusa `PagarDialog`). Clicar no dia (com itens) também abre lista do dia.
+```text
+modelo_tecido_variante_ocs
+  id                          uuid PK
+  tenant_id                   uuid
+  modelo_tecido_variante_id   uuid FK → modelo_tecido_variantes(id) ON DELETE CASCADE
+  oc_tecido_item_id           uuid FK → ocs_tecido_itens(id)         -- lote (OC+variante)
+  quantidade_reservada        numeric  -- opcional; default = consumo planejado da variante
+  created_at, updated_at
+  UNIQUE (modelo_tecido_variante_id)   -- 1 vínculo por variante do modelo
+```
 
-Arquivo: `src/routes/_authenticated/financeiro.tsx`.
+> Vínculo a nível de `ocs_tecido_itens` (não de `ocs_tecido`) porque o lote real é "OC + variante". A UI mostra "OC #123" mas grava o item.
 
-### 3. Gerenciar Lojas — botão de edição
-Adicionar coluna "Ações" com botão lápis abrindo `EditarLojaModal` (mesmo formulário do `NovaLojaModal`, em modo edição: nome, CNPJ, contato, logo). UPDATE em `tenants`.
+### 2. Baixa real por OC (consumido no corte)
+Nova tabela de movimentos de baixa, escrita quando o CAD envia ao corte. Substitui o cálculo "sobra = Σrecebido − Σenviado" por algo rastreável por OC:
 
-Arquivo: `src/routes/_authenticated/admin/lojas.tsx`.
+```text
+estoque_tecido_baixas
+  id                          uuid PK
+  tenant_id                   uuid
+  cad_tecido_variante_id      uuid FK → cad_tecido_variantes(id) ON DELETE CASCADE
+  oc_tecido_item_id           uuid FK → ocs_tecido_itens(id)        -- de qual lote saiu
+  variante_tecido_id          uuid                                  -- denormalizado p/ query
+  quantidade                  numeric                               -- em metros
+  origem                      text   -- 'vinculo' | 'fifo'
+  created_at
+  INDEX (variante_tecido_id), INDEX (oc_tecido_item_id)
+```
 
-### 4. Filtros compactos (global)
-Padrão novo: `Label` com `text-xs`, trigger/input com `h-8 text-sm`, larguras `w-40` a `w-48`. Aplicar em todas as barras de filtro (Financeiro, OC Tecido, OC Aviamento, Estoque, Planejamento, Desenvolvimento, Produção, Cadastros).
+Uma única baixa do CAD pode gerar **N linhas** (consome do lote vinculado; se não chega, completa com FIFO de outras OCs da mesma variante).
 
-### 5. OC Tecido — remover busca de artigo
-No `TecidoGroup`, remover o `<Input>` de pesquisa e deixar somente o `<Select>` (que já tem busca interna implícita via teclado). Ajustar layout para um só campo largo.
+### 3. Sem mudança em `ocs_tecido_itens`
+Saldo por OC é **derivado**, nunca persistido:
+```
+recebido(item) = quantidade_recebida (m equivalentes)
+baixado(item) = Σ estoque_tecido_baixas.quantidade WHERE oc_tecido_item_id = item.id
+reservado(item) = Σ modelo_tecido_variante_ocs.quantidade_reservada
+                  WHERE oc_tecido_item_id = item.id E o modelo ainda não foi cortado
+sobra(item) = recebido − baixado − reservado
+```
 
-Arquivo: `src/components/oc-tecido/TecidoGroup.tsx`.
+## Lógica de Baixa (no envio ao corte)
+RPC `baixar_estoque_tecido_corte(cad_id)`:
+1. Para cada `cad_tecido_variantes` com `metragem_enviada > 0`:
+   a. Buscar vínculo manual via `modelo_tecido_variante_ocs` (join cad→modelo→modelo_tecido_variantes).
+   b. Consumir do lote vinculado até a metragem ou até esgotar saldo do lote (`origem='vinculo'`).
+   c. Restante: FIFO por `ocs_tecido.data_entrega ASC, created_at ASC` entre lotes da mesma variante com `sobra > 0` (`origem='fifo'`).
+   d. Inserir uma ou mais linhas em `estoque_tecido_baixas`.
+2. Idempotente: se já houver baixas para aquele `cad_tecido_variante_id`, não duplicar (deletar e recriar, ou checar existência).
 
-### 6. Etiqueta de lavagem por tecido (1 por artigo)
-- Migração: adicionar colunas `etiqueta_lavagem_url_1 text` e `etiqueta_lavagem_url_2 text` em `ocs_tecido`; manter `etiqueta_lavagem_urls` por compatibilidade (preencher na leitura).
-- `OcTecidoRecebimento`: substituir bloco único de etiquetas por dois `FileField` rotulados "Etiqueta de Lavagem — Tecido 1" e "Etiqueta de Lavagem — Tecido 2" (o segundo só aparece se Tecido 2 estiver aberto).
-- Persistência no save (`entrada-saida.oc-tecido.tsx`) usa os novos campos.
+Estoque geral da variante = soma sobre todos os itens — mantém o resultado já exibido.
 
-### 7. Aba "Recebidos" — mostrar Qtd Recebida
-Adicionar coluna **Qtd Recebida** (soma dos itens da OC, com unidades por artigo, ex: "120 m + 8 kg") na tabela da aba Recebidos.
+## Mudanças de UI
 
-Implementação: incluir `ocs_tecido_itens` + `artigos.unidade_medida` no query do `entrada-saida.oc-tecido.tsx` quando `tab === "recebido"`, agregar por OC e passar para `OcTecidoList`.
+### Desenvolvimento (`ModeloTecidosSection`)
+Para cada variante selecionada:
+- Novo `Select` "Vincular OC (opcional)" listando OCs recebidas com saldo > 0 daquela variante, formato: `OC #123 · entrega 12/06/2026 · 50m disponíveis`.
+- Opção "Sem vínculo (FIFO no corte)".
+- Salva/atualiza `modelo_tecido_variante_ocs`.
 
-Arquivos: `src/routes/_authenticated/entrada-saida.oc-tecido.tsx`, `src/components/oc-tecido/OcTecidoList.tsx`. Aplicar mesma lógica em `oc-aviamento.tsx`.
+### Estoque (`entrada-saida.estoque.tsx`)
+- Linha da variante vira expansível (chevron).
+- Ao expandir, query de detalhamento por OC mostrando colunas:
+  `OC #N | Recebido | Baixado | Reservado | Sobra`, ordenado por data de entrega.
 
-### 8. Theme toggle no topo da sidebar
-Mover `ThemeToggleButton` do `SidebarFooter` para o `SidebarHeader` (à direita do bloco "P+ / PLM+PCP / Moda & Confecção"). Botão `size="icon"` `variant="ghost"`, com tooltip mantido.
+## Pontos de atenção
+- **Migração de dados existentes**: criar uma baixa retroativa por CAD já enviado ao corte aplicando o mesmo FIFO, para que a UI de detalhamento mostre histórico coerente desde o início. Sem isso, OCs antigas aparecem com "Baixado: 0".
+- **Cancelar envio ao corte**: hoje a baixa é implícita; ao introduzir tabela explícita, "des-enviar" deve apagar as linhas de `estoque_tecido_baixas` correspondentes.
+- **Unidade**: lotes em Kg precisam ser convertidos para metros equivalentes (`quantidade_recebida × rendimento`) tanto na exibição de saldo quanto na baixa, para casar com `metragem_enviada` que está em metros.
+- **Aviamento**: mesmo padrão é aplicável, mas fora do escopo deste pedido (que falou só de tecido).
 
-Arquivo: `src/components/app-sidebar.tsx`.
-
-### Detalhes técnicos
-- Migração SQL adiciona `etiqueta_lavagem_url_1`, `etiqueta_lavagem_url_2` (TEXT NULL). Sem mudança de RLS.
-- Tipos do `OC` em `shared.ts` recebem os dois novos campos.
-- Nenhuma mudança de regra de negócio em parcelas; o detalhe no calendário apenas reusa dados existentes.
+## Entregáveis da implementação (após aprovar este desenho)
+1. Migration: 2 tabelas + GRANTs + RLS + índices + RPC `baixar_estoque_tecido_corte` + RPC `detalhe_estoque_variante(variante_id)` para a UI de estoque + backfill FIFO dos CADs já cortados.
+2. UI Desenvolvimento: select de vínculo por variante.
+3. UI Estoque: expansão por OC.
+4. Integrar a chamada da RPC no fluxo de "enviar ao corte" do CAD (substituindo/complementando a baixa implícita).

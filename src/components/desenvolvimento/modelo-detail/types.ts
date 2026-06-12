@@ -11,6 +11,7 @@ export type TecidoBlock = {
   loss_percent: number;
   custo_previsto: number;
   variantes: (string | null)[];
+  oc_links: (string | null)[];
 };
 
 export type AviamentoRow = {
@@ -56,6 +57,7 @@ export function makeEmptyBlocks(): TecidoBlock[] {
         loss_percent: 0,
         custo_previsto: 0,
         variantes: Array(10).fill(null),
+        oc_links: Array(10).fill(null),
       });
     }
   });
