@@ -492,10 +492,34 @@ function OcDialog({
   });
 
   const canShowRecebimento = isEdit && status === "encomendado";
+  const parcelas = draft.parcelas_recebimento ?? [];
+  const allParcelasFilled = parcelas.length > 0 && parcelas.every((p) => !!p.data && p.recebido);
   const canMarkReceived =
     canShowRecebimento &&
-    !!draft.data_entrega &&
-    items.some((i) => (i.quantidade_recebida ?? 0) > 0);
+    items.some((i) => (i.quantidade_recebida ?? 0) > 0) &&
+    allParcelasFilled &&
+    !!draft.nf_url;
+
+  const getMissingRequirements = (): string[] => {
+    const m: string[] = [];
+    if (!items.some((i) => (i.quantidade_recebida ?? 0) > 0)) m.push("Preencha a quantidade recebida de pelo menos um aviamento");
+    if (parcelas.length === 0) m.push("Defina a quantidade de parcelas de recebimento");
+    if (parcelas.some((p) => !p.data)) m.push("Preencha a data de todas as parcelas");
+    if (parcelas.some((p) => !p.recebido)) m.push("Marque todas as parcelas como recebidas");
+    if (!draft.nf_url) m.push("Anexe a nota fiscal");
+    return m;
+  };
+
+  const handleMarkReceived = () => {
+    if (!canMarkReceived) {
+      const missing = getMissingRequirements();
+      toast.error("Não é possível marcar como recebido", {
+        description: missing.length ? missing.join(" • ") : undefined,
+      });
+      return;
+    }
+    saveMutation.mutate(true);
+  };
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
