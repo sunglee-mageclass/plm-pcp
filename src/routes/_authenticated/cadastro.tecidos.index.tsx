@@ -103,6 +103,17 @@ function TecidosGallery() {
     },
   });
 
+  const { data: artigoCatLinks = [] } = useQuery({
+    queryKey: ["artigo-cats-all"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("artigo_categorias_tecido")
+        .select("artigo_id, categoria_tecido_id");
+      if (error) throw error;
+      return (data ?? []) as { artigo_id: string; categoria_tecido_id: string }[];
+    },
+  });
+
   const { data: empresas = [] } = useQuery({
     queryKey: ["empresas-options"],
     queryFn: async () => {
