@@ -103,7 +103,42 @@ const terceirizadoConfig: AttributeTabConfig = {
   },
 };
 
+type SectionKey = "empresa" | "representante" | "terceirizado";
+
+const SECTIONS: {
+  value: SectionKey;
+  label: string;
+  table: string;
+  plural: string;
+}[] = [
+  { value: "empresa", label: "Empresa", table: "empresas", plural: "Empresas" },
+  { value: "representante", label: "Representante", table: "representantes", plural: "Representantes" },
+  { value: "terceirizado", label: "Terceirizado", table: "terceirizados", plural: "Terceirizados" },
+];
+
+function useItemCount(table: string) {
+  return useQuery({
+    queryKey: ["servico-count", table],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .from(table as any)
+        .select("id", { count: "exact", head: true });
+      if (error) throw error;
+      return count ?? 0;
+    },
+  });
+}
+
 function ServicoPage() {
+  const [selected, setSelected] = useState<SectionKey>("empresa");
+  const selectedSection =
+    SECTIONS.find((s) => s.value === selected) ?? SECTIONS[0];
+
+  const { data: count, isLoading: countLoading } = useItemCount(
+    selectedSection.table
+  );
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       <header className="flex items-start gap-4">
@@ -118,25 +153,69 @@ function ServicoPage() {
         </div>
       </header>
 
-      <Tabs defaultValue="empresa" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="empresa">Empresa</TabsTrigger>
-          <TabsTrigger value="representante">Representante</TabsTrigger>
-          <TabsTrigger value="terceirizado">Terceirizado</TabsTrigger>
-        </TabsList>
+      {/* Mobile selector */}
+      <div className="md:hidden">
+        <Select value={selected} onValueChange={(v) => setSelected(v as SectionKey)}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SECTIONS.map((s) => (
+              <SelectItem key={s.value} value={s.value}>
+                {s.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
-        <TabsContent value="empresa" className="mt-4">
-          <AttributeTab config={empresaConfig} />
-        </TabsContent>
+      <div className="flex gap-6 rounded-lg border bg-card">
+        {/* Sidebar */}
+        <aside className="hidden md:block w-60 shrink-0 border-r py-4">
+          <nav className="space-y-0.5">
+            {SECTIONS.map((s) => {
+              const active = s.value === selected;
+              return (
+                <button
+                  key={s.value}
+                  type="button"
+                  onClick={() => setSelected(s.value)}
+                  className={cn(
+                    "w-full text-left px-4 py-1.5 text-sm transition-colors border-l-2",
+                    active
+                      ? "bg-muted text-foreground font-medium border-primary"
+                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground border-transparent"
+                  )}
+                >
+                  {s.label}
+                </button>
+              );
+            })}
+          </nav>
+        </aside>
 
-        <TabsContent value="representante" className="mt-4">
-          <RepresentantesTab />
-        </TabsContent>
+        {/* Content */}
+        <div className="flex-1 min-w-0 p-4 space-y-4">
+          <div className="flex items-center justify-between gap-3 border-b pb-3">
+            <div className="min-w-0">
+              <h2 className="text-lg font-semibold truncate">
+                {selectedSection.plural}
+              </h2>
+            </div>
+            <Badge variant="secondary" className="shrink-0">
+              {countLoading
+                ? "…"
+                : `${count ?? 0} ${count === 1 ? "item" : "itens"}`}
+            </Badge>
+          </div>
 
-        <TabsContent value="terceirizado" className="mt-4">
-          <AttributeTab config={terceirizadoConfig} />
-        </TabsContent>
-      </Tabs>
+          {selected === "empresa" && <AttributeTab config={empresaConfig} />}
+          {selected === "representante" && <RepresentantesTab />}
+          {selected === "terceirizado" && (
+            <AttributeTab config={terceirizadoConfig} />
+          )}
+        </div>
+      </div>
     </div>
   );
 }
