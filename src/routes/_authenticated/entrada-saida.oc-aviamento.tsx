@@ -21,6 +21,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 
 import { RequirePermission } from "@/components/RequirePermission";
@@ -257,6 +258,7 @@ function OcAviamentoPage() {
 
 /* ============= DIALOG ============= */
 
+type ParcelaRecebimento = { data: string; recebido: boolean };
 type Draft = {
   numero_pedido: string;
   responsavel_nome: string;
@@ -268,6 +270,7 @@ type Draft = {
   prazo_pagamento: string;
   quantidade_prazos: number;
   nf_url: string | null;
+  parcelas_recebimento: ParcelaRecebimento[];
 };
 function emptyDraft(): Draft {
   return {
@@ -281,6 +284,7 @@ function emptyDraft(): Draft {
     prazo_pagamento: "",
     quantidade_prazos: 1,
     nf_url: null,
+    parcelas_recebimento: [],
   };
 }
 
@@ -322,6 +326,9 @@ function OcDialog({
           prazo_pagamento: oc.prazo_pagamento ?? "",
           quantidade_prazos: oc.quantidade_prazos ?? 1,
           nf_url: oc.nf_url,
+          parcelas_recebimento: Array.isArray((oc as any).parcelas_recebimento)
+            ? ((oc as any).parcelas_recebimento as ParcelaRecebimento[])
+            : [],
         });
         setStatus((oc.status as OCStatus) ?? "encomendado");
         const matchEst = estilistas.find((e) => e.nome === oc.responsavel_nome);
@@ -382,6 +389,7 @@ function OcDialog({
 
   const saveMutation = useMutation({
     mutationFn: async (markReceived: boolean) => {
+      const parcelas = draft.parcelas_recebimento ?? [];
       const payload: any = {
         numero_pedido: draft.numero_pedido || null,
         responsavel_nome: respMode === "select"
@@ -394,6 +402,7 @@ function OcDialog({
         prazo_pagamento: draft.prazo_pagamento || null,
         quantidade_prazos: draft.quantidade_prazos,
         nf_url: draft.nf_url,
+        parcelas_recebimento: parcelas,
         status: markReceived ? "recebido" : status,
       };
 
@@ -484,10 +493,34 @@ function OcDialog({
   });
 
   const canShowRecebimento = isEdit && status === "encomendado";
+  const parcelas = draft.parcelas_recebimento ?? [];
+  const allParcelasFilled = parcelas.length > 0 && parcelas.every((p) => !!p.data && p.recebido);
   const canMarkReceived =
     canShowRecebimento &&
-    !!draft.data_entrega &&
-    items.some((i) => (i.quantidade_recebida ?? 0) > 0);
+    items.some((i) => (i.quantidade_recebida ?? 0) > 0) &&
+    allParcelasFilled &&
+    !!draft.nf_url;
+
+  const getMissingRequirements = (): string[] => {
+    const m: string[] = [];
+    if (!items.some((i) => (i.quantidade_recebida ?? 0) > 0)) m.push("Preencha a quantidade recebida de pelo menos um aviamento");
+    if (parcelas.length === 0) m.push("Defina a quantidade de parcelas de recebimento");
+    if (parcelas.some((p) => !p.data)) m.push("Preencha a data de todas as parcelas");
+    if (parcelas.some((p) => !p.recebido)) m.push("Marque todas as parcelas como recebidas");
+    if (!draft.nf_url) m.push("Anexe a nota fiscal");
+    return m;
+  };
+
+  const handleMarkReceived = () => {
+    if (!canMarkReceived) {
+      const missing = getMissingRequirements();
+      toast.error("Não é possível marcar como recebido", {
+        description: missing.length ? missing.join(" • ") : undefined,
+      });
+      return;
+    }
+    saveMutation.mutate(true);
+  };
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -561,6 +594,26 @@ function OcDialog({
             <div className="grid gap-1">
               <Label>Qtd de Prazos</Label>
               <Input type="number" value={draft.quantidade_prazos} readOnly disabled />
+            </div>
+
+            <div className="grid gap-1">
+              <Label>Qtd. Parcelas de Recebimento</Label>
+              <Input
+                type="number"
+                min={1}
+                max={24}
+                value={draft.parcelas_recebimento?.length || 1}
+                onChange={(e) => {
+                  const n = Math.max(1, Math.min(24, Number(e.target.value) || 1));
+                  setDraft((d) => {
+                    const prev = d.parcelas_recebimento ?? [];
+                    const next: ParcelaRecebimento[] = Array.from({ length: n }, (_, i) =>
+                      prev[i] ?? { data: "", recebido: false },
+                    );
+                    return { ...d, parcelas_recebimento: next };
+                  });
+                }}
+              />
             </div>
           </div>
 
@@ -659,6 +712,50 @@ function OcDialog({
                   )}
                 </div>
               </div>
+
+              <div className="grid gap-2">
+                <Label className="text-sm">Parcelas de Recebimento</Label>
+                {parcelas.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">
+                    Defina a quantidade de parcelas no campo acima.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {parcelas.map((p, idx) => (
+                      <div key={idx} className="flex items-center gap-3 rounded-md border p-2">
+                        <span className="text-xs font-medium w-20">Parcela {idx + 1}</span>
+                        <Input
+                          type="date"
+                          className="flex-1 max-w-[200px]"
+                          value={p.data}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setDraft((d) => {
+                              const arr = [...(d.parcelas_recebimento ?? [])];
+                              arr[idx] = { ...arr[idx], data: val };
+                              return { ...d, parcelas_recebimento: arr };
+                            });
+                          }}
+                        />
+                        <label className="flex items-center gap-2 text-xs">
+                          <Checkbox
+                            checked={p.recebido}
+                            onCheckedChange={(checked) => {
+                              setDraft((d) => {
+                                const arr = [...(d.parcelas_recebimento ?? [])];
+                                arr[idx] = { ...arr[idx], recebido: !!checked };
+                                return { ...d, parcelas_recebimento: arr };
+                              });
+                            }}
+                          />
+                          Recebida
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div className="text-sm">
                 <OcPrazoBadge dataPrevista={draft.data_prevista_entrega} dataEntrega={draft.data_entrega} />
               </div>
@@ -669,7 +766,7 @@ function OcDialog({
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
           {canShowRecebimento && (
-            <Button variant="secondary" onClick={() => saveMutation.mutate(true)} disabled={saveMutation.isPending || !canMarkReceived}>
+            <Button variant="secondary" onClick={handleMarkReceived} disabled={saveMutation.isPending}>
               Marcar como Recebido
             </Button>
           )}
