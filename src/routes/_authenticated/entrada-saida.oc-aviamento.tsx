@@ -158,9 +158,19 @@ function OcAviamentoPage() {
             <p className="text-sm text-muted-foreground mt-1">Ordens de compra de aviamentos.</p>
           </div>
         </div>
-        <Button onClick={() => { setEditingId(null); setOpenNew(true); }}>
-          <Plus className="h-4 w-4 mr-1" /> Nova OC
-        </Button>
+        <div className="flex items-center gap-2">
+          <FilterButton
+            filters={[
+              { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
+              ...(tab === "encomendado"
+                ? [{ label: "Responsável", value: filterResp, onChange: setFilterResp, options: [{ id: "all", nome: "Todos" }, ...estilistas.map((e) => ({ id: e.nome, nome: e.nome }))] }]
+                : []),
+            ]}
+          />
+          <Button onClick={() => { setEditingId(null); setOpenNew(true); }}>
+            <Plus className="h-4 w-4 mr-1" /> Nova OC
+          </Button>
+        </div>
       </header>
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as OCStatus)}>
@@ -168,31 +178,6 @@ function OcAviamentoPage() {
           <TabsTrigger value="encomendado">Encomendados</TabsTrigger>
           <TabsTrigger value="recebido">Recebidos</TabsTrigger>
         </TabsList>
-
-        <Card className="p-4 mt-4 flex flex-wrap gap-3 items-end">
-          <div className="grid gap-1">
-            <Label className="text-xs">Fornecedor</Label>
-            <Select value={filterEmpresa} onValueChange={setFilterEmpresa}>
-              <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos</SelectItem>
-                {empresas.map((e) => <SelectItem key={e.id} value={e.id}>{e.nome_fantasia}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          {tab === "encomendado" && (
-            <div className="grid gap-1">
-              <Label className="text-xs">Responsável</Label>
-              <Select value={filterResp} onValueChange={setFilterResp}>
-                <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  {estilistas.map((e) => <SelectItem key={e.id} value={e.nome}>{e.nome}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-        </Card>
 
         <TabsContent value="encomendado" className="mt-4">
           <Card>
