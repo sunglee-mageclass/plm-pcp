@@ -635,6 +635,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 grades={grades}
                 onChangeGradeTotal={updateGradeTotal}
                 onChangeGradeCell={updateGradeCell}
+                tecido1Variantes={tecido1VariantesInfo}
               />
             </AccordionContent>
           </AccordionItem>
