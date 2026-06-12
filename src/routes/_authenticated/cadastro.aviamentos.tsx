@@ -373,7 +373,7 @@ function AviamentoCard({
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const url = useSignedUrl(aviamento.foto_url);
+  const url = useSignedUrl(aviamento.foto_url, "aviamentos");
   return (
     <Card className="overflow-hidden h-full group">
       <div className="aspect-square bg-muted relative">
