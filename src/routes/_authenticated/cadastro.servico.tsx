@@ -188,7 +188,7 @@ function ServicoPage() {
             </Badge>
           </div>
 
-          {selected === "empresa" && <AttributeTab config={empresaConfig} />}
+          {selected === "empresa" && <EmpresasMultiCatTab />}
           {selected === "representante" && <RepresentantesTab />}
           {selected === "terceirizado" && (
             <AttributeTab config={terceirizadoConfig} />
