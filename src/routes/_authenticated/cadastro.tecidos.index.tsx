@@ -186,7 +186,7 @@ function TecidosGallery() {
       }
     });
     return list;
-  }, [artigos, empresaFilter, catFilter, sort, search]);
+  }, [artigos, empresaFilter, catFilter, sort, search, catsByArtigo]);
 
   const createMut = useMutation({
     mutationFn: async (form: { nome: string; unidade_medida: string }) => {
