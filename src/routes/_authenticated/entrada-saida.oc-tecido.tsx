@@ -344,6 +344,10 @@ function OcDialog({
 
   const saveMutation = useMutation({
     mutationFn: async (markReceived: boolean) => {
+      const parcelas = draft.parcelas_recebimento ?? [];
+      const lastDate = parcelas.length > 0
+        ? [...parcelas].map((p) => p.data).filter(Boolean).sort().slice(-1)[0] ?? draft.data_entrega
+        : draft.data_entrega;
       const payload: any = {
         numero_pedido: draft.numero_pedido || null,
         responsavel_id: respMode === "select" ? draft.responsavel_id : null,
@@ -358,7 +362,8 @@ function OcDialog({
         anexo_pedido_url: draft.anexo_pedido_url,
         modelo_sugerido_url: draft.modelo_sugerido_url,
         nf_url: draft.nf_url,
-        data_entrega: draft.data_entrega || null,
+        data_entrega: markReceived ? (lastDate || null) : (draft.data_entrega || null),
+        parcelas_recebimento: parcelas,
         valor_previsto_total: totalPrevisto,
         valor_real_total: totalReal,
         status: markReceived ? "recebido" : status,
