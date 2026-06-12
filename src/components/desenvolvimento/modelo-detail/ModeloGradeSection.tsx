@@ -5,6 +5,8 @@ import { Separator } from "@/components/ui/separator";
 import { Field } from "./shared";
 import type { GradeRow } from "./types";
 
+export type GradeVarianteInfo = { numero: number; label: string };
+
 export function ModeloGradeSection({
   tamanhos,
   proporcoes,
@@ -12,6 +14,7 @@ export function ModeloGradeSection({
   grades,
   onChangeGradeTotal,
   onChangeGradeCell,
+  tecido1Variantes,
 }: {
   tamanhos: string[];
   proporcoes: Record<string, number>;
@@ -19,6 +22,7 @@ export function ModeloGradeSection({
   grades: GradeRow[];
   onChangeGradeTotal: (n: number, total: number) => void;
   onChangeGradeCell: (n: number, tam: string, qty: number) => void;
+  tecido1Variantes: GradeVarianteInfo[];
 }) {
   const ensureGrade = (n: number): GradeRow =>
     grades.find((g) => g.variante_numero === n) ?? { variante_numero: n, grades: {}, grade_total: 0 };
@@ -40,42 +44,49 @@ export function ModeloGradeSection({
         </div>
       </div>
       <Separator />
-      <div className="space-y-2">
-        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => {
-          const g = ensureGrade(n);
-          const hasAny = g.grade_total > 0 || Object.values(g.grades).some((v) => v > 0);
-          if (!hasAny && n > 1 && !grades.find((x) => x.variante_numero === n - 1 && x.grade_total > 0)) return null;
-          return (
-            <Card key={n} className="p-3 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold">Variante {n}</span>
-                <div className="flex items-center gap-2">
-                  <Label className="text-xs">Grade Total</Label>
-                  <Input
-                    className="w-24 bg-muted"
-                    type="number"
-                    readOnly
-                    tabIndex={-1}
-                    value={g.grade_total}
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                {tamanhos.map((t) => (
-                  <Field key={t} label={t}>
+      {tecido1Variantes.length === 0 ? (
+        <p className="text-sm text-muted-foreground italic">
+          Selecione as variantes do Tecido 1 para preencher a grade.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {tecido1Variantes.map(({ numero: n, label }) => {
+            const g = ensureGrade(n);
+            return (
+              <Card key={n} className="p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold">
+                    Variante {n}
+                    {label ? <span className="text-muted-foreground font-normal"> — {label}</span> : null}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs">Grade Total</Label>
                     <Input
+                      className="w-24 bg-muted"
                       type="number"
-                      min={0}
-                      value={g.grades[t] ?? 0}
-                      onChange={(e) => onChangeGradeCell(n, t, Number(e.target.value) || 0)}
+                      readOnly
+                      tabIndex={-1}
+                      value={g.grade_total}
                     />
-                  </Field>
-                ))}
-              </div>
-            </Card>
-          );
-        })}
-      </div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                  {tamanhos.map((t) => (
+                    <Field key={t} label={t}>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={g.grades[t] ?? 0}
+                        onChange={(e) => onChangeGradeCell(n, t, Number(e.target.value) || 0)}
+                      />
+                    </Field>
+                  ))}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
