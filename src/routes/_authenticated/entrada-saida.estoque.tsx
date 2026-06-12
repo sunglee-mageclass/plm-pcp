@@ -262,12 +262,12 @@ function TecidosTab() {
               </thead>
               <tbody>
                 {g.rows.map((r: any) => (
-                  <tr key={r.varId} className={cn("border-b last:border-0", r.fisico <= 0 && "bg-destructive/10")}>
+                  <tr key={r.varId} className={cn("border-b last:border-0", r.fisico <= threshold && "bg-destructive/10")}>
                     <td className="py-2 pr-3">{r.nomeVariante}</td>
                     <td className="py-2 pr-3 text-right">{fmt(r.prevReceb)}</td>
                     <td className="py-2 pr-3 text-right">{fmt(r.recebido)}</td>
                     <td className="py-2 pr-3 text-right">{fmt(r.baixa)}</td>
-                    <td className={cn("py-2 pr-3 text-right font-medium", r.fisico <= 0 && "text-destructive")}>{fmt(r.fisico)}</td>
+                    <td className={cn("py-2 pr-3 text-right font-medium", r.fisico <= threshold && "text-destructive")}>{fmt(r.fisico)}</td>
                     <td className="py-2 pr-3 text-right">{fmt(r.reservado)}</td>
                     <td className="py-2 pr-3 text-right">{fmt(r.previsto)}</td>
                   </tr>
@@ -429,14 +429,14 @@ function AviamentosTab() {
             </thead>
             <tbody>
               {filtered.map((r: any) => (
-                <tr key={r.id} className={cn("border-b last:border-0", r.fisico <= 0 && "bg-destructive/10")}>
+                <tr key={r.id} className={cn("border-b last:border-0", r.fisico <= threshold && "bg-destructive/10")}>
                   <td className="py-2 pr-3">{r.nome}</td>
                   <td className="py-2 pr-3">{r.fornecedor}</td>
                   <td className="py-2 pr-3">{r.categoria}</td>
                   <td className="py-2 pr-3 text-right">{fmt(r.prevReceb)}</td>
                   <td className="py-2 pr-3 text-right">{fmt(r.recebido)}</td>
                   <td className="py-2 pr-3 text-right">{fmt(r.baixa)}</td>
-                  <td className={cn("py-2 pr-3 text-right font-medium", r.fisico <= 0 && "text-destructive")}>{fmt(r.fisico)}</td>
+                  <td className={cn("py-2 pr-3 text-right font-medium", r.fisico <= threshold && "text-destructive")}>{fmt(r.fisico)}</td>
                   <td className="py-2 pr-3 text-right">{fmt(r.reservado)}</td>
                   <td className="py-2 pr-3 text-right">{fmt(r.previsto)}</td>
                 </tr>
