@@ -18,11 +18,13 @@ export function ModeloTecidosSection({
   artigos,
   onChangeBlock,
   onChangeVariante,
+  onChangeOcLink,
 }: {
   blocks: TecidoBlock[];
   artigos: ArtigoOpt[];
   onChangeBlock: (idx: number, patch: Partial<TecidoBlock>) => void;
   onChangeVariante: (idx: number, vIdx: number, value: string | null) => void;
+  onChangeOcLink: (idx: number, vIdx: number, value: string | null) => void;
 }) {
   const [visible, setVisible] = useState<Set<string>>(new Set());
 
