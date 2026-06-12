@@ -4,6 +4,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
 import { fmtDate, fmtMoney, type Colab, type Empresa, type OC, type OCStatus } from "./shared";
 
 export function OcTecidoList({
@@ -58,7 +59,7 @@ export function OcTecidoList({
                   <TableCell>{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</TableCell>
                   <TableCell>{fmtDate(o.data_prevista_entrega)}</TableCell>
                   <TableCell>{fmtMoney(o.valor_previsto_total ?? 0)}</TableCell>
-                  <TableCell><Badge variant="outline">Aguardando</Badge></TableCell>
+                  <TableCell><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} /></TableCell>
                   <TableCell></TableCell>
                 </TableRow>
               ))}
@@ -75,19 +76,21 @@ export function OcTecidoList({
                 <TableHead>Nº Pedido</TableHead>
                 <TableHead>Fornecedor</TableHead>
                 <TableHead>Data Entrega</TableHead>
+                <TableHead>Mensagem</TableHead>
                 <TableHead>Qtd Recebida</TableHead>
                 <TableHead>Valor Real</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {ocs.length === 0 && (
-                <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">Nenhuma OC recebida.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">Nenhuma OC recebida.</TableCell></TableRow>
               )}
               {ocs.map((o) => (
                 <TableRow key={o.id} className="cursor-pointer" onClick={() => onRowClick(o.id)}>
                   <TableCell className="font-medium">{o.numero_pedido ?? "—"}</TableCell>
                   <TableCell>{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</TableCell>
                   <TableCell>{fmtDate(o.data_entrega)}</TableCell>
+                  <TableCell><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} /></TableCell>
                   <TableCell>{qtdRecebidaByOc?.[o.id] ?? "—"}</TableCell>
                   <TableCell>{fmtMoney(o.valor_real_total)}</TableCell>
                 </TableRow>
