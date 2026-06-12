@@ -116,7 +116,7 @@ function TecidosTab() {
 
       for (const it of ocItens) {
         if (!it.variante_tecido_id) continue;
-        const art: any = artById.get(it.artigo_id);
+        const art: any = it.artigo_id ? artById.get(it.artigo_id) : undefined;
         const acc = get(it.variante_tecido_id);
         if ((it as any).ocs_tecido?.status === "encomendado") {
           acc.prevReceb += num(it.quantidade_pedida);
