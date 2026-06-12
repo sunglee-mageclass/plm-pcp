@@ -1,5 +1,5 @@
 import { createFileRoute, Link, Navigate } from "@tanstack/react-router";
-import { Shield, Building2, Users, UserCog, Settings } from "lucide-react";
+import { Shield, Building2, Users, UserCog, Settings, Palette } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/useAuth";
@@ -19,6 +19,7 @@ function AdminPage() {
     ? [
         { to: "/admin/lojas", icon: Building2, title: "Gerenciar Lojas", description: "Criar, editar e desativar lojas do sistema." },
         { to: "/admin/usuarios", icon: Users, title: "Gerenciar Usuários", description: "Visão global de usuários e papéis de todas as lojas." },
+        { to: "/admin/identidade", icon: Palette, title: "Identidade do Sistema", description: "Nome, subtítulo, logo e favicon exibidos no sistema." },
       ]
     : isTenantAdmin
       ? [

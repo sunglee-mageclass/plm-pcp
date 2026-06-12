@@ -50,6 +50,7 @@ import { Button } from "@/components/ui/button";
 import { PAGES_CATALOG } from "@/lib/permissions-catalog";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useSystemIdentity } from "@/hooks/useSystemIdentity";
 
 const MODULE_META: Record<string, { title: string; icon: typeof BarChart3 }> = {
   dashboard: { title: "Dashboard", icon: BarChart3 },
@@ -134,15 +135,7 @@ export function AppSidebar() {
     <Sidebar collapsible="icon">
       <SidebarHeader className="border-b">
         <div className="flex items-center gap-2 px-2 py-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold text-sm">
-            P+
-          </div>
-          {!collapsed && (
-            <div className="flex flex-col flex-1 min-w-0">
-              <span className="text-sm font-semibold leading-none">PLM+PCP</span>
-              <span className="text-xs text-muted-foreground mt-0.5">Moda & Confecção</span>
-            </div>
-          )}
+          <SystemBrand collapsed={collapsed} />
           <ThemeToggleButton collapsed={collapsed} />
         </div>
       </SidebarHeader>
@@ -331,5 +324,29 @@ function ThemeToggleButton({ collapsed }: { collapsed: boolean }) {
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
+  );
+}
+
+function SystemBrand({ collapsed }: { collapsed: boolean }) {
+  const identity = useSystemIdentity();
+  const initials = (identity.nome_sistema || "P+").slice(0, 2).toUpperCase();
+  return (
+    <>
+      <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold text-sm overflow-hidden">
+        {identity.logoSignedUrl ? (
+          <img src={identity.logoSignedUrl} alt={identity.nome_sistema} className="h-full w-full object-contain" />
+        ) : (
+          initials
+        )}
+      </div>
+      {!collapsed && (
+        <div className="flex flex-col flex-1 min-w-0">
+          <span className="text-sm font-semibold leading-none truncate">{identity.nome_sistema}</span>
+          {identity.subtitulo && (
+            <span className="text-xs text-muted-foreground mt-0.5 truncate">{identity.subtitulo}</span>
+          )}
+        </div>
+      )}
+    </>
   );
 }

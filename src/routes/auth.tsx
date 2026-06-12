@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable/index";
 import { useAuth } from "@/hooks/useAuth";
+import { useApplySystemIdentity } from "@/hooks/useSystemIdentity";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,6 +19,7 @@ export const Route = createFileRoute("/auth")({
 function AuthPage() {
   const navigate = useNavigate();
   const { user, loading } = useAuth();
+  const identity = useApplySystemIdentity();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
@@ -77,13 +79,17 @@ function AuthPage() {
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold">
-            P+
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold overflow-hidden">
+            {identity.logoSignedUrl ? (
+              <img src={identity.logoSignedUrl} alt={identity.nome_sistema} className="h-full w-full object-contain" />
+            ) : (
+              (identity.nome_sistema || "P+").slice(0, 2).toUpperCase()
+            )}
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">PLM+PCP</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Gestão de criação e produção de moda
-          </p>
+          <h1 className="text-2xl font-semibold tracking-tight">{identity.nome_sistema}</h1>
+          {identity.subtitulo && (
+            <p className="text-sm text-muted-foreground mt-1">{identity.subtitulo}</p>
+          )}
         </div>
 
         <Card>
