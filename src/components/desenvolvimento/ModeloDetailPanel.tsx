@@ -432,6 +432,26 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     setBlocks((bs) => bs.map((b, i) => i === idx ? recomputeBlock({ ...b, ...patch }, artigoMap) : b));
   };
   const updateBlockVariante = (idx: number, vIdx: number, value: string | null) => {
+    const target = blocks[idx];
+    const isTecido1 = target?.tipo === "tecido" && target?.numero === 1;
+    if (isTecido1 && !value) {
+      // Verifica se há grade preenchida nesta variante ou nas que serão removidas em cascata
+      const affected: number[] = [];
+      for (let k = vIdx; k < target.variantes.length; k++) {
+        const n = k + 1;
+        const g = grades.find((x) => x.variante_numero === n);
+        const hasGrade = !!g && (g.grade_total > 0 || Object.values(g.grades || {}).some((v) => (v ?? 0) > 0));
+        if (hasGrade) affected.push(n);
+      }
+      if (affected.length > 0) {
+        const lista = affected.map((n) => `Variante ${n}`).join(", ");
+        const msg = affected.length === 1
+          ? `A ${lista} possui grade preenchida. Remover mesmo assim?`
+          : `As variantes ${lista} possuem grade preenchida. Remover mesmo assim?`;
+        if (!window.confirm(msg)) return;
+        setGrades((gs) => gs.filter((g) => !affected.includes(g.variante_numero)));
+      }
+    }
     setBlocks((bs) => bs.map((b, i) => {
       if (i !== idx) return b;
       const variantes = [...b.variantes];
