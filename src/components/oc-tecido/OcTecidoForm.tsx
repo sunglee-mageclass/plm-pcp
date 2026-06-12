@@ -96,6 +96,26 @@ export function OcTecidoForm({
         </div>
 
         <div className="grid gap-1">
+          <Label>Qtd. Parcelas de Recebimento</Label>
+          <Input
+            type="number"
+            min={1}
+            max={24}
+            value={draft.parcelas_recebimento?.length || 1}
+            onChange={(e) => {
+              const n = Math.max(1, Math.min(24, Number(e.target.value) || 1));
+              setDraft((d) => {
+                const prev = d.parcelas_recebimento ?? [];
+                const next = Array.from({ length: n }, (_, i) =>
+                  prev[i] ?? { data: "", recebido: false },
+                );
+                return { ...d, parcelas_recebimento: next };
+              });
+            }}
+          />
+        </div>
+
+        <div className="grid gap-1">
           <Label>Qtd de Prazos (1-6)</Label>
           <Input type="number" min={1} max={6} value={draft.quantidade_prazos}
             onChange={(e) => setDraft((d) => ({ ...d, quantidade_prazos: Math.max(1, Math.min(6, Number(e.target.value) || 1)) }))} />
