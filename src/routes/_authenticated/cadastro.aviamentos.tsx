@@ -47,8 +47,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+import { RequirePermission } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/cadastro/aviamentos")({
-  component: AviamentosGallery,
+  component: () => (
+    <RequirePermission page="cadastro_aviamentos">
+      <AviamentosGallery />
+    </RequirePermission>
+  ),
 });
 
 type Aviamento = {

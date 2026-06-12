@@ -19,8 +19,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 
+import { RequirePermission } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/criacao/planejamento")({
-  component: PlanejamentoPage,
+  component: () => (
+    <RequirePermission page="criacao_planejamento">
+      <PlanejamentoPage />
+    </RequirePermission>
+  ),
 });
 
 const BUCKET = "modelos";

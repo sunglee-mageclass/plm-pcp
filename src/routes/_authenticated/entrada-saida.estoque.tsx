@@ -10,8 +10,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Boxes, ArrowLeft, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+import { RequirePermission } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/entrada-saida/estoque")({
-  component: EstoquePage,
+  component: () => (
+    <RequirePermission page="entrada_estoque">
+      <EstoquePage />
+    </RequirePermission>
+  ),
 });
 
 const num = (v: any) => Number(v ?? 0) || 0;

@@ -11,8 +11,13 @@ import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ModeloDetailPanel } from "@/components/desenvolvimento/ModeloDetailPanel";
 
+import { RequirePermission } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/criacao/desenvolvimento")({
-  component: DesenvolvimentoPage,
+  component: () => (
+    <RequirePermission page="criacao_desenvolvimento">
+      <DesenvolvimentoPage />
+    </RequirePermission>
+  ),
 });
 
 const BUCKET = "modelos";

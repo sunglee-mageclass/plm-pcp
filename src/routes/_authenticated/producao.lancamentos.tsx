@@ -10,8 +10,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
+import { RequirePermission } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/producao/lancamentos")({
-  component: LancamentosPage,
+  component: () => (
+    <RequirePermission page="producao_lancamentos">
+      <LancamentosPage />
+    </RequirePermission>
+  ),
 });
 
 type LancCard = {

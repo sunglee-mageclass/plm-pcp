@@ -23,8 +23,13 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 
+import { RequirePermission } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/entrada-saida/oc-aviamento")({
-  component: OcAviamentoPage,
+  component: () => (
+    <RequirePermission page="entrada_oc_aviamento">
+      <OcAviamentoPage />
+    </RequirePermission>
+  ),
 });
 
 const BUCKET = "oc-aviamento";
