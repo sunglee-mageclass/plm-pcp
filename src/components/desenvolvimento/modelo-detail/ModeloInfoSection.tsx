@@ -21,6 +21,7 @@ export function ModeloInfoSection({
   canEnviarCad,
   onEnviarCad,
   enviarCadPending,
+  statusOptions,
 }: {
   draft: Draft;
   setDraft: (d: Draft) => void;
@@ -32,7 +33,14 @@ export function ModeloInfoSection({
   canEnviarCad: boolean;
   onEnviarCad: () => void;
   enviarCadPending: boolean;
+  statusOptions?: StatusOpt[];
 }) {
+  const statusList = statusOptions && statusOptions.length > 0 ? statusOptions : STATUS_DESENV_OPTS;
+  const currentValue = draft.status_desenvolvimento ?? "";
+  const hasCurrent = statusList.some((s) => s.value === currentValue);
+  const renderList = hasCurrent || !currentValue
+    ? statusList
+    : [...statusList, { value: currentValue, label: currentValue }];
   return (
     <div className="space-y-3">
       <div className="grid sm:grid-cols-2 gap-3">
@@ -40,10 +48,10 @@ export function ModeloInfoSection({
           <Input value={draft.nome} onChange={(e) => setDraft({ ...draft, nome: e.target.value })} />
         </Field>
         <Field label="Status">
-          <Select value={draft.status_desenvolvimento} onValueChange={(v) => setDraft({ ...draft, status_desenvolvimento: v })}>
+          <Select value={currentValue} onValueChange={(v) => setDraft({ ...draft, status_desenvolvimento: v })}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
-              {STATUS_DESENV_OPTS.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+              {renderList.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
             </SelectContent>
           </Select>
         </Field>
