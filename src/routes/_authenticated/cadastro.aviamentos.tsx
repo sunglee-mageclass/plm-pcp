@@ -495,6 +495,10 @@ function AviamentoModal({
     } else {
       setForm(emptyForm);
     }
+    setLocalPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
   }, [initial, open]);
 
   const filteredSub = subcategorias.filter(
