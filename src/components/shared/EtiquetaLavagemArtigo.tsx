@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { ImagePreview } from "@/components/shared/ImagePreview";
 
 const BUCKET = "oc-tecido";
 
