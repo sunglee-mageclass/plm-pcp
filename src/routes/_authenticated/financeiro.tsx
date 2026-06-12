@@ -17,8 +17,13 @@ import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } from "recharts";
 
+import { RequirePermission } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/financeiro")({
-  component: FinanceiroPage,
+  component: () => (
+    <RequirePermission anyOf={["financeiro_parcelas","financeiro_calendario"]}>
+      <FinanceiroPage />
+    </RequirePermission>
+  ),
 });
 
 type Parcela = {
