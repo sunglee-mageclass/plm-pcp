@@ -227,7 +227,7 @@ const emptyForm = {
   contato: "",
   observacoes: "",
   novaEmpresa: "",
-  novaEmpresaCategoria: "",
+  novaEmpresaCategorias: [] as string[],
   modoNovaEmpresa: false,
 };
 
