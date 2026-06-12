@@ -258,6 +258,32 @@ function ParcelaDetailDialog({
   onClose: () => void;
   onMarkPaid: (id: string) => void;
 }) {
+  const qc = useQueryClient();
+  const { isAdmin, isSuperAdmin, isTenantAdmin } = useAuth();
+  const canRecalc = isAdmin || isSuperAdmin || isTenantAdmin;
+
+  const recalcMut = useMutation({
+    mutationFn: async () => {
+      if (!parcela) return;
+      const ocId = parcela.oc_tecido_id ?? parcela.oc_aviamento_id;
+      if (!ocId) throw new Error("Parcela sem OC vinculada");
+      const { data, error } = await supabase.rpc("recalcular_parcelas" as any, {
+        _oc_id: ocId,
+        _tipo: parcela.tipo_oc,
+      });
+      if (error) throw error;
+      return data as any;
+    },
+    onSuccess: (data: any) => {
+      toast.success(
+        `Parcelas recalculadas: ${data?.criadas ?? 0} criadas, ${data?.deletadas ?? 0} removidas, ${data?.preservadas_pagas ?? 0} pagas preservadas.`,
+      );
+      qc.invalidateQueries({ queryKey: ["parcelas"] });
+      onClose();
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao recalcular"),
+  });
+
   if (!parcela) return null;
   const st = effectiveStatus(parcela);
   const ocNumero = parcela.ocs_tecido?.numero_pedido ?? parcela.ocs_aviamento?.numero_pedido ?? "—";
@@ -285,8 +311,21 @@ function ParcelaDetailDialog({
             <div><a href={parcela.comprovante_url} target="_blank" rel="noreferrer" className="text-primary">Ver comprovante</a></div>
           )}
         </div>
-        <DialogFooter>
+        <DialogFooter className="gap-2">
           <Button variant="ghost" onClick={onClose}>Fechar</Button>
+          {canRecalc && (
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (confirm("Recalcular parcelas desta OC? Parcelas pagas serão preservadas; as demais serão regeradas com os valores atuais.")) {
+                  recalcMut.mutate();
+                }
+              }}
+              disabled={recalcMut.isPending}
+            >
+              Recalcular Parcelas
+            </Button>
+          )}
           {st !== "pago" && (
             <Button onClick={() => onMarkPaid(parcela.id)}>Marcar pago</Button>
           )}
