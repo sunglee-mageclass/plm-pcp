@@ -412,7 +412,7 @@ function AviamentosTab() {
     queryFn: async () => {
       const [aviamentosRes, ocItensRes, cadAvRes, modAvRes, modelosRes, modGradesRes] = await Promise.all([
         supabase.from("aviamentos").select("id, codigo_nome, empresa_id, categoria_aviamento_id, empresas(nome_fantasia), categorias_aviamento(nome)"),
-        supabase.from("ocs_aviamento_itens").select("aviamento_id, quantidade_pedida, quantidade_recebida, oc_aviamento_id, ocs_aviamento!inner(status)"),
+        supabase.from("ocs_aviamento_itens").select("aviamento_id, quantidade_pedida, quantidade_recebida, cancelado, oc_aviamento_id, ocs_aviamento!inner(status)"),
         supabase.from("cad_aviamentos").select("aviamento_id, quantidade_enviar, quantidade_separar, cad!inner(enviado_corte)"),
         supabase.from("modelo_aviamentos").select("modelo_id, aviamento_id, consumo"),
         supabase.from("modelos").select("id, data_aprovacao, enviado_cad"),
