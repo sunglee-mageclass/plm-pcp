@@ -180,7 +180,7 @@ function EstoqueTab() {
       <div className="grid gap-4 sm:grid-cols-3">
         <Kpi label="Variantes de Tecido" value={totalVariantes} icon={Boxes} />
         <Kpi label="Aviamentos" value={totalAviamentos} icon={Package} />
-        <Kpi label={threshold > 0 ? `Itens com estoque ≤ ${fmtNum(threshold)}` : "Itens com estoque ≤ 0"} value={zerados} icon={AlertTriangle} />
+        <Kpi label={threshold > 0 ? `Itens com estoque ≤ ${threshold.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}` : "Itens com estoque ≤ 0"} value={zerados} icon={AlertTriangle} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
