@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FilterButton, SearchToggle } from "@/components/shared/filters";
 
 import { RequirePermission } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/producao/lancamentos")({
@@ -141,48 +142,26 @@ function LancamentosPage() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
-      <header className="flex items-center gap-3">
-        <Rocket className="h-7 w-7 text-primary" />
-        <div>
-          <h1 className="text-2xl font-bold">Lançamentos</h1>
-          <p className="text-sm text-muted-foreground">Produtos que completaram todo o fluxo de produção.</p>
+      <header className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Rocket className="h-7 w-7 text-primary" />
+          <div>
+            <h1 className="text-2xl font-bold">Lançamentos</h1>
+            <p className="text-sm text-muted-foreground">Produtos que completaram todo o fluxo de produção.</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <SearchToggle value={q} onChange={setQ} placeholder="REF ou nome…" />
+          <FilterButton
+            filters={[
+              { label: "Semana", value: fSemana, onChange: setFSemana, options: [{ id: "all", nome: "Todas" }, ...semanas.map((s) => ({ id: s, nome: s }))] },
+              { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...(meses as any[]).map((m) => ({ id: m.id, nome: m.nome }))] },
+              { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...(anos as any[]).map((a) => ({ id: a.id, nome: a.nome }))] },
+              { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
+            ]}
+          />
         </div>
       </header>
-
-      <Card className="p-4 grid gap-3 md:grid-cols-5">
-        <div className="relative md:col-span-2">
-          <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input className="pl-9" placeholder="REF ou nome…" value={q} onChange={(e) => setQ(e.target.value)} />
-        </div>
-        <Select value={fSemana} onValueChange={setFSemana}>
-          <SelectTrigger><SelectValue placeholder="Semana" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todas semanas</SelectItem>
-            {semanas.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Select value={fMes} onValueChange={setFMes}>
-          <SelectTrigger><SelectValue placeholder="Mês" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos meses</SelectItem>
-            {(meses as any[]).map((m) => <SelectItem key={m.id} value={m.id}>{m.nome}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Select value={fAno} onValueChange={setFAno}>
-          <SelectTrigger><SelectValue placeholder="Ano" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos anos</SelectItem>
-            {(anos as any[]).map((a) => <SelectItem key={a.id} value={a.id}>{a.nome}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Select value={fColecao} onValueChange={setFColecao}>
-          <SelectTrigger><SelectValue placeholder="Coleção" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todas coleções</SelectItem>
-            {colecoes.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </Card>
 
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
       {!isLoading && filtered.length === 0 && (

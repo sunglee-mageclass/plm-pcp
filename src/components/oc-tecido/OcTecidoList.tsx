@@ -26,37 +26,14 @@ export function OcTecidoList({
   onRowClick: (id: string) => void;
   qtdRecebidaByOc?: Record<string, string>;
 }) {
+  // Filters now live in the page header via FilterButton; this component renders just tabs + table.
+  void filterEmpresa; void setFilterEmpresa; void filterResp; void setFilterResp; void empresas; void estilistas;
   return (
     <Tabs value={tab} onValueChange={(v) => setTab(v as OCStatus)}>
       <TabsList>
         <TabsTrigger value="encomendado">Encomendados</TabsTrigger>
         <TabsTrigger value="recebido">Recebidos</TabsTrigger>
       </TabsList>
-
-      <Card className="p-3 mt-4 flex flex-wrap gap-3 items-end">
-        <div className="grid gap-1">
-          <Label className="text-xs">Fornecedor</Label>
-          <Select value={filterEmpresa} onValueChange={setFilterEmpresa}>
-            <SelectTrigger className="w-44 h-8 text-sm"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              {empresas.map((e) => <SelectItem key={e.id} value={e.id}>{e.nome_fantasia}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        {tab === "encomendado" && (
-          <div className="grid gap-1">
-            <Label className="text-xs">Responsável</Label>
-            <Select value={filterResp} onValueChange={setFilterResp}>
-              <SelectTrigger className="w-44 h-8 text-sm"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos</SelectItem>
-                {estilistas.map((e) => <SelectItem key={e.id} value={e.id}>{e.nome}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-      </Card>
 
       <TabsContent value="encomendado" className="mt-4">
         <Card>

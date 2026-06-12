@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { BarChart3, Package, Palette, Boxes, AlertTriangle, Layers, Sparkles } from "lucide-react";
+import { FilterButton } from "@/components/shared/filters";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
   PieChart, Pie, Cell, FunnelChart, Funnel, LabelList,
@@ -86,25 +87,17 @@ function ColecaoTab() {
 
   return (
     <div className="space-y-4">
-      <Card className="p-4 grid gap-3 sm:grid-cols-5">
-        <FilterSelect label="Mês" value={mes} onChange={setMes} options={[{ id: "all", nome: "Todos" }, ...meses]} />
-        <FilterSelect label="Ano" value={ano} onChange={setAno} options={[{ id: "all", nome: "Todos" }, ...anos]} />
-        <div>
-          <Label>Semana</Label>
-          <Input value={semana} onChange={(e) => setSemana(e.target.value)} placeholder="ex. 12" />
-        </div>
-        <div>
-          <Label>Coleção</Label>
-          <Select value={colecao} onValueChange={setColecao}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas</SelectItem>
-              {colecoes.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <FilterSelect label="Estilista" value={estilista} onChange={setEstilista} options={[{ id: "all", nome: "Todos" }, ...estilistas]} />
-      </Card>
+      <div className="flex items-center justify-end gap-2">
+        <FilterButton
+          filters={[
+            { label: "Mês", value: mes, onChange: setMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
+            { label: "Ano", value: ano, onChange: setAno, options: [{ id: "all", nome: "Todos" }, ...anos] },
+            { label: "Semana", value: semana || "all", onChange: (v) => setSemana(v === "all" ? "" : v), options: [{ id: "all", nome: "Todas" }, ...["1","2","3","4","5"].map((s) => ({ id: s, nome: s }))] },
+            { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
+            { label: "Estilista", value: estilista, onChange: setEstilista, options: [{ id: "all", nome: "Todos" }, ...estilistas] },
+          ]}
+        />
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Kpi label="Total Modelos" value={kpis.total} icon={Layers} />
@@ -150,19 +143,6 @@ function ColecaoTab() {
   );
 }
 
-function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: { id: string; nome: string }[] }) {
-  return (
-    <div>
-      <Label>{label}</Label>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger><SelectValue /></SelectTrigger>
-        <SelectContent>
-          {options.map((o) => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
 
 function Kpi({ label, value, icon: Icon }: { label: string; value: number; icon: any }) {
   return (
@@ -413,20 +393,15 @@ function CustosTab() {
 
   return (
     <div className="space-y-4">
-      <Card className="p-4 grid gap-3 sm:grid-cols-3">
-        <div>
-          <Label>Coleção</Label>
-          <Select value={colecao} onValueChange={setColecao}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas</SelectItem>
-              {colecoes.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <FilterSelect label="Mês" value={mes} onChange={setMes} options={[{ id: "all", nome: "Todos" }, ...meses]} />
-        <FilterSelect label="Categoria" value={categoria} onChange={setCategoria} options={[{ id: "all", nome: "Todas" }, ...categorias]} />
-      </Card>
+      <div className="flex items-center justify-end gap-2">
+        <FilterButton
+          filters={[
+            { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
+            { label: "Mês", value: mes, onChange: setMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
+            { label: "Categoria", value: categoria, onChange: setCategoria, options: [{ id: "all", nome: "Todas" }, ...categorias] },
+          ]}
+        />
+      </div>
 
       <Card className="p-4">
         <h3 className="font-semibold mb-3">Custo previsto vs real</h3>

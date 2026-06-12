@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 import { OcTecidoList } from "@/components/oc-tecido/OcTecidoList";
+import { FilterButton } from "@/components/shared/filters";
 import { OcTecidoForm } from "@/components/oc-tecido/OcTecidoForm";
 import { OcTecidoRecebimento } from "@/components/oc-tecido/OcTecidoRecebimento";
 import {
@@ -113,9 +114,19 @@ function OcTecidoPage() {
             <p className="text-sm text-muted-foreground mt-1">Ordens de compra de tecidos.</p>
           </div>
         </div>
-        <Button onClick={() => { setEditingId(null); setOpenNew(true); }}>
-          <Plus className="h-4 w-4 mr-1" /> Nova OC
-        </Button>
+        <div className="flex items-center gap-2">
+          <FilterButton
+            filters={[
+              { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
+              ...(tab === "encomendado"
+                ? [{ label: "Responsável", value: filterResp, onChange: setFilterResp, options: [{ id: "all", nome: "Todos" }, ...estilistas.map((e) => ({ id: e.id, nome: e.nome }))] }]
+                : []),
+            ]}
+          />
+          <Button onClick={() => { setEditingId(null); setOpenNew(true); }}>
+            <Plus className="h-4 w-4 mr-1" /> Nova OC
+          </Button>
+        </div>
       </header>
 
       <OcTecidoList

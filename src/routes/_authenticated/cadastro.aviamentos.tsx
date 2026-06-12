@@ -46,6 +46,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { FilterButton, SearchToggle } from "@/components/shared/filters";
 
 import { RequirePermission } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/cadastro/aviamentos")({
@@ -244,76 +245,52 @@ function AviamentosGallery() {
             </p>
           </div>
         </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4 mr-1" /> Novo Aviamento
-        </Button>
+        <div className="flex items-center gap-2">
+          <SearchToggle value={search} onChange={setSearch} placeholder="Buscar por código/nome…" />
+          <Select value={sort} onValueChange={setSort}>
+            <SelectTrigger className="h-8 w-40 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SORT_OPTIONS.map((s) => (
+                <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <FilterButton
+            filters={[
+              { label: "Categoria", value: fCat, onChange: (v) => { setFCat(v); setFSub("all"); }, options: [{ id: "all", nome: "Todas" }, ...categorias] },
+              { label: "Subcategoria", value: fSub, onChange: setFSub, options: [{ id: "all", nome: "Todas" }, ...subcategorias.filter((s) => fCat === "all" || s.categoria_aviamento_id === fCat)] },
+              { label: "Material", value: fMat, onChange: setFMat, options: [{ id: "all", nome: "Todos" }, ...materiais] },
+              { label: "Intervalo Largura", value: fLarg, onChange: setFLarg, options: [{ id: "all", nome: "Todos" }, ...intervalos] },
+              { label: "Intervalo Vazado", value: fVaz, onChange: setFVaz, options: [{ id: "all", nome: "Todos" }, ...intervalos] },
+              { label: "Fornecedor", value: fEmp, onChange: setFEmp, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
+            ]}
+          />
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4 mr-1" /> Novo Aviamento
+          </Button>
+        </div>
       </header>
 
-      <Card className="p-4 space-y-3">
-        <div className="grid gap-3 md:grid-cols-12">
-          <div className="md:col-span-4 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Buscar por código/nome…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-          <div className="md:col-span-2">
-            <Select value={sort} onValueChange={setSort}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {SORT_OPTIONS.map((s) => (
-                  <SelectItem key={s.value} value={s.value}>
-                    {s.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <FilterSelect className="md:col-span-2" value={fCat} onChange={(v) => { setFCat(v); setFSub("all"); }} placeholder="Categoria" options={categorias} />
-          <FilterSelect className="md:col-span-2" value={fSub} onChange={setFSub} placeholder="Subcategoria" options={subcategorias.filter((s) => fCat === "all" || s.categoria_aviamento_id === fCat)} />
-          <FilterSelect className="md:col-span-2" value={fMat} onChange={setFMat} placeholder="Material" options={materiais} />
-          <FilterSelect className="md:col-span-3" value={fLarg} onChange={setFLarg} placeholder="Intervalo Largura" options={intervalos} />
-          <FilterSelect className="md:col-span-3" value={fVaz} onChange={setFVaz} placeholder="Intervalo Vazado" options={intervalos} />
-          <div className="md:col-span-3">
-            <Select value={fEmp} onValueChange={setFEmp}>
-              <SelectTrigger>
-                <SelectValue placeholder="Fornecedor" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos os fornecedores</SelectItem>
-                {empresas.map((e) => (
-                  <SelectItem key={e.id} value={e.id}>
-                    {e.nome_fantasia}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <LayoutGrid className="h-4 w-4 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground">Colunas:</span>
-          {COLUMN_OPTIONS.map((n) => (
-            <Button
-              key={n}
-              size="sm"
-              variant={cols === n ? "default" : "outline"}
-              onClick={() => setCols(n)}
-              className="h-7 w-9 px-0"
-            >
-              {n}
-            </Button>
-          ))}
-          <span className="ml-auto text-xs text-muted-foreground">
-            <Badge variant="secondary">{filtered.length}</Badge> aviamento(s)
-          </span>
-        </div>
-      </Card>
+      <div className="flex items-center gap-2">
+        <LayoutGrid className="h-4 w-4 text-muted-foreground" />
+        <span className="text-xs text-muted-foreground">Colunas:</span>
+        {COLUMN_OPTIONS.map((n) => (
+          <Button
+            key={n}
+            size="sm"
+            variant={cols === n ? "default" : "outline"}
+            onClick={() => setCols(n)}
+            className="h-7 w-9 px-0"
+          >
+            {n}
+          </Button>
+        ))}
+        <span className="ml-auto text-xs text-muted-foreground">
+          <Badge variant="secondary">{filtered.length}</Badge> aviamento(s)
+        </span>
+      </div>
 
       {isLoading ? (
         <div className="py-12 text-center text-muted-foreground">
@@ -382,37 +359,6 @@ function AviamentosGallery() {
   );
 }
 
-function FilterSelect({
-  className,
-  value,
-  onChange,
-  placeholder,
-  options,
-}: {
-  className?: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder: string;
-  options: Array<{ id: string; nome: string }>;
-}) {
-  return (
-    <div className={className}>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger>
-          <SelectValue placeholder={placeholder} />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">Todos · {placeholder}</SelectItem>
-          {options.map((o) => (
-            <SelectItem key={o.id} value={o.id}>
-              {o.nome}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
 
 function AviamentoCard({
   aviamento,
