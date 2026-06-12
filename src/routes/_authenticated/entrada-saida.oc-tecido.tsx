@@ -206,6 +206,7 @@ function OcDialog({
         quantidade_recebida: i.quantidade_recebida == null ? null : Number(i.quantidade_recebida),
       }));
       setItems(mapped);
+      setOriginalItemIds(mapped.map((m) => m.id).filter((x): x is string => !!x));
       if (mapped.some((m) => m.artigo_numero === 2)) setTecido2Aberto(true);
       return oc;
     },
