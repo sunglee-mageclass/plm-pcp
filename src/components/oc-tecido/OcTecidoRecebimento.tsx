@@ -2,10 +2,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { FileField } from "./FileField";
 import { OcTecidoCalculos } from "./OcTecidoCalculos";
 import { EtiquetaLavagemArtigoEditor } from "@/components/shared/EtiquetaLavagemArtigo";
-import type { Artigo, Draft, ItemDraft, Variante } from "./shared";
+import type { Artigo, Draft, ItemDraft, ParcelaRecebimento, Variante } from "./shared";
 
 export function OcTecidoRecebimento({
   draft, setDraft, handleSingleUpload,
