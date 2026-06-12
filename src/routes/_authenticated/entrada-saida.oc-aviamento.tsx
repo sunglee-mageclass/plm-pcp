@@ -474,7 +474,8 @@ function OcDialog({
               aviamento_id: i.aviamento_id,
               quantidade_pedida: i.quantidade_pedida,
               quantidade_recebida: i.quantidade_recebida,
-            })));
+              cancelado: i.cancelado,
+            })) as any);
           if (itErr) throw itErr;
         }
 
