@@ -399,11 +399,14 @@ function CadDetailPage() {
         .update({ enviado_corte: true, data_enviado_corte: new Date().toISOString().slice(0, 10), status_corte: "em_corte" })
         .eq("id", cad_id);
       if (error) throw error;
+      const { error: eBx } = await supabase.rpc("baixar_estoque_tecido_corte" as any, { _cad_id: cad_id });
+      if (eBx) throw eBx;
     },
     onSuccess: () => {
       toast.success("Enviado ao corte");
       qc.invalidateQueries({ queryKey: ["producao-cad-list"] });
       qc.invalidateQueries({ queryKey: ["cad-row", modeloId] });
+      qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
     },
     onError: (e: any) => toast.error(e.message ?? "Erro"),
   });
