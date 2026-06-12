@@ -55,14 +55,21 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       return data;
     },
   });
-  const lastStatusKeys = useMemo(() => {
+  const statusOptions = useMemo(() => {
     const raw = (tenantCfg as any)?.status_kanban;
-    if (!Array.isArray(raw) || raw.length === 0) return ["aprovado"];
-    const last = raw[raw.length - 1];
-    const key = typeof last === "string" ? last : (last?.key ?? last?.id ?? last?.value ?? last?.slug ?? last?.label ?? last?.nome ?? last?.name ?? "");
-    const label = typeof last === "string" ? last : (last?.label ?? last?.nome ?? last?.name ?? key);
-    return [String(key).toLowerCase(), String(label).toLowerCase()].filter(Boolean);
+    if (!Array.isArray(raw) || raw.length === 0) return [] as { value: string; label: string }[];
+    return raw.map((s: any, i: number) => {
+      if (typeof s === "string") return { value: s, label: s };
+      const key = s?.key ?? s?.id ?? s?.value ?? s?.slug ?? `s${i}`;
+      const label = s?.label ?? s?.nome ?? s?.name ?? String(key);
+      return { value: String(key), label: String(label) };
+    });
   }, [tenantCfg]);
+  const lastStatusKeys = useMemo(() => {
+    if (statusOptions.length === 0) return ["aprovado"];
+    const last = statusOptions[statusOptions.length - 1];
+    return [last.value.toLowerCase(), last.label.toLowerCase()];
+  }, [statusOptions]);
   const tamanhos: string[] = useMemo(() => {
     const raw = (tenantCfg as any)?.tamanhos_grade;
     if (Array.isArray(raw) && raw.length > 0) {
