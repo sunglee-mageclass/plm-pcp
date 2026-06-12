@@ -105,11 +105,13 @@ function OcAviamentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("empresas")
-        .select("id, nome_fantasia, categorias_fornecedor(nome)")
+        .select("id, nome_fantasia, empresa_categorias_fornecedor!inner(categorias_fornecedor!inner(nome))")
+        .eq("empresa_categorias_fornecedor.categorias_fornecedor.nome", "Aviamento")
         .order("nome_fantasia");
       if (error) throw error;
-      return ((data ?? []) as Array<Empresa & { categorias_fornecedor: { nome: string } | null }>)
-        .filter((e) => !e.categorias_fornecedor || (e.categorias_fornecedor.nome ?? "").trim().toLowerCase() === "aviamento")
+      const seen = new Set<string>();
+      return ((data ?? []) as Array<{ id: string; nome_fantasia: string }>)
+        .filter((e) => (seen.has(e.id) ? false : (seen.add(e.id), true)))
         .map(({ id, nome_fantasia }) => ({ id, nome_fantasia })) as Empresa[];
     },
   });
