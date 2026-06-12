@@ -463,8 +463,16 @@ function AviamentoModal({
 }) {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [uploading, setUploading] = useState(false);
+  const [localPreview, setLocalPreview] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const fotoUrl = useSignedUrl(form.foto_url, "aviamentos");
+  const signedUrl = useSignedUrl(form.foto_url, "aviamentos");
+  const fotoUrl = localPreview ?? signedUrl;
+
+  useEffect(() => {
+    return () => {
+      if (localPreview) URL.revokeObjectURL(localPreview);
+    };
+  }, [localPreview]);
 
   useEffect(() => {
     if (initial) {
@@ -487,6 +495,10 @@ function AviamentoModal({
     } else {
       setForm(emptyForm);
     }
+    setLocalPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
   }, [initial, open]);
 
   const filteredSub = subcategorias.filter(
@@ -498,6 +510,11 @@ function AviamentoModal({
 
   const handleUpload = async (file: File) => {
     setUploading(true);
+    const preview = URL.createObjectURL(file);
+    setLocalPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return preview;
+    });
     try {
       const { tenantPrefix } = await import("@/lib/storage-tenant");
       const tenant = await tenantPrefix();
