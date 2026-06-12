@@ -271,22 +271,24 @@ function TecidoDetail() {
             />
           </Field>
 
-          <Field label="Categoria do Tecido">
-            <Select
-              value={form.categoria_tecido_id ?? ""}
-              onValueChange={(v) => setForm({ ...form, categoria_tecido_id: v || null })}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Selecione…" />
-              </SelectTrigger>
-              <SelectContent>
-                {categorias.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.nome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <Field label="Categorias do Tecido">
+            <CategoriasTecidoMultiSelect
+              options={categorias}
+              value={catIds}
+              onChange={setCatIds}
+            />
+            {catIds.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-1.5">
+                {catIds.map((cid) => {
+                  const nome = categorias.find((c) => c.id === cid)?.nome ?? "—";
+                  return (
+                    <Badge key={cid} variant="secondary">
+                      {nome}
+                    </Badge>
+                  );
+                })}
+              </div>
+            )}
           </Field>
 
           <Field label="Composição" className="md:col-span-2">
