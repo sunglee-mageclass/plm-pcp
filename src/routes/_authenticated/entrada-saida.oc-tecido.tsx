@@ -503,6 +503,8 @@ function OcDialog({
               totalPrevisto={totalPrevisto}
               totalReal={totalReal}
               tecido2Aberto={tecido2Aberto}
+              artigoId1={artigoIdFor(1)}
+              artigoId2={artigoIdFor(2)}
             />
           )}
         </div>
