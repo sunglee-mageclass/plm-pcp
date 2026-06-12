@@ -343,31 +343,55 @@ function OcDialog({
         status: markReceived ? "recebido" : status,
       };
 
+      // CRITICAL: salvar itens ANTES de atualizar o status para 'recebido',
+      // pois o trigger gerar_parcelas_oc_tecido depende de valor_real_total/itens
+      // no momento do UPDATE e tem proteção anti-duplicação.
       let ocIdLocal = ocId;
-      if (isEdit && ocIdLocal) {
-        const { error } = await supabase.from("ocs_tecido").update(payload).eq("id", ocIdLocal);
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase.from("ocs_tecido").insert(payload).select("id").single();
-        if (error) throw error;
-        ocIdLocal = data.id;
-      }
+      const finalStatus: OCStatus = markReceived ? "recebido" : status;
 
-      if (ocIdLocal) {
-        await supabase.from("ocs_tecido_itens").delete().eq("oc_tecido_id", ocIdLocal);
-        const rows = items
+      const buildItemRows = (oid: string) =>
+        items
           .filter((i) => i.variante_tecido_id && i.artigo_id)
           .map((i) => ({
-            oc_tecido_id: ocIdLocal,
+            oc_tecido_id: oid,
             artigo_id: i.artigo_id,
             artigo_numero: i.artigo_numero,
             variante_tecido_id: i.variante_tecido_id,
             quantidade_pedida: i.quantidade_pedida,
             quantidade_recebida: i.quantidade_recebida,
           }));
+
+      if (isEdit && ocIdLocal) {
+        // 1) Itens primeiro
+        await supabase.from("ocs_tecido_itens").delete().eq("oc_tecido_id", ocIdLocal);
+        const rows = buildItemRows(ocIdLocal);
         if (rows.length > 0) {
-          const { error } = await supabase.from("ocs_tecido_itens").insert(rows);
-          if (error) throw error;
+          const { error: itErr } = await supabase.from("ocs_tecido_itens").insert(rows);
+          if (itErr) throw itErr;
+        }
+        // 2) Depois UPDATE da OC (dispara o trigger já com itens/valor corretos)
+        const { error } = await supabase.from("ocs_tecido").update(payload).eq("id", ocIdLocal);
+        if (error) throw error;
+      } else {
+        // INSERT: forçar 'encomendado' para não disparar trigger; inserir itens;
+        // se necessário, atualizar para 'recebido' depois.
+        const insertPayload = { ...payload, status: "encomendado" };
+        const { data, error } = await supabase.from("ocs_tecido").insert(insertPayload).select("id").single();
+        if (error) throw error;
+        ocIdLocal = data.id;
+
+        const rows = buildItemRows(ocIdLocal);
+        if (rows.length > 0) {
+          const { error: itErr } = await supabase.from("ocs_tecido_itens").insert(rows);
+          if (itErr) throw itErr;
+        }
+
+        if (finalStatus === "recebido") {
+          const { error: upErr } = await supabase
+            .from("ocs_tecido")
+            .update({ status: "recebido" })
+            .eq("id", ocIdLocal);
+          if (upErr) throw upErr;
         }
       }
     },

@@ -403,17 +403,14 @@ function OcDialog({
         status: markReceived ? "recebido" : status,
       };
 
+      // CRITICAL: salvar itens ANTES de atualizar o status para 'recebido',
+      // pois o trigger gerar_parcelas_oc_aviamento lê os itens no momento do UPDATE
+      // e tem proteção anti-duplicação (parcelas erradas ficariam permanentes).
       let ocIdLocal = ocId;
-      if (isEdit && ocIdLocal) {
-        const { error } = await supabase.from("ocs_aviamento").update(payload).eq("id", ocIdLocal);
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase.from("ocs_aviamento").insert(payload).select("id").single();
-        if (error) throw error;
-        ocIdLocal = data.id;
-      }
+      const finalStatus: OCStatus = markReceived ? "recebido" : status;
 
-      if (ocIdLocal) {
+      if (isEdit && ocIdLocal) {
+        // 1) Salvar itens primeiro
         await supabase.from("ocs_aviamento_itens").delete().eq("oc_aviamento_id", ocIdLocal);
         const rows = items
           .filter((i) => i.aviamento_id)
@@ -424,8 +421,39 @@ function OcDialog({
             quantidade_recebida: i.quantidade_recebida,
           }));
         if (rows.length > 0) {
-          const { error } = await supabase.from("ocs_aviamento_itens").insert(rows);
-          if (error) throw error;
+          const { error: itErr } = await supabase.from("ocs_aviamento_itens").insert(rows);
+          if (itErr) throw itErr;
+        }
+        // 2) Depois atualizar a OC (dispara o trigger já com itens corretos)
+        const { error } = await supabase.from("ocs_aviamento").update(payload).eq("id", ocIdLocal);
+        if (error) throw error;
+      } else {
+        // INSERT: criar como 'encomendado' (não dispara trigger), inserir itens,
+        // depois — se for o caso — atualizar para 'recebido'.
+        const insertPayload = { ...payload, status: "encomendado" };
+        const { data, error } = await supabase.from("ocs_aviamento").insert(insertPayload).select("id").single();
+        if (error) throw error;
+        ocIdLocal = data.id;
+
+        const rows = items
+          .filter((i) => i.aviamento_id)
+          .map((i) => ({
+            oc_aviamento_id: ocIdLocal,
+            aviamento_id: i.aviamento_id,
+            quantidade_pedida: i.quantidade_pedida,
+            quantidade_recebida: i.quantidade_recebida,
+          }));
+        if (rows.length > 0) {
+          const { error: itErr } = await supabase.from("ocs_aviamento_itens").insert(rows);
+          if (itErr) throw itErr;
+        }
+
+        if (finalStatus === "recebido") {
+          const { error: upErr } = await supabase
+            .from("ocs_aviamento")
+            .update({ status: "recebido" })
+            .eq("id", ocIdLocal);
+          if (upErr) throw upErr;
         }
       }
     },
