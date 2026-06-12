@@ -48,17 +48,22 @@ function OcTecidoPage() {
   });
 
   const { data: empresas = [] } = useQuery({
-    queryKey: ["empresas-tecido"],
+    queryKey: ["empresas-options", "tecido-forro-entretela"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("empresas")
-        .select("id, nome_fantasia, categorias_fornecedor(nome)")
+        .select("id, nome_fantasia, empresa_categorias_fornecedor!inner(categorias_fornecedor!inner(nome))")
+        .in("empresa_categorias_fornecedor.categorias_fornecedor.nome", ["Tecido", "Forro", "Entretela"])
         .order("nome_fantasia");
       if (error) throw error;
-      const allowed = ["tecido", "forro", "entretela"];
-      return ((data ?? []) as Array<Empresa & { categorias_fornecedor: { nome: string } | null }>)
-        .filter((e) => !e.categorias_fornecedor || allowed.includes((e.categorias_fornecedor.nome ?? "").trim().toLowerCase()))
-        .map(({ id, nome_fantasia }) => ({ id, nome_fantasia })) as Empresa[];
+      const seen = new Set<string>();
+      const out: Empresa[] = [];
+      for (const e of (data ?? []) as Array<{ id: string; nome_fantasia: string }>) {
+        if (seen.has(e.id)) continue;
+        seen.add(e.id);
+        out.push({ id: e.id, nome_fantasia: e.nome_fantasia });
+      }
+      return out;
     },
   });
 
