@@ -2,13 +2,14 @@ import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Users, Plus, KeyRound } from "lucide-react";
+import { Users, Plus, KeyRound, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import {
   createTenantUser, resetUserPassword, toggleUserAtivo,
 } from "@/lib/admin.functions";
+import { PermissoesModal } from "@/components/admin/PermissoesModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -51,6 +52,7 @@ function UsuariosPage() {
   const [tenantFilter, setTenantFilter] = useState<string>("all");
   const [open, setOpen] = useState(false);
   const [resetting, setResetting] = useState<AppUser | null>(null);
+  const [permUser, setPermUser] = useState<AppUser | null>(null);
 
   const callToggle = useServerFn(toggleUserAtivo);
   const callReset = useServerFn(resetUserPassword);
@@ -165,7 +167,17 @@ function UsuariosPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <Button size="sm" variant="ghost" onClick={() => setResetting(u)}>
+                      {u.tenant_id && u.role !== "super_admin" && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setPermUser(u)}
+                          title="Permissões"
+                        >
+                          <ShieldCheck className="h-4 w-4" />
+                        </Button>
+                      )}
+                      <Button size="sm" variant="ghost" onClick={() => setResetting(u)} title="Redefinir senha">
                         <KeyRound className="h-4 w-4" />
                       </Button>
                       <Switch
@@ -187,6 +199,16 @@ function UsuariosPage() {
             user={resetting}
             onClose={() => setResetting(null)}
             call={callReset}
+          />
+        )}
+      </Dialog>
+
+      <Dialog open={!!permUser} onOpenChange={(v) => !v && setPermUser(null)}>
+        {permUser && (
+          <PermissoesModal
+            mode="super"
+            user={{ id: permUser.id, nome: permUser.nome, tenant_id: permUser.tenant_id }}
+            onClose={() => setPermUser(null)}
           />
         )}
       </Dialog>

@@ -91,3 +91,53 @@ export const toggleUserAtivo = createServerFn({ method: "POST" })
     });
     return { ok: true };
   });
+
+export const savePermissionsAsSuperAdmin = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator(
+    z.object({
+      user_id: z.string().uuid(),
+      tenant_id: z.string().uuid(),
+      perms: z.array(
+        z.object({
+          pagina: z.string().min(1).max(64),
+          pode_ver: z.boolean(),
+          pode_editar: z.boolean(),
+        }),
+      ),
+    }),
+  )
+  .handler(async ({ data, context }) => {
+    await assertSuperAdmin(context.supabase, context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    // Verify target user belongs to the informed tenant
+    const { data: target, error: tErr } = await supabaseAdmin
+      .from("users")
+      .select("tenant_id")
+      .eq("id", data.user_id)
+      .maybeSingle();
+    if (tErr) throw new Error(tErr.message);
+    if (!target || target.tenant_id !== data.tenant_id) {
+      throw new Error("Usuário não pertence à loja informada");
+    }
+
+    const { error: delErr } = await supabaseAdmin
+      .from("user_permissions")
+      .delete()
+      .eq("user_id", data.user_id);
+    if (delErr) throw new Error(delErr.message);
+
+    if (data.perms.length > 0) {
+      const rows = data.perms.map((p) => ({
+        user_id: data.user_id,
+        tenant_id: data.tenant_id,
+        pagina: p.pagina,
+        pode_ver: p.pode_ver,
+        pode_editar: p.pode_editar,
+      }));
+      const { error: insErr } = await supabaseAdmin.from("user_permissions").insert(rows);
+      if (insErr) throw new Error(insErr.message);
+    }
+    return { ok: true };
+  });
