@@ -57,6 +57,7 @@ export function makeEmptyBlocks(): TecidoBlock[] {
         loss_percent: 0,
         custo_previsto: 0,
         variantes: Array(10).fill(null),
+        oc_links: Array(10).fill(null),
       });
     }
   });
