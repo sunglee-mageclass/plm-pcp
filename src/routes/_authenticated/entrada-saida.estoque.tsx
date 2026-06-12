@@ -200,13 +200,14 @@ function TecidosTab() {
     );
   }, [data, search, fornecedor, categoria]);
 
-  // Group by artigo
+  // Group by artigo (key = artigoId, fallback para variantes sem artigo)
   const grouped = useMemo(() => {
-    const map = new Map<string, { artigoNome: string; rows: any[] }>();
+    const map = new Map<string, { artigoId: string; artigoNome: string; rows: any[] }>();
     for (const r of filtered) {
-      const g = map.get(r.artigoId) ?? { artigoNome: r.artigoNome, rows: [] as any[] };
+      const key = r.artigoId ?? `sem-artigo-${r.varId}`;
+      const g = map.get(key) ?? { artigoId: key, artigoNome: r.artigoNome, rows: [] as any[] };
       g.rows.push(r);
-      map.set(r.artigoId, g);
+      map.set(key, g);
     }
     return Array.from(map.values());
   }, [filtered]);
