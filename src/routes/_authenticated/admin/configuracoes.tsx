@@ -38,6 +38,15 @@ export const Route = createFileRoute("/_authenticated/admin/configuracoes")({
   component: ConfiguracoesLojaPage,
 });
 
+const FIELD_LABEL_DEFAULTS: Record<string, string> = {
+  colecao: "Coleção",
+  ref: "REF",
+  estilista: "Estilista",
+  modelista: "Modelista",
+  piloteiro: "Piloteiro",
+  linha: "Linha",
+};
+
 const DEFAULTS = {
   usa_pl: true,
   corte_interno: false,
@@ -62,6 +71,7 @@ const DEFAULTS = {
     "Reprovado",
     "Aprovado",
   ],
+  campos_editaveis: {} as Record<string, string>,
 };
 
 type ConfigState = typeof DEFAULTS;
