@@ -95,7 +95,20 @@ function TercDetailPage() {
 
   const { data: terceirizados = [] } = useQuery({
     queryKey: ["terceirizados-all"],
-    queryFn: async () => (await supabase.from("terceirizados").select("id, nome_responsavel, categoria_terceirizado_id")).data ?? [],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("terceirizados")
+        .select("id, nome_responsavel, categoria_terceirizado_id, terceirizado_categorias(categoria_terceirizado_id)");
+      return (data ?? []).map((t: any) => ({
+        ...t,
+        categorias_ids: [
+          ...(Array.isArray(t.terceirizado_categorias)
+            ? t.terceirizado_categorias.map((j: any) => j.categoria_terceirizado_id)
+            : []),
+          ...(t.categoria_terceirizado_id ? [t.categoria_terceirizado_id] : []),
+        ].filter((v, i, a) => a.indexOf(v) === i),
+      }));
+    },
   });
 
   const { data: aviamentosModelo = [] } = useQuery({
