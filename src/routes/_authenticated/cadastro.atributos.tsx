@@ -16,8 +16,14 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 
+import { RequirePermission } from "@/components/RequirePermission";
+
 export const Route = createFileRoute("/_authenticated/cadastro/atributos")({
-  component: AtributosPage,
+  component: () => (
+    <RequirePermission page="cadastro_atributos">
+      <AtributosPage />
+    </RequirePermission>
+  ),
 });
 
 type GroupKey = "GERAL" | "FORNECEDOR" | "TECIDO" | "AVIAMENTO" | "PRODUTO" | "TERCEIRIZADO";
