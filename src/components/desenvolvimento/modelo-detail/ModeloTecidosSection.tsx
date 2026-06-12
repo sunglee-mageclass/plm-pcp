@@ -81,6 +81,7 @@ export function ModeloTecidosSection({
                     artigos={artigos}
                     onChangeBlock={(p) => onChangeBlock(idx, p)}
                     onChangeVariante={(vi, val) => onChangeVariante(idx, vi, val)}
+                    onChangeOcLink={(vi, val) => onChangeOcLink(idx, vi, val)}
                     onRemove={() => hideBlock(idx, tipo, b.numero)}
                     removable={!(tipo === "tecido" && b.numero === 1)}
                   />
