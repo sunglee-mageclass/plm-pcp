@@ -114,7 +114,7 @@ function UsuariosLojaPage() {
       </div>
 
       <Dialog open={!!permUser} onOpenChange={(v) => !v && setPermUser(null)}>
-        {permUser && <PermissoesModal user={permUser} onClose={() => setPermUser(null)} />}
+        {permUser && <PermissoesModal mode="tenant" user={permUser} onClose={() => setPermUser(null)} />}
       </Dialog>
     </div>
   );
