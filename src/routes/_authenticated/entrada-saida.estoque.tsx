@@ -391,6 +391,7 @@ function AviamentosTab() {
       </div>
 
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+      {error && <p className="text-sm text-destructive">Erro ao carregar estoque: {(error as Error).message}</p>}
 
       <Card className="p-4">
         <div className="overflow-x-auto">
