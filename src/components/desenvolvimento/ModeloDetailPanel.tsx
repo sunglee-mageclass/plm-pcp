@@ -147,6 +147,18 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     },
   });
 
+  const { data: ocLinksData } = useQuery({
+    queryKey: ["modelo-tecido-oc-links", modeloId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("modelo_tecido_oc_links" as any)
+        .select("tipo, numero, ordem, oc_tecido_item_id")
+        .eq("modelo_id", modeloId);
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+
   const { data: aviamentosData } = useQuery({
     queryKey: ["modelo-aviamentos", modeloId],
     queryFn: async () => {
