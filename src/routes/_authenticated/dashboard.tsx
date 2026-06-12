@@ -65,11 +65,11 @@ function ColecaoTab() {
     queryKey: ["dash-colecao", mes, ano, semana, colecao, estilista],
     queryFn: async () => {
       const { data, error } = await supabase.rpc("dashboard_colecao", {
-        p_mes: mes === "all" ? null : mes,
-        p_ano: ano === "all" ? null : ano,
-        p_semana: semana ? Number(semana) : null,
-        p_colecao: colecao === "all" ? null : colecao,
-        p_estilista: estilista === "all" ? null : estilista,
+        p_mes: mes === "all" ? undefined : mes,
+        p_ano: ano === "all" ? undefined : ano,
+        p_semana: semana ? Number(semana) : undefined,
+        p_colecao: colecao === "all" ? undefined : colecao,
+        p_estilista: estilista === "all" ? undefined : estilista,
       });
       if (error) throw error;
       return data as any;
