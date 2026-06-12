@@ -446,7 +446,8 @@ function OcDialog({
               variante_tecido_id: i.variante_tecido_id,
               quantidade_pedida: i.quantidade_pedida,
               quantidade_recebida: i.quantidade_recebida,
-            })));
+              cancelado: i.cancelado,
+            })) as any);
           if (itErr) throw itErr;
         }
 
