@@ -182,7 +182,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       setDraft({
         nome: modelo.nome ?? "",
         ref: modelo.ref ?? "",
-        status_desenvolvimento: modelo.status_desenvolvimento ?? "novo",
+        status_desenvolvimento: modelo.status_desenvolvimento ?? statusOptions[0]?.value ?? "em_modelagem",
         motivo_cancelamento: modelo.motivo_cancelamento ?? "",
         linha_id: modelo.linha_id,
         modelista_id: modelo.modelista_id,
