@@ -500,6 +500,31 @@ function OcDialog({
     todasEtiquetasOk &&
     !!draft.nf_url;
 
+  const getMissingRequirements = (): string[] => {
+    const missing: string[] = [];
+    if (!algumaQtdRecebida) missing.push("Preencha a quantidade recebida de pelo menos uma variante.");
+    if (parcelas.length === 0) {
+      missing.push("Defina a quantidade de parcelas de recebimento.");
+    } else {
+      if (!parcelas.every((p) => !!p.data)) missing.push("Preencha as datas de todas as parcelas de recebimento.");
+      if (!parcelas.every((p) => p.recebido === true)) missing.push("Marque todas as parcelas como recebidas.");
+    }
+    if (!todasEtiquetasOk) missing.push("Anexe a etiqueta de lavagem de todos os artigos.");
+    if (!draft.nf_url) missing.push("Anexe a nota fiscal (NF).");
+    return missing;
+  };
+
+  const handleMarkReceived = () => {
+    if (!canMarkReceived) {
+      const missing = getMissingRequirements();
+      toast.error("Não é possível marcar como recebido:", {
+        description: missing.join(" "),
+      });
+      return;
+    }
+    saveMutation.mutate(true);
+  };
+
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -554,7 +579,7 @@ function OcDialog({
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
           {canShowRecebimento && (
-            <Button variant="secondary" onClick={() => saveMutation.mutate(true)} disabled={saveMutation.isPending || !canMarkReceived}>
+            <Button variant="secondary" onClick={handleMarkReceived} disabled={saveMutation.isPending || isReadOnlyRecebimento}>
               Marcar como Recebido
             </Button>
           )}
