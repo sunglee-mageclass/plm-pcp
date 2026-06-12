@@ -73,6 +73,7 @@ function EstoquePage() {
 /* ============================= TECIDOS ============================= */
 
 function TecidosTab() {
+  const threshold = useEstoqueThreshold();
   const [search, setSearch] = useState("");
   const [fornecedor, setFornecedor] = useState<string>("all");
   const [categoria, setCategoria] = useState<string>("all");
@@ -287,6 +288,7 @@ function TecidosTab() {
 /* ============================ AVIAMENTOS ============================ */
 
 function AviamentosTab() {
+  const threshold = useEstoqueThreshold();
   const [search, setSearch] = useState("");
   const [fornecedor, setFornecedor] = useState<string>("all");
   const [categoria, setCategoria] = useState<string>("all");
