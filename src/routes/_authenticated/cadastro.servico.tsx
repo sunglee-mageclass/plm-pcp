@@ -53,8 +53,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+import { RequirePermission } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/cadastro/servico")({
-  component: ServicoPage,
+  component: () => (
+    <RequirePermission page="cadastro_servico">
+      <ServicoPage />
+    </RequirePermission>
+  ),
 });
 
 const empresaConfig: AttributeTabConfig = {
