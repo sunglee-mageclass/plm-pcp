@@ -4,12 +4,13 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { FileField } from "./FileField";
 import { OcTecidoCalculos } from "./OcTecidoCalculos";
+import { EtiquetaLavagemArtigoEditor } from "@/components/shared/EtiquetaLavagemArtigo";
 import type { Artigo, Draft, ItemDraft, Variante } from "./shared";
 
 export function OcTecidoRecebimento({
   draft, setDraft, handleSingleUpload,
   items, artigoMap, varianteMap, setQtd, totalPrevisto, totalReal,
-  tecido2Aberto,
+  tecido2Aberto, artigoId1, artigoId2,
 }: {
   draft: Draft;
   setDraft: React.Dispatch<React.SetStateAction<Draft>>;
@@ -21,6 +22,8 @@ export function OcTecidoRecebimento({
   totalPrevisto: number;
   totalReal: number;
   tecido2Aberto: boolean;
+  artigoId1: string | null;
+  artigoId2: string | null;
 }) {
   return (
     <>
@@ -38,21 +41,23 @@ export function OcTecidoRecebimento({
             onClear={() => setDraft((d) => ({ ...d, nf_url: null }))} />
         </div>
 
-        <div className="grid sm:grid-cols-2 gap-4">
-          <FileField
-            label="Etiqueta de Lavagem — Tecido 1"
-            path={draft.etiqueta_lavagem_url_1}
-            onChange={(f) => handleSingleUpload(f, "etiqueta_lavagem_url_1")}
-            onClear={() => setDraft((d) => ({ ...d, etiqueta_lavagem_url_1: null }))}
-          />
-          {tecido2Aberto && (
-            <FileField
-              label="Etiqueta de Lavagem — Tecido 2"
-              path={draft.etiqueta_lavagem_url_2}
-              onChange={(f) => handleSingleUpload(f, "etiqueta_lavagem_url_2")}
-              onClear={() => setDraft((d) => ({ ...d, etiqueta_lavagem_url_2: null }))}
+        <div className="rounded-md border p-3 space-y-3 bg-muted/30">
+          <p className="text-xs text-muted-foreground">
+            A etiqueta de lavagem fica vinculada ao artigo (tecido) e acompanha todo o processo.
+            Subir aqui salva diretamente no cadastro do artigo.
+          </p>
+          <div className="grid sm:grid-cols-2 gap-4">
+            <EtiquetaLavagemArtigoEditor
+              artigoId={artigoId1}
+              label="Etiqueta de Lavagem — Tecido 1"
             />
-          )}
+            {tecido2Aberto && (
+              <EtiquetaLavagemArtigoEditor
+                artigoId={artigoId2}
+                label="Etiqueta de Lavagem — Tecido 2"
+              />
+            )}
+          </div>
         </div>
 
         <div className="grid gap-1">
