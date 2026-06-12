@@ -11,6 +11,7 @@ import {
   Upload,
   Pencil,
   Trash2,
+  ZoomIn,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -47,6 +48,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
+import { ImagePreview } from "@/components/shared/ImagePreview";
 
 import { RequirePermission } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/cadastro/aviamentos")({
@@ -384,7 +386,14 @@ function AviamentoCard({
     <Card className="overflow-hidden h-full group">
       <div className="aspect-square bg-muted relative">
         {url ? (
-          <img src={url} alt={aviamento.codigo_nome} className="w-full h-full object-cover" loading="lazy" />
+          <>
+            <img src={url} alt={aviamento.codigo_nome} className="w-full h-full object-cover" loading="lazy" />
+            <ImagePreview src={url} alt={aviamento.codigo_nome}>
+              <div className="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/20 transition-colors">
+                <ZoomIn className="h-8 w-8 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" />
+              </div>
+            </ImagePreview>
+          </>
         ) : (
           <div className="w-full h-full flex items-center justify-center text-muted-foreground">
             <ImageOff className="h-10 w-10" />
