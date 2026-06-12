@@ -506,6 +506,11 @@ function AviamentoModal({
 
   const handleUpload = async (file: File) => {
     setUploading(true);
+    const preview = URL.createObjectURL(file);
+    setLocalPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return preview;
+    });
     try {
       const { tenantPrefix } = await import("@/lib/storage-tenant");
       const tenant = await tenantPrefix();
