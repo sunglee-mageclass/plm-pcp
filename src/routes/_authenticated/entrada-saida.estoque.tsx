@@ -23,6 +23,22 @@ export const Route = createFileRoute("/_authenticated/entrada-saida/estoque")({
 const num = (v: any) => Number(v ?? 0) || 0;
 const fmt = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
 
+function useEstoqueThreshold() {
+  const { data } = useQuery({
+    queryKey: ["tenant-config-threshold"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("tenant_config")
+        .select("estoque_critico_threshold")
+        .maybeSingle();
+      if (error) throw error;
+      return Number((data as any)?.estoque_critico_threshold ?? 0) || 0;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+  return data ?? 0;
+}
+
 function EstoquePage() {
   const [tab, setTab] = useState("tecidos");
   return (
