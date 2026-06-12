@@ -11,6 +11,7 @@ export type TecidoBlock = {
   loss_percent: number;
   custo_previsto: number;
   variantes: (string | null)[];
+  oc_links: (string | null)[];
 };
 
 export type AviamentoRow = {
