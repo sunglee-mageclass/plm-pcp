@@ -215,3 +215,53 @@ function TecidoBlockEditor({
     </Card>
   );
 }
+
+function OcLinkSelect({
+  varianteId,
+  value,
+  onChange,
+}: {
+  varianteId: string;
+  value: string | null;
+  onChange: (val: string | null) => void;
+}) {
+  const { data: ocs = [] } = useQuery({
+    queryKey: ["ocs-disponiveis-variante", varianteId],
+    enabled: !!varianteId,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("ocs_disponiveis_variante" as any, { _variante_id: varianteId });
+      if (error) throw error;
+      return (data ?? []) as Array<{ oc_tecido_item_id: string; numero_pedido: string; data_entrega: string | null; saldo_m: number }>;
+    },
+  });
+
+  // Garante que o vínculo atual aparece mesmo que saldo == 0 (já consumido pelo próprio modelo)
+  const options = [...ocs];
+  if (value && !options.find((o) => o.oc_tecido_item_id === value)) {
+    options.unshift({ oc_tecido_item_id: value, numero_pedido: "(vínculo)", data_entrega: null, saldo_m: 0 });
+  }
+
+  return (
+    <Select
+      value={value ?? "__fifo__"}
+      onValueChange={(v) => onChange(v === "__fifo__" ? null : v)}
+    >
+      <SelectTrigger className="h-8 text-xs">
+        <SelectValue placeholder="Sem vínculo (FIFO no corte)" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="__fifo__">Sem vínculo (FIFO no corte)</SelectItem>
+        {options.map((o) => {
+          const entrega = o.data_entrega
+            ? new Date(o.data_entrega).toLocaleDateString("pt-BR")
+            : "—";
+          return (
+            <SelectItem key={o.oc_tecido_item_id} value={o.oc_tecido_item_id}>
+              OC {o.numero_pedido} · {entrega} · {Number(o.saldo_m).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}m
+            </SelectItem>
+          );
+        })}
+      </SelectContent>
+    </Select>
+  );
+}
