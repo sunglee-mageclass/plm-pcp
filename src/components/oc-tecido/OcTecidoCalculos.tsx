@@ -66,16 +66,22 @@ export function OcTecidoCalculos({
                 </TableCell>
                 <TableCell>{i.quantidade_pedida}{sufixo ? ` ${sufixo}` : ""}</TableCell>
                 <TableCell>
-                  <div className="relative w-24">
-                    <Input type="number" step="0.01" className={sufixo ? "pr-10" : ""}
-                      value={i.quantidade_recebida ?? ""}
-                      onChange={(e) => setQtd(i.tempId, "quantidade_recebida", Number(e.target.value))} />
-                    {sufixo && (
-                      <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-                        {sufixo}
-                      </span>
-                    )}
-                  </div>
+                  {readOnly ? (
+                    <span className="text-sm">
+                      {i.quantidade_recebida ?? 0}{sufixo ? ` ${sufixo}` : ""}
+                    </span>
+                  ) : (
+                    <div className="relative w-24">
+                      <Input type="number" step="0.01" className={sufixo ? "pr-10" : ""}
+                        value={i.quantidade_recebida ?? ""}
+                        onChange={(e) => setQtd(i.tempId, "quantidade_recebida", Number(e.target.value))} />
+                      {sufixo && (
+                        <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                          {sufixo}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </TableCell>
                 <TableCell>{metragemPedida(i).toFixed(2)} m</TableCell>
                 <TableCell>{metragemRecebida(i).toFixed(2)} m</TableCell>
