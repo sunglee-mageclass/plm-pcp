@@ -6,6 +6,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Field, FieldSelectOpt } from "./shared";
 import { STATUS_DESENV_OPTS, type Opt } from "./types";
 
+type StatusOpt = { value: string; label: string };
+
 type Draft = Record<string, any>;
 
 export function ModeloInfoSection({
