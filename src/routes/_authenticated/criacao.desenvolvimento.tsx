@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ModeloDetailPanel } from "@/components/desenvolvimento/ModeloDetailPanel";
+import { FilterButton, SearchToggle } from "@/components/shared/filters";
 
 import { RequirePermission } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/criacao/desenvolvimento")({
@@ -219,7 +220,7 @@ function DesenvolvimentoPage() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
-      <header className="flex items-center justify-between">
+      <header className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Hammer className="h-7 w-7 text-primary" />
           <div>
@@ -227,32 +228,21 @@ function DesenvolvimentoPage() {
             <p className="text-sm text-muted-foreground">Kanban dos modelos planejados.</p>
           </div>
         </div>
+        <div className="flex items-center gap-2">
+          <SearchToggle value={search} onChange={setSearch} placeholder="Pesquisar por nome…" />
+          <FilterButton
+            filters={[
+              { label: "Estilista", value: fEstilista, onChange: setFEstilista, options: [{ id: "all", nome: "Todos" }, ...estilistas] },
+              { label: "Modelista", value: fModelista, onChange: setFModelista, options: [{ id: "all", nome: "Todos" }, ...modelistas] },
+              { label: "Piloteiro", value: fPiloteiro, onChange: setFPiloteiro, options: [{ id: "all", nome: "Todos" }, ...piloteiros] },
+              { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
+              { label: "Semana", value: fSemana || "all", onChange: (v) => setFSemana(v === "all" ? "" : v), options: [{ id: "all", nome: "Todas" }, ...["1","2","3","4","5"].map((s) => ({ id: s, nome: s }))] },
+              { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
+              { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...anos] },
+            ]}
+          />
+        </div>
       </header>
-
-      <Card className="p-4 space-y-3">
-        <div className="relative">
-          <Search className="h-4 w-4 absolute left-2 top-2.5 text-muted-foreground" />
-          <Input className="pl-8" placeholder="Pesquisar por nome…" value={search} onChange={(e) => setSearch(e.target.value)} />
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-          <FilterSelect label="Estilista" value={fEstilista} onChange={setFEstilista} options={[{ id: "all", nome: "Todos" }, ...estilistas]} />
-          <FilterSelect label="Modelista" value={fModelista} onChange={setFModelista} options={[{ id: "all", nome: "Todos" }, ...modelistas]} />
-          <FilterSelect label="Piloteiro" value={fPiloteiro} onChange={setFPiloteiro} options={[{ id: "all", nome: "Todos" }, ...piloteiros]} />
-          <FilterSelect label="Coleção" value={fColecao} onChange={setFColecao} options={[{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))]} />
-          <div className="grid gap-1">
-            <Label className="text-xs">Semana</Label>
-            <Select value={fSemana || "all"} onValueChange={(v) => setFSemana(v === "all" ? "" : v)}>
-              <SelectTrigger><SelectValue placeholder="Todas" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas</SelectItem>
-                {["1","2","3","4","5"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <FilterSelect label="Mês" value={fMes} onChange={setFMes} options={[{ id: "all", nome: "Todos" }, ...meses]} />
-          <FilterSelect label="Ano" value={fAno} onChange={setFAno} options={[{ id: "all", nome: "Todos" }, ...anos]} />
-        </div>
-      </Card>
 
       <div className="flex gap-4 overflow-x-auto pb-4">
         {statusKanban.map((s) => {
@@ -296,21 +286,6 @@ function DesenvolvimentoPage() {
   );
 }
 
-function FilterSelect({ label, value, onChange, options }: {
-  label: string; value: string; onChange: (v: string) => void; options: Opt[];
-}) {
-  return (
-    <div className="grid gap-1">
-      <Label className="text-xs">{label}</Label>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger><SelectValue /></SelectTrigger>
-        <SelectContent>
-          {options.map((o) => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
 
 function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen }: {
   modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; onOpen: () => void;

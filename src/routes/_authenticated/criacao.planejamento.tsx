@@ -18,6 +18,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
+import { FilterButton, SearchToggle } from "@/components/shared/filters";
 
 import { RequirePermission } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/criacao/planejamento")({
@@ -144,7 +145,7 @@ function PlanejamentoPage() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
-      <header className="flex items-center justify-between">
+      <header className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Palette className="h-7 w-7 text-primary" />
           <div>
@@ -152,33 +153,22 @@ function PlanejamentoPage() {
             <p className="text-sm text-muted-foreground">Cards de modelos em planejamento.</p>
           </div>
         </div>
-        <Button onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /> Novo Modelo</Button>
+        <div className="flex items-center gap-2">
+          <SearchToggle value={search} onChange={setSearch} placeholder="Pesquisar por nome…" />
+          <FilterButton
+            filters={[
+              { label: "Status", value: fStatus, onChange: setFStatus, options: [{ id: "all", nome: "Todos" }, ...STATUS_OPTS.map((s) => ({ id: s.value, nome: s.label }))] },
+              { label: "Estilista", value: fEstilista, onChange: setFEstilista, options: [{ id: "all", nome: "Todos" }, ...estilistas] },
+              { label: "Semana", value: fSemana || "all", onChange: (v) => setFSemana(v === "all" ? "" : v), options: [{ id: "all", nome: "Todas" }, ...["1","2","3","4","5"].map((s) => ({ id: s, nome: s }))] },
+              { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
+              { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...anos] },
+              { label: "Categoria", value: fCat, onChange: setFCat, options: [{ id: "all", nome: "Todas" }, ...categorias] },
+              { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
+            ]}
+          />
+          <Button onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /> Novo Modelo</Button>
+        </div>
       </header>
-
-      <Card className="p-4 space-y-3">
-        <div className="relative">
-          <Search className="h-4 w-4 absolute left-2 top-2.5 text-muted-foreground" />
-          <Input className="pl-8" placeholder="Pesquisar por nome…" value={search} onChange={(e) => setSearch(e.target.value)} />
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-          <FilterSelect label="Status" value={fStatus} onChange={setFStatus} options={[{ id: "all", nome: "Todos" }, ...STATUS_OPTS.map((s) => ({ id: s.value, nome: s.label }))]} />
-          <FilterSelect label="Estilista" value={fEstilista} onChange={setFEstilista} options={[{ id: "all", nome: "Todos" }, ...estilistas]} />
-          <div className="grid gap-1">
-            <Label className="text-xs">Semana</Label>
-            <Select value={fSemana || "all"} onValueChange={(v) => setFSemana(v === "all" ? "" : v)}>
-              <SelectTrigger><SelectValue placeholder="Todas" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas</SelectItem>
-                {["1","2","3","4","5"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <FilterSelect label="Mês" value={fMes} onChange={setFMes} options={[{ id: "all", nome: "Todos" }, ...meses]} />
-          <FilterSelect label="Ano" value={fAno} onChange={setFAno} options={[{ id: "all", nome: "Todos" }, ...anos]} />
-          <FilterSelect label="Categoria" value={fCat} onChange={setFCat} options={[{ id: "all", nome: "Todas" }, ...categorias]} />
-          <FilterSelect label="Coleção" value={fColecao} onChange={setFColecao} options={[{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))]} />
-        </div>
-      </Card>
 
       {filtered.length === 0 ? (
         <Card className="p-12 text-center text-muted-foreground">Nenhum modelo encontrado.</Card>
@@ -206,21 +196,6 @@ function PlanejamentoPage() {
   );
 }
 
-function FilterSelect({ label, value, onChange, options }: {
-  label: string; value: string; onChange: (v: string) => void; options: Opt[];
-}) {
-  return (
-    <div className="grid gap-1">
-      <Label className="text-xs">{label}</Label>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger><SelectValue /></SelectTrigger>
-        <SelectContent>
-          {options.map((o) => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
 
 function ModeloCard({ modelo, estilistaNome, onOpen }: {
   modelo: Modelo; estilistaNome: string | null; onOpen: () => void;

@@ -32,6 +32,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { FilterButton, SearchToggle } from "@/components/shared/filters";
 
 export const Route = createFileRoute("/_authenticated/cadastro/tecidos/")({
   component: TecidosGallery,
@@ -192,86 +193,48 @@ function TecidosGallery() {
             </p>
           </div>
         </div>
-        <Button onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4 mr-1" /> Novo Tecido
-        </Button>
+        <div className="flex items-center gap-2">
+          <SearchToggle value={search} onChange={setSearch} placeholder="Buscar por nome…" />
+          <Select value={sort} onValueChange={setSort}>
+            <SelectTrigger className="h-8 w-40 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SORT_OPTIONS.map((s) => (
+                <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <FilterButton
+            filters={[
+              { label: "Fornecedor", value: empresaFilter, onChange: setEmpresaFilter, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
+              { label: "Categoria", value: catFilter, onChange: setCatFilter, options: [{ id: "all", nome: "Todas" }, ...categorias] },
+            ]}
+          />
+          <Button onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4 mr-1" /> Novo Tecido
+          </Button>
+        </div>
       </header>
 
-      <Card className="p-4">
-        <div className="grid gap-3 md:grid-cols-12">
-          <div className="md:col-span-4 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Buscar por nome…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-          <div className="md:col-span-3">
-            <Select value={empresaFilter} onValueChange={setEmpresaFilter}>
-              <SelectTrigger>
-                <SelectValue placeholder="Fornecedor" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos os fornecedores</SelectItem>
-                {empresas.map((e) => (
-                  <SelectItem key={e.id} value={e.id}>
-                    {e.nome_fantasia}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="md:col-span-3">
-            <Select value={catFilter} onValueChange={setCatFilter}>
-              <SelectTrigger>
-                <SelectValue placeholder="Categoria" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todas as categorias</SelectItem>
-                {categorias.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.nome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="md:col-span-2">
-            <Select value={sort} onValueChange={setSort}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {SORT_OPTIONS.map((s) => (
-                  <SelectItem key={s.value} value={s.value}>
-                    {s.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-        <div className="mt-3 flex items-center gap-2">
-          <LayoutGrid className="h-4 w-4 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground">Colunas:</span>
-          {COLUMN_OPTIONS.map((n) => (
-            <Button
-              key={n}
-              size="sm"
-              variant={cols === n ? "default" : "outline"}
-              onClick={() => setCols(n)}
-              className="h-7 w-9 px-0"
-            >
-              {n}
-            </Button>
-          ))}
-          <span className="ml-auto text-xs text-muted-foreground">
-            <Badge variant="secondary">{filtered.length}</Badge> tecido(s)
-          </span>
-        </div>
-      </Card>
+      <div className="flex items-center gap-2">
+        <LayoutGrid className="h-4 w-4 text-muted-foreground" />
+        <span className="text-xs text-muted-foreground">Colunas:</span>
+        {COLUMN_OPTIONS.map((n) => (
+          <Button
+            key={n}
+            size="sm"
+            variant={cols === n ? "default" : "outline"}
+            onClick={() => setCols(n)}
+            className="h-7 w-9 px-0"
+          >
+            {n}
+          </Button>
+        ))}
+        <span className="ml-auto text-xs text-muted-foreground">
+          <Badge variant="secondary">{filtered.length}</Badge> tecido(s)
+        </span>
+      </div>
 
       {isLoading ? (
         <div className="py-12 text-center text-muted-foreground">
