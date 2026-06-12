@@ -107,11 +107,16 @@ function OcAviamentoPage() {
   });
 
   const { data: empresas = [] } = useQuery({
-    queryKey: ["empresas-opt"],
+    queryKey: ["empresas-aviamento"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("empresas").select("id, nome_fantasia").order("nome_fantasia");
+      const { data, error } = await supabase
+        .from("empresas")
+        .select("id, nome_fantasia, categorias_fornecedor(nome)")
+        .order("nome_fantasia");
       if (error) throw error;
-      return (data ?? []) as Empresa[];
+      return ((data ?? []) as Array<Empresa & { categorias_fornecedor: { nome: string } | null }>)
+        .filter((e) => !e.categorias_fornecedor || (e.categorias_fornecedor.nome ?? "").trim().toLowerCase() === "aviamento")
+        .map(({ id, nome_fantasia }) => ({ id, nome_fantasia })) as Empresa[];
     },
   });
   const { data: estilistas = [] } = useQuery({
