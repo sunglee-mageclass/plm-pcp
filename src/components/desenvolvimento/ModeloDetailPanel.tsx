@@ -508,6 +508,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 canEnviarCad={canEnviarCad}
                 onEnviarCad={() => enviarCad.mutate()}
                 enviarCadPending={enviarCad.isPending}
+                statusOptions={statusOptions}
               />
             </AccordionContent>
           </AccordionItem>
