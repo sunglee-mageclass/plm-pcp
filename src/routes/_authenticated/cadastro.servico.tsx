@@ -548,21 +548,13 @@ function RepresentantesTab() {
                       value={form.novaEmpresa}
                       onChange={(e) => setForm({ ...form, novaEmpresa: e.target.value })}
                     />
-                    <Select
-                      value={form.novaEmpresaCategoria}
-                      onValueChange={(v) => setForm({ ...form, novaEmpresaCategoria: v })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Categoria do fornecedor…" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {catsFornecedor.map((c) => (
-                          <SelectItem key={c.id} value={c.id}>
-                            {c.nome}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <CategoriasFornecedorMultiSelect
+                      options={catsFornecedor}
+                      value={form.novaEmpresaCategorias}
+                      onChange={(v) => setForm({ ...form, novaEmpresaCategorias: v })}
+                      placeholder="Categorias do fornecedor…"
+                    />
+
                     <Button
                       type="button"
                       variant="ghost"
