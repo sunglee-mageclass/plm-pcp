@@ -8,8 +8,19 @@ import {
   LayoutGrid,
   ImageOff,
   Loader2,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
@@ -174,6 +185,45 @@ function TecidosGallery() {
     onError: (e: any) => toast.error(e.message ?? "Erro ao criar."),
   });
 
+  const [deleteRow, setDeleteRow] = useState<Artigo | null>(null);
+  const [deleteUsage, setDeleteUsage] = useState<number | null>(null);
+
+  const startDelete = async (a: Artigo) => {
+    setDeleteRow(a);
+    setDeleteUsage(null);
+    let total = 0;
+    const refs: { table: string; column: string }[] = [
+      { table: "ocs_tecido_itens", column: "artigo_id" },
+      { table: "modelo_tecidos", column: "artigo_id" },
+      { table: "cad_tecidos", column: "artigo_id" },
+    ];
+    for (const r of refs) {
+      const { count } = await supabase
+        .from(r.table as any)
+        .select("*", { count: "exact", head: true })
+        .eq(r.column, a.id);
+      total += count ?? 0;
+    }
+    setDeleteUsage(total);
+  };
+
+  const deleteMut = useMutation({
+    mutationFn: async (id: string) => {
+      // Apaga variantes (FK sem cascade pode existir)
+      await supabase.from("variantes_tecido").delete().eq("artigo_id", id);
+      const { error } = await supabase.from("artigos").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Tecido excluído.");
+      setDeleteRow(null);
+      setDeleteUsage(null);
+      qc.invalidateQueries({ queryKey: ["artigos"] });
+      qc.invalidateQueries({ queryKey: ["variantes-thumb"] });
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao excluir."),
+  });
+
   const gridClass: Record<number, string> = {
     2: "grid-cols-1 sm:grid-cols-2",
     3: "grid-cols-2 md:grid-cols-3",
@@ -253,6 +303,7 @@ function TecidosGallery() {
               artigo={a}
               fornecedor={a.empresa_id ? empresasMap.get(a.empresa_id) ?? null : null}
               fotoPath={firstVarMap.get(a.id) ?? null}
+              onDelete={() => startDelete(a)}
             />
           ))}
         </div>
@@ -264,6 +315,54 @@ function TecidosGallery() {
         onSubmit={(f) => createMut.mutate(f)}
         loading={createMut.isPending}
       />
+
+      <AlertDialog
+        open={!!deleteRow}
+        onOpenChange={(o) => {
+          if (!o) {
+            setDeleteRow(null);
+            setDeleteUsage(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir tecido?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteUsage === null ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Verificando uso…
+                </span>
+              ) : deleteUsage > 0 ? (
+                <>
+                  Este tecido está em uso em <strong>{deleteUsage}</strong> registro(s)
+                  (OCs, modelos ou CADs). A exclusão pode falhar se houver vínculos
+                  protegidos.
+                </>
+              ) : (
+                <>
+                  Tem certeza que deseja excluir <strong>{deleteRow?.nome}</strong>?
+                  Todas as variantes serão removidas.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                if (deleteRow) deleteMut.mutate(deleteRow.id);
+              }}
+              disabled={deleteUsage === null || deleteMut.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -272,51 +371,68 @@ function TecidoCard({
   artigo,
   fornecedor,
   fotoPath,
+  onDelete,
 }: {
   artigo: Artigo;
   fornecedor: string | null;
   fotoPath: string | null;
+  onDelete: () => void;
 }) {
   const url = useSignedUrl(fotoPath);
   return (
-    <Link
-      to="/cadastro/tecidos/$artigoId"
-      params={{ artigoId: artigo.id }}
-      className="group"
-    >
-      <Card className="overflow-hidden h-full transition-shadow group-hover:shadow-md">
-        <div className="aspect-square bg-muted relative">
-          {url ? (
-            <img
-              src={url}
-              alt={artigo.nome}
-              className="w-full h-full object-cover"
-              loading="lazy"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-              <ImageOff className="h-10 w-10" />
-            </div>
-          )}
-        </div>
-        <div className="p-3 space-y-1">
-          <h3 className="font-medium leading-tight line-clamp-1">{artigo.nome}</h3>
-          <p className="text-xs text-muted-foreground line-clamp-1">{fornecedor ?? "—"}</p>
-          <p className="text-sm font-semibold text-primary">
-            {artigo.preco != null
-              ? new Intl.NumberFormat("pt-BR", {
-                  style: "currency",
-                  currency: "BRL",
-                }).format(Number(artigo.preco))
-              : "—"}
-            <span className="text-xs text-muted-foreground font-normal">
-              {" "}
-              / {artigo.unidade_medida}
-            </span>
-          </p>
-        </div>
-      </Card>
-    </Link>
+    <div className="group relative">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onDelete();
+        }}
+        className="absolute top-2 right-2 z-10 h-8 w-8 rounded-md bg-background/80 backdrop-blur-sm border flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive hover:text-destructive-foreground"
+        aria-label="Excluir tecido"
+        title="Excluir tecido"
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
+      <Link
+        to="/cadastro/tecidos/$artigoId"
+        params={{ artigoId: artigo.id }}
+        className="block"
+      >
+        <Card className="overflow-hidden h-full transition-shadow group-hover:shadow-md">
+          <div className="aspect-square bg-muted relative">
+            {url ? (
+              <img
+                src={url}
+                alt={artigo.nome}
+                className="w-full h-full object-cover"
+                loading="lazy"
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                <ImageOff className="h-10 w-10" />
+              </div>
+            )}
+          </div>
+          <div className="p-3 space-y-1">
+            <h3 className="font-medium leading-tight line-clamp-1">{artigo.nome}</h3>
+            <p className="text-xs text-muted-foreground line-clamp-1">{fornecedor ?? "—"}</p>
+            <p className="text-sm font-semibold text-primary">
+              {artigo.preco != null
+                ? new Intl.NumberFormat("pt-BR", {
+                    style: "currency",
+                    currency: "BRL",
+                  }).format(Number(artigo.preco))
+                : "—"}
+              <span className="text-xs text-muted-foreground font-normal">
+                {" "}
+                / {artigo.unidade_medida}
+              </span>
+            </p>
+          </div>
+        </Card>
+      </Link>
+    </div>
   );
 }
 
