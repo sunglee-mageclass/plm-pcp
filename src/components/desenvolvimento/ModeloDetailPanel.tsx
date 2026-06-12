@@ -486,6 +486,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       qc.invalidateQueries({ queryKey: ["modelo-aviamentos", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-grades", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
+      qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao salvar"),
   });
