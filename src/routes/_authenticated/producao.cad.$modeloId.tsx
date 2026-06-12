@@ -21,6 +21,16 @@ import { CadTecidosSection } from "@/components/producao/cad/CadTecidosSection";
 import { CadGradeSection } from "@/components/producao/cad/CadGradeSection";
 import { CadExplosaoSection } from "@/components/producao/cad/CadExplosaoSection";
 import { CadFichaCorte } from "@/components/producao/cad/CadFichaCorte";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export const Route = createFileRoute("/_authenticated/producao/cad/$modeloId")({
   component: CadDetailPage,
