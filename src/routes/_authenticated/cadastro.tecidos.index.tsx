@@ -151,11 +151,25 @@ function TecidosGallery() {
     [empresas],
   );
 
+  const catsByArtigo = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    artigoCatLinks.forEach((l) => {
+      const s = m.get(l.artigo_id) ?? new Set<string>();
+      s.add(l.categoria_tecido_id);
+      m.set(l.artigo_id, s);
+    });
+    return m;
+  }, [artigoCatLinks]);
+
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
     let list = artigos.filter((a) => {
       if (empresaFilter !== "all" && a.empresa_id !== empresaFilter) return false;
-      if (catFilter !== "all" && a.categoria_tecido_id !== catFilter) return false;
+      if (catFilter !== "all") {
+        const cs = catsByArtigo.get(a.id);
+        const matches = (cs && cs.has(catFilter)) || a.categoria_tecido_id === catFilter;
+        if (!matches) return false;
+      }
       if (s && !a.nome.toLowerCase().includes(s)) return false;
       return true;
     });
