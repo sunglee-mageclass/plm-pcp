@@ -359,35 +359,15 @@ function AviamentosTab() {
 
   return (
     <div className="space-y-4">
-      <Card className="p-4 grid gap-3 sm:grid-cols-4">
-        <div>
-          <Label>Pesquisar</Label>
-          <div className="relative">
-            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input className="pl-8" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Aviamento" />
-          </div>
-        </div>
-        <div>
-          <Label>Fornecedor</Label>
-          <Select value={fornecedor} onValueChange={setFornecedor}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              {fornecedores.map((f) => <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <Label>Categoria</Label>
-          <Select value={categoria} onValueChange={setCategoria}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas</SelectItem>
-              {categorias.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-      </Card>
+      <div className="flex items-center justify-end gap-2">
+        <SearchToggle value={search} onChange={setSearch} placeholder="Aviamento" />
+        <FilterButton
+          filters={[
+            { label: "Fornecedor", value: fornecedor, onChange: setFornecedor, options: [{ id: "all", nome: "Todos" }, ...fornecedores] },
+            { label: "Categoria", value: categoria, onChange: setCategoria, options: [{ id: "all", nome: "Todas" }, ...categorias] },
+          ]}
+        />
+      </div>
 
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
 
