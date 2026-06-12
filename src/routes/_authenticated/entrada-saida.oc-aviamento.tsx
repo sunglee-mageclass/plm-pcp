@@ -499,17 +499,26 @@ function OcDialog({
 
   const canShowRecebimento = isEdit && status === "encomendado";
   const parcelas = draft.parcelas_recebimento ?? [];
+  const todasParcelasOk =
+    parcelas.length > 0 && parcelas.every((p) => !!p.data && p.recebido === true);
   const canMarkReceived =
     canShowRecebimento &&
     items.some((i) => (i.quantidade_recebida ?? 0) > 0) &&
     !!draft.data_entrega &&
-    !!draft.nf_url;
+    !!draft.nf_url &&
+    todasParcelasOk;
 
   const getMissingRequirements = (): string[] => {
     const m: string[] = [];
     if (!items.some((i) => (i.quantidade_recebida ?? 0) > 0)) m.push("Preencha a quantidade recebida de pelo menos um aviamento");
     if (!draft.data_entrega) m.push("Informe a data da entrega");
     if (!draft.nf_url) m.push("Anexe a nota fiscal");
+    if (parcelas.length === 0) {
+      m.push("Defina a quantidade de parcelas de recebimento");
+    } else {
+      if (!parcelas.every((p) => !!p.data)) m.push("Preencha as datas de todas as parcelas de recebimento");
+      if (!parcelas.every((p) => p.recebido === true)) m.push("Marque todas as parcelas como recebidas");
+    }
     return m;
   };
 

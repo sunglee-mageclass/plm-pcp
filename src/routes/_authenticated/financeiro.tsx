@@ -263,6 +263,24 @@ function ParcelaDetailDialog({
   const { isAdmin, isSuperAdmin, isTenantAdmin } = useAuth();
   const canRecalc = isAdmin || isSuperAdmin || isTenantAdmin;
 
+  const [vencimento, setVencimento] = useState(parcela?.data_vencimento ?? "");
+  useEffect(() => {
+    setVencimento(parcela?.data_vencimento ?? "");
+  }, [parcela?.id, parcela?.data_vencimento]);
+
+  const updateVencimentoMut = useMutation({
+    mutationFn: async () => {
+      if (!parcela) return;
+      const { error } = await supabase.from("parcelas").update({ data_vencimento: vencimento }).eq("id", parcela.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Vencimento atualizado");
+      qc.invalidateQueries({ queryKey: ["parcelas"] });
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao atualizar vencimento"),
+  });
+
   const recalcMut = useMutation({
     mutationFn: async () => {
       if (!parcela) return;
@@ -298,7 +316,31 @@ function ParcelaDetailDialog({
           <div><span className="text-muted-foreground">Origem:</span> {tipoLabel} · Nº {ocNumero}</div>
           <div><span className="text-muted-foreground">Parcela:</span> {parcela.numero_parcela}</div>
           <div><span className="text-muted-foreground">Valor:</span> <b>{brl(Number(parcela.valor))}</b></div>
-          <div><span className="text-muted-foreground">Vencimento:</span> {format(parseISO(parcela.data_vencimento), "dd/MM/yyyy")}</div>
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground">Vencimento:</span>
+            {canRecalc ? (
+              <>
+                <Input
+                  type="date"
+                  value={vencimento}
+                  onChange={(e) => setVencimento(e.target.value)}
+                  className="h-7 w-auto"
+                />
+                {vencimento !== parcela.data_vencimento && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => updateVencimentoMut.mutate()}
+                    disabled={updateVencimentoMut.isPending}
+                  >
+                    Salvar
+                  </Button>
+                )}
+              </>
+            ) : (
+              format(parseISO(parcela.data_vencimento), "dd/MM/yyyy")
+            )}
+          </div>
           <div>
             <span className="text-muted-foreground">Status:</span>{" "}
             <Badge variant={st === "pago" ? "default" : st === "vencido" ? "destructive" : "secondary"}>
