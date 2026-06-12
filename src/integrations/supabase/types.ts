@@ -864,6 +864,42 @@ export type Database = {
           },
         ]
       }
+      empresa_categorias_fornecedor: {
+        Row: {
+          categoria_fornecedor_id: string
+          created_at: string
+          empresa_id: string
+          tenant_id: string | null
+        }
+        Insert: {
+          categoria_fornecedor_id: string
+          created_at?: string
+          empresa_id: string
+          tenant_id?: string | null
+        }
+        Update: {
+          categoria_fornecedor_id?: string
+          created_at?: string
+          empresa_id?: string
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_categorias_fornecedor_categoria_fornecedor_id_fkey"
+            columns: ["categoria_fornecedor_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_fornecedor"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "empresa_categorias_fornecedor_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       empresas: {
         Row: {
           categoria_fornecedor_id: string | null

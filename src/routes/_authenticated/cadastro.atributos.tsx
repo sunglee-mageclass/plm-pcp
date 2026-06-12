@@ -87,7 +87,7 @@ const ATTRIBUTES: AttributeItem[] = [
       nameField: "nome",
       singular: "Categoria de Fornecedor",
       plural: "Categorias de Fornecedor",
-      usage: [{ table: "empresas", column: "categoria_fornecedor_id" }],
+      usage: [{ table: "empresa_categorias_fornecedor", column: "categoria_fornecedor_id" }],
     },
   },
   {
