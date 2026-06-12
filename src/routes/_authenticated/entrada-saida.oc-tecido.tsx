@@ -579,7 +579,7 @@ function OcDialog({
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
           {canShowRecebimento && (
-            <Button variant="secondary" onClick={() => saveMutation.mutate(true)} disabled={saveMutation.isPending || !canMarkReceived}>
+            <Button variant="secondary" onClick={handleMarkReceived} disabled={saveMutation.isPending || isReadOnlyRecebimento}>
               Marcar como Recebido
             </Button>
           )}
