@@ -9,6 +9,7 @@ import {
   ImageOff,
   Loader2,
   Trash2,
+  ZoomIn,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -29,6 +30,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ImagePreview } from "@/components/shared/ImagePreview";
 import {
   Select,
   SelectTrigger,
