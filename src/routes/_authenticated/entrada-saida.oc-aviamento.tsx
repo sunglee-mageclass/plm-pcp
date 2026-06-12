@@ -643,7 +643,7 @@ function OcDialog({
               </TableHeader>
               <TableBody>
                 {items.map((i) => (
-                  <TableRow key={i.tempId}>
+                  <TableRow key={i.tempId} className={i.cancelado ? "opacity-50" : ""}>
                     <TableCell>
                       <Select value={i.aviamento_id} onValueChange={(v) => updateItem(i.tempId, { aviamento_id: v })}>
                         <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
@@ -658,20 +658,33 @@ function OcDialog({
                     </TableCell>
                     <TableCell>
                       <Input type="number" step="0.01" value={i.quantidade_pedida}
+                        disabled={i.cancelado}
                         onChange={(e) => updateItem(i.tempId, { quantidade_pedida: Number(e.target.value) })} />
                     </TableCell>
                     {canShowRecebimento && (
                       <TableCell>
                         <Input type="number" step="0.01" value={i.quantidade_recebida ?? ""}
+                          disabled={i.cancelado}
                           onChange={(e) => updateItem(i.tempId, { quantidade_recebida: e.target.value === "" ? null : Number(e.target.value) })} />
                       </TableCell>
                     )}
                     <TableCell className="text-sm">{fmtMoney(valorPrev(i))}</TableCell>
                     {canShowRecebimento && <TableCell className="text-sm">{fmtMoney(valorReal(i))}</TableCell>}
                     <TableCell>
-                      <Button size="icon" variant="ghost" onClick={() => removeItem(i.tempId)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        {status === "encomendado" && (
+                          <label className="flex items-center gap-1 text-xs text-muted-foreground" title="Cancelar item">
+                            <Checkbox
+                              checked={i.cancelado}
+                              onCheckedChange={(c) => updateItem(i.tempId, { cancelado: !!c })}
+                            />
+                            X
+                          </label>
+                        )}
+                        <Button size="icon" variant="ghost" onClick={() => removeItem(i.tempId)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
