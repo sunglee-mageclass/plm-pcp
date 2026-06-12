@@ -62,6 +62,7 @@ type ItemDraft = {
   aviamento_id: string;
   quantidade_pedida: number;
   quantidade_recebida: number | null;
+  cancelado: boolean;
 };
 
 function fmtMoney(v: number | null | undefined) {
