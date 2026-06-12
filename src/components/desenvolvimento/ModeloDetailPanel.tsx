@@ -208,7 +208,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   }, [modelo]);
 
   useEffect(() => {
-    if (!tecidosData) return;
+    if (!tecidosData || !modelo) return;
     const empty = makeEmptyBlocks();
     tecidosData.tecidos.forEach((t: any) => {
       const idx = empty.findIndex((b) => b.tipo === t.tipo && b.numero === t.numero);
@@ -228,8 +228,21 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         };
       }
     });
+    // Prefill from tecidos_planejados (planejamento) when nenhum tecido foi ainda salvo
+    const planejados: string[] = Array.isArray((modelo as any).tecidos_planejados)
+      ? ((modelo as any).tecidos_planejados as string[])
+      : [];
+    if (planejados.length > 0) {
+      planejados.forEach((artigoId, i) => {
+        const numero = i + 1;
+        const idx = empty.findIndex((b) => b.tipo === "tecido" && b.numero === numero);
+        if (idx >= 0 && !empty[idx].artigo_id) {
+          empty[idx] = { ...empty[idx], artigo_id: artigoId };
+        }
+      });
+    }
     setBlocks(empty);
-  }, [tecidosData]);
+  }, [tecidosData, modelo]);
 
   useEffect(() => {
     if (!aviamentosData) return;
