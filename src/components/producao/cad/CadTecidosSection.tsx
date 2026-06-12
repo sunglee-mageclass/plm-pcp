@@ -2,6 +2,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Field } from "./shared";
+import { EtiquetaLavagemArtigoView } from "@/components/shared/EtiquetaLavagemArtigo";
 import type { TecidoRow, VarianteRow } from "./types";
 
 type Props = {
@@ -24,6 +25,7 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar }: Props) {
             <span className="text-sm font-medium">{t.artigo_nome ?? "Sem artigo"}</span>
             <span className="text-xs text-muted-foreground">(preço: R$ {t.preco.toFixed(2)}/m)</span>
           </div>
+          {t.artigo_id && <EtiquetaLavagemArtigoView artigoId={t.artigo_id} size="sm" />}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Field label="Consumo CAD (m)">
               <Input type="number" step="0.01" value={t.consumo_cad}

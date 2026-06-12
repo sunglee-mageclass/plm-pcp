@@ -21,6 +21,7 @@ export type TecidoRow = {
   tamanho_folha: number;
   preco: number;
   artigo_nome?: string | null;
+  etiqueta_lavagem_urls?: string[];
   variantes: VarianteRow[];
 };
 

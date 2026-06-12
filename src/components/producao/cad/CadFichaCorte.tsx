@@ -1,5 +1,6 @@
 import { cell, cellH } from "./types";
 import type { AviamentoRow, GradeRow, TecidoRow } from "./types";
+import { EtiquetaLavagemArtigoView } from "@/components/shared/EtiquetaLavagemArtigo";
 
 type Props = {
   modelo: any;
@@ -45,7 +46,7 @@ export function CadFichaCorte({
         <h3 style={{ fontSize: 14, fontWeight: 600, marginTop: 0 }}>Tecidos</h3>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, marginTop: 4 }}>
           <thead><tr style={{ background: "#eee" }}>
-            <th style={cellH}>Tipo</th><th style={cellH}>Artigo</th><th style={cellH}>Variantes</th><th style={cellH}>Consumo</th><th style={cellH}>%Loss</th><th style={cellH}>Folha (m)</th>
+            <th style={cellH}>Tipo</th><th style={cellH}>Artigo</th><th style={cellH}>Variantes</th><th style={cellH}>Consumo</th><th style={cellH}>%Loss</th><th style={cellH}>Folha (m)</th><th style={cellH}>Etiqueta</th>
           </tr></thead>
           <tbody>
             {tecidos.map((t, i) => (
@@ -56,10 +57,27 @@ export function CadFichaCorte({
                 <td style={cell}>{t.consumo_cad}</td>
                 <td style={cell}>{t.loss_percent_cad}%</td>
                 <td style={cell}>{t.tamanho_folha}</td>
+                <td style={cell}>
+                  {(t.etiqueta_lavagem_urls ?? []).length > 0
+                    ? `${(t.etiqueta_lavagem_urls ?? []).length} arquivo(s)`
+                    : "—"}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
+        {tecidos.some((t) => (t.etiqueta_lavagem_urls ?? []).length > 0) && (
+          <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+            {tecidos.map((t, i) =>
+              t.artigo_id && (t.etiqueta_lavagem_urls ?? []).length > 0 ? (
+                <div key={i} style={{ fontSize: 11 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 2 }}>{t.tipo} {t.numero} — {t.artigo_nome}</div>
+                  <EtiquetaLavagemArtigoView artigoId={t.artigo_id} label="" size="sm" />
+                </div>
+              ) : null,
+            )}
+          </div>
+        )}
       </section>
 
       <section className="print-section" style={section}>

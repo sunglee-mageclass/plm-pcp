@@ -206,9 +206,6 @@ function OcDialog({
           anexo_pedido_url: oc.anexo_pedido_url,
           modelo_sugerido_url: oc.modelo_sugerido_url,
           nf_url: oc.nf_url,
-          etiqueta_lavagem_urls: oc.etiqueta_lavagem_urls ?? [],
-          etiqueta_lavagem_url_1: (oc as { etiqueta_lavagem_url_1?: string | null }).etiqueta_lavagem_url_1 ?? null,
-          etiqueta_lavagem_url_2: (oc as { etiqueta_lavagem_url_2?: string | null }).etiqueta_lavagem_url_2 ?? null,
         });
         setStatus((oc.status as OCStatus) ?? "encomendado");
         setRespMode(oc.responsavel_id ? "select" : "text");
@@ -353,9 +350,6 @@ function OcDialog({
         anexo_pedido_url: draft.anexo_pedido_url,
         modelo_sugerido_url: draft.modelo_sugerido_url,
         nf_url: draft.nf_url,
-        etiqueta_lavagem_urls: draft.etiqueta_lavagem_urls,
-        etiqueta_lavagem_url_1: draft.etiqueta_lavagem_url_1,
-        etiqueta_lavagem_url_2: draft.etiqueta_lavagem_url_2,
         data_entrega: draft.data_entrega || null,
         valor_previsto_total: totalPrevisto,
         valor_real_total: totalReal,
@@ -503,6 +497,8 @@ function OcDialog({
               totalPrevisto={totalPrevisto}
               totalReal={totalReal}
               tecido2Aberto={tecido2Aberto}
+              artigoId1={artigoIdFor(1)}
+              artigoId2={artigoIdFor(2)}
             />
           )}
         </div>
