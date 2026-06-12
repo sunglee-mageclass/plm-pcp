@@ -301,7 +301,8 @@ function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
         .from("ocs_tecido_itens")
         .select("id, quantidade_pedida, oc_tecido_id, artigo_id, ocs_tecido!inner(numero_pedido, data_prevista_entrega, status, empresas(nome_fantasia)), artigos(unidade_medida, rendimento)")
         .eq("variante_tecido_id", row.varId)
-        .eq("ocs_tecido.status", "encomendado");
+        .eq("ocs_tecido.status", "encomendado")
+        .eq("cancelado" as any, false);
       if (error) throw error;
       return (data ?? []) as any[];
     },
