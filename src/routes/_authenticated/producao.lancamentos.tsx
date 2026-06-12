@@ -103,8 +103,10 @@ function LancamentosPage() {
   const uploadMut = useMutation({
     mutationFn: async (args: { card: LancCard; file: File }) => {
       const { card, file } = args;
+      const { tenantPrefix } = await import("@/lib/storage-tenant");
+      const tenant = await tenantPrefix();
       const ext = file.name.split(".").pop() ?? "jpg";
-      const path = `${card.modelo_id}/${Date.now()}.${ext}`;
+      const path = `${tenant}/${card.modelo_id}/${Date.now()}.${ext}`;
       const { error: upErr } = await supabase.storage.from("lancamentos").upload(path, file, { upsert: true });
       if (upErr) throw upErr;
 

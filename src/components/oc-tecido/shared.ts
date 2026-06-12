@@ -118,7 +118,9 @@ export function mensagemEntrega(prevista?: string | null, entregue?: string | nu
 }
 
 export async function uploadFile(file: File, prefix: string) {
-  const path = `${prefix}/${crypto.randomUUID()}-${file.name}`;
+  const { tenantPrefix } = await import("@/lib/storage-tenant");
+  const tenant = await tenantPrefix();
+  const path = `${tenant}/${prefix}/${crypto.randomUUID()}-${file.name}`;
   const { error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false });
   if (error) throw error;
   return path;

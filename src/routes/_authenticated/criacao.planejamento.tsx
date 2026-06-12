@@ -50,7 +50,9 @@ const STATUS_OPTS = [
 const statusMeta = (s: string | null) => STATUS_OPTS.find((o) => o.value === s) ?? STATUS_OPTS[0];
 
 async function uploadFile(file: File, prefix: string) {
-  const path = `${prefix}/${crypto.randomUUID()}-${file.name}`;
+  const { tenantPrefix } = await import("@/lib/storage-tenant");
+  const tenant = await tenantPrefix();
+  const path = `${tenant}/${prefix}/${crypto.randomUUID()}-${file.name}`;
   const { error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false });
   if (error) throw error;
   return path;

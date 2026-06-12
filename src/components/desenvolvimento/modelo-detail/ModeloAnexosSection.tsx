@@ -69,7 +69,9 @@ function PhotoList({
   const handleAdd = async (file: File) => {
     setBusy(true);
     try {
-      const path = `${prefix}/${crypto.randomUUID()}-${file.name}`;
+      const { tenantPrefix } = await import("@/lib/storage-tenant");
+      const tenant = await tenantPrefix();
+      const path = `${tenant}/${prefix}/${crypto.randomUUID()}-${file.name}`;
       const { error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false });
       if (error) throw error;
       onChange([...paths, path]);
