@@ -539,9 +539,24 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     setBlocks((bs) => bs.map((b, i) => {
       if (i !== idx) return b;
       const variantes = [...b.variantes];
+      const oc_links = [...(b.oc_links ?? Array(10).fill(null))];
       variantes[vIdx] = value;
-      if (!value) for (let k = vIdx + 1; k < variantes.length; k++) variantes[k] = null;
-      return { ...b, variantes };
+      if (!value) {
+        oc_links[vIdx] = null;
+        for (let k = vIdx + 1; k < variantes.length; k++) { variantes[k] = null; oc_links[k] = null; }
+      } else if (oc_links[vIdx] && variantes[vIdx] !== value) {
+        // variante mudou: invalida vínculo
+        oc_links[vIdx] = null;
+      }
+      return { ...b, variantes, oc_links };
+    }));
+  };
+  const updateBlockOcLink = (idx: number, vIdx: number, value: string | null) => {
+    setBlocks((bs) => bs.map((b, i) => {
+      if (i !== idx) return b;
+      const oc_links = [...(b.oc_links ?? Array(10).fill(null))];
+      oc_links[vIdx] = value;
+      return { ...b, oc_links };
     }));
   };
 
