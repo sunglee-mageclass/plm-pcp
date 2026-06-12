@@ -214,9 +214,10 @@ function TecidosTab() {
     return rows.filter((r: any) =>
       (!s || r.artigoNome.toLowerCase().includes(s) || r.nomeVariante.toLowerCase().includes(s)) &&
       (fornecedor === "all" || r.fornecedorId === fornecedor) &&
-      (categoria === "all" || r.categoriaId === categoria),
+      (categoria === "all" || r.categoriaId === categoria) &&
+      (estoqueFilter === "all" || (estoqueFilter === "zero" ? r.fisico <= 0 : r.fisico > 0)),
     );
-  }, [data, search, fornecedor, categoria]);
+  }, [data, search, fornecedor, categoria, estoqueFilter]);
 
   // Group by artigo (key = artigoId, fallback para variantes sem artigo)
   const grouped = useMemo(() => {
