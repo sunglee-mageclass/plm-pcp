@@ -60,13 +60,13 @@ function Thumb({ path, signed, onRemove }: { path: string; signed?: string; onRe
   return (
     <div className="relative group">
       {signed ? (
-        <a href={signed} target="_blank" rel="noreferrer" title="Abrir etiqueta">
+        <ImagePreview src={signed} alt="Etiqueta de lavagem">
           <img
             src={signed}
             alt="Etiqueta de lavagem"
-            className="h-20 w-20 object-cover rounded border bg-muted"
+            className="h-20 w-20 object-cover rounded border bg-muted cursor-zoom-in"
           />
-        </a>
+        </ImagePreview>
       ) : (
         <div className="h-20 w-20 rounded border bg-muted flex items-center justify-center text-muted-foreground">
           <ImageIcon className="h-6 w-6" />
