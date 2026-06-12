@@ -52,6 +52,7 @@ function UsuariosPage() {
   const [tenantFilter, setTenantFilter] = useState<string>("all");
   const [open, setOpen] = useState(false);
   const [resetting, setResetting] = useState<AppUser | null>(null);
+  const [permUser, setPermUser] = useState<AppUser | null>(null);
 
   const callToggle = useServerFn(toggleUserAtivo);
   const callReset = useServerFn(resetUserPassword);
