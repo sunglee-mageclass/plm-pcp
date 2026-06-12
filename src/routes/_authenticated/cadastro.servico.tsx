@@ -352,7 +352,7 @@ function RepresentantesTab() {
       contato: r.contato ?? "",
       observacoes: r.observacoes ?? "",
       novaEmpresa: "",
-      novaEmpresaCategoria: "",
+      novaEmpresaCategorias: [],
       modoNovaEmpresa: false,
     });
     setOpen(true);
