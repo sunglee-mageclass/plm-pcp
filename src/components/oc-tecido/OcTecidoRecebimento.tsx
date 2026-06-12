@@ -12,6 +12,7 @@ export function OcTecidoRecebimento({
   draft, setDraft, handleSingleUpload,
   items, artigoMap, varianteMap, setQtd, totalPrevisto, totalReal,
   tecido2Aberto, artigoId1, artigoId2, readOnly = false,
+  toggleCancelado, canCancel,
 }: {
   draft: Draft;
   setDraft: React.Dispatch<React.SetStateAction<Draft>>;
@@ -26,6 +27,8 @@ export function OcTecidoRecebimento({
   artigoId1: string | null;
   artigoId2: string | null;
   readOnly?: boolean;
+  toggleCancelado?: (tempId: string, value: boolean) => void;
+  canCancel?: boolean;
 }) {
   return (
     <>
@@ -149,6 +152,8 @@ export function OcTecidoRecebimento({
           dataPrevista={draft.data_prevista_entrega}
           dataEntrega={draft.data_entrega}
           readOnly={readOnly}
+          toggleCancelado={toggleCancelado}
+          canCancel={canCancel}
         />
       </div>
     </>

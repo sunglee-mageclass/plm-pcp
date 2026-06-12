@@ -1,14 +1,17 @@
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { artigoLabel, unidadeSufixo } from "@/lib/artigo-label";
+import { cn } from "@/lib/utils";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
 import { fmtMoney, type Artigo, type ItemDraft, type Variante } from "./shared";
 
 export function OcTecidoCalculos({
   items, artigoMap, varianteMap, setQtd,
   totalPrevisto, totalReal, dataPrevista, dataEntrega, readOnly = false,
+  toggleCancelado, canCancel,
 }: {
   items: ItemDraft[];
   artigoMap: Record<string, Artigo>;
@@ -19,6 +22,8 @@ export function OcTecidoCalculos({
   dataPrevista: string;
   dataEntrega: string;
   readOnly?: boolean;
+  toggleCancelado?: (tempId: string, value: boolean) => void;
+  canCancel?: boolean;
 }) {
   const metragemPedida = (it: ItemDraft) => {
     const a = it.artigo_id ? artigoMap[it.artigo_id] : null;
@@ -55,6 +60,7 @@ export function OcTecidoCalculos({
             {hasKg && <TableHead>Metr. Recebida</TableHead>}
             <TableHead>Valor Prev.</TableHead>
             <TableHead>Valor Real</TableHead>
+            {canCancel && <TableHead className="w-24">Cancelar</TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -63,16 +69,16 @@ export function OcTecidoCalculos({
             const v = varianteMap[i.variante_tecido_id];
             const sufixo = unidadeSufixo(a?.unidade_medida);
             return (
-              <TableRow key={i.tempId}>
+              <TableRow key={i.tempId} className={cn(i.cancelado && "opacity-50")}>
                 <TableCell>
-                  <div className="text-sm">{artigoLabel(a)}</div>
-                  <div className="text-xs text-muted-foreground">{v?.nome_variante ?? v?.codigo_variante ?? "—"}</div>
+                  <div className={cn("text-sm", i.cancelado && "line-through")}>{artigoLabel(a)}</div>
+                  <div className={cn("text-xs text-muted-foreground", i.cancelado && "line-through")}>{v?.nome_variante ?? v?.codigo_variante ?? "—"}</div>
                 </TableCell>
-                <TableCell>{i.quantidade_pedida}{sufixo ? ` ${sufixo}` : ""}</TableCell>
-                {hasKg && <TableCell>{metragemPedida(i).toFixed(2)} m</TableCell>}
+                <TableCell className={cn(i.cancelado && "line-through")}>{i.quantidade_pedida}{sufixo ? ` ${sufixo}` : ""}</TableCell>
+                {hasKg && <TableCell className={cn(i.cancelado && "line-through")}>{metragemPedida(i).toFixed(2)} m</TableCell>}
                 <TableCell>
-                  {readOnly ? (
-                    <span className="text-sm">
+                  {readOnly || i.cancelado ? (
+                    <span className={cn("text-sm", i.cancelado && "line-through")}>
                       {i.quantidade_recebida ?? 0}{sufixo ? ` ${sufixo}` : ""}
                     </span>
                   ) : (
@@ -88,9 +94,21 @@ export function OcTecidoCalculos({
                     </div>
                   )}
                 </TableCell>
-                {hasKg && <TableCell>{metragemRecebida(i).toFixed(2)} m</TableCell>}
-                <TableCell>{fmtMoney(valorPrev(i))}</TableCell>
-                <TableCell>{fmtMoney(valorReal(i))}</TableCell>
+                {hasKg && <TableCell className={cn(i.cancelado && "line-through")}>{metragemRecebida(i).toFixed(2)} m</TableCell>}
+                <TableCell className={cn(i.cancelado && "line-through")}>{fmtMoney(valorPrev(i))}</TableCell>
+                <TableCell className={cn(i.cancelado && "line-through")}>{fmtMoney(valorReal(i))}</TableCell>
+                {canCancel && (
+                  <TableCell>
+                    <label className="inline-flex items-center gap-2 text-sm">
+                      <Checkbox
+                        checked={i.cancelado}
+                        onCheckedChange={(c) => toggleCancelado?.(i.tempId, !!c)}
+                        disabled={readOnly}
+                      />
+                      <span className="text-xs">Cancelar</span>
+                    </label>
+                  </TableCell>
+                )}
               </TableRow>
             );
           })}
