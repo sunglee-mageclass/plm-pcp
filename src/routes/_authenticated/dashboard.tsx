@@ -171,6 +171,7 @@ function EstoqueTab() {
   const totalVariantes = data?.totalVariantes ?? 0;
   const totalAviamentos = data?.totalAviamentos ?? 0;
   const zerados = data?.zerados ?? 0;
+  const threshold = Number(data?.threshold ?? 0) || 0;
   const top10 = data?.top10 ?? [];
   const barData = data?.barData ?? [];
 
@@ -179,7 +180,7 @@ function EstoqueTab() {
       <div className="grid gap-4 sm:grid-cols-3">
         <Kpi label="Variantes de Tecido" value={totalVariantes} icon={Boxes} />
         <Kpi label="Aviamentos" value={totalAviamentos} icon={Package} />
-        <Kpi label="Itens com estoque ≤ 0" value={zerados} icon={AlertTriangle} />
+        <Kpi label={threshold > 0 ? `Itens com estoque ≤ ${fmtNum(threshold)}` : "Itens com estoque ≤ 0"} value={zerados} icon={AlertTriangle} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -199,7 +200,7 @@ function EstoqueTab() {
                   <tr key={r.id} className="border-b last:border-0">
                     <td className="py-2 pr-3 truncate max-w-[260px]">{r.nome}</td>
                     <td className="py-2 pr-3">{r.tipo}</td>
-                    <td className={"py-2 pr-3 text-right " + (Number(r.estoque) <= 0 ? "text-destructive font-medium" : "")}>
+                    <td className={"py-2 pr-3 text-right " + (Number(r.estoque) <= threshold ? "text-destructive font-medium" : "")}>
                       {Number(r.estoque).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}
                     </td>
                   </tr>
@@ -299,18 +300,41 @@ function ProducaoTab() {
               <th className="py-2 pr-3 text-right">SLA médio (dias)</th>
               <th className="py-2 pr-3 text-right">Atrasos</th>
               <th className="py-2 pr-3 text-right">Total entregue</th>
+              <th className="py-2 pr-3 text-right">Taxa de Defeito</th>
             </tr>
           </thead>
           <tbody>
-            {slaPorTerc.map((r: any, i: number) => (
-              <tr key={i} className="border-b last:border-0">
-                <td className="py-2 pr-3">{r.nome}</td>
-                <td className="py-2 pr-3 text-right">{Number(r.slaMedio ?? 0).toFixed(1)}</td>
-                <td className={"py-2 pr-3 text-right " + (Number(r.atrasos) > 0 ? "text-destructive" : "")}>{r.atrasos}</td>
-                <td className="py-2 pr-3 text-right">{r.total}</td>
-              </tr>
-            ))}
-            {!isLoading && slaPorTerc.length === 0 && <tr><td colSpan={4} className="py-4 text-center text-muted-foreground">Sem entregas registradas.</td></tr>}
+            {slaPorTerc.map((r: any, i: number) => {
+              const taxa = Number(r.taxaDefeito ?? 0);
+              const produzidas = Number(r.pecasProduzidas ?? 0);
+              const defeito = Number(r.pecasDefeito ?? 0);
+              const badgeCls = taxa > 5
+                ? "bg-destructive text-destructive-foreground"
+                : taxa > 2
+                  ? "bg-yellow-500 text-white"
+                  : "bg-muted text-muted-foreground";
+              return (
+                <tr key={i} className="border-b last:border-0">
+                  <td className="py-2 pr-3">{r.nome}</td>
+                  <td className="py-2 pr-3 text-right">{Number(r.slaMedio ?? 0).toFixed(1)}</td>
+                  <td className={"py-2 pr-3 text-right " + (Number(r.atrasos) > 0 ? "text-destructive" : "")}>{r.atrasos}</td>
+                  <td className="py-2 pr-3 text-right">{r.total}</td>
+                  <td className="py-2 pr-3 text-right">
+                    {produzidas > 0 ? (
+                      <span
+                        className={"inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium " + badgeCls}
+                        title={`${defeito} defeito${defeito === 1 ? "" : "s"} / ${produzidas} peça${produzidas === 1 ? "" : "s"}`}
+                      >
+                        {taxa.toFixed(1).replace(".", ",")}%
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+            {!isLoading && slaPorTerc.length === 0 && <tr><td colSpan={5} className="py-4 text-center text-muted-foreground">Sem entregas registradas.</td></tr>}
           </tbody>
         </table>
       </Card>
