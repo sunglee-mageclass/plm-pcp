@@ -283,6 +283,42 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     (b) => b.tipo === "tecido" && !!b.artigo_id && b.variantes.some((v) => !!v),
   );
   const gradeTotalGeral = grades.reduce((s, g) => s + (g.grade_total || 0), 0);
+
+  const tecido1VarianteIds = useMemo(() => {
+    const t1 = blocks.find((b) => b.tipo === "tecido" && b.numero === 1);
+    if (!t1) return [] as string[];
+    const out: string[] = [];
+    for (const v of t1.variantes) {
+      if (!v) break;
+      out.push(v);
+    }
+    return out;
+  }, [blocks]);
+
+  const { data: tecido1VariantesLabels = {} } = useQuery({
+    queryKey: ["variantes-labels", tecido1VarianteIds.join(",")],
+    enabled: tecido1VarianteIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("variantes_tecido")
+        .select("id, nome_variante, codigo_variante")
+        .in("id", tecido1VarianteIds);
+      if (error) throw error;
+      const map: Record<string, string> = {};
+      (data ?? []).forEach((v: any) => {
+        map[v.id] = v.nome_variante || v.codigo_variante || "";
+      });
+      return map;
+    },
+  });
+
+  const tecido1VariantesInfo = useMemo(
+    () => tecido1VarianteIds.map((id, i) => ({
+      numero: i + 1,
+      label: tecido1VariantesLabels[id] ?? "",
+    })),
+    [tecido1VarianteIds, tecido1VariantesLabels],
+  );
   const canEnviarCad =
     isAprovado &&
     (draft?.ref ?? "").trim() !== "" &&
@@ -432,6 +468,26 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     setBlocks((bs) => bs.map((b, i) => i === idx ? recomputeBlock({ ...b, ...patch }, artigoMap) : b));
   };
   const updateBlockVariante = (idx: number, vIdx: number, value: string | null) => {
+    const target = blocks[idx];
+    const isTecido1 = target?.tipo === "tecido" && target?.numero === 1;
+    if (isTecido1 && !value) {
+      // Verifica se há grade preenchida nesta variante ou nas que serão removidas em cascata
+      const affected: number[] = [];
+      for (let k = vIdx; k < target.variantes.length; k++) {
+        const n = k + 1;
+        const g = grades.find((x) => x.variante_numero === n);
+        const hasGrade = !!g && (g.grade_total > 0 || Object.values(g.grades || {}).some((v) => (v ?? 0) > 0));
+        if (hasGrade) affected.push(n);
+      }
+      if (affected.length > 0) {
+        const lista = affected.map((n) => `Variante ${n}`).join(", ");
+        const msg = affected.length === 1
+          ? `A ${lista} possui grade preenchida. Remover mesmo assim?`
+          : `As variantes ${lista} possuem grade preenchida. Remover mesmo assim?`;
+        if (!window.confirm(msg)) return;
+        setGrades((gs) => gs.filter((g) => !affected.includes(g.variante_numero)));
+      }
+    }
     setBlocks((bs) => bs.map((b, i) => {
       if (i !== idx) return b;
       const variantes = [...b.variantes];
@@ -579,6 +635,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 grades={grades}
                 onChangeGradeTotal={updateGradeTotal}
                 onChangeGradeCell={updateGradeCell}
+                tecido1Variantes={tecido1VariantesInfo}
               />
             </AccordionContent>
           </AccordionItem>
