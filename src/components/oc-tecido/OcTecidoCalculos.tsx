@@ -3,7 +3,8 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { artigoLabel, unidadeSufixo } from "@/lib/artigo-label";
-import { fmtMoney, mensagemEntrega, type Artigo, type ItemDraft, type Variante } from "./shared";
+import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
+import { fmtMoney, type Artigo, type ItemDraft, type Variante } from "./shared";
 
 export function OcTecidoCalculos({
   items, artigoMap, varianteMap, setQtd,
@@ -87,15 +88,7 @@ export function OcTecidoCalculos({
       <div className="flex gap-6 justify-end mt-3 text-sm">
         <div>Total Previsto: <b>{fmtMoney(totalPrevisto)}</b></div>
         <div>Total Real: <b>{fmtMoney(totalReal)}</b></div>
-        {(() => {
-          const m = mensagemEntrega(dataPrevista, dataEntrega);
-          const cls =
-            m.tone === "atrasado" ? "bg-destructive text-destructive-foreground border-transparent" :
-            m.tone === "adiantado" ? "bg-green-600 text-white border-transparent" :
-            m.tone === "no_prazo" ? "bg-blue-600 text-white border-transparent" :
-            "";
-          return <div>Mensagem: <Badge variant="outline" className={cls}>{m.text}</Badge></div>;
-        })()}
+        <OcPrazoBadge dataPrevista={dataPrevista} dataEntrega={dataEntrega} />
       </div>
     </Card>
   );

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles, Plus, Upload, Trash2 } from "lucide-react";
-import { format, differenceInCalendarDays, parseISO } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -25,6 +25,7 @@ import { Separator } from "@/components/ui/separator";
 
 import { RequirePermission } from "@/components/RequirePermission";
 import { FilterButton } from "@/components/shared/filters";
+import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
 export const Route = createFileRoute("/_authenticated/entrada-saida/oc-aviamento")({
   component: () => (
     <RequirePermission page="entrada_oc_aviamento">
@@ -69,13 +70,6 @@ function fmtMoney(v: number | null | undefined) {
 function fmtDate(v: string | null | undefined) {
   if (!v) return "—";
   try { return format(parseISO(v), "dd/MM/yyyy"); } catch { return v; }
-}
-function mensagemEntrega(prevista?: string | null, entregue?: string | null): { text: string; tone: "neutral" | "atrasado" | "adiantado" | "no_prazo" } {
-  if (!prevista || !entregue) return { text: "—", tone: "neutral" };
-  const diff = differenceInCalendarDays(parseISO(entregue), parseISO(prevista));
-  if (diff === 0) return { text: "Entrega no prazo", tone: "no_prazo" };
-  if (diff > 0) return { text: `Pedido atrasado ${diff} dia${diff > 1 ? "s" : ""}`, tone: "atrasado" };
-  return { text: `Pedido adiantado ${-diff} dia${-diff > 1 ? "s" : ""}`, tone: "adiantado" };
 }
 async function uploadFile(file: File, prefix: string) {
   const { tenantPrefix } = await import("@/lib/storage-tenant");
@@ -207,7 +201,7 @@ function OcAviamentoPage() {
                     <TableCell>{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</TableCell>
                     <TableCell>{fmtDate(o.data_prevista_entrega)}</TableCell>
                     <TableCell>{fmtMoney(itemsByOC[o.id]?.previsto ?? 0)}</TableCell>
-                    <TableCell><Badge variant="outline">Aguardando</Badge></TableCell>
+                    <TableCell><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} /></TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -223,18 +217,20 @@ function OcAviamentoPage() {
                   <TableHead>Nº Pedido</TableHead>
                   <TableHead>Fornecedor</TableHead>
                   <TableHead>Data Entrega</TableHead>
+                  <TableHead>Mensagem</TableHead>
                   <TableHead>Valor Real</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {ocs.length === 0 && (
-                  <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-8">Nenhuma OC recebida.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">Nenhuma OC recebida.</TableCell></TableRow>
                 )}
                 {ocs.map((o) => (
                   <TableRow key={o.id} className="cursor-pointer" onClick={() => { setEditingId(o.id); setOpenNew(true); }}>
                     <TableCell className="font-medium">{o.numero_pedido ?? "—"}</TableCell>
                     <TableCell>{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</TableCell>
                     <TableCell>{fmtDate(o.data_entrega)}</TableCell>
+                    <TableCell><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} /></TableCell>
                     <TableCell>{fmtMoney(itemsByOC[o.id]?.real ?? 0)}</TableCell>
                   </TableRow>
                 ))}
@@ -653,19 +649,9 @@ function OcDialog({
                   )}
                 </div>
               </div>
-              {(() => {
-                const m = mensagemEntrega(draft.data_prevista_entrega, draft.data_entrega);
-                const cls =
-                  m.tone === "atrasado" ? "bg-destructive text-destructive-foreground border-transparent" :
-                  m.tone === "adiantado" ? "bg-green-600 text-white border-transparent" :
-                  m.tone === "no_prazo" ? "bg-blue-600 text-white border-transparent" :
-                  "";
-                return (
-                  <div className="text-sm">
-                    Mensagem: <Badge variant="outline" className={cls}>{m.text}</Badge>
-                  </div>
-                );
-              })()}
+              <div className="text-sm">
+                <OcPrazoBadge dataPrevista={draft.data_prevista_entrega} dataEntrega={draft.data_entrega} />
+              </div>
             </>
           )}
         </div>
