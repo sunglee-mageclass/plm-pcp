@@ -9,6 +9,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Boxes, ArrowLeft, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { FilterButton, SearchToggle } from "@/components/shared/filters";
 
 import { RequirePermission } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/entrada-saida/estoque")({
@@ -23,22 +24,25 @@ const num = (v: any) => Number(v ?? 0) || 0;
 const fmt = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
 
 function EstoquePage() {
+  const [tab, setTab] = useState("tecidos");
   return (
     <div className="container mx-auto p-6 space-y-6">
       <Link to="/entrada-saida" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="h-4 w-4" /> Voltar
       </Link>
-      <header className="flex items-start gap-4">
-        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-          <Boxes className="h-6 w-6" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Estoque</h1>
-          <p className="text-sm text-muted-foreground mt-1">Posição de tecidos e aviamentos.</p>
+      <header className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-4">
+          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+            <Boxes className="h-6 w-6" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Estoque</h1>
+            <p className="text-sm text-muted-foreground mt-1">Posição de tecidos e aviamentos.</p>
+          </div>
         </div>
       </header>
 
-      <Tabs defaultValue="tecidos">
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
           <TabsTrigger value="tecidos">Tecidos</TabsTrigger>
           <TabsTrigger value="aviamentos">Aviamentos</TabsTrigger>
@@ -201,35 +205,15 @@ function TecidosTab() {
 
   return (
     <div className="space-y-4">
-      <Card className="p-4 grid gap-3 sm:grid-cols-4">
-        <div>
-          <Label>Pesquisar</Label>
-          <div className="relative">
-            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input className="pl-8" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Artigo ou variante" />
-          </div>
-        </div>
-        <div>
-          <Label>Fornecedor</Label>
-          <Select value={fornecedor} onValueChange={setFornecedor}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              {fornecedores.map((f) => <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <Label>Categoria</Label>
-          <Select value={categoria} onValueChange={setCategoria}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas</SelectItem>
-              {categorias.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-      </Card>
+      <div className="flex items-center justify-end gap-2">
+        <SearchToggle value={search} onChange={setSearch} placeholder="Artigo ou variante" />
+        <FilterButton
+          filters={[
+            { label: "Fornecedor", value: fornecedor, onChange: setFornecedor, options: [{ id: "all", nome: "Todos" }, ...fornecedores] },
+            { label: "Categoria", value: categoria, onChange: setCategoria, options: [{ id: "all", nome: "Todas" }, ...categorias] },
+          ]}
+        />
+      </div>
 
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
 
