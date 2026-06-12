@@ -364,7 +364,7 @@ function OcDialog({
 
   const addItem = () => {
     if (items.length >= 10) { toast.error("Máximo de 10 aviamentos por OC"); return; }
-    setItems((p) => [...p, { tempId: crypto.randomUUID(), aviamento_id: "", quantidade_pedida: 0, quantidade_recebida: null }]);
+    setItems((p) => [...p, { tempId: crypto.randomUUID(), aviamento_id: "", quantidade_pedida: 0, quantidade_recebida: null, cancelado: false }]);
   };
   const removeItem = (tempId: string) =>
     setItems((p) => {
