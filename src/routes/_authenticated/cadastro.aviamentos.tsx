@@ -11,6 +11,7 @@ import {
   Upload,
   Pencil,
   Trash2,
+  ZoomIn,
 } from "lucide-react";
 import { toast } from "sonner";
 
