@@ -158,24 +158,6 @@ export function OcTecidoForm({
             toggleCancelado={toggleCancelado}
             canCancel={canCancel}
           />
-
-      {!tecido2Aberto ? (
-        <Button variant="outline" onClick={() => setTecido2Aberto(true)}>
-          <Plus className="h-4 w-4 mr-1" /> Adicionar Tecido 2
-        </Button>
-      ) : (
-        <>
-          <TecidoGroup
-            n={2}
-            artigos={artigos}
-            artigoId={artigoIdFor(2)}
-            onArtigoChange={(id) => setArtigo(2, id)}
-            variantes={artigoIdFor(2) ? variantesByArtigo[artigoIdFor(2)!] ?? [] : []}
-            items={itemsBy(2).filter((i) => i.variante_tecido_id)}
-            toggleVariante={(vid, c) => toggleVariante(2, vid, c)}
-            setQtd={setQtd}
-            varianteMap={varianteMap}
-          />
           <Button variant="ghost" size="sm" onClick={removeTecido2}>
             <Trash2 className="h-4 w-4 mr-1" /> Remover Tecido 2
           </Button>
