@@ -448,6 +448,7 @@ function AviamentosTab() {
 
       for (const it of ocItens.data ?? []) {
         if (!it.aviamento_id) continue;
+        if ((it as any).cancelado) continue;
         const acc = get(it.aviamento_id);
         if ((it as any).ocs_aviamento?.status === "encomendado") acc.prevReceb += num(it.quantidade_pedida);
         if ((it as any).ocs_aviamento?.status === "recebido") acc.recebido += num(it.quantidade_recebida);
