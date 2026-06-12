@@ -350,27 +350,49 @@ function OcDialog({
       // no momento do UPDATE e tem proteção anti-duplicação.
       let ocIdLocal = ocId;
       const finalStatus: OCStatus = markReceived ? "recebido" : status;
-
-      const buildItemRows = (oid: string) =>
-        items
-          .filter((i) => i.variante_tecido_id && i.artigo_id)
-          .map((i) => ({
-            oc_tecido_id: oid,
-            artigo_id: i.artigo_id,
-            artigo_numero: i.artigo_numero,
-            variante_tecido_id: i.variante_tecido_id,
-            quantidade_pedida: i.quantidade_pedida,
-            quantidade_recebida: i.quantidade_recebida,
-          }));
+      const validItems = items.filter((i) => i.variante_tecido_id && i.artigo_id);
 
       if (isEdit && ocIdLocal) {
-        // 1) Itens primeiro
-        await supabase.from("ocs_tecido_itens").delete().eq("oc_tecido_id", ocIdLocal);
-        const rows = buildItemRows(ocIdLocal);
-        if (rows.length > 0) {
-          const { error: itErr } = await supabase.from("ocs_tecido_itens").insert(rows);
-          if (itErr) throw itErr;
+        // Diff: UPDATE (com id), INSERT (sem id), DELETE só dos removidos.
+        const currentIds = new Set(
+          validItems.map((i) => i.id).filter((x): x is string => !!x),
+        );
+        const toDelete = originalItemIds.filter((id) => !currentIds.has(id));
+        const toUpdate = validItems.filter((i) => i.id);
+        const toInsert = validItems.filter((i) => !i.id);
+
+        if (toDelete.length > 0) {
+          const { error } = await supabase
+            .from("ocs_tecido_itens").delete().in("id", toDelete);
+          if (error) throw error;
         }
+        for (const it of toUpdate) {
+          const { error } = await supabase
+            .from("ocs_tecido_itens")
+            .update({
+              artigo_id: it.artigo_id,
+              artigo_numero: it.artigo_numero,
+              variante_tecido_id: it.variante_tecido_id,
+              quantidade_pedida: it.quantidade_pedida,
+              quantidade_recebida: it.quantidade_recebida,
+            })
+            .eq("id", it.id!);
+          if (error) throw error;
+        }
+        if (toInsert.length > 0) {
+          const { error } = await supabase
+            .from("ocs_tecido_itens")
+            .insert(toInsert.map((i) => ({
+              oc_tecido_id: ocIdLocal,
+              artigo_id: i.artigo_id,
+              artigo_numero: i.artigo_numero,
+              variante_tecido_id: i.variante_tecido_id,
+              quantidade_pedida: i.quantidade_pedida,
+              quantidade_recebida: i.quantidade_recebida,
+            })));
+          if (error) throw error;
+        }
+
         // 2) Depois UPDATE da OC (dispara o trigger já com itens/valor corretos)
         const { error } = await supabase.from("ocs_tecido").update(payload).eq("id", ocIdLocal);
         if (error) throw error;
@@ -382,9 +404,17 @@ function OcDialog({
         if (error) throw error;
         ocIdLocal = data.id;
 
-        const rows = buildItemRows(ocIdLocal);
-        if (rows.length > 0) {
-          const { error: itErr } = await supabase.from("ocs_tecido_itens").insert(rows);
+        if (validItems.length > 0) {
+          const { error: itErr } = await supabase
+            .from("ocs_tecido_itens")
+            .insert(validItems.map((i) => ({
+              oc_tecido_id: ocIdLocal,
+              artigo_id: i.artigo_id,
+              artigo_numero: i.artigo_numero,
+              variante_tecido_id: i.variante_tecido_id,
+              quantidade_pedida: i.quantidade_pedida,
+              quantidade_recebida: i.quantidade_recebida,
+            })));
           if (itErr) throw itErr;
         }
 
