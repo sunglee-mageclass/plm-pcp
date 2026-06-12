@@ -466,7 +466,7 @@ function AviamentosTab() {
       const rows = (aviamentos.data ?? []).map((a: any) => {
         const acc = byAv.get(a.id) ?? { prevReceb: 0, recebido: 0, baixa: 0, reservado: 0 };
         const fisico = acc.recebido - acc.baixa;
-        const previsto = fisico - acc.reservado;
+        const previsto = fisico + acc.prevReceb - acc.reservado;
         return {
           id: a.id,
           nome: a.codigo_nome,
