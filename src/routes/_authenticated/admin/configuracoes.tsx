@@ -119,6 +119,10 @@ function ConfiguracoesLojaPage() {
       status_kanban: Array.isArray(r.status_kanban)
         ? r.status_kanban
         : DEFAULTS.status_kanban,
+      campos_editaveis:
+        r.campos_editaveis && typeof r.campos_editaveis === "object" && !Array.isArray(r.campos_editaveis)
+          ? (r.campos_editaveis as Record<string, string>)
+          : DEFAULTS.campos_editaveis,
     });
   }, [data?.cfg]);
 
