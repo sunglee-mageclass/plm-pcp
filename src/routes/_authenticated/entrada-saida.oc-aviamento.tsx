@@ -339,12 +339,15 @@ function OcDialog({
         setRespMode(matchEst ? "select" : "text");
         if (matchEst) setDraft((d) => ({ ...d, responsavel_id: matchEst.id }));
       }
-      setItems((its ?? []).map((i: any) => ({
+      const mapped: ItemDraft[] = (its ?? []).map((i: any) => ({
         tempId: i.id,
+        id: i.id,
         aviamento_id: i.aviamento_id,
         quantidade_pedida: Number(i.quantidade_pedida ?? 0),
         quantidade_recebida: i.quantidade_recebida == null ? null : Number(i.quantidade_recebida),
-      })));
+      }));
+      setItems(mapped);
+      setOriginalItemIds(mapped.map((m) => m.id).filter((x): x is string => !!x));
       return oc;
     },
   });
