@@ -185,6 +185,45 @@ function TecidosGallery() {
     onError: (e: any) => toast.error(e.message ?? "Erro ao criar."),
   });
 
+  const [deleteRow, setDeleteRow] = useState<Artigo | null>(null);
+  const [deleteUsage, setDeleteUsage] = useState<number | null>(null);
+
+  const startDelete = async (a: Artigo) => {
+    setDeleteRow(a);
+    setDeleteUsage(null);
+    let total = 0;
+    const refs: { table: string; column: string }[] = [
+      { table: "ocs_tecido_itens", column: "artigo_id" },
+      { table: "modelo_tecidos", column: "artigo_id" },
+      { table: "cad_tecidos", column: "artigo_id" },
+    ];
+    for (const r of refs) {
+      const { count } = await supabase
+        .from(r.table as any)
+        .select("*", { count: "exact", head: true })
+        .eq(r.column, a.id);
+      total += count ?? 0;
+    }
+    setDeleteUsage(total);
+  };
+
+  const deleteMut = useMutation({
+    mutationFn: async (id: string) => {
+      // Apaga variantes (FK sem cascade pode existir)
+      await supabase.from("variantes_tecido").delete().eq("artigo_id", id);
+      const { error } = await supabase.from("artigos").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Tecido excluído.");
+      setDeleteRow(null);
+      setDeleteUsage(null);
+      qc.invalidateQueries({ queryKey: ["artigos"] });
+      qc.invalidateQueries({ queryKey: ["variantes-thumb"] });
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao excluir."),
+  });
+
   const gridClass: Record<number, string> = {
     2: "grid-cols-1 sm:grid-cols-2",
     3: "grid-cols-2 md:grid-cols-3",
