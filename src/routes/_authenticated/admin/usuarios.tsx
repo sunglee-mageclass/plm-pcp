@@ -167,7 +167,17 @@ function UsuariosPage() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <Button size="sm" variant="ghost" onClick={() => setResetting(u)}>
+                      {u.tenant_id && u.role !== "super_admin" && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setPermUser(u)}
+                          title="Permissões"
+                        >
+                          <ShieldCheck className="h-4 w-4" />
+                        </Button>
+                      )}
+                      <Button size="sm" variant="ghost" onClick={() => setResetting(u)} title="Redefinir senha">
                         <KeyRound className="h-4 w-4" />
                       </Button>
                       <Switch
@@ -189,6 +199,16 @@ function UsuariosPage() {
             user={resetting}
             onClose={() => setResetting(null)}
             call={callReset}
+          />
+        )}
+      </Dialog>
+
+      <Dialog open={!!permUser} onOpenChange={(v) => !v && setPermUser(null)}>
+        {permUser && (
+          <PermissoesModal
+            mode="super"
+            user={{ id: permUser.id, nome: permUser.nome, tenant_id: permUser.tenant_id }}
+            onClose={() => setPermUser(null)}
           />
         )}
       </Dialog>
