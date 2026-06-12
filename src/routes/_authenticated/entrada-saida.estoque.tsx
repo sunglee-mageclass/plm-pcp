@@ -504,9 +504,10 @@ function AviamentosTab() {
     return rows.filter((r: any) =>
       (!s || r.nome.toLowerCase().includes(s)) &&
       (fornecedor === "all" || r.fornecedorId === fornecedor) &&
-      (categoria === "all" || r.categoriaId === categoria),
+      (categoria === "all" || r.categoriaId === categoria) &&
+      (estoqueFilter === "all" || (estoqueFilter === "zero" ? r.fisico <= 0 : r.fisico > 0)),
     );
-  }, [data, search, fornecedor, categoria]);
+  }, [data, search, fornecedor, categoria, estoqueFilter]);
 
   return (
     <div className="space-y-4">
@@ -514,6 +515,7 @@ function AviamentosTab() {
         <SearchToggle value={search} onChange={setSearch} placeholder="Aviamento" />
         <FilterButton
           filters={[
+            { label: "Estoque", value: estoqueFilter, onChange: setEstoqueFilter, options: [{ id: "all", nome: "Todos" }, { id: "zero", nome: "Estoque Zerado" }, { id: "positive", nome: "Estoque > 0" }] },
             { label: "Fornecedor", value: fornecedor, onChange: setFornecedor, options: [{ id: "all", nome: "Todos" }, ...fornecedores] },
             { label: "Categoria", value: categoria, onChange: setCategoria, options: [{ id: "all", nome: "Todas" }, ...categorias] },
           ]}
@@ -528,6 +530,7 @@ function AviamentosTab() {
           <table className="w-full text-sm">
             <thead className="text-left text-muted-foreground">
               <tr className="border-b">
+                <th className="py-2 pr-3 w-6"></th>
                 <th className="py-2 pr-3">Aviamento</th>
                 <th className="py-2 pr-3">Fornecedor</th>
                 <th className="py-2 pr-3">Categoria</th>
@@ -541,25 +544,127 @@ function AviamentosTab() {
             </thead>
             <tbody>
               {filtered.map((r: any) => (
-                <tr key={r.id} className={cn("border-b last:border-0", r.fisico <= threshold && "bg-destructive/10")}>
-                  <td className="py-2 pr-3">{r.nome}</td>
-                  <td className="py-2 pr-3">{r.fornecedor}</td>
-                  <td className="py-2 pr-3">{r.categoria}</td>
-                  <td className="py-2 pr-3 text-right">{fmt(r.prevReceb)}</td>
-                  <td className="py-2 pr-3 text-right">{fmt(r.recebido)}</td>
-                  <td className="py-2 pr-3 text-right">{fmt(r.baixa)}</td>
-                  <td className={cn("py-2 pr-3 text-right font-medium", r.fisico <= threshold && "text-destructive")}>{fmt(r.fisico)}</td>
-                  <td className="py-2 pr-3 text-right">{fmt(r.reservado)}</td>
-                  <td className="py-2 pr-3 text-right">{fmt(r.previsto)}</td>
-                </tr>
+                <AviamentoRow key={r.id} row={r} threshold={threshold} />
               ))}
               {!isLoading && filtered.length === 0 && (
-                <tr><td colSpan={9} className="py-4 text-center text-muted-foreground">Nenhum aviamento encontrado.</td></tr>
+                <tr><td colSpan={10} className="py-4 text-center text-muted-foreground">Nenhum aviamento encontrado.</td></tr>
               )}
             </tbody>
           </table>
         </div>
       </Card>
     </div>
+  );
+}
+
+function AviamentoRow({ row, threshold }: { row: any; threshold: number }) {
+  const [open, setOpen] = useState(false);
+  const { data: pendentes = [], isLoading: loadingPend } = useQuery({
+    queryKey: ["estoque-aviamento-pendentes-oc", row.id],
+    enabled: open,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("ocs_aviamento_itens")
+        .select("id, quantidade_pedida, ocs_aviamento!inner(numero_pedido, data_prevista_entrega, status, empresas(nome_fantasia))")
+        .eq("aviamento_id", row.id)
+        .eq("ocs_aviamento.status", "encomendado");
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+  const { data: recebidas = [], isLoading: loadingRec } = useQuery({
+    queryKey: ["estoque-aviamento-recebidas-oc", row.id],
+    enabled: open,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("ocs_aviamento_itens")
+        .select("id, quantidade_recebida, ocs_aviamento!inner(numero_pedido, data_entrega, status, empresas(nome_fantasia))")
+        .eq("aviamento_id", row.id)
+        .eq("ocs_aviamento.status", "recebido");
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+  return (
+    <>
+      <tr className={cn("border-b last:border-0 cursor-pointer", row.fisico <= threshold && "bg-destructive/10")} onClick={() => setOpen((o) => !o)}>
+        <td className="py-2 pr-3 text-muted-foreground">{open ? "▾" : "▸"}</td>
+        <td className="py-2 pr-3">{row.nome}</td>
+        <td className="py-2 pr-3">{row.fornecedor}</td>
+        <td className="py-2 pr-3">{row.categoria}</td>
+        <td className="py-2 pr-3 text-right">{fmt(row.prevReceb)}</td>
+        <td className="py-2 pr-3 text-right">{fmt(row.recebido)}</td>
+        <td className="py-2 pr-3 text-right">{fmt(row.baixa)}</td>
+        <td className={cn("py-2 pr-3 text-right font-medium", row.fisico <= threshold && "text-destructive")}>{fmt(row.fisico)}</td>
+        <td className="py-2 pr-3 text-right">{fmt(row.reservado)}</td>
+        <td className="py-2 pr-3 text-right">{fmt(row.previsto)}</td>
+      </tr>
+      {open && (
+        <tr className="bg-muted/30">
+          <td></td>
+          <td colSpan={9} className="py-2 pr-3 space-y-3">
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground mb-1">OCs Recebidas</p>
+              {loadingRec && <p className="text-xs text-muted-foreground">Carregando…</p>}
+              {!loadingRec && recebidas.length === 0 && (
+                <p className="text-xs text-muted-foreground">Nenhuma OC recebida.</p>
+              )}
+              {recebidas.length > 0 && (
+                <table className="w-full text-xs">
+                  <thead className="text-left text-muted-foreground">
+                    <tr className="border-b">
+                      <th className="py-1 pr-3">OC</th>
+                      <th className="py-1 pr-3">Fornecedor</th>
+                      <th className="py-1 pr-3">Entrega</th>
+                      <th className="py-1 pr-3 text-right">Recebido</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recebidas.map((r: any) => (
+                      <tr key={r.id} className="border-b last:border-0">
+                        <td className="py-1 pr-3">#{r.ocs_aviamento?.numero_pedido ?? "—"}</td>
+                        <td className="py-1 pr-3">{r.ocs_aviamento?.empresas?.nome_fantasia ?? "—"}</td>
+                        <td className="py-1 pr-3">{r.ocs_aviamento?.data_entrega ? new Date(r.ocs_aviamento.data_entrega).toLocaleDateString("pt-BR") : "—"}</td>
+                        <td className="py-1 pr-3 text-right">{fmt(Number(r.quantidade_recebida ?? 0))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground mb-1">OCs Pendentes (Prev. Recebimento)</p>
+              {loadingPend && <p className="text-xs text-muted-foreground">Carregando…</p>}
+              {!loadingPend && pendentes.length === 0 && (
+                <p className="text-xs text-muted-foreground">Nenhuma OC pendente.</p>
+              )}
+              {pendentes.length > 0 && (
+                <table className="w-full text-xs">
+                  <thead className="text-left text-muted-foreground">
+                    <tr className="border-b">
+                      <th className="py-1 pr-3">OC</th>
+                      <th className="py-1 pr-3">Fornecedor</th>
+                      <th className="py-1 pr-3">Entrega Prev.</th>
+                      <th className="py-1 pr-3 text-right">Qtd Pedida</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendentes.map((p: any) => (
+                      <tr key={p.id} className="border-b last:border-0">
+                        <td className="py-1 pr-3">#{p.ocs_aviamento?.numero_pedido ?? "—"}</td>
+                        <td className="py-1 pr-3">{p.ocs_aviamento?.empresas?.nome_fantasia ?? "—"}</td>
+                        <td className="py-1 pr-3">{p.ocs_aviamento?.data_prevista_entrega ? new Date(p.ocs_aviamento.data_prevista_entrega).toLocaleDateString("pt-BR") : "—"}</td>
+                        <td className="py-1 pr-3 text-right">{fmt(Number(p.quantidade_pedida ?? 0))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
