@@ -117,10 +117,19 @@ function TecidoDetail() {
   }, [catLinks]);
 
   const { data: empresas = [] } = useQuery({
-    queryKey: ["empresas-options"],
+    queryKey: ["empresas-options", "tecido-forro-entretela"],
     queryFn: async () => {
-      const { data } = await supabase.from("empresas").select("id,nome_fantasia").order("nome_fantasia");
-      return (data ?? []) as { id: string; nome_fantasia: string }[];
+      const { data } = await supabase
+        .from("empresas")
+        .select("id,nome_fantasia,empresa_categorias_fornecedor!inner(categorias_fornecedor!inner(nome))")
+        .in("empresa_categorias_fornecedor.categorias_fornecedor.nome", ["Tecido", "Forro", "Entretela"])
+        .order("nome_fantasia");
+      const seen = new Set<string>();
+      return ((data ?? []) as { id: string; nome_fantasia: string }[]).filter((e) => {
+        if (seen.has(e.id)) return false;
+        seen.add(e.id);
+        return true;
+      });
     },
   });
   const { data: categorias = [] } = useQuery({

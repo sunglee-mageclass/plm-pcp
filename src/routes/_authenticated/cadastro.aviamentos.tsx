@@ -121,14 +121,20 @@ function AviamentosGallery() {
   });
 
   const { data: empresas = [] } = useQuery({
-    queryKey: ["empresas-options"],
+    queryKey: ["empresas-options", "aviamento"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("empresas")
-        .select("id,nome_fantasia")
+        .select("id,nome_fantasia,empresa_categorias_fornecedor!inner(categorias_fornecedor!inner(nome))")
+        .eq("empresa_categorias_fornecedor.categorias_fornecedor.nome", "Aviamento")
         .order("nome_fantasia");
       if (error) throw error;
-      return (data ?? []) as Empresa[];
+      const seen = new Set<string>();
+      return ((data ?? []) as Empresa[]).filter((e) => {
+        if (seen.has(e.id)) return false;
+        seen.add(e.id);
+        return true;
+      });
     },
   });
 
