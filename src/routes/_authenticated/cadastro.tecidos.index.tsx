@@ -429,12 +429,19 @@ function TecidoCard({
         <Card className="overflow-hidden h-full transition-shadow group-hover:shadow-md">
           <div className="aspect-square bg-muted relative">
             {url ? (
-              <img
-                src={url}
-                alt={artigo.nome}
-                className="w-full h-full object-cover"
-                loading="lazy"
-              />
+              <>
+                <img
+                  src={url}
+                  alt={artigo.nome}
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                />
+                <ImagePreview src={url} alt={artigo.nome}>
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/20 transition-colors">
+                    <ZoomIn className="h-8 w-8 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" />
+                  </div>
+                </ImagePreview>
+              </>
             ) : (
               <div className="w-full h-full flex items-center justify-center text-muted-foreground">
                 <ImageOff className="h-10 w-10" />
