@@ -48,11 +48,17 @@ function OcTecidoPage() {
   });
 
   const { data: empresas = [] } = useQuery({
-    queryKey: ["empresas-opt"],
+    queryKey: ["empresas-tecido"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("empresas").select("id, nome_fantasia").order("nome_fantasia");
+      const { data, error } = await supabase
+        .from("empresas")
+        .select("id, nome_fantasia, categorias_fornecedor(nome)")
+        .order("nome_fantasia");
       if (error) throw error;
-      return (data ?? []) as Empresa[];
+      const allowed = ["tecido", "forro", "entretela"];
+      return ((data ?? []) as Array<Empresa & { categorias_fornecedor: { nome: string } | null }>)
+        .filter((e) => !e.categorias_fornecedor || allowed.includes((e.categorias_fornecedor.nome ?? "").trim().toLowerCase()))
+        .map(({ id, nome_fantasia }) => ({ id, nome_fantasia })) as Empresa[];
     },
   });
 
