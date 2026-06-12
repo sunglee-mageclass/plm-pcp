@@ -381,6 +381,10 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         proporcoes: draft.proporcoes ?? {},
         fotos_modelo: draft.fotos_modelo ?? [],
         fotos_referencia: draft.fotos_referencia ?? [],
+        tecidos_planejados: blocks
+          .filter((b) => b.tipo === "tecido" && !!b.artigo_id)
+          .sort((a, b) => a.numero - b.numero)
+          .map((b) => b.artigo_id as string),
       };
       const { error: e1 } = await supabase.from("modelos").update(payload).eq("id", modeloId);
       if (e1) throw e1;
@@ -482,6 +486,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       qc.invalidateQueries({ queryKey: ["modelo-aviamentos", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-grades", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
+      qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao salvar"),
   });
