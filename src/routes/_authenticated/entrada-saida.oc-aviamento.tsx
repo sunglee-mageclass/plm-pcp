@@ -55,6 +55,7 @@ type OC = {
 
 type ItemDraft = {
   tempId: string;
+  id?: string;
   aviamento_id: string;
   quantidade_pedida: number;
   quantidade_recebida: number | null;
