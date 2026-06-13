@@ -37,9 +37,11 @@ export function ModeloInfoSection({
   statusOptions?: StatusOpt[];
 }) {
   const [visiblePilotos, setVisiblePilotos] = useState<Set<number>>(() => {
+    const has2 = !!(draft.piloteiro2_id || draft.data_piloto2);
+    const has3 = !!(draft.piloteiro3_id || draft.data_piloto3);
     const s = new Set<number>([1]);
-    if (draft.piloteiro2_id || draft.data_piloto2) s.add(2);
-    if (draft.piloteiro3_id || draft.data_piloto3) s.add(3);
+    if (has2 || has3) s.add(2);
+    if (has3) s.add(3);
     return s;
   });
 
@@ -48,7 +50,12 @@ export function ModeloInfoSection({
   };
 
   const removePiloto = (n: 2 | 3) => {
-    setDraft({ ...draft, [`piloteiro${n}_id`]: null, [`data_piloto${n}`]: "" });
+    const clear: Draft = { [`piloteiro${n}_id`]: null, [`data_piloto${n}`]: "" };
+    if (n === 2) {
+      clear.piloteiro3_id = null;
+      clear.data_piloto3 = "";
+    }
+    setDraft({ ...draft, ...clear });
     setVisiblePilotos((prev) => {
       const next = new Set(prev);
       next.delete(n);
