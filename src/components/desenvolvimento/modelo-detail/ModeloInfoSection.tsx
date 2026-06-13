@@ -1,4 +1,5 @@
-import { Send } from "lucide-react";
+import { useState } from "react";
+import { Plus, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -35,6 +36,27 @@ export function ModeloInfoSection({
   enviarCadPending: boolean;
   statusOptions?: StatusOpt[];
 }) {
+  const [visiblePilotos, setVisiblePilotos] = useState<Set<number>>(() => {
+    const s = new Set<number>([1]);
+    if (draft.piloteiro2_id || draft.data_piloto2) s.add(2);
+    if (draft.piloteiro3_id || draft.data_piloto3) s.add(3);
+    return s;
+  });
+
+  const addPiloto = (n: 2 | 3) => {
+    setVisiblePilotos((prev) => new Set(prev).add(n));
+  };
+
+  const removePiloto = (n: 2 | 3) => {
+    setDraft({ ...draft, [`piloteiro${n}_id`]: null, [`data_piloto${n}`]: "" });
+    setVisiblePilotos((prev) => {
+      const next = new Set(prev);
+      next.delete(n);
+      if (n === 2) next.delete(3);
+      return next;
+    });
+  };
+
   const statusList = statusOptions && statusOptions.length > 0 ? statusOptions : STATUS_DESENV_OPTS;
   const currentValue = draft.status_desenvolvimento ?? "";
   const hasCurrent = statusList.some((s) => s.value === currentValue);
@@ -71,14 +93,48 @@ export function ModeloInfoSection({
         <Field label="Data Piloto 1">
           <Input type="date" value={draft.data_piloto1 ?? ""} onChange={(e) => setDraft({ ...draft, data_piloto1: e.target.value })} />
         </Field>
-        <FieldSelectOpt label="Piloteiro 2" value={draft.piloteiro2_id} onChange={(v) => setDraft({ ...draft, piloteiro2_id: v })} options={piloteiros} />
-        <Field label="Data Piloto 2">
-          <Input type="date" value={draft.data_piloto2 ?? ""} onChange={(e) => setDraft({ ...draft, data_piloto2: e.target.value })} />
-        </Field>
-        <FieldSelectOpt label="Piloteiro 3" value={draft.piloteiro3_id} onChange={(v) => setDraft({ ...draft, piloteiro3_id: v })} options={piloteiros} />
-        <Field label="Data Piloto 3">
-          <Input type="date" value={draft.data_piloto3 ?? ""} onChange={(e) => setDraft({ ...draft, data_piloto3: e.target.value })} />
-        </Field>
+        {visiblePilotos.has(2) && (
+          <>
+            <div className="sm:col-span-2 flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground">Piloto 2</span>
+              <Button type="button" variant="ghost" size="sm" onClick={() => removePiloto(2)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <FieldSelectOpt label="Piloteiro 2" value={draft.piloteiro2_id} onChange={(v) => setDraft({ ...draft, piloteiro2_id: v })} options={piloteiros} />
+            <Field label="Data Piloto 2">
+              <Input type="date" value={draft.data_piloto2 ?? ""} onChange={(e) => setDraft({ ...draft, data_piloto2: e.target.value })} />
+            </Field>
+          </>
+        )}
+        {visiblePilotos.has(3) && (
+          <>
+            <div className="sm:col-span-2 flex items-center justify-between">
+              <span className="text-xs font-medium text-muted-foreground">Piloto 3</span>
+              <Button type="button" variant="ghost" size="sm" onClick={() => removePiloto(3)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <FieldSelectOpt label="Piloteiro 3" value={draft.piloteiro3_id} onChange={(v) => setDraft({ ...draft, piloteiro3_id: v })} options={piloteiros} />
+            <Field label="Data Piloto 3">
+              <Input type="date" value={draft.data_piloto3 ?? ""} onChange={(e) => setDraft({ ...draft, data_piloto3: e.target.value })} />
+            </Field>
+          </>
+        )}
+        {(!visiblePilotos.has(2) || !visiblePilotos.has(3)) && (
+          <div className="sm:col-span-2 flex gap-2">
+            {!visiblePilotos.has(2) && (
+              <Button type="button" variant="ghost" size="sm" className="text-muted-foreground" onClick={() => addPiloto(2)}>
+                <Plus className="h-4 w-4 mr-1" /> Adicionar Piloto 2
+              </Button>
+            )}
+            {visiblePilotos.has(2) && !visiblePilotos.has(3) && (
+              <Button type="button" variant="ghost" size="sm" className="text-muted-foreground" onClick={() => addPiloto(3)}>
+                <Plus className="h-4 w-4 mr-1" /> Adicionar Piloto 3
+              </Button>
+            )}
+          </div>
+        )}
         <Field label="Data Desenho Técnico">
           <Input type="date" value={draft.data_desenho_tecnico ?? ""} onChange={(e) => setDraft({ ...draft, data_desenho_tecnico: e.target.value })} />
         </Field>
