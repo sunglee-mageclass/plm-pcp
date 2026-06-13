@@ -191,6 +191,7 @@ function PlanejamentoPage() {
   });
 
   const estMap = Object.fromEntries(estilistas.map((e) => [e.id, e.nome]));
+  const catMap = Object.fromEntries(categorias.map((c) => [c.id, c.nome]));
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -224,7 +225,7 @@ function PlanejamentoPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
           {filtered.map((m) => (
-            <ModeloCard key={m.id} modelo={m} estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null} onOpen={() => setOpenId(m.id)} />
+            <ModeloCard key={m.id} modelo={m} estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null} categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null} onOpen={() => setOpenId(m.id)} />
           ))}
         </div>
       )}
@@ -246,8 +247,8 @@ function PlanejamentoPage() {
 }
 
 
-function ModeloCard({ modelo, estilistaNome, onOpen }: {
-  modelo: Modelo; estilistaNome: string | null; onOpen: () => void;
+function ModeloCard({ modelo, estilistaNome, categoriaNome, onOpen }: {
+  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; onOpen: () => void;
 }) {
   const photo = modelo.fotos_modelo?.[0] ?? null;
   const url = useSignedUrlBucket(photo);
@@ -265,6 +266,7 @@ function ModeloCard({ modelo, estilistaNome, onOpen }: {
         </div>
         <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
         <p className="text-xs text-muted-foreground truncate">{modelo.colecao ?? "Sem coleção"}</p>
+        <p className="text-xs text-muted-foreground truncate">{categoriaNome ?? "Sem categoria"}</p>
       </div>
     </Card>
   );
