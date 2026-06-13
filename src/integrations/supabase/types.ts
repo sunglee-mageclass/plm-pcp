@@ -2770,7 +2770,7 @@ export type Database = {
       is_super_admin: { Args: never; Returns: boolean }
       is_tenant_admin: { Args: never; Returns: boolean }
       ocs_disponiveis_variante: {
-        Args: { _variante_id: string }
+        Args: { _modelo_id?: string; _variante_id: string }
         Returns: Json
       }
       recalcular_parcelas: {
