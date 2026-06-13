@@ -14,12 +14,14 @@ import { EtiquetaLavagemArtigoView } from "@/components/shared/EtiquetaLavagemAr
 type ArtigoOpt = { id: string; nome: string; unidade_medida?: string | null };
 
 export function ModeloTecidosSection({
+  modeloId,
   blocks,
   artigos,
   onChangeBlock,
   onChangeVariante,
   onChangeOcLink,
 }: {
+  modeloId: string;
   blocks: TecidoBlock[];
   artigos: ArtigoOpt[];
   onChangeBlock: (idx: number, patch: Partial<TecidoBlock>) => void;
@@ -77,6 +79,7 @@ export function ModeloTecidosSection({
                 return (
                   <TecidoBlockEditor
                     key={`${tipo}-${b.numero}`}
+                    modeloId={modeloId}
                     block={b}
                     artigos={artigos}
                     onChangeBlock={(p) => onChangeBlock(idx, p)}
@@ -111,6 +114,7 @@ export function ModeloTecidosSection({
 }
 
 function TecidoBlockEditor({
+  modeloId,
   block,
   artigos,
   onChangeBlock,
@@ -119,6 +123,7 @@ function TecidoBlockEditor({
   onRemove,
   removable,
 }: {
+  modeloId: string;
   block: TecidoBlock;
   artigos: ArtigoOpt[];
   onChangeBlock: (p: Partial<TecidoBlock>) => void;
@@ -201,6 +206,7 @@ function TecidoBlockEditor({
                     </Select>
                     {current && (
                       <OcLinkSelect
+                        modeloId={modeloId}
                         varianteId={current}
                         value={block.oc_links?.[i] ?? null}
                         onChange={(val) => onChangeOcLink(i, val)}
@@ -217,19 +223,21 @@ function TecidoBlockEditor({
 }
 
 function OcLinkSelect({
+  modeloId,
   varianteId,
   value,
   onChange,
 }: {
+  modeloId: string;
   varianteId: string;
   value: string | null;
   onChange: (val: string | null) => void;
 }) {
   const { data: ocs = [] } = useQuery({
-    queryKey: ["ocs-disponiveis-variante", varianteId],
+    queryKey: ["ocs-disponiveis-variante", varianteId, modeloId],
     enabled: !!varianteId,
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("ocs_disponiveis_variante" as any, { _variante_id: varianteId });
+      const { data, error } = await supabase.rpc("ocs_disponiveis_variante" as any, { _variante_id: varianteId, _modelo_id: modeloId });
       if (error) throw error;
       return (data ?? []) as Array<{ oc_tecido_item_id: string; numero_pedido: string; data_entrega: string | null; saldo_m: number }>;
     },

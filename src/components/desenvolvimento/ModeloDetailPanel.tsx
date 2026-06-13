@@ -672,6 +672,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
             <AccordionTrigger>2. Tecidos / Forros / Entretelas</AccordionTrigger>
             <AccordionContent>
               <ModeloTecidosSection
+                modeloId={modeloId}
                 blocks={blocks}
                 artigos={artigos}
                 onChangeBlock={updateBlock}
