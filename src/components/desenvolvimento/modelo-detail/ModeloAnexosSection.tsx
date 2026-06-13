@@ -1,10 +1,22 @@
 import { useEffect, useState } from "react";
-import { ImageIcon, Loader2, Trash2, Upload } from "lucide-react";
+import { FileText, ImageIcon, Loader2, Trash2, Upload, ZoomIn } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { ImagePreview } from "@/components/shared/ImagePreview";
+import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { Field } from "./shared";
 import { supabase } from "@/integrations/supabase/client";
 import { BUCKET } from "./types";
+
+function isImagePath(path: string) {
+  return /\.(jpe?g|png|webp|gif|bmp|svg)$/i.test(path);
+}
+
+function isPdfPath(path: string) {
+  return /\.pdf$/i.test(path);
+}
 
 export function ModeloAnexosSection({
   fichaMedidaUrl,
@@ -48,9 +60,7 @@ export function ModeloAnexosSection({
             {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Enviar arquivo
             <input type="file" className="hidden" onChange={(e) => e.target.files?.[0] && onUploadFicha(e.target.files[0])} />
           </label>
-          {fichaMedidaUrl && (
-            <span className="text-xs text-muted-foreground truncate">{fichaMedidaUrl.split("/").pop()}</span>
-          )}
+          {fichaMedidaUrl && <FichaMedidaPreview path={fichaMedidaUrl} />}
         </div>
       </div>
       <Field label="Observações Gerais" full>
@@ -111,8 +121,18 @@ function PhotoThumb({ path, onRemove }: { path: string; onRemove: () => void }) 
   }, [path]);
   return (
     <div className="relative h-20 w-20 rounded border overflow-hidden bg-muted group">
-      {url ? <img src={url} className="h-full w-full object-cover" alt="" />
-           : <ImageIcon className="m-auto h-8 w-8 text-muted-foreground" />}
+      {url ? (
+        <>
+          <img src={url} className="h-full w-full object-cover" alt="" />
+          <ImagePreview src={url} alt="">
+            <div className="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/20 transition-colors">
+              <ZoomIn className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" />
+            </div>
+          </ImagePreview>
+        </>
+      ) : (
+        <ImageIcon className="m-auto h-8 w-8 text-muted-foreground" />
+      )}
       <button
         type="button"
         onClick={onRemove}
@@ -122,5 +142,50 @@ function PhotoThumb({ path, onRemove }: { path: string; onRemove: () => void }) 
         <Trash2 className="h-3 w-3" />
       </button>
     </div>
+  );
+}
+
+function FichaMedidaPreview({ path }: { path: string }) {
+  const url = useSignedUrl(path, BUCKET);
+  const [open, setOpen] = useState(false);
+  const name = path.split("/").pop() ?? "";
+
+  if (!url) {
+    return <span className="text-xs text-muted-foreground truncate">{name}</span>;
+  }
+
+  if (isImagePath(path)) {
+    return (
+      <ImagePreview src={url} alt={name}>
+        <Badge variant="secondary" className="truncate max-w-[260px] cursor-pointer hover:bg-accent">
+          <ZoomIn className="h-3 w-3 mr-1" />
+          {name}
+        </Badge>
+      </ImagePreview>
+    );
+  }
+
+  if (isPdfPath(path)) {
+    return (
+      <>
+        <button type="button" onClick={() => setOpen(true)}>
+          <Badge variant="secondary" className="truncate max-w-[260px] cursor-pointer hover:bg-accent">
+            <FileText className="h-3 w-3 mr-1" />
+            {name}
+          </Badge>
+        </button>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogContent className="max-w-4xl p-0 border-none bg-white shadow-none h-[85vh] [&>button]:!text-black [&>button]:top-2 [&>button]:right-2">
+            <iframe src={url} className="w-full h-full rounded-md" title="Ficha de Medida" />
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
+
+  return (
+    <a href={url} target="_blank" rel="noreferrer">
+      <Badge variant="secondary" className="truncate max-w-[260px]">{name}</Badge>
+    </a>
   );
 }
