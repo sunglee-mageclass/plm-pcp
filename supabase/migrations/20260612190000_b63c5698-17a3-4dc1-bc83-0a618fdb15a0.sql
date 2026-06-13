@@ -1,6 +1,12 @@
 -- Considerar reservas de outros modelos no saldo de OC oferecido no vínculo manual
 -- (Desenvolvimento > Tecidos > OcLinkSelect), evitando que dois modelos reservem
 -- mais do que o lote realmente tem até a baixa real no corte.
+--
+-- Também corrige bug pré-existente: a função original fazia
+-- ORDER BY data_entrega NULLS LAST, created_at dentro do jsonb_agg, mas a
+-- subquery nunca selecionava "created_at" -> erro 42703 "column created_at
+-- does not exist" em TODA chamada (400), fazendo o select sempre cair em
+-- "Sem vínculo (FIFO no corte)" sem nenhuma OC listada.
 
 DROP FUNCTION IF EXISTS public.ocs_disponiveis_variante(uuid);
 
@@ -19,6 +25,7 @@ BEGIN
       it.id AS oc_tecido_item_id,
       oc.numero_pedido,
       oc.data_entrega,
+      oc.created_at,
       (CASE WHEN a.unidade_medida='kg'
            THEN COALESCE(it.quantidade_recebida,0) * COALESCE(a.rendimento,0)
            ELSE COALESCE(it.quantidade_recebida,0) END
