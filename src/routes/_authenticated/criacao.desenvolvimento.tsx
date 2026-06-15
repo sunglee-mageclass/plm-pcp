@@ -58,6 +58,7 @@ type Modelo = {
   categoria_principal_id: string | null;
   status_desenvolvimento: string | null;
   fotos_modelo: string[] | null;
+  enviado_cad: boolean | null;
 };
 
 function useOpts(table: string, key = "nome") {
@@ -115,6 +116,8 @@ function DesenvolvimentoPage() {
   const [fMes, setFMes] = useState("all");
   const [fAno, setFAno] = useState("all");
   const [fColecao, setFColecao] = useState("all");
+  const [fStatus, setFStatus] = useState("all");
+  const [fCad, setFCad] = useState("all");
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
 
@@ -142,7 +145,7 @@ function DesenvolvimentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, semana, mes_id, ano_id, categoria_principal_id, status_desenvolvimento, fotos_modelo")
+        .select("id, nome, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, semana, mes_id, ano_id, categoria_principal_id, status_desenvolvimento, fotos_modelo, enviado_cad")
         .eq("status_planejamento", "planejado")
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -156,8 +159,20 @@ function DesenvolvimentoPage() {
     return Array.from(s).sort();
   }, [modelos]);
 
+  const statusKeySet = useMemo(() => new Set(statusKanban.map((s) => s.key)), [statusKanban]);
+  const firstStatusKey = statusKanban[0]?.key;
+
   const filtered = modelos.filter((m) => {
     if (search && !(m.nome ?? "").toLowerCase().includes(search.toLowerCase())) return false;
+    if (fStatus !== "all") {
+      // status efetivo = a coluna onde o card cai (null/desconhecido → primeira)
+      const eff = m.status_desenvolvimento && statusKeySet.has(m.status_desenvolvimento)
+        ? m.status_desenvolvimento
+        : firstStatusKey;
+      if (eff !== fStatus) return false;
+    }
+    if (fCad === "enviado" && !m.enviado_cad) return false;
+    if (fCad === "nao" && m.enviado_cad) return false;
     if (fEstilista !== "all" && m.estilista_id !== fEstilista) return false;
     if (fModelista !== "all" && m.modelista_id !== fModelista) return false;
     if (fPiloteiro !== "all" &&
@@ -220,8 +235,6 @@ function DesenvolvimentoPage() {
     updateStatus.mutate({ id, status: statusKey });
   };
 
-  const firstStatusKey = statusKanban[0]?.key;
-
   return (
     <div className="container mx-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -236,6 +249,8 @@ function DesenvolvimentoPage() {
           <SearchToggle value={search} onChange={setSearch} placeholder="Pesquisar por nome…" />
           <FilterButton
             filters={[
+              { label: "Status", value: fStatus, onChange: setFStatus, options: [{ id: "all", nome: "Todos" }, ...statusKanban.map((s) => ({ id: s.key, nome: s.label }))] },
+              { label: "CAD", value: fCad, onChange: setFCad, options: [{ id: "all", nome: "Todos" }, { id: "enviado", nome: "Enviado ao CAD" }, { id: "nao", nome: "Não enviado" }] },
               { label: "Estilista", value: fEstilista, onChange: setFEstilista, options: [{ id: "all", nome: "Todos" }, ...estilistas] },
               { label: "Modelista", value: fModelista, onChange: setFModelista, options: [{ id: "all", nome: "Todos" }, ...modelistas] },
               { label: "Piloteiro", value: fPiloteiro, onChange: setFPiloteiro, options: [{ id: "all", nome: "Todos" }, ...piloteiros] },
