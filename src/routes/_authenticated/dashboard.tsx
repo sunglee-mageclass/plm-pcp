@@ -15,6 +15,7 @@ import {
 } from "recharts";
 
 import { RequirePermission } from "@/components/RequirePermission";
+import { ProducaoCalendario } from "@/components/producao/ProducaoCalendario";
 export const Route = createFileRoute("/_authenticated/dashboard")({
   component: () => (
     <RequirePermission anyOf={["dashboard_colecao","dashboard_estoque","dashboard_producao","dashboard_financeiro","dashboard_custos"]}>
@@ -258,6 +259,8 @@ function ProducaoTab() {
         <Kpi label="Atrasadas" value={kpiPrazo.atrasadas} icon={AlertTriangle} />
         <Kpi label="% no prazo" value={Math.round(Number(kpiPrazo.pct) || 0)} icon={Sparkles} />
       </div>
+
+      <ProducaoCalendario />
 
       <Card className="p-4">
         <h3 className="font-semibold mb-3">Timeline por REF</h3>
