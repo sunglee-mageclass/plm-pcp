@@ -71,7 +71,8 @@ function AuthPage() {
     });
     setBusy(false);
     if (error) {
-      toast.error(error.message);
+      if (import.meta.env.DEV) console.error(error);
+      toast.error(friendlyAuthError(error.message));
       return;
     }
     toast.success("Conta criada! Verifique seu e-mail se a confirmação estiver ativa.");
