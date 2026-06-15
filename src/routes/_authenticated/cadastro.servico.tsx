@@ -396,6 +396,7 @@ function RepresentantesTab() {
       qc.invalidateQueries({ queryKey: ["representantes"] });
       qc.invalidateQueries({ queryKey: ["empresas-options"] });
       qc.invalidateQueries({ queryKey: ["attr", "empresas", ""] });
+      qc.invalidateQueries({ queryKey: ["servico-count", "representantes"] });
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao salvar."),
   });
@@ -409,6 +410,7 @@ function RepresentantesTab() {
       toast.success("Excluído.");
       setDeleteRow(null);
       qc.invalidateQueries({ queryKey: ["representantes"] });
+      qc.invalidateQueries({ queryKey: ["servico-count", "representantes"] });
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao excluir."),
   });

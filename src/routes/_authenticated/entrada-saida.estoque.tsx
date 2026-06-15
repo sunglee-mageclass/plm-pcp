@@ -141,7 +141,9 @@ function TecidosTab() {
           acc.prevReceb += num(it.quantidade_pedida);
         }
         if ((it as any).ocs_tecido?.status === "recebido") {
-          acc.recebido += toMetros(art, num(it.quantidade_recebida));
+          // quantidade_recebida null = recebeu o pedido cheio (mesma regra do
+          // financeiro: COALESCE(recebida, pedida)). 0 explícito permanece 0.
+          acc.recebido += toMetros(art, num(it.quantidade_recebida ?? it.quantidade_pedida));
         }
       }
 
@@ -451,7 +453,8 @@ function AviamentosTab() {
         if ((it as any).cancelado) continue;
         const acc = get(it.aviamento_id);
         if ((it as any).ocs_aviamento?.status === "encomendado") acc.prevReceb += num(it.quantidade_pedida);
-        if ((it as any).ocs_aviamento?.status === "recebido") acc.recebido += num(it.quantidade_recebida);
+        // quantidade_recebida null = recebeu o pedido cheio (igual ao financeiro). 0 fica 0.
+        if ((it as any).ocs_aviamento?.status === "recebido") acc.recebido += num(it.quantidade_recebida ?? it.quantidade_pedida);
       }
       for (const c of cadAv.data ?? []) {
         if (!c.aviamento_id) continue;

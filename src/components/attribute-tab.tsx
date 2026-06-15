@@ -64,7 +64,14 @@ export type AttributeTabConfig = {
 
 type Row = Record<string, any>;
 
-export function AttributeTab({ config }: { config: AttributeTabConfig }) {
+export function AttributeTab({
+  config,
+  onChanged,
+}: {
+  config: AttributeTabConfig;
+  /** Chamado após criar/editar/excluir, p/ o pai atualizar contadores próprios. */
+  onChanged?: () => void;
+}) {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
   const [search, setSearch] = useState("");
@@ -141,6 +148,7 @@ export function AttributeTab({ config }: { config: AttributeTabConfig }) {
       setNewName("");
       setNewExtra("");
       qc.invalidateQueries({ queryKey: listKey });
+      onChanged?.();
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao criar."),
   });
@@ -159,6 +167,7 @@ export function AttributeTab({ config }: { config: AttributeTabConfig }) {
       toast.success("Atualizado.");
       setEditingId(null);
       qc.invalidateQueries({ queryKey: listKey });
+      onChanged?.();
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao atualizar."),
   });
@@ -174,6 +183,7 @@ export function AttributeTab({ config }: { config: AttributeTabConfig }) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: listKey });
+      onChanged?.();
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao atualizar."),
   });
@@ -188,6 +198,7 @@ export function AttributeTab({ config }: { config: AttributeTabConfig }) {
       setDeleteRow(null);
       setDeleteUsage(null);
       qc.invalidateQueries({ queryKey: listKey });
+      onChanged?.();
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao excluir."),
   });

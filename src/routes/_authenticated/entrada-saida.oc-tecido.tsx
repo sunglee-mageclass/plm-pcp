@@ -380,8 +380,10 @@ function OcDialog({
     const a = it.artigo_id ? artigoMap[it.artigo_id] : null;
     return (a?.preco ?? 0) * (it.quantidade_recebida ?? 0);
   };
-  const totalPrevisto = items.reduce((s, i) => s + valorPrev(i), 0);
-  const totalReal = items.reduce((s, i) => s + valorReal(i), 0);
+  // Itens cancelados não entram nos totais (nem no valor_real_total persistido,
+  // que alimenta as parcelas).
+  const totalPrevisto = items.filter((i) => !i.cancelado).reduce((s, i) => s + valorPrev(i), 0);
+  const totalReal = items.filter((i) => !i.cancelado).reduce((s, i) => s + valorReal(i), 0);
 
   const handleSingleUpload = async (file: File, key: keyof Draft) => {
     try {
@@ -612,6 +614,7 @@ function OcDialog({
   };
 
   const handleMarkReceived = () => {
+    if (saveMutation.isPending) return; // evita duplo-clique duplicar itens/parcelas
     if (!canMarkReceived) {
       const missing = getMissingRequirements();
       toast.error("Não é possível marcar como recebido:", {

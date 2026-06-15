@@ -431,8 +431,9 @@ function OcDialog({
 
   const valorPrev = (i: ItemDraft) => Number(aviMap[i.aviamento_id]?.preco ?? 0) * i.quantidade_pedida;
   const valorReal = (i: ItemDraft) => Number(aviMap[i.aviamento_id]?.preco ?? 0) * (i.quantidade_recebida ?? 0);
-  const totalPrev = items.reduce((s, i) => s + valorPrev(i), 0);
-  const totalReal = items.reduce((s, i) => s + valorReal(i), 0);
+  // Itens cancelados não entram nos totais exibidos.
+  const totalPrev = items.filter((i) => !i.cancelado).reduce((s, i) => s + valorPrev(i), 0);
+  const totalReal = items.filter((i) => !i.cancelado).reduce((s, i) => s + valorReal(i), 0);
 
   const handleNF = async (file: File) => {
     try {
@@ -623,6 +624,7 @@ function OcDialog({
   };
 
   const handleMarkReceived = () => {
+    if (saveMutation.isPending) return; // evita duplo-clique duplicar itens/parcelas
     if (!canMarkReceived) {
       const missing = getMissingRequirements();
       toast.error("Não é possível marcar como recebido", {

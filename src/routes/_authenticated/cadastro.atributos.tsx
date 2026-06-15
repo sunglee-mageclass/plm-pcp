@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Tags } from "lucide-react";
 import { AttributeTab, type AttributeTabConfig } from "@/components/attribute-tab";
 import { Badge } from "@/components/ui/badge";
@@ -241,6 +241,7 @@ function AtributosPage() {
     return map;
   }, []);
 
+  const qc = useQueryClient();
   const { data: count, isLoading: countLoading } = useAttributeCount(selected.config.table);
 
   return (
@@ -325,7 +326,13 @@ function AtributosPage() {
             </Badge>
           </div>
 
-          <AttributeTab key={selected.value} config={selected.config} />
+          <AttributeTab
+            key={selected.value}
+            config={selected.config}
+            onChanged={() =>
+              qc.invalidateQueries({ queryKey: ["attribute-count", selected.config.table] })
+            }
+          />
         </div>
       </div>
     </div>

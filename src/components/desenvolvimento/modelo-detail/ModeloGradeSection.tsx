@@ -37,7 +37,7 @@ export function ModeloGradeSection({
               <Input
                 type="number"
                 value={proporcoes?.[t] ?? 0}
-                onChange={(e) => onChangeProporcao(t, Number(e.target.value) || 0)}
+                onChange={(e) => onChangeProporcao(t, Math.max(0, Number(e.target.value) || 0))}
               />
             </Field>
           ))}
@@ -77,7 +77,7 @@ export function ModeloGradeSection({
                         type="number"
                         min={0}
                         value={g.grades[t] ?? 0}
-                        onChange={(e) => onChangeGradeCell(n, t, Number(e.target.value) || 0)}
+                        onChange={(e) => onChangeGradeCell(n, t, Math.max(0, Number(e.target.value) || 0))}
                       />
                     </Field>
                   ))}
