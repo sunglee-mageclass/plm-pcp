@@ -17,6 +17,8 @@ export function ModeloTecidosSection({
   modeloId,
   blocks,
   artigos,
+  artigosForro,
+  artigosEntretela,
   onChangeBlock,
   onChangeVariante,
   onChangeOcLink,
@@ -24,6 +26,8 @@ export function ModeloTecidosSection({
   modeloId: string;
   blocks: TecidoBlock[];
   artigos: ArtigoOpt[];
+  artigosForro: ArtigoOpt[];
+  artigosEntretela: ArtigoOpt[];
   onChangeBlock: (idx: number, patch: Partial<TecidoBlock>) => void;
   onChangeVariante: (idx: number, vIdx: number, value: string | null) => void;
   onChangeOcLink: (idx: number, vIdx: number, value: string | null) => void;
@@ -68,6 +72,8 @@ export function ModeloTecidosSection({
         const visibleOfType = blocksOfType.filter((b) => visible.has(`${tipo}-${b.numero}`));
         const canAdd = visibleOfType.length < 3;
 
+        const artigosBase = tipo === "forro" ? artigosForro : tipo === "entretela" ? artigosEntretela : artigos;
+
         return (
           <div key={tipo} className="space-y-2">
             <p className="text-sm font-semibold">{TIPO_LABEL[tipo]}</p>
@@ -76,12 +82,17 @@ export function ModeloTecidosSection({
                 if (!visible.has(`${tipo}-${b.numero}`)) return null;
                 const idx = blocks.findIndex((bb) => bb.tipo === tipo && bb.numero === b.numero);
                 if (idx < 0) return null;
+                let artigosOpts = artigosBase;
+                if (b.artigo_id && !artigosOpts.some((a) => a.id === b.artigo_id)) {
+                  const existing = artigos.find((a) => a.id === b.artigo_id);
+                  if (existing) artigosOpts = [existing, ...artigosOpts];
+                }
                 return (
                   <TecidoBlockEditor
                     key={`${tipo}-${b.numero}`}
                     modeloId={modeloId}
                     block={b}
-                    artigos={artigos}
+                    artigos={artigosOpts}
                     onChangeBlock={(p) => onChangeBlock(idx, p)}
                     onChangeVariante={(vi, val) => onChangeVariante(idx, vi, val)}
                     onChangeOcLink={(vi, val) => onChangeOcLink(idx, vi, val)}

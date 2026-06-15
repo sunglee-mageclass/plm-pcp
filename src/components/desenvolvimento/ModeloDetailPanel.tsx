@@ -98,12 +98,52 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     queryKey: ["artigos-all"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("artigos").select("id, nome, preco, preco_por_metro, unidade_medida").order("nome");
+        .from("artigos").select("id, nome, preco, preco_por_metro, unidade_medida, categoria_tecido_id").order("nome");
       if (error) throw error;
-      return (data ?? []) as { id: string; nome: string; preco: number | null; preco_por_metro: number | null; unidade_medida: string | null }[];
+      return (data ?? []) as { id: string; nome: string; preco: number | null; preco_por_metro: number | null; unidade_medida: string | null; categoria_tecido_id: string | null }[];
     },
   });
   const artigoMap = useMemo(() => Object.fromEntries(artigos.map((a) => [a.id, a])), [artigos]);
+
+  const { data: categoriasTecido = [] } = useQuery({
+    queryKey: ["cat-tecido-options"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("categorias_tecido").select("id, nome").order("nome");
+      if (error) throw error;
+      return (data ?? []) as { id: string; nome: string }[];
+    },
+  });
+
+  const { data: artigoCatLinks = [] } = useQuery({
+    queryKey: ["artigo-cats-all"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("artigo_categorias_tecido").select("artigo_id, categoria_tecido_id");
+      if (error) throw error;
+      return (data ?? []) as { artigo_id: string; categoria_tecido_id: string }[];
+    },
+  });
+
+  const catsByArtigo = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    artigoCatLinks.forEach((l) => {
+      const s = m.get(l.artigo_id) ?? new Set<string>();
+      s.add(l.categoria_tecido_id);
+      m.set(l.artigo_id, s);
+    });
+    return m;
+  }, [artigoCatLinks]);
+
+  const artigoTemCategoria = (artigoId: string, categoriaId: string) =>
+    catsByArtigo.get(artigoId)?.has(categoriaId) || artigoMap[artigoId]?.categoria_tecido_id === categoriaId;
+
+  const artigosPorCategoriaNome = (nome: string) => {
+    const cat = categoriasTecido.find((c) => c.nome.trim().toLowerCase() === nome.toLowerCase());
+    if (!cat) return [];
+    return artigos.filter((a) => artigoTemCategoria(a.id, cat.id));
+  };
+
+  const artigosForro = useMemo(() => artigosPorCategoriaNome("Forro"), [artigos, categoriasTecido, catsByArtigo]);
+  const artigosEntretela = useMemo(() => artigosPorCategoriaNome("Entretela"), [artigos, categoriasTecido, catsByArtigo]);
 
   const { data: aviamentos = [] } = useQuery({
     queryKey: ["aviamentos-all"],
@@ -754,6 +794,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 modeloId={modeloId}
                 blocks={blocks}
                 artigos={artigos}
+                artigosForro={artigosForro}
+                artigosEntretela={artigosEntretela}
                 onChangeBlock={updateBlock}
                 onChangeVariante={updateBlockVariante}
                 onChangeOcLink={updateBlockOcLink}
