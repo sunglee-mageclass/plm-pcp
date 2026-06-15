@@ -835,20 +835,17 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         </Accordion>
       </div>
 
-      <div className="mt-4 space-y-1">
+      <div className="sticky bottom-0 bg-background border-t mt-4 pt-3 flex flex-wrap gap-2 justify-end items-center">
+        {draft.enviado_cad && (
+          <span className="text-xs text-muted-foreground mr-auto">✓ Já enviado para o CAD</span>
+        )}
+        <Button variant="ghost" onClick={onClose}>Fechar</Button>
         {canEnviarCad && (
-          <Button onClick={() => enviarCad.mutate()} disabled={enviarCad.isPending} className="w-full">
+          <Button variant="secondary" onClick={() => enviarCad.mutate()} disabled={enviarCad.isPending}>
             {enviarCad.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             <Send className="h-4 w-4 mr-2" /> Enviar para o CAD
           </Button>
         )}
-        {draft.enviado_cad && (
-          <p className="text-xs text-muted-foreground text-center">✓ Já enviado para o CAD</p>
-        )}
-      </div>
-
-      <div className="sticky bottom-0 bg-background border-t mt-4 pt-3 flex gap-2 justify-end">
-        <Button variant="ghost" onClick={onClose}>Fechar</Button>
         <Button onClick={() => save.mutate()} disabled={save.isPending}>
           {save.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Salvar
         </Button>
