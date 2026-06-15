@@ -33,7 +33,7 @@ export function CadActions({ onPrint, onSave, onEnviar, saving, enviando, enviad
         {enviado ? (
           <Badge variant="secondary" className="gap-1 px-3 py-1.5">
             <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-            Enviado ao Corte{dataEnviado ? ` em ${fmtDate(dataEnviado)}` : ""}
+            CAD Confirmado{dataEnviado ? ` em ${fmtDate(dataEnviado)}` : ""}
           </Badge>
         ) : (
           <>
@@ -41,7 +41,7 @@ export function CadActions({ onPrint, onSave, onEnviar, saving, enviando, enviad
               <Printer className="h-4 w-4 mr-1" /> Imprimir Ficha
             </Button>
             <Button onClick={onEnviar} disabled={enviando || readOnly}>
-              <Send className="h-4 w-4 mr-1" /> Enviar ao Corte
+              <Send className="h-4 w-4 mr-1" /> Confirmar CAD
             </Button>
           </>
         )}

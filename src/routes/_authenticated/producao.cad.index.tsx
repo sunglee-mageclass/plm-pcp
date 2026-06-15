@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Scissors, Search } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -29,12 +29,19 @@ const STATUS_COLORS: Record<string, string> = {
   em_corte: "bg-blue-500",
   pronto: "bg-emerald-500",
 };
+const STATUS_LABELS: Record<string, string> = {
+  pendente: "Pendente",
+  em_corte: "Em Corte",
+  pronto: "Pronto",
+};
 
 function CadListPage() {
+  const navigate = useNavigate();
   const [q, setQ] = useState("");
   const [fColecao, setFColecao] = useState("all");
   const [fMes, setFMes] = useState("all");
   const [fAno, setFAno] = useState("all");
+  const [fStatus, setFStatus] = useState("all");
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["producao-cad-list"],
@@ -87,6 +94,7 @@ function CadListPage() {
     if (fColecao !== "all" && r.colecao !== fColecao) return false;
     if (fMes !== "all" && r.mes_id !== fMes) return false;
     if (fAno !== "all" && r.ano_id !== fAno) return false;
+    if (fStatus !== "all" && r.status_corte !== fStatus) return false;
     return true;
   });
 
@@ -100,7 +108,7 @@ function CadListPage() {
         </div>
       </header>
 
-      <Card className="p-4 grid gap-3 md:grid-cols-5">
+      <Card className="p-4 grid gap-3 md:grid-cols-6">
         <div className="relative md:col-span-2">
           <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input className="pl-9" placeholder="REF ou nome…" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -126,6 +134,13 @@ function CadListPage() {
             {(anos as any[]).map((a) => <SelectItem key={a.id} value={a.id}>{a.nome}</SelectItem>)}
           </SelectContent>
         </Select>
+        <Select value={fStatus} onValueChange={setFStatus}>
+          <SelectTrigger><SelectValue placeholder="Status CAD" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos status</SelectItem>
+            {Object.entries(STATUS_LABELS).map(([v, label]) => <SelectItem key={v} value={v}>{label}</SelectItem>)}
+          </SelectContent>
+        </Select>
       </Card>
 
       <Card className="overflow-hidden">
@@ -135,7 +150,7 @@ function CadListPage() {
               <th className="px-4 py-2">REF</th>
               <th className="px-4 py-2">Nome</th>
               <th className="px-4 py-2">Categoria</th>
-              <th className="px-4 py-2">Status Corte</th>
+              <th className="px-4 py-2">Status CAD</th>
             </tr>
           </thead>
           <tbody>
@@ -146,21 +161,17 @@ function CadListPage() {
               <tr><td className="px-4 py-6 text-muted-foreground" colSpan={4}>Nenhum modelo enviado ao CAD.</td></tr>
             )}
             {filtered.map((r: any) => (
-              <tr key={r.modelo_id} className="border-t hover:bg-muted/30 cursor-pointer">
-                <td className="px-4 py-2">
-                  <Link to="/producao/cad/$modeloId" params={{ modeloId: r.modelo_id }} className="font-mono text-primary hover:underline">
-                    {r.ref ?? "—"}
-                  </Link>
-                </td>
-                <td className="px-4 py-2">
-                  <Link to="/producao/cad/$modeloId" params={{ modeloId: r.modelo_id }} className="hover:underline">
-                    {r.nome ?? "—"}
-                  </Link>
-                </td>
+              <tr
+                key={r.modelo_id}
+                className="border-t hover:bg-muted/30 cursor-pointer"
+                onClick={() => navigate({ to: "/producao/cad/$modeloId", params: { modeloId: r.modelo_id } })}
+              >
+                <td className="px-4 py-2 font-mono text-primary">{r.ref ?? "—"}</td>
+                <td className="px-4 py-2">{r.nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground">{r.categoria_nome ?? "—"}</td>
                 <td className="px-4 py-2">
                   <Badge className={`${STATUS_COLORS[r.status_corte] ?? "bg-muted"} text-white`}>
-                    {r.status_corte}
+                    {STATUS_LABELS[r.status_corte] ?? r.status_corte}
                   </Badge>
                 </td>
               </tr>
