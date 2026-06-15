@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Send, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -19,9 +19,6 @@ export function ModeloInfoSection({
   piloteiros,
   isAprovado,
   isReprovado,
-  canEnviarCad,
-  onEnviarCad,
-  enviarCadPending,
   statusOptions,
 }: {
   draft: Draft;
@@ -31,9 +28,6 @@ export function ModeloInfoSection({
   piloteiros: Opt[];
   isAprovado: boolean;
   isReprovado: boolean;
-  canEnviarCad: boolean;
-  onEnviarCad: () => void;
-  enviarCadPending: boolean;
   statusOptions?: StatusOpt[];
 }) {
   const [visiblePilotos, setVisiblePilotos] = useState<Set<number>>(() => {
@@ -155,14 +149,6 @@ export function ModeloInfoSection({
       <Field label="Ajustes na Prova" full>
         <Textarea rows={3} value={draft.ajustes_prova} onChange={(e) => setDraft({ ...draft, ajustes_prova: e.target.value })} />
       </Field>
-      {canEnviarCad && (
-        <Button onClick={onEnviarCad} disabled={enviarCadPending} className="w-full">
-          <Send className="h-4 w-4 mr-2" /> Enviar para o CAD
-        </Button>
-      )}
-      {draft.enviado_cad && (
-        <p className="text-xs text-muted-foreground text-center">✓ Já enviado para o CAD</p>
-      )}
     </div>
   );
 }
