@@ -429,94 +429,54 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       const { error: e1 } = await supabase.from("modelos").update(payload).eq("id", modeloId);
       if (e1) throw e1;
 
-      const { error: eDelV } = await supabase
-        .from("modelo_tecido_variantes")
-        .delete()
-        .in("modelo_tecido_id", (tecidosData?.tecidos ?? []).map((t: any) => t.id));
-      if (eDelV && (tecidosData?.tecidos?.length ?? 0) > 0) throw eDelV;
-      const { error: eDelT } = await supabase
-        .from("modelo_tecidos").delete().eq("modelo_id", modeloId);
-      if (eDelT) throw eDelT;
-
-      const tecidosToInsert = blocks
+      // Persistência atômica do BOM via RPC (substitui delete+insert não-transacional)
+      const tecidosPayload = blocks
         .filter((b) => b.artigo_id)
         .map((b) => ({
-          modelo_id: modeloId, artigo_id: b.artigo_id, numero: b.numero, tipo: b.tipo,
-          consumo: b.consumo || 0, loss_percent: b.loss_percent || 0, custo_previsto: b.custo_previsto || 0,
+          artigo_id: b.artigo_id,
+          numero: b.numero,
+          tipo: b.tipo,
+          consumo: b.consumo || 0,
+          loss_percent: b.loss_percent || 0,
+          custo_previsto: b.custo_previsto || 0,
+          variantes: b.variantes,
+          oc_links: b.variantes
+            .map((vid, i) => {
+              const ocItem = b.oc_links?.[i];
+              if (!vid || !ocItem) return null;
+              return {
+                ordem: i + 1,
+                variante_tecido_id: vid,
+                oc_tecido_item_id: ocItem,
+              };
+            })
+            .filter((x) => x !== null),
         }));
-      if (tecidosToInsert.length > 0) {
-        const { data: inserted, error: eIns } = await supabase
-          .from("modelo_tecidos").insert(tecidosToInsert).select("id, numero, tipo");
-        if (eIns) throw eIns;
-        const idxMap = new Map<string, string>();
-        (inserted ?? []).forEach((row: any) => idxMap.set(`${row.tipo}-${row.numero}`, row.id));
-        const variantesToInsert: any[] = [];
-        blocks.forEach((b) => {
-          const tid = idxMap.get(`${b.tipo}-${b.numero}`);
-          if (!tid) return;
-          b.variantes.forEach((vid, i) => {
-            if (vid) variantesToInsert.push({ modelo_tecido_id: tid, variante_tecido_id: vid, ordem: i + 1 });
-          });
-        });
-        if (variantesToInsert.length > 0) {
-          const { error: eV } = await supabase.from("modelo_tecido_variantes").insert(variantesToInsert);
-          if (eV) throw eV;
-        }
-      }
 
-      // Persistir vínculos OC-variante (sobrevive ao save destrutivo)
-      const { error: eDelL } = await supabase
-        .from("modelo_tecido_oc_links" as any)
-        .delete().eq("modelo_id", modeloId);
-      if (eDelL) throw eDelL;
-      const linksToInsert: any[] = [];
-      blocks.forEach((b) => {
-        if (!b.artigo_id) return;
-        b.variantes.forEach((vid, i) => {
-          const ocItem = b.oc_links?.[i];
-          if (vid && ocItem) {
-            linksToInsert.push({
-              modelo_id: modeloId,
-              tipo: b.tipo, numero: b.numero, ordem: i + 1,
-              variante_tecido_id: vid,
-              oc_tecido_item_id: ocItem,
-            });
-          }
-        });
-      });
-      if (linksToInsert.length > 0) {
-        const { error: eL } = await supabase
-          .from("modelo_tecido_oc_links" as any).insert(linksToInsert);
-        if (eL) throw eL;
-      }
-
-      const { error: eDelA } = await supabase
-        .from("modelo_aviamentos").delete().eq("modelo_id", modeloId);
-      if (eDelA) throw eDelA;
-      const aviamentosToInsert = aviamentosState
+      const aviamentosPayload = aviamentosState
         .filter((r) => r.aviamento_id)
         .map((r, i) => ({
-          modelo_id: modeloId, aviamento_id: r.aviamento_id, numero: i + 1,
-          consumo: r.consumo || 0, loss_percent: r.loss_percent || 0, custo_previsto: r.custo_previsto || 0,
+          aviamento_id: r.aviamento_id,
+          numero: i + 1,
+          consumo: r.consumo || 0,
+          loss_percent: r.loss_percent || 0,
+          custo_previsto: r.custo_previsto || 0,
         }));
-      if (aviamentosToInsert.length > 0) {
-        const { error: eA } = await supabase.from("modelo_aviamentos").insert(aviamentosToInsert);
-        if (eA) throw eA;
-      }
 
-      const { error: eDelG } = await supabase
-        .from("modelo_grades").delete().eq("modelo_id", modeloId);
-      if (eDelG) throw eDelG;
-      const gradesToInsert = grades
-        .filter((g) => g.grade_total > 0 || Object.values(g.grades).some((v) => (v ?? 0) > 0))
-        .map((g) => ({
-          modelo_id: modeloId, variante_numero: g.variante_numero,
-          grades: g.grades, grade_total: g.grade_total,
-        }));
-      if (gradesToInsert.length > 0) {
-        const { error: eG } = await supabase.from("modelo_grades").insert(gradesToInsert);
-        if (eG) throw eG;
-      }
+      const gradesPayload = grades.map((g) => ({
+        variante_numero: g.variante_numero,
+        grades: g.grades,
+        grade_total: g.grade_total,
+      }));
+
+      const { error: eBom } = await supabase.rpc("salvar_modelo_bom" as any, {
+        _modelo_id: modeloId,
+        _tecidos: tecidosPayload as any,
+        _aviamentos: aviamentosPayload as any,
+        _grades: gradesPayload as any,
+      });
+      if (eBom) throw eBom;
+
     },
     onSuccess: () => {
       toast.success("Modelo salvo");
