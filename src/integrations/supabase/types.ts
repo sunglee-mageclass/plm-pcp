@@ -2772,6 +2772,7 @@ export type Database = {
         Args: { _variante_id: string }
         Returns: Json
       }
+      estoque_tecido_por_artigo: { Args: never; Returns: Json }
       get_user_tenant_id: { Args: never; Returns: string }
       has_role: {
         Args: {
