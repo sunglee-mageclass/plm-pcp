@@ -1475,6 +1475,7 @@ export type Database = {
           linha_id: string | null
           mes_id: string | null
           modelista_id: string | null
+          modelo_base_id: string | null
           motivo_cancelamento: string | null
           nome: string
           observacoes_gerais: string | null
@@ -1489,6 +1490,7 @@ export type Database = {
           status_planejamento: string | null
           tecidos_planejados: string[]
           tenant_id: string | null
+          versao: number
         }
         Insert: {
           ajustes_prova?: string | null
@@ -1517,6 +1519,7 @@ export type Database = {
           linha_id?: string | null
           mes_id?: string | null
           modelista_id?: string | null
+          modelo_base_id?: string | null
           motivo_cancelamento?: string | null
           nome: string
           observacoes_gerais?: string | null
@@ -1531,6 +1534,7 @@ export type Database = {
           status_planejamento?: string | null
           tecidos_planejados?: string[]
           tenant_id?: string | null
+          versao?: number
         }
         Update: {
           ajustes_prova?: string | null
@@ -1559,6 +1563,7 @@ export type Database = {
           linha_id?: string | null
           mes_id?: string | null
           modelista_id?: string | null
+          modelo_base_id?: string | null
           motivo_cancelamento?: string | null
           nome?: string
           observacoes_gerais?: string | null
@@ -1573,6 +1578,7 @@ export type Database = {
           status_planejamento?: string | null
           tecidos_planejados?: string[]
           tenant_id?: string | null
+          versao?: number
         }
         Relationships: [
           {
@@ -1622,6 +1628,13 @@ export type Database = {
             columns: ["modelista_id"]
             isOneToOne: false
             referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelos_modelo_base_id_fkey"
+            columns: ["modelo_base_id"]
+            isOneToOne: false
+            referencedRelation: "modelos"
             referencedColumns: ["id"]
           },
           {
