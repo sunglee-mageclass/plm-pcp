@@ -293,15 +293,6 @@ function CadDetailPage() {
       return next;
     });
   };
-  const updateGradePlan = (gi: number, tamanho: string, value: number) => {
-    setGrades((prev) => {
-      const next = [...prev];
-      const grades_planejadas = { ...next[gi].grades_planejadas, [tamanho]: value };
-      const grade_total_planejada = Object.values(grades_planejadas).reduce((a, b) => a + (Number(b) || 0), 0);
-      next[gi] = { ...next[gi], grades_planejadas, grade_total_planejada };
-      return next;
-    });
-  };
   const updateAvi = (i: number, patch: Partial<AviamentoRow>) => {
     setAviamentos((prev) => {
       const next = [...prev];
@@ -505,7 +496,6 @@ function CadDetailPage() {
         <CadGradeSection
           grades={grades}
           tamanhosAll={tamanhosAll}
-          updateGradePlan={updateGradePlan}
           updateGradeCell={updateGradeCell}
         />
 
