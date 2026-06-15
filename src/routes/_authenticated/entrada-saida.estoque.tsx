@@ -309,6 +309,11 @@ function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
       return (data ?? []) as any[];
     },
   });
+  // Parte da reserva total da variante que não está atribuída a nenhuma OC
+  // (modelos aprovados sem vínculo de OC no Desenvolvimento). Algumas fábricas
+  // não atribuem a OC — então apenas informamos, sem bloquear.
+  const reservaSemOc =
+    Number(row.reservado ?? 0) - detalhe.reduce((s: number, d: any) => s + Number(d.reservado_m ?? 0), 0);
   return (
     <>
       <tr className={cn("border-b last:border-0 cursor-pointer", row.fisico <= threshold && "bg-destructive/10")} onClick={() => setOpen((o) => !o)}>
@@ -361,6 +366,13 @@ function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
                     })}
                   </tbody>
                 </table>
+              )}
+              {!isLoading && reservaSemOc > 0.01 && (
+                <p className="text-xs text-muted-foreground mt-1.5 italic">
+                  <span className="font-medium not-italic text-foreground">{fmt(reservaSemOc)}</span>{" "}
+                  reservado(s) por modelos aprovados sem OC atribuída
+                  {detalhe.length > 0 ? " (não consta nas linhas acima)." : "."}
+                </p>
               )}
             </div>
 
