@@ -488,6 +488,10 @@ function AviamentoModal({
   const [uploading, setUploading] = useState(false);
   const [localPreview, setLocalPreview] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // Fotos enviadas nesta sessão e ainda não persistidas; removidas se o
+  // usuário trocar a foto ou fechar o diálogo sem salvar (evita órfãos).
+  const sessionUploads = useRef<string[]>([]);
+  const savedRef = useRef(false);
   const signedUrl = useSignedUrl(form.foto_url, "aviamentos");
   const fotoUrl = localPreview ?? signedUrl;
 
@@ -498,6 +502,8 @@ function AviamentoModal({
   }, [localPreview]);
 
   useEffect(() => {
+    sessionUploads.current = [];
+    savedRef.current = false;
     if (initial) {
       setForm({
         codigo_nome: initial.codigo_nome ?? "",
@@ -548,6 +554,13 @@ function AviamentoModal({
         upsert: false,
       });
       if (error) throw error;
+      // Trocou a foto antes de salvar: remove o upload anterior desta sessão.
+      const prev = form.foto_url;
+      if (prev && sessionUploads.current.includes(prev)) {
+        await supabase.storage.from("aviamentos").remove([prev]);
+        sessionUploads.current = sessionUploads.current.filter((p) => p !== prev);
+      }
+      sessionUploads.current.push(path);
       set("foto_url", path);
       toast.success("Foto enviada.");
     } catch (e: any) {
@@ -585,14 +598,27 @@ function AviamentoModal({
       }
     },
     onSuccess: () => {
+      // Uploads desta sessão agora estão persistidos: não devem ser removidos.
+      savedRef.current = true;
+      sessionUploads.current = [];
       toast.success(initial ? "Aviamento atualizado." : "Aviamento criado.");
       onSaved();
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao salvar."),
   });
 
+  const handleOpenChange = (o: boolean) => {
+    // Fechou sem salvar: remove fotos enviadas nesta sessão (órfãs).
+    if (!o && !savedRef.current && sessionUploads.current.length > 0) {
+      const orphans = sessionUploads.current;
+      sessionUploads.current = [];
+      void supabase.storage.from("aviamentos").remove(orphans);
+    }
+    onOpenChange(o);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{initial ? "Editar Aviamento" : "Novo Aviamento"}</DialogTitle>

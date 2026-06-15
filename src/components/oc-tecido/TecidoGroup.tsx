@@ -15,7 +15,7 @@ export function TecidoGroup({
   variantes: Variante[];
   items: ItemDraft[];
   toggleVariante: (vid: string, checked: boolean) => void;
-  setQtd: (tempId: string, field: "quantidade_pedida" | "quantidade_recebida", v: number) => void;
+  setQtd: (tempId: string, field: "quantidade_pedida" | "quantidade_recebida", v: number | null) => void;
   varianteMap: Record<string, Variante>;
 }) {
   const selectedIds = new Set(items.map((i) => i.variante_tecido_id));

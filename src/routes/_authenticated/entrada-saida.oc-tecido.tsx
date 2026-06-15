@@ -365,7 +365,7 @@ function OcDialog({
     });
   };
 
-  const setQtd = (tempId: string, field: "quantidade_pedida" | "quantidade_recebida", v: number) => {
+  const setQtd = (tempId: string, field: "quantidade_pedida" | "quantidade_recebida", v: number | null) => {
     setItems((prev) => prev.map((i) => i.tempId === tempId ? { ...i, [field]: v } : i));
   };
   const toggleCancelado = (tempId: string, value: boolean) => {
@@ -502,11 +502,24 @@ function OcDialog({
           if (upErr) throw upErr;
         }
       }
+
+      // Quando a OC fica recebida, recalcula as parcelas. O trigger
+      // gerar_parcelas_oc_tecido NÃO regenera se já existir parcela (ex.: ao
+      // re-receber depois de desmarcar mantendo uma parcela paga, as demais
+      // somem). recalcular_parcelas preserva as pagas e recria as restantes.
+      if (finalStatus === "recebido" && ocIdLocal) {
+        const { error: recErr } = await supabase.rpc("recalcular_parcelas", {
+          _oc_id: ocIdLocal,
+          _tipo: "tecido",
+        });
+        if (recErr) throw recErr;
+      }
     },
     onSuccess: () => {
       toast.success("OC salva");
       qc.invalidateQueries({ queryKey: ["ocs_tecido"] });
       qc.invalidateQueries({ queryKey: ["ocs_tecido_qtd_recebida"] });
+      qc.invalidateQueries({ queryKey: ["parcelas"] });
       onSaved();
       onClose();
     },

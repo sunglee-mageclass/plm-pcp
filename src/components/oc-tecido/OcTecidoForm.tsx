@@ -30,7 +30,7 @@ export function OcTecidoForm({
   artigoIdFor: (n: 1 | 2) => string | null;
   setArtigo: (n: 1 | 2, artigoId: string) => void;
   toggleVariante: (n: 1 | 2, varId: string, checked: boolean) => void;
-  setQtd: (tempId: string, field: "quantidade_pedida" | "quantidade_recebida", v: number) => void;
+  setQtd: (tempId: string, field: "quantidade_pedida" | "quantidade_recebida", v: number | null) => void;
   tecido2Aberto: boolean;
   setTecido2Aberto: (v: boolean) => void;
   removeTecido2: () => void;

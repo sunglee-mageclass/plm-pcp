@@ -16,7 +16,7 @@ export function OcTecidoCalculos({
   items: ItemDraft[];
   artigoMap: Record<string, Artigo>;
   varianteMap: Record<string, Variante>;
-  setQtd: (tempId: string, field: "quantidade_pedida" | "quantidade_recebida", v: number) => void;
+  setQtd: (tempId: string, field: "quantidade_pedida" | "quantidade_recebida", v: number | null) => void;
   totalPrevisto: number;
   totalReal: number;
   dataPrevista: string;
@@ -85,7 +85,10 @@ export function OcTecidoCalculos({
                     <div className="relative w-24">
                       <Input type="number" step="0.01" className={sufixo ? "pr-10" : ""}
                         value={i.quantidade_recebida ?? ""}
-                        onChange={(e) => setQtd(i.tempId, "quantidade_recebida", Number(e.target.value))} />
+                        onChange={(e) => {
+                          const raw = e.target.value.replace(",", ".");
+                          setQtd(i.tempId, "quantidade_recebida", raw === "" ? null : Number(raw));
+                        }} />
                       {sufixo && (
                         <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
                           {sufixo}

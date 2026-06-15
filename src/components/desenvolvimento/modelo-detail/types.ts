@@ -66,9 +66,13 @@ export function makeEmptyBlocks(): TecidoBlock[] {
 
 export function recomputeBlock(
   b: TecidoBlock,
-  artigoMap: Record<string, { preco?: number | null }>,
+  artigoMap: Record<string, { preco?: number | null; preco_por_metro?: number | null }>,
 ): TecidoBlock {
-  const preco = b.artigo_id ? Number(artigoMap[b.artigo_id]?.preco ?? 0) : 0;
+  // Consumo é sempre em metros; para tecido em kg o preço por metro é
+  // preco_por_metro (= preco / rendimento). Usa-se preco_por_metro — igual ao
+  // CAD — caindo para preco apenas quando ausente, evitando custo inflado.
+  const art = b.artigo_id ? artigoMap[b.artigo_id] : undefined;
+  const preco = art ? Number(art.preco_por_metro ?? art.preco ?? 0) : 0;
   const custo = preco * (b.consumo || 0) * (1 + (b.loss_percent || 0) / 100);
   return { ...b, custo_previsto: Math.round(custo * 100) / 100 };
 }

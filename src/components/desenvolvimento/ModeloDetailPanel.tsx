@@ -640,6 +640,20 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   });
 
   const updateBlock = (idx: number, patch: Partial<TecidoBlock>) => {
+    const target = blocks[idx];
+    const isTecido1 = target?.tipo === "tecido" && target?.numero === 1;
+    // Trocar o artigo do Tecido 1 zera suas variantes; a grade é indexada por
+    // essas variantes, então ficaria órfã (somada no total e copiada ao CAD).
+    // Confirma antes de descartar grade preenchida e limpa-a junto.
+    if (isTecido1 && patch.artigo_id !== undefined && patch.artigo_id !== target.artigo_id) {
+      const hasGrade = grades.some(
+        (g) => g.grade_total > 0 || Object.values(g.grades || {}).some((v) => (v ?? 0) > 0),
+      );
+      if (hasGrade && !window.confirm("Trocar o artigo do Tecido 1 vai apagar a grade preenchida. Continuar?")) {
+        return;
+      }
+      setGrades([]);
+    }
     setBlocks((bs) => bs.map((b, i) => i === idx ? recomputeBlock({ ...b, ...patch }, artigoMap) : b));
   };
   const updateBlockVariante = (idx: number, vIdx: number, value: string | null) => {

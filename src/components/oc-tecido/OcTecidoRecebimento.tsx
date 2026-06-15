@@ -20,7 +20,7 @@ export function OcTecidoRecebimento({
   items: ItemDraft[];
   artigoMap: Record<string, Artigo>;
   varianteMap: Record<string, Variante>;
-  setQtd: (tempId: string, field: "quantidade_pedida" | "quantidade_recebida", v: number) => void;
+  setQtd: (tempId: string, field: "quantidade_pedida" | "quantidade_recebida", v: number | null) => void;
   totalPrevisto: number;
   totalReal: number;
   tecido2Aberto: boolean;
