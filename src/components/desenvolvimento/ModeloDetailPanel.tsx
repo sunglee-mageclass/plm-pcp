@@ -403,8 +403,11 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   }
   const canEnviarCad = isAprovado && !draft?.enviado_cad && cadMissing.length === 0;
 
-  const save = useMutation({
-    mutationFn: async () => {
+  // Persiste o modelo + BOM (tecidos/variantes/grade/aviamentos) via salvar_modelo_bom.
+  // Usado pelo Salvar e também ANTES de Enviar ao CAD, garantindo que a cópia ao CAD
+  // use exatamente o que está no Desenvolvimento (a validação usa estado local; a
+  // cópia ao CAD lê do banco — sem persistir, iria dado incompleto/vazio).
+  const persistModelo = async () => {
       if (!draft) return;
       const payload = {
         nome: draft.nome,
@@ -489,8 +492,10 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         _grades: gradesPayload as any,
       });
       if (eBom) throw eBom;
+  };
 
-    },
+  const save = useMutation({
+    mutationFn: persistModelo,
     onSuccess: () => {
       toast.success("Modelo salvo");
       qc.invalidateQueries({ queryKey: ["modelo-detail", modeloId] });
@@ -506,6 +511,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
 
   const enviarCad = useMutation({
     mutationFn: async () => {
+      // Salva o BOM atual antes de copiar para o CAD (consumos/variantes corretos).
+      await persistModelo();
       const { data: mdl, error: eM } = await supabase
         .from("modelos").select("tenant_id").eq("id", modeloId).maybeSingle();
       if (eM) throw eM;

@@ -490,7 +490,9 @@ function CadDetailPage() {
               <span>Estilista: {modelo?.estilista?.nome ?? "—"}</span>
               <span>Coleção: {modelo?.colecao ?? "—"}</span>
               <span>Categoria: {modelo?.cat_p?.nome ?? "—"}</span>
-              <span>Sub-categoria: {modelo?.cat_s?.nome ?? "—"}</span>
+              {(modelo?.cat_p?.nome ?? "").toLowerCase() === "conjunto" && (
+                <span>Sub-categoria: {modelo?.cat_s?.nome ?? "—"}</span>
+              )}
             </div>
           </div>
         </Card>
