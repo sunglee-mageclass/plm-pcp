@@ -894,15 +894,17 @@ function OcDialog({
 
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
-          {isReadOnlyRecebimento && (
-            <Button variant="outline" onClick={() => setConfirmUnmark(true)} disabled={unmarkReceivedMut.isPending}>
-              Desmarcar Recebido
-            </Button>
-          )}
           {canShowRecebimento && (
-            <Button variant="secondary" onClick={handleMarkReceived} disabled={saveMutation.isPending || isReadOnlyRecebimento}>
-              Marcar como Recebido
-            </Button>
+            // Botão único que alterna: marca quando encomendado, desmarca quando recebido.
+            isReadOnlyRecebimento ? (
+              <Button variant="outline" onClick={() => setConfirmUnmark(true)} disabled={unmarkReceivedMut.isPending}>
+                Desmarcar Recebido
+              </Button>
+            ) : (
+              <Button variant="secondary" onClick={handleMarkReceived} disabled={saveMutation.isPending}>
+                Marcar como Recebido
+              </Button>
+            )
           )}
           <Button onClick={() => saveMutation.mutate(false)} disabled={saveMutation.isPending}>
             Salvar
