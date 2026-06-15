@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   Layers,
   Plus,
   Search,
@@ -153,6 +154,11 @@ function TecidosGallery() {
     [empresas],
   );
 
+  const categoriasMap = useMemo(
+    () => new Map(categorias.map((c) => [c.id, c.nome])),
+    [categorias],
+  );
+
   const catsByArtigo = useMemo(() => {
     const m = new Map<string, Set<string>>();
     artigoCatLinks.forEach((l) => {
@@ -162,6 +168,19 @@ function TecidosGallery() {
     });
     return m;
   }, [artigoCatLinks]);
+
+  const categoriaNomesByArtigo = useMemo(() => {
+    const m = new Map<string, string[]>();
+    artigos.forEach((a) => {
+      const ids = new Set<string>(catsByArtigo.get(a.id) ?? []);
+      if (a.categoria_tecido_id) ids.add(a.categoria_tecido_id);
+      const nomes = Array.from(ids)
+        .map((id) => categoriasMap.get(id))
+        .filter((n): n is string => !!n);
+      m.set(a.id, nomes);
+    });
+    return m;
+  }, [artigos, catsByArtigo, categoriasMap]);
 
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
@@ -328,6 +347,7 @@ function TecidosGallery() {
             <TecidoCard
               key={a.id}
               artigo={a}
+              categorias={categoriaNomesByArtigo.get(a.id) ?? []}
               fornecedor={a.empresa_id ? empresasMap.get(a.empresa_id) ?? null : null}
               fotoPath={firstVarMap.get(a.id) ?? null}
               onDelete={() => startDelete(a)}
@@ -396,16 +416,20 @@ function TecidosGallery() {
 
 function TecidoCard({
   artigo,
+  categorias,
   fornecedor,
   fotoPath,
   onDelete,
 }: {
   artigo: Artigo;
+  categorias: string[];
   fornecedor: string | null;
   fotoPath: string | null;
   onDelete: () => void;
 }) {
   const url = useSignedUrl(fotoPath);
+  const semCategoria = categorias.length === 0;
+  const semFornecedor = !fornecedor;
   return (
     <div className="group relative">
       <button
@@ -450,6 +474,27 @@ function TecidoCard({
           </div>
           <div className="p-3 space-y-1">
             <h3 className="font-medium leading-tight line-clamp-1">{artigo.nome}</h3>
+            {(semCategoria || semFornecedor) && (
+              <div className="flex items-center gap-1 rounded bg-destructive px-2 py-1 text-[10px] font-medium text-destructive-foreground">
+                <AlertTriangle className="h-3 w-3 shrink-0" />
+                <span className="line-clamp-1">
+                  {semCategoria && semFornecedor
+                    ? "Sem categoria e sem fornecedor"
+                    : semCategoria
+                      ? "Sem categoria"
+                      : "Sem fornecedor"}
+                </span>
+              </div>
+            )}
+            {categorias.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {categorias.map((c) => (
+                  <Badge key={c} variant="secondary" className="text-[10px]">
+                    {c}
+                  </Badge>
+                ))}
+              </div>
+            )}
             <p className="text-xs text-muted-foreground line-clamp-1">{fornecedor ?? "—"}</p>
             <p className="text-sm font-semibold text-primary">
               {artigo.preco != null

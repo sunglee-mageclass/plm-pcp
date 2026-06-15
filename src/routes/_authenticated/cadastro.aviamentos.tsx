@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useRef, useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   Package,
   Plus,
   Search,
@@ -410,7 +411,20 @@ function AviamentoCard({
       </div>
       <div className="p-3 space-y-1">
         <h3 className="font-medium leading-tight line-clamp-1">{aviamento.codigo_nome}</h3>
-        <p className="text-xs text-muted-foreground line-clamp-1">{categoria ?? "—"} · {fornecedor ?? "—"}</p>
+        {(!categoria || !fornecedor) && (
+          <div className="flex items-center gap-1 rounded bg-destructive px-2 py-1 text-[10px] font-medium text-destructive-foreground">
+            <AlertTriangle className="h-3 w-3 shrink-0" />
+            <span className="line-clamp-1">
+              {!categoria && !fornecedor
+                ? "Sem categoria e sem fornecedor"
+                : !categoria
+                  ? "Sem categoria"
+                  : "Sem fornecedor"}
+            </span>
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground line-clamp-1">{categoria ?? "—"}</p>
+        <p className="text-xs text-muted-foreground line-clamp-1">{fornecedor ?? "—"}</p>
         <p className="text-sm font-semibold text-primary">{fmtBRL(aviamento.preco)}</p>
       </div>
     </Card>
