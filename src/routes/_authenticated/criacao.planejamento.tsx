@@ -339,6 +339,20 @@ function ModeloDialog({
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [confirmDel, setConfirmDel] = useState(false);
 
+  // Estoque por artigo (físico/disponível) para mostrar ao selecionar o tecido.
+  const { data: estoqueArr = [] } = useQuery({
+    queryKey: ["estoque-tecido-por-artigo"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("estoque_tecido_por_artigo" as any);
+      if (error) throw error;
+      return (data ?? []) as Array<{ artigo_id: string; fisico_m: number; reservado_m: number; disponivel_m: number }>;
+    },
+  });
+  const estoqueMap = useMemo(
+    () => Object.fromEntries(estoqueArr.map((e) => [e.artigo_id, e])),
+    [estoqueArr],
+  ) as Record<string, EstoqueArtigo>;
+
   useQuery({
     queryKey: ["modelo", modeloId],
     enabled: !!modeloId,
@@ -500,6 +514,7 @@ function ModeloDialog({
                 value={draft.tecidos_planejados}
                 onChange={(v) => setDraft((d) => ({ ...d, tecidos_planejados: v }))}
                 artigos={artigos}
+                estoque={estoqueMap}
               />
             </div>
             <div className="grid gap-1">
@@ -555,8 +570,13 @@ function ModeloDialog({
   );
 }
 
-function MultiArtigosField({ label, value, onChange, artigos }: {
+type EstoqueArtigo = { fisico_m: number; reservado_m: number; disponivel_m: number };
+const fmtMetros = (n: number) =>
+  `${Number(n || 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} m`;
+
+function MultiArtigosField({ label, value, onChange, artigos, estoque }: {
   label: string; value: string[]; onChange: (v: string[]) => void; artigos: ArtigoOpt[];
+  estoque: Record<string, EstoqueArtigo>;
 }) {
   const available = artigos.filter((a) => !value.includes(a.id));
   const byId = Object.fromEntries(artigos.map((a) => [a.id, a]));
@@ -567,9 +587,15 @@ function MultiArtigosField({ label, value, onChange, artigos }: {
         {value.length === 0 && <span className="text-xs text-muted-foreground">Nenhum tecido selecionado</span>}
         {value.map((id) => {
           const a = byId[id];
+          const e = estoque[id];
           return (
             <Badge key={id} variant="secondary" className="gap-1">
               {a ? (a.unidade_medida ? `${a.nome} [${a.unidade_medida}]` : a.nome) : id}
+              {e && (
+                <span className={`text-[10px] ${e.disponivel_m <= 0 ? "text-destructive font-medium" : "opacity-70"}`}>
+                  · disp. {fmtMetros(e.disponivel_m)}
+                </span>
+              )}
               <button
                 type="button"
                 onClick={() => onChange(value.filter((x) => x !== id))}
@@ -586,11 +612,21 @@ function MultiArtigosField({ label, value, onChange, artigos }: {
         <Select value="" onValueChange={(v) => v && onChange([...value, v])}>
           <SelectTrigger><SelectValue placeholder="Adicionar tecido…" /></SelectTrigger>
           <SelectContent>
-            {available.map((a) => (
-              <SelectItem key={a.id} value={a.id}>
-                {a.unidade_medida ? `${a.nome} [${a.unidade_medida}]` : a.nome}
-              </SelectItem>
-            ))}
+            {available.map((a) => {
+              const e = estoque[a.id];
+              return (
+                <SelectItem key={a.id} value={a.id}>
+                  <span className="flex flex-col">
+                    <span>{a.unidade_medida ? `${a.nome} [${a.unidade_medida}]` : a.nome}</span>
+                    {e && (
+                      <span className={`text-xs ${e.disponivel_m <= 0 ? "text-destructive" : "text-muted-foreground"}`}>
+                        Estoque: {fmtMetros(e.fisico_m)} · disp.: {fmtMetros(e.disponivel_m)}
+                      </span>
+                    )}
+                  </span>
+                </SelectItem>
+              );
+            })}
           </SelectContent>
         </Select>
       )}
