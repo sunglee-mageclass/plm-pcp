@@ -73,14 +73,14 @@ function CadListPage() {
   const { data: meses = [] } = useQuery({
     queryKey: ["opt", "meses"],
     queryFn: async () => {
-      const { data } = await supabase.from("meses").select("id, nome").order("nome");
+      const { data } = await supabase.from("meses").select("id, nome:mes").order("mes");
       return data ?? [];
     },
   });
   const { data: anos = [] } = useQuery({
     queryKey: ["opt", "anos"],
     queryFn: async () => {
-      const { data } = await supabase.from("anos").select("id, nome").order("nome");
+      const { data } = await supabase.from("anos").select("id, nome:ano").order("ano");
       return data ?? [];
     },
   });

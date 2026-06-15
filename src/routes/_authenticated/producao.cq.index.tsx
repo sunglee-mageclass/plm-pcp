@@ -39,11 +39,11 @@ function CqListPage() {
 
   const { data: meses = [] } = useQuery({
     queryKey: ["opt", "meses"],
-    queryFn: async () => (await supabase.from("meses").select("id, nome").order("nome")).data ?? [],
+    queryFn: async () => (await supabase.from("meses").select("id, nome:mes").order("mes")).data ?? [],
   });
   const { data: anos = [] } = useQuery({
     queryKey: ["opt", "anos"],
-    queryFn: async () => (await supabase.from("anos").select("id, nome").order("nome")).data ?? [],
+    queryFn: async () => (await supabase.from("anos").select("id, nome:ano").order("ano")).data ?? [],
   });
   const colecoes = useMemo(
     () => Array.from(new Set(rows.map((r: any) => r.colecao).filter(Boolean))) as string[],
