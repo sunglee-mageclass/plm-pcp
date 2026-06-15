@@ -260,9 +260,9 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, onOpen }: {
              : <ImageIcon className="h-10 w-10 text-muted-foreground" />}
       </div>
       <div className="p-3 space-y-1.5">
-        <div className="flex items-start justify-between gap-2">
-          <h3 className="font-semibold text-sm leading-tight truncate">{modelo.nome ?? "Sem nome"}</h3>
-          <Badge className={`${meta.color} text-white shrink-0`}>{meta.label}</Badge>
+        <h3 className="font-semibold text-sm leading-tight truncate">{modelo.nome ?? "Sem nome"}</h3>
+        <div>
+          <Badge className={`${meta.color} text-white`}>{meta.label}</Badge>
         </div>
         <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
         <p className="text-xs text-muted-foreground truncate">{modelo.colecao ?? "Sem coleção"}</p>
