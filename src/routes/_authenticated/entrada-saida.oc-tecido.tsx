@@ -512,7 +512,10 @@ function OcDialog({
           _oc_id: ocIdLocal,
           _tipo: "tecido",
         });
-        if (recErr) throw recErr;
+        // Best-effort: o status já foi gravado e o trigger já gera as parcelas
+        // no primeiro recebimento. Não bloqueia o save se a RPC falhar (hoje
+        // exige admin — ver prompt Lovable p/ liberar a qualquer membro do tenant).
+        if (recErr) console.warn("recalcular_parcelas (tecido) falhou:", recErr.message);
       }
     },
     onSuccess: () => {
