@@ -92,6 +92,23 @@ export const toggleUserAtivo = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+// Super admin escolhe qual loja está "visualizando": grava o próprio tenant_id.
+// get_user_tenant_id() lê public.users.tenant_id, então todas as telas passam a
+// filtrar por essa loja automaticamente.
+export const setActiveTenant = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator(z.object({ tenant_id: z.string().uuid().nullable() }))
+  .handler(async ({ data, context }) => {
+    await assertSuperAdmin(context.supabase, context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin
+      .from("users")
+      .update({ tenant_id: data.tenant_id })
+      .eq("id", context.userId);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
 export const savePermissionsAsSuperAdmin = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator(

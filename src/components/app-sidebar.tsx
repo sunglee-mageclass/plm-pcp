@@ -18,6 +18,7 @@ import {
   Moon,
 } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
+import { TenantSwitcher } from "@/components/admin/TenantSwitcher";
 import {
   Tooltip,
   TooltipContent,
@@ -142,6 +143,11 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
+        {isSuperAdmin && !collapsed && (
+          <div className="border-b pb-1">
+            <TenantSwitcher />
+          </div>
+        )}
         <SidebarGroup>
           <SidebarGroupLabel>Operação</SidebarGroupLabel>
           <SidebarGroupContent>
