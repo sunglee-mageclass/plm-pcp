@@ -90,10 +90,12 @@ export function ModeloInfoSection({
         )}
         <FieldSelectOpt label="Linha" value={draft.linha_id} onChange={(v) => setDraft({ ...draft, linha_id: v })} options={linhas} />
         <FieldSelectOpt label="Modelista" value={draft.modelista_id} onChange={(v) => setDraft({ ...draft, modelista_id: v })} options={modelistas} />
-        <FieldSelectOpt label="Piloteiro 1" value={draft.piloteiro1_id} onChange={(v) => setDraft({ ...draft, piloteiro1_id: v })} options={piloteiros} />
-        <Field label="Data Piloto 1">
-          <Input type="date" value={draft.data_piloto1 ?? ""} onChange={(e) => setDraft({ ...draft, data_piloto1: e.target.value })} />
-        </Field>
+        <div className="sm:col-span-2 grid sm:grid-cols-2 gap-3">
+          <FieldSelectOpt label="Piloteiro 1" value={draft.piloteiro1_id} onChange={(v) => setDraft({ ...draft, piloteiro1_id: v })} options={piloteiros} />
+          <Field label="Data Piloto 1">
+            <Input type="date" value={draft.data_piloto1 ?? ""} onChange={(e) => setDraft({ ...draft, data_piloto1: e.target.value })} />
+          </Field>
+        </div>
         {visiblePilotos.has(2) && (
           <>
             <div className="sm:col-span-2 flex items-center justify-between">
@@ -102,10 +104,12 @@ export function ModeloInfoSection({
                 <X className="h-4 w-4" />
               </Button>
             </div>
-            <FieldSelectOpt label="Piloteiro 2" value={draft.piloteiro2_id} onChange={(v) => setDraft({ ...draft, piloteiro2_id: v })} options={piloteiros} />
-            <Field label="Data Piloto 2">
-              <Input type="date" value={draft.data_piloto2 ?? ""} onChange={(e) => setDraft({ ...draft, data_piloto2: e.target.value })} />
-            </Field>
+            <div className="sm:col-span-2 grid sm:grid-cols-2 gap-3">
+              <FieldSelectOpt label="Piloteiro 2" value={draft.piloteiro2_id} onChange={(v) => setDraft({ ...draft, piloteiro2_id: v })} options={piloteiros} />
+              <Field label="Data Piloto 2">
+                <Input type="date" value={draft.data_piloto2 ?? ""} onChange={(e) => setDraft({ ...draft, data_piloto2: e.target.value })} />
+              </Field>
+            </div>
           </>
         )}
         {visiblePilotos.has(3) && (
@@ -116,10 +120,12 @@ export function ModeloInfoSection({
                 <X className="h-4 w-4" />
               </Button>
             </div>
-            <FieldSelectOpt label="Piloteiro 3" value={draft.piloteiro3_id} onChange={(v) => setDraft({ ...draft, piloteiro3_id: v })} options={piloteiros} />
-            <Field label="Data Piloto 3">
-              <Input type="date" value={draft.data_piloto3 ?? ""} onChange={(e) => setDraft({ ...draft, data_piloto3: e.target.value })} />
-            </Field>
+            <div className="sm:col-span-2 grid sm:grid-cols-2 gap-3">
+              <FieldSelectOpt label="Piloteiro 3" value={draft.piloteiro3_id} onChange={(v) => setDraft({ ...draft, piloteiro3_id: v })} options={piloteiros} />
+              <Field label="Data Piloto 3">
+                <Input type="date" value={draft.data_piloto3 ?? ""} onChange={(e) => setDraft({ ...draft, data_piloto3: e.target.value })} />
+              </Field>
+            </div>
           </>
         )}
         {(!visiblePilotos.has(2) || !visiblePilotos.has(3)) && (

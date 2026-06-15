@@ -343,6 +343,10 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const hasTecidoComVariante = blocks.some(
     (b) => b.tipo === "tecido" && !!b.artigo_id && b.variantes.some((v) => !!v),
   );
+  // Todo bloco selecionado (tecido/forro/entretela com artigo) precisa de ≥1 variante.
+  const todosBlocosComArtigoTemVariante = blocks
+    .filter((b) => !!b.artigo_id)
+    .every((b) => b.variantes.some((v) => !!v));
   const gradeTotalGeral = grades.reduce((s, g) => s + (g.grade_total || 0), 0);
 
   const tecido1VarianteIds = useMemo(() => {
@@ -380,15 +384,24 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     })),
     [tecido1VarianteIds, tecido1VariantesLabels],
   );
-  const canEnviarCad =
-    isAprovado &&
-    (draft?.ref ?? "").trim() !== "" &&
-    (draft?.nome ?? "").trim() !== "" &&
-    !!(modelo as any)?.estilista_id &&
-    !!(modelo as any)?.categoria_principal_id &&
-    hasTecidoComVariante &&
-    gradeTotalGeral > 0 &&
-    !draft?.enviado_cad;
+  // Pilotos 2/3 são considerados "abertos" quando têm piloteiro ou data preenchidos.
+  const piloto2Aberto = !!(draft?.piloteiro2_id || (draft?.data_piloto2 ?? "").trim());
+  const piloto3Aberto = !!(draft?.piloteiro3_id || (draft?.data_piloto3 ?? "").trim());
+  const cadMissing: string[] = [];
+  if (isAprovado && !draft?.enviado_cad) {
+    if ((draft?.ref ?? "").trim() === "") cadMissing.push("REF");
+    if ((draft?.nome ?? "").trim() === "") cadMissing.push("Nome");
+    if (!(modelo as any)?.estilista_id) cadMissing.push("Estilista");
+    if (!(modelo as any)?.categoria_principal_id) cadMissing.push("Categoria");
+    if (!hasTecidoComVariante) cadMissing.push("ao menos 1 tecido com variante");
+    else if (!todosBlocosComArtigoTemVariante) cadMissing.push("1 variante em cada tecido/forro/entretela selecionado");
+    if (gradeTotalGeral <= 0) cadMissing.push("grade preenchida");
+    if ((draft?.data_desenho_tecnico ?? "").trim() === "") cadMissing.push("Data Desenho Técnico");
+    if ((draft?.data_piloto1 ?? "").trim() === "") cadMissing.push("Data Piloto 1");
+    if (piloto2Aberto && (draft?.data_piloto2 ?? "").trim() === "") cadMissing.push("Data Piloto 2");
+    if (piloto3Aberto && (draft?.data_piloto3 ?? "").trim() === "") cadMissing.push("Data Piloto 3");
+  }
+  const canEnviarCad = isAprovado && !draft?.enviado_cad && cadMissing.length === 0;
 
   const save = useMutation({
     mutationFn: async () => {
@@ -838,6 +851,11 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       <div className="sticky bottom-0 bg-background border-t mt-4 pt-3 flex flex-wrap gap-2 justify-end items-center">
         {draft.enviado_cad && (
           <span className="text-xs text-muted-foreground mr-auto">✓ Já enviado para o CAD</span>
+        )}
+        {isAprovado && !draft.enviado_cad && cadMissing.length > 0 && (
+          <span className="text-xs text-muted-foreground mr-auto">
+            Para enviar ao CAD, falta: {cadMissing.join(", ")}
+          </span>
         )}
         <Button variant="ghost" onClick={onClose}>Fechar</Button>
         {canEnviarCad && (
