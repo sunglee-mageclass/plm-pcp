@@ -2783,6 +2783,15 @@ export type Database = {
           saldo_m: number
         }[]
       }
+      salvar_modelo_bom: {
+        Args: {
+          _aviamentos: Json
+          _grades: Json
+          _modelo_id: string
+          _tecidos: Json
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       app_role: "admin" | "user" | "super_admin" | "tenant_admin"
