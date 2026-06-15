@@ -285,9 +285,8 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
         const { error: upErr } = await supabase.storage
           .from("tenant-logos").upload(path, logoFile, { upsert: false });
         if (upErr) throw upErr;
-        const { data: signed } = await supabase.storage
-          .from("tenant-logos").createSignedUrl(path, 60 * 60 * 24 * 365 * 10);
-        logo_url = signed?.signedUrl ?? null;
+        // Store storage path only; signed URLs are created short-lived at read time.
+        logo_url = path;
       }
       const payload: { nome: string; cnpj: string | null; contato: string | null; logo_url?: string | null } = {
         nome: nome.trim(),
