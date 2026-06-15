@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable/index";
 import { useAuth } from "@/hooks/useAuth";
 import { useApplySystemIdentity } from "@/hooks/useSystemIdentity";
+import { friendlyAuthError } from "@/lib/auth-errors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -49,7 +50,8 @@ function AuthPage() {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setBusy(false);
     if (error) {
-      toast.error(error.message);
+      if (import.meta.env.DEV) console.error(error);
+      toast.error(friendlyAuthError(error.message));
       return;
     }
     toast.success("Bem-vindo de volta!");
@@ -69,7 +71,8 @@ function AuthPage() {
     });
     setBusy(false);
     if (error) {
-      toast.error(error.message);
+      if (import.meta.env.DEV) console.error(error);
+      toast.error(friendlyAuthError(error.message));
       return;
     }
     toast.success("Conta criada! Verifique seu e-mail se a confirmação estiver ativa.");
