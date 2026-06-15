@@ -22,12 +22,14 @@ function CqListPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, ref, nome, colecao, mes_id, ano_id, categorias_produto:categoria_principal_id(nome), cad(enviado_corte)")
+        .select("id, ref, nome, colecao, mes_id, ano_id, categorias_produto:categoria_principal_id(nome), cad(enviado_corte, producao_oficina(data_entregue))")
         .eq("enviado_cad", true)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      // Só aparece após o CAD ser confirmado.
-      return (data ?? []).filter((m: any) => m.cad?.[0]?.enviado_corte === true).map((m: any) => ({
+      // CQ só ativa quando a Oficina retornou (producao_oficina com data_entregue).
+      return (data ?? [])
+        .filter((m: any) => (m.cad?.[0]?.producao_oficina ?? []).some((o: any) => !!o.data_entregue))
+        .map((m: any) => ({
         modelo_id: m.id, ref: m.ref, nome: m.nome, colecao: m.colecao,
         mes_id: m.mes_id, ano_id: m.ano_id,
         categoria_nome: m.categorias_produto?.nome ?? null,
