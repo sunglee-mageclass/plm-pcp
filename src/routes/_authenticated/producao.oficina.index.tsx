@@ -23,12 +23,13 @@ function OficinaListPage() {
       const { data, error } = await supabase
         .from("modelos")
         .select(
-          "id, ref, nome, colecao, mes_id, ano_id, categorias_produto:categoria_principal_id(nome)",
+          "id, ref, nome, colecao, mes_id, ano_id, categorias_produto:categoria_principal_id(nome), cad(enviado_corte)",
         )
         .eq("enviado_cad", true)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return (data ?? []).map((m: any) => ({
+      // Só aparece após o CAD ser confirmado.
+      return (data ?? []).filter((m: any) => m.cad?.[0]?.enviado_corte === true).map((m: any) => ({
         modelo_id: m.id,
         ref: m.ref,
         nome: m.nome,

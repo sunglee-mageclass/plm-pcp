@@ -24,12 +24,13 @@ function TercListPage() {
       const { data, error } = await supabase
         .from("modelos")
         .select(
-          "id, ref, nome, colecao, mes_id, ano_id, categoria_principal_id, categorias_produto:categoria_principal_id(nome), cad(id, status_corte, producao_terceirizados(data_enviado, data_entregue, ativo))",
+          "id, ref, nome, colecao, mes_id, ano_id, categoria_principal_id, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, status_corte, producao_terceirizados(data_enviado, data_entregue, ativo))",
         )
         .eq("enviado_cad", true)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return (data ?? []).map((m: any) => {
+      // Só aparece após o CAD ser confirmado (Confirmar CAD => cad.enviado_corte).
+      return (data ?? []).filter((m: any) => m.cad?.[0]?.enviado_corte === true).map((m: any) => {
         const tercs = (m.cad?.[0]?.producao_terceirizados ?? []).filter((t: any) => t.ativo !== false);
         let statusGeral: "sem" | "pendente" | "em_andamento" | "finalizado" = "sem";
         if (tercs.length > 0) {
