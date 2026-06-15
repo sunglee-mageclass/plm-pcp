@@ -357,6 +357,7 @@ function OcDialog({
   const [originalItemIds, setOriginalItemIds] = useState<string[]>([]);
   const [status, setStatus] = useState<OCStatus>("encomendado");
   const [respMode, setRespMode] = useState<"select" | "text">("select");
+  const [confirmUnmark, setConfirmUnmark] = useState(false);
 
   useQuery({
     queryKey: ["oc-avi", ocId],
@@ -547,6 +548,34 @@ function OcDialog({
       onClose();
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao salvar"),
+  });
+
+  const unmarkReceivedMut = useMutation({
+    mutationFn: async () => {
+      if (!ocId) return;
+      const { error: e1 } = await supabase
+        .from("ocs_aviamento")
+        .update({ status: "encomendado" })
+        .eq("id", ocId);
+      if (e1) throw e1;
+      const { error: e2 } = await supabase
+        .from("parcelas")
+        .delete()
+        .eq("oc_aviamento_id", ocId)
+        .neq("status", "pago")
+        .is("data_pagamento", null);
+      if (e2) throw e2;
+    },
+    onSuccess: () => {
+      toast.success("OC voltou para Encomendado.");
+      setConfirmUnmark(false);
+      qc.invalidateQueries({ queryKey: ["ocs_aviamento"] });
+      qc.invalidateQueries({ queryKey: ["ocs-avi-totals"] });
+      qc.invalidateQueries({ queryKey: ["parcelas"] });
+      onSaved();
+      onClose();
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao desmarcar recebido."),
   });
 
   const canShowRecebimento = isEdit && (status === "encomendado" || status === "recebido");
@@ -846,6 +875,11 @@ function OcDialog({
 
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          {isReadOnlyRecebimento && (
+            <Button variant="outline" onClick={() => setConfirmUnmark(true)} disabled={unmarkReceivedMut.isPending}>
+              Desmarcar Recebido
+            </Button>
+          )}
           {canShowRecebimento && (
             <Button variant="secondary" onClick={handleMarkReceived} disabled={saveMutation.isPending || isReadOnlyRecebimento}>
               Marcar como Recebido
@@ -856,6 +890,25 @@ function OcDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      <AlertDialog open={confirmUnmark} onOpenChange={setConfirmUnmark}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Desmarcar como recebido?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A OC voltará para "Encomendado" e os campos de recebimento
+              poderão ser editados novamente. Parcelas geradas para esta OC
+              que ainda não foram pagas serão removidas.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => unmarkReceivedMut.mutate()} disabled={unmarkReceivedMut.isPending}>
+              Desmarcar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
