@@ -16,6 +16,17 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
 } from "@/components/ui/dialog";
+import { useSignedUrl } from "@/hooks/useSignedUrl";
+
+function TenantLogo({ path, alt }: { path: string | null; alt: string }) {
+  const url = useSignedUrl(path, "tenant-logos");
+  if (!path) return <div className="h-8 w-8 rounded bg-muted" />;
+  return url ? (
+    <img src={url} alt={alt} className="h-8 w-8 rounded object-cover" />
+  ) : (
+    <div className="h-8 w-8 rounded bg-muted animate-pulse" />
+  );
+}
 
 export const Route = createFileRoute("/_authenticated/admin/lojas")({
   component: LojasPage,
