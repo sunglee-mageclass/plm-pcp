@@ -95,6 +95,8 @@ type Modelo = {
   fotos_modelo: string[] | null;
   fotos_referencia: string[] | null;
   observacoes_gerais: string | null;
+  versao: number;
+  modelo_base_id: string | null;
 };
 
 const STATUS_OPTS = [
@@ -165,7 +167,7 @@ function PlanejamentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, estilista_id, colecao, semana, mes_id, ano_id, categoria_principal_id, categoria_secundaria_id, status_planejamento, fotos_modelo, fotos_referencia, observacoes_gerais")
+        .select("id, nome, estilista_id, colecao, semana, mes_id, ano_id, categoria_principal_id, categoria_secundaria_id, status_planejamento, fotos_modelo, fotos_referencia, observacoes_gerais, versao, modelo_base_id")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as Modelo[];
@@ -261,8 +263,9 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, onOpen }: {
       </div>
       <div className="p-3 space-y-1.5">
         <h3 className="font-semibold text-sm leading-tight truncate">{modelo.nome ?? "Sem nome"}</h3>
-        <div>
+        <div className="flex flex-wrap items-center gap-1.5">
           <Badge className={`${meta.color} text-white`}>{meta.label}</Badge>
+          {modelo.versao > 1 && <Badge variant="outline">v{modelo.versao}</Badge>}
         </div>
         <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
         <p className="text-xs text-muted-foreground truncate">{modelo.colecao ?? "Sem coleção"}</p>
@@ -310,6 +313,8 @@ type Draft = {
   fotos_modelo: string[];
   fotos_referencia: string[];
   observacoes_gerais: string;
+  versao: number;
+  modelo_base_id: string | null;
 };
 const emptyDraft = (): Draft => ({
   nome: "", estilista_id: null, colecao: "", semana: "", mes_id: null, ano_id: null,
@@ -317,6 +322,7 @@ const emptyDraft = (): Draft => ({
   tecidos_planejados: [],
   status_planejamento: "em_planejamento", fotos_modelo: [], fotos_referencia: [],
   observacoes_gerais: "",
+  versao: 1, modelo_base_id: null,
 });
 
 type ArtigoOpt = { id: string; nome: string; unidade_medida: string | null };
@@ -355,6 +361,8 @@ function ModeloDialog({
           fotos_modelo: data.fotos_modelo ?? [],
           fotos_referencia: data.fotos_referencia ?? [],
           observacoes_gerais: data.observacoes_gerais ?? "",
+          versao: (data as any).versao ?? 1,
+          modelo_base_id: (data as any).modelo_base_id ?? null,
         });
       }
       return data;
@@ -395,7 +403,24 @@ function ModeloDialog({
 
   const duplicate = useMutation({
     mutationFn: async () => {
-      const payload: any = { ...draft, nome: `${draft.nome} (cópia)`, status_planejamento: "em_planejamento" };
+      if (!modeloId) return;
+      // Raiz da família de versões: o original (cópias apontam para ele via modelo_base_id).
+      const root = draft.modelo_base_id ?? modeloId;
+      // Próxima versão = maior versão existente na família + 1.
+      const { data: fam, error: eFam } = await supabase
+        .from("modelos")
+        .select("versao")
+        .or(`id.eq.${root},modelo_base_id.eq.${root}`);
+      if (eFam) throw eFam;
+      const maxV = (fam ?? []).reduce((m, r: any) => Math.max(m, r.versao ?? 1), 1);
+      // A cópia mantém o nome do original; a versão é que diferencia.
+      const { versao: _v, modelo_base_id: _b, ...rest } = draft;
+      const payload: any = {
+        ...rest,
+        status_planejamento: "em_planejamento",
+        versao: maxV + 1,
+        modelo_base_id: root,
+      };
       const { error } = await supabase.from("modelos").insert(payload);
       if (error) throw error;
     },
@@ -423,6 +448,12 @@ function ModeloDialog({
         <div className="space-y-4">
           <div className="grid sm:grid-cols-2 gap-3">
             <FieldText label="Nome do Modelo" value={draft.nome} onChange={(v) => setDraft((d) => ({ ...d, nome: v }))} />
+            {draft.versao > 1 && (
+              <div className="grid gap-1">
+                <Label>Versão</Label>
+                <Input value={`v${draft.versao}`} readOnly disabled />
+              </div>
+            )}
             <FieldSelect label="Estilista" value={draft.estilista_id} onChange={(v) => setDraft((d) => ({ ...d, estilista_id: v }))} options={estilistas} />
             <FieldText label="Coleção" value={draft.colecao} onChange={(v) => setDraft((d) => ({ ...d, colecao: v }))} />
             <div className="grid gap-1">
