@@ -13,6 +13,11 @@ export function useSignedUrl(path: string | null | undefined, bucket: string = B
       setUrl(null);
       return;
     }
+    // Passthrough for already-absolute URLs (legacy DB values)
+    if (/^https?:\/\//i.test(path)) {
+      setUrl(path);
+      return;
+    }
     const key = `${bucket}/${path}`;
     const now = Date.now();
     const cached = cache.get(key);

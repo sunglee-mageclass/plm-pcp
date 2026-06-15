@@ -16,6 +16,17 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
 } from "@/components/ui/dialog";
+import { useSignedUrl } from "@/hooks/useSignedUrl";
+
+function TenantLogo({ path, alt }: { path: string | null; alt: string }) {
+  const url = useSignedUrl(path, "tenant-logos");
+  if (!path) return <div className="h-8 w-8 rounded bg-muted" />;
+  return url ? (
+    <img src={url} alt={alt} className="h-8 w-8 rounded object-cover" />
+  ) : (
+    <div className="h-8 w-8 rounded bg-muted animate-pulse" />
+  );
+}
 
 export const Route = createFileRoute("/_authenticated/admin/lojas")({
   component: LojasPage,
@@ -124,11 +135,7 @@ function LojasPage() {
               filtered.map((t) => (
                 <TableRow key={t.id}>
                   <TableCell>
-                    {t.logo_url ? (
-                      <img src={t.logo_url} alt={t.nome} className="h-8 w-8 rounded object-cover" />
-                    ) : (
-                      <div className="h-8 w-8 rounded bg-muted" />
-                    )}
+                    <TenantLogo path={t.logo_url} alt={t.nome} />
                   </TableCell>
                   <TableCell className="font-medium">{t.nome}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{t.cnpj ?? "—"}</TableCell>
@@ -194,10 +201,8 @@ function NovaLojaModal({ onClose }: { onClose: () => void }) {
           .from("tenant-logos")
           .upload(path, logoFile, { upsert: false });
         if (upErr) throw upErr;
-        const { data: signed } = await supabase.storage
-          .from("tenant-logos")
-          .createSignedUrl(path, 60 * 60 * 24 * 365 * 10);
-        logo_url = signed?.signedUrl ?? null;
+        // Store only the storage path; signed URL is generated short-lived at render time.
+        logo_url = path;
       }
       const { error } = await supabase
         .from("tenants")
@@ -280,9 +285,8 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
         const { error: upErr } = await supabase.storage
           .from("tenant-logos").upload(path, logoFile, { upsert: false });
         if (upErr) throw upErr;
-        const { data: signed } = await supabase.storage
-          .from("tenant-logos").createSignedUrl(path, 60 * 60 * 24 * 365 * 10);
-        logo_url = signed?.signedUrl ?? null;
+        // Store storage path only; signed URLs are created short-lived at read time.
+        logo_url = path;
       }
       const payload: { nome: string; cnpj: string | null; contato: string | null; logo_url?: string | null } = {
         nome: nome.trim(),
