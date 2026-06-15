@@ -82,7 +82,7 @@ function CadDetailPage() {
     },
   });
 
-  const { data: cadTecidos = [] } = useQuery({
+  const { data: cadTecidos = [], isFetched: cadTecidosFetched } = useQuery({
     queryKey: ["cad-tecidos", cadRow?.id],
     enabled: !!cadRow?.id,
     queryFn: async () => {
@@ -104,7 +104,7 @@ function CadDetailPage() {
       return data ?? [];
     },
   });
-  const { data: cadGrades = [] } = useQuery({
+  const { data: cadGrades = [], isFetched: cadGradesFetched } = useQuery({
     queryKey: ["cad-grades-rows", cadRow?.id],
     enabled: !!cadRow?.id,
     queryFn: async () => {
@@ -124,7 +124,7 @@ function CadDetailPage() {
       return data ?? [];
     },
   });
-  const { data: cadAviamentos = [] } = useQuery({
+  const { data: cadAviamentos = [], isFetched: cadAviamentosFetched } = useQuery({
     queryKey: ["cad-aviamentos-rows", cadRow?.id],
     enabled: !!cadRow?.id,
     queryFn: async () => {
@@ -148,7 +148,10 @@ function CadDetailPage() {
     if (seeded) return;
     if (!modelo) return;
     if (cadRow === undefined) return;
-    if (cadRow?.id && (cadTecidos as any[]).length === 0 && (modeloTecidos as any[]).length > 0) {
+    // Se já existe um CAD, espera as queries do CAD terminarem de buscar antes de
+    // semear (evita semear do fallback enquanto o cad_* ainda carrega). Quando o
+    // CAD existir mas vier vazio, cai no fallback de modelo_tecidos/grades/aviamentos.
+    if (cadRow?.id && !(cadTecidosFetched && cadGradesFetched && cadAviamentosFetched)) {
       return;
     }
 
@@ -260,7 +263,7 @@ function CadDetailPage() {
     if (cadRow?.data_previsao_corte) setPrevisaoEntrega(cadRow.data_previsao_corte);
 
     setSeeded(true);
-  }, [modelo, cadRow, cadTecidos, modeloTecidos, cadGrades, modeloGrades, cadAviamentos, modeloAviamentos, seeded]);
+  }, [modelo, cadRow, cadTecidos, modeloTecidos, cadGrades, modeloGrades, cadAviamentos, modeloAviamentos, cadTecidosFetched, cadGradesFetched, cadAviamentosFetched, seeded]);
 
   // --- helpers ---
   const updateTec = (i: number, patch: Partial<TecidoRow>) => {
