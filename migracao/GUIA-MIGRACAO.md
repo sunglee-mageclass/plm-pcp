@@ -21,9 +21,13 @@ Runbook para mover o **sisTrama** do banco do Lovable Cloud para um projeto
 | Connection string ANTIGO (direta, :5432) | `<OLD_DB_URL>` |
 | Connection string NOVO (direta, :5432) | `<NEW_DB_URL>` |
 
-> Use sempre a conexão **direta** (porta 5432), não o pooler (6543), para
-> dump/restore. Pegue as strings em **Project Settings → Database** de cada projeto.
-> No Lovable Cloud, a connection string fica no painel do Supabase vinculado.
+> **Interface atual do Supabase (2026):** use o botão **"Connect"** no topo do
+> dashboard do projeto — ele reúne as connection strings (escolha **Direct
+> connection**, porta 5432, para dump/restore) e atalhos de chaves.
+> As **chaves** ficam em **Settings → API Keys**: a **Publishable** (`sb_publishable_…`)
+> é a do app (`*_PUBLISHABLE_KEY`); a **Secret** (`sb_secret_…`) é a de scripts/
+> dumps (substitui a antiga `service_role`). No Lovable Cloud, abra o dashboard do
+> Supabase vinculado e use os mesmos lugares.
 
 ## Pré-requisitos
 
@@ -183,7 +187,8 @@ for (const b of BUCKETS) {
   }
 }
 ```
-> Use as **service role keys** (Project Settings → API). Nunca commite essas chaves.
+> Use as **Secret keys** (`sb_secret_…`, em Settings → API Keys) dos dois projetos
+> — a antiga `service_role` também funciona. Nunca commite essas chaves.
 
 ---
 
