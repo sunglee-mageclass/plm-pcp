@@ -505,6 +505,7 @@ function OcDialog({
     onSuccess: () => {
       toast.success("OC salva");
       qc.invalidateQueries({ queryKey: ["ocs_tecido"] });
+      qc.invalidateQueries({ queryKey: ["ocs_tecido_qtd_recebida"] });
       onSaved();
       onClose();
     },

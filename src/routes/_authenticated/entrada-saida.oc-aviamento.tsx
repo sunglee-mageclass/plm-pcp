@@ -549,12 +549,14 @@ function OcDialog({
     onError: (e: any) => toast.error(e.message ?? "Erro ao salvar"),
   });
 
-  const canShowRecebimento = isEdit && status === "encomendado";
+  const canShowRecebimento = isEdit && (status === "encomendado" || status === "recebido");
+  const isReadOnlyRecebimento = isEdit && status === "recebido";
   const parcelas = draft.parcelas_recebimento ?? [];
   const todasParcelasOk =
     parcelas.length > 0 && parcelas.every((p) => !!p.data && p.recebido === true);
   const canMarkReceived =
     canShowRecebimento &&
+    !isReadOnlyRecebimento &&
     items.some((i) => (i.quantidade_recebida ?? 0) > 0) &&
     !!draft.data_entrega &&
     !!draft.nf_url &&
@@ -672,6 +674,7 @@ function OcDialog({
                     return { ...d, parcelas_recebimento: next };
                   });
                 }}
+                disabled={isReadOnlyRecebimento}
               />
             </div>
           </div>
@@ -682,7 +685,7 @@ function OcDialog({
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h4 className="font-semibold">Aviamentos (até 10)</h4>
-              <Button size="sm" variant="outline" onClick={addItem} disabled={items.length >= 10}>
+              <Button size="sm" variant="outline" onClick={addItem} disabled={items.length >= 10 || isReadOnlyRecebimento}>
                 <Plus className="h-4 w-4 mr-1" /> Adicionar
               </Button>
             </div>
@@ -719,7 +722,7 @@ function OcDialog({
                     </TableCell>
                     <TableCell>
                       <Input type="number" step="0.01" value={i.quantidade_pedida}
-                        disabled={i.cancelado}
+                        disabled={i.cancelado || isReadOnlyRecebimento}
                         onChange={(e) => updateItem(i.tempId, { quantidade_pedida: Number(e.target.value) })} />
                     </TableCell>
                     {canShowRecebimento && (
@@ -742,9 +745,11 @@ function OcDialog({
                             X
                           </label>
                         )}
-                        <Button size="icon" variant="ghost" onClick={() => removeItem(i.tempId)}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {!isReadOnlyRecebimento && (
+                          <Button size="icon" variant="ghost" onClick={() => removeItem(i.tempId)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -765,16 +770,18 @@ function OcDialog({
               <div className="grid sm:grid-cols-2 gap-4">
                 <div className="grid gap-1">
                   <Label>Data da Entrega</Label>
-                  <Input type="date" value={draft.data_entrega} onChange={(e) => setDraft((d) => ({ ...d, data_entrega: e.target.value }))} />
+                  <Input type="date" value={draft.data_entrega} disabled={isReadOnlyRecebimento} onChange={(e) => setDraft((d) => ({ ...d, data_entrega: e.target.value }))} />
                 </div>
                 <div className="grid gap-1">
                   <Label>Nota Fiscal</Label>
                   {draft.nf_url ? (
                     <div className="flex items-center gap-2">
                       <Badge variant="secondary" className="truncate max-w-[200px]">{draft.nf_url.split("/").pop()}</Badge>
-                      <Button size="sm" variant="ghost" onClick={() => setDraft((d) => ({ ...d, nf_url: null }))}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      {!isReadOnlyRecebimento && (
+                        <Button size="sm" variant="ghost" onClick={() => setDraft((d) => ({ ...d, nf_url: null }))}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
                   ) : (
                     <label className="inline-flex items-center gap-2 text-sm border rounded-md px-3 py-2 cursor-pointer hover:bg-accent w-fit">
@@ -800,6 +807,7 @@ function OcDialog({
                           type="date"
                           className="flex-1 max-w-[200px]"
                           value={p.data}
+                          disabled={isReadOnlyRecebimento}
                           onChange={(e) => {
                             const val = e.target.value;
                             setDraft((d) => {
@@ -812,6 +820,7 @@ function OcDialog({
                         <label className="flex items-center gap-2 text-xs">
                           <Checkbox
                             checked={p.recebido}
+                            disabled={isReadOnlyRecebimento}
                             onCheckedChange={(checked) => {
                               setDraft((d) => {
                                 const arr = [...(d.parcelas_recebimento ?? [])];
@@ -838,7 +847,7 @@ function OcDialog({
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
           {canShowRecebimento && (
-            <Button variant="secondary" onClick={handleMarkReceived} disabled={saveMutation.isPending}>
+            <Button variant="secondary" onClick={handleMarkReceived} disabled={saveMutation.isPending || isReadOnlyRecebimento}>
               Marcar como Recebido
             </Button>
           )}

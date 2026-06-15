@@ -77,8 +77,8 @@ export function OcTecidoCalculos({
                 <TableCell className={cn(i.cancelado && "line-through")}>{i.quantidade_pedida}{sufixo ? ` ${sufixo}` : ""}</TableCell>
                 {hasKg && <TableCell className={cn(i.cancelado && "line-through")}>{metragemPedida(i).toFixed(2)} m</TableCell>}
                 <TableCell>
-                  {readOnly || i.cancelado ? (
-                    <span className={cn("text-sm", i.cancelado && "line-through")}>
+                  {i.cancelado ? (
+                    <span className="text-sm line-through">
                       {i.quantidade_recebida ?? 0}{sufixo ? ` ${sufixo}` : ""}
                     </span>
                   ) : (
