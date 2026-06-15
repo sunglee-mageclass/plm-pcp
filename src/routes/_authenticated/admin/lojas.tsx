@@ -135,11 +135,7 @@ function LojasPage() {
               filtered.map((t) => (
                 <TableRow key={t.id}>
                   <TableCell>
-                    {t.logo_url ? (
-                      <img src={t.logo_url} alt={t.nome} className="h-8 w-8 rounded object-cover" />
-                    ) : (
-                      <div className="h-8 w-8 rounded bg-muted" />
-                    )}
+                    <TenantLogo path={t.logo_url} alt={t.nome} />
                   </TableCell>
                   <TableCell className="font-medium">{t.nome}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{t.cnpj ?? "—"}</TableCell>
