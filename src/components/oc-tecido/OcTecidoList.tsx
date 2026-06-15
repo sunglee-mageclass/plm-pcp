@@ -1,4 +1,6 @@
+import { Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -11,7 +13,7 @@ export function OcTecidoList({
   tab, setTab,
   filterEmpresa, setFilterEmpresa,
   filterResp, setFilterResp,
-  empresas, estilistas, ocs, empresaMap, onRowClick,
+  empresas, estilistas, ocs, empresaMap, onRowClick, onDelete,
   qtdRecebidaByOc,
 }: {
   tab: OCStatus;
@@ -25,6 +27,7 @@ export function OcTecidoList({
   ocs: OC[];
   empresaMap: Record<string, string>;
   onRowClick: (id: string) => void;
+  onDelete?: (oc: OC) => void;
   qtdRecebidaByOc?: Record<string, string>;
 }) {
   // Filters now live in the page header via FilterButton; this component renders just tabs + table.
@@ -60,7 +63,18 @@ export function OcTecidoList({
                   <TableCell>{fmtDate(o.data_prevista_entrega)}</TableCell>
                   <TableCell>{fmtMoney(o.valor_previsto_total ?? 0)}</TableCell>
                   <TableCell><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} /></TableCell>
-                  <TableCell></TableCell>
+                  <TableCell>
+                    {onDelete && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="text-muted-foreground hover:text-destructive"
+                        onClick={(e) => { e.stopPropagation(); onDelete(o); }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

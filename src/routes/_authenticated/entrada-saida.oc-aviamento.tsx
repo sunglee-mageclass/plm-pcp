@@ -23,6 +23,16 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 import { RequirePermission } from "@/components/RequirePermission";
 import { FilterButton } from "@/components/shared/filters";
@@ -89,6 +99,7 @@ function OcAviamentoPage() {
   const [filterResp, setFilterResp] = useState<string>("all");
   const [openNew, setOpenNew] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<OC | null>(null);
 
   const { data: ocs = [] } = useQuery({
     queryKey: ["ocs_aviamento", tab, filterEmpresa, filterResp],
@@ -126,6 +137,19 @@ function OcAviamentoPage() {
     },
   });
   const empresaMap = useMemo(() => Object.fromEntries(empresas.map((e) => [e.id, e.nome_fantasia])), [empresas]);
+
+  const deleteMut = useMutation({
+    mutationFn: async (oc: OC) => {
+      const { error } = await supabase.from("ocs_aviamento").delete().eq("id", oc.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("OC excluída.");
+      setDeleting(null);
+      qc.invalidateQueries({ queryKey: ["ocs_aviamento"] });
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao excluir."),
+  });
 
   // Compute valores per OC via separate query
   const ocIds = ocs.map((o) => o.id);
@@ -193,11 +217,12 @@ function OcAviamentoPage() {
                   <TableHead>Data Prevista</TableHead>
                   <TableHead>Valor Previsto</TableHead>
                   <TableHead>Mensagem</TableHead>
+                  <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {ocs.length === 0 && (
-                  <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">Nenhuma OC encomendada.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">Nenhuma OC encomendada.</TableCell></TableRow>
                 )}
                 {ocs.map((o) => (
                   <TableRow key={o.id} className="cursor-pointer" onClick={() => { setEditingId(o.id); setOpenNew(true); }}>
@@ -206,6 +231,16 @@ function OcAviamentoPage() {
                     <TableCell>{fmtDate(o.data_prevista_entrega)}</TableCell>
                     <TableCell>{fmtMoney(itemsByOC[o.id]?.previsto ?? 0)}</TableCell>
                     <TableCell><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} /></TableCell>
+                    <TableCell>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="text-muted-foreground hover:text-destructive"
+                        onClick={(e) => { e.stopPropagation(); setDeleting(o); }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -253,6 +288,23 @@ function OcAviamentoPage() {
           onSaved={() => qc.invalidateQueries({ queryKey: ["ocs_aviamento"] })}
         />
       )}
+
+      <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir OC?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação não pode ser desfeita. A OC "{deleting?.numero_pedido || "sem número"}" e seus itens serão removidos.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => deleting && deleteMut.mutate(deleting)}>
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

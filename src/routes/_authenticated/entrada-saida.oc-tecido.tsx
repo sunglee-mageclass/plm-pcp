@@ -7,6 +7,16 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 import { OcTecidoList } from "@/components/oc-tecido/OcTecidoList";
 import { FilterButton } from "@/components/shared/filters";
@@ -34,6 +44,7 @@ function OcTecidoPage() {
   const [filterResp, setFilterResp] = useState<string>("all");
   const [openNew, setOpenNew] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<OC | null>(null);
 
   const { data: ocs = [] } = useQuery({
     queryKey: ["ocs_tecido", tab, filterEmpresa, filterResp],
@@ -77,6 +88,19 @@ function OcTecidoPage() {
   });
 
   const empresaMap = useMemo(() => Object.fromEntries(empresas.map((e) => [e.id, e.nome_fantasia])), [empresas]);
+
+  const deleteMut = useMutation({
+    mutationFn: async (oc: OC) => {
+      const { error } = await supabase.from("ocs_tecido").delete().eq("id", oc.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("OC excluída.");
+      setDeleting(null);
+      qc.invalidateQueries({ queryKey: ["ocs_tecido"] });
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao excluir."),
+  });
 
   const ocIds = useMemo(() => ocs.map((o) => o.id), [ocs]);
   const { data: qtdRecebidaByOc = {} } = useQuery({
@@ -152,6 +176,7 @@ function OcTecidoPage() {
         ocs={ocs}
         empresaMap={empresaMap}
         onRowClick={(id) => { setEditingId(id); setOpenNew(true); }}
+        onDelete={(oc) => setDeleting(oc)}
         qtdRecebidaByOc={qtdRecebidaByOc}
       />
 
@@ -164,6 +189,23 @@ function OcTecidoPage() {
           onSaved={() => { qc.invalidateQueries({ queryKey: ["ocs_tecido"] }); }}
         />
       )}
+
+      <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir OC?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação não pode ser desfeita. A OC "{deleting?.numero_pedido || "sem número"}" e seus itens serão removidos.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => deleting && deleteMut.mutate(deleting)}>
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
