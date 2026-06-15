@@ -391,20 +391,22 @@ function TecidoDetail() {
             </Field>
           )}
 
-          <Field label="Preço por Metro">
-            <Input
-              readOnly
-              value={
-                precoMetro != null
-                  ? new Intl.NumberFormat("pt-BR", {
-                      style: "currency",
-                      currency: "BRL",
-                    }).format(Number(precoMetro))
-                  : "—"
-              }
-              className="bg-muted/50"
-            />
-          </Field>
+          {isKg && (
+            <Field label="Preço por Metro">
+              <Input
+                readOnly
+                value={
+                  precoMetro != null
+                    ? new Intl.NumberFormat("pt-BR", {
+                        style: "currency",
+                        currency: "BRL",
+                      }).format(Number(precoMetro))
+                    : "—"
+                }
+                className="bg-muted/50"
+              />
+            </Field>
+          )}
         </fieldset>
         </CardContent>
       </Card>
