@@ -75,7 +75,7 @@ function CadDetailPage() {
       const { data, error } = await supabase
         .from("modelo_tecidos")
         .select(
-          "id, numero, tipo, artigo_id, consumo, loss_percent, artigos:artigo_id(nome, preco_por_metro, unidade_medida, etiqueta_lavagem_urls), modelo_tecido_variantes(id, variante_tecido_id, ordem, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante))",
+          "id, numero, tipo, artigo_id, consumo, loss_percent, artigos:artigo_id(nome, preco_por_metro, unidade_medida, etiqueta_lavagem_urls), modelo_tecido_variantes(id, variante_tecido_id, ordem, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante, cor:cor_id(nome)))",
         )
         .eq("modelo_id", modeloId)
         .order("tipo")
@@ -92,7 +92,7 @@ function CadDetailPage() {
       const { data, error } = await supabase
         .from("cad_tecidos")
         .select(
-          "*, artigos:artigo_id(nome, preco_por_metro, unidade_medida, etiqueta_lavagem_urls), cad_tecido_variantes(*, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante))",
+          "*, artigos:artigo_id(nome, preco_por_metro, unidade_medida, etiqueta_lavagem_urls), cad_tecido_variantes(*, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante, cor:cor_id(nome)))",
         )
         .eq("cad_id", cadRow!.id);
       if (error) throw error;
@@ -146,6 +146,8 @@ function CadDetailPage() {
   const [aviamentos, setAviamentos] = useState<AviamentoRow[]>([]);
   const [previsaoEntrega, setPrevisaoEntrega] = useState("");
   const [seeded, setSeeded] = useState(false);
+  // Grade automática pela proporção (mesma lógica do Desenvolvimento).
+  const [gradeAuto, setGradeAuto] = useState(false);
 
   useEffect(() => {
     if (seeded) return;
@@ -176,6 +178,7 @@ function CadDetailPage() {
           id: v.id,
           variante_tecido_id: v.variante_tecido_id,
           variante_nome: v.variantes_tecido?.nome_variante ?? v.variantes_tecido?.codigo_variante,
+          variante_cor: v.variantes_tecido?.cor?.nome ?? null,
           ordem: v.ordem,
           quantidade_folhas: Number(v.quantidade_folhas ?? 0),
           metragem_planejada: Number(v.metragem_planejada ?? 0),
@@ -201,6 +204,7 @@ function CadDetailPage() {
           variantes: (mt.modelo_tecido_variantes ?? []).map((v: any) => ({
             variante_tecido_id: v.variante_tecido_id,
             variante_nome: v.variantes_tecido?.nome_variante ?? v.variantes_tecido?.codigo_variante,
+            variante_cor: v.variantes_tecido?.cor?.nome ?? null,
             ordem: v.ordem,
             quantidade_folhas: 0,
             metragem_planejada: 0,
@@ -211,8 +215,39 @@ function CadDetailPage() {
     }
     setTecidos(initialTec);
 
+    // A grade acompanha as variantes selecionadas no Tecido 1 (inclusive as que
+    // ainda não têm grade), rotuladas por cor. variante_numero = ordem da variante.
+    const t1 = initialTec.find((t) => t.tipo === "tecido" && t.numero === 1);
+    const t1vars = (t1?.variantes ?? [])
+      .filter((v) => v.variante_tecido_id)
+      .slice()
+      .sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0));
+    const usingCadGrades = (cadGrades as any[]).length > 0;
+    const gradeByNum = new Map<number, any>();
+    ((usingCadGrades ? cadGrades : modeloGrades) as any[]).forEach((g) => gradeByNum.set(g.variante_numero, g));
+
     let initialGrades: GradeRow[];
-    if ((cadGrades as any[]).length > 0) {
+    if (t1vars.length > 0) {
+      initialGrades = t1vars.map((v) => {
+        const g = gradeByNum.get(v.ordem);
+        return usingCadGrades
+          ? {
+              id: g?.id,
+              variante_numero: v.ordem,
+              grades_planejadas: g?.grades_planejadas ?? {},
+              grades_reais: g?.grades_reais ?? {},
+              grade_total_planejada: g?.grade_total_planejada ?? 0,
+              grade_total_real: g?.grade_total_real ?? 0,
+            }
+          : {
+              variante_numero: v.ordem,
+              grades_planejadas: g?.grades ?? {},
+              grades_reais: g?.grades ?? {},
+              grade_total_planejada: g?.grade_total ?? 0,
+              grade_total_real: g?.grade_total ?? 0,
+            };
+      });
+    } else if (usingCadGrades) {
       initialGrades = (cadGrades as any[]).map((g) => ({
         id: g.id,
         variante_numero: g.variante_numero,
@@ -290,7 +325,19 @@ function CadDetailPage() {
   const updateGradeCell = (gi: number, tamanho: string, value: number) => {
     setGrades((prev) => {
       const next = [...prev];
-      const grades_reais = { ...next[gi].grades_reais, [tamanho]: value };
+      const props = (modelo?.proporcoes ?? {}) as Record<string, number>;
+      const propTam = Number(props[tamanho]) || 0;
+      let grades_reais: Record<string, number>;
+      if (gradeAuto && value > 0 && propTam > 0) {
+        // Âncora: célula digitada define a unidade (valor/proporção dela); demais
+        // por proporção. Ex.: PPP=30 com 1·1·2·2·2·1 -> 30·30·60·60·60·30.
+        const unit = value / propTam;
+        grades_reais = {};
+        tamanhosAll.forEach((t) => { grades_reais[t] = Math.round(unit * (Number(props[t]) || 0)); });
+        grades_reais[tamanho] = value;
+      } else {
+        grades_reais = { ...next[gi].grades_reais, [tamanho]: value };
+      }
       const grade_total_real = Object.values(grades_reais).reduce((a, b) => a + (Number(b) || 0), 0);
       next[gi] = { ...next[gi], grades_reais, grade_total_real };
       return next;
@@ -412,12 +459,25 @@ function CadDetailPage() {
 
   const tamanhosAll = useMemo(() => {
     const set = new Set<string>();
+    // Proporções do modelo definem os tamanhos (e a ordem); garante colunas mesmo
+    // quando a grade ainda está vazia.
+    Object.keys((modelo?.proporcoes ?? {}) as Record<string, number>).forEach((k) => set.add(k));
     grades.forEach((g) => {
       Object.keys(g.grades_planejadas).forEach((k) => set.add(k));
       Object.keys(g.grades_reais).forEach((k) => set.add(k));
     });
     return Array.from(set);
-  }, [grades]);
+  }, [grades, modelo]);
+
+  const gradeLabelByNumero = useMemo(() => {
+    const t1 = tecidos.find((t) => t.tipo === "tecido" && t.numero === 1);
+    const m: Record<number, string> = {};
+    (t1?.variantes ?? []).forEach((v) => {
+      const cor = v.variante_cor || v.variante_nome || "—";
+      if (v.ordem) m[v.ordem] = `Variante ${v.ordem} — ${cor}`;
+    });
+    return m;
+  }, [tecidos]);
 
   const gradeTotalGeral = useMemo(
     () => grades.reduce((a, g) => a + (g.grade_total_planejada || 0), 0),
@@ -521,6 +581,9 @@ function CadDetailPage() {
           grades={grades}
           tamanhosAll={tamanhosAll}
           updateGradeCell={updateGradeCell}
+          labelByNumero={gradeLabelByNumero}
+          gradeAuto={gradeAuto}
+          onToggleGradeAuto={setGradeAuto}
         />
 
         {/* Datas de corte */}

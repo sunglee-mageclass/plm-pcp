@@ -4,6 +4,7 @@ export type VarianteRow = {
   id?: string;
   variante_tecido_id: string | null;
   variante_nome?: string | null;
+  variante_cor?: string | null;
   ordem: number;
   quantidade_folhas: number;
   metragem_planejada: number;
