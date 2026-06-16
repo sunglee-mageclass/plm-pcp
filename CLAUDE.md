@@ -17,7 +17,7 @@ trocado: `app-sidebar.tsx` (~L144), `__root.tsx` (~L83), `auth.tsx` (~L83),
 
 - **Vite** + **React** + **TypeScript**
 - **TanStack Router** (file-based em `src/routes/`) + **TanStack Query**
-- **Supabase** (Postgres + RLS + Storage + Auth) — atualmente via **Lovable Cloud**
+- **Supabase próprio** (Postgres + RLS + Storage + Auth) — ref `ruinwcuabilumcspeyjk` (o app NÃO usa mais o banco do Lovable Cloud; só o login Google ainda passa pelo Lovable)
 - **Tailwind** + **Radix UI** (componentes shadcn em `src/components/ui/`)
 - **react-hook-form** + **zod** · **date-fns** · **recharts** · **lucide-react**
 
@@ -28,11 +28,16 @@ Scripts: `npm run dev` · `npm run build` · `npm run lint`
 
 ## ⚠️ Regras críticas de ambiente
 
-1. **O banco é Lovable Cloud, não um Supabase próprio.** Migrations novas em
-   `supabase/migrations/` que chegam por push **NÃO rodam sozinhas** no banco.
-   Enquanto estiver no Cloud, mudança de schema/RPC/policy passa pelo chat do
-   Lovable. Edição de **frontend** flui normal via `git push`. (Migração para
-   Supabase próprio está planejada — ver `migracao/GUIA-MIGRACAO.md`.)
+1. **O banco é um Supabase próprio** (ref `ruinwcuabilumcspeyjk`), não mais o
+   Lovable Cloud (migração feita em 06/2026). Mudança de schema/RPC/policy:
+   **eu escrevo a migration em `supabase/migrations/` e aplico DIRETO** com
+   `supabase db push --db-url "postgresql://postgres.ruinwcuabilumcspeyjk:<SENHA>@aws-1-sa-east-1.pooler.supabase.com:5432/postgres"`.
+   ⚠️ A `supabase/config.toml` ainda aponta pro ref **ANTIGO** (`wccapbvbbejjzpvlvyuf`),
+   então **sempre** passar `--db-url` pro banco novo (senha em `/tmp/dbpass.txt`,
+   **Session pooler**/IPv4; senha vai dentro da URL). Depois de aplicar, **sempre
+   entregar o SQL/prompt** pro usuário colar no Lovable quando quiser sincronizar
+   o ambiente dele (ele ainda usa o Lovable pra alguns fronts). `psql "$DBURL"`
+   serve pra inspeção. Edição de **frontend** flui normal via `git push`.
 
 2. **Auth acoplado ao Lovable.** O login usa `src/integrations/lovable/` e o
    endpoint `/~oauth/initiate`, que só existe no ambiente do Lovable. **OAuth
@@ -101,7 +106,8 @@ repo muda rápido (Lovable + VS Code). Backlog histórico em
 
 ## O que NÃO fazer
 
-- Não criar migration esperando que rode sozinha (regra 1).
+- Não esquecer de aplicar a migration com `db push --db-url` no banco novo nem
+  de entregar o SQL/prompt pro Lovable (regra 1).
 - Não mexer no fluxo de OAuth para "fazer funcionar local" (regra 2).
 - Não atualizar recharts para v3 agora (tem breaking changes).
 - Não editar arquivos em `src/components/ui/` (shadcn gerado) sem necessidade.
