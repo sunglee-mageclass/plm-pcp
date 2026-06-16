@@ -9,21 +9,46 @@ type Props = {
   tecidos: TecidoRow[];
   updateTec: (i: number, patch: Partial<TecidoRow>) => void;
   updateVar: (i: number, j: number, patch: Partial<VarianteRow>) => void;
+  autoFolhas?: boolean;
+  onToggleAutoFolhas?: (v: boolean) => void;
 };
 
-export function CadTecidosSection({ tecidos, updateTec, updateVar }: Props) {
+export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, onToggleAutoFolhas }: Props) {
+  const ro = !!autoFolhas;
+  const roCls = ro ? "bg-muted" : "";
   return (
     <Card className="p-5 space-y-4">
-      <h2 className="font-semibold">Tecidos / Forros / Entretelas</h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="font-semibold">Tecidos / Forros / Entretelas</h2>
+        {onToggleAutoFolhas && (
+          <label className="flex items-center gap-1.5 text-xs cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5"
+              checked={ro}
+              onChange={(e) => onToggleAutoFolhas(e.target.checked)}
+            />
+            Calcular folhas / metragem automaticamente
+          </label>
+        )}
+      </div>
+      {ro && (
+        <p className="text-[11px] text-muted-foreground">
+          Tamanho da folha, qtd. de folhas e metragem planejada são calculados a partir do
+          consumo, da grade, da proporção e da largura.
+        </p>
+      )}
       {tecidos.length === 0 && (
         <p className="text-sm text-muted-foreground">Nenhum tecido planejado neste modelo.</p>
       )}
       {tecidos.map((t, i) => (
         <Card key={`${t.tipo}-${t.numero}-${i}`} className="p-4 space-y-3">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary" className="capitalize">{t.tipo} {t.numero}</Badge>
             <span className="text-sm font-medium">{t.artigo_nome ?? "Sem artigo"}</span>
-            <span className="text-xs text-muted-foreground">(preço: R$ {t.preco.toFixed(2)}/m)</span>
+            <span className="text-xs text-muted-foreground">
+              (preço: R$ {t.preco.toFixed(2)}/m · largura: {Number(t.largura ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}m)
+            </span>
           </div>
           {t.artigo_id && <EtiquetaLavagemArtigoView artigoId={t.artigo_id} size="sm" />}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -39,7 +64,7 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar }: Props) {
               <Input value={t.custo_cad.toFixed(2)} readOnly className="bg-muted" />
             </Field>
             <Field label="Tamanho da folha (m)">
-              <Input type="number" step="0.01" value={t.tamanho_folha}
+              <Input type="number" step="0.01" value={t.tamanho_folha} readOnly={ro} className={roCls}
                 onChange={(e) => updateTec(i, { tamanho_folha: Number(e.target.value) })} />
             </Field>
           </div>
@@ -59,11 +84,11 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar }: Props) {
                     <tr key={`${v.variante_tecido_id}-${j}`} className="border-t">
                       <td className="px-2 py-1">{v.variante_nome ?? "—"}</td>
                       <td className="px-2 py-1">
-                        <Input type="number" value={v.quantidade_folhas}
+                        <Input type="number" value={v.quantidade_folhas} readOnly={ro} className={roCls}
                           onChange={(e) => updateVar(i, j, { quantidade_folhas: Number(e.target.value) })} />
                       </td>
                       <td className="px-2 py-1">
-                        <Input type="number" step="0.01" value={v.metragem_planejada}
+                        <Input type="number" step="0.01" value={v.metragem_planejada} readOnly={ro} className={roCls}
                           onChange={(e) => updateVar(i, j, { metragem_planejada: Number(e.target.value) })} />
                       </td>
                       <td className="px-2 py-1">

@@ -84,7 +84,7 @@ function CadDetailPage() {
       const { data, error } = await supabase
         .from("modelo_tecidos")
         .select(
-          "id, numero, tipo, artigo_id, consumo, loss_percent, artigos:artigo_id(nome, preco_por_metro, unidade_medida, etiqueta_lavagem_urls), modelo_tecido_variantes(id, variante_tecido_id, ordem, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante, cor:cor_id(nome)))",
+          "id, numero, tipo, artigo_id, consumo, loss_percent, artigos:artigo_id(nome, preco_por_metro, unidade_medida, etiqueta_lavagem_urls, largura_estimada), modelo_tecido_variantes(id, variante_tecido_id, ordem, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante, cor:cor_id(nome)))",
         )
         .eq("modelo_id", modeloId)
         .order("tipo")
@@ -101,7 +101,7 @@ function CadDetailPage() {
       const { data, error } = await supabase
         .from("cad_tecidos")
         .select(
-          "*, artigos:artigo_id(nome, preco_por_metro, unidade_medida, etiqueta_lavagem_urls), cad_tecido_variantes(*, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante, cor:cor_id(nome)))",
+          "*, artigos:artigo_id(nome, preco_por_metro, unidade_medida, etiqueta_lavagem_urls, largura_estimada), cad_tecido_variantes(*, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante, cor:cor_id(nome)))",
         )
         .eq("cad_id", cadRow!.id);
       if (error) throw error;
@@ -157,6 +157,8 @@ function CadDetailPage() {
   const [seeded, setSeeded] = useState(false);
   // Grade automática pela proporção (mesma lógica do Desenvolvimento).
   const [gradeAuto, setGradeAuto] = useState(false);
+  // Cálculo automático de folhas/metragem (a partir de consumo + grade + proporção + largura).
+  const [autoFolhas, setAutoFolhas] = useState(false);
   // Proporções por tamanho (compartilhadas com o modelo / Desenvolvimento).
   const [proporcoes, setProporcoes] = useState<Record<string, number>>({});
 
@@ -183,6 +185,7 @@ function CadDetailPage() {
         custo_cad: Number(t.custo_cad ?? 0),
         tamanho_folha: Number(t.tamanho_folha ?? 0),
         preco: Number(t.artigos?.preco_por_metro ?? 0),
+        largura: Number(t.artigos?.largura_estimada ?? 0),
         artigo_nome: t.artigos?.nome ? (t.artigos?.unidade_medida ? `${t.artigos.nome} [${t.artigos.unidade_medida}]` : t.artigos.nome) : null,
         etiqueta_lavagem_urls: (t.artigos?.etiqueta_lavagem_urls ?? []) as string[],
         variantes: (t.cad_tecido_variantes ?? []).map((v: any) => ({
@@ -210,6 +213,7 @@ function CadDetailPage() {
           custo_cad: calcCusto(consumo, loss, preco),
           tamanho_folha: 0,
           preco,
+          largura: Number(mt.artigos?.largura_estimada ?? 0),
           artigo_nome: mt.artigos?.nome ? (mt.artigos?.unidade_medida ? `${mt.artigos.nome} [${mt.artigos.unidade_medida}]` : mt.artigos.nome) : null,
           etiqueta_lavagem_urls: (mt.artigos?.etiqueta_lavagem_urls ?? []) as string[],
           variantes: (mt.modelo_tecido_variantes ?? []).map((v: any) => ({
@@ -353,7 +357,7 @@ function CadDetailPage() {
       }
       await supabase.from("cad_tecidos").delete().eq("cad_id", cad_id!);
       await supabase.from("cad_grades").delete().eq("cad_id", cad_id!);
-      for (const t of tecidos) {
+      for (const t of resolvedTecidos) {
         const { data: ins, error } = await supabase
           .from("cad_tecidos")
           .insert({
@@ -502,6 +506,33 @@ function CadDetailPage() {
     [grades],
   );
 
+  // Cálculo automático (quando ligado): por variante, qtd de folhas e metragem
+  // planejada; por tecido, tamanho da folha. Tudo derivado de consumo + grade +
+  // proporção + largura. metragem_enviada continua manual.
+  const sumProporcoes = useMemo(
+    () => Object.values(proporcoes).reduce((a, b) => a + (Number(b) || 0), 0),
+    [proporcoes],
+  );
+  const gradeTotalByNumero = (n: number) => grades.find((g) => g.variante_numero === n)?.grade_total ?? 0;
+  const round4 = (n: number) => Math.round(n * 10000) / 10000;
+  const resolvedTecidos = useMemo<TecidoRow[]>(() => {
+    if (!autoFolhas) return tecidos;
+    return tecidos.map((t) => {
+      const variantes = t.variantes.map((v) => {
+        const gt = gradeTotalByNumero(v.ordem);
+        const quantidade_folhas = sumProporcoes > 0 ? round4(gt / sumProporcoes) : 0;
+        const metragem_planejada = round4(gt * (t.consumo_cad || 0));
+        return { ...v, quantidade_folhas, metragem_planejada };
+      });
+      const totalMetragem = variantes.reduce((a, v) => a + v.metragem_planejada, 0);
+      const totalFolhas = variantes.reduce((a, v) => a + v.quantidade_folhas, 0);
+      const a = totalFolhas > 0 ? totalMetragem / totalFolhas : 0;
+      const largura = Number(t.largura || 0);
+      const tamanho_folha = largura > 0 ? round4(a / largura) : 0;
+      return { ...t, variantes, tamanho_folha };
+    });
+  }, [autoFolhas, tecidos, grades, sumProporcoes]);
+
   useEffect(() => {
     setAviamentos((prev) => prev.map((a) => {
       const qEnviar = Number((a.consumo * gradeTotalGeral).toFixed(4));
@@ -593,7 +624,13 @@ function CadDetailPage() {
           </div>
         </Card>
 
-        <CadTecidosSection tecidos={tecidos} updateTec={updateTec} updateVar={updateVar} />
+        <CadTecidosSection
+          tecidos={resolvedTecidos}
+          updateTec={updateTec}
+          updateVar={updateVar}
+          autoFolhas={autoFolhas}
+          onToggleAutoFolhas={setAutoFolhas}
+        />
 
         <CadGradeSection
           grades={grades}
@@ -619,7 +656,7 @@ function CadDetailPage() {
           modelo={modelo}
           cadRow={cadRow}
           previsaoEntrega={previsaoEntrega}
-          tecidos={tecidos}
+          tecidos={resolvedTecidos}
           grades={grades}
           tamanhosAll={tamanhosAll}
           aviamentos={aviamentos}
