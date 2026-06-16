@@ -175,8 +175,16 @@ function TecidosTab() {
       const rows = (variantes as any[]).map((v: any) => {
         const a: any = v.artigos ?? artById.get(v.artigo_id);
         const acc = byVar.get(v.id) ?? { prevReceb: 0, recebido: 0, baixa: 0, reservado: 0 };
-        const fisico = acc.recebido - acc.baixa;
-        const previsto = fisico + acc.prevReceb - acc.reservado;
+        // Artigo em kg: estoque/reserva/baixa trabalham em METROS (× rendimento).
+        // acc.prevReceb está na unidade do artigo (kg p/ kg); acc.recebido já em metros.
+        const isKg = a?.unidade_medida === "kg";
+        const rend = num(a?.rendimento) || 1;
+        const prevRecebKg = acc.prevReceb;
+        const prevRecebM = isKg ? acc.prevReceb * rend : acc.prevReceb;
+        const recebidoM = acc.recebido;
+        const recebidoKg = isKg && rend ? acc.recebido / rend : acc.recebido;
+        const fisico = recebidoM - acc.baixa;
+        const previsto = fisico + prevRecebM - acc.reservado;
         return {
           varId: v.id,
           nomeVariante: v.nome_variante || v.codigo_variante || v.cores?.nome || "—",
@@ -186,8 +194,11 @@ function TecidosTab() {
           fornecedorId: a?.empresa_id ?? null,
           categoria: a?.categorias_tecido?.nome ?? "—",
           categoriaId: a?.categoria_tecido_id ?? null,
-          prevReceb: acc.prevReceb,
-          recebido: acc.recebido,
+          isKg,
+          prevRecebKg,
+          prevRecebM,
+          recebidoKg,
+          recebidoM,
           baixa: acc.baixa,
           reservado: acc.reservado,
           fisico,
@@ -318,13 +329,30 @@ function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
     <>
       <tr className={cn("border-b last:border-0 cursor-pointer", row.fisico <= threshold && "bg-destructive/10")} onClick={() => setOpen((o) => !o)}>
         <td className="py-2 pr-3 text-muted-foreground">{open ? "▾" : "▸"}</td>
-        <td className="py-2 pr-3">{row.nomeVariante}</td>
-        <td className="py-2 pr-3 text-right">{fmt(row.prevReceb)}</td>
-        <td className="py-2 pr-3 text-right">{fmt(row.recebido)}</td>
-        <td className="py-2 pr-3 text-right">{fmt(row.baixa)}</td>
-        <td className={cn("py-2 pr-3 text-right font-medium", row.fisico <= threshold && "text-destructive")}>{fmt(row.fisico)}</td>
-        <td className="py-2 pr-3 text-right">{fmt(row.reservado)}</td>
-        <td className="py-2 pr-3 text-right">{fmt(row.previsto)}</td>
+        <td className="py-2 pr-3">
+          {row.nomeVariante}
+          <span className="ml-1 text-[10px] text-muted-foreground">[{row.isKg ? "kg→m" : "m"}]</span>
+        </td>
+        <td className="py-2 pr-3 text-right">
+          {row.isKg ? (
+            <div className="leading-tight">
+              <div>{fmt(row.prevRecebKg)} kg</div>
+              <div className="text-xs text-muted-foreground">{fmt(row.prevRecebM)} m</div>
+            </div>
+          ) : (`${fmt(row.prevRecebM)} m`)}
+        </td>
+        <td className="py-2 pr-3 text-right">
+          {row.isKg ? (
+            <div className="leading-tight">
+              <div>{fmt(row.recebidoKg)} kg</div>
+              <div className="text-xs text-muted-foreground">{fmt(row.recebidoM)} m</div>
+            </div>
+          ) : (`${fmt(row.recebidoM)} m`)}
+        </td>
+        <td className="py-2 pr-3 text-right">{fmt(row.baixa)} m</td>
+        <td className={cn("py-2 pr-3 text-right font-medium", row.fisico <= threshold && "text-destructive")}>{fmt(row.fisico)} m</td>
+        <td className="py-2 pr-3 text-right">{fmt(row.reservado)} m</td>
+        <td className="py-2 pr-3 text-right">{fmt(row.previsto)} m</td>
       </tr>
       {open && (
         <tr className="bg-muted/30">
