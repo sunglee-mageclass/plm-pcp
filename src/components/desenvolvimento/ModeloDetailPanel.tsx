@@ -37,7 +37,7 @@ export function ModeloDetailPanel({ modeloId, onClose }: {
   const open = !!modeloId;
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent className="w-full sm:max-w-3xl overflow-y-auto">
+      <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] overflow-y-auto">
         {modeloId && <PanelContent modeloId={modeloId} onClose={onClose} />}
       </SheetContent>
     </Sheet>
