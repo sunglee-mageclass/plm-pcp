@@ -183,7 +183,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       if (ids.length > 0) {
         const { data: vs, error: e2 } = await supabase
           .from("modelo_tecido_variantes")
-          .select("modelo_tecido_id, variante_tecido_id, ordem, variantes_tecido:variante_tecido_id(artigo_id)")
+          .select("modelo_tecido_id, variante_tecido_id, ordem, multiplicador, variantes_tecido:variante_tecido_id(artigo_id)")
           .in("modelo_tecido_id", ids);
         if (e2) throw e2;
         variantesRows = vs ?? [];
@@ -326,6 +326,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       const idx = empty.findIndex((b) => b.tipo === t.tipo && b.numero === t.numero);
       if (idx >= 0) {
         const variantes = Array(10).fill(null) as (string | null)[];
+        const multiplicadores = Array(10).fill(1) as number[];
         const oc_links = Array.from({ length: 10 }, () => [] as OcAlloc[]);
         const varArtigos = new Set<string>();
         tecidosData.variantes
@@ -334,6 +335,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
             const ord = (v.ordem ?? 1) - 1;
             if (ord >= 0 && ord < 10) {
               variantes[ord] = v.variante_tecido_id;
+              multiplicadores[ord] = Number(v.multiplicador ?? 1) || 1;
               oc_links[ord] = linksByKey.get(`${t.tipo}-${t.numero}-${v.ordem ?? ord + 1}`) ?? [];
             }
             const aid = v.variantes_tecido?.artigo_id;
@@ -354,6 +356,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           consumo: Number(t.consumo ?? 0),
           loss_percent: Number(t.loss_percent ?? 0), custo_previsto: Number(t.custo_previsto ?? 0),
           variantes,
+          multiplicadores,
           oc_links,
         };
       }
@@ -533,6 +536,10 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           loss_percent: b.loss_percent || 0,
           custo_previsto: b.custo_previsto || 0,
           variantes: b.variantes,
+          // Tecido 1 é sempre 1:1 (principal); só complementares carregam multiplicador.
+          multiplicadores: (b.tipo === "tecido" && b.numero === 1)
+            ? b.variantes.map(() => 1)
+            : b.multiplicadores.map((m) => Number(m) || 1),
           oc_links: b.variantes.flatMap((vid, i) => {
             const allocs = b.oc_links?.[i] ?? [];
             if (!vid) return [];
@@ -610,7 +617,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       // para que o CAD já comece com os dados e possa ajustar seus próprios consumos.
       const { data: mTecidos, error: eMT } = await supabase
         .from("modelo_tecidos")
-        .select("artigo_id, numero, tipo, consumo, loss_percent, custo_previsto, modelo_tecido_variantes(variante_tecido_id, ordem)")
+        .select("artigo_id, numero, tipo, consumo, loss_percent, custo_previsto, modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador)")
         .eq("modelo_id", modeloId);
       if (eMT) throw eMT;
       for (const t of mTecidos ?? []) {
@@ -629,13 +636,14 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           .select("id")
           .single();
         if (eCT) throw eCT;
-        const variantes = (t.modelo_tecido_variantes ?? []) as { variante_tecido_id: string; ordem: number }[];
+        const variantes = (t.modelo_tecido_variantes ?? []) as { variante_tecido_id: string; ordem: number; multiplicador?: number }[];
         if (variantes.length > 0) {
           const { error: eCV } = await supabase.from("cad_tecido_variantes").insert(
             variantes.map((v) => ({
               cad_tecido_id: ctIns.id,
               variante_tecido_id: v.variante_tecido_id,
               ordem: v.ordem,
+              multiplicador: Number(v.multiplicador ?? 1) || 1,
               quantidade_folhas: 0,
               metragem_planejada: 0,
               metragem_enviada: 0,

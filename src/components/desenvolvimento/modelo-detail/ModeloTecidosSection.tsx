@@ -183,6 +183,16 @@ function TecidoBlockEditor({
   // Opções de substituto: catálogo completo, menos o que já está no pool.
   const substitutoOptions = allArtigos.filter((a) => !poolArtigoIds.includes(a.id));
 
+  // Multiplicador de cobertura: só nos complementares (Tecido 2/3, Forro, Entretela).
+  const canMultiplicador = !(block.tipo === "tecido" && block.numero === 1);
+  const multAt = (i: number) => Number(block.multiplicadores?.[i] ?? 1) || 1;
+  const setMult = (i: number, val: number) => {
+    const next = [...(block.multiplicadores ?? [])];
+    while (next.length < 10) next.push(1);
+    next[i] = val > 0 ? val : 1;
+    onChangeBlock({ multiplicadores: next });
+  };
+
   const { data: variantesPool = [] } = useQuery({
     queryKey: ["variantes-pool", poolArtigoIds.slice().sort().join(",")],
     enabled: poolArtigoIds.length > 0,
@@ -292,11 +302,24 @@ function TecidoBlockEditor({
                         {available.map((v) => <SelectItem key={v.id} value={v.id}>{varianteLabel(v)}</SelectItem>)}
                       </SelectContent>
                     </Select>
+                    {canMultiplicador && current && (
+                      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                        <span className="whitespace-nowrap">× grade (cobre quantas variantes)</span>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min={0}
+                          className="h-7 w-16"
+                          value={multAt(i)}
+                          onChange={(e) => setMult(i, Number(e.target.value) || 1)}
+                        />
+                      </div>
+                    )}
                     {current && (
                       <OcLinksField
                         modeloId={modeloId}
                         varianteId={current}
-                        need={(block.consumo || 0) * (1 + (block.loss_percent || 0) / 100) * gradeTotalByPos(i + 1)}
+                        need={(block.consumo || 0) * (1 + (block.loss_percent || 0) / 100) * gradeTotalByPos(i + 1) * multAt(i)}
                         value={block.oc_links?.[i] ?? []}
                         onChange={(allocs) => onChangeOcLinks(i, allocs)}
                       />

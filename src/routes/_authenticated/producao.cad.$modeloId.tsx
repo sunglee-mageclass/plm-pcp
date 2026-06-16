@@ -84,7 +84,7 @@ function CadDetailPage() {
       const { data, error } = await supabase
         .from("modelo_tecidos")
         .select(
-          "id, numero, tipo, artigo_id, consumo, loss_percent, artigos:artigo_id(nome, preco_por_metro, unidade_medida, etiqueta_lavagem_urls, largura_estimada), modelo_tecido_variantes(id, variante_tecido_id, ordem, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante, cor:cor_id(nome)))",
+          "id, numero, tipo, artigo_id, consumo, loss_percent, artigos:artigo_id(nome, preco_por_metro, unidade_medida, etiqueta_lavagem_urls, largura_estimada), modelo_tecido_variantes(id, variante_tecido_id, ordem, multiplicador, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante, cor:cor_id(nome)))",
         )
         .eq("modelo_id", modeloId)
         .order("tipo")
@@ -193,6 +193,7 @@ function CadDetailPage() {
           variante_tecido_id: v.variante_tecido_id,
           variante_nome: v.variantes_tecido?.nome_variante ?? v.variantes_tecido?.codigo_variante,
           variante_cor: v.variantes_tecido?.cor?.nome ?? null,
+          multiplicador: Number(v.multiplicador ?? 1) || 1,
           ordem: v.ordem,
           quantidade_folhas: Number(v.quantidade_folhas ?? 0),
           metragem_planejada: Number(v.metragem_planejada ?? 0),
@@ -220,6 +221,7 @@ function CadDetailPage() {
             variante_tecido_id: v.variante_tecido_id,
             variante_nome: v.variantes_tecido?.nome_variante ?? v.variantes_tecido?.codigo_variante,
             variante_cor: v.variantes_tecido?.cor?.nome ?? null,
+            multiplicador: Number(v.multiplicador ?? 1) || 1,
             ordem: v.ordem,
             quantidade_folhas: 0,
             metragem_planejada: 0,
@@ -378,6 +380,7 @@ function CadDetailPage() {
             cad_tecido_id: ins.id,
             variante_tecido_id: v.variante_tecido_id,
             ordem: v.ordem,
+            multiplicador: Number(v.multiplicador ?? 1) || 1,
             quantidade_folhas: v.quantidade_folhas,
             metragem_planejada: v.metragem_planejada,
             metragem_enviada: v.metragem_enviada,
@@ -523,9 +526,10 @@ function CadDetailPage() {
       let changed = false;
       const next = prev.map((t) => {
         const variantes = t.variantes.map((v) => {
-          const gt = gradeTotalByNumero(v.ordem);
-          const quantidade_folhas = sumProporcoes > 0 ? round2(gt / sumProporcoes) : 0;
-          const metragem_planejada = round2(gt * (t.consumo_cad || 0));
+          const mult = Number(v.multiplicador ?? 1) || 1;
+          const pecas = gradeTotalByNumero(v.ordem) * mult;
+          const quantidade_folhas = sumProporcoes > 0 ? round2(pecas / sumProporcoes) : 0;
+          const metragem_planejada = round2(pecas * (t.consumo_cad || 0));
           if (v.quantidade_folhas !== quantidade_folhas || v.metragem_planejada !== metragem_planejada) changed = true;
           return { ...v, quantidade_folhas, metragem_planejada };
         });

@@ -438,6 +438,7 @@ export type Database = {
           id: string
           metragem_enviada: number | null
           metragem_planejada: number | null
+          multiplicador: number
           ordem: number
           quantidade_folhas: number | null
           variante_tecido_id: string | null
@@ -448,6 +449,7 @@ export type Database = {
           id?: string
           metragem_enviada?: number | null
           metragem_planejada?: number | null
+          multiplicador?: number
           ordem: number
           quantidade_folhas?: number | null
           variante_tecido_id?: string | null
@@ -458,6 +460,7 @@ export type Database = {
           id?: string
           metragem_enviada?: number | null
           metragem_planejada?: number | null
+          multiplicador?: number
           ordem?: number
           quantidade_folhas?: number | null
           variante_tecido_id?: string | null
@@ -1368,6 +1371,7 @@ export type Database = {
           created_at: string | null
           id: string
           modelo_tecido_id: string | null
+          multiplicador: number
           ordem: number
           variante_tecido_id: string | null
         }
@@ -1375,6 +1379,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           modelo_tecido_id?: string | null
+          multiplicador?: number
           ordem: number
           variante_tecido_id?: string | null
         }
@@ -1382,6 +1387,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           modelo_tecido_id?: string | null
+          multiplicador?: number
           ordem?: number
           variante_tecido_id?: string | null
         }

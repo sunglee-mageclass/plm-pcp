@@ -21,6 +21,12 @@ export type TecidoBlock = {
   loss_percent: number;
   custo_previsto: number;
   variantes: (string | null)[];
+  /**
+   * Multiplicador de cobertura por variante (0..9), default 1. Em materiais
+   * complementares (Tecido 2/3, Forro, Entretela), 1 variante pode atender N
+   * cores: peças = grade(posição) × multiplicador. No Tecido 1 é sempre 1.
+   */
+  multiplicadores: number[];
   /** Por posição de variante (0..9): lista de OCs alocadas a ela. */
   oc_links: OcAlloc[][];
 };
@@ -69,6 +75,7 @@ export function makeEmptyBlocks(): TecidoBlock[] {
         loss_percent: 0,
         custo_previsto: 0,
         variantes: Array(10).fill(null),
+        multiplicadores: Array(10).fill(1),
         oc_links: Array.from({ length: 10 }, () => [] as OcAlloc[]),
       });
     }

@@ -41,7 +41,9 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
       {tecidos.length === 0 && (
         <p className="text-sm text-muted-foreground">Nenhum tecido planejado neste modelo.</p>
       )}
-      {tecidos.map((t, i) => (
+      {tecidos.map((t, i) => {
+        const compl = !(t.tipo === "tecido" && t.numero === 1);
+        return (
         <Card key={`${t.tipo}-${t.numero}-${i}`} className="p-4 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary" className="capitalize">{t.tipo} {t.numero}</Badge>
@@ -83,6 +85,7 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
                 <thead className="bg-muted/50">
                   <tr>
                     <th className="px-2 py-1 text-left">Variante</th>
+                    {compl && <th className="px-2 py-1">× grade</th>}
                     <th className="px-2 py-1">Qtd Folhas</th>
                     <th className="px-2 py-1">Metr. Planejada</th>
                     <th className="px-2 py-1">Metr. Enviada</th>
@@ -92,6 +95,13 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
                   {t.variantes.map((v, j) => (
                     <tr key={`${v.variante_tecido_id}-${j}`} className="border-t">
                       <td className="px-2 py-1">{v.variante_nome ?? "—"}</td>
+                      {compl && (
+                        <td className="px-2 py-1">
+                          <Input type="number" step="0.01" min={0} className="w-16"
+                            value={Number(v.multiplicador ?? 1)}
+                            onChange={(e) => updateVar(i, j, { multiplicador: Number(e.target.value) || 1 })} />
+                        </td>
+                      )}
                       <td className="px-2 py-1">
                         {ro ? (
                           <Input readOnly className="bg-muted" value={Number(v.quantidade_folhas ?? 0).toFixed(2)} />
@@ -119,7 +129,8 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
             </div>
           )}
         </Card>
-      ))}
+        );
+      })}
     </Card>
   );
 }
