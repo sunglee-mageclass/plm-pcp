@@ -77,7 +77,7 @@ export function OcTecidoForm({
         </div>
 
         <div className="grid gap-1">
-          <Label>Prazo de Pagamento</Label>
+          <Label>Prazo de Pagamento *</Label>
           <Input value={draft.prazo_pagamento} onChange={(e) => {
             const v = e.target.value;
             const parts = v.split(/[\/,-\s]+/).filter((p) => p.trim() !== "" && !isNaN(Number(p)));
@@ -122,38 +122,46 @@ export function OcTecidoForm({
       </div>
 
       <Separator />
-      <TecidoGroup
-        n={1}
-        artigos={artigos}
-        artigoId={artigoIdFor(1)}
-        onArtigoChange={(id) => setArtigo(1, id)}
-        variantes={artigoIdFor(1) ? variantesByArtigo[artigoIdFor(1)!] ?? [] : []}
-        items={itemsBy(1).filter((i) => i.variante_tecido_id)}
-        toggleVariante={(vid, c) => toggleVariante(1, vid, c)}
-        setQtd={setQtd}
-        varianteMap={varianteMap}
-      />
-
-      {!tecido2Aberto ? (
-        <Button variant="outline" onClick={() => setTecido2Aberto(true)}>
-          <Plus className="h-4 w-4 mr-1" /> Adicionar Tecido 2
-        </Button>
+      {!draft.empresa_id ? (
+        <p className="text-sm text-muted-foreground">
+          Selecione o <strong>fornecedor</strong> acima para escolher os tecidos.
+        </p>
       ) : (
         <>
           <TecidoGroup
-            n={2}
+            n={1}
             artigos={artigos}
-            artigoId={artigoIdFor(2)}
-            onArtigoChange={(id) => setArtigo(2, id)}
-            variantes={artigoIdFor(2) ? variantesByArtigo[artigoIdFor(2)!] ?? [] : []}
-            items={itemsBy(2).filter((i) => i.variante_tecido_id)}
-            toggleVariante={(vid, c) => toggleVariante(2, vid, c)}
+            artigoId={artigoIdFor(1)}
+            onArtigoChange={(id) => setArtigo(1, id)}
+            variantes={artigoIdFor(1) ? variantesByArtigo[artigoIdFor(1)!] ?? [] : []}
+            items={itemsBy(1).filter((i) => i.variante_tecido_id)}
+            toggleVariante={(vid, c) => toggleVariante(1, vid, c)}
             setQtd={setQtd}
             varianteMap={varianteMap}
           />
-          <Button variant="ghost" size="sm" onClick={removeTecido2}>
-            <Trash2 className="h-4 w-4 mr-1" /> Remover Tecido 2
-          </Button>
+
+          {!tecido2Aberto ? (
+            <Button variant="outline" onClick={() => setTecido2Aberto(true)}>
+              <Plus className="h-4 w-4 mr-1" /> Adicionar Tecido 2
+            </Button>
+          ) : (
+            <>
+              <TecidoGroup
+                n={2}
+                artigos={artigos}
+                artigoId={artigoIdFor(2)}
+                onArtigoChange={(id) => setArtigo(2, id)}
+                variantes={artigoIdFor(2) ? variantesByArtigo[artigoIdFor(2)!] ?? [] : []}
+                items={itemsBy(2).filter((i) => i.variante_tecido_id)}
+                toggleVariante={(vid, c) => toggleVariante(2, vid, c)}
+                setQtd={setQtd}
+                varianteMap={varianteMap}
+              />
+              <Button variant="ghost" size="sm" onClick={removeTecido2}>
+                <Trash2 className="h-4 w-4 mr-1" /> Remover Tecido 2
+              </Button>
+            </>
+          )}
         </>
       )}
 

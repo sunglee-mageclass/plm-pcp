@@ -396,6 +396,10 @@ function OcDialog({
   const saveMutation = useMutation({
     mutationFn: async (markReceived: boolean) => {
       if (!draft.data_prevista_entrega) throw new Error("Informe a Data Prevista de Entrega.");
+      if (!draft.prazo_pagamento?.trim()) throw new Error("Informe o Prazo de Pagamento.");
+      const selecionados = items.filter((i) => i.variante_tecido_id && i.artigo_id);
+      if (selecionados.some((i) => !(Number(i.quantidade_pedida) > 0)))
+        throw new Error("Informe a quantidade (maior que zero) de cada variante selecionada.");
       const parcelas = draft.parcelas_recebimento ?? [];
       const lastDate = parcelas.length > 0
         ? [...parcelas].map((p) => p.data).filter(Boolean).sort().slice(-1)[0] ?? draft.data_entrega

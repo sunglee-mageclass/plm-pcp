@@ -446,6 +446,10 @@ function OcDialog({
   const saveMutation = useMutation({
     mutationFn: async (markReceived: boolean) => {
       if (!draft.data_prevista_entrega) throw new Error("Informe a Data Prevista de Entrega.");
+      if (!draft.prazo_pagamento?.trim()) throw new Error("Informe o Prazo de Pagamento.");
+      const selecionados = items.filter((i) => i.aviamento_id);
+      if (selecionados.some((i) => !(Number(i.quantidade_pedida) > 0)))
+        throw new Error("Informe a quantidade (maior que zero) de cada aviamento.");
       const parcelas = draft.parcelas_recebimento ?? [];
       const payload: any = {
         numero_pedido: draft.numero_pedido || null,
@@ -683,7 +687,7 @@ function OcDialog({
             </div>
 
             <div className="grid gap-1">
-              <Label>Prazo de Pagamento</Label>
+              <Label>Prazo de Pagamento *</Label>
               <Input
                 value={draft.prazo_pagamento}
                 onChange={(e) => {
@@ -734,13 +738,15 @@ function OcDialog({
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h4 className="font-semibold">Aviamentos (até 10)</h4>
-              <Button size="sm" variant="outline" onClick={addItem} disabled={items.length >= 10 || isReadOnlyRecebimento}>
+              <Button size="sm" variant="outline" onClick={addItem} disabled={items.length >= 10 || isReadOnlyRecebimento || !draft.empresa_id}>
                 <Plus className="h-4 w-4 mr-1" /> Adicionar
               </Button>
             </div>
 
             {items.length === 0 && (
-              <p className="text-sm text-muted-foreground">Nenhum aviamento adicionado.</p>
+              <p className="text-sm text-muted-foreground">
+                {!draft.empresa_id ? "Selecione o fornecedor acima para adicionar aviamentos." : "Nenhum aviamento adicionado."}
+              </p>
             )}
 
             <Table>
