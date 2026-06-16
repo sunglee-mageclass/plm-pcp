@@ -234,6 +234,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const [grades, setGrades] = useState<GradeRow[]>([]);
   const [uploading, setUploading] = useState(false);
   const [confirmEnviarCad, setConfirmEnviarCad] = useState(false);
+  // Grade automática: ao digitar uma célula, escala as demais pela proporção.
+  const [gradeAuto, setGradeAuto] = useState(false);
 
   // Tecidos planejados (Planejamento) = pool de substitutos do tecido no
   // Desenvolvimento: as variantes de qualquer um deles podem ser usadas.
@@ -817,7 +819,20 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const updateGradeCell = (n: number, tam: string, qty: number) => {
     setGrades((gs) => {
       const cur = gs.find((g) => g.variante_numero === n) ?? { variante_numero: n, grades: {}, grade_total: 0 };
-      const next: Record<string, number> = { ...cur.grades, [tam]: qty };
+      const props = draft?.proporcoes ?? {};
+      const propTam = Number(props[tam]) || 0;
+      let next: Record<string, number>;
+      if (gradeAuto && qty > 0 && propTam > 0) {
+        // Âncora: a célula digitada define a "unidade" (qty / proporção dela) e as
+        // demais são preenchidas por proporção. Ex.: PPP=30 com prop 1·1·2·2·2·1
+        // -> 30·30·60·60·60·30.
+        const unit = qty / propTam;
+        next = {};
+        tamanhos.forEach((t) => { next[t] = Math.round(unit * (Number(props[t]) || 0)); });
+        next[tam] = qty; // mantém exatamente o valor digitado na âncora
+      } else {
+        next = { ...cur.grades, [tam]: qty };
+      }
       const realTotal = tamanhos.reduce((s, t) => s + (Number(next[t]) || 0), 0);
       const others = gs.filter((g) => g.variante_numero !== n);
       return [...others, { variante_numero: n, grades: next, grade_total: realTotal }].sort((a, b) => a.variante_numero - b.variante_numero);
@@ -918,6 +933,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 onChangeGradeTotal={updateGradeTotal}
                 onChangeGradeCell={updateGradeCell}
                 tecido1Variantes={tecido1VariantesInfo}
+                gradeAuto={gradeAuto}
+                onToggleGradeAuto={setGradeAuto}
               />
             </AccordionContent>
           </AccordionItem>

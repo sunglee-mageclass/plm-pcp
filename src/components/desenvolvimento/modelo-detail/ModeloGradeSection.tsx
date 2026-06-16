@@ -15,6 +15,8 @@ export function ModeloGradeSection({
   onChangeGradeTotal,
   onChangeGradeCell,
   tecido1Variantes,
+  gradeAuto,
+  onToggleGradeAuto,
 }: {
   tamanhos: string[];
   proporcoes: Record<string, number>;
@@ -23,6 +25,8 @@ export function ModeloGradeSection({
   onChangeGradeTotal: (n: number, total: number) => void;
   onChangeGradeCell: (n: number, tam: string, qty: number) => void;
   tecido1Variantes: GradeVarianteInfo[];
+  gradeAuto: boolean;
+  onToggleGradeAuto: (v: boolean) => void;
 }) {
   const ensureGrade = (n: number): GradeRow =>
     grades.find((g) => g.variante_numero === n) ?? { variante_numero: n, grades: {}, grade_total: 0 };
@@ -30,7 +34,18 @@ export function ModeloGradeSection({
   return (
     <div className="space-y-3">
       <div>
-        <p className="text-xs font-semibold mb-2">Proporções por Tamanho</p>
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <p className="text-xs font-semibold">Proporções por Tamanho</p>
+          <label className="flex items-center gap-1.5 text-xs cursor-pointer select-none">
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5"
+              checked={gradeAuto}
+              onChange={(e) => onToggleGradeAuto(e.target.checked)}
+            />
+            Cálculo automático pela proporção
+          </label>
+        </div>
         <div
           className="grid gap-2 overflow-x-auto pb-1"
           style={{ gridTemplateColumns: `repeat(${tamanhos.length}, minmax(64px, 1fr))` }}
@@ -46,6 +61,11 @@ export function ModeloGradeSection({
           ))}
         </div>
       </div>
+      {gradeAuto && (
+        <p className="text-[11px] text-muted-foreground -mt-1">
+          Digite um tamanho em qualquer variante e os demais preenchem na proporção acima.
+        </p>
+      )}
       <Separator />
       {tecido1Variantes.length === 0 ? (
         <p className="text-sm text-muted-foreground italic">
