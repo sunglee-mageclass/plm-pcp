@@ -7,7 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Field, ModeloPhoto } from "@/components/producao/cad/shared";
+import { ModeloPhoto } from "@/components/producao/cad/shared";
 import { calcCusto } from "@/components/producao/cad/types";
 import type {
   AviamentoRow,
@@ -65,6 +65,15 @@ function CadDetailPage() {
     queryKey: ["cad-row", modeloId],
     queryFn: async () => {
       const { data } = await supabase.from("cad").select("*").eq("modelo_id", modeloId).maybeSingle();
+      return data;
+    },
+  });
+
+  // Ordem canônica dos tamanhos (mesma do Desenvolvimento), p/ a grade não sair fora de ordem.
+  const { data: tenantCfg } = useQuery({
+    queryKey: ["cad-tenant-config-grade"],
+    queryFn: async () => {
+      const { data } = await supabase.from("tenant_config").select("tamanhos_grade").maybeSingle();
       return data;
     },
   });
@@ -460,13 +469,23 @@ function CadDetailPage() {
     onError: (e: any) => toast.error(e.message ?? "Erro"),
   });
 
+  const tamanhosConfig = useMemo<string[]>(() => {
+    const raw = (tenantCfg as any)?.tamanhos_grade;
+    if (Array.isArray(raw) && raw.length > 0) {
+      return raw.map((x: any) => (typeof x === "string" ? x : (x?.nome ?? x?.label ?? String(x))));
+    }
+    return ["34|PPP", "36|PP", "38|P", "40|M", "42|G", "44|GG"];
+  }, [tenantCfg]);
+
   const tamanhosAll = useMemo(() => {
-    const set = new Set<string>();
-    // Proporções definem os tamanhos (e a ordem); garante colunas mesmo com grade vazia.
-    Object.keys(proporcoes).forEach((k) => set.add(k));
-    grades.forEach((g) => Object.keys(g.grades).forEach((k) => set.add(k)));
-    return Array.from(set);
-  }, [grades, proporcoes]);
+    // Ordem = config do tenant; tamanhos presentes fora da config vão ao final.
+    const present = new Set<string>();
+    Object.keys(proporcoes).forEach((k) => present.add(k));
+    grades.forEach((g) => Object.keys(g.grades).forEach((k) => present.add(k)));
+    const result = [...tamanhosConfig];
+    present.forEach((t) => { if (!result.includes(t)) result.push(t); });
+    return result;
+  }, [grades, proporcoes, tamanhosConfig]);
 
   const gradeLabelByNumero = useMemo(() => {
     const t1 = tecidos.find((t) => t.tipo === "tecido" && t.numero === 1);
@@ -586,19 +605,6 @@ function CadDetailPage() {
           proporcoes={proporcoes}
           onChangeProporcao={updateProporcao}
         />
-
-        {/* Datas de corte */}
-        <Card className="p-5 grid gap-3 md:grid-cols-3">
-          <Field label="Data Enviado ao Corte">
-            <Input value={cadRow?.data_enviado_corte ?? ""} readOnly className="bg-muted" />
-          </Field>
-          <Field label="Previsão de Entrega do Corte">
-            <Input type="date" value={previsaoEntrega} onChange={(e) => setPrevisaoEntrega(e.target.value)} />
-          </Field>
-          <Field label="Data Corte Pronto">
-            <Input value={cadRow?.data_corte_pronto ?? ""} readOnly className="bg-muted" />
-          </Field>
-        </Card>
 
         <CadExplosaoSection
           aviamentos={aviamentos}
