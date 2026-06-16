@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Users, Search } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -24,7 +25,7 @@ function TercListPage() {
       const { data, error } = await supabase
         .from("modelos")
         .select(
-          "id, ref, nome, colecao, mes_id, ano_id, categoria_principal_id, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, status_corte, producao_terceirizados(data_enviado, data_entregue, ativo))",
+          "id, ref, versao, nome, colecao, mes_id, ano_id, categoria_principal_id, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, status_corte, producao_terceirizados(data_enviado, data_entregue, ativo))",
         )
         .eq("enviado_cad", true)
         .order("created_at", { ascending: false });
@@ -43,6 +44,7 @@ function TercListPage() {
         return {
           modelo_id: m.id,
           ref: m.ref,
+          versao: m.versao,
           nome: m.nome,
           colecao: m.colecao,
           mes_id: m.mes_id,
@@ -139,6 +141,7 @@ function TercListPage() {
                   <Link to="/producao/terceirizados/$modeloId" params={{ modeloId: r.modelo_id }} className="font-mono text-primary hover:underline">
                     {r.ref ?? "—"}
                   </Link>
+                  <VersaoBadge versao={r.versao} className="ml-2 text-[10px]" />
                 </td>
                 <td className="px-4 py-2">
                   <Link to="/producao/terceirizados/$modeloId" params={{ modeloId: r.modelo_id }} className="hover:underline">

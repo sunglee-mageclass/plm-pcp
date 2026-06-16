@@ -21,6 +21,7 @@ import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 
 import { RequirePermission } from "@/components/RequirePermission";
+import { VersaoBadge } from "@/components/shared/VersaoBadge";
 export const Route = createFileRoute("/_authenticated/criacao/planejamento")({
   component: () => (
     <RequirePermission page="criacao_planejamento">
@@ -265,7 +266,7 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, onOpen }: {
         <h3 className="font-semibold text-sm leading-tight truncate">{modelo.nome ?? "Sem nome"}</h3>
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge className={`${meta.color} text-white`}>{meta.label}</Badge>
-          {modelo.versao > 1 && <Badge variant="outline">v{modelo.versao}</Badge>}
+          <VersaoBadge versao={modelo.versao} />
         </div>
         <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
         <p className="text-xs text-muted-foreground truncate">{modelo.colecao ?? "Sem coleção"}</p>

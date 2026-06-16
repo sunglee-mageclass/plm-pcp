@@ -32,6 +32,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useReadOnly } from "@/components/RequirePermission";
+import { VersaoBadge } from "@/components/shared/VersaoBadge";
 
 export const Route = createFileRoute("/_authenticated/producao/cad/$modeloId")({
   component: CadDetailPage,
@@ -501,6 +502,7 @@ function CadDetailPage() {
               <Scissors className="h-5 w-5 text-primary" />
               <h1 className="text-xl font-bold">{modelo?.nome ?? "—"}</h1>
               <Badge variant="outline" className="font-mono">{modelo?.ref ?? "sem REF"}</Badge>
+              <VersaoBadge versao={modelo?.versao} />
             </div>
             <div className="text-sm text-muted-foreground grid grid-cols-2 gap-x-6 gap-y-1 mt-2">
               <span>Estilista: {modelo?.estilista?.nome ?? "—"}</span>

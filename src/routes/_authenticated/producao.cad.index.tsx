@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { VersaoBadge } from "@/components/shared/VersaoBadge";
 
 export const Route = createFileRoute("/_authenticated/producao/cad/")({
   component: CadListPage,
@@ -17,6 +18,7 @@ type Row = {
   modelo_id: string;
   ref: string | null;
   nome: string | null;
+  versao: number | null;
   colecao: string | null;
   mes_id: string | null;
   ano_id: string | null;
@@ -50,7 +52,7 @@ function CadListPage() {
       const { data, error } = await supabase
         .from("modelos")
         .select(
-          "id, ref, nome, colecao, mes_id, ano_id, categoria_principal_id, categorias_produto:categoria_principal_id(nome), cad(id, status_corte)",
+          "id, ref, nome, versao, colecao, mes_id, ano_id, categoria_principal_id, categorias_produto:categoria_principal_id(nome), cad(id, status_corte)",
         )
         .eq("enviado_cad", true)
         .order("created_at", { ascending: false });
@@ -60,6 +62,7 @@ function CadListPage() {
         modelo_id: m.id,
         ref: m.ref,
         nome: m.nome,
+        versao: m.versao,
         colecao: m.colecao,
         mes_id: m.mes_id,
         ano_id: m.ano_id,
@@ -166,7 +169,10 @@ function CadListPage() {
                 className="border-t hover:bg-muted/30 cursor-pointer"
                 onClick={() => navigate({ to: "/producao/cad/$modeloId", params: { modeloId: r.modelo_id } })}
               >
-                <td className="px-4 py-2 font-mono text-primary">{r.ref ?? "—"}</td>
+                <td className="px-4 py-2">
+                  <span className="font-mono text-primary">{r.ref ?? "—"}</span>
+                  <VersaoBadge versao={r.versao} className="ml-2 text-[10px]" />
+                </td>
                 <td className="px-4 py-2">{r.nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground">{r.categoria_nome ?? "—"}</td>
                 <td className="px-4 py-2">

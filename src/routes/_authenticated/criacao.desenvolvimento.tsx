@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { ModeloDetailPanel } from "@/components/desenvolvimento/ModeloDetailPanel";
+import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 
 
@@ -47,6 +48,7 @@ type Modelo = {
   id: string;
   nome: string | null;
   ref: string | null;
+  versao: number | null;
   estilista_id: string | null;
   modelista_id: string | null;
   piloteiro1_id: string | null;
@@ -146,7 +148,7 @@ function DesenvolvimentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, ref, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, semana, mes_id, ano_id, categoria_principal_id, status_desenvolvimento, fotos_modelo, enviado_cad")
+        .select("id, nome, ref, versao, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, semana, mes_id, ano_id, categoria_principal_id, status_desenvolvimento, fotos_modelo, enviado_cad")
         .eq("status_planejamento", "planejado")
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -370,7 +372,10 @@ function MobileCard({ modelo, estilistaNome, categoriaNome, statuses, onOpen, on
                : <ImageIcon className="h-6 w-6 text-muted-foreground" />}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium truncate">{modelo.nome ?? "Sem nome"}</p>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <p className="text-sm font-medium truncate">{modelo.nome ?? "Sem nome"}</p>
+            <VersaoBadge versao={modelo.versao} className="text-[10px]" />
+          </div>
           {modelo.ref && <p className="text-xs font-mono text-primary truncate">REF {modelo.ref}</p>}
           <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
           <p className="text-xs text-muted-foreground truncate">{categoriaNome ?? "—"}</p>
@@ -416,7 +421,10 @@ function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: i
                : <ImageIcon className="h-6 w-6 text-muted-foreground" />}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium truncate">{modelo.nome ?? "Sem nome"}</p>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <p className="text-sm font-medium truncate">{modelo.nome ?? "Sem nome"}</p>
+            <VersaoBadge versao={modelo.versao} className="text-[10px]" />
+          </div>
           {modelo.ref && <p className="text-xs font-mono text-primary truncate">REF {modelo.ref}</p>}
           <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
           <p className="text-xs text-muted-foreground truncate">{categoriaNome ?? "—"}</p>
