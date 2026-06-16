@@ -303,6 +303,10 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   useEffect(() => {
     if (!tecidosData || !modelo) return;
     const empty = makeEmptyBlocks();
+    const planejados: string[] = Array.isArray((modelo as any).tecidos_planejados)
+      ? ((modelo as any).tecidos_planejados as string[])
+      : [];
+    const planejadosSet = new Set(planejados);
     const linksByKey = new Map<string, string>();
     (ocLinksData ?? []).forEach((l: any) => {
       linksByKey.set(`${l.tipo}-${l.numero}-${l.ordem}`, l.oc_tecido_item_id);
@@ -324,12 +328,15 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
             const aid = v.variantes_tecido?.artigo_id;
             if (aid) varArtigos.add(aid);
           });
-        // Forro pode ter substitutos: reconstrói-os a partir dos artigos das
-        // variantes salvas (tecido tira o pool dos tecidos planejados).
+        // Tecido/forro podem ter substitutos: reconstrói-os a partir dos artigos
+        // das variantes salvas. No tecido, os planejados já entram no pool, então
+        // só viram "extra" os artigos manualmente adicionados (fora dos planejados).
         const artigoIdsExtra =
-          t.tipo === "forro"
-            ? Array.from(varArtigos).filter((aid) => aid && aid !== t.artigo_id)
-            : [];
+          t.tipo === "tecido"
+            ? Array.from(varArtigos).filter((aid) => aid && aid !== t.artigo_id && !planejadosSet.has(aid))
+            : t.tipo === "forro"
+              ? Array.from(varArtigos).filter((aid) => aid && aid !== t.artigo_id)
+              : [];
         empty[idx] = {
           id: t.id, tipo: t.tipo, numero: t.numero,
           artigo_id: t.artigo_id, artigoIdsExtra,
@@ -341,9 +348,6 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       }
     });
     // Prefill from tecidos_planejados (planejamento) when nenhum tecido foi ainda salvo
-    const planejados: string[] = Array.isArray((modelo as any).tecidos_planejados)
-      ? ((modelo as any).tecidos_planejados as string[])
-      : [];
     if (planejados.length > 0) {
       planejados.forEach((artigoId, i) => {
         const numero = i + 1;

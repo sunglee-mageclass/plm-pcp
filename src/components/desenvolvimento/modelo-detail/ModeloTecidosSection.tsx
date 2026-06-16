@@ -98,7 +98,7 @@ export function ModeloTecidosSection({
                     modeloId={modeloId}
                     block={b}
                     artigos={artigosOpts}
-                    artigosForro={artigosForro}
+                    allArtigos={artigos}
                     tecidosPlanejados={tecidosPlanejados}
                     artigoNomeById={artigoNomeById}
                     onChangeBlock={(p) => onChangeBlock(idx, p)}
@@ -136,7 +136,7 @@ function TecidoBlockEditor({
   modeloId,
   block,
   artigos,
-  artigosForro,
+  allArtigos,
   tecidosPlanejados,
   artigoNomeById,
   onChangeBlock,
@@ -148,7 +148,7 @@ function TecidoBlockEditor({
   modeloId: string;
   block: TecidoBlock;
   artigos: ArtigoOpt[];
-  artigosForro: ArtigoOpt[];
+  allArtigos: ArtigoOpt[];
   tecidosPlanejados: string[];
   artigoNomeById: Map<string, string>;
   onChangeBlock: (p: Partial<TecidoBlock>) => void;
@@ -157,18 +157,20 @@ function TecidoBlockEditor({
   onRemove: () => void;
   removable: boolean;
 }) {
-  // Pool de artigos cujas variantes podem ser escolhidas neste bloco:
-  // - tecido: principal + todos os tecidos planejados (substitutos);
-  // - forro: principal + substitutos definidos no bloco;
-  // - entretela: apenas o principal.
+  // Tecido e forro podem ser feitos de mais de um artigo (substitutos): quando
+  // um acaba, completa-se com outro. O pool de variantes = principal + todos os
+  // tecidos planejados (tecido) + substitutos adicionados aqui no bloco.
+  const canSubstitutos = block.tipo === "tecido" || block.tipo === "forro";
   const poolArtigoIds = (() => {
     const s = new Set<string>();
     if (block.artigo_id) s.add(block.artigo_id);
     if (block.tipo === "tecido") tecidosPlanejados.forEach((id) => id && s.add(id));
-    if (block.tipo === "forro") (block.artigoIdsExtra ?? []).forEach((id) => id && s.add(id));
+    (block.artigoIdsExtra ?? []).forEach((id) => id && s.add(id));
     return Array.from(s);
   })();
   const multiFabric = poolArtigoIds.length > 1;
+  // Opções de substituto: catálogo completo, menos o que já está no pool.
+  const substitutoOptions = allArtigos.filter((a) => !poolArtigoIds.includes(a.id));
 
   const { data: variantesPool = [] } = useQuery({
     queryKey: ["variantes-pool", poolArtigoIds.slice().sort().join(",")],
@@ -188,11 +190,6 @@ function TecidoBlockEditor({
   });
   const varianteLabel = (v: { artigo_id: string; nome: string }) =>
     multiFabric ? `${artigoNomeById.get(v.artigo_id) ?? "Tecido"} · ${v.nome}` : v.nome;
-
-  // Substitutos de forro: opções = demais artigos de forro.
-  const forroExtraOptions = artigosForro.filter(
-    (a) => a.id !== block.artigo_id && !(block.artigoIdsExtra ?? []).includes(a.id),
-  );
 
   return (
     <Card className="p-3 space-y-2 relative">
@@ -221,16 +218,18 @@ function TecidoBlockEditor({
         </Field>
       </div>
 
-      {block.tipo === "forro" && block.artigo_id && (
+      {canSubstitutos && block.artigo_id && (
         <div className="space-y-1">
-          <p className="text-xs text-muted-foreground">Forros substitutos (quando o principal acaba)</p>
+          <p className="text-xs text-muted-foreground">
+            {TIPO_LABEL[block.tipo]}s que também podem ser usados (quando o principal acaba)
+          </p>
           <div className="flex flex-wrap items-center gap-1">
             {(block.artigoIdsExtra ?? []).map((id) => (
               <Badge key={id} variant="secondary" className="gap-1">
                 {artigoNomeById.get(id) ?? id}
                 <button
                   type="button"
-                  aria-label="Remover substituto"
+                  aria-label="Remover"
                   className="ml-0.5 hover:text-destructive"
                   onClick={() => onChangeBlock({ artigoIdsExtra: (block.artigoIdsExtra ?? []).filter((x) => x !== id) })}
                 >
@@ -238,11 +237,11 @@ function TecidoBlockEditor({
                 </button>
               </Badge>
             ))}
-            {forroExtraOptions.length > 0 && (
+            {substitutoOptions.length > 0 && (
               <Select value="" onValueChange={(v) => v && onChangeBlock({ artigoIdsExtra: [...(block.artigoIdsExtra ?? []), v] })}>
-                <SelectTrigger className="h-7 w-auto text-xs"><SelectValue placeholder="+ substituto" /></SelectTrigger>
+                <SelectTrigger className="h-7 w-auto min-w-[150px] text-xs"><SelectValue placeholder="+ adicionar tecido" /></SelectTrigger>
                 <SelectContent>
-                  {forroExtraOptions.map((a) => <SelectItem key={a.id} value={a.id}>{artigoLabel(a)}</SelectItem>)}
+                  {substitutoOptions.map((a) => <SelectItem key={a.id} value={a.id}>{artigoLabel(a)}</SelectItem>)}
                 </SelectContent>
               </Select>
             )}
