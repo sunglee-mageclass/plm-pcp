@@ -1304,6 +1304,8 @@ export type Database = {
           numero: number
           oc_tecido_item_id: string
           ordem: number
+          prioridade: number
+          quantidade_m: number
           tenant_id: string
           tipo: string
           updated_at: string
@@ -1316,6 +1318,8 @@ export type Database = {
           numero: number
           oc_tecido_item_id: string
           ordem: number
+          prioridade?: number
+          quantidade_m?: number
           tenant_id: string
           tipo: string
           updated_at?: string
@@ -1328,6 +1332,8 @@ export type Database = {
           numero?: number
           oc_tecido_item_id?: string
           ordem?: number
+          prioridade?: number
+          quantidade_m?: number
           tenant_id?: string
           tipo?: string
           updated_at?: string
