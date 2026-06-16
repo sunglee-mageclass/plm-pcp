@@ -254,9 +254,9 @@ function OcDialog({
           anexo_pedido_url: oc.anexo_pedido_url,
           modelo_sugerido_url: oc.modelo_sugerido_url,
           nf_url: oc.nf_url,
-          parcelas_recebimento: Array.isArray((oc as any).parcelas_recebimento)
+          parcelas_recebimento: (Array.isArray((oc as any).parcelas_recebimento) && (oc as any).parcelas_recebimento.length > 0)
             ? ((oc as any).parcelas_recebimento as { data: string; recebido: boolean }[])
-            : [],
+            : [{ data: "", recebido: false }],
         });
         setStatus((oc.status as OCStatus) ?? "encomendado");
         setRespMode(oc.responsavel_id ? "select" : "text");

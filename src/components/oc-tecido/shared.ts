@@ -97,7 +97,7 @@ export function emptyDraft(): Draft {
     anexo_pedido_url: null,
     modelo_sugerido_url: null,
     nf_url: null,
-    parcelas_recebimento: [],
+    parcelas_recebimento: [{ data: "", recebido: false }],
   };
 }
 

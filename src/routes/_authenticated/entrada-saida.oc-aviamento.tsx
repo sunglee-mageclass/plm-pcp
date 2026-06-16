@@ -337,7 +337,7 @@ function emptyDraft(): Draft {
     prazo_pagamento: "",
     quantidade_prazos: 1,
     nf_url: null,
-    parcelas_recebimento: [],
+    parcelas_recebimento: [{ data: "", recebido: false }],
   };
 }
 
@@ -380,9 +380,9 @@ function OcDialog({
           prazo_pagamento: oc.prazo_pagamento ?? "",
           quantidade_prazos: oc.quantidade_prazos ?? 1,
           nf_url: oc.nf_url,
-          parcelas_recebimento: Array.isArray((oc as any).parcelas_recebimento)
+          parcelas_recebimento: (Array.isArray((oc as any).parcelas_recebimento) && (oc as any).parcelas_recebimento.length > 0)
             ? ((oc as any).parcelas_recebimento as ParcelaRecebimento[])
-            : [],
+            : [{ data: "", recebido: false }],
         });
         setStatus((oc.status as OCStatus) ?? "encomendado");
         const matchEst = estilistas.find((e) => e.nome === oc.responsavel_nome);
