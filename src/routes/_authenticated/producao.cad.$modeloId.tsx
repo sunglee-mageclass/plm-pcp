@@ -148,6 +148,8 @@ function CadDetailPage() {
   const [seeded, setSeeded] = useState(false);
   // Grade automática pela proporção (mesma lógica do Desenvolvimento).
   const [gradeAuto, setGradeAuto] = useState(false);
+  // Proporções por tamanho (compartilhadas com o modelo / Desenvolvimento).
+  const [proporcoes, setProporcoes] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (seeded) return;
@@ -215,59 +217,33 @@ function CadDetailPage() {
     }
     setTecidos(initialTec);
 
-    // A grade acompanha as variantes selecionadas no Tecido 1 (inclusive as que
-    // ainda não têm grade), rotuladas por cor. variante_numero = ordem da variante.
+    // Grade única, = a do modelo (modelo_grades). Acompanha as variantes do
+    // Tecido 1 (inclusive as ainda sem grade), rotuladas por cor.
     const t1 = initialTec.find((t) => t.tipo === "tecido" && t.numero === 1);
     const t1vars = (t1?.variantes ?? [])
       .filter((v) => v.variante_tecido_id)
       .slice()
       .sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0));
-    const usingCadGrades = (cadGrades as any[]).length > 0;
     const gradeByNum = new Map<number, any>();
-    ((usingCadGrades ? cadGrades : modeloGrades) as any[]).forEach((g) => gradeByNum.set(g.variante_numero, g));
+    (modeloGrades as any[]).forEach((g) => gradeByNum.set(g.variante_numero, g));
 
     let initialGrades: GradeRow[];
     if (t1vars.length > 0) {
       initialGrades = t1vars.map((v) => {
         const g = gradeByNum.get(v.ordem);
-        return usingCadGrades
-          ? {
-              id: g?.id,
-              variante_numero: v.ordem,
-              grades_planejadas: g?.grades_planejadas ?? {},
-              grades_reais: g?.grades_reais ?? {},
-              grade_total_planejada: g?.grade_total_planejada ?? 0,
-              grade_total_real: g?.grade_total_real ?? 0,
-            }
-          : {
-              variante_numero: v.ordem,
-              grades_planejadas: g?.grades ?? {},
-              grades_reais: g?.grades ?? {},
-              grade_total_planejada: g?.grade_total ?? 0,
-              grade_total_real: g?.grade_total ?? 0,
-            };
+        return { variante_numero: v.ordem, grades: g?.grades ?? {}, grade_total: g?.grade_total ?? 0 };
       });
-    } else if (usingCadGrades) {
-      initialGrades = (cadGrades as any[]).map((g) => ({
-        id: g.id,
-        variante_numero: g.variante_numero,
-        grades_planejadas: g.grades_planejadas ?? {},
-        grades_reais: g.grades_reais ?? {},
-        grade_total_planejada: g.grade_total_planejada ?? 0,
-        grade_total_real: g.grade_total_real ?? 0,
-      }));
     } else {
       initialGrades = (modeloGrades as any[]).map((g) => ({
         variante_numero: g.variante_numero,
-        grades_planejadas: g.grades ?? {},
-        grades_reais: g.grades ?? {},
-        grade_total_planejada: g.grade_total ?? 0,
-        grade_total_real: g.grade_total ?? 0,
+        grades: g.grades ?? {},
+        grade_total: g.grade_total ?? 0,
       }));
     }
     setGrades(initialGrades);
+    setProporcoes((modelo.proporcoes ?? {}) as Record<string, number>);
 
-    const gradeTotalGeral = initialGrades.reduce((a, g) => a + (g.grade_total_planejada || 0), 0);
+    const gradeTotalGeral = initialGrades.reduce((a, g) => a + (g.grade_total || 0), 0);
 
     let initialAvi: AviamentoRow[];
     if ((cadAviamentos as any[]).length > 0) {
@@ -325,23 +301,25 @@ function CadDetailPage() {
   const updateGradeCell = (gi: number, tamanho: string, value: number) => {
     setGrades((prev) => {
       const next = [...prev];
-      const props = (modelo?.proporcoes ?? {}) as Record<string, number>;
-      const propTam = Number(props[tamanho]) || 0;
-      let grades_reais: Record<string, number>;
+      const propTam = Number(proporcoes[tamanho]) || 0;
+      let grades: Record<string, number>;
       if (gradeAuto && value > 0 && propTam > 0) {
         // Âncora: célula digitada define a unidade (valor/proporção dela); demais
         // por proporção. Ex.: PPP=30 com 1·1·2·2·2·1 -> 30·30·60·60·60·30.
         const unit = value / propTam;
-        grades_reais = {};
-        tamanhosAll.forEach((t) => { grades_reais[t] = Math.round(unit * (Number(props[t]) || 0)); });
-        grades_reais[tamanho] = value;
+        grades = {};
+        tamanhosAll.forEach((t) => { grades[t] = Math.round(unit * (Number(proporcoes[t]) || 0)); });
+        grades[tamanho] = value;
       } else {
-        grades_reais = { ...next[gi].grades_reais, [tamanho]: value };
+        grades = { ...next[gi].grades, [tamanho]: value };
       }
-      const grade_total_real = Object.values(grades_reais).reduce((a, b) => a + (Number(b) || 0), 0);
-      next[gi] = { ...next[gi], grades_reais, grade_total_real };
+      const grade_total = Object.values(grades).reduce((a, b) => a + (Number(b) || 0), 0);
+      next[gi] = { ...next[gi], grades, grade_total };
       return next;
     });
+  };
+  const updateProporcao = (tam: string, val: number) => {
+    setProporcoes((p) => ({ ...p, [tam]: Math.max(0, val) }));
   };
   const updateAvi = (i: number, patch: Partial<AviamentoRow>) => {
     setAviamentos((prev) => {
@@ -395,18 +373,39 @@ function CadDetailPage() {
           if (ve) throw ve;
         }
       }
-      if (grades.length > 0) {
-        const { error: ge } = await supabase.from("cad_grades").insert(
-          grades.map((g) => ({
-            cad_id,
+      // Grade ÚNICA: grava direto em modelo_grades (compartilhada com o
+      // Desenvolvimento) + proporções no modelo. O que muda aqui reflete lá e
+      // recalcula a reserva de estoque.
+      await supabase.from("modelos").update({ proporcoes }).eq("id", modeloId);
+      await supabase.from("modelo_grades").delete().eq("modelo_id", modeloId);
+      const gradesToSave = grades.filter(
+        (g) => (g.grade_total || 0) > 0 || Object.values(g.grades || {}).some((v) => (Number(v) || 0) > 0),
+      );
+      if (gradesToSave.length > 0) {
+        const { error: ge } = await supabase.from("modelo_grades").insert(
+          gradesToSave.map((g) => ({
+            modelo_id: modeloId,
             variante_numero: g.variante_numero,
-            grades_planejadas: g.grades_planejadas,
-            grades_reais: g.grades_reais,
-            grade_total_planejada: g.grade_total_planejada,
-            grade_total_real: g.grade_total_real,
+            grades: g.grades,
+            grade_total: g.grade_total,
           })),
         );
         if (ge) throw ge;
+      }
+      // Espelha a grade única em cad_grades (planejada = real = grade), pois
+      // Direcionamento e Oficina ainda leem dessa tabela.
+      if (gradesToSave.length > 0) {
+        const { error: gce } = await supabase.from("cad_grades").insert(
+          gradesToSave.map((g) => ({
+            cad_id,
+            variante_numero: g.variante_numero,
+            grades_planejadas: g.grades,
+            grades_reais: g.grades,
+            grade_total_planejada: g.grade_total,
+            grade_total_real: g.grade_total,
+          })),
+        );
+        if (gce) throw gce;
       }
       await supabase.from("cad_aviamentos").delete().eq("cad_id", cad_id!);
       if (aviamentos.length > 0) {
@@ -431,8 +430,12 @@ function CadDetailPage() {
       toast.success("CAD salvo");
       qc.invalidateQueries({ queryKey: ["cad-row", modeloId] });
       qc.invalidateQueries({ queryKey: ["cad-tecidos"] });
-      qc.invalidateQueries({ queryKey: ["cad-grades-rows"] });
       qc.invalidateQueries({ queryKey: ["cad-aviamentos-rows"] });
+      // Grade/proporção são compartilhadas: atualiza o que o Desenvolvimento lê.
+      qc.invalidateQueries({ queryKey: ["cad-modelo-grades", modeloId] });
+      qc.invalidateQueries({ queryKey: ["cad-modelo", modeloId] });
+      qc.invalidateQueries({ queryKey: ["modelo-grades", modeloId] });
+      qc.invalidateQueries({ queryKey: ["modelo-detail", modeloId] });
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao salvar"),
   });
@@ -459,15 +462,11 @@ function CadDetailPage() {
 
   const tamanhosAll = useMemo(() => {
     const set = new Set<string>();
-    // Proporções do modelo definem os tamanhos (e a ordem); garante colunas mesmo
-    // quando a grade ainda está vazia.
-    Object.keys((modelo?.proporcoes ?? {}) as Record<string, number>).forEach((k) => set.add(k));
-    grades.forEach((g) => {
-      Object.keys(g.grades_planejadas).forEach((k) => set.add(k));
-      Object.keys(g.grades_reais).forEach((k) => set.add(k));
-    });
+    // Proporções definem os tamanhos (e a ordem); garante colunas mesmo com grade vazia.
+    Object.keys(proporcoes).forEach((k) => set.add(k));
+    grades.forEach((g) => Object.keys(g.grades).forEach((k) => set.add(k)));
     return Array.from(set);
-  }, [grades, modelo]);
+  }, [grades, proporcoes]);
 
   const gradeLabelByNumero = useMemo(() => {
     const t1 = tecidos.find((t) => t.tipo === "tecido" && t.numero === 1);
@@ -480,7 +479,7 @@ function CadDetailPage() {
   }, [tecidos]);
 
   const gradeTotalGeral = useMemo(
-    () => grades.reduce((a, g) => a + (g.grade_total_planejada || 0), 0),
+    () => grades.reduce((a, g) => a + (g.grade_total || 0), 0),
     [grades],
   );
 
@@ -584,6 +583,8 @@ function CadDetailPage() {
           labelByNumero={gradeLabelByNumero}
           gradeAuto={gradeAuto}
           onToggleGradeAuto={setGradeAuto}
+          proporcoes={proporcoes}
+          onChangeProporcao={updateProporcao}
         />
 
         {/* Datas de corte */}
@@ -617,6 +618,7 @@ function CadDetailPage() {
           tamanhosAll={tamanhosAll}
           aviamentos={aviamentos}
           gradeTotalGeral={gradeTotalGeral}
+          labelByNumero={gradeLabelByNumero}
         />
       )}
 

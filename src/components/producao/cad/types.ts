@@ -29,10 +29,10 @@ export type TecidoRow = {
 export type GradeRow = {
   id?: string;
   variante_numero: number;
-  grades_planejadas: Record<string, number>;
-  grades_reais: Record<string, number>;
-  grade_total_planejada: number;
-  grade_total_real: number;
+  // Grade única, compartilhada com o Desenvolvimento (modelo_grades). O que se
+  // edita no CAD é a grade final do modelo.
+  grades: Record<string, number>;
+  grade_total: number;
 };
 
 export type AviamentoRow = {

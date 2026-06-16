@@ -11,6 +11,7 @@ type Props = {
   tamanhosAll: string[];
   aviamentos: AviamentoRow[];
   gradeTotalGeral: number;
+  labelByNumero?: Record<number, string>;
 };
 
 const section: React.CSSProperties = { pageBreakInside: "avoid", breakInside: "avoid", marginTop: 12 };
@@ -24,6 +25,7 @@ export function CadFichaCorte({
   tamanhosAll,
   aviamentos,
   gradeTotalGeral,
+  labelByNumero,
 }: Props) {
   return (
     <div className="print-area">
@@ -91,9 +93,9 @@ export function CadFichaCorte({
           <tbody>
             {grades.map((g) => (
               <tr key={g.variante_numero}>
-                <td style={cell}>V{g.variante_numero}</td>
-                {tamanhosAll.map((t) => <td key={t} style={cell}>{g.grades_planejadas[t] ?? 0}</td>)}
-                <td style={cell}>{g.grade_total_planejada}</td>
+                <td style={cell}>{labelByNumero?.[g.variante_numero] ?? `V${g.variante_numero}`}</td>
+                {tamanhosAll.map((t) => <td key={t} style={cell}>{g.grades[t] ?? 0}</td>)}
+                <td style={cell}>{g.grade_total}</td>
               </tr>
             ))}
           </tbody>
