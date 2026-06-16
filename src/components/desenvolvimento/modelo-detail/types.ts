@@ -7,6 +7,13 @@ export type TecidoBlock = {
   tipo: "tecido" | "forro" | "entretela";
   numero: number;
   artigo_id: string | null;
+  /**
+   * Artigos substitutos além do principal. Um tecido/forro pode ser feito de
+   * mais de um artigo (quando um acaba, usa-se outro). As variantes podem vir
+   * de qualquer um deles. Para tecido o conjunto vem dos tecidos planejados;
+   * para forro é definido aqui no bloco. Derivado das variantes ao carregar.
+   */
+  artigoIdsExtra: string[];
   consumo: number;
   loss_percent: number;
   custo_previsto: number;
@@ -53,6 +60,7 @@ export function makeEmptyBlocks(): TecidoBlock[] {
         tipo: t,
         numero: n,
         artigo_id: null,
+        artigoIdsExtra: [],
         consumo: 0,
         loss_percent: 0,
         custo_previsto: 0,
@@ -67,12 +75,28 @@ export function makeEmptyBlocks(): TecidoBlock[] {
 export function recomputeBlock(
   b: TecidoBlock,
   artigoMap: Record<string, { preco?: number | null; preco_por_metro?: number | null }>,
+  varianteArtigoMap?: Record<string, string>,
 ): TecidoBlock {
   // Consumo é sempre em metros; para tecido em kg o preço por metro é
   // preco_por_metro (= preco / rendimento). Usa-se preco_por_metro — igual ao
   // CAD — caindo para preco apenas quando ausente, evitando custo inflado.
-  const art = b.artigo_id ? artigoMap[b.artigo_id] : undefined;
-  const preco = art ? Number(art.preco_por_metro ?? art.preco ?? 0) : 0;
+  //
+  // Um tecido/forro pode usar mais de um artigo (substitutos). Quando há
+  // variantes de vários artigos, o custo usa o MAIOR preco_por_metro entre os
+  // artigos efetivamente usados (cai para o artigo principal se nenhuma variante).
+  const precoOf = (id: string) => {
+    const a = artigoMap[id];
+    return a ? Number(a.preco_por_metro ?? a.preco ?? 0) : 0;
+  };
+  const usados = new Set<string>();
+  if (varianteArtigoMap) {
+    for (const v of b.variantes) {
+      const aid = v ? varianteArtigoMap[v] : undefined;
+      if (aid) usados.add(aid);
+    }
+  }
+  if (usados.size === 0 && b.artigo_id) usados.add(b.artigo_id);
+  const preco = usados.size > 0 ? Math.max(...Array.from(usados).map(precoOf)) : 0;
   const custo = preco * (b.consumo || 0) * (1 + (b.loss_percent || 0) / 100);
   return { ...b, custo_previsto: Math.round(custo * 100) / 100 };
 }

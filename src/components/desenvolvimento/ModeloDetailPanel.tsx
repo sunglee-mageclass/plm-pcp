@@ -182,7 +182,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       if (ids.length > 0) {
         const { data: vs, error: e2 } = await supabase
           .from("modelo_tecido_variantes")
-          .select("modelo_tecido_id, variante_tecido_id, ordem")
+          .select("modelo_tecido_id, variante_tecido_id, ordem, variantes_tecido:variante_tecido_id(artigo_id)")
           .in("modelo_tecido_id", ids);
         if (e2) throw e2;
         variantesRows = vs ?? [];
@@ -234,6 +234,42 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const [uploading, setUploading] = useState(false);
   const [confirmEnviarCad, setConfirmEnviarCad] = useState(false);
 
+  // Tecidos planejados (Planejamento) = pool de substitutos do tecido no
+  // Desenvolvimento: as variantes de qualquer um deles podem ser usadas.
+  const tecidosPlanejados: string[] = useMemo(
+    () => (Array.isArray((modelo as any)?.tecidos_planejados) ? ((modelo as any).tecidos_planejados as string[]) : []),
+    [modelo],
+  );
+
+  // Mapa variante_tecido_id -> artigo_id, para os pools de cada bloco (tecido =
+  // planejados; forro = principal + substitutos; entretela = principal). Cobre
+  // todas as variantes selecionáveis, então o custo (maior preço entre os
+  // artigos usados) recalcula sem lag ao escolher uma variante.
+  const relevantArtigoIds = useMemo(() => {
+    const s = new Set<string>();
+    tecidosPlanejados.forEach((id) => id && s.add(id));
+    artigosForro.forEach((a) => s.add(a.id));
+    artigosEntretela.forEach((a) => s.add(a.id));
+    blocks.forEach((b) => {
+      if (b.artigo_id) s.add(b.artigo_id);
+      (b.artigoIdsExtra ?? []).forEach((x) => x && s.add(x));
+    });
+    return Array.from(s);
+  }, [tecidosPlanejados, artigosForro, artigosEntretela, blocks]);
+
+  const { data: varianteArtigoMap = {} } = useQuery({
+    queryKey: ["variante-artigo-map", relevantArtigoIds.slice().sort().join(",")],
+    enabled: relevantArtigoIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("variantes_tecido").select("id, artigo_id").in("artigo_id", relevantArtigoIds);
+      if (error) throw error;
+      const m: Record<string, string> = {};
+      (data ?? []).forEach((v: any) => { if (v.artigo_id) m[v.id] = v.artigo_id; });
+      return m;
+    },
+  });
+
   useEffect(() => {
     if (modelo) {
       setDraft({
@@ -276,6 +312,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       if (idx >= 0) {
         const variantes = Array(10).fill(null) as (string | null)[];
         const oc_links = Array(10).fill(null) as (string | null)[];
+        const varArtigos = new Set<string>();
         tecidosData.variantes
           .filter((v: any) => v.modelo_tecido_id === t.id)
           .forEach((v: any) => {
@@ -284,10 +321,19 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
               variantes[ord] = v.variante_tecido_id;
               oc_links[ord] = linksByKey.get(`${t.tipo}-${t.numero}-${v.ordem ?? ord + 1}`) ?? null;
             }
+            const aid = v.variantes_tecido?.artigo_id;
+            if (aid) varArtigos.add(aid);
           });
+        // Forro pode ter substitutos: reconstrói-os a partir dos artigos das
+        // variantes salvas (tecido tira o pool dos tecidos planejados).
+        const artigoIdsExtra =
+          t.tipo === "forro"
+            ? Array.from(varArtigos).filter((aid) => aid && aid !== t.artigo_id)
+            : [];
         empty[idx] = {
           id: t.id, tipo: t.tipo, numero: t.numero,
-          artigo_id: t.artigo_id, consumo: Number(t.consumo ?? 0),
+          artigo_id: t.artigo_id, artigoIdsExtra,
+          consumo: Number(t.consumo ?? 0),
           loss_percent: Number(t.loss_percent ?? 0), custo_previsto: Number(t.custo_previsto ?? 0),
           variantes,
           oc_links,
@@ -442,10 +488,21 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         proporcoes: draft.proporcoes ?? {},
         fotos_modelo: draft.fotos_modelo ?? [],
         fotos_referencia: draft.fotos_referencia ?? [],
-        tecidos_planejados: blocks
-          .filter((b) => b.tipo === "tecido" && !!b.artigo_id)
-          .sort((a, b) => a.numero - b.numero)
-          .map((b) => b.artigo_id as string),
+        // Mantém no plano os artigos principais E os substitutos efetivamente
+        // usados (artigos das variantes de tecido), senão o pool de substitutos
+        // do tecido encolheria ao recarregar e órfanaria variantes.
+        tecidos_planejados: (() => {
+          const out: string[] = [];
+          const push = (id?: string | null) => { if (id && !out.includes(id)) out.push(id); };
+          blocks
+            .filter((b) => b.tipo === "tecido" && !!b.artigo_id)
+            .sort((a, b) => a.numero - b.numero)
+            .forEach((b) => push(b.artigo_id));
+          blocks
+            .filter((b) => b.tipo === "tecido")
+            .forEach((b) => b.variantes.forEach((v) => push(v ? varianteArtigoMap[v] : null)));
+          return out;
+        })(),
       };
       const { error: e1 } = await supabase.from("modelos").update(payload).eq("id", modeloId);
       if (e1) throw e1;
@@ -639,7 +696,20 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       }
       setGrades([]);
     }
-    setBlocks((bs) => bs.map((b, i) => i === idx ? recomputeBlock({ ...b, ...patch }, artigoMap) : b));
+    setBlocks((bs) => bs.map((b, i) => {
+      if (i !== idx) return b;
+      let merged = { ...b, ...patch };
+      // Ao remover um substituto (forro), descarta variantes que pertenciam a
+      // ele — ficariam órfãs (fora do pool de variantes do bloco).
+      if (patch.artigoIdsExtra !== undefined) {
+        const pool = new Set<string>([merged.artigo_id, ...merged.artigoIdsExtra].filter(Boolean) as string[]);
+        const variantes = merged.variantes.map((v) =>
+          v && varianteArtigoMap[v] && !pool.has(varianteArtigoMap[v]) ? null : v,
+        );
+        merged = { ...merged, variantes };
+      }
+      return recomputeBlock(merged, artigoMap, varianteArtigoMap);
+    }));
   };
   const updateBlockVariante = (idx: number, vIdx: number, value: string | null) => {
     const target = blocks[idx];
@@ -674,7 +744,9 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         // variante mudou: invalida vínculo
         oc_links[vIdx] = null;
       }
-      return { ...b, variantes, oc_links };
+      // Recalcula: o custo usa o maior preço entre os artigos das variantes
+      // escolhidas (substitutos podem ter preços diferentes).
+      return recomputeBlock({ ...b, variantes, oc_links }, artigoMap, varianteArtigoMap);
     }));
   };
   const updateBlockOcLink = (idx: number, vIdx: number, value: string | null) => {
@@ -795,6 +867,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 artigos={artigos}
                 artigosForro={artigosForro}
                 artigosEntretela={artigosEntretela}
+                tecidosPlanejados={tecidosPlanejados}
                 onChangeBlock={updateBlock}
                 onChangeVariante={updateBlockVariante}
                 onChangeOcLink={updateBlockOcLink}

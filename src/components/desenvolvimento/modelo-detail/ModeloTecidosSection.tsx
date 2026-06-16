@@ -4,6 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { artigoLabel } from "@/lib/artigo-label";
 import { Plus, Trash2 } from "lucide-react";
@@ -19,6 +20,7 @@ export function ModeloTecidosSection({
   artigos,
   artigosForro,
   artigosEntretela,
+  tecidosPlanejados,
   onChangeBlock,
   onChangeVariante,
   onChangeOcLink,
@@ -28,10 +30,12 @@ export function ModeloTecidosSection({
   artigos: ArtigoOpt[];
   artigosForro: ArtigoOpt[];
   artigosEntretela: ArtigoOpt[];
+  tecidosPlanejados: string[];
   onChangeBlock: (idx: number, patch: Partial<TecidoBlock>) => void;
   onChangeVariante: (idx: number, vIdx: number, value: string | null) => void;
   onChangeOcLink: (idx: number, vIdx: number, value: string | null) => void;
 }) {
+  const artigoNomeById = new Map(artigos.map((a) => [a.id, a.nome] as const));
   const [visible, setVisible] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -54,6 +58,7 @@ export function ModeloTecidosSection({
   const hideBlock = (idx: number, tipo: TecidoBlock["tipo"], numero: number) => {
     onChangeBlock(idx, {
       artigo_id: null,
+      artigoIdsExtra: [],
       consumo: 0,
       loss_percent: 0,
       variantes: Array(10).fill(null),
@@ -93,6 +98,9 @@ export function ModeloTecidosSection({
                     modeloId={modeloId}
                     block={b}
                     artigos={artigosOpts}
+                    artigosForro={artigosForro}
+                    tecidosPlanejados={tecidosPlanejados}
+                    artigoNomeById={artigoNomeById}
                     onChangeBlock={(p) => onChangeBlock(idx, p)}
                     onChangeVariante={(vi, val) => onChangeVariante(idx, vi, val)}
                     onChangeOcLink={(vi, val) => onChangeOcLink(idx, vi, val)}
@@ -128,6 +136,9 @@ function TecidoBlockEditor({
   modeloId,
   block,
   artigos,
+  artigosForro,
+  tecidosPlanejados,
+  artigoNomeById,
   onChangeBlock,
   onChangeVariante,
   onChangeOcLink,
@@ -137,26 +148,51 @@ function TecidoBlockEditor({
   modeloId: string;
   block: TecidoBlock;
   artigos: ArtigoOpt[];
+  artigosForro: ArtigoOpt[];
+  tecidosPlanejados: string[];
+  artigoNomeById: Map<string, string>;
   onChangeBlock: (p: Partial<TecidoBlock>) => void;
   onChangeVariante: (vIdx: number, val: string | null) => void;
   onChangeOcLink: (vIdx: number, val: string | null) => void;
   onRemove: () => void;
   removable: boolean;
 }) {
-  const { data: variantesArtigo = [] } = useQuery({
-    queryKey: ["variantes-artigo", block.artigo_id],
-    enabled: !!block.artigo_id,
+  // Pool de artigos cujas variantes podem ser escolhidas neste bloco:
+  // - tecido: principal + todos os tecidos planejados (substitutos);
+  // - forro: principal + substitutos definidos no bloco;
+  // - entretela: apenas o principal.
+  const poolArtigoIds = (() => {
+    const s = new Set<string>();
+    if (block.artigo_id) s.add(block.artigo_id);
+    if (block.tipo === "tecido") tecidosPlanejados.forEach((id) => id && s.add(id));
+    if (block.tipo === "forro") (block.artigoIdsExtra ?? []).forEach((id) => id && s.add(id));
+    return Array.from(s);
+  })();
+  const multiFabric = poolArtigoIds.length > 1;
+
+  const { data: variantesPool = [] } = useQuery({
+    queryKey: ["variantes-pool", poolArtigoIds.slice().sort().join(",")],
+    enabled: poolArtigoIds.length > 0,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("variantes_tecido")
-        .select("id, nome_variante, codigo_variante")
-        .eq("artigo_id", block.artigo_id!);
+        .select("id, nome_variante, codigo_variante, artigo_id")
+        .in("artigo_id", poolArtigoIds);
       if (error) throw error;
       return (data ?? []).map((v: any) => ({
-        id: v.id, nome: v.nome_variante || v.codigo_variante || v.id,
+        id: v.id,
+        artigo_id: v.artigo_id as string,
+        nome: v.nome_variante || v.codigo_variante || v.id,
       }));
     },
   });
+  const varianteLabel = (v: { artigo_id: string; nome: string }) =>
+    multiFabric ? `${artigoNomeById.get(v.artigo_id) ?? "Tecido"} · ${v.nome}` : v.nome;
+
+  // Substitutos de forro: opções = demais artigos de forro.
+  const forroExtraOptions = artigosForro.filter(
+    (a) => a.id !== block.artigo_id && !(block.artigoIdsExtra ?? []).includes(a.id),
+  );
 
   return (
     <Card className="p-3 space-y-2 relative">
@@ -185,13 +221,44 @@ function TecidoBlockEditor({
         </Field>
       </div>
 
+      {block.tipo === "forro" && block.artigo_id && (
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground">Forros substitutos (quando o principal acaba)</p>
+          <div className="flex flex-wrap items-center gap-1">
+            {(block.artigoIdsExtra ?? []).map((id) => (
+              <Badge key={id} variant="secondary" className="gap-1">
+                {artigoNomeById.get(id) ?? id}
+                <button
+                  type="button"
+                  aria-label="Remover substituto"
+                  className="ml-0.5 hover:text-destructive"
+                  onClick={() => onChangeBlock({ artigoIdsExtra: (block.artigoIdsExtra ?? []).filter((x) => x !== id) })}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </Badge>
+            ))}
+            {forroExtraOptions.length > 0 && (
+              <Select value="" onValueChange={(v) => v && onChangeBlock({ artigoIdsExtra: [...(block.artigoIdsExtra ?? []), v] })}>
+                <SelectTrigger className="h-7 w-auto text-xs"><SelectValue placeholder="+ substituto" /></SelectTrigger>
+                <SelectContent>
+                  {forroExtraOptions.map((a) => <SelectItem key={a.id} value={a.id}>{artigoLabel(a)}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+        </div>
+      )}
+
       {block.artigo_id && (
         <EtiquetaLavagemArtigoView artigoId={block.artigo_id} size="sm" />
       )}
 
-      {block.artigo_id && (
+      {poolArtigoIds.length > 0 && (
         <div className="space-y-1">
-          <p className="text-xs text-muted-foreground">Variantes</p>
+          <p className="text-xs text-muted-foreground">
+            Variantes{multiFabric ? " — de qualquer tecido do pool; custo usa o maior preço/metro" : ""}
+          </p>
           <div className="grid sm:grid-cols-2 gap-2">
             {Array.from({ length: 10 }).map((_, i) => {
               const prevFilled = i === 0 || !!block.variantes[i - 1];
@@ -200,7 +267,7 @@ function TecidoBlockEditor({
               const usedElsewhere = new Set(
                 block.variantes.filter((v, j) => j !== i && !!v) as string[],
               );
-              const available = variantesArtigo.filter(
+              const available = variantesPool.filter(
                 (v) => v.id === current || !usedElsewhere.has(v.id),
               );
                 return (
@@ -212,7 +279,7 @@ function TecidoBlockEditor({
                       <SelectTrigger><SelectValue placeholder={`Variante ${i + 1}`} /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__none__">— Remover —</SelectItem>
-                        {available.map((v) => <SelectItem key={v.id} value={v.id}>{v.nome}</SelectItem>)}
+                        {available.map((v) => <SelectItem key={v.id} value={v.id}>{varianteLabel(v)}</SelectItem>)}
                       </SelectContent>
                     </Select>
                     {current && (
