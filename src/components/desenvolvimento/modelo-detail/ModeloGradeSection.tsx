@@ -31,7 +31,10 @@ export function ModeloGradeSection({
     <div className="space-y-3">
       <div>
         <p className="text-xs font-semibold mb-2">Proporções por Tamanho</p>
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+        <div
+          className="grid gap-2 overflow-x-auto pb-1"
+          style={{ gridTemplateColumns: `repeat(${tamanhos.length}, minmax(64px, 1fr))` }}
+        >
           {tamanhos.map((t) => (
             <Field key={t} label={t}>
               <Input
@@ -70,7 +73,10 @@ export function ModeloGradeSection({
                     />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                <div
+                  className="grid gap-2 overflow-x-auto pb-1"
+                  style={{ gridTemplateColumns: `repeat(${tamanhos.length}, minmax(64px, 1fr))` }}
+                >
                   {tamanhos.map((t) => (
                     <Field key={t} label={t}>
                       <Input
