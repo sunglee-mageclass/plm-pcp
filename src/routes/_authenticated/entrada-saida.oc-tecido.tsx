@@ -395,6 +395,7 @@ function OcDialog({
 
   const saveMutation = useMutation({
     mutationFn: async (markReceived: boolean) => {
+      if (!draft.data_prevista_entrega) throw new Error("Informe a Data Prevista de Entrega.");
       const parcelas = draft.parcelas_recebimento ?? [];
       const lastDate = parcelas.length > 0
         ? [...parcelas].map((p) => p.data).filter(Boolean).sort().slice(-1)[0] ?? draft.data_entrega

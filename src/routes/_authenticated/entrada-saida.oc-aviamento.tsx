@@ -445,6 +445,7 @@ function OcDialog({
 
   const saveMutation = useMutation({
     mutationFn: async (markReceived: boolean) => {
+      if (!draft.data_prevista_entrega) throw new Error("Informe a Data Prevista de Entrega.");
       const parcelas = draft.parcelas_recebimento ?? [];
       const payload: any = {
         numero_pedido: draft.numero_pedido || null,
@@ -700,7 +701,7 @@ function OcDialog({
               <Input type="date" value={draft.data_pedido} onChange={(e) => setDraft((d) => ({ ...d, data_pedido: e.target.value }))} />
             </div>
             <div className="grid gap-1">
-              <Label>Data Prevista de Entrega</Label>
+              <Label>Data Prevista de Entrega *</Label>
               <Input type="date" value={draft.data_prevista_entrega} onChange={(e) => setDraft((d) => ({ ...d, data_prevista_entrega: e.target.value }))} />
             </div>
 
