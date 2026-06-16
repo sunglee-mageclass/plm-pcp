@@ -271,7 +271,7 @@ function TecidoDetail() {
             </Select>
           </Field>
 
-          <Field label="Largura Estimada (cm)">
+          <Field label="Largura Estimada (mtr)">
             <Input
               type="number"
               value={form.largura_estimada ?? ""}
