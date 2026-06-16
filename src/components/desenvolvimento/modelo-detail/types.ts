@@ -2,6 +2,9 @@ export const BUCKET = "modelos";
 
 export type Opt = { id: string; nome: string };
 
+/** Alocação de uma OC para uma variante (várias OCs podem cobrir uma variante). */
+export type OcAlloc = { oc_tecido_item_id: string; quantidade_m: number; prioridade: number };
+
 export type TecidoBlock = {
   id?: string;
   tipo: "tecido" | "forro" | "entretela";
@@ -18,7 +21,8 @@ export type TecidoBlock = {
   loss_percent: number;
   custo_previsto: number;
   variantes: (string | null)[];
-  oc_links: (string | null)[];
+  /** Por posição de variante (0..9): lista de OCs alocadas a ela. */
+  oc_links: OcAlloc[][];
 };
 
 export type AviamentoRow = {
@@ -65,7 +69,7 @@ export function makeEmptyBlocks(): TecidoBlock[] {
         loss_percent: 0,
         custo_previsto: 0,
         variantes: Array(10).fill(null),
-        oc_links: Array(10).fill(null),
+        oc_links: Array.from({ length: 10 }, () => [] as OcAlloc[]),
       });
     }
   });

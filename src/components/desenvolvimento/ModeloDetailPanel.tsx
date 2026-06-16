@@ -19,6 +19,7 @@ import {
   recomputeBlock,
   type AviamentoRow,
   type GradeRow,
+  type OcAlloc,
   type Opt,
   type TecidoBlock,
 } from "./modelo-detail/types";
@@ -196,7 +197,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelo_tecido_oc_links" as any)
-        .select("tipo, numero, ordem, oc_tecido_item_id")
+        .select("tipo, numero, ordem, oc_tecido_item_id, quantidade_m, prioridade")
         .eq("modelo_id", modeloId);
       if (error) throw error;
       return (data ?? []) as any[];
@@ -307,15 +308,23 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       ? ((modelo as any).tecidos_planejados as string[])
       : [];
     const planejadosSet = new Set(planejados);
-    const linksByKey = new Map<string, string>();
+    const linksByKey = new Map<string, OcAlloc[]>();
     (ocLinksData ?? []).forEach((l: any) => {
-      linksByKey.set(`${l.tipo}-${l.numero}-${l.ordem}`, l.oc_tecido_item_id);
+      const key = `${l.tipo}-${l.numero}-${l.ordem}`;
+      const arr = linksByKey.get(key) ?? [];
+      arr.push({
+        oc_tecido_item_id: l.oc_tecido_item_id,
+        quantidade_m: Number(l.quantidade_m ?? 0),
+        prioridade: Number(l.prioridade ?? 1),
+      });
+      linksByKey.set(key, arr);
     });
+    linksByKey.forEach((arr) => arr.sort((a, b) => a.prioridade - b.prioridade));
     tecidosData.tecidos.forEach((t: any) => {
       const idx = empty.findIndex((b) => b.tipo === t.tipo && b.numero === t.numero);
       if (idx >= 0) {
         const variantes = Array(10).fill(null) as (string | null)[];
-        const oc_links = Array(10).fill(null) as (string | null)[];
+        const oc_links = Array.from({ length: 10 }, () => [] as OcAlloc[]);
         const varArtigos = new Set<string>();
         tecidosData.variantes
           .filter((v: any) => v.modelo_tecido_id === t.id)
@@ -323,7 +332,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
             const ord = (v.ordem ?? 1) - 1;
             if (ord >= 0 && ord < 10) {
               variantes[ord] = v.variante_tecido_id;
-              oc_links[ord] = linksByKey.get(`${t.tipo}-${t.numero}-${v.ordem ?? ord + 1}`) ?? null;
+              oc_links[ord] = linksByKey.get(`${t.tipo}-${t.numero}-${v.ordem ?? ord + 1}`) ?? [];
             }
             const aid = v.variantes_tecido?.artigo_id;
             if (aid) varArtigos.add(aid);
@@ -522,17 +531,19 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           loss_percent: b.loss_percent || 0,
           custo_previsto: b.custo_previsto || 0,
           variantes: b.variantes,
-          oc_links: b.variantes
-            .map((vid, i) => {
-              const ocItem = b.oc_links?.[i];
-              if (!vid || !ocItem) return null;
-              return {
+          oc_links: b.variantes.flatMap((vid, i) => {
+            const allocs = b.oc_links?.[i] ?? [];
+            if (!vid) return [];
+            return allocs
+              .filter((al) => al.oc_tecido_item_id)
+              .map((al) => ({
                 ordem: i + 1,
                 variante_tecido_id: vid,
-                oc_tecido_item_id: ocItem,
-              };
-            })
-            .filter((x) => x !== null),
+                oc_tecido_item_id: al.oc_tecido_item_id,
+                quantidade_m: al.quantidade_m ?? 0,
+                prioridade: al.prioridade ?? 1,
+              }));
+          }),
         }));
 
       const aviamentosPayload = aviamentosState
@@ -739,25 +750,28 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     setBlocks((bs) => bs.map((b, i) => {
       if (i !== idx) return b;
       const variantes = [...b.variantes];
-      const oc_links = [...(b.oc_links ?? Array(10).fill(null))];
+      const oc_links = (b.oc_links ?? []).map((a) => [...(a ?? [])]);
+      while (oc_links.length < 10) oc_links.push([]);
+      const prev = variantes[vIdx];
       variantes[vIdx] = value;
       if (!value) {
-        oc_links[vIdx] = null;
-        for (let k = vIdx + 1; k < variantes.length; k++) { variantes[k] = null; oc_links[k] = null; }
-      } else if (oc_links[vIdx] && variantes[vIdx] !== value) {
-        // variante mudou: invalida vínculo
-        oc_links[vIdx] = null;
+        oc_links[vIdx] = [];
+        for (let k = vIdx + 1; k < variantes.length; k++) { variantes[k] = null; oc_links[k] = []; }
+      } else if (prev !== value) {
+        // variante mudou: invalida os vínculos de OC (eram de outra variante)
+        oc_links[vIdx] = [];
       }
       // Recalcula: o custo usa o maior preço entre os artigos das variantes
       // escolhidas (substitutos podem ter preços diferentes).
       return recomputeBlock({ ...b, variantes, oc_links }, artigoMap, varianteArtigoMap);
     }));
   };
-  const updateBlockOcLink = (idx: number, vIdx: number, value: string | null) => {
+  const updateBlockOcLinks = (idx: number, vIdx: number, allocs: OcAlloc[]) => {
     setBlocks((bs) => bs.map((b, i) => {
       if (i !== idx) return b;
-      const oc_links = [...(b.oc_links ?? Array(10).fill(null))];
-      oc_links[vIdx] = value;
+      const oc_links = (b.oc_links ?? []).map((a) => [...(a ?? [])]);
+      while (oc_links.length < 10) oc_links.push([]);
+      oc_links[vIdx] = allocs;
       return { ...b, oc_links };
     }));
   };
@@ -872,9 +886,10 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 artigosForro={artigosForro}
                 artigosEntretela={artigosEntretela}
                 tecidosPlanejados={tecidosPlanejados}
+                grades={grades}
                 onChangeBlock={updateBlock}
                 onChangeVariante={updateBlockVariante}
-                onChangeOcLink={updateBlockOcLink}
+                onChangeOcLinks={updateBlockOcLinks}
               />
             </AccordionContent>
           </AccordionItem>

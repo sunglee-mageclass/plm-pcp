@@ -7,12 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { artigoLabel } from "@/lib/artigo-label";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, AlertTriangle, Check } from "lucide-react";
 import { Field, FieldSelectOpt } from "./shared";
-import { TIPOS, TIPO_LABEL, type TecidoBlock } from "./types";
+import { TIPOS, TIPO_LABEL, type TecidoBlock, type GradeRow, type OcAlloc } from "./types";
 import { EtiquetaLavagemArtigoView } from "@/components/shared/EtiquetaLavagemArtigo";
 
 type ArtigoOpt = { id: string; nome: string; unidade_medida?: string | null };
+
+const fmtM = (n: number) => Number(n || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 });
 
 export function ModeloTecidosSection({
   modeloId,
@@ -21,9 +23,10 @@ export function ModeloTecidosSection({
   artigosForro,
   artigosEntretela,
   tecidosPlanejados,
+  grades,
   onChangeBlock,
   onChangeVariante,
-  onChangeOcLink,
+  onChangeOcLinks,
 }: {
   modeloId: string;
   blocks: TecidoBlock[];
@@ -31,11 +34,16 @@ export function ModeloTecidosSection({
   artigosForro: ArtigoOpt[];
   artigosEntretela: ArtigoOpt[];
   tecidosPlanejados: string[];
+  grades: GradeRow[];
   onChangeBlock: (idx: number, patch: Partial<TecidoBlock>) => void;
   onChangeVariante: (idx: number, vIdx: number, value: string | null) => void;
-  onChangeOcLink: (idx: number, vIdx: number, value: string | null) => void;
+  onChangeOcLinks: (idx: number, vIdx: number, allocs: OcAlloc[]) => void;
 }) {
   const artigoNomeById = new Map(artigos.map((a) => [a.id, a.nome] as const));
+  // Peças por posição de variante (grade_total por variante_numero), p/ a
+  // necessidade de cada variante = consumo × (1+loss) × peças.
+  const gradeTotalByPos = (numero: number) =>
+    grades.find((g) => g.variante_numero === numero)?.grade_total ?? 0;
   const [visible, setVisible] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -101,9 +109,10 @@ export function ModeloTecidosSection({
                     allArtigos={artigos}
                     tecidosPlanejados={tecidosPlanejados}
                     artigoNomeById={artigoNomeById}
+                    gradeTotalByPos={gradeTotalByPos}
                     onChangeBlock={(p) => onChangeBlock(idx, p)}
                     onChangeVariante={(vi, val) => onChangeVariante(idx, vi, val)}
-                    onChangeOcLink={(vi, val) => onChangeOcLink(idx, vi, val)}
+                    onChangeOcLinks={(vi, allocs) => onChangeOcLinks(idx, vi, allocs)}
                     onRemove={() => hideBlock(idx, tipo, b.numero)}
                     removable={!(tipo === "tecido" && b.numero === 1)}
                   />
@@ -139,9 +148,10 @@ function TecidoBlockEditor({
   allArtigos,
   tecidosPlanejados,
   artigoNomeById,
+  gradeTotalByPos,
   onChangeBlock,
   onChangeVariante,
-  onChangeOcLink,
+  onChangeOcLinks,
   onRemove,
   removable,
 }: {
@@ -151,9 +161,10 @@ function TecidoBlockEditor({
   allArtigos: ArtigoOpt[];
   tecidosPlanejados: string[];
   artigoNomeById: Map<string, string>;
+  gradeTotalByPos: (numero: number) => number;
   onChangeBlock: (p: Partial<TecidoBlock>) => void;
   onChangeVariante: (vIdx: number, val: string | null) => void;
-  onChangeOcLink: (vIdx: number, val: string | null) => void;
+  onChangeOcLinks: (vIdx: number, allocs: OcAlloc[]) => void;
   onRemove: () => void;
   removable: boolean;
 }) {
@@ -282,11 +293,12 @@ function TecidoBlockEditor({
                       </SelectContent>
                     </Select>
                     {current && (
-                      <OcLinkSelect
+                      <OcLinksField
                         modeloId={modeloId}
                         varianteId={current}
-                        value={block.oc_links?.[i] ?? null}
-                        onChange={(val) => onChangeOcLink(i, val)}
+                        need={(block.consumo || 0) * (1 + (block.loss_percent || 0) / 100) * gradeTotalByPos(i + 1)}
+                        value={block.oc_links?.[i] ?? []}
+                        onChange={(allocs) => onChangeOcLinks(i, allocs)}
                       />
                     )}
                   </div>
@@ -299,16 +311,32 @@ function TecidoBlockEditor({
   );
 }
 
-function OcLinkSelect({
+type OcDisp = {
+  oc_tecido_item_id: string;
+  numero_pedido: string;
+  data_entrega: string | null;
+  recebida: boolean;
+  disponivel_m: number;
+};
+
+/**
+ * Vínculo de OCs de uma variante. Pode marcar mais de uma OC (a sobra de uma
+ * completa com outra) — alocação automática por saldo, na ordem de marcação.
+ * Mostra recebidas e previstas (plano), e alerta se a cobertura é suficiente.
+ * Sem marcar nenhuma = FIFO no corte.
+ */
+function OcLinksField({
   modeloId,
   varianteId,
+  need,
   value,
   onChange,
 }: {
   modeloId: string;
   varianteId: string;
-  value: string | null;
-  onChange: (val: string | null) => void;
+  need: number;
+  value: OcAlloc[];
+  onChange: (allocs: OcAlloc[]) => void;
 }) {
   const { data: ocs = [] } = useQuery({
     queryKey: ["ocs-disponiveis-variante", varianteId, modeloId],
@@ -316,37 +344,85 @@ function OcLinkSelect({
     queryFn: async () => {
       const { data, error } = await supabase.rpc("ocs_disponiveis_variante" as any, { _variante_id: varianteId, _modelo_id: modeloId });
       if (error) throw error;
-      return (data ?? []) as Array<{ oc_tecido_item_id: string; numero_pedido: string; data_entrega: string | null; saldo_m: number }>;
+      return (data ?? []) as OcDisp[];
     },
   });
 
-  // Garante que o vínculo atual aparece mesmo que saldo == 0 (já consumido pelo próprio modelo)
-  const options = [...ocs];
-  if (value && !options.find((o) => o.oc_tecido_item_id === value)) {
-    options.unshift({ oc_tecido_item_id: value, numero_pedido: "(vínculo)", data_entrega: null, saldo_m: 0 });
+  const ocById = new Map(ocs.map((o) => [o.oc_tecido_item_id, o]));
+  // Aloca a necessidade pelos saldos das OCs marcadas, na ordem (prioridade).
+  const allocate = (ids: string[]): OcAlloc[] => {
+    let restante = need;
+    return ids.map((id, idx) => {
+      const saldo = Math.max(0, Number(ocById.get(id)?.disponivel_m ?? 0));
+      const q = need > 0 ? Math.min(restante, saldo) : 0;
+      restante = Math.max(0, restante - q);
+      return { oc_tecido_item_id: id, quantidade_m: Math.round(q * 100) / 100, prioridade: idx + 1 };
+    });
+  };
+
+  const selectedIds = value.map((v) => v.oc_tecido_item_id);
+  const toggle = (id: string) => {
+    const ids = selectedIds.includes(id) ? selectedIds.filter((x) => x !== id) : [...selectedIds, id];
+    onChange(allocate(ids));
+  };
+
+  // OCs vinculadas que não voltaram na lista (ex.: já zeradas) não somem.
+  const extraSelected: OcDisp[] = value
+    .filter((v) => !ocById.has(v.oc_tecido_item_id))
+    .map((v) => ({ oc_tecido_item_id: v.oc_tecido_item_id, numero_pedido: "(vínculo)", data_entrega: null, recebida: true, disponivel_m: 0 }));
+  const rows = [...ocs, ...extraSelected];
+
+  if (rows.length === 0) {
+    return <p className="text-[11px] text-muted-foreground">Sem OC desta variante — corte usa FIFO.</p>;
   }
 
+  const coberto = value.reduce((s, v) => s + (v.quantidade_m || 0), 0);
+  const suficiente = need <= 0 || coberto + 1e-6 >= need;
+
   return (
-    <Select
-      value={value ?? "__fifo__"}
-      onValueChange={(v) => onChange(v === "__fifo__" ? null : v)}
-    >
-      <SelectTrigger className="h-8 text-xs">
-        <SelectValue placeholder="Sem vínculo (FIFO no corte)" />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="__fifo__">Sem vínculo (FIFO no corte)</SelectItem>
-        {options.map((o) => {
-          const entrega = o.data_entrega
-            ? new Date(o.data_entrega).toLocaleDateString("pt-BR")
-            : "—";
+    <div className="rounded-md border p-1.5 space-y-1">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[11px] text-muted-foreground">OCs (sem marcar = FIFO no corte)</span>
+        {need > 0 && (
+          <span className="flex items-center gap-1.5">
+            {value.length > 0 && (
+              <button type="button" className="text-[10px] text-muted-foreground hover:text-foreground underline" onClick={() => onChange(allocate(selectedIds))}>
+                redistribuir
+              </button>
+            )}
+            <span className={`text-[11px] inline-flex items-center gap-0.5 ${suficiente ? "text-emerald-600" : "text-destructive"}`}>
+              {suficiente ? <Check className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+              {fmtM(coberto)} / {fmtM(need)}m
+            </span>
+          </span>
+        )}
+      </div>
+      {!suficiente && need > 0 && (
+        <p className="text-[11px] text-destructive">Faltam {fmtM(need - coberto)}m — marque mais OCs ou ajuste consumo/grade.</p>
+      )}
+      <div className="space-y-0.5">
+        {rows.map((o) => {
+          const alloc = value.find((v) => v.oc_tecido_item_id === o.oc_tecido_item_id);
+          const checked = !!alloc;
+          const entrega = o.data_entrega ? new Date(o.data_entrega).toLocaleDateString("pt-BR") : "—";
+          const semSaldo = Number(o.disponivel_m) <= 0;
           return (
-            <SelectItem key={o.oc_tecido_item_id} value={o.oc_tecido_item_id}>
-              OC {o.numero_pedido} · {entrega} · {Number(o.saldo_m).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}m
-            </SelectItem>
+            <label key={o.oc_tecido_item_id} className="flex items-center gap-1.5 text-[11px] cursor-pointer">
+              <input type="checkbox" className="h-3 w-3 shrink-0" checked={checked} onChange={() => toggle(o.oc_tecido_item_id)} />
+              <span className="font-mono">OC {o.numero_pedido}</span>
+              {!o.recebida && (
+                <Badge variant="outline" className="h-4 px-1 text-[9px] border-amber-500 text-amber-600">prevista · {entrega}</Badge>
+              )}
+              <span className={semSaldo ? "text-destructive" : "text-muted-foreground"}>
+                {o.recebida ? "saldo" : "prev."} {fmtM(o.disponivel_m)}m
+              </span>
+              {checked && alloc && alloc.quantidade_m > 0 && (
+                <span className="ml-auto text-foreground whitespace-nowrap">usa {fmtM(alloc.quantidade_m)}m</span>
+              )}
+            </label>
           );
         })}
-      </SelectContent>
-    </Select>
+      </div>
+    </div>
   );
 }
