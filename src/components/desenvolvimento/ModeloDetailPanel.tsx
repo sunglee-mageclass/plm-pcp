@@ -1,4 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Loader2, Send } from "lucide-react";
@@ -228,6 +232,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const [aviamentosState, setAviamentosState] = useState<AviamentoRow[]>([]);
   const [grades, setGrades] = useState<GradeRow[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [confirmEnviarCad, setConfirmEnviarCad] = useState(false);
 
   useEffect(() => {
     if (modelo) {
@@ -866,7 +871,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         )}
         <Button variant="ghost" onClick={onClose}>Fechar</Button>
         {canEnviarCad && (
-          <Button variant="secondary" onClick={() => enviarCad.mutate()} disabled={enviarCad.isPending}>
+          <Button variant="secondary" onClick={() => setConfirmEnviarCad(true)} disabled={enviarCad.isPending}>
             {enviarCad.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             <Send className="h-4 w-4 mr-2" /> Enviar para o CAD
           </Button>
@@ -875,6 +880,24 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           {save.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Salvar
         </Button>
       </div>
+
+      <AlertDialog open={confirmEnviarCad} onOpenChange={setConfirmEnviarCad}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Tem certeza que quer enviar ao CAD?</AlertDialogTitle>
+            <AlertDialogDescription>
+              O modelo sai do Desenvolvimento e vai para o CAD (Produção) com os tecidos,
+              variantes e grade atuais. Você ainda poderá ajustar os consumos no CAD.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Não, quero fazer uma revisão antes</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { setConfirmEnviarCad(false); enviarCad.mutate(); }}>
+              Sim
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

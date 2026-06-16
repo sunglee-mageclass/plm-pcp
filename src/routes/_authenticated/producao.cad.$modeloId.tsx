@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ImageIcon, Scissors } from "lucide-react";
 import { toast } from "sonner";
@@ -41,6 +41,8 @@ function CadDetailPage() {
   const { modeloId } = Route.useParams();
   const qc = useQueryClient();
   const readOnly = useReadOnly();
+  const navigate = useNavigate();
+  const [confirmDel, setConfirmDel] = useState(false);
 
   // --- queries ---
   const { data: modelo } = useQuery({
@@ -450,6 +452,25 @@ function CadDetailPage() {
     enviarCorte.mutate();
   };
 
+  const excluirCad = useMutation({
+    mutationFn: async () => {
+      // Apaga o CAD (cad_tecidos/grades/aviamentos e etapas de produção caem por
+      // ON DELETE CASCADE; trava se houver lançamentos) e devolve o modelo ao Dev.
+      if (cadRow?.id) {
+        const { error } = await supabase.from("cad").delete().eq("id", cadRow.id);
+        if (error) throw error;
+      }
+      const { error: e2 } = await supabase.from("modelos").update({ enviado_cad: false }).eq("id", modeloId);
+      if (e2) throw e2;
+    },
+    onSuccess: () => {
+      toast.success("CAD excluído. O modelo voltou para o Desenvolvimento.");
+      qc.invalidateQueries({ queryKey: ["producao-cad-list"] });
+      navigate({ to: "/producao/cad" });
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao excluir CAD"),
+  });
+
   return (
     <>
       <div className="container mx-auto p-6 space-y-6 no-print">
@@ -457,6 +478,7 @@ function CadDetailPage() {
           onPrint={handlePrint}
           onSave={() => saveAll.mutate()}
           onEnviar={handleEnviar}
+          onExcluir={() => setConfirmDel(true)}
           saving={saveAll.isPending}
           enviando={enviarCorte.isPending}
           enviado={!!cadRow?.enviado_corte}
@@ -551,6 +573,29 @@ function CadDetailPage() {
               }}
             >
               Enviar mesmo assim
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmDel} onOpenChange={setConfirmDel}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir o CAD deste modelo?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Remove o CAD (tecidos, grade, aviamentos e etapas de produção vinculadas) e
+              devolve o modelo ao <strong>Desenvolvimento</strong>, onde poderá ser enviado ao
+              CAD novamente. Não é possível excluir se já houver lançamentos. Esta ação não pode
+              ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { setConfirmDel(false); excluirCad.mutate(); }}
+            >
+              Excluir CAD
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

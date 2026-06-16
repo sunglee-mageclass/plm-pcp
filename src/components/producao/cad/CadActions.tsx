@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { ArrowLeft, CheckCircle2, Printer, Save, Send } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Printer, Save, Send, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
@@ -7,6 +7,7 @@ type Props = {
   onPrint: () => void;
   onSave: () => void;
   onEnviar: () => void;
+  onExcluir?: () => void;
   saving: boolean;
   enviando: boolean;
   enviado: boolean;
@@ -20,12 +21,19 @@ function fmtDate(d?: string | null) {
   return `${day}/${m}/${y}`;
 }
 
-export function CadActions({ onPrint, onSave, onEnviar, saving, enviando, enviado, dataEnviado, readOnly }: Props) {
+export function CadActions({ onPrint, onSave, onEnviar, onExcluir, saving, enviando, enviado, dataEnviado, readOnly }: Props) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <Link to="/producao/cad" className="text-sm text-muted-foreground hover:underline flex items-center gap-1">
-        <ArrowLeft className="h-4 w-4" /> Voltar
-      </Link>
+      <div className="flex items-center gap-3">
+        <Link to="/producao/cad" className="text-sm text-muted-foreground hover:underline flex items-center gap-1">
+          <ArrowLeft className="h-4 w-4" /> Voltar
+        </Link>
+        {onExcluir && !readOnly && (
+          <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={onExcluir}>
+            <Trash2 className="h-4 w-4 mr-1" /> Excluir CAD
+          </Button>
+        )}
+      </div>
       <div className="flex gap-2 items-center">
         <Button variant="outline" onClick={onSave} disabled={saving || readOnly}>
           <Save className="h-4 w-4 mr-1" /> Salvar
