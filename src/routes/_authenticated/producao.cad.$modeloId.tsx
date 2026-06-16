@@ -72,7 +72,7 @@ function CadDetailPage() {
       const { data, error } = await supabase
         .from("modelo_tecidos")
         .select(
-          "id, numero, tipo, artigo_id, consumo, loss_percent, artigos:artigo_id(nome, preco_por_metro, unidade_medida, etiqueta_lavagem_urls), modelo_tecido_variantes(id, variante_tecido_id, ordem, variantes_tecido:variante_tecido_id(nome))",
+          "id, numero, tipo, artigo_id, consumo, loss_percent, artigos:artigo_id(nome, preco_por_metro, unidade_medida, etiqueta_lavagem_urls), modelo_tecido_variantes(id, variante_tecido_id, ordem, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante))",
         )
         .eq("modelo_id", modeloId)
         .order("tipo")
@@ -89,7 +89,7 @@ function CadDetailPage() {
       const { data, error } = await supabase
         .from("cad_tecidos")
         .select(
-          "*, artigos:artigo_id(nome, preco_por_metro, unidade_medida, etiqueta_lavagem_urls), cad_tecido_variantes(*, variantes_tecido:variante_tecido_id(nome))",
+          "*, artigos:artigo_id(nome, preco_por_metro, unidade_medida, etiqueta_lavagem_urls), cad_tecido_variantes(*, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante))",
         )
         .eq("cad_id", cadRow!.id);
       if (error) throw error;
@@ -172,7 +172,7 @@ function CadDetailPage() {
         variantes: (t.cad_tecido_variantes ?? []).map((v: any) => ({
           id: v.id,
           variante_tecido_id: v.variante_tecido_id,
-          variante_nome: v.variantes_tecido?.nome,
+          variante_nome: v.variantes_tecido?.nome_variante ?? v.variantes_tecido?.codigo_variante,
           ordem: v.ordem,
           quantidade_folhas: Number(v.quantidade_folhas ?? 0),
           metragem_planejada: Number(v.metragem_planejada ?? 0),
@@ -197,7 +197,7 @@ function CadDetailPage() {
           etiqueta_lavagem_urls: (mt.artigos?.etiqueta_lavagem_urls ?? []) as string[],
           variantes: (mt.modelo_tecido_variantes ?? []).map((v: any) => ({
             variante_tecido_id: v.variante_tecido_id,
-            variante_nome: v.variantes_tecido?.nome,
+            variante_nome: v.variantes_tecido?.nome_variante ?? v.variantes_tecido?.codigo_variante,
             ordem: v.ordem,
             quantidade_folhas: 0,
             metragem_planejada: 0,
