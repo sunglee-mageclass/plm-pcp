@@ -357,7 +357,7 @@ function CadDetailPage() {
       }
       await supabase.from("cad_tecidos").delete().eq("cad_id", cad_id!);
       await supabase.from("cad_grades").delete().eq("cad_id", cad_id!);
-      for (const t of resolvedTecidos) {
+      for (const t of tecidos) {
         const { data: ins, error } = await supabase
           .from("cad_tecidos")
           .insert({
@@ -514,24 +514,32 @@ function CadDetailPage() {
     [proporcoes],
   );
   const gradeTotalByNumero = (n: number) => grades.find((g) => g.variante_numero === n)?.grade_total ?? 0;
-  const round4 = (n: number) => Math.round(n * 10000) / 10000;
-  const resolvedTecidos = useMemo<TecidoRow[]>(() => {
-    if (!autoFolhas) return tecidos;
-    return tecidos.map((t) => {
-      const variantes = t.variantes.map((v) => {
-        const gt = gradeTotalByNumero(v.ordem);
-        const quantidade_folhas = sumProporcoes > 0 ? round4(gt / sumProporcoes) : 0;
-        const metragem_planejada = round4(gt * (t.consumo_cad || 0));
-        return { ...v, quantidade_folhas, metragem_planejada };
+  const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+  // Cálculo automático GRAVA os valores no estado (prevalecem; ao desligar o
+  // check eles ficam e podem ser ajustados à mão). Converge via guarda `changed`.
+  useEffect(() => {
+    if (!autoFolhas) return;
+    setTecidos((prev) => {
+      let changed = false;
+      const next = prev.map((t) => {
+        const variantes = t.variantes.map((v) => {
+          const gt = gradeTotalByNumero(v.ordem);
+          const quantidade_folhas = sumProporcoes > 0 ? round2(gt / sumProporcoes) : 0;
+          const metragem_planejada = round2(gt * (t.consumo_cad || 0));
+          if (v.quantidade_folhas !== quantidade_folhas || v.metragem_planejada !== metragem_planejada) changed = true;
+          return { ...v, quantidade_folhas, metragem_planejada };
+        });
+        const totalMetragem = variantes.reduce((a, v) => a + v.metragem_planejada, 0);
+        const totalFolhas = variantes.reduce((a, v) => a + v.quantidade_folhas, 0);
+        const a = totalFolhas > 0 ? totalMetragem / totalFolhas : 0;
+        const largura = Number(t.largura || 0);
+        const tamanho_folha = largura > 0 ? round2(a / largura) : 0;
+        if (t.tamanho_folha !== tamanho_folha) changed = true;
+        return { ...t, variantes, tamanho_folha };
       });
-      const totalMetragem = variantes.reduce((a, v) => a + v.metragem_planejada, 0);
-      const totalFolhas = variantes.reduce((a, v) => a + v.quantidade_folhas, 0);
-      const a = totalFolhas > 0 ? totalMetragem / totalFolhas : 0;
-      const largura = Number(t.largura || 0);
-      const tamanho_folha = largura > 0 ? round4(a / largura) : 0;
-      return { ...t, variantes, tamanho_folha };
+      return changed ? next : prev;
     });
-  }, [autoFolhas, tecidos, grades, sumProporcoes]);
+  }, [autoFolhas, grades, proporcoes, tecidos]);
 
   useEffect(() => {
     setAviamentos((prev) => prev.map((a) => {
@@ -625,7 +633,7 @@ function CadDetailPage() {
         </Card>
 
         <CadTecidosSection
-          tecidos={resolvedTecidos}
+          tecidos={tecidos}
           updateTec={updateTec}
           updateVar={updateVar}
           autoFolhas={autoFolhas}
@@ -656,7 +664,7 @@ function CadDetailPage() {
           modelo={modelo}
           cadRow={cadRow}
           previsaoEntrega={previsaoEntrega}
-          tecidos={resolvedTecidos}
+          tecidos={tecidos}
           grades={grades}
           tamanhosAll={tamanhosAll}
           aviamentos={aviamentos}

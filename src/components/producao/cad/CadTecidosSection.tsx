@@ -1,3 +1,4 @@
+import { AlertTriangle } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -15,7 +16,6 @@ type Props = {
 
 export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, onToggleAutoFolhas }: Props) {
   const ro = !!autoFolhas;
-  const roCls = ro ? "bg-muted" : "";
   return (
     <Card className="p-5 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -46,9 +46,14 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary" className="capitalize">{t.tipo} {t.numero}</Badge>
             <span className="text-sm font-medium">{t.artigo_nome ?? "Sem artigo"}</span>
-            <span className="text-xs text-muted-foreground">
-              (preço: R$ {t.preco.toFixed(2)}/m · largura: {Number(t.largura ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}m)
-            </span>
+            <span className="text-xs text-muted-foreground">(preço: R$ {t.preco.toFixed(2)}/m</span>
+            {Number(t.largura ?? 0) > 0 ? (
+              <span className="text-xs text-muted-foreground">· largura: {Number(t.largura).toFixed(2)} m)</span>
+            ) : (
+              <span className="text-xs text-destructive font-medium inline-flex items-center gap-1">
+                · <AlertTriangle className="h-3 w-3" /> largura não definida)
+              </span>
+            )}
           </div>
           {t.artigo_id && <EtiquetaLavagemArtigoView artigoId={t.artigo_id} size="sm" />}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -64,8 +69,12 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
               <Input value={t.custo_cad.toFixed(2)} readOnly className="bg-muted" />
             </Field>
             <Field label="Tamanho da folha (m)">
-              <Input type="number" step="0.01" value={t.tamanho_folha} readOnly={ro} className={roCls}
-                onChange={(e) => updateTec(i, { tamanho_folha: Number(e.target.value) })} />
+              {ro ? (
+                <Input readOnly className="bg-muted" value={Number(t.tamanho_folha ?? 0).toFixed(2)} />
+              ) : (
+                <Input type="number" step="0.01" value={t.tamanho_folha}
+                  onChange={(e) => updateTec(i, { tamanho_folha: Number(e.target.value) })} />
+              )}
             </Field>
           </div>
           {t.variantes.length > 0 && (
@@ -84,12 +93,20 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
                     <tr key={`${v.variante_tecido_id}-${j}`} className="border-t">
                       <td className="px-2 py-1">{v.variante_nome ?? "—"}</td>
                       <td className="px-2 py-1">
-                        <Input type="number" value={v.quantidade_folhas} readOnly={ro} className={roCls}
-                          onChange={(e) => updateVar(i, j, { quantidade_folhas: Number(e.target.value) })} />
+                        {ro ? (
+                          <Input readOnly className="bg-muted" value={Number(v.quantidade_folhas ?? 0).toFixed(2)} />
+                        ) : (
+                          <Input type="number" value={v.quantidade_folhas}
+                            onChange={(e) => updateVar(i, j, { quantidade_folhas: Number(e.target.value) })} />
+                        )}
                       </td>
                       <td className="px-2 py-1">
-                        <Input type="number" step="0.01" value={v.metragem_planejada} readOnly={ro} className={roCls}
-                          onChange={(e) => updateVar(i, j, { metragem_planejada: Number(e.target.value) })} />
+                        {ro ? (
+                          <Input readOnly className="bg-muted" value={Number(v.metragem_planejada ?? 0).toFixed(2)} />
+                        ) : (
+                          <Input type="number" step="0.01" value={v.metragem_planejada}
+                            onChange={(e) => updateVar(i, j, { metragem_planejada: Number(e.target.value) })} />
+                        )}
                       </td>
                       <td className="px-2 py-1">
                         <Input type="number" step="0.01" value={v.metragem_enviada}
