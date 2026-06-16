@@ -1,8 +1,11 @@
 # Prompt p/ Lovable — Múltiplas OCs por variante + OCs previstas + alerta de cobertura
 
-Cole o texto abaixo no chat do Lovable. Ele só mexe no **banco** (tabela + 3
-funções). Depois que o Lovable criar a migration, eu faço `git pull` +
-`supabase db push` no banco próprio e implemento o front que casa com isto.
+> **Já aplicado direto no Supabase próprio em 16/06/2026** (migration
+> `20260616120000_oc_multiplas_previstas.sql`). Este texto fica só para, **se/quando
+> você quiser**, colar no Lovable e manter o ambiente dele alinhado. Não é
+> obrigatório rodar.
+
+Cole o texto abaixo no chat do Lovable. Ele só mexe no **banco** (tabela + 3 funções).
 
 ---
 

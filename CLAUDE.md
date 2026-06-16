@@ -77,7 +77,7 @@ Scripts: `npm run dev` · `npm run build` · `npm run lint`
 
 ## Estado dos bugs (verificado em 12/06/2026, commit f736b85)
 
-A maioria do backlog já foi corrigida. Padrões a **preservar** (não regredir):
+A maioria do backlog já foi corrigido. Padrões a **preservar** (não regredir):
 
 1. **Parcelas (OC)** — ✅ corrigido. O save salva os itens ANTES de marcar
    status='recebido' (ver comentário "CRITICAL" em `oc-aviamento.tsx`). RPC
@@ -106,3 +106,14 @@ repo muda rápido (Lovable + VS Code). Backlog histórico em
 - Não atualizar recharts para v3 agora (tem breaking changes).
 - Não editar arquivos em `src/components/ui/` (shadcn gerado) sem necessidade.
 - Não commitar `.env` (já está no `.gitignore`).
+
+## Agentes disponíveis (ajustados para sisTrama)
+
+- `debug-expert`: debug de bugs (OC, estoque, storage tenant, RPCs)
+- `code-reviewer`: revisão de código React + TanStack Router + Supabase
+- `domain-plm-pcp`: conhecimento de domínio PLM+PCP **para confecção de moda**
+- `architect-system`: design arquitetura **Vite+React+Supabase multi-tenant**
+- `product-lead`: estratégia + backlog **para sisTrama**
+- `ux-tester`: testes de usabilidade **telas de cadastro/criação/produção/financeiro**
+- `qa-engineer`: testes automatizados **TanStack Query + Supabase RPC + storage**
+- `devops-specialist`: infra + deploy **Lovable Cloud + git push/pull**
