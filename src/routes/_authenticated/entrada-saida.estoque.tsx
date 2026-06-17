@@ -313,52 +313,28 @@ function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
       return (data ?? []) as Array<any>;
     },
   });
-  const { data: pendentes = [], isLoading: loadingPend } = useQuery({
-    queryKey: ["estoque-tecido-pendentes-oc", row.varId, row.artigoId],
-    enabled: open,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("ocs_tecido_itens")
-        .select("id, quantidade_pedida, oc_tecido_id, artigo_id, ocs_tecido!inner(numero_pedido, data_prevista_entrega, status, empresas(nome_fantasia)), artigos(unidade_medida, rendimento)")
-        .eq("variante_tecido_id", row.varId)
-        .eq("ocs_tecido.status", "encomendado")
-        .eq("cancelado" as any, false);
-      if (error) throw error;
-      return (data ?? []) as any[];
-    },
-  });
+  const loadingPend = false;
   // Parte da reserva total da variante que não está atribuída a nenhuma OC
-  // (modelos aprovados sem vínculo de OC no Desenvolvimento). Algumas fábricas
-  // não atribuem a OC — então apenas informamos, sem bloquear.
+  // (modelos sem vínculo de OC no Desenvolvimento). Algumas fábricas não atribuem
+  // a OC — então apenas informamos, sem bloquear.
   const reservaSemOc =
     Number(row.reservado ?? 0) - detalhe.reduce((s: number, d: any) => s + Number(d.reservado_m ?? 0), 0);
 
-  // Estoque por OC com os MESMOS campos da variante. Recebidas (verde) + pendentes (amarelo).
-  const ocRows = [
-    ...detalhe.map((d: any) => {
-      const recebido = Number(d.recebido_m ?? 0);
-      const baixa = Number(d.baixado_m ?? 0);
-      const reservado = Number(d.reservado_m ?? 0);
-      const fisico = recebido - baixa;
-      return {
-        key: `r-${d.oc_tecido_item_id}`, status: "recebida" as const,
-        oc: d.numero_pedido, fornecedor: d.fornecedor, entrega: d.data_entrega,
-        prevReceb: 0, recebido, baixa, fisico, reservado, previsto: fisico - reservado,
-      };
-    }),
-    ...pendentes.map((p: any) => {
-      const qtd = Number(p.quantidade_pedida ?? 0);
-      const isKgP = p.artigos?.unidade_medida === "kg";
-      const rend = Number(p.artigos?.rendimento ?? 0) || 1;
-      const prevReceb = isKgP ? qtd * rend : qtd;
-      return {
-        key: `p-${p.id}`, status: "pendente" as const,
-        oc: p.ocs_tecido?.numero_pedido, fornecedor: p.ocs_tecido?.empresas?.nome_fantasia,
-        entrega: p.ocs_tecido?.data_prevista_entrega,
-        prevReceb, recebido: 0, baixa: 0, fisico: 0, reservado: 0, previsto: prevReceb,
-      };
-    }),
-  ];
+  // Estoque por OC com os MESMOS campos da variante. A RPC já traz recebidas
+  // (verde) e pendentes/encomendado (amarelo), com a reserva calculada p/ ambas.
+  const ocRows = detalhe.map((d: any) => {
+    const recebido = Number(d.recebido_m ?? 0);
+    const baixa = Number(d.baixado_m ?? 0);
+    const reservado = Number(d.reservado_m ?? 0);
+    const prevReceb = Number(d.prev_receb_m ?? 0);
+    const fisico = recebido - baixa;
+    return {
+      key: d.oc_tecido_item_id,
+      status: d.recebida ? ("recebida" as const) : ("pendente" as const),
+      oc: d.numero_pedido, fornecedor: d.fornecedor, entrega: d.data_entrega,
+      prevReceb, recebido, baixa, fisico, reservado, previsto: fisico + prevReceb - reservado,
+    };
+  });
 
   return (
     <>
