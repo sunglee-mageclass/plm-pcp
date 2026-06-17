@@ -1,7 +1,7 @@
 import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Settings, Plus, GripVertical, Trash2, Save } from "lucide-react";
+import { Settings, Plus, GripVertical, Trash2, Save, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   DndContext,
@@ -26,7 +26,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import {
   Select,
@@ -172,49 +171,7 @@ function ConfiguracoesLojaPage() {
         </Button>
       </header>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Fluxo de Produção</CardTitle>
-          <CardDescription>Define como as etapas de fabricação são organizadas.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <ToggleRow
-            label="Usa PL?"
-            description="Habilita o módulo de Planejamento."
-            checked={cfg.usa_pl}
-            onChange={(v) => setCfg({ ...cfg, usa_pl: v })}
-          />
-          <ToggleRow
-            label="Corte interno?"
-            description="Corte realizado dentro da loja."
-            checked={cfg.corte_interno}
-            onChange={(v) => setCfg({ ...cfg, corte_interno: v })}
-          />
-          <ToggleRow
-            label="Oficina interna?"
-            description="Costura realizada dentro da loja."
-            checked={cfg.oficina_interna}
-            onChange={(v) => setCfg({ ...cfg, oficina_interna: v })}
-          />
-          <div className="space-y-2">
-            <Label>Posição da oficina</Label>
-            <Select
-              value={cfg.oficina_posicao}
-              onValueChange={(v) =>
-                setCfg({ ...cfg, oficina_posicao: v as ConfigState["oficina_posicao"] })
-              }
-            >
-              <SelectTrigger className="w-full md:w-72">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="terceirizados">Terceirizados</SelectItem>
-                <SelectItem value="acabamento">Acabamento</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
+      <ServicosCard tenantId={data?.tenantId ?? null} />
 
       <SortableListCard
         title="Acabamento"
@@ -340,28 +297,6 @@ function ConfiguracoesLojaPage() {
           </p>
         </CardContent>
       </Card>
-    </div>
-  );
-}
-
-function ToggleRow({
-  label,
-  description,
-  checked,
-  onChange,
-}: {
-  label: string;
-  description?: string;
-  checked: boolean;
-  onChange: (v: boolean) => void;
-}) {
-  return (
-    <div className="flex items-center justify-between rounded-lg border p-3">
-      <div>
-        <p className="font-medium">{label}</p>
-        {description && <p className="text-xs text-muted-foreground">{description}</p>}
-      </div>
-      <Switch checked={checked} onCheckedChange={onChange} />
     </div>
   );
 }
@@ -498,6 +433,178 @@ function SortableItem({
       <Input
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        className="h-8 border-0 shadow-none focus-visible:ring-1"
+      />
+      <Button type="button" size="icon" variant="ghost" onClick={onRemove}>
+        <Trash2 className="h-4 w-4 text-destructive" />
+      </Button>
+    </li>
+  );
+}
+
+// Categorias de Terceirizado (mesma lista usada em Cadastro → Serviço → Terceirizados).
+// Mesmo padrão visual do card de Acabamento, mas persiste direto na tabela
+// `categorias_terceirizado` (cada ação salva na hora, não depende do botão "Salvar").
+function ServicosCard({ tenantId }: { tenantId: string | null }) {
+  const qc = useQueryClient();
+  const [draft, setDraft] = useState("");
+
+  const { data: categorias = [], isLoading } = useQuery({
+    queryKey: ["categorias_terceirizado", "config"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("categorias_terceirizado")
+        .select("id, nome")
+        .order("nome");
+      if (error) throw error;
+      return (data ?? []) as { id: string; nome: string }[];
+    },
+  });
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["categorias_terceirizado", "config"] });
+    // Mesma lista consumida no cadastro de Terceirizados.
+    qc.invalidateQueries({ queryKey: ["cat-terceirizado-options"] });
+  };
+
+  const addMut = useMutation({
+    mutationFn: async (nome: string) => {
+      // tenant_id é preenchido pelo trigger set_tenant_id.
+      const { error } = await supabase.from("categorias_terceirizado").insert({ nome });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setDraft("");
+      invalidate();
+    },
+    onError: (e: any) =>
+      toast.error(e?.code === "23505" ? "Categoria já existe." : e.message ?? "Erro ao adicionar."),
+  });
+
+  const renameMut = useMutation({
+    mutationFn: async ({ id, nome }: { id: string; nome: string }) => {
+      const { error } = await supabase
+        .from("categorias_terceirizado")
+        .update({ nome })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: invalidate,
+    onError: (e: any) =>
+      toast.error(e?.code === "23505" ? "Categoria já existe." : e.message ?? "Erro ao renomear."),
+  });
+
+  const removeMut = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("categorias_terceirizado").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: invalidate,
+    onError: (e: any) =>
+      toast.error(
+        e?.code === "23503"
+          ? "Categoria em uso por terceirizados. Remova os vínculos antes."
+          : e.message ?? "Erro ao excluir.",
+      ),
+  });
+
+  const add = () => {
+    const v = draft.trim();
+    if (!v) return;
+    if (categorias.some((c) => c.nome.toLowerCase() === v.toLowerCase())) {
+      toast.error("Categoria já existe.");
+      return;
+    }
+    addMut.mutate(v);
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Serviços</CardTitle>
+        <CardDescription>Categorias dos serviços executados por terceirizados.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex gap-2">
+          <Input
+            placeholder="Ex: Estamparia"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                add();
+              }
+            }}
+            disabled={!tenantId}
+          />
+          <Button
+            type="button"
+            onClick={add}
+            variant="secondary"
+            disabled={!tenantId || addMut.isPending}
+          >
+            <Plus className="h-4 w-4 mr-1" /> Adicionar
+          </Button>
+        </div>
+
+        {isLoading ? (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground italic">
+            <Loader2 className="h-4 w-4 animate-spin" /> Carregando…
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {categorias.map((c) => (
+              <ServicoRow
+                key={c.id}
+                nome={c.nome}
+                onRename={(nome) => renameMut.mutate({ id: c.id, nome })}
+                onRemove={() => removeMut.mutate(c.id)}
+              />
+            ))}
+            {categorias.length === 0 && (
+              <li className="text-sm text-muted-foreground italic">Nenhuma categoria ainda.</li>
+            )}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ServicoRow({
+  nome,
+  onRename,
+  onRemove,
+}: {
+  nome: string;
+  onRename: (nome: string) => void;
+  onRemove: () => void;
+}) {
+  const [value, setValue] = useState(nome);
+  useEffect(() => setValue(nome), [nome]);
+
+  const commit = () => {
+    const v = value.trim();
+    if (!v) {
+      setValue(nome); // não permite vazio: reverte
+      return;
+    }
+    if (v !== nome) onRename(v);
+  };
+
+  return (
+    <li className="flex items-center gap-2 rounded-md border bg-card p-2">
+      <Input
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            (e.target as HTMLInputElement).blur();
+          }
+        }}
         className="h-8 border-0 shadow-none focus-visible:ring-1"
       />
       <Button type="button" size="icon" variant="ghost" onClick={onRemove}>
