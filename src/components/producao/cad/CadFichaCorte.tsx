@@ -99,7 +99,9 @@ function Etiquetas({ blocks }: { blocks: TecidoRow[] }) {
 export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos, labelByNumero, ocLinksByKey }: Props) {
   const isConjunto = (modelo?.cat_p?.nome ?? "").trim().toLowerCase() === "conjunto";
   const tecidoBlocks = tecidos.filter((t) => t.tipo === "tecido");
-  const forroEntretela = tecidos.filter((t) => t.tipo === "forro" || t.tipo === "entretela");
+  const forroBlocks = tecidos.filter((t) => t.tipo === "forro");
+  const entretelaBlocks = tecidos.filter((t) => t.tipo === "entretela");
+  const forroEntretela = [...forroBlocks, ...entretelaBlocks];
 
   const refHl: React.CSSProperties = {
     background: "#ffcdd2",
@@ -146,10 +148,12 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
           <Assinatura />
         </div>
 
-        {/* Metade de baixo: Forro e Entretela */}
+        {/* Metade de baixo: Forro e Entretela (tabelas separadas) */}
         <div className="print-section" style={{ ...halfStyle, borderTop: "1px dashed #999", paddingTop: 10 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Forro e Entretela</h3>
-          <MaterialTable blocks={forroEntretela} colMaterial="Material" ocLinksByKey={ocLinksByKey} />
+          <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Forro</h3>
+          <MaterialTable blocks={forroBlocks} colMaterial="Forro" ocLinksByKey={ocLinksByKey} />
+          <h3 style={{ fontSize: 14, fontWeight: 600, margin: "10px 0 0" }}>Entretela</h3>
+          <MaterialTable blocks={entretelaBlocks} colMaterial="Entretela" ocLinksByKey={ocLinksByKey} />
           <Etiquetas blocks={forroEntretela} />
           <Assinatura />
         </div>
