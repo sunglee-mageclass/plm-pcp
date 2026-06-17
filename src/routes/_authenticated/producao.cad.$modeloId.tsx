@@ -52,7 +52,7 @@ function CadDetailPage() {
       const { data, error } = await supabase
         .from("modelos")
         .select(
-          "*, estilista:estilista_id(nome), cat_p:categoria_principal_id(nome), cat_s:categoria_secundaria_id(nome)",
+          "*, estilista:estilista_id(nome), linha:linha_id(nome), cat_p:categoria_principal_id(nome), cat_s:categoria_secundaria_id(nome)",
         )
         .eq("id", modeloId)
         .single();
@@ -644,6 +644,7 @@ function CadDetailPage() {
             </div>
             <div className="text-sm text-muted-foreground grid grid-cols-2 gap-x-6 gap-y-1 mt-2">
               <span>Estilista: {modelo?.estilista?.nome ?? "—"}</span>
+              <span>Linha: {modelo?.linha?.nome ?? "—"}</span>
               <span>Coleção: {modelo?.colecao ?? "—"}</span>
               <span>Categoria: {modelo?.cat_p?.nome ?? "—"}</span>
               {(modelo?.cat_p?.nome ?? "").toLowerCase() === "conjunto" && (
