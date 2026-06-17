@@ -1,7 +1,15 @@
 // Catalog of permission pages used by the per-store Admin to restrict access.
 export type PageKey = string;
-export type PageDef = { key: PageKey; label: string };
+// modes: em quais perfis a página aparece. Ausente = ambos. ["full"] = só PLM
+// completo; ["stock"] = só modo só-estoque. (Não substitui permissão por usuário.)
+export type StoreProfile = "full" | "stock";
+export type PageDef = { key: PageKey; label: string; modes?: StoreProfile[] };
 export type ModuleDef = { module: string; label: string; basePath: string; pages: PageDef[] };
+
+/** Página visível no perfil atual da loja (full vs só-estoque)? */
+export function pageInProfile(p: PageDef, profile: StoreProfile): boolean {
+  return !p.modes || p.modes.includes(profile);
+}
 
 export const PAGES_CATALOG: ModuleDef[] = [
   {
@@ -10,11 +18,12 @@ export const PAGES_CATALOG: ModuleDef[] = [
     basePath: "/cadastro",
     pages: [
       { key: "cadastro_atributos", label: "Atributos" },
-      { key: "cadastro_colaboradores", label: "Colaboradores" },
-      { key: "cadastro_servico", label: "Serviço" },
+      { key: "cadastro_colaboradores", label: "Colaboradores", modes: ["full"] },
+      { key: "cadastro_servico", label: "Serviço", modes: ["full"] },
       { key: "cadastro_tecidos", label: "Tecidos" },
       { key: "cadastro_aviamentos", label: "Aviamentos" },
-      { key: "cadastro_etiquetas", label: "TAG/Etiquetas" },
+      { key: "cadastro_etiquetas", label: "TAG/Etiquetas", modes: ["full"] },
+      { key: "cadastro_destinos", label: "Destinos", modes: ["stock"] },
     ],
   },
   {
@@ -24,6 +33,8 @@ export const PAGES_CATALOG: ModuleDef[] = [
     pages: [
       { key: "entrada_oc_tecido", label: "OC Tecido" },
       { key: "entrada_oc_aviamento", label: "OC Aviamento" },
+      { key: "entrada_os_tecido", label: "OS Tecido", modes: ["stock"] },
+      { key: "entrada_os_aviamento", label: "OS Aviamento", modes: ["stock"] },
       { key: "entrada_estoque", label: "Estoque" },
     ],
   },

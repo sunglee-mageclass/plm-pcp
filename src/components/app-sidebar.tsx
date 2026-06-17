@@ -50,7 +50,7 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { Button } from "@/components/ui/button";
-import { PAGES_CATALOG } from "@/lib/permissions-catalog";
+import { PAGES_CATALOG, pageInProfile } from "@/lib/permissions-catalog";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useSystemIdentity } from "@/hooks/useSystemIdentity";
@@ -72,8 +72,11 @@ const PAGE_URLS: Record<string, string> = {
   cadastro_tecidos: "/cadastro/tecidos",
   cadastro_aviamentos: "/cadastro/aviamentos",
   cadastro_etiquetas: "/cadastro/etiquetas",
+  cadastro_destinos: "/cadastro/destinos",
   entrada_oc_tecido: "/entrada-saida/oc-tecido",
   entrada_oc_aviamento: "/entrada-saida/oc-aviamento",
+  entrada_os_tecido: "/entrada-saida/os-tecido",
+  entrada_os_aviamento: "/entrada-saida/os-aviamento",
   entrada_estoque: "/entrada-saida/estoque",
   criacao_planejamento: "/criacao/planejamento",
   criacao_desenvolvimento: "/criacao/desenvolvimento",
@@ -93,7 +96,8 @@ export function AppSidebar() {
   const collapsed = state === "collapsed";
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { isAdmin, isSuperAdmin, isTenantAdmin, canView, user, signOut } = useAuth();
-  const { isModuleEnabled } = useTenantModules();
+  const { isModuleEnabled, isStockOnly } = useTenantModules();
+  const profile = isStockOnly ? "stock" : "full";
 
   const { data: tenantCfg } = useQuery({
     queryKey: ["tenant_config", "oficina_posicao"],
@@ -125,6 +129,7 @@ export function AppSidebar() {
         pages = rest;
       }
       const subs = pages
+        .filter((p) => pageInProfile(p, profile))
         .filter((p) => PAGE_URLS[p.key] && (isAdmin || isSuperAdmin || isTenantAdmin || canView(p.key)))
         .map((p) => ({ key: p.key, label: p.label, url: PAGE_URLS[p.key] }));
       return {

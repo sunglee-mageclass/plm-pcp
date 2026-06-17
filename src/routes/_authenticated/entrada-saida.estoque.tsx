@@ -83,7 +83,7 @@ function TecidosTab() {
   const { data, isLoading, error } = useQuery({
     queryKey: ["estoque-tecidos"],
     queryFn: async () => {
-      const [variantesRes, ocItensRes, cadTecVarRes, modTecRes, modTecVarRes, modelosRes, modGradesRes] = await Promise.all([
+      const [variantesRes, ocItensRes, cadTecVarRes, modTecRes, modTecVarRes, modelosRes, modGradesRes, osItensRes] = await Promise.all([
         supabase.from("variantes_tecido").select("id, artigo_id, nome_variante, codigo_variante, cores(nome), artigos(id, nome, unidade_medida, rendimento, empresa_id, categoria_tecido_id, empresas(nome_fantasia), categorias_tecido(nome))"),
         supabase.from("ocs_tecido_itens").select("artigo_id, variante_tecido_id, quantidade_pedida, quantidade_recebida, cancelado, oc_tecido_id, ocs_tecido!inner(status)"),
         supabase.from("cad_tecido_variantes").select("variante_tecido_id, metragem_enviada, cad_tecidos!inner(artigo_id, cad!inner(enviado_corte))"),
@@ -91,9 +91,11 @@ function TecidosTab() {
         supabase.from("modelo_tecido_variantes").select("variante_tecido_id, modelo_tecido_id, ordem, multiplicador"),
         supabase.from("modelos").select("id, status_desenvolvimento, cad(enviado_corte)"),
         supabase.from("modelo_grades").select("modelo_id, variante_numero, grade_total"),
+        // OS Tecido (baixa manual do modo só-estoque): somada ao motor de estoque.
+        supabase.from("ordens_saida_tecido_itens" as any).select("variante_tecido_id, reserva, baixa, ordens_saida_tecido!inner(baixado)"),
       ]);
 
-      for (const r of [variantesRes, ocItensRes, cadTecVarRes, modTecRes, modTecVarRes, modelosRes, modGradesRes]) {
+      for (const r of [variantesRes, ocItensRes, cadTecVarRes, modTecRes, modTecVarRes, modelosRes, modGradesRes, osItensRes]) {
         if (r.error) throw r.error;
       }
 
@@ -104,6 +106,7 @@ function TecidosTab() {
       const modTecVar = modTecVarRes.data ?? [];
       const modelos = modelosRes.data ?? [];
       const modGrades = modGradesRes.data ?? [];
+      const osTecItens = (osItensRes.data ?? []) as any[];
 
       // 1ª reserva: vale desde o Desenvolvimento (BOM preenchido), exceto reprovados,
       // e persiste até o corte ser confirmado (enviado_corte) — depois vira baixa.
@@ -178,6 +181,13 @@ function TecidosTab() {
           const gradeTotal = gradeByModeloVar.get(`${mt.modelo_id}::${numeroVariante}`) ?? 0;
           get(v.varId).reservado += consumoComLoss * gradeTotal * (v.mult || 1);
         });
+      }
+
+      // OS Tecido: baixado → soma em baixa (reduz físico); aberta → soma em reservado.
+      for (const oi of osTecItens) {
+        if (!oi.variante_tecido_id) continue;
+        if (oi.ordens_saida_tecido?.baixado) get(oi.variante_tecido_id).baixa += num(oi.baixa);
+        else get(oi.variante_tecido_id).reservado += num(oi.reserva);
       }
 
       const rows = (variantes as any[]).map((v: any) => {
@@ -437,16 +447,18 @@ function AviamentosTab() {
   const { data, isLoading, error } = useQuery({
     queryKey: ["estoque-aviamentos"],
     queryFn: async () => {
-      const [aviamentosRes, ocItensRes, cadAvRes, modAvRes, modelosRes, modGradesRes] = await Promise.all([
+      const [aviamentosRes, ocItensRes, cadAvRes, modAvRes, modelosRes, modGradesRes, osItensRes] = await Promise.all([
         supabase.from("aviamentos").select("id, codigo_nome, empresa_id, categoria_aviamento_id, empresas(nome_fantasia), categorias_aviamento(nome)"),
         supabase.from("ocs_aviamento_itens").select("aviamento_id, quantidade_pedida, quantidade_recebida, cancelado, oc_aviamento_id, ocs_aviamento!inner(status)"),
         supabase.from("cad_aviamentos").select("aviamento_id, quantidade_enviar, quantidade_separar, cad!inner(enviado_corte)"),
         supabase.from("modelo_aviamentos").select("modelo_id, aviamento_id, consumo"),
         supabase.from("modelos").select("id, status_desenvolvimento, cad(enviado_corte)"),
         supabase.from("modelo_grades").select("modelo_id, grade_total"),
+        // OS Aviamento (baixa manual do modo só-estoque).
+        supabase.from("ordens_saida_aviamento_itens" as any).select("aviamento_id, reserva, baixa, ordens_saida_aviamento!inner(baixado)"),
       ]);
 
-      for (const r of [aviamentosRes, ocItensRes, cadAvRes, modAvRes, modelosRes, modGradesRes]) {
+      for (const r of [aviamentosRes, ocItensRes, cadAvRes, modAvRes, modelosRes, modGradesRes, osItensRes]) {
         if (r.error) throw r.error;
       }
 
@@ -456,6 +468,7 @@ function AviamentosTab() {
       const modAv = modAvRes;
       const modelos = modelosRes;
       const modGrades = modGradesRes;
+      const osItens = osItensRes;
 
       const aprovadoNaoCad = new Set(
         (modelos.data ?? [])
@@ -497,6 +510,13 @@ function AviamentosTab() {
         if (!m.aviamento_id || !m.modelo_id || !aprovadoNaoCad.has(m.modelo_id)) continue;
         const gt = gradeByModelo.get(m.modelo_id) ?? 0;
         get(m.aviamento_id).reservado += num(m.consumo) * gt;
+      }
+
+      // OS Aviamento: baixado → baixa; aberta → reservado.
+      for (const oi of (osItens.data ?? []) as any[]) {
+        if (!oi.aviamento_id) continue;
+        if (oi.ordens_saida_aviamento?.baixado) get(oi.aviamento_id).baixa += num(oi.baixa);
+        else get(oi.aviamento_id).reservado += num(oi.reserva);
       }
 
       const rows = (aviamentos.data ?? []).map((a: any) => {
