@@ -22,7 +22,7 @@ const fmt2 = (n: number | null | undefined) => Number(n ?? 0).toFixed(2);
 
 function Assinatura() {
   return (
-    <div style={{ marginTop: 16, fontSize: 12, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24 }}>
+    <div style={{ marginTop: 54, fontSize: 12, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24 }}>
       {["Nome", "Data", "Assinatura"].map((l) => (
         <div key={l}>
           <div style={{ borderBottom: "1px solid #000", height: 16 }} />
