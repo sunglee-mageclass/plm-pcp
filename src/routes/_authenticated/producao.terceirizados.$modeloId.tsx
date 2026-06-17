@@ -102,15 +102,13 @@ function TercDetailPage() {
     },
   });
 
-  // Colaboradores internos (tipo='interno', cadastrados em Atributos) —
-  // responsáveis quando o serviço é Interno.
+  // Colaboradores (Cadastro > Colaboradores) — responsáveis quando o serviço é Interno.
   const { data: colaboradores = [] } = useQuery({
-    queryKey: ["colaboradores-interno"],
+    queryKey: ["colaboradores-all"],
     queryFn: async () => {
       const { data } = await supabase
         .from("colaboradores")
         .select("id, nome")
-        .eq("tipo", "interno")
         .order("nome");
       return (data ?? []) as { id: string; nome: string }[];
     },

@@ -1,18 +1,37 @@
 import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Users } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Users, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { AttributeTab, type AttributeTabConfig } from "@/components/attribute-tab";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectTrigger,
   SelectValue,
   SelectContent,
-  SelectGroup,
-  SelectLabel,
   SelectItem,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 
@@ -25,81 +44,38 @@ export const Route = createFileRoute("/_authenticated/cadastro/colaboradores")({
   ),
 });
 
-type GroupKey = "COLABORADORES";
-
-type ColabItem = {
-  value: string;
+type Tab = {
+  key: string; // chave de seleção
   label: string;
-  group: GroupKey;
-  tipo: string;
+  tipo: string; // colaboradores.tipo
   config: AttributeTabConfig;
+  custom: boolean;
+  typeId?: string; // tipos_colaborador.id (só nos custom)
 };
 
-const usage = [{ table: "ocs_tecido", column: "responsavel_id" }];
-
-const ITEMS: ColabItem[] = [
-  {
-    value: "estilista",
-    label: "Estilista",
-    group: "COLABORADORES",
-    tipo: "estilista",
-    config: {
-      table: "colaboradores",
-      nameField: "nome",
-      singular: "Estilista",
-      plural: "Estilistas",
-      usage,
-      fixedFilter: { field: "tipo", value: "estilista" },
-    },
-  },
-  {
-    value: "modelista",
-    label: "Modelista",
-    group: "COLABORADORES",
-    tipo: "modelista",
-    config: {
-      table: "colaboradores",
-      nameField: "nome",
-      singular: "Modelista",
-      plural: "Modelistas",
-      usage,
-      fixedFilter: { field: "tipo", value: "modelista" },
-    },
-  },
-  {
-    value: "piloteiro",
-    label: "Piloteiro",
-    group: "COLABORADORES",
-    tipo: "piloteiro",
-    config: {
-      table: "colaboradores",
-      nameField: "nome",
-      singular: "Piloteiro",
-      plural: "Piloteiros",
-      usage,
-      fixedFilter: { field: "tipo", value: "piloteiro" },
-    },
-  },
-  {
-    value: "interno",
-    label: "Serviço Interno",
-    group: "COLABORADORES",
-    tipo: "interno",
-    config: {
-      table: "colaboradores",
-      nameField: "nome",
-      singular: "Colaborador interno",
-      plural: "Colaboradores internos",
-      usage: [
-        { table: "producao_terceirizados", column: "colaborador_id" },
-        { table: "producao_oficina", column: "colaborador_id" },
-      ],
-      fixedFilter: { field: "tipo", value: "interno" },
-    },
-  },
+// Tipos fixos: usados por outras telas (planejamento/CAD) pela string do tipo.
+const BUILTIN_USAGE = [{ table: "ocs_tecido", column: "responsavel_id" }];
+// Tipos custom: colaboradores podem ser responsáveis de serviços internos.
+const CUSTOM_USAGE = [
+  { table: "producao_terceirizados", column: "colaborador_id" },
+  { table: "producao_oficina", column: "colaborador_id" },
 ];
 
-const GROUP_ORDER: GroupKey[] = ["COLABORADORES"];
+const BUILTINS: Tab[] = [
+  {
+    key: "estilista", label: "Estilista", tipo: "estilista", custom: false,
+    config: { table: "colaboradores", nameField: "nome", singular: "Estilista", plural: "Estilistas", usage: BUILTIN_USAGE, fixedFilter: { field: "tipo", value: "estilista" } },
+  },
+  {
+    key: "modelista", label: "Modelista", tipo: "modelista", custom: false,
+    config: { table: "colaboradores", nameField: "nome", singular: "Modelista", plural: "Modelistas", usage: BUILTIN_USAGE, fixedFilter: { field: "tipo", value: "modelista" } },
+  },
+  {
+    key: "piloteiro", label: "Piloteiro", tipo: "piloteiro", custom: false,
+    config: { table: "colaboradores", nameField: "nome", singular: "Piloteiro", plural: "Piloteiros", usage: BUILTIN_USAGE, fixedFilter: { field: "tipo", value: "piloteiro" } },
+  },
+];
+const RESERVED = new Set(BUILTINS.map((b) => b.tipo.toLowerCase()));
 
 function useColabCount(tipo: string) {
   return useQuery({
@@ -116,21 +92,94 @@ function useColabCount(tipo: string) {
 }
 
 function ColaboradoresPage() {
-  const [selectedValue, setSelectedValue] = useState<string>(ITEMS[0].value);
+  const qc = useQueryClient();
+  const [selectedKey, setSelectedKey] = useState<string>(BUILTINS[0].key);
+  const [addOpen, setAddOpen] = useState(false);
+  const [novoTipo, setNovoTipo] = useState("");
+  const [delTab, setDelTab] = useState<Tab | null>(null);
+
+  const { data: tiposCustom = [] } = useQuery({
+    queryKey: ["tipos-colaborador"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("tipos_colaborador" as any)
+        .select("id, nome")
+        .order("nome");
+      if (error) throw error;
+      return ((data ?? []) as unknown) as { id: string; nome: string }[];
+    },
+  });
+
+  const tabs: Tab[] = useMemo(() => {
+    const custom = tiposCustom.map((t) => ({
+      key: `custom:${t.id}`,
+      label: t.nome,
+      tipo: t.nome,
+      custom: true,
+      typeId: t.id,
+      config: {
+        table: "colaboradores",
+        nameField: "nome",
+        singular: t.nome,
+        plural: t.nome,
+        usage: CUSTOM_USAGE,
+        fixedFilter: { field: "tipo", value: t.nome },
+      } as AttributeTabConfig,
+    }));
+    return [...BUILTINS, ...custom];
+  }, [tiposCustom]);
+
   const selected = useMemo(
-    () => ITEMS.find((a) => a.value === selectedValue) ?? ITEMS[0],
-    [selectedValue],
+    () => tabs.find((t) => t.key === selectedKey) ?? tabs[0],
+    [tabs, selectedKey],
   );
 
-  const grouped = useMemo(() => {
-    const map = new Map<GroupKey, ColabItem[]>();
-    for (const g of GROUP_ORDER) map.set(g, []);
-    for (const item of ITEMS) map.get(item.group)!.push(item);
-    return map;
-  }, []);
-
-  const qc = useQueryClient();
   const { data: count, isLoading: countLoading } = useColabCount(selected.tipo);
+
+  const addType = useMutation({
+    mutationFn: async (nome: string) => {
+      const v = nome.trim();
+      if (!v) throw new Error("Informe o nome do tipo.");
+      if (RESERVED.has(v.toLowerCase()))
+        throw new Error("Esse tipo já existe como tipo fixo.");
+      const { data, error } = await supabase
+        .from("tipos_colaborador" as any)
+        .insert({ nome: v })
+        .select("id")
+        .single();
+      if (error) throw error;
+      return (data as any).id as string;
+    },
+    onSuccess: (id) => {
+      setAddOpen(false);
+      setNovoTipo("");
+      qc.invalidateQueries({ queryKey: ["tipos-colaborador"] });
+      setSelectedKey(`custom:${id}`);
+      toast.success("Tipo criado.");
+    },
+    onError: (e: any) =>
+      toast.error(e?.code === "23505" ? "Tipo já existe." : e.message ?? "Erro ao criar tipo."),
+  });
+
+  const delType = useMutation({
+    mutationFn: async (tab: Tab) => {
+      const { count: used } = await supabase
+        .from("colaboradores")
+        .select("id", { count: "exact", head: true })
+        .eq("tipo", tab.tipo);
+      if ((used ?? 0) > 0)
+        throw new Error(`Há ${used} colaborador(es) nesse tipo. Remova-os antes de excluir o tipo.`);
+      const { error } = await supabase.from("tipos_colaborador" as any).delete().eq("id", tab.typeId!);
+      if (error) throw error;
+    },
+    onSuccess: (_d, tab) => {
+      setDelTab(null);
+      if (selectedKey === tab.key) setSelectedKey(BUILTINS[0].key);
+      qc.invalidateQueries({ queryKey: ["tipos-colaborador"] });
+      toast.success("Tipo excluído.");
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao excluir tipo."),
+  });
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -139,64 +188,78 @@ function ColaboradoresPage() {
         <div>
           <h1 className="text-2xl font-bold">Colaboradores</h1>
           <p className="text-sm text-muted-foreground">
-            Pessoas envolvidas no processo, organizadas por função.
+            Pessoas envolvidas no processo, organizadas por tipo.
           </p>
         </div>
       </header>
 
       {/* Mobile selector */}
-      <div className="md:hidden">
-        <Select value={selectedValue} onValueChange={setSelectedValue}>
+      <div className="md:hidden flex gap-2">
+        <Select value={selectedKey} onValueChange={setSelectedKey}>
           <SelectTrigger>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {GROUP_ORDER.map((g) => (
-              <SelectGroup key={g}>
-                <SelectLabel>{g}</SelectLabel>
-                {grouped.get(g)!.map((item) => (
-                  <SelectItem key={item.value} value={item.value}>
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
+            {tabs.map((t) => (
+              <SelectItem key={t.key} value={t.key}>
+                {t.label}
+              </SelectItem>
             ))}
           </SelectContent>
         </Select>
+        <Button type="button" variant="outline" size="icon" onClick={() => setAddOpen(true)} aria-label="Novo tipo">
+          <Plus className="h-4 w-4" />
+        </Button>
       </div>
 
       <div className="flex gap-6 rounded-lg border bg-card">
         {/* Sidebar */}
         <aside className="hidden md:block w-60 shrink-0 border-r py-4">
-          <nav className="space-y-4">
-            {GROUP_ORDER.map((g) => (
-              <div key={g}>
-                <div className="px-4 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  {g}
-                </div>
-                <ul className="space-y-0.5">
-                  {grouped.get(g)!.map((item) => {
-                    const active = item.value === selectedValue;
-                    return (
-                      <li key={item.value}>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedValue(item.value)}
-                          className={cn(
-                            "w-full text-left px-4 py-1.5 text-sm transition-colors border-l-2",
-                            active
-                              ? "bg-muted text-foreground font-medium border-primary"
-                              : "text-muted-foreground hover:bg-muted/50 hover:text-foreground border-transparent",
-                          )}
-                        >
-                          {item.label}
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            ))}
+          <div className="flex items-center justify-between px-4 pb-1">
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Tipos de Colaborador
+            </span>
+            <button
+              type="button"
+              onClick={() => setAddOpen(true)}
+              className="text-muted-foreground hover:text-foreground"
+              aria-label="Novo tipo"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+          </div>
+          <nav>
+            <ul className="space-y-0.5">
+              {tabs.map((t) => {
+                const active = t.key === selectedKey;
+                return (
+                  <li key={t.key} className="group flex items-center">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedKey(t.key)}
+                      className={cn(
+                        "flex-1 text-left px-4 py-1.5 text-sm transition-colors border-l-2",
+                        active
+                          ? "bg-muted text-foreground font-medium border-primary"
+                          : "text-muted-foreground hover:bg-muted/50 hover:text-foreground border-transparent",
+                      )}
+                    >
+                      {t.label}
+                    </button>
+                    {t.custom && (
+                      <button
+                        type="button"
+                        onClick={() => setDelTab(t)}
+                        className="px-2 text-muted-foreground/0 group-hover:text-muted-foreground hover:!text-destructive"
+                        aria-label={`Excluir tipo ${t.label}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
           </nav>
         </aside>
 
@@ -206,7 +269,7 @@ function ColaboradoresPage() {
             <div className="min-w-0">
               <h2 className="text-lg font-semibold truncate">{selected.config.plural}</h2>
               <p className="text-xs text-muted-foreground uppercase tracking-wider">
-                {selected.group}
+                {selected.custom ? "Tipo personalizado" : "Tipo fixo"}
               </p>
             </div>
             <Badge variant="secondary" className="shrink-0">
@@ -215,12 +278,66 @@ function ColaboradoresPage() {
           </div>
 
           <AttributeTab
-            key={selected.value}
+            key={selected.key}
             config={selected.config}
             onChanged={() => qc.invalidateQueries({ queryKey: ["colab-count", selected.tipo] })}
           />
         </div>
       </div>
+
+      {/* Novo tipo */}
+      <Dialog open={addOpen} onOpenChange={(o) => { setAddOpen(o); if (!o) setNovoTipo(""); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Novo tipo de colaborador</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1.5 py-2">
+            <Label>Nome do tipo</Label>
+            <Input
+              autoFocus
+              placeholder="Ex: Costureira"
+              value={novoTipo}
+              onChange={(e) => setNovoTipo(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  addType.mutate(novoTipo);
+                }
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddOpen(false)}>Cancelar</Button>
+            <Button onClick={() => addType.mutate(novoTipo)} disabled={addType.isPending}>
+              {addType.isPending ? "Criando…" : "Criar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!delTab} onOpenChange={(o) => !o && setDelTab(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir tipo?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Excluir o tipo <strong>{delTab?.label}</strong>? Só é possível se não houver
+              colaboradores nesse tipo.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                if (delTab) delType.mutate(delTab);
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
