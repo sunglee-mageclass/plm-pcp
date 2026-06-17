@@ -1,6 +1,5 @@
 import { Package } from "lucide-react";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/shared/NumberInput";
 import type { AviamentoRow } from "./types";
 
@@ -30,8 +29,8 @@ export function CadExplosaoSection({ aviamentos, gradeTotalGeral, updateAvi }: P
                 <th className="px-2 py-1 text-left">Aviamento</th>
                 <th className="px-2 py-1">Consumo</th>
                 <th className="px-2 py-1">Grade Total</th>
+                <th className="px-2 py-1">Qtd Planejada</th>
                 <th className="px-2 py-1">Qtd a Enviar</th>
-                <th className="px-2 py-1">Qtd a Separar</th>
               </tr>
             </thead>
             <tbody>
@@ -54,9 +53,6 @@ export function CadExplosaoSection({ aviamentos, gradeTotalGeral, updateAvi }: P
           </table>
         </div>
       )}
-      <p className="text-xs text-muted-foreground">
-        Ao salvar, as quantidades são registradas em <code>cad_aviamentos</code> para baixa futura no estoque (Módulo 2B).
-      </p>
     </Card>
   );
 }

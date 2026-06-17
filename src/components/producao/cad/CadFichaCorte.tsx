@@ -4,142 +4,179 @@ import { EtiquetaLavagemArtigoView } from "@/components/shared/EtiquetaLavagemAr
 
 type Props = {
   modelo: any;
-  cadRow: any;
-  previsaoEntrega: string;
+  cadRow?: any;
+  previsaoEntrega?: string;
   tecidos: TecidoRow[];
   grades: GradeRow[];
   tamanhosAll: string[];
   aviamentos: AviamentoRow[];
-  gradeTotalGeral: number;
+  gradeTotalGeral?: number;
   labelByNumero?: Record<number, string>;
 };
 
 const section: React.CSSProperties = { pageBreakInside: "avoid", breakInside: "avoid", marginTop: 12 };
+const fmt2 = (n: number | null | undefined) => Number(n ?? 0).toFixed(2);
 
-export function CadFichaCorte({
-  modelo,
-  cadRow,
-  previsaoEntrega,
-  tecidos,
-  grades,
-  tamanhosAll,
-  aviamentos,
-  gradeTotalGeral,
-  labelByNumero,
-}: Props) {
+function Assinatura() {
+  return (
+    <div style={{ marginTop: 18, fontSize: 12, display: "flex", gap: 28, flexWrap: "wrap" }}>
+      <span>Nome: ____________________</span>
+      <span>Data: ____________</span>
+      <span>Assinatura: ____________________</span>
+    </div>
+  );
+}
+
+function varLabel(v: TecidoRow["variantes"][number]) {
+  const cor = v.variante_cor || v.variante_nome;
+  return `Variante ${v.ordem}${cor ? ` - ${cor}` : ""}`;
+}
+
+/** Tabela de variantes (mesmo esquema p/ tecido e p/ forro/entretela). */
+function MaterialTable({ blocks, colMaterial }: { blocks: TecidoRow[]; colMaterial: string }) {
+  const rows = blocks.flatMap((t) =>
+    (t.variantes ?? []).filter((v) => v.variante_tecido_id).map((v) => ({ t, v })),
+  );
+  if (rows.length === 0) return <p style={{ fontSize: 11, color: "#666" }}>—</p>;
+  return (
+    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, marginTop: 4 }}>
+      <thead>
+        <tr style={{ background: "#eee" }}>
+          <th style={cellH}>Variante</th>
+          <th style={cellH}>{colMaterial}</th>
+          <th style={cellH}>Consumo</th>
+          <th style={cellH}>Metr. Planejada</th>
+          <th style={cellH}>Qtd Folhas</th>
+          <th style={cellH}>Tamanho da Folha</th>
+          <th style={cellH}>Metr. a Enviar/Separar</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map(({ t, v }, i) => (
+          <tr key={i}>
+            <td style={cell}>{varLabel(v)}</td>
+            <td style={cell}>{t.artigo_nome ?? "—"}</td>
+            <td style={cell}>{fmt2(t.consumo_cad)}</td>
+            <td style={cell}>{fmt2(v.metragem_planejada)}</td>
+            <td style={cell}>{fmt2(v.quantidade_folhas)}</td>
+            <td style={cell}>{fmt2(t.tamanho_folha)}</td>
+            <td style={cell}>{fmt2(v.metragem_enviada)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function Etiquetas({ blocks }: { blocks: TecidoRow[] }) {
+  const withEt = blocks.filter((t) => t.artigo_id && (t.etiqueta_lavagem_urls ?? []).length > 0);
+  if (withEt.length === 0) return null;
+  return (
+    <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+      {withEt.map((t, i) => (
+        <div key={i} style={{ fontSize: 11 }}>
+          <div style={{ fontWeight: 600, marginBottom: 2 }}>
+            Etiqueta — {t.artigo_nome}
+          </div>
+          <EtiquetaLavagemArtigoView artigoId={t.artigo_id} label="" size="sm" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos, labelByNumero }: Props) {
+  const isConjunto = (modelo?.cat_p?.nome ?? "").trim().toLowerCase() === "conjunto";
+  const tecidoBlocks = tecidos.filter((t) => t.tipo === "tecido");
+  const forroEntretela = tecidos.filter((t) => t.tipo === "forro" || t.tipo === "entretela");
+
+  const refHl: React.CSSProperties = {
+    background: "#ffcdd2",
+    padding: "1px 8px",
+    borderRadius: 3,
+    fontWeight: 700,
+    WebkitPrintColorAdjust: "exact",
+    printColorAdjust: "exact",
+  };
+
   return (
     <div className="print-area">
+      {/* ===== Página 1: cabeçalho + tecidos + forro/entretela ===== */}
       <section className="print-section" style={{ pageBreakInside: "avoid", breakInside: "avoid" }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Ficha de Corte</h1>
-        <div style={{ fontSize: 12, marginBottom: 12 }}>
-          REF: <b>{modelo?.ref ?? "—"}</b> &nbsp;|&nbsp; Modelo: <b>{modelo?.nome ?? "—"}</b>
+        <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>FICHA DE CORTE</h1>
+        <div style={{ fontSize: 13, marginBottom: 6 }}>
+          REF: <span style={refHl}>{modelo?.ref ?? "—"}</span>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12, marginBottom: 12 }}>
-          <div>Estilista: {modelo?.estilista?.nome ?? "—"}</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, fontSize: 12 }}>
+          <div>Modelo: <b>{modelo?.nome ?? "—"}</b></div>
           <div>Coleção: {modelo?.colecao ?? "—"}</div>
           <div>Categoria: {modelo?.cat_p?.nome ?? "—"}</div>
-          <div>Sub-categoria: {modelo?.cat_s?.nome ?? "—"}</div>
-          <div>Data Enviado ao Corte: {cadRow?.data_enviado_corte ?? "_____________"}</div>
-          <div>Previsão de Entrega: {previsaoEntrega || "_____________"}</div>
+          {isConjunto && <div>Subcategoria: {modelo?.cat_s?.nome ?? "—"}</div>}
         </div>
       </section>
 
       <section className="print-section" style={section}>
-        <h3 style={{ fontSize: 14, fontWeight: 600, marginTop: 0 }}>Tecidos</h3>
+        <h3 style={{ fontSize: 14, fontWeight: 600, marginTop: 0, marginBottom: 0 }}>Tecido</h3>
+        <MaterialTable blocks={tecidoBlocks} colMaterial="Tecido" />
+        <Etiquetas blocks={tecidoBlocks} />
+        <Assinatura />
+      </section>
+
+      <div style={{ borderTop: "1px dashed #999", margin: "16px 0" }} />
+
+      <section className="print-section" style={{ ...section, marginTop: 0 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 600, marginTop: 0, marginBottom: 0 }}>Forro e Entretela</h3>
+        <MaterialTable blocks={forroEntretela} colMaterial="Material" />
+        <Etiquetas blocks={forroEntretela} />
+        <Assinatura />
+      </section>
+
+      {/* ===== Página 2: explosão de aviamentos + grade ===== */}
+      <section className="print-section" style={{ ...section, pageBreakBefore: "always", breakBefore: "page", marginTop: 0 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 600, marginTop: 0 }}>Explosão de Aviamentos</h3>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, marginTop: 4 }}>
-          <thead><tr style={{ background: "#eee" }}>
-            <th style={cellH}>Tipo</th><th style={cellH}>Artigo</th><th style={cellH}>Variantes</th><th style={cellH}>Consumo</th><th style={cellH}>%Loss</th><th style={cellH}>Folha (m)</th><th style={cellH}>Etiqueta</th>
-          </tr></thead>
+          <thead>
+            <tr style={{ background: "#eee" }}>
+              <th style={cellH}>Aviamento</th>
+              <th style={cellH}>Consumo</th>
+              <th style={cellH}>Quantidade Planejada</th>
+              <th style={cellH}>Quantidade a Enviar</th>
+            </tr>
+          </thead>
           <tbody>
-            {tecidos.map((t, i) => (
+            {aviamentos.map((a, i) => (
               <tr key={i}>
-                <td style={cell}>{t.tipo} {t.numero}</td>
-                <td style={cell}>{t.artigo_nome ?? "—"}</td>
-                <td style={cell}>{(t as any).variantes_nomes?.join(", ") ?? "—"}</td>
-                <td style={cell}>{t.consumo_cad}</td>
-                <td style={cell}>{t.loss_percent_cad}%</td>
-                <td style={cell}>{t.tamanho_folha}</td>
-                <td style={cell}>
-                  {(t.etiqueta_lavagem_urls ?? []).length > 0
-                    ? `${(t.etiqueta_lavagem_urls ?? []).length} arquivo(s)`
-                    : "—"}
-                </td>
+                <td style={cell}>{a.aviamento_nome ?? "—"}</td>
+                <td style={cell}>{fmt2(a.consumo)}</td>
+                <td style={cell}>{fmt2(a.quantidade_enviar)}</td>
+                <td style={cell}>{fmt2(a.quantidade_separar)}</td>
               </tr>
             ))}
           </tbody>
         </table>
-        {tecidos.some((t) => (t.etiqueta_lavagem_urls ?? []).length > 0) && (
-          <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
-            {tecidos.map((t, i) =>
-              t.artigo_id && (t.etiqueta_lavagem_urls ?? []).length > 0 ? (
-                <div key={i} style={{ fontSize: 11 }}>
-                  <div style={{ fontWeight: 600, marginBottom: 2 }}>{t.tipo} {t.numero} — {t.artigo_nome}</div>
-                  <EtiquetaLavagemArtigoView artigoId={t.artigo_id} label="" size="sm" />
-                </div>
-              ) : null,
-            )}
-          </div>
-        )}
+        <Assinatura />
       </section>
 
       <section className="print-section" style={section}>
-        <h3 style={{ fontSize: 14, fontWeight: 600, marginTop: 0 }}>Grade Replanejada (total: {gradeTotalGeral})</h3>
+        <h3 style={{ fontSize: 14, fontWeight: 600, marginTop: 0 }}>Grade</h3>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, marginTop: 4 }}>
-          <thead><tr style={{ background: "#eee" }}>
-            <th style={cellH}>Variante</th>
-            {tamanhosAll.map((t) => <th key={t} style={cellH}>{t}</th>)}
-            <th style={cellH}>Total</th>
-          </tr></thead>
+          <thead>
+            <tr style={{ background: "#eee" }}>
+              <th style={cellH}>Variante</th>
+              {tamanhosAll.map((t) => <th key={t} style={cellH}>{t}</th>)}
+              <th style={cellH}>Total</th>
+            </tr>
+          </thead>
           <tbody>
             {grades.map((g) => (
               <tr key={g.variante_numero}>
-                <td style={cell}>{labelByNumero?.[g.variante_numero] ?? `V${g.variante_numero}`}</td>
+                <td style={cell}>{labelByNumero?.[g.variante_numero] ?? `Variante ${g.variante_numero}`}</td>
                 {tamanhosAll.map((t) => <td key={t} style={cell}>{g.grades[t] ?? 0}</td>)}
                 <td style={cell}>{g.grade_total}</td>
               </tr>
             ))}
           </tbody>
         </table>
-      </section>
-
-      <section className="print-section" style={section}>
-        <h3 style={{ fontSize: 14, fontWeight: 600, marginTop: 0 }}>Aviamentos</h3>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, marginTop: 4 }}>
-          <thead><tr style={{ background: "#eee" }}>
-            <th style={cellH}>Aviamento</th><th style={cellH}>Consumo</th><th style={cellH}>Qtd a Enviar</th><th style={cellH}>Qtd a Separar</th>
-          </tr></thead>
-          <tbody>
-            {aviamentos.map((a, i) => (
-              <tr key={i}>
-                <td style={cell}>{a.aviamento_nome ?? "—"}</td>
-                <td style={cell}>{a.consumo}</td>
-                <td style={cell}>{a.quantidade_enviar.toFixed(2)}</td>
-                <td style={cell}>{a.quantidade_separar.toFixed(2)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-
-      {(modelo?.observacoes_tecnicas || modelo?.observacoes_gerais) && (
-        <section className="print-section" style={section}>
-          <h3 style={{ fontSize: 14, fontWeight: 600, marginTop: 0 }}>Observações Técnicas</h3>
-          {modelo?.observacoes_tecnicas && (
-            <p style={{ fontSize: 11, whiteSpace: "pre-wrap", margin: "4px 0" }}>{modelo.observacoes_tecnicas}</p>
-          )}
-          {modelo?.observacoes_gerais && (
-            <p style={{ fontSize: 11, whiteSpace: "pre-wrap", margin: "4px 0" }}>{modelo.observacoes_gerais}</p>
-          )}
-        </section>
-      )}
-
-      <section className="print-section" style={{ ...section, marginTop: 40 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 32, fontSize: 12 }}>
-          <div>Nome: ______________________________</div>
-          <div>Assinatura: ______________________________</div>
-          <div>Nome: ______________________________</div>
-          <div>Assinatura: ______________________________</div>
-        </div>
       </section>
     </div>
   );
