@@ -390,11 +390,14 @@ function OcLinksField({
     onChange(allocate(ids));
   };
 
+  // OC com 0m disponível não é selecionável (não aparece) — exceto se já estiver
+  // marcada nesta variante, p/ não sumir uma escolha existente.
+  const visibleOcs = ocs.filter((o) => Number(o.disponivel_m) > 0 || selectedIds.includes(o.oc_tecido_item_id));
   // OCs vinculadas que não voltaram na lista (ex.: já zeradas) não somem.
   const extraSelected: OcDisp[] = value
     .filter((v) => !ocById.has(v.oc_tecido_item_id))
     .map((v) => ({ oc_tecido_item_id: v.oc_tecido_item_id, numero_pedido: "(vínculo)", data_entrega: null, recebida: true, disponivel_m: 0 }));
-  const rows = [...ocs, ...extraSelected];
+  const rows = [...visibleOcs, ...extraSelected];
 
   if (rows.length === 0) {
     return <p className="text-[11px] text-muted-foreground">Sem OC desta variante — corte usa FIFO.</p>;
