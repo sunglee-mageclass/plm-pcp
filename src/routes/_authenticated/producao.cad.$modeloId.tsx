@@ -44,9 +44,16 @@ export const Route = createFileRoute("/_authenticated/producao/cad/$modeloId")({
 
 function CadDetailPage() {
   const { modeloId } = Route.useParams();
+  const navigate = useNavigate();
+  return <CadEditor modeloId={modeloId} onAfterDelete={() => navigate({ to: "/producao/cad" })} />;
+}
+
+// Editor de CAD reutilizável (rota + modal na tela "Consumo por OC").
+// Recebe modeloId por prop; onAfterDelete é chamado após excluir o CAD
+// (na rota navega para a lista; no modal, fecha a janela).
+export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAfterDelete?: () => void }) {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
-  const navigate = useNavigate();
   const [confirmDel, setConfirmDel] = useState(false);
 
   // --- queries ---
@@ -738,7 +745,7 @@ function CadDetailPage() {
     onSuccess: () => {
       toast.success("CAD excluído. O modelo voltou para o Desenvolvimento.");
       qc.invalidateQueries({ queryKey: ["producao-cad-list"] });
-      navigate({ to: "/producao/cad" });
+      onAfterDelete?.();
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao excluir CAD"),
   });
