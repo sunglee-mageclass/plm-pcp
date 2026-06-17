@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -337,17 +338,17 @@ function CqDetailPage() {
         <div className="grid gap-4 md:grid-cols-3">
           <div>
             <Label className="text-xs">Peças Incompletas</Label>
-            <Input type="number" value={form.pecas_incompletas}
+            <NumberInput type="number" value={form.pecas_incompletas}
               onChange={(e) => setForm((f) => ({ ...f, pecas_incompletas: Number(e.target.value) }))} />
           </div>
           <div>
             <Label className="text-xs">Peças Faltantes</Label>
-            <Input type="number" value={form.pecas_faltantes}
+            <NumberInput type="number" value={form.pecas_faltantes}
               onChange={(e) => setForm((f) => ({ ...f, pecas_faltantes: Number(e.target.value) }))} />
           </div>
           <div>
             <Label className="text-xs">Peças sem Etiqueta</Label>
-            <Input type="number" value={form.pecas_sem_etiqueta}
+            <NumberInput type="number" value={form.pecas_sem_etiqueta}
               onChange={(e) => setForm((f) => ({ ...f, pecas_sem_etiqueta: Number(e.target.value) }))} />
           </div>
         </div>
@@ -425,7 +426,7 @@ function GradeMatrix(props: {
                 <td className="border px-2 py-1">Variante {num}</td>
                 {tamanhos.map((t) => (
                   <td key={t} className="border p-0">
-                    <Input
+                    <NumberInput
                       type="number"
                       className="h-8 border-0 text-center"
                       value={row?.grades?.[t] ?? ""}

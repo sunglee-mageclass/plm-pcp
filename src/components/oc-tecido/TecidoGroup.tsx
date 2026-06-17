@@ -1,5 +1,6 @@
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { artigoLabel, unidadeSufixo } from "@/lib/artigo-label";
@@ -66,7 +67,7 @@ export function TecidoGroup({
                       {v?.nome_variante ?? v?.codigo_variante ?? "—"}
                     </span>
                     <div className="relative w-32">
-                      <Input type="number" step="0.01" className={sufixo ? "pr-10" : ""}
+                      <NumberInput type="number" step="0.01" className={sufixo ? "pr-10" : ""}
                         value={i.quantidade_pedida}
                         onChange={(e) => setQtd(i.tempId, "quantidade_pedida", Number(e.target.value))} />
                       {sufixo && (

@@ -2,6 +2,7 @@ import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/shared/NumberInput";
 import { Field, FieldSelectOpt } from "./shared";
 import type { AviamentoRow } from "./types";
 
@@ -41,10 +42,10 @@ export function ModeloAviamentosSection({
               <Input readOnly value={r.custo_previsto.toFixed(2)} />
             </Field>
             <Field label="Consumo">
-              <Input type="number" step="0.001" value={r.consumo} onChange={(e) => onChangeRow(i, { consumo: Number(e.target.value) || 0 })} />
+              <NumberInput type="number" step="0.001" value={r.consumo} onChange={(e) => onChangeRow(i, { consumo: Number(e.target.value) || 0 })} />
             </Field>
             <Field label="% Loss">
-              <Input type="number" step="0.01" value={r.loss_percent} onChange={(e) => onChangeRow(i, { loss_percent: Number(e.target.value) || 0 })} />
+              <NumberInput type="number" step="0.01" value={r.loss_percent} onChange={(e) => onChangeRow(i, { loss_percent: Number(e.target.value) || 0 })} />
             </Field>
           </div>
         </Card>

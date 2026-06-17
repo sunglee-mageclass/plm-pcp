@@ -1,4 +1,5 @@
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
@@ -39,7 +40,7 @@ export function OcTecidoRecebimento({
         <div className="grid sm:grid-cols-2 gap-4">
           <div className="grid gap-1">
             <Label>Qtd. Parcelas de Recebimento</Label>
-            <Input
+            <NumberInput
               type="number"
               min={1}
               max={24}

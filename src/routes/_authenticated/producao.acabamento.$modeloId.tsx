@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -238,7 +239,7 @@ function AcabDetailPage() {
             </div>
             <div>
               <Label className="text-xs">Preço por Peça</Label>
-              <Input type="number" step="0.01" value={b.preco_por_peca}
+              <NumberInput type="number" step="0.01" value={b.preco_por_peca}
                 onChange={(e) => updateBloco(idx, { preco_por_peca: Number(e.target.value) })} />
             </div>
             <div>
@@ -248,17 +249,17 @@ function AcabDetailPage() {
 
             <div>
               <Label className="text-xs">Qtd Enviada</Label>
-              <Input type="number" value={b.quantidade_enviada}
+              <NumberInput type="number" value={b.quantidade_enviada}
                 onChange={(e) => updateBloco(idx, { quantidade_enviada: Number(e.target.value) })} />
             </div>
             <div>
               <Label className="text-xs">Qtd Recebida</Label>
-              <Input type="number" value={b.quantidade_recebida}
+              <NumberInput type="number" value={b.quantidade_recebida}
                 onChange={(e) => updateBloco(idx, { quantidade_recebida: Number(e.target.value) })} />
             </div>
             <div>
               <Label className="text-xs">Qtd Defeito</Label>
-              <Input type="number" value={b.quantidade_defeito}
+              <NumberInput type="number" value={b.quantidade_defeito}
                 onChange={(e) => updateBloco(idx, { quantidade_defeito: Number(e.target.value) })} />
             </div>
 

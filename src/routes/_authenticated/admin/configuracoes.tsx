@@ -23,6 +23,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
@@ -292,7 +293,7 @@ function ConfiguracoesLojaPage() {
         </CardHeader>
         <CardContent className="space-y-2">
           <Label>Alertar quando estoque ficar abaixo de (metros/unidades)</Label>
-          <Input
+          <NumberInput
             type="number"
             min={0}
             step="0.01"

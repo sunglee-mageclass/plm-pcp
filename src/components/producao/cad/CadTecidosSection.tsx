@@ -1,6 +1,7 @@
 import { AlertTriangle } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/shared/NumberInput";
 import { Badge } from "@/components/ui/badge";
 import { Field } from "./shared";
 import { EtiquetaLavagemArtigoView } from "@/components/shared/EtiquetaLavagemArtigo";
@@ -60,11 +61,11 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
           {t.artigo_id && <EtiquetaLavagemArtigoView artigoId={t.artigo_id} size="sm" />}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Field label="Consumo CAD (m)">
-              <Input type="number" step="0.01" value={t.consumo_cad}
+              <NumberInput type="number" step="0.01" value={t.consumo_cad}
                 onChange={(e) => updateTec(i, { consumo_cad: Number(e.target.value) })} />
             </Field>
             <Field label="% Loss CAD">
-              <Input type="number" step="0.01" value={t.loss_percent_cad}
+              <NumberInput type="number" step="0.01" value={t.loss_percent_cad}
                 onChange={(e) => updateTec(i, { loss_percent_cad: Number(e.target.value) })} />
             </Field>
             <Field label="Custo CAD (R$)">
@@ -74,7 +75,7 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
               {ro ? (
                 <Input readOnly className="bg-muted" value={Number(t.tamanho_folha ?? 0).toFixed(2)} />
               ) : (
-                <Input type="number" step="0.01" value={t.tamanho_folha}
+                <NumberInput type="number" step="0.01" value={t.tamanho_folha}
                   onChange={(e) => updateTec(i, { tamanho_folha: Number(e.target.value) })} />
               )}
             </Field>
@@ -97,7 +98,7 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
                       <td className="px-2 py-1">{v.variante_nome ?? "—"}</td>
                       {compl && (
                         <td className="px-2 py-1">
-                          <Input type="number" step="0.01" min={0} className="w-16"
+                          <NumberInput type="number" step="0.01" min={0} className="w-16"
                             value={Number(v.multiplicador ?? 1)}
                             onChange={(e) => updateVar(i, j, { multiplicador: Number(e.target.value) || 1 })} />
                         </td>
@@ -106,7 +107,7 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
                         {ro ? (
                           <Input readOnly className="bg-muted" value={Number(v.quantidade_folhas ?? 0).toFixed(2)} />
                         ) : (
-                          <Input type="number" value={v.quantidade_folhas}
+                          <NumberInput type="number" value={v.quantidade_folhas}
                             onChange={(e) => updateVar(i, j, { quantidade_folhas: Number(e.target.value) })} />
                         )}
                       </td>
@@ -114,12 +115,12 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
                         {ro ? (
                           <Input readOnly className="bg-muted" value={Number(v.metragem_planejada ?? 0).toFixed(2)} />
                         ) : (
-                          <Input type="number" step="0.01" value={v.metragem_planejada}
+                          <NumberInput type="number" step="0.01" value={v.metragem_planejada}
                             onChange={(e) => updateVar(i, j, { metragem_planejada: Number(e.target.value) })} />
                         )}
                       </td>
                       <td className="px-2 py-1">
-                        <Input type="number" step="0.01" value={v.metragem_enviada}
+                        <NumberInput type="number" step="0.01" value={v.metragem_enviada}
                           onChange={(e) => updateVar(i, j, { metragem_enviada: Number(e.target.value) })} />
                       </td>
                     </tr>

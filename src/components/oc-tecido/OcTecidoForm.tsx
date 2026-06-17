@@ -1,6 +1,7 @@
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
@@ -97,7 +98,7 @@ export function OcTecidoForm({
 
         <div className="grid gap-1">
           <Label>Qtd. Parcelas de Recebimento</Label>
-          <Input
+          <NumberInput
             type="number"
             min={1}
             max={24}
@@ -117,7 +118,7 @@ export function OcTecidoForm({
 
         <div className="grid gap-1">
           <Label>Qtd de Prazos</Label>
-          <Input type="number" value={draft.quantidade_prazos} readOnly disabled />
+          <NumberInput type="number" value={draft.quantidade_prazos} readOnly disabled />
         </div>
       </div>
 

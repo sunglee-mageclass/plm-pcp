@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -363,7 +364,7 @@ function TercDetailPage() {
               </div>
               <div>
                 <Label className="text-xs">Preço por metro/unidade</Label>
-                <Input
+                <NumberInput
                   type="number"
                   step="0.01"
                   value={b.preco_metro_unidade}
@@ -372,7 +373,7 @@ function TercDetailPage() {
               </div>
               <div>
                 <Label className="text-xs">Qtd Enviada</Label>
-                <Input
+                <NumberInput
                   type="number"
                   value={b.quantidade_enviada}
                   onChange={(e) => updateBloco(idx, { quantidade_enviada: Number(e.target.value) })}
@@ -406,7 +407,7 @@ function TercDetailPage() {
 
               <div>
                 <Label className="text-xs">Qtd Recebida</Label>
-                <Input
+                <NumberInput
                   type="number"
                   value={b.quantidade_recebida}
                   onChange={(e) => updateBloco(idx, { quantidade_recebida: Number(e.target.value) })}
@@ -414,7 +415,7 @@ function TercDetailPage() {
               </div>
               <div>
                 <Label className="text-xs">Qtd Defeito</Label>
-                <Input
+                <NumberInput
                   type="number"
                   value={b.quantidade_defeito}
                   onChange={(e) => updateBloco(idx, { quantidade_defeito: Number(e.target.value) })}

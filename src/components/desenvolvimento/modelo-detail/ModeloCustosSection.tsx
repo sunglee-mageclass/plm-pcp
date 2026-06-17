@@ -1,5 +1,6 @@
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Row } from "./shared";
@@ -21,7 +22,7 @@ export function ModeloCustosSection({
       <Row label="Aviamento" value={totals.aviamento} />
       <div className="flex justify-between items-center">
         <Label>Terceirizados</Label>
-        <Input
+        <NumberInput
           className="w-32 text-right"
           type="number"
           step="0.01"

@@ -19,6 +19,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useSignedUrl, VARIANT_BUCKET } from "@/hooks/useSignedUrl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
@@ -272,7 +273,7 @@ function TecidoDetail() {
           </Field>
 
           <Field label="Largura Estimada (mtr)">
-            <Input
+            <NumberInput
               type="number"
               value={form.largura_estimada ?? ""}
               onChange={(e) =>
@@ -365,7 +366,7 @@ function TecidoDetail() {
           </Field>
 
           <Field label="Preço">
-            <Input
+            <NumberInput
               type="number"
               step="0.01"
               value={form.preco ?? ""}
@@ -377,7 +378,7 @@ function TecidoDetail() {
 
           {isKg && (
             <Field label="Rendimento (m/kg)">
-              <Input
+              <NumberInput
                 type="number"
                 step="0.01"
                 value={form.rendimento ?? ""}

@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -712,7 +713,7 @@ function OcDialog({
 
             <div className="grid gap-1">
               <Label>Qtd. Parcelas de Recebimento</Label>
-              <Input
+              <NumberInput
                 type="number"
                 min={1}
                 max={24}
@@ -776,13 +777,13 @@ function OcDialog({
                       </Select>
                     </TableCell>
                     <TableCell>
-                      <Input type="number" step="0.01" value={i.quantidade_pedida}
+                      <NumberInput type="number" step="0.01" value={i.quantidade_pedida}
                         disabled={i.cancelado || isReadOnlyRecebimento}
                         onChange={(e) => updateItem(i.tempId, { quantidade_pedida: Number(e.target.value) })} />
                     </TableCell>
                     {canShowRecebimento && (
                       <TableCell>
-                        <Input type="number" step="0.01" value={i.quantidade_recebida ?? ""}
+                        <NumberInput type="number" step="0.01" value={i.quantidade_recebida ?? ""}
                           disabled={i.cancelado}
                           onChange={(e) => updateItem(i.tempId, { quantidade_recebida: e.target.value === "" ? null : Number(e.target.value) })} />
                       </TableCell>

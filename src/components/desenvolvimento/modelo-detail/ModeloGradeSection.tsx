@@ -1,5 +1,6 @@
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Field } from "./shared";
@@ -52,7 +53,7 @@ export function ModeloGradeSection({
         >
           {tamanhos.map((t) => (
             <Field key={t} label={t}>
-              <Input
+              <NumberInput
                 type="number"
                 value={proporcoes?.[t] ?? 0}
                 onChange={(e) => onChangeProporcao(t, Math.max(0, Number(e.target.value) || 0))}
@@ -84,7 +85,7 @@ export function ModeloGradeSection({
                   </span>
                   <div className="flex items-center gap-2">
                     <Label className="text-xs">Grade Total</Label>
-                    <Input
+                    <NumberInput
                       className="w-24 bg-muted"
                       type="number"
                       readOnly
@@ -99,7 +100,7 @@ export function ModeloGradeSection({
                 >
                   {tamanhos.map((t) => (
                     <Field key={t} label={t}>
-                      <Input
+                      <NumberInput
                         type="number"
                         min={0}
                         value={g.grades[t] ?? 0}

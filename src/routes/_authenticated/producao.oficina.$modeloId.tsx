@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -228,7 +229,7 @@ function OficinaDetailPage() {
             )}
             <div>
               <Label className="text-xs">Preço por Peça</Label>
-              <Input type="number" step="0.01" value={form.preco_por_peca}
+              <NumberInput type="number" step="0.01" value={form.preco_por_peca}
                 onChange={(e) => setForm((f) => ({ ...f, preco_por_peca: Number(e.target.value) }))} />
             </div>
             <div>
@@ -238,17 +239,17 @@ function OficinaDetailPage() {
 
             <div>
               <Label className="text-xs">Qtd Enviada</Label>
-              <Input type="number" value={form.quantidade_enviada}
+              <NumberInput type="number" value={form.quantidade_enviada}
                 onChange={(e) => setForm((f) => ({ ...f, quantidade_enviada: Number(e.target.value) }))} />
             </div>
             <div>
               <Label className="text-xs">Qtd Recebida</Label>
-              <Input type="number" value={form.quantidade_recebida}
+              <NumberInput type="number" value={form.quantidade_recebida}
                 onChange={(e) => setForm((f) => ({ ...f, quantidade_recebida: Number(e.target.value) }))} />
             </div>
             <div>
               <Label className="text-xs">Qtd Defeito</Label>
-              <Input type="number" value={form.quantidade_defeito}
+              <NumberInput type="number" value={form.quantidade_defeito}
                 onChange={(e) => setForm((f) => ({ ...f, quantidade_defeito: Number(e.target.value) }))} />
             </div>
 

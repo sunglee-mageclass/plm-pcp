@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/shared/NumberInput";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { artigoLabel, unidadeSufixo } from "@/lib/artigo-label";
 import { cn } from "@/lib/utils";
@@ -83,7 +84,7 @@ export function OcTecidoCalculos({
                     </span>
                   ) : (
                     <div className="relative w-24">
-                      <Input type="number" step="0.01" className={sufixo ? "pr-10" : ""}
+                      <NumberInput type="number" step="0.01" className={sufixo ? "pr-10" : ""}
                         value={i.quantidade_recebida ?? ""}
                         onChange={(e) => {
                           const raw = e.target.value.replace(",", ".");

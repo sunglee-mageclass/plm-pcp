@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/shared/NumberInput";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -232,10 +233,10 @@ function TecidoBlockEditor({
           <Input readOnly value={block.custo_previsto.toFixed(2)} />
         </Field>
         <Field label="Consumo">
-          <Input type="number" step="0.001" value={block.consumo} onChange={(e) => onChangeBlock({ consumo: Number(e.target.value) || 0 })} />
+          <NumberInput type="number" step="0.001" value={block.consumo} onChange={(e) => onChangeBlock({ consumo: Number(e.target.value) || 0 })} />
         </Field>
         <Field label="% Loss">
-          <Input type="number" step="0.01" value={block.loss_percent} onChange={(e) => onChangeBlock({ loss_percent: Number(e.target.value) || 0 })} />
+          <NumberInput type="number" step="0.01" value={block.loss_percent} onChange={(e) => onChangeBlock({ loss_percent: Number(e.target.value) || 0 })} />
         </Field>
       </div>
 
@@ -305,7 +306,7 @@ function TecidoBlockEditor({
                     {canMultiplicador && current && (
                       <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                         <span className="whitespace-nowrap">× grade (cobre quantas variantes)</span>
-                        <Input
+                        <NumberInput
                           type="number"
                           step="0.01"
                           min={0}

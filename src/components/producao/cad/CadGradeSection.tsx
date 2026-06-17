@@ -1,5 +1,6 @@
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import type { GradeRow } from "./types";
 
@@ -56,7 +57,7 @@ export function CadGradeSection({
               {tamanhosAll.map((t) => (
                 <div key={t} className="grid gap-1">
                   <Label className="text-[11px]">{t}</Label>
-                  <Input
+                  <NumberInput
                     type="number"
                     className="h-8"
                     value={proporcoes?.[t] ?? 0}
@@ -98,7 +99,7 @@ export function CadGradeSection({
                   <td className="px-2 py-1 text-muted-foreground">Grade</td>
                   {tamanhosAll.map((t) => (
                     <td key={t} className="px-2 py-1">
-                      <Input
+                      <NumberInput
                         type="number"
                         value={g.grades[t] ?? 0}
                         onChange={(e) => updateGradeCell(gi, t, Number(e.target.value))}

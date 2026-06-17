@@ -1,6 +1,7 @@
 import { Package } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/shared/NumberInput";
 import type { AviamentoRow } from "./types";
 
 type Props = {
@@ -38,13 +39,13 @@ export function CadExplosaoSection({ aviamentos, gradeTotalGeral, updateAvi }: P
                 <tr key={`${a.aviamento_id}-${i}`} className="border-t">
                   <td className="px-2 py-1">{a.aviamento_nome ?? "—"}</td>
                   <td className="px-2 py-1">
-                    <Input type="number" step="0.0001" value={a.consumo}
+                    <NumberInput type="number" step="0.0001" value={a.consumo}
                       onChange={(e) => updateAvi(i, { consumo: Number(e.target.value), quantidade_enviar: Number((Number(e.target.value) * gradeTotalGeral).toFixed(4)) })} />
                   </td>
                   <td className="px-2 py-1 text-center font-medium">{gradeTotalGeral}</td>
                   <td className="px-2 py-1 text-center font-medium">{a.quantidade_enviar.toFixed(2)}</td>
                   <td className="px-2 py-1">
-                    <Input type="number" step="0.01" value={a.quantidade_separar}
+                    <NumberInput type="number" step="0.01" value={a.quantidade_separar}
                       onChange={(e) => updateAvi(i, { quantidade_separar: Number(e.target.value) })} />
                   </td>
                 </tr>

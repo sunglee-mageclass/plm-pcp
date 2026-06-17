@@ -20,6 +20,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
@@ -681,7 +682,7 @@ function AviamentoModal({
               />
             </Field>
             <Field label="Preço (R$)">
-              <Input
+              <NumberInput
                 type="number"
                 step="0.01"
                 value={form.preco}
@@ -734,7 +735,7 @@ function AviamentoModal({
               />
             </Field>
             <Field label="Largura Exata">
-              <Input
+              <NumberInput
                 type="number"
                 step="0.01"
                 value={form.largura_exata}
@@ -751,7 +752,7 @@ function AviamentoModal({
               />
             </Field>
             <Field label="Largura Exata Vazado">
-              <Input
+              <NumberInput
                 type="number"
                 step="0.01"
                 value={form.largura_exata_vazado}
