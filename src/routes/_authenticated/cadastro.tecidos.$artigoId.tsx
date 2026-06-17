@@ -655,6 +655,8 @@ function VariantRow({
   const [expanded, setExpanded] = useState(false);
   const [nome, setNome] = useState(variante.nome_variante ?? "");
   const [codigo, setCodigo] = useState(variante.codigo_variante ?? "");
+  const [rua, setRua] = useState((variante as any).rua ?? "");
+  const [prateleira, setPrateleira] = useState((variante as any).prateleira ?? "");
   const [uploading, setUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const photoUrl = useSignedUrl(variante.foto_url);
@@ -741,6 +743,26 @@ function VariantRow({
                 saveMut.mutate({ codigo_variante: codigo })
               }
               readOnly={readOnly}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Rua</Label>
+            <Input
+              value={rua}
+              onChange={(e) => setRua(e.target.value)}
+              onBlur={() => rua !== ((variante as any).rua ?? "") && saveMut.mutate({ rua } as any)}
+              readOnly={readOnly}
+              placeholder="Ex: A"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Prateleira</Label>
+            <Input
+              value={prateleira}
+              onChange={(e) => setPrateleira(e.target.value)}
+              onBlur={() => prateleira !== ((variante as any).prateleira ?? "") && saveMut.mutate({ prateleira } as any)}
+              readOnly={readOnly}
+              placeholder="Ex: 3"
             />
           </div>
           <div className="space-y-1.5">

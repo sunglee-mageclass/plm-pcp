@@ -24,20 +24,23 @@ export const Route = createFileRoute("/_authenticated/entrada-saida/estoque")({
 const num = (v: any) => Number(v ?? 0) || 0;
 const fmt = (v: number) => fmtNum(v);
 
-function useEstoqueThreshold() {
+function useEstoqueThresholds() {
   const { data } = useQuery({
     queryKey: ["tenant-config-threshold"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("tenant_config")
-        .select("estoque_critico_threshold")
+        .select("estoque_critico_threshold, estoque_critico_aviamento")
         .maybeSingle();
       if (error) throw error;
-      return Number((data as any)?.estoque_critico_threshold ?? 0) || 0;
+      return {
+        tecido: Number((data as any)?.estoque_critico_threshold ?? 0) || 0,
+        aviamento: Number((data as any)?.estoque_critico_aviamento ?? 0) || 0,
+      };
     },
     staleTime: 5 * 60 * 1000,
   });
-  return data ?? 0;
+  return data ?? { tecido: 0, aviamento: 0 };
 }
 
 function EstoquePage() {
@@ -74,7 +77,7 @@ function EstoquePage() {
 /* ============================= TECIDOS ============================= */
 
 function TecidosTab() {
-  const threshold = useEstoqueThreshold();
+  const threshold = useEstoqueThresholds().tecido;
   const [search, setSearch] = useState("");
   const [fornecedor, setFornecedor] = useState<string>("all");
   const [categoria, setCategoria] = useState<string>("all");
@@ -84,7 +87,7 @@ function TecidosTab() {
     queryKey: ["estoque-tecidos"],
     queryFn: async () => {
       const [variantesRes, ocItensRes, cadTecVarRes, modTecRes, modTecVarRes, modelosRes, modGradesRes, osItensRes] = await Promise.all([
-        supabase.from("variantes_tecido").select("id, artigo_id, nome_variante, codigo_variante, cores(nome), artigos(id, nome, unidade_medida, rendimento, empresa_id, categoria_tecido_id, empresas(nome_fantasia), categorias_tecido(nome))"),
+        supabase.from("variantes_tecido").select("id, artigo_id, nome_variante, codigo_variante, rua, prateleira, cores(nome), artigos(id, nome, unidade_medida, rendimento, empresa_id, categoria_tecido_id, empresas(nome_fantasia), categorias_tecido(nome))"),
         supabase.from("ocs_tecido_itens").select("artigo_id, variante_tecido_id, quantidade_pedida, quantidade_recebida, cancelado, oc_tecido_id, ocs_tecido!inner(status)"),
         supabase.from("cad_tecido_variantes").select("variante_tecido_id, metragem_enviada, cad_tecidos!inner(artigo_id, cad!inner(enviado_corte))"),
         supabase.from("modelo_tecidos").select("id, modelo_id, artigo_id, consumo, loss_percent"),
@@ -206,6 +209,8 @@ function TecidosTab() {
         return {
           varId: v.id,
           nomeVariante: v.nome_variante || v.codigo_variante || v.cores?.nome || "—",
+          rua: v.rua ?? null,
+          prateleira: v.prateleira ?? null,
           artigoId: v.artigo_id,
           artigoNome: a?.nome ?? "—",
           fornecedor: a?.empresas?.nome_fantasia ?? "—",
@@ -354,6 +359,11 @@ function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
         <td className="py-2 pr-3">
           {row.nomeVariante}
           <span className="ml-1 text-[10px] text-muted-foreground">[{row.isKg ? "kg→m" : "m"}]</span>
+          {(row.rua || row.prateleira) && (
+            <span className="ml-2 text-[10px] text-muted-foreground whitespace-nowrap">
+              📍 {[row.rua && `Rua ${row.rua}`, row.prateleira && `Prat. ${row.prateleira}`].filter(Boolean).join(" · ")}
+            </span>
+          )}
         </td>
         <td className="py-2 pr-3 text-right">
           {row.isKg ? (
@@ -438,7 +448,7 @@ function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
 /* ============================ AVIAMENTOS ============================ */
 
 function AviamentosTab() {
-  const threshold = useEstoqueThreshold();
+  const threshold = useEstoqueThresholds().aviamento;
   const [search, setSearch] = useState("");
   const [fornecedor, setFornecedor] = useState<string>("all");
   const [categoria, setCategoria] = useState<string>("all");

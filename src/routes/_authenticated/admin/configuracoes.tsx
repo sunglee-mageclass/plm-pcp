@@ -75,6 +75,7 @@ const DEFAULTS = {
   ],
   campos_editaveis: {} as Record<string, string>,
   estoque_critico_threshold: 0 as number,
+  estoque_critico_aviamento: 0 as number,
   modo_baixa_estoque: "por_oc" as "por_oc" | "automatico",
 };
 
@@ -129,6 +130,7 @@ function ConfiguracoesLojaPage() {
           ? (r.campos_editaveis as Record<string, string>)
           : DEFAULTS.campos_editaveis,
       estoque_critico_threshold: Number(r.estoque_critico_threshold ?? 0) || 0,
+      estoque_critico_aviamento: Number(r.estoque_critico_aviamento ?? 0) || 0,
       modo_baixa_estoque: r.modo_baixa_estoque ?? DEFAULTS.modo_baixa_estoque,
     });
   }, [data?.cfg]);
@@ -324,20 +326,38 @@ function ConfiguracoesLojaPage() {
           <CardTitle>Alertas</CardTitle>
           <CardDescription>Limites para destacar itens críticos no estoque e no dashboard.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-2">
-          <Label>Alertar quando estoque ficar abaixo de (metros/unidades)</Label>
-          <NumberInput
-            type="number"
-            min={0}
-            step="0.01"
-            className="w-full md:w-72"
-            value={cfg.estoque_critico_threshold}
-            onChange={(e) =>
-              setCfg({ ...cfg, estoque_critico_threshold: Number(e.target.value) || 0 })
-            }
-          />
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Tecido — alertar abaixo de (metros)</Label>
+            <NumberInput
+              type="number"
+              min={0}
+              step="0.01"
+              className="w-full md:w-72"
+              value={cfg.estoque_critico_threshold}
+              onChange={(e) =>
+                setCfg({ ...cfg, estoque_critico_threshold: Number(e.target.value) || 0 })
+              }
+            />
+            <p className="text-xs text-muted-foreground">
+              Vale para todo tecido em metros (tecido em kg é convertido para metros).
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label>Aviamento — alertar abaixo de (unidades)</Label>
+            <NumberInput
+              type="number"
+              min={0}
+              step="0.01"
+              className="w-full md:w-72"
+              value={cfg.estoque_critico_aviamento}
+              onChange={(e) =>
+                setCfg({ ...cfg, estoque_critico_aviamento: Number(e.target.value) || 0 })
+              }
+            />
+          </div>
           <p className="text-xs text-muted-foreground">
-            Itens com estoque igual ou abaixo desse valor aparecem em vermelho.
+            Itens com estoque igual ou abaixo do valor aparecem em vermelho.
           </p>
         </CardContent>
       </Card>

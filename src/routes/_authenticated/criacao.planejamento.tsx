@@ -87,6 +87,7 @@ type Modelo = {
   id: string;
   nome: string | null;
   estilista_id: string | null;
+  linha_id: string | null;
   colecao: string | null;
   semana: string | null;
   mes_id: string | null;
@@ -165,6 +166,7 @@ function PlanejamentoPage() {
   const { data: meses = [] } = useOpts("meses", "mes");
   const { data: anos = [] } = useOpts("anos", "ano");
   const { data: categorias = [] } = useOpts("categorias_produto");
+  const { data: linhas = [] } = useOpts("linhas");
   const { data: artigos = [] } = useQuery({
     queryKey: ["artigos-planejamento"],
     queryFn: async () => {
@@ -182,7 +184,7 @@ function PlanejamentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, estilista_id, colecao, semana, mes_id, ano_id, categoria_principal_id, categoria_secundaria_id, status_planejamento, fotos_modelo, fotos_referencia, observacoes_gerais, versao, modelo_base_id")
+        .select("id, nome, estilista_id, linha_id, colecao, semana, mes_id, ano_id, categoria_principal_id, categoria_secundaria_id, status_planejamento, fotos_modelo, fotos_referencia, observacoes_gerais, versao, modelo_base_id")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as Modelo[];
@@ -209,6 +211,7 @@ function PlanejamentoPage() {
 
   const estMap = Object.fromEntries(estilistas.map((e) => [e.id, e.nome]));
   const catMap = Object.fromEntries(categorias.map((c) => [c.id, c.nome]));
+  const linhaMap = Object.fromEntries(linhas.map((l) => [l.id, l.nome]));
 
   const renderCard = (m: Modelo) => (
     <ModeloCard
@@ -216,6 +219,7 @@ function PlanejamentoPage() {
       modelo={m}
       estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
       categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
+      linhaNome={m.linha_id ? linhaMap[m.linha_id] : null}
       onOpen={() => setOpenId(m.id)}
     />
   );
@@ -308,6 +312,7 @@ function PlanejamentoPage() {
         <ModeloDialog
           modeloId={openId}
           estilistas={estilistas}
+          linhas={linhas}
           meses={meses}
           anos={anos}
           categorias={categorias}
@@ -331,8 +336,8 @@ function PlanejamentoPage() {
 }
 
 
-function ModeloCard({ modelo, estilistaNome, categoriaNome, onOpen }: {
-  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; onOpen: () => void;
+function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, onOpen }: {
+  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; onOpen: () => void;
 }) {
   const photo = modelo.fotos_modelo?.[0] ?? null;
   const url = useSignedUrlBucket(photo);
@@ -352,6 +357,7 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, onOpen }: {
         <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
         <p className="text-xs text-muted-foreground truncate">{modelo.colecao ?? "Sem coleção"}</p>
         <p className="text-xs text-muted-foreground truncate">{categoriaNome ?? "Sem categoria"}</p>
+        <p className="text-xs text-muted-foreground truncate">{linhaNome ?? "Sem linha"}</p>
       </div>
     </Card>
   );
@@ -384,6 +390,7 @@ function useSignedUrlBucket(path: string | null | undefined) {
 type Draft = {
   nome: string;
   estilista_id: string | null;
+  linha_id: string | null;
   colecao: string;
   semana: string;
   mes_id: string | null;
@@ -400,7 +407,7 @@ type Draft = {
   modelo_base_id: string | null;
 };
 const emptyDraft = (): Draft => ({
-  nome: "", estilista_id: null, colecao: "", semana: "", mes_id: null, ano_id: null,
+  nome: "", estilista_id: null, linha_id: null, colecao: "", semana: "", mes_id: null, ano_id: null,
   categoria_principal_id: null, categoria_secundaria_id: null,
   tecidos_planejados: [],
   status_planejamento: "em_planejamento", desenho_tecnico_url: "", fotos_modelo: [], fotos_referencia: [],
@@ -411,9 +418,9 @@ const emptyDraft = (): Draft => ({
 type ArtigoOpt = { id: string; nome: string; unidade_medida: string | null };
 
 function ModeloDialog({
-  modeloId, estilistas, meses, anos, categorias, artigos, onClose, onSaved,
+  modeloId, estilistas, linhas, meses, anos, categorias, artigos, onClose, onSaved,
 }: {
-  modeloId: string | null; estilistas: Opt[]; meses: Opt[]; anos: Opt[]; categorias: Opt[];
+  modeloId: string | null; estilistas: Opt[]; linhas: Opt[]; meses: Opt[]; anos: Opt[]; categorias: Opt[];
   artigos: ArtigoOpt[];
   onClose: () => void; onSaved: () => void;
 }) {
@@ -447,6 +454,7 @@ function ModeloDialog({
         setDraft({
           nome: data.nome ?? "",
           estilista_id: data.estilista_id,
+          linha_id: (data as any).linha_id ?? null,
           colecao: data.colecao ?? "",
           semana: data.semana ?? "",
           mes_id: data.mes_id,
@@ -559,6 +567,7 @@ function ModeloDialog({
               </div>
             )}
             <FieldSelect label="Estilista" value={draft.estilista_id} onChange={(v) => setDraft((d) => ({ ...d, estilista_id: v }))} options={estilistas} />
+            <FieldSelect label="Linha" value={draft.linha_id} onChange={(v) => setDraft((d) => ({ ...d, linha_id: v }))} options={linhas} />
             <FieldText label="Coleção" value={draft.colecao} onChange={(v) => setDraft((d) => ({ ...d, colecao: v }))} />
             <div className="grid gap-1">
               <Label>Semana</Label>
