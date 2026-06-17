@@ -29,6 +29,7 @@ import { ModeloAviamentosSection } from "./modelo-detail/ModeloAviamentosSection
 import { ModeloGradeSection } from "./modelo-detail/ModeloGradeSection";
 import { ModeloCustosSection } from "./modelo-detail/ModeloCustosSection";
 import { ModeloAnexosSection } from "./modelo-detail/ModeloAnexosSection";
+import { ModeloObservacoes } from "@/components/shared/ModeloObservacoes";
 
 export function ModeloDetailPanel({ modeloId, onClose }: {
   modeloId: string | null;
@@ -1016,6 +1017,10 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
             </AccordionContent>
           </AccordionItem>
         </Accordion>
+
+        <div className="mt-4">
+          <ModeloObservacoes modeloId={modeloId} />
+        </div>
       </div>
 
       <div className="sticky bottom-0 bg-background border-t mt-4 pt-3 flex flex-wrap gap-2 justify-end items-center">

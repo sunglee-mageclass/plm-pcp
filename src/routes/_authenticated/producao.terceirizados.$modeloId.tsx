@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useReadOnly } from "@/components/RequirePermission";
+import { ModeloObservacoes } from "@/components/shared/ModeloObservacoes";
 
 export const Route = createFileRoute("/_authenticated/producao/terceirizados/$modeloId")({
   component: TercDetailPage,
@@ -736,6 +737,8 @@ function TercDetailPage() {
         />
         <p className="text-xs text-muted-foreground">Mesmo campo do CAD / Ficha de Corte.</p>
       </Card>
+
+      <ModeloObservacoes modeloId={modeloId} readOnly={readOnly} />
 
       {!cad?.id && (
         <Card className="p-4 border-amber-500/50 bg-amber-500/10 text-sm">
