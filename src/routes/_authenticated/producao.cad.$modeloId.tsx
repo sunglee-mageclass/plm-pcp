@@ -13,6 +13,7 @@ import { ModeloPhoto } from "@/components/producao/cad/shared";
 import { calcCusto } from "@/components/producao/cad/types";
 import type {
   AviamentoRow,
+  EtiquetaRow,
   GradeRow,
   TecidoRow,
   TipoTec,
@@ -22,6 +23,7 @@ import { CadActions } from "@/components/producao/cad/CadActions";
 import { CadTecidosSection } from "@/components/producao/cad/CadTecidosSection";
 import { CadGradeSection } from "@/components/producao/cad/CadGradeSection";
 import { CadExplosaoSection } from "@/components/producao/cad/CadExplosaoSection";
+import { CadEtiquetasSection } from "@/components/producao/cad/CadEtiquetasSection";
 import { CadFichaCorte } from "@/components/producao/cad/CadFichaCorte";
 import {
   AlertDialog,
@@ -178,10 +180,31 @@ function CadDetailPage() {
     },
   });
 
+  // TAG/Etiquetas cadastradas (para o select de adicionar) e as do CAD.
+  const { data: etiquetasDisponiveis = [] } = useQuery({
+    queryKey: ["etiquetas-opts"],
+    queryFn: async () => {
+      const { data } = await supabase.from("etiquetas" as any).select("id, nome, tamanho").order("nome");
+      return ((data ?? []) as unknown) as { id: string; nome: string; tamanho: string | null }[];
+    },
+  });
+  const { data: cadEtiquetas = [], isFetched: cadEtiquetasFetched } = useQuery({
+    queryKey: ["cad-etiquetas-rows", cadRow?.id],
+    enabled: !!cadRow?.id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("cad_etiquetas" as any)
+        .select("id, etiqueta_id, consumo, quantidade_planejada, quantidade_enviar, etiquetas:etiqueta_id(nome, tamanho)")
+        .eq("cad_id", cadRow!.id);
+      return (data ?? []) as any[];
+    },
+  });
+
   // --- local editable state, seeded from cad rows or modelo defaults ---
   const [tecidos, setTecidos] = useState<TecidoRow[]>([]);
   const [grades, setGrades] = useState<GradeRow[]>([]);
   const [aviamentos, setAviamentos] = useState<AviamentoRow[]>([]);
+  const [etiquetas, setEtiquetas] = useState<EtiquetaRow[]>([]);
   const [previsaoEntrega, setPrevisaoEntrega] = useState("");
   const [observacoesMolde, setObservacoesMolde] = useState("");
   const [seeded, setSeeded] = useState(false);
@@ -199,7 +222,7 @@ function CadDetailPage() {
     // Se já existe um CAD, espera as queries do CAD terminarem de buscar antes de
     // semear (evita semear do fallback enquanto o cad_* ainda carrega). Quando o
     // CAD existir mas vier vazio, cai no fallback de modelo_tecidos/grades/aviamentos.
-    if (cadRow?.id && !(cadTecidosFetched && cadGradesFetched && cadAviamentosFetched)) {
+    if (cadRow?.id && !(cadTecidosFetched && cadGradesFetched && cadAviamentosFetched && cadEtiquetasFetched)) {
       return;
     }
 
@@ -319,11 +342,23 @@ function CadDetailPage() {
     }
     setAviamentos(initialAvi);
 
+    setEtiquetas(
+      (cadEtiquetas as any[]).map((e) => ({
+        id: e.id,
+        etiqueta_id: e.etiqueta_id,
+        etiqueta_nome: e.etiquetas?.nome ?? "—",
+        tamanho: e.etiquetas?.tamanho ?? null,
+        consumo: Number(e.consumo ?? 0),
+        quantidade_planejada: Number(e.quantidade_planejada ?? 0),
+        quantidade_enviar: Number(e.quantidade_enviar ?? 0),
+      })),
+    );
+
     if (cadRow?.data_previsao_corte) setPrevisaoEntrega(cadRow.data_previsao_corte);
     setObservacoesMolde((cadRow as any)?.observacoes_molde ?? "");
 
     setSeeded(true);
-  }, [modelo, cadRow, cadTecidos, modeloTecidos, cadGrades, modeloGrades, cadAviamentos, modeloAviamentos, cadTecidosFetched, cadGradesFetched, cadAviamentosFetched, seeded]);
+  }, [modelo, cadRow, cadTecidos, modeloTecidos, cadGrades, modeloGrades, cadAviamentos, modeloAviamentos, cadEtiquetas, cadTecidosFetched, cadGradesFetched, cadAviamentosFetched, cadEtiquetasFetched, seeded]);
 
   // --- helpers ---
   const updateTec = (i: number, patch: Partial<TecidoRow>) => {
@@ -391,6 +426,29 @@ function CadDetailPage() {
       return next;
     });
   };
+
+  // Soma da grade de um tamanho (ex.: "38|P") somando todas as variantes.
+  const gradeSumByTamanho = (tamanho: string) =>
+    grades.reduce((s, g) => s + (Number(g.grades?.[tamanho]) || 0), 0);
+  const updateEtiqueta = (i: number, patch: Partial<EtiquetaRow>) => {
+    setEtiquetas((prev) => prev.map((e, j) => (j === i ? { ...e, ...patch } : e)));
+  };
+  const addEtiqueta = (etiquetaId: string) => {
+    const opt = (etiquetasDisponiveis as any[]).find((d) => d.id === etiquetaId);
+    if (!opt) return;
+    setEtiquetas((prev) => [
+      ...prev,
+      {
+        etiqueta_id: opt.id,
+        etiqueta_nome: opt.nome,
+        tamanho: opt.tamanho ?? null,
+        consumo: 0,
+        quantidade_planejada: 0,
+        quantidade_enviar: 0,
+      },
+    ]);
+  };
+  const removeEtiqueta = (i: number) => setEtiquetas((prev) => prev.filter((_, j) => j !== i));
 
   // --- mutations ---
   const saveAll = useMutation({
@@ -485,6 +543,22 @@ function CadDetailPage() {
         );
         if (ae) throw ae;
       }
+      // TAG/Etiquetas do CAD. Qtd Planejada é calculada quando há tamanho atrelado.
+      await supabase.from("cad_etiquetas" as any).delete().eq("cad_id", cad_id!);
+      if (etiquetas.length > 0) {
+        const { error: ee } = await supabase.from("cad_etiquetas" as any).insert(
+          etiquetas.map((e) => ({
+            cad_id,
+            etiqueta_id: e.etiqueta_id,
+            consumo: e.consumo,
+            quantidade_planejada: e.tamanho
+              ? Number((e.consumo * gradeSumByTamanho(e.tamanho)).toFixed(2))
+              : e.quantidade_planejada,
+            quantidade_enviar: e.quantidade_enviar,
+          })),
+        );
+        if (ee) throw ee;
+      }
       const cadUpdate: any = { observacoes_molde: observacoesMolde || null };
       if (previsaoEntrega) cadUpdate.data_previsao_corte = previsaoEntrega;
       await supabase.from("cad").update(cadUpdate).eq("id", cad_id!);
@@ -495,6 +569,7 @@ function CadDetailPage() {
       qc.invalidateQueries({ queryKey: ["cad-row", modeloId] });
       qc.invalidateQueries({ queryKey: ["cad-tecidos"] });
       qc.invalidateQueries({ queryKey: ["cad-aviamentos-rows"] });
+      qc.invalidateQueries({ queryKey: ["cad-etiquetas-rows"] });
       // Grade/proporção são compartilhadas: atualiza o que o Desenvolvimento lê.
       qc.invalidateQueries({ queryKey: ["cad-modelo-grades", modeloId] });
       qc.invalidateQueries({ queryKey: ["cad-modelo", modeloId] });
@@ -735,6 +810,15 @@ function CadDetailPage() {
           aviamentos={aviamentos}
           gradeTotalGeral={gradeTotalGeral}
           updateAvi={updateAvi}
+        />
+
+        <CadEtiquetasSection
+          etiquetas={etiquetas}
+          disponiveis={etiquetasDisponiveis}
+          gradeSumByTamanho={gradeSumByTamanho}
+          onUpdate={updateEtiqueta}
+          onAdd={addEtiqueta}
+          onRemove={removeEtiqueta}
         />
 
         <Card className="p-5 space-y-2">

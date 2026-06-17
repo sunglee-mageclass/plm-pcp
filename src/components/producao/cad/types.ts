@@ -48,6 +48,18 @@ export type AviamentoRow = {
   quantidade_separar: number;
 };
 
+export type EtiquetaRow = {
+  id?: string;
+  etiqueta_id: string;
+  etiqueta_nome: string;
+  // Tamanho da grade atrelado (ex.: "38|P"); se houver, a Qtd Planejada é
+  // calculada (consumo * soma da grade desse tamanho). Senão, é manual.
+  tamanho: string | null;
+  consumo: number;
+  quantidade_planejada: number;
+  quantidade_enviar: number;
+};
+
 export function calcCusto(consumo: number, loss: number, preco: number) {
   return Number((consumo * (1 + loss / 100) * preco).toFixed(2));
 }
