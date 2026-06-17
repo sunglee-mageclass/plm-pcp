@@ -7,7 +7,7 @@ import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FilterButton } from "@/components/shared/filters";
 
 export const Route = createFileRoute("/_authenticated/producao/terceirizados/")({
   component: TercListPage,
@@ -19,6 +19,7 @@ function TercListPage() {
   const [fColecao, setFColecao] = useState("all");
   const [fMes, setFMes] = useState("all");
   const [fAno, setFAno] = useState("all");
+  const [fStatus, setFStatus] = useState("all");
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["producao-terc-list"],
@@ -77,6 +78,7 @@ function TercListPage() {
     if (fColecao !== "all" && r.colecao !== fColecao) return false;
     if (fMes !== "all" && r.mes_id !== fMes) return false;
     if (fAno !== "all" && r.ano_id !== fAno) return false;
+    if (fStatus !== "all" && r.statusGeral !== fStatus) return false;
     return true;
   });
 
@@ -85,38 +87,31 @@ function TercListPage() {
       <header className="flex items-center gap-3">
         <Users className="h-7 w-7 text-primary" />
         <div>
-          <h1 className="text-2xl font-bold">Terceirizados</h1>
-          <p className="text-sm text-muted-foreground">Acompanhamento de serviços terceirizados por REF.</p>
+          <h1 className="text-2xl font-bold">Serviços</h1>
+          <p className="text-sm text-muted-foreground">Acompanhamento de serviços por REF.</p>
         </div>
       </header>
 
-      <Card className="p-4 grid gap-3 md:grid-cols-5">
-        <div className="relative md:col-span-2">
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1 max-w-sm">
           <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input className="pl-9" placeholder="REF ou nome…" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
-        <Select value={fColecao} onValueChange={setFColecao}>
-          <SelectTrigger><SelectValue placeholder="Coleção" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todas coleções</SelectItem>
-            {colecoes.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Select value={fMes} onValueChange={setFMes}>
-          <SelectTrigger><SelectValue placeholder="Mês" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos meses</SelectItem>
-            {(meses as any[]).map((m) => <SelectItem key={m.id} value={m.id}>{m.nome}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Select value={fAno} onValueChange={setFAno}>
-          <SelectTrigger><SelectValue placeholder="Ano" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos anos</SelectItem>
-            {(anos as any[]).map((a) => <SelectItem key={a.id} value={a.id}>{a.nome}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </Card>
+        <FilterButton
+          filters={[
+            { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
+            { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...(meses as any[])] },
+            { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...(anos as any[])] },
+            { label: "Status Geral", value: fStatus, onChange: setFStatus, options: [
+              { id: "all", nome: "Todos" },
+              { id: "pendente", nome: "Pendente" },
+              { id: "em_andamento", nome: "Em andamento" },
+              { id: "finalizado", nome: "Finalizado" },
+              { id: "sem", nome: "Sem serviço" },
+            ] },
+          ]}
+        />
+      </div>
 
       <Card className="overflow-hidden">
         <table className="w-full text-sm">

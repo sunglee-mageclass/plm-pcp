@@ -23,13 +23,17 @@ function CqListPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, ref, versao, nome, colecao, mes_id, ano_id, categorias_produto:categoria_principal_id(nome), cad(enviado_corte, producao_oficina(data_entregue))")
+        .select("id, ref, versao, nome, colecao, mes_id, ano_id, categorias_produto:categoria_principal_id(nome), cad(enviado_corte, producao_terceirizados(data_entregue, ativo))")
         .eq("enviado_cad", true)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      // CQ só ativa quando a Oficina retornou (producao_oficina com data_entregue).
+      // CQ só ativa quando o Status Geral dos Serviços é "Finalizado"
+      // (todos os serviços ativos entregues, e há ao menos um).
       return (data ?? [])
-        .filter((m: any) => (m.cad?.[0]?.producao_oficina ?? []).some((o: any) => !!o.data_entregue))
+        .filter((m: any) => {
+          const tercs = (m.cad?.[0]?.producao_terceirizados ?? []).filter((t: any) => t.ativo !== false);
+          return tercs.length > 0 && tercs.every((t: any) => !!t.data_entregue);
+        })
         .map((m: any) => ({
         modelo_id: m.id, ref: m.ref, versao: m.versao, nome: m.nome, colecao: m.colecao,
         mes_id: m.mes_id, ano_id: m.ano_id,
