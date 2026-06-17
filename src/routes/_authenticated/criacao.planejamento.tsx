@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers } from "lucide-react";
+import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, Group, LayoutGrid } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -108,6 +108,16 @@ const STATUS_OPTS = [
 ];
 const statusMeta = (s: string | null) => STATUS_OPTS.find((o) => o.value === s) ?? STATUS_OPTS[0];
 
+// Quantidade de cards por linha (grid). Classes literais p/ o Tailwind não purgar.
+const COL_OPTS = [2, 3, 4, 5, 6] as const;
+const COL_CLASS: Record<number, string> = {
+  2: "grid gap-4 grid-cols-1 sm:grid-cols-2",
+  3: "grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3",
+  4: "grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4",
+  5: "grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5",
+  6: "grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6",
+};
+
 async function uploadFile(file: File, prefix: string) {
   const { tenantPrefix } = await import("@/lib/storage-tenant");
   const tenant = await tenantPrefix();
@@ -141,6 +151,8 @@ function PlanejamentoPage() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [openNew, setOpenNew] = useState(false);
   const [openBatch, setOpenBatch] = useState(false);
+  const [groupByCat, setGroupByCat] = useState(false);
+  const [cols, setCols] = useState(4);
 
   const { data: estilistas = [] } = useQuery({
     queryKey: ["colab-estilistas"],
@@ -198,6 +210,34 @@ function PlanejamentoPage() {
   const estMap = Object.fromEntries(estilistas.map((e) => [e.id, e.nome]));
   const catMap = Object.fromEntries(categorias.map((c) => [c.id, c.nome]));
 
+  const renderCard = (m: Modelo) => (
+    <ModeloCard
+      key={m.id}
+      modelo={m}
+      estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
+      categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
+      onOpen={() => setOpenId(m.id)}
+    />
+  );
+
+  // Agrupa por categoria principal (cards sem categoria caem em "Sem categoria").
+  const grouped = (() => {
+    const map = new Map<string, Modelo[]>();
+    filtered.forEach((m) => {
+      const key = m.categoria_principal_id ?? "__none__";
+      const arr = map.get(key);
+      if (arr) arr.push(m);
+      else map.set(key, [m]);
+    });
+    return Array.from(map.entries())
+      .map(([key, items]) => ({
+        key,
+        nome: key === "__none__" ? "Sem categoria" : catMap[key] ?? "Sem categoria",
+        items,
+      }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  })();
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       <header className="flex items-center justify-between gap-3">
@@ -226,14 +266,42 @@ function PlanejamentoPage() {
         </div>
       </header>
 
+      <div className="flex items-center gap-2 flex-wrap">
+        <Button
+          variant={groupByCat ? "default" : "outline"}
+          size="sm"
+          onClick={() => setGroupByCat((v) => !v)}
+        >
+          <Group className="h-4 w-4 mr-1" /> Agrupar por categoria
+        </Button>
+        <div className="flex items-center gap-1.5 ml-auto">
+          <LayoutGrid className="h-4 w-4 text-muted-foreground" />
+          <Label className="text-xs text-muted-foreground">Colunas</Label>
+          <Select value={String(cols)} onValueChange={(v) => setCols(Number(v))}>
+            <SelectTrigger className="h-8 w-16"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {COL_OPTS.map((n) => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
       {filtered.length === 0 ? (
         <Card className="p-12 text-center text-muted-foreground">Nenhum modelo encontrado.</Card>
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-          {filtered.map((m) => (
-            <ModeloCard key={m.id} modelo={m} estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null} categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null} onOpen={() => setOpenId(m.id)} />
+      ) : groupByCat ? (
+        <div className="space-y-8">
+          {grouped.map((g) => (
+            <section key={g.key}>
+              <div className="flex items-center gap-2 mb-3">
+                <h2 className="text-lg font-semibold">{g.nome}</h2>
+                <Badge variant="secondary">{g.items.length}</Badge>
+              </div>
+              <div className={COL_CLASS[cols]}>{g.items.map(renderCard)}</div>
+            </section>
           ))}
         </div>
+      ) : (
+        <div className={COL_CLASS[cols]}>{filtered.map(renderCard)}</div>
       )}
 
       {(openNew || openId) && (
@@ -589,16 +657,22 @@ function ModeloDialog({
 type CatRow = {
   categoria_principal_id: string | null;
   categoria_secundaria_id: string | null;
-  quantidade: number;
+  quantidade: string; // mantido como texto p/ permitir apagar/digitar livremente
 };
 
 const isConjuntoCat = (categorias: Opt[], id: string | null) =>
   (categorias.find((c) => c.id === id)?.nome ?? "").toLowerCase() === "conjunto";
 
+// Quantidade digitada → inteiro (vazio/invalid = 0).
+const parseQtd = (s: string) => {
+  const n = parseInt(s, 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+};
+
 const emptyCatRow = (): CatRow => ({
   categoria_principal_id: null,
   categoria_secundaria_id: null,
-  quantidade: 1,
+  quantidade: "1",
 });
 
 function BatchCardsDialog({
@@ -617,7 +691,7 @@ function BatchCardsDialog({
   const [rows, setRows] = useState<CatRow[]>([emptyCatRow()]);
 
   const total = rows.reduce(
-    (sum, r) => sum + (r.categoria_principal_id ? Math.max(0, Math.floor(r.quantidade) || 0) : 0),
+    (sum, r) => sum + (r.categoria_principal_id ? parseQtd(r.quantidade) : 0),
     0,
   );
 
@@ -649,8 +723,8 @@ function BatchCardsDialog({
         const conjunto = isConjuntoCat(categorias, r.categoria_principal_id);
         if (conjunto && !r.categoria_secundaria_id)
           throw new Error("Escolha a subcategoria de cada Conjunto.");
-        const qtd = Math.floor(r.quantidade);
-        if (!qtd || qtd < 1)
+        const qtd = parseQtd(r.quantidade);
+        if (qtd < 1)
           throw new Error("A quantidade de cada categoria deve ser ao menos 1.");
         const comboKey = `${r.categoria_principal_id}::${r.categoria_secundaria_id ?? ""}`;
         if (combos.has(comboKey))
@@ -778,12 +852,17 @@ function BatchCardsDialog({
                     <div className="grid gap-1 w-20">
                       <Label className="text-xs">Qtd</Label>
                       <Input
-                        type="number"
-                        min={1}
+                        type="text"
+                        inputMode="numeric"
                         value={r.quantidade}
-                        onChange={(e) =>
-                          setRow(i, { quantidade: Math.max(1, Math.floor(Number(e.target.value) || 1)) })
-                        }
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v === "" || /^\d+$/.test(v)) setRow(i, { quantidade: v });
+                        }}
+                        onBlur={() => {
+                          const n = parseQtd(r.quantidade);
+                          setRow(i, { quantidade: String(n > 0 ? n : 1) });
+                        }}
                       />
                     </div>
                     <Button
