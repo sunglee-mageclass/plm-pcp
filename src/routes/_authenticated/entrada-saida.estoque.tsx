@@ -87,7 +87,7 @@ function TecidosTab() {
         supabase.from("ocs_tecido_itens").select("artigo_id, variante_tecido_id, quantidade_pedida, quantidade_recebida, cancelado, oc_tecido_id, ocs_tecido!inner(status)"),
         supabase.from("cad_tecido_variantes").select("variante_tecido_id, metragem_enviada, cad_tecidos!inner(artigo_id, cad!inner(enviado_corte))"),
         supabase.from("modelo_tecidos").select("id, modelo_id, artigo_id, consumo, loss_percent"),
-        supabase.from("modelo_tecido_variantes").select("variante_tecido_id, modelo_tecido_id, ordem"),
+        supabase.from("modelo_tecido_variantes").select("variante_tecido_id, modelo_tecido_id, ordem, multiplicador"),
         supabase.from("modelos").select("id, status_desenvolvimento, cad(enviado_corte)"),
         supabase.from("modelo_grades").select("modelo_id, variante_numero, grade_total"),
       ]);
@@ -160,11 +160,11 @@ function TecidosTab() {
         get(cv.variante_tecido_id).baixa += num(cv.metragem_enviada);
       }
 
-      const variantesByModTec = new Map<string, { ordem: number; varId: string }[]>();
+      const variantesByModTec = new Map<string, { ordem: number; varId: string; mult: number }[]>();
       for (const mv of modTecVar as any[]) {
         if (!mv.variante_tecido_id || !mv.modelo_tecido_id) continue;
         const arr = variantesByModTec.get(mv.modelo_tecido_id) ?? [];
-        arr.push({ ordem: num(mv.ordem), varId: mv.variante_tecido_id });
+        arr.push({ ordem: num(mv.ordem), varId: mv.variante_tecido_id, mult: num(mv.multiplicador) || 1 });
         variantesByModTec.set(mv.modelo_tecido_id, arr);
       }
       for (const [mtId, vars] of variantesByModTec) {
@@ -175,7 +175,7 @@ function TecidosTab() {
         sorted.forEach((v, idx) => {
           const numeroVariante = v.ordem > 0 ? v.ordem : idx + 1;
           const gradeTotal = gradeByModeloVar.get(`${mt.modelo_id}::${numeroVariante}`) ?? 0;
-          get(v.varId).reservado += consumoComLoss * gradeTotal;
+          get(v.varId).reservado += consumoComLoss * gradeTotal * (v.mult || 1);
         });
       }
 
