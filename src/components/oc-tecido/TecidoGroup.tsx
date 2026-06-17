@@ -7,7 +7,7 @@ import { artigoLabel, unidadeSufixo } from "@/lib/artigo-label";
 import type { Artigo, ItemDraft, Variante } from "./shared";
 
 export function TecidoGroup({
-  n, artigos, artigoId, onArtigoChange, variantes, items, toggleVariante, setQtd, varianteMap,
+  n, artigos, artigoId, onArtigoChange, variantes, items, toggleVariante, setQtd, setRendimento, varianteMap,
 }: {
   n: 1 | 2;
   artigos: Artigo[];
@@ -17,11 +17,13 @@ export function TecidoGroup({
   items: ItemDraft[];
   toggleVariante: (vid: string, checked: boolean) => void;
   setQtd: (tempId: string, field: "quantidade_pedida" | "quantidade_recebida", v: number | null) => void;
+  setRendimento: (v: number | null) => void;
   varianteMap: Record<string, Variante>;
 }) {
   const selectedIds = new Set(items.map((i) => i.variante_tecido_id));
   const artigoAtual = artigos.find((a) => a.id === artigoId) ?? null;
   const sufixo = unidadeSufixo(artigoAtual?.unidade_medida);
+  const isKg = artigoAtual?.unidade_medida === "kg";
 
   return (
     <Card className="p-4 space-y-3">
@@ -55,6 +57,22 @@ export function TecidoGroup({
               })}
             </div>
           </div>
+
+          {isKg && items.length > 0 && (
+            <div className="grid gap-1">
+              <Label>Rendimento (m/kg)</Label>
+              <div className="relative w-32">
+                <NumberInput type="number" step="0.01" className="pr-12"
+                  placeholder="m/kg"
+                  value={items[0]?.rendimento ?? ""}
+                  onChange={(e) => setRendimento(e.target.value === "" ? null : Number(e.target.value))} />
+                <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                  m/kg
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">Converte kg em metros para esta OC. Padrão vem do cadastro do artigo.</p>
+            </div>
+          )}
 
           {items.length > 0 && (
             <div className="space-y-2">

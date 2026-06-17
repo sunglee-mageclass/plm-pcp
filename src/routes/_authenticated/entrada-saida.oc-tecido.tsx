@@ -270,6 +270,7 @@ function OcDialog({
         variante_tecido_id: i.variante_tecido_id ?? "",
         quantidade_pedida: Number(i.quantidade_pedida ?? 0),
         quantidade_recebida: i.quantidade_recebida == null ? null : Number(i.quantidade_recebida),
+        rendimento: (i as any).rendimento == null ? null : Number((i as any).rendimento),
         cancelado: !!(i as any).cancelado,
       }));
       setItems(mapped);
@@ -320,6 +321,7 @@ function OcDialog({
   const artigoIdFor = (n: 1 | 2) => itemsBy(n)[0]?.artigo_id ?? null;
 
   const setArtigo = (n: 1 | 2, artigoId: string) => {
+    const rendimentoPadrao = artigoMap[artigoId]?.rendimento ?? null;
     setItems((prev) => [
       ...prev.filter((i) => i.artigo_numero !== n),
       {
@@ -329,6 +331,7 @@ function OcDialog({
         variante_tecido_id: "",
         quantidade_pedida: 0,
         quantidade_recebida: null,
+        rendimento: rendimentoPadrao,
         cancelado: false,
       },
     ]);
@@ -350,6 +353,10 @@ function OcDialog({
       }
       if (selected.some((i) => i.variante_tecido_id === varId)) return prev;
       if (selected.length >= 10) { toast.error("Limite de 10 variantes por tecido"); return prev; }
+      // Novas variantes herdam o rendimento já definido para este tecido (ou o
+      // padrão do artigo), mantendo um único rendimento por tecido na OC.
+      const rendimentoGrupo = prev.find((i) => i.artigo_numero === n)?.rendimento
+        ?? artigoMap[artigoId]?.rendimento ?? null;
       return [
         ...others,
         ...selected,
@@ -360,6 +367,7 @@ function OcDialog({
           variante_tecido_id: varId,
           quantidade_pedida: 0,
           quantidade_recebida: null,
+          rendimento: rendimentoGrupo,
           cancelado: false,
         },
       ];
@@ -368,6 +376,10 @@ function OcDialog({
 
   const setQtd = (tempId: string, field: "quantidade_pedida" | "quantidade_recebida", v: number | null) => {
     setItems((prev) => prev.map((i) => i.tempId === tempId ? { ...i, [field]: v } : i));
+  };
+  // Rendimento é por tecido: aplica o valor a todos os itens do mesmo artigo_numero.
+  const setRendimento = (n: 1 | 2, v: number | null) => {
+    setItems((prev) => prev.map((i) => i.artigo_numero === n ? { ...i, rendimento: v } : i));
   };
   const toggleCancelado = (tempId: string, value: boolean) => {
     setItems((prev) => prev.map((i) => i.tempId === tempId ? { ...i, cancelado: value } : i));
@@ -456,6 +468,7 @@ function OcDialog({
               variante_tecido_id: it.variante_tecido_id,
               quantidade_pedida: it.quantidade_pedida,
               quantidade_recebida: it.quantidade_recebida,
+              rendimento: it.rendimento,
               cancelado: it.cancelado,
             } as any)
             .eq("id", it.id!);
@@ -471,6 +484,7 @@ function OcDialog({
               variante_tecido_id: i.variante_tecido_id,
               quantidade_pedida: i.quantidade_pedida,
               quantidade_recebida: i.quantidade_recebida,
+              rendimento: i.rendimento,
               cancelado: i.cancelado,
             })) as any);
           if (error) throw error;
@@ -497,6 +511,7 @@ function OcDialog({
               variante_tecido_id: i.variante_tecido_id,
               quantidade_pedida: i.quantidade_pedida,
               quantidade_recebida: i.quantidade_recebida,
+              rendimento: i.rendimento,
               cancelado: i.cancelado,
             })) as any);
           if (itErr) throw itErr;
@@ -654,6 +669,7 @@ function OcDialog({
             setArtigo={setArtigo}
             toggleVariante={toggleVariante}
             setQtd={setQtd}
+            setRendimento={setRendimento}
             tecido2Aberto={tecido2Aberto}
             setTecido2Aberto={setTecido2Aberto}
             removeTecido2={() => {

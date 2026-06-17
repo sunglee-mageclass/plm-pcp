@@ -27,15 +27,17 @@ export function OcTecidoCalculos({
   toggleCancelado?: (tempId: string, value: boolean) => void;
   canCancel?: boolean;
 }) {
+  // Rendimento da OC (item) tem prioridade sobre o do cadastro do artigo.
+  const rendimentoDe = (it: ItemDraft, a: Artigo) => Number(it.rendimento ?? a.rendimento ?? 0);
   const metragemPedida = (it: ItemDraft) => {
     const a = it.artigo_id ? artigoMap[it.artigo_id] : null;
     if (!a) return 0;
-    return a.unidade_medida === "kg" ? it.quantidade_pedida * Number(a.rendimento ?? 0) : it.quantidade_pedida;
+    return a.unidade_medida === "kg" ? it.quantidade_pedida * rendimentoDe(it, a) : it.quantidade_pedida;
   };
   const metragemRecebida = (it: ItemDraft) => {
     const a = it.artigo_id ? artigoMap[it.artigo_id] : null;
     if (!a || it.quantidade_recebida == null) return 0;
-    return a.unidade_medida === "kg" ? it.quantidade_recebida * Number(a.rendimento ?? 0) : it.quantidade_recebida;
+    return a.unidade_medida === "kg" ? it.quantidade_recebida * rendimentoDe(it, a) : it.quantidade_recebida;
   };
   const valorPrev = (it: ItemDraft) => {
     const a = it.artigo_id ? artigoMap[it.artigo_id] : null;

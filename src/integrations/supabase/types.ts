@@ -1903,6 +1903,7 @@ export type Database = {
           oc_tecido_id: string | null
           quantidade_pedida: number | null
           quantidade_recebida: number | null
+          rendimento: number | null
           variante_tecido_id: string | null
         }
         Insert: {
@@ -1914,6 +1915,7 @@ export type Database = {
           oc_tecido_id?: string | null
           quantidade_pedida?: number | null
           quantidade_recebida?: number | null
+          rendimento?: number | null
           variante_tecido_id?: string | null
         }
         Update: {
@@ -1925,6 +1927,7 @@ export type Database = {
           oc_tecido_id?: string | null
           quantidade_pedida?: number | null
           quantidade_recebida?: number | null
+          rendimento?: number | null
           variante_tecido_id?: string | null
         }
         Relationships: [
