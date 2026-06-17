@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon } from "lucide-react";
+import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -140,6 +140,7 @@ function PlanejamentoPage() {
   const [fColecao, setFColecao] = useState("all");
   const [openId, setOpenId] = useState<string | null>(null);
   const [openNew, setOpenNew] = useState(false);
+  const [openBatch, setOpenBatch] = useState(false);
 
   const { data: estilistas = [] } = useQuery({
     queryKey: ["colab-estilistas"],
@@ -220,6 +221,7 @@ function PlanejamentoPage() {
               { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
             ]}
           />
+          <Button variant="outline" onClick={() => setOpenBatch(true)}><Layers className="h-4 w-4 mr-1" /> Vários Cards</Button>
           <Button onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /> Novo Modelo</Button>
         </div>
       </header>
@@ -246,6 +248,16 @@ function PlanejamentoPage() {
           onSaved={() => qc.invalidateQueries({ queryKey: ["modelos-planejamento"] })}
         />
       )}
+
+      {openBatch && (
+        <BatchCardsDialog
+          meses={meses}
+          anos={anos}
+          categorias={categorias}
+          onClose={() => setOpenBatch(false)}
+          onSaved={() => qc.invalidateQueries({ queryKey: ["modelos-planejamento"] })}
+        />
+      )}
     </div>
   );
 }
@@ -264,7 +276,7 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, onOpen }: {
              : <ImageIcon className="h-10 w-10 text-muted-foreground" />}
       </div>
       <div className="p-3 space-y-1.5">
-        <h3 className="font-semibold text-sm leading-tight truncate">{modelo.nome ?? "Sem nome"}</h3>
+        <h3 className="font-semibold text-sm leading-tight truncate">{modelo.nome || "Sem nome"}</h3>
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge className={`${meta.color} text-white`}>{meta.label}</Badge>
           <VersaoBadge versao={modelo.versao} />
@@ -567,6 +579,244 @@ function ModeloDialog({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ============ BATCH — criar vários cards ============ */
+
+type CatRow = {
+  categoria_principal_id: string | null;
+  categoria_secundaria_id: string | null;
+  quantidade: number;
+};
+
+const isConjuntoCat = (categorias: Opt[], id: string | null) =>
+  (categorias.find((c) => c.id === id)?.nome ?? "").toLowerCase() === "conjunto";
+
+const emptyCatRow = (): CatRow => ({
+  categoria_principal_id: null,
+  categoria_secundaria_id: null,
+  quantidade: 1,
+});
+
+function BatchCardsDialog({
+  meses, anos, categorias, onClose, onSaved,
+}: {
+  meses: Opt[]; anos: Opt[]; categorias: Opt[];
+  onClose: () => void; onSaved: () => void;
+}) {
+  // Campos compartilhados por todos os cards (mesmo "core" do Novo Modelo,
+  // sem nome/estilista/tecido/fotos).
+  const [colecao, setColecao] = useState("");
+  const [status, setStatus] = useState("em_planejamento");
+  const [semana, setSemana] = useState("");
+  const [mesId, setMesId] = useState<string | null>(null);
+  const [anoId, setAnoId] = useState<string | null>(null);
+  const [rows, setRows] = useState<CatRow[]>([emptyCatRow()]);
+
+  const total = rows.reduce(
+    (sum, r) => sum + (r.categoria_principal_id ? Math.max(0, Math.floor(r.quantidade) || 0) : 0),
+    0,
+  );
+
+  const setRow = (i: number, patch: Partial<CatRow>) =>
+    setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const addRow = () => setRows((rs) => [...rs, emptyCatRow()]);
+  const removeRow = (i: number) => setRows((rs) => rs.filter((_, j) => j !== i));
+
+  // Categorias não-conjunto já escolhidas em outras linhas: só podem aparecer
+  // uma vez (conjunto pode repetir, variando a subcategoria).
+  const usedNonConjunto = (exceptIdx: number) =>
+    new Set(
+      rows
+        .filter(
+          (r, j) =>
+            j !== exceptIdx &&
+            r.categoria_principal_id &&
+            !isConjuntoCat(categorias, r.categoria_principal_id),
+        )
+        .map((r) => r.categoria_principal_id as string),
+    );
+
+  const create = useMutation({
+    mutationFn: async () => {
+      const payloads: any[] = [];
+      const combos = new Set<string>();
+      for (const r of rows) {
+        if (!r.categoria_principal_id) continue;
+        const conjunto = isConjuntoCat(categorias, r.categoria_principal_id);
+        if (conjunto && !r.categoria_secundaria_id)
+          throw new Error("Escolha a subcategoria de cada Conjunto.");
+        const qtd = Math.floor(r.quantidade);
+        if (!qtd || qtd < 1)
+          throw new Error("A quantidade de cada categoria deve ser ao menos 1.");
+        const comboKey = `${r.categoria_principal_id}::${r.categoria_secundaria_id ?? ""}`;
+        if (combos.has(comboKey))
+          throw new Error("Há categorias repetidas. Some as quantidades ou troque a subcategoria.");
+        combos.add(comboKey);
+        for (let n = 0; n < qtd; n++) {
+          payloads.push({
+            nome: "",
+            estilista_id: null,
+            colecao,
+            semana,
+            mes_id: mesId,
+            ano_id: anoId,
+            categoria_principal_id: r.categoria_principal_id,
+            categoria_secundaria_id: conjunto ? r.categoria_secundaria_id : null,
+            tecidos_planejados: [],
+            status_planejamento: status,
+            fotos_modelo: [],
+            fotos_referencia: [],
+            observacoes_gerais: "",
+            versao: 1,
+            modelo_base_id: null,
+          });
+        }
+      }
+      if (payloads.length === 0) throw new Error("Selecione ao menos uma categoria.");
+      // tenant_id é preenchido pelo trigger set_tenant_id.
+      const { error } = await supabase.from("modelos").insert(payloads);
+      if (error) throw error;
+      return payloads.length;
+    },
+    onSuccess: (n) => {
+      toast.success(`${n} ${n === 1 ? "card criado" : "cards criados"}`);
+      onSaved();
+      onClose();
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao criar cards"),
+  });
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Criar vários cards</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-5">
+          <div>
+            <p className="text-sm font-medium mb-2">Campos compartilhados</p>
+            <p className="text-xs text-muted-foreground mb-3">Aplicados a todos os cards criados.</p>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <FieldText label="Coleção" value={colecao} onChange={setColecao} />
+              <div className="grid gap-1">
+                <Label>Status</Label>
+                <Select value={status} onValueChange={setStatus}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {STATUS_OPTS.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-1">
+                <Label>Semana</Label>
+                <Select value={semana || ""} onValueChange={setSemana}>
+                  <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                  <SelectContent>
+                    {["1","2","3","4","5"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <FieldSelect label="Mês" value={mesId} onChange={(v) => setMesId(v)} options={meses} />
+              <FieldSelect label="Ano" value={anoId} onChange={(v) => setAnoId(v)} options={anos} />
+            </div>
+          </div>
+
+          <div>
+            <p className="text-sm font-medium mb-2">Categorias</p>
+            <p className="text-xs text-muted-foreground mb-3">
+              Selecione a categoria e a quantidade de cards. "Conjunto" pode ser adicionado mais de
+              uma vez, escolhendo a subcategoria de cada um.
+            </p>
+            <div className="space-y-2">
+              {rows.map((r, i) => {
+                const conjunto = isConjuntoCat(categorias, r.categoria_principal_id);
+                const used = usedNonConjunto(i);
+                const principalOpts = categorias.filter(
+                  (c) => !used.has(c.id) || c.id === r.categoria_principal_id,
+                );
+                const subOpts = categorias.filter((c) => !isConjuntoCat(categorias, c.id));
+                return (
+                  <div key={i} className="flex flex-wrap items-end gap-2 rounded-md border p-2">
+                    <div className="grid gap-1 flex-1 min-w-[150px]">
+                      <Label className="text-xs">Categoria</Label>
+                      <Select
+                        value={r.categoria_principal_id ?? ""}
+                        onValueChange={(v) =>
+                          setRow(i, {
+                            categoria_principal_id: v,
+                            categoria_secundaria_id: isConjuntoCat(categorias, v)
+                              ? r.categoria_secundaria_id
+                              : null,
+                          })
+                        }
+                      >
+                        <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                        <SelectContent>
+                          {principalOpts.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {conjunto && (
+                      <div className="grid gap-1 flex-1 min-w-[150px]">
+                        <Label className="text-xs">Subcategoria</Label>
+                        <Select
+                          value={r.categoria_secundaria_id ?? ""}
+                          onValueChange={(v) => setRow(i, { categoria_secundaria_id: v })}
+                        >
+                          <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                          <SelectContent>
+                            {subOpts.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                    <div className="grid gap-1 w-20">
+                      <Label className="text-xs">Qtd</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={r.quantidade}
+                        onChange={(e) =>
+                          setRow(i, { quantidade: Math.max(1, Math.floor(Number(e.target.value) || 1)) })
+                        }
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeRow(i)}
+                      disabled={rows.length === 1}
+                      aria-label="Remover categoria"
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+            <Button type="button" variant="secondary" size="sm" className="mt-2" onClick={addRow}>
+              <Plus className="h-4 w-4 mr-1" /> Adicionar categoria
+            </Button>
+          </div>
+
+          <p className="text-sm text-muted-foreground">
+            Total: <span className="font-medium text-foreground">{total}</span>{" "}
+            {total === 1 ? "card" : "cards"} serão criados.
+          </p>
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="ghost" onClick={onClose}>Cancelar</Button>
+          <Button onClick={() => create.mutate()} disabled={create.isPending || total === 0}>
+            {create.isPending ? "Criando…" : `Criar ${total} ${total === 1 ? "card" : "cards"}`}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
