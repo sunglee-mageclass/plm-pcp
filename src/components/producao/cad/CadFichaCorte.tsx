@@ -1,6 +1,11 @@
+import { useQuery } from "@tanstack/react-query";
 import { cell, cellH } from "./types";
 import type { AviamentoRow, EtiquetaRow, GradeRow, TecidoRow } from "./types";
 import { EtiquetaLavagemArtigoPrint } from "@/components/shared/EtiquetaLavagemArtigo";
+import { FichaCorteHeaderRender } from "@/components/shared/print-blocks";
+import { isHeaderLayout } from "@/lib/print-template";
+import { supabase } from "@/integrations/supabase/client";
+import { useSystemIdentity } from "@/hooks/useSystemIdentity";
 import { fmtNum } from "@/lib/format";
 
 type Props = {
@@ -102,7 +107,22 @@ function Etiquetas({ blocks }: { blocks: TecidoRow[] }) {
   );
 }
 
-export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos, etiquetas, gradeTotalGeral, labelByNumero, ocLinksByKey, observacoesMolde }: Props) {
+export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos, etiquetas, gradeTotalGeral, previsaoEntrega, labelByNumero, ocLinksByKey, observacoesMolde }: Props) {
+  // Cabeçalho personalizado (Editor de Impressão), se a loja salvou um.
+  const identity = useSystemIdentity();
+  const { data: headerTpl } = useQuery({
+    queryKey: ["print-template", "ficha_corte"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("print_templates" as any)
+        .select("layout")
+        .eq("doc_type", "ficha_corte")
+        .maybeSingle();
+      return ((data as any)?.layout ?? null);
+    },
+  });
+  const customHeader = isHeaderLayout(headerTpl) ? headerTpl : null;
+
   const totalGeral = gradeTotalGeral ?? grades.reduce((s, g) => s + (Number(g.grade_total) || 0), 0);
   const gradeSumT = (t: string) => grades.reduce((s, g) => s + (Number((g.grades as any)?.[t]) || 0), 0);
   const fmtTam = (t: string | null) => {
@@ -143,18 +163,29 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
       <div style={pageStyle}>
         {/* Metade de cima: cabeçalho + Tecido */}
         <div className="print-section" style={halfStyle}>
-          <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>FICHA DE CORTE</h1>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px", fontSize: 12, marginBottom: 8 }}>
-            <div>
-              REF: <span style={refHl}>{modelo?.ref ?? "—"}</span>
-              {Number(modelo?.versao ?? 1) > 1 && <span style={repHl}>↻ Repetição v{modelo.versao}</span>}
-            </div>
-            <div>Modelo: <b>{modelo?.nome ?? "—"}</b></div>
-            <div>Coleção: {modelo?.colecao ?? "—"}</div>
-            <div>Linha: {modelo?.linha?.nome ?? "—"}</div>
-            <div>Categoria: {modelo?.cat_p?.nome ?? "—"}</div>
-            {isConjunto && <div>Subcategoria: {modelo?.cat_s?.nome ?? "—"}</div>}
-          </div>
+          {customHeader ? (
+            <FichaCorteHeaderRender
+              layout={customHeader}
+              logo={identity.logoSignedUrl}
+              modelo={modelo}
+              previsaoEntrega={previsaoEntrega}
+            />
+          ) : (
+            <>
+              <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>FICHA DE CORTE</h1>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px", fontSize: 12, marginBottom: 8 }}>
+                <div>
+                  REF: <span style={refHl}>{modelo?.ref ?? "—"}</span>
+                  {Number(modelo?.versao ?? 1) > 1 && <span style={repHl}>↻ Repetição v{modelo.versao}</span>}
+                </div>
+                <div>Modelo: <b>{modelo?.nome ?? "—"}</b></div>
+                <div>Coleção: {modelo?.colecao ?? "—"}</div>
+                <div>Linha: {modelo?.linha?.nome ?? "—"}</div>
+                <div>Categoria: {modelo?.cat_p?.nome ?? "—"}</div>
+                {isConjunto && <div>Subcategoria: {modelo?.cat_s?.nome ?? "—"}</div>}
+              </div>
+            </>
+          )}
           <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Tecido</h3>
           <MaterialTable blocks={tecidoBlocks} colMaterial="Tecido" ocLinksByKey={ocLinksByKey} />
           <Etiquetas blocks={tecidoBlocks} />

@@ -1,4 +1,4 @@
-import { createFileRoute, Navigate } from "@tanstack/react-router";
+import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Settings, Plus, GripVertical, Trash2, Save, Loader2 } from "lucide-react";
@@ -170,6 +170,18 @@ function ConfiguracoesLojaPage() {
           {save.isPending ? "Salvando…" : "Salvar alterações"}
         </Button>
       </header>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Impressão</CardTitle>
+          <CardDescription>Personalize o layout das fichas (logo, campos e textos).</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button asChild variant="outline">
+            <Link to="/admin/editor-impressao">Abrir editor de impressão — Ficha de Corte</Link>
+          </Button>
+        </CardContent>
+      </Card>
 
       <ServicosCard tenantId={data?.tenantId ?? null} />
 
