@@ -1,4 +1,5 @@
 import { useTenantLogo } from "@/hooks/useTenantLogo";
+import { FichaHeader } from "@/components/producao/FichaHeader";
 import { ModeloPhoto } from "@/components/producao/cad/shared";
 import { MaterialTable, Etiquetas, Assinatura } from "@/components/producao/cad/CadFichaCorte";
 import { cell, cellH } from "@/components/producao/cad/types";
@@ -18,7 +19,6 @@ export function FichaTecnica({ modeloId }: { modeloId: string }) {
   const logo = useTenantLogo();
   const m: any = d.modelo;
   const foto = (m?.fotos_modelo as string[] | null)?.[0] ?? null;
-  const isConjunto = (m?.cat_p?.nome ?? "").trim().toLowerCase() === "conjunto";
   const tecidoBlocks = d.tecidos.filter((t) => t.tipo === "tecido");
   const forroBlocks = d.tecidos.filter((t) => t.tipo === "forro");
   const entretelaBlocks = d.tecidos.filter((t) => t.tipo === "entretela");
@@ -26,22 +26,7 @@ export function FichaTecnica({ modeloId }: { modeloId: string }) {
 
   return (
     <div className="print-area">
-      {/* Cabeçalho fixo */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, borderBottom: "2px solid #000", paddingBottom: 8, marginBottom: 10 }}>
-        {logo && <img src={logo} alt="logo" style={{ height: 48, objectFit: "contain" }} />}
-        <div style={{ flex: 1 }}>
-          <h1 style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>FICHA TÉCNICA</h1>
-          <div style={{ fontSize: 12 }}>
-            REF: <b>{m?.ref ?? "—"}</b> · {m?.nome ?? "—"} · {m?.colecao ?? "—"}
-            {m?.linha?.nome ? ` · ${m.linha.nome}` : ""} · {m?.cat_p?.nome ?? "—"}
-            {isConjunto && m?.cat_s?.nome ? ` / ${m.cat_s.nome}` : ""}
-          </div>
-        </div>
-        <div style={{ fontSize: 12, textAlign: "right" }}>
-          Data prevista<br />
-          <span style={{ display: "inline-block", borderBottom: "1px solid #000", width: 130, height: 16 }} />
-        </div>
-      </div>
+      <FichaHeader title="FICHA TÉCNICA" modelo={m} logo={logo} />
 
       {/* Foto do modelo + etiqueta(s) de lavagem */}
       <div className="print-section" style={{ display: "flex", gap: 16, marginBottom: 10 }}>

@@ -3,6 +3,7 @@ import { cell, cellH } from "./types";
 import type { AviamentoRow, EtiquetaRow, GradeRow, TecidoRow } from "./types";
 import { EtiquetaLavagemArtigoPrint } from "@/components/shared/EtiquetaLavagemArtigo";
 import { FichaCorteHeaderRender } from "@/components/shared/print-blocks";
+import { FichaHeader } from "@/components/producao/FichaHeader";
 import { isHeaderLayout } from "@/lib/print-template";
 import { supabase } from "@/integrations/supabase/client";
 import { useTenantLogo } from "@/hooks/useTenantLogo";
@@ -132,34 +133,13 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
     const [num, sig] = t.split("|");
     return sig ? `${sig} · ${num}` : t;
   };
-  const isConjunto = (modelo?.cat_p?.nome ?? "").trim().toLowerCase() === "conjunto";
   const tecidoBlocks = tecidos.filter((t) => t.tipo === "tecido");
   const forroBlocks = tecidos.filter((t) => t.tipo === "forro");
   const entretelaBlocks = tecidos.filter((t) => t.tipo === "entretela");
   const forroEntretela = [...forroBlocks, ...entretelaBlocks];
 
-  const refHl: React.CSSProperties = {
-    background: "#ffcdd2",
-    padding: "1px 8px",
-    borderRadius: 3,
-    fontWeight: 700,
-    WebkitPrintColorAdjust: "exact",
-    printColorAdjust: "exact",
-  };
-  const repHl: React.CSSProperties = {
-    marginLeft: 8,
-    background: "#fff3cd",
-    border: "1px solid #e0a800",
-    color: "#8a6d00",
-    borderRadius: 3,
-    padding: "0 6px",
-    fontSize: 11,
-    fontWeight: 600,
-    WebkitPrintColorAdjust: "exact",
-    printColorAdjust: "exact",
-  };
-
-  // Cabeçalho repetido em todas as páginas da ficha.
+  // Cabeçalho padrão (igual ao da Ficha Técnica). Se a loja tiver um layout
+  // salvo no Editor de Impressão, ele continua valendo como override.
   const pageHeader = customHeader ? (
     <FichaCorteHeaderRender
       layout={customHeader}
@@ -168,20 +148,7 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
       previsaoEntrega={previsaoEntrega}
     />
   ) : (
-    <>
-      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>FICHA DE CORTE</h1>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px", fontSize: 12, marginBottom: 8 }}>
-        <div>
-          REF: <span style={refHl}>{modelo?.ref ?? "—"}</span>
-          {Number(modelo?.versao ?? 1) > 1 && <span style={repHl}>↻ Repetição v{modelo.versao}</span>}
-        </div>
-        <div>Modelo: <b>{modelo?.nome ?? "—"}</b></div>
-        <div>Coleção: {modelo?.colecao ?? "—"}</div>
-        <div>Linha: {modelo?.linha?.nome ?? "—"}</div>
-        <div>Categoria: {modelo?.cat_p?.nome ?? "—"}</div>
-        {isConjunto && <div>Subcategoria: {modelo?.cat_s?.nome ?? "—"}</div>}
-      </div>
-    </>
+    <FichaHeader title="FICHA DE CORTE" modelo={modelo} logo={tenantLogo} />
   );
 
   return (
