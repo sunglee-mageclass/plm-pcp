@@ -159,35 +159,38 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
     printColorAdjust: "exact",
   };
 
+  // Cabeçalho repetido em todas as páginas da ficha.
+  const pageHeader = customHeader ? (
+    <FichaCorteHeaderRender
+      layout={customHeader}
+      logo={tenantLogo}
+      modelo={modelo}
+      previsaoEntrega={previsaoEntrega}
+    />
+  ) : (
+    <>
+      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>FICHA DE CORTE</h1>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px", fontSize: 12, marginBottom: 8 }}>
+        <div>
+          REF: <span style={refHl}>{modelo?.ref ?? "—"}</span>
+          {Number(modelo?.versao ?? 1) > 1 && <span style={repHl}>↻ Repetição v{modelo.versao}</span>}
+        </div>
+        <div>Modelo: <b>{modelo?.nome ?? "—"}</b></div>
+        <div>Coleção: {modelo?.colecao ?? "—"}</div>
+        <div>Linha: {modelo?.linha?.nome ?? "—"}</div>
+        <div>Categoria: {modelo?.cat_p?.nome ?? "—"}</div>
+        {isConjunto && <div>Subcategoria: {modelo?.cat_s?.nome ?? "—"}</div>}
+      </div>
+    </>
+  );
+
   return (
     <div className="print-area">
       {/* ===== Página 1 ===== */}
       <div style={pageStyle}>
         {/* Metade de cima: cabeçalho + Tecido */}
         <div className="print-section" style={halfStyle}>
-          {customHeader ? (
-            <FichaCorteHeaderRender
-              layout={customHeader}
-              logo={tenantLogo}
-              modelo={modelo}
-              previsaoEntrega={previsaoEntrega}
-            />
-          ) : (
-            <>
-              <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>FICHA DE CORTE</h1>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px", fontSize: 12, marginBottom: 8 }}>
-                <div>
-                  REF: <span style={refHl}>{modelo?.ref ?? "—"}</span>
-                  {Number(modelo?.versao ?? 1) > 1 && <span style={repHl}>↻ Repetição v{modelo.versao}</span>}
-                </div>
-                <div>Modelo: <b>{modelo?.nome ?? "—"}</b></div>
-                <div>Coleção: {modelo?.colecao ?? "—"}</div>
-                <div>Linha: {modelo?.linha?.nome ?? "—"}</div>
-                <div>Categoria: {modelo?.cat_p?.nome ?? "—"}</div>
-                {isConjunto && <div>Subcategoria: {modelo?.cat_s?.nome ?? "—"}</div>}
-              </div>
-            </>
-          )}
+          {pageHeader}
           <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Tecido</h3>
           <MaterialTable blocks={tecidoBlocks} colMaterial="Tecido" ocLinksByKey={ocLinksByKey} />
           <Etiquetas blocks={tecidoBlocks} />
@@ -209,6 +212,7 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
       <div style={{ ...pageStyle, pageBreakBefore: "always", breakBefore: "page" }}>
         {/* Metade de cima: Explosão de Aviamentos */}
         <div className="print-section" style={halfStyle}>
+          {pageHeader}
           <h3 style={{ fontSize: 14, fontWeight: 600, marginTop: 0 }}>Explosão de Aviamentos</h3>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, marginTop: 4 }}>
             <thead>
