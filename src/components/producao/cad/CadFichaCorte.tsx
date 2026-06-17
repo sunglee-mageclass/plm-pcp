@@ -46,18 +46,22 @@ function MaterialTable({ blocks, colMaterial, ocLinksByKey }: { blocks: TecidoRo
     (t.variantes ?? []).filter((v) => v.variante_tecido_id).map((v) => ({ t, v })),
   );
   if (rows.length === 0) return <p style={{ fontSize: 11, color: "#666" }}>—</p>;
+  const cw = ["15%", "15%", "14%", "9%", "11%", "9%", "12%", "15%"];
+  const chW: React.CSSProperties = { ...cellH, overflowWrap: "anywhere", wordBreak: "break-word" };
+  const cW: React.CSSProperties = { ...cell, overflowWrap: "anywhere", wordBreak: "break-word" };
   return (
-    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, marginTop: 4 }}>
+    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, marginTop: 4, tableLayout: "fixed" }}>
+      <colgroup>{cw.map((w, i) => <col key={i} style={{ width: w }} />)}</colgroup>
       <thead>
         <tr style={{ background: "#eee" }}>
-          <th style={cellH}>Variante</th>
-          <th style={cellH}>{colMaterial}</th>
-          <th style={cellH}>OC(s)</th>
-          <th style={cellH}>Consumo</th>
-          <th style={cellH}>Metr. Planejada</th>
-          <th style={cellH}>Qtd Folhas</th>
-          <th style={cellH}>Tamanho da Folha</th>
-          <th style={cellH}>Metr. a Enviar/Separar</th>
+          <th style={chW}>Variante</th>
+          <th style={chW}>{colMaterial}</th>
+          <th style={chW}>OC(s)</th>
+          <th style={chW}>Consumo</th>
+          <th style={chW}>Metr. Planejada</th>
+          <th style={chW}>Qtd Folhas</th>
+          <th style={chW}>Tamanho da Folha</th>
+          <th style={chW}>Metr. a Enviar/Separar</th>
         </tr>
       </thead>
       <tbody>
@@ -65,14 +69,14 @@ function MaterialTable({ blocks, colMaterial, ocLinksByKey }: { blocks: TecidoRo
           const ocs = ocLinksByKey?.[`${t.tipo}-${t.numero}-${v.ordem}-${v.variante_tecido_id}`] ?? [];
           return (
             <tr key={i}>
-              <td style={cell}>{varLabel(v)}</td>
-              <td style={cell}>{t.artigo_nome ?? "—"}</td>
-              <td style={cell}>{ocs.length ? ocs.map((n) => `OC ${n}`).join(", ") : "—"}</td>
-              <td style={cell}>{fmt2(t.consumo_cad)}</td>
-              <td style={cell}>{fmt2(v.metragem_planejada)}</td>
-              <td style={cell}>{fmt2(v.quantidade_folhas)}</td>
-              <td style={cell}>{fmt2(t.tamanho_folha)}</td>
-              <td style={cell}>{fmt2(v.metragem_enviada)}</td>
+              <td style={cW}>{varLabel(v)}</td>
+              <td style={cW}>{t.artigo_nome ?? "—"}</td>
+              <td style={cW}>{ocs.length ? ocs.map((n) => `OC ${n}`).join(", ") : "—"}</td>
+              <td style={cW}>{fmt2(t.consumo_cad)}</td>
+              <td style={cW}>{fmt2(v.metragem_planejada)}</td>
+              <td style={cW}>{fmt2(v.quantidade_folhas)}</td>
+              <td style={cW}>{fmt2(t.tamanho_folha)}</td>
+              <td style={cW}>{fmt2(v.metragem_enviada)}</td>
             </tr>
           );
         })}
