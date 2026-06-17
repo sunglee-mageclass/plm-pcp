@@ -326,9 +326,15 @@ function TercDetailPage() {
   const saveMut = useMutation({
     mutationFn: async () => {
       if (!cad?.id) throw new Error("CAD não encontrado para este modelo. Abra o CAD primeiro.");
-      // delete existing then insert all (simple sync)
-      const { error: delErr } = await supabase.from("producao_terceirizados").delete().eq("cad_id", cad.id);
-      if (delErr) throw delErr;
+      // Insere os novos ANTES de remover os antigos. Se o insert falhar (ex.: uma
+      // coluna ainda não existe no banco), os blocos antigos NÃO são perdidos.
+      const { data: oldRows, error: oldErr } = await supabase
+        .from("producao_terceirizados")
+        .select("id")
+        .eq("cad_id", cad.id);
+      if (oldErr) throw oldErr;
+      const oldIds = (oldRows ?? []).map((r: any) => r.id);
+
       if (blocos.length > 0) {
         const payload = blocos.map((b) => ({
           cad_id: cad.id,
@@ -350,6 +356,11 @@ function TercDetailPage() {
         }));
         const { error } = await supabase.from("producao_terceirizados").insert(payload as any);
         if (error) throw error;
+      }
+      // Só remove os antigos depois que os novos entraram com sucesso.
+      if (oldIds.length > 0) {
+        const { error: delErr } = await supabase.from("producao_terceirizados").delete().in("id", oldIds);
+        if (delErr) throw delErr;
       }
 
       // "Observação de Partes do Molde" — fonte única no cad.
