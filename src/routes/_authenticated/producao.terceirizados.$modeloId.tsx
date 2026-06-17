@@ -37,6 +37,7 @@ type Bloco = {
   status: string | null;
   observacao: string;
   aviamentos_enviados: string[];
+  tecidos_enviados: string[];
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -81,7 +82,7 @@ function TercDetailPage() {
   const { data: cad } = useQuery({
     queryKey: ["terc-cad", modeloId],
     queryFn: async () => {
-      const { data } = await supabase.from("cad").select("id").eq("modelo_id", modeloId).maybeSingle();
+      const { data } = await supabase.from("cad").select("*").eq("modelo_id", modeloId).maybeSingle();
       return data;
     },
   });
@@ -185,6 +186,21 @@ function TercDetailPage() {
     },
   });
 
+  // Tecidos / forros / entretelas do modelo, para marcar o que foi enviado em cada bloco.
+  const { data: tecidosModelo = [] } = useQuery({
+    queryKey: ["modelo-tecidos-terc", modeloId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("modelo_tecidos")
+        .select("id, tipo, numero, artigos:artigo_id(nome)")
+        .eq("modelo_id", modeloId)
+        .order("numero");
+      return (data ?? [])
+        .map((r: any) => ({ id: r.id as string, tipo: (r.tipo ?? "tecido") as string, nome: r.artigos?.nome ?? "—" }))
+        .filter((x: any) => x.id);
+    },
+  });
+
   const { data: existing = [], refetch, isFetched: existingFetched, isFetching: existingFetching } = useQuery({
     queryKey: ["producao-terc", cad?.id],
     enabled: !!cad?.id,
@@ -201,6 +217,16 @@ function TercDetailPage() {
 
   const [blocos, setBlocos] = useState<Bloco[]>([]);
   const [hydrated, setHydrated] = useState(false);
+
+  // "Observação de Partes do Molde": mesmo campo do CAD (cad.observacoes_molde).
+  const [observacoesMolde, setObservacoesMolde] = useState("");
+  const [moldeHydrated, setMoldeHydrated] = useState(false);
+  useEffect(() => {
+    if (moldeHydrated) return;
+    if (cad === undefined) return; // espera o cad carregar
+    setObservacoesMolde((cad as any)?.observacoes_molde ?? "");
+    setMoldeHydrated(true);
+  }, [cad, moldeHydrated]);
 
   // Hidrata os blocos a partir do servidor uma única vez (e de novo após salvar,
   // quando liberamos o guard). Espera a query ASSENTAR (isFetched && !isFetching):
@@ -227,6 +253,7 @@ function TercDetailPage() {
         status: r.status,
         observacao: r.observacao ?? "",
         aviamentos_enviados: Array.isArray(r.aviamentos_enviados) ? r.aviamentos_enviados : [],
+        tecidos_enviados: Array.isArray((r as any).tecidos_enviados) ? (r as any).tecidos_enviados : [],
       })),
     );
     setHydrated(true);
@@ -256,6 +283,7 @@ function TercDetailPage() {
           status: "pendente",
           observacao: "",
           aviamentos_enviados: [],
+          tecidos_enviados: [],
         },
       ]);
     }
@@ -303,18 +331,28 @@ function TercDetailPage() {
           data_entregue: b.data_entregue,
           observacao: b.observacao,
           aviamentos_enviados: b.aviamentos_enviados,
+          tecidos_enviados: b.tecidos_enviados,
         }));
         const { error } = await supabase.from("producao_terceirizados").insert(payload as any);
         if (error) throw error;
       }
+
+      // "Observação de Partes do Molde" — fonte única no cad.
+      const { error: cadErr } = await supabase
+        .from("cad")
+        .update({ observacoes_molde: observacoesMolde || null } as any)
+        .eq("id", cad.id);
+      if (cadErr) throw cadErr;
     },
     onSuccess: async () => {
       toast.success("Salvo com sucesso");
       // Busca os dados frescos ANTES de liberar o guard de hidratação, senão a
       // re-hidratação rodava com o cache antigo (vazio) e o formulário "sumia".
       await qc.invalidateQueries({ queryKey: ["producao-terc", cad?.id] });
+      await qc.invalidateQueries({ queryKey: ["terc-cad", modeloId] });
       await refetch();
       setHydrated(false);
+      setMoldeHydrated(false);
     },
     onError: (e: any) => toast.error(e?.message ?? "Erro ao salvar"),
   });
@@ -588,6 +626,36 @@ function TercDetailPage() {
             </div>
 
             <div>
+              <Label className="text-xs mb-2 block">Tecidos, Forros e Entretelas Enviados</Label>
+              <div className="flex flex-wrap gap-2">
+                {(tecidosModelo as any[]).length === 0 && (
+                  <p className="text-xs text-muted-foreground">Nenhum tecido/forro/entretela vinculado ao modelo.</p>
+                )}
+                {(tecidosModelo as any[]).map((t) => {
+                  const checked = b.tecidos_enviados.includes(t.id);
+                  const tipoLabel = t.tipo === "forro" ? " (Forro)" : t.tipo === "entretela" ? " (Entretela)" : "";
+                  return (
+                    <Button
+                      key={t.id}
+                      type="button"
+                      size="sm"
+                      variant={checked ? "default" : "outline"}
+                      onClick={() =>
+                        updateBloco(idx, {
+                          tecidos_enviados: checked
+                            ? b.tecidos_enviados.filter((x) => x !== t.id)
+                            : [...b.tecidos_enviados, t.id],
+                        })
+                      }
+                    >
+                      {t.nome}{tipoLabel}
+                    </Button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
               <Label className="text-xs">Observação</Label>
               <Textarea
                 value={b.observacao}
@@ -604,6 +672,17 @@ function TercDetailPage() {
           Ative uma categoria acima para começar.
         </Card>
       )}
+
+      <Card className="p-5 space-y-2">
+        <Label className="text-sm font-semibold">Observação de Partes do Molde</Label>
+        <Textarea
+          rows={3}
+          value={observacoesMolde}
+          onChange={(e) => setObservacoesMolde(e.target.value)}
+          placeholder="Instruções de corte / partes do molde…"
+        />
+        <p className="text-xs text-muted-foreground">Mesmo campo do CAD / Ficha de Corte.</p>
+      </Card>
 
       {!cad?.id && (
         <Card className="p-4 border-amber-500/50 bg-amber-500/10 text-sm">
