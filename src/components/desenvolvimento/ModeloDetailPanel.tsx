@@ -294,6 +294,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         ajustes_prova: modelo.ajustes_prova ?? "",
         observacoes_gerais: modelo.observacoes_gerais ?? "",
         ficha_medida_url: modelo.ficha_medida_url ?? "",
+        desenho_tecnico_url: (modelo as any).desenho_tecnico_url ?? "",
         custo_terceirizados_previsto: Number(modelo.custo_terceirizados_previsto ?? 0),
         proporcoes: (modelo.proporcoes ?? {}) as Record<string, number>,
         enviado_cad: !!modelo.enviado_cad,
@@ -497,6 +498,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         ajustes_prova: draft.ajustes_prova || null,
         observacoes_gerais: draft.observacoes_gerais || null,
         ficha_medida_url: draft.ficha_medida_url || null,
+        desenho_tecnico_url: draft.desenho_tecnico_url || null,
         custo_terceirizados_previsto: draft.custo_terceirizados_previsto || 0,
         custo_tecido_total: totals.tecido,
         custo_forro_total: totals.forro,
@@ -522,7 +524,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           return out;
         })(),
       };
-      const { error: e1 } = await supabase.from("modelos").update(payload).eq("id", modeloId);
+      const { error: e1 } = await supabase.from("modelos").update(payload as any).eq("id", modeloId);
       if (e1) throw e1;
 
       // Persistência atômica do BOM via RPC (substitui delete+insert não-transacional)
@@ -887,6 +889,23 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     }
   };
 
+  const uploadDesenho = async (file: File) => {
+    setUploading(true);
+    try {
+      const { tenantPrefix } = await import("@/lib/storage-tenant");
+      const tenant = await tenantPrefix();
+      const path = `${tenant}/desenhos/${modeloId}/${crypto.randomUUID()}-${file.name}`;
+      const { error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false });
+      if (error) throw error;
+      setDraft((d: any) => ({ ...d, desenho_tecnico_url: path }));
+      toast.success("Desenho técnico enviado");
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
   if (loadingModelo || !draft) {
     return (
       <div className="flex items-center justify-center p-12">
@@ -983,8 +1002,10 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
             <AccordionContent>
               <ModeloAnexosSection
                 fichaMedidaUrl={draft.ficha_medida_url}
+                desenhoTecnicoUrl={draft.desenho_tecnico_url}
                 uploading={uploading}
                 onUploadFicha={uploadFicha}
+                onUploadDesenho={uploadDesenho}
                 observacoesGerais={draft.observacoes_gerais}
                 onChangeObservacoes={(v) => setDraft({ ...draft, observacoes_gerais: v })}
                 fotosModelo={draft.fotos_modelo ?? []}

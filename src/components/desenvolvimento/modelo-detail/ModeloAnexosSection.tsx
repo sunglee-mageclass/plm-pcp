@@ -20,8 +20,10 @@ function isPdfPath(path: string) {
 
 export function ModeloAnexosSection({
   fichaMedidaUrl,
+  desenhoTecnicoUrl,
   uploading,
   onUploadFicha,
+  onUploadDesenho,
   observacoesGerais,
   onChangeObservacoes,
   fotosModelo,
@@ -30,8 +32,10 @@ export function ModeloAnexosSection({
   onChangeFotosReferencia,
 }: {
   fichaMedidaUrl: string | null | undefined;
+  desenhoTecnicoUrl: string | null | undefined;
   uploading: boolean;
   onUploadFicha: (file: File) => void;
+  onUploadDesenho: (file: File) => void;
   observacoesGerais: string;
   onChangeObservacoes: (v: string) => void;
   fotosModelo: string[];
@@ -41,6 +45,16 @@ export function ModeloAnexosSection({
 }) {
   return (
     <div className="space-y-4">
+      <div className="grid gap-2">
+        <Label>Desenho Técnico</Label>
+        <div className="flex items-center gap-2">
+          <label className="inline-flex items-center gap-2 text-sm border rounded-md px-3 py-2 cursor-pointer hover:bg-accent">
+            {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Enviar arquivo
+            <input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => e.target.files?.[0] && onUploadDesenho(e.target.files[0])} />
+          </label>
+          {desenhoTecnicoUrl && <AnexoPreview path={desenhoTecnicoUrl} title="Desenho Técnico" />}
+        </div>
+      </div>
       <PhotoList
         label="Foto do Modelo"
         paths={fotosModelo}
@@ -60,7 +74,7 @@ export function ModeloAnexosSection({
             {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Enviar arquivo
             <input type="file" className="hidden" onChange={(e) => e.target.files?.[0] && onUploadFicha(e.target.files[0])} />
           </label>
-          {fichaMedidaUrl && <FichaMedidaPreview path={fichaMedidaUrl} />}
+          {fichaMedidaUrl && <AnexoPreview path={fichaMedidaUrl} title="Ficha de Medida" />}
         </div>
       </div>
       <Field label="Observações Gerais" full>
@@ -145,7 +159,7 @@ function PhotoThumb({ path, onRemove }: { path: string; onRemove: () => void }) 
   );
 }
 
-function FichaMedidaPreview({ path }: { path: string }) {
+function AnexoPreview({ path, title = "Anexo" }: { path: string; title?: string }) {
   const url = useSignedUrl(path, BUCKET);
   const [open, setOpen] = useState(false);
   const name = path.split("/").pop() ?? "";
@@ -176,7 +190,7 @@ function FichaMedidaPreview({ path }: { path: string }) {
         </button>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogContent className="max-w-4xl p-0 border-none bg-white shadow-none h-[85vh] [&>button]:!text-black [&>button]:top-2 [&>button]:right-2">
-            <iframe src={url} className="w-full h-full rounded-md" title="Ficha de Medida" />
+            <iframe src={url} className="w-full h-full rounded-md" title={title} />
           </DialogContent>
         </Dialog>
       </>
