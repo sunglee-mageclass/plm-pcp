@@ -53,6 +53,7 @@ export const PAGES_CATALOG: ModuleDef[] = [
     basePath: "/producao",
     pages: [
       { key: "producao_cad", label: "CAD" },
+      { key: "producao_consumo_oc", label: "Consumo por OC" },
       { key: "producao_terceirizados", label: "Serviços" },
       { key: "producao_oficina", label: "Oficina" },
       { key: "producao_cq", label: "Controle de Qualidade" },

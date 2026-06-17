@@ -75,6 +75,7 @@ const DEFAULTS = {
   ],
   campos_editaveis: {} as Record<string, string>,
   estoque_critico_threshold: 0 as number,
+  modo_baixa_estoque: "por_oc" as "por_oc" | "automatico",
 };
 
 type ConfigState = typeof DEFAULTS;
@@ -128,6 +129,7 @@ function ConfiguracoesLojaPage() {
           ? (r.campos_editaveis as Record<string, string>)
           : DEFAULTS.campos_editaveis,
       estoque_critico_threshold: Number(r.estoque_critico_threshold ?? 0) || 0,
+      modo_baixa_estoque: r.modo_baixa_estoque ?? DEFAULTS.modo_baixa_estoque,
     });
   }, [data?.cfg]);
 
@@ -257,6 +259,36 @@ function ConfiguracoesLojaPage() {
               <SelectItem value="numeral_descrito">Numeral + Descrito (01 - Janeiro)</SelectItem>
             </SelectContent>
           </Select>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Baixa de Estoque</CardTitle>
+          <CardDescription>
+            Como o tecido sai do estoque quando um CAD é enviado ao corte.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <Label>Modo de baixa</Label>
+          <Select
+            value={cfg.modo_baixa_estoque}
+            onValueChange={(v) =>
+              setCfg({ ...cfg, modo_baixa_estoque: v as ConfigState["modo_baixa_estoque"] })
+            }
+          >
+            <SelectTrigger className="w-full md:w-96">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="por_oc">Por OC (respeita o vínculo modelo↔OC)</SelectItem>
+              <SelectItem value="automatico">Automático (FIFO — estoque mais velho primeiro)</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            "Por OC" baixa primeiro das OCs vinculadas no Desenvolvimento e usa FIFO no restante.
+            "Automático" ignora os vínculos e consome sempre o lote mais antigo.
+          </p>
         </CardContent>
       </Card>
 

@@ -81,6 +81,7 @@ const PAGE_URLS: Record<string, string> = {
   criacao_planejamento: "/criacao/planejamento",
   criacao_desenvolvimento: "/criacao/desenvolvimento",
   producao_cad: "/producao/cad",
+  producao_consumo_oc: "/producao/consumo-oc",
   producao_terceirizados: "/producao/terceirizados",
   // Oficina e Acabamento saíram do menu: acessados dentro de Terceirizados.
   // (rotas e permissões mantidas; só não aparecem na navegação lateral)
