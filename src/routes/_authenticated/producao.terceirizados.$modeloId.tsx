@@ -108,11 +108,41 @@ function TercDetailPage() {
     queryFn: async () => {
       const { data } = await supabase
         .from("colaboradores")
-        .select("id, nome")
+        .select("id, nome, tipo")
         .order("nome");
-      return (data ?? []) as { id: string; nome: string }[];
+      return (data ?? []) as { id: string; nome: string; tipo: string }[];
     },
   });
+
+  // Tipos de colaborador → categoria de terceirizado, para filtrar o responsável
+  // interno pela categoria do serviço (ex.: Corte interno → só colaboradores de Corte).
+  const { data: tiposColaborador = [] } = useQuery({
+    // Chave distinta da página de Colaboradores (select diferente) — mas com o
+    // mesmo prefixo, então a invalidação ["tipos-colaborador"] de lá também atinge esta.
+    queryKey: ["tipos-colaborador", "categoria-map"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("tipos_colaborador" as any)
+        .select("nome, categoria_terceirizado_id");
+      return ((data ?? []) as unknown) as { nome: string; categoria_terceirizado_id: string | null }[];
+    },
+  });
+  // categoria_terceirizado_id (string) → Set de nomes de tipo ligados a ela.
+  const tiposPorCategoria = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    tiposColaborador.forEach((t) => {
+      if (!t.categoria_terceirizado_id) return;
+      const set = m.get(t.categoria_terceirizado_id) ?? new Set<string>();
+      set.add(t.nome);
+      m.set(t.categoria_terceirizado_id, set);
+    });
+    return m;
+  }, [tiposColaborador]);
+  const colaboradoresDaCategoria = (catId: string) => {
+    const tipos = tiposPorCategoria.get(catId);
+    if (!tipos) return [];
+    return colaboradores.filter((c) => tipos.has(c.tipo));
+  };
 
   const { data: categorias = [], error: categoriasError, isLoading: categoriasLoading } = useQuery({
     queryKey: ["categorias_terceirizado"],
@@ -485,6 +515,7 @@ function TercDetailPage() {
       {blocos.map((b, idx) => {
         const catNome = (categorias as any[]).find((c) => c.id === b.categoria_terceirizado_id)?.nome ?? "—";
         const responsaveis = (terceirizados as any[]).filter((t) => (t.categorias_ids ?? []).includes(b.categoria_terceirizado_id));
+        const colabsCat = colaboradoresDaCategoria(b.categoria_terceirizado_id);
         // SLA do serviço: dias entre enviado e entregue (calculado das datas).
         const slaBloco =
           b.data_enviado && b.data_entregue
@@ -535,12 +566,13 @@ function TercDetailPage() {
                   >
                     <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
                     <SelectContent>
-                      {colaboradores.length === 0 && (
+                      {colabsCat.length === 0 && (
                         <div className="p-2 text-xs text-muted-foreground">
-                          Cadastre colaboradores em Cadastro &gt; Colaboradores.
+                          Nenhum colaborador desta categoria. Em Cadastro &gt; Colaboradores, crie um
+                          tipo ligado a "{catNome}" e cadastre os nomes.
                         </div>
                       )}
-                      {colaboradores.map((c) => (
+                      {colabsCat.map((c) => (
                         <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
                       ))}
                     </SelectContent>

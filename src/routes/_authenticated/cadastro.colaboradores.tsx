@@ -51,6 +51,8 @@ type Tab = {
   config: AttributeTabConfig;
   custom: boolean;
   typeId?: string; // tipos_colaborador.id (só nos custom)
+  categoriaId?: string | null; // categoria_terceirizado vinculada (só nos custom)
+  categoriaNome?: string | null;
 };
 
 // Tipos fixos: usados por outras telas (planejamento/CAD) pela string do tipo.
@@ -96,6 +98,7 @@ function ColaboradoresPage() {
   const [selectedKey, setSelectedKey] = useState<string>(BUILTINS[0].key);
   const [addOpen, setAddOpen] = useState(false);
   const [novoTipo, setNovoTipo] = useState("");
+  const [novaCategoria, setNovaCategoria] = useState<string>("");
   const [delTab, setDelTab] = useState<Tab | null>(null);
 
   const { data: tiposCustom = [] } = useQuery({
@@ -103,12 +106,32 @@ function ColaboradoresPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("tipos_colaborador" as any)
+        .select("id, nome, categoria_terceirizado_id")
+        .order("nome");
+      if (error) throw error;
+      return ((data ?? []) as unknown) as {
+        id: string;
+        nome: string;
+        categoria_terceirizado_id: string | null;
+      }[];
+    },
+  });
+
+  const { data: categorias = [] } = useQuery({
+    queryKey: ["categorias_terceirizado", "colab"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("categorias_terceirizado")
         .select("id, nome")
         .order("nome");
       if (error) throw error;
-      return ((data ?? []) as unknown) as { id: string; nome: string }[];
+      return (data ?? []) as { id: string; nome: string }[];
     },
   });
+  const catMap = useMemo(
+    () => Object.fromEntries(categorias.map((c) => [c.id, c.nome])),
+    [categorias],
+  );
 
   const tabs: Tab[] = useMemo(() => {
     const custom = tiposCustom.map((t) => ({
@@ -117,6 +140,8 @@ function ColaboradoresPage() {
       tipo: t.nome,
       custom: true,
       typeId: t.id,
+      categoriaId: t.categoria_terceirizado_id ?? null,
+      categoriaNome: t.categoria_terceirizado_id ? catMap[t.categoria_terceirizado_id] ?? null : null,
       config: {
         table: "colaboradores",
         nameField: "nome",
@@ -127,7 +152,7 @@ function ColaboradoresPage() {
       } as AttributeTabConfig,
     }));
     return [...BUILTINS, ...custom];
-  }, [tiposCustom]);
+  }, [tiposCustom, catMap]);
 
   const selected = useMemo(
     () => tabs.find((t) => t.key === selectedKey) ?? tabs[0],
@@ -137,14 +162,14 @@ function ColaboradoresPage() {
   const { data: count, isLoading: countLoading } = useColabCount(selected.tipo);
 
   const addType = useMutation({
-    mutationFn: async (nome: string) => {
+    mutationFn: async ({ nome, categoriaId }: { nome: string; categoriaId: string }) => {
       const v = nome.trim();
       if (!v) throw new Error("Informe o nome do tipo.");
       if (RESERVED.has(v.toLowerCase()))
         throw new Error("Esse tipo já existe como tipo fixo.");
       const { data, error } = await supabase
         .from("tipos_colaborador" as any)
-        .insert({ nome: v })
+        .insert({ nome: v, categoria_terceirizado_id: categoriaId || null })
         .select("id")
         .single();
       if (error) throw error;
@@ -153,6 +178,7 @@ function ColaboradoresPage() {
     onSuccess: (id) => {
       setAddOpen(false);
       setNovoTipo("");
+      setNovaCategoria("");
       qc.invalidateQueries({ queryKey: ["tipos-colaborador"] });
       setSelectedKey(`custom:${id}`);
       toast.success("Tipo criado.");
@@ -269,7 +295,9 @@ function ColaboradoresPage() {
             <div className="min-w-0">
               <h2 className="text-lg font-semibold truncate">{selected.config.plural}</h2>
               <p className="text-xs text-muted-foreground uppercase tracking-wider">
-                {selected.custom ? "Tipo personalizado" : "Tipo fixo"}
+                {selected.custom
+                  ? `Tipo personalizado${selected.categoriaNome ? ` · ${selected.categoriaNome}` : ""}`
+                  : "Tipo fixo"}
               </p>
             </div>
             <Badge variant="secondary" className="shrink-0">
@@ -286,29 +314,53 @@ function ColaboradoresPage() {
       </div>
 
       {/* Novo tipo */}
-      <Dialog open={addOpen} onOpenChange={(o) => { setAddOpen(o); if (!o) setNovoTipo(""); }}>
+      <Dialog
+        open={addOpen}
+        onOpenChange={(o) => { setAddOpen(o); if (!o) { setNovoTipo(""); setNovaCategoria(""); } }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Novo tipo de colaborador</DialogTitle>
           </DialogHeader>
-          <div className="space-y-1.5 py-2">
-            <Label>Nome do tipo</Label>
-            <Input
-              autoFocus
-              placeholder="Ex: Costureira"
-              value={novoTipo}
-              onChange={(e) => setNovoTipo(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  addType.mutate(novoTipo);
-                }
-              }}
-            />
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label>Nome do tipo</Label>
+              <Input
+                autoFocus
+                placeholder="Ex: Cortador"
+                value={novoTipo}
+                onChange={(e) => setNovoTipo(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addType.mutate({ nome: novoTipo, categoriaId: novaCategoria });
+                  }
+                }}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Categoria de serviço (opcional)</Label>
+              <Select value={novaCategoria || "none"} onValueChange={(v) => setNovaCategoria(v === "none" ? "" : v)}>
+                <SelectTrigger><SelectValue placeholder="Sem categoria" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sem categoria</SelectItem>
+                  {categorias.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Usada para filtrar o responsável em serviços internos dessa categoria
+                (ex.: Corte). Reaproveita as Categorias de Terceirizado.
+              </p>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>Cancelar</Button>
-            <Button onClick={() => addType.mutate(novoTipo)} disabled={addType.isPending}>
+            <Button
+              onClick={() => addType.mutate({ nome: novoTipo, categoriaId: novaCategoria })}
+              disabled={addType.isPending}
+            >
               {addType.isPending ? "Criando…" : "Criar"}
             </Button>
           </DialogFooter>
