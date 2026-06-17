@@ -28,14 +28,14 @@ type Row = {
 
 const STATUS_COLORS: Record<string, string> = {
   pendente: "bg-amber-500",
-  em_corte: "bg-blue-500",
-  pronto: "bg-emerald-500",
+  enviado: "bg-emerald-500",
 };
 const STATUS_LABELS: Record<string, string> = {
   pendente: "Pendente",
-  em_corte: "Em Corte",
-  pronto: "Pronto",
+  enviado: "Enviado",
 };
+// Compat: linhas antigas podem ter "em_corte"/"pronto" — tratar como "enviado".
+const normalizeStatus = (s: string | null) => (s === "em_corte" || s === "pronto" ? "enviado" : s ?? "pendente");
 
 function CadListPage() {
   const navigate = useNavigate();
@@ -68,7 +68,7 @@ function CadListPage() {
         ano_id: m.ano_id,
         categoria_principal_id: m.categoria_principal_id,
         categoria_nome: m.categorias_produto?.nome ?? null,
-        status_corte: m.cad?.[0]?.status_corte ?? "pendente",
+        status_corte: normalizeStatus(m.cad?.[0]?.status_corte ?? null),
       }));
     },
   });

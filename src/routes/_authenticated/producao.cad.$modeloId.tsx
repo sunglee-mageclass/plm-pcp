@@ -505,7 +505,7 @@ function CadDetailPage() {
       const cad_id = (await saveAll.mutateAsync()) as string;
       const { error } = await supabase
         .from("cad")
-        .update({ enviado_corte: true, data_enviado_corte: new Date().toISOString().slice(0, 10), status_corte: "em_corte" })
+        .update({ enviado_corte: true, data_enviado_corte: new Date().toISOString().slice(0, 10), status_corte: "enviado" })
         .eq("id", cad_id);
       if (error) throw error;
       const { error: eBx } = await supabase.rpc("baixar_estoque_tecido_corte" as any, { _cad_id: cad_id });
