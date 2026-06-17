@@ -70,6 +70,7 @@ const PAGE_URLS: Record<string, string> = {
   cadastro_servico: "/cadastro/servico",
   cadastro_tecidos: "/cadastro/tecidos",
   cadastro_aviamentos: "/cadastro/aviamentos",
+  cadastro_etiquetas: "/cadastro/etiquetas",
   entrada_oc_tecido: "/entrada-saida/oc-tecido",
   entrada_oc_aviamento: "/entrada-saida/oc-aviamento",
   entrada_estoque: "/entrada-saida/estoque",
