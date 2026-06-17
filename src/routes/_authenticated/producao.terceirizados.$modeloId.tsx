@@ -21,6 +21,7 @@ export const Route = createFileRoute("/_authenticated/producao/terceirizados/$mo
 });
 
 type Bloco = {
+  _key: string; // chave estável de render (permite blocos repetidos da mesma categoria)
   id?: string;
   categoria_terceirizado_id: string;
   categoria_nome?: string;
@@ -253,6 +254,7 @@ function TercDetailPage() {
     if (!existingFetched || existingFetching) return;
     setBlocos(
       (existing as any[]).map((r) => ({
+        _key: r.id ?? crypto.randomUUID(),
         id: r.id,
         categoria_terceirizado_id: r.categoria_terceirizado_id,
         interno: Boolean((r as any).interno),
@@ -274,35 +276,38 @@ function TercDetailPage() {
     setHydrated(true);
   }, [existing, cad?.id, hydrated, existingFetched, existingFetching]);
 
-  const activeCategorias = new Set(blocos.map((b) => b.categoria_terceirizado_id));
+  // Quantos blocos existem por categoria (a mesma categoria pode repetir).
+  const countByCat = blocos.reduce<Record<string, number>>((m, b) => {
+    m[b.categoria_terceirizado_id] = (m[b.categoria_terceirizado_id] ?? 0) + 1;
+    return m;
+  }, {});
 
-  const toggleCategoria = (catId: string, catNome: string) => {
-    if (activeCategorias.has(catId)) {
-      setBlocos((bs) => bs.filter((b) => b.categoria_terceirizado_id !== catId));
-    } else {
-      setBlocos((bs) => [
-        ...bs,
-        {
-          categoria_terceirizado_id: catId,
-          categoria_nome: catNome,
-          interno: false,
-          terceirizado_id: null,
-          colaborador_id: null,
-          preco_metro_unidade: 0,
-          quantidade_enviada: 0,
-          quantidade_recebida: 0,
-          quantidade_defeito: 0,
-          data_enviado: null,
-          data_prevista: null,
-          data_entregue: null,
-          status: "pendente",
-          observacao: "",
-          aviamentos_enviados: [],
-          tecidos_enviados: [],
-        },
-      ]);
-    }
+  // Cada clique ACRESCENTA um novo bloco da categoria (pode mandar pra dois lugares).
+  const addCategoria = (catId: string, catNome: string) => {
+    setBlocos((bs) => [
+      ...bs,
+      {
+        _key: crypto.randomUUID(),
+        categoria_terceirizado_id: catId,
+        categoria_nome: catNome,
+        interno: false,
+        terceirizado_id: null,
+        colaborador_id: null,
+        preco_metro_unidade: 0,
+        quantidade_enviada: 0,
+        quantidade_recebida: 0,
+        quantidade_defeito: 0,
+        data_enviado: null,
+        data_prevista: null,
+        data_entregue: null,
+        status: "pendente",
+        observacao: "",
+        aviamentos_enviados: [],
+        tecidos_enviados: [],
+      },
+    ]);
   };
+  const removeBloco = (idx: number) => setBlocos((bs) => bs.filter((_, i) => i !== idx));
 
   const updateBloco = (idx: number, patch: Partial<Bloco>) => {
     setBlocos((bs) => bs.map((b, i) => (i === idx ? { ...b, ...patch } : b)));
@@ -435,20 +440,21 @@ function TercDetailPage() {
 
       {/* Categoria buttons */}
       <Card className="p-4">
-        <Label className="text-sm font-semibold mb-3 block">Categorias de Terceirizado (clique para ativar/desativar)</Label>
+        <Label className="text-sm font-semibold mb-3 block">Categorias de Terceirizado (clique para adicionar um bloco)</Label>
         <div className="flex flex-wrap gap-2">
           {(categorias as any[]).map((c) => {
-            const active = activeCategorias.has(c.id);
+            const count = countByCat[c.id] ?? 0;
             return (
               <Button
                 key={c.id}
                 type="button"
-                variant={active ? "default" : "outline"}
+                variant={count > 0 ? "default" : "outline"}
                 size="sm"
-                onClick={() => toggleCategoria(c.id, c.nome)}
+                onClick={() => addCategoria(c.id, c.nome)}
               >
-                {active ? <Trash2 className="h-3.5 w-3.5 mr-1" /> : <Plus className="h-3.5 w-3.5 mr-1" />}
+                <Plus className="h-3.5 w-3.5 mr-1" />
                 {c.nome}
+                {count > 0 && <span className="ml-1 opacity-80">({count})</span>}
               </Button>
             );
           })}
@@ -476,10 +482,16 @@ function TercDetailPage() {
           b.data_enviado && b.data_entregue
             ? Math.round((new Date(b.data_entregue).getTime() - new Date(b.data_enviado).getTime()) / 86400000)
             : null;
+        // Nº do bloco entre os da mesma categoria (ex.: "Estamparia 2"), só quando repete.
+        const mesmaCatAteAqui = blocos.slice(0, idx + 1).filter((x) => x.categoria_terceirizado_id === b.categoria_terceirizado_id).length;
+        const totalMesmaCat = countByCat[b.categoria_terceirizado_id] ?? 1;
         return (
-          <Card key={b.categoria_terceirizado_id} className="p-5 space-y-4">
+          <Card key={b._key} className="p-5 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="font-semibold text-lg">{catNome}</h3>
+              <h3 className="font-semibold text-lg">
+                {catNome}
+                {totalMesmaCat > 1 && <span className="text-muted-foreground font-normal"> #{mesmaCatAteAqui}</span>}
+              </h3>
               <div className="flex items-center gap-2">
                 {/* Toggle Interno / PL (Interno esconde o responsável) */}
                 <div className="flex rounded-md border overflow-hidden text-xs font-medium">
@@ -508,6 +520,9 @@ function TercDetailPage() {
                   SLA: {slaBloco != null ? `${slaBloco}d` : "—"}
                 </Badge>
                 <Badge className={`${STATUS_COLORS[b.status ?? "pendente"] ?? "bg-muted"} text-white`}>{STATUS_LABELS[b.status ?? "pendente"] ?? (b.status ?? "pendente")}</Badge>
+                <Button type="button" size="icon" variant="ghost" onClick={() => removeBloco(idx)} aria-label="Remover bloco">
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
               </div>
             </div>
 
@@ -707,7 +722,7 @@ function TercDetailPage() {
 
       {blocos.length === 0 && (
         <Card className="p-8 text-center text-sm text-muted-foreground">
-          Ative uma categoria acima para começar.
+          Adicione uma categoria acima para começar.
         </Card>
       )}
 
