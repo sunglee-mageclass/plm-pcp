@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Users, Plus, Trash2 } from "lucide-react";
+import { Users, Plus, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { AttributeTab, type AttributeTabConfig } from "@/components/attribute-tab";
 import { Badge } from "@/components/ui/badge";
@@ -97,9 +97,27 @@ function ColaboradoresPage() {
   const qc = useQueryClient();
   const [selectedKey, setSelectedKey] = useState<string>(BUILTINS[0].key);
   const [addOpen, setAddOpen] = useState(false);
+  const [editTab, setEditTab] = useState<Tab | null>(null); // null = criando
   const [novoTipo, setNovoTipo] = useState("");
   const [novaCategoria, setNovaCategoria] = useState<string>("");
   const [delTab, setDelTab] = useState<Tab | null>(null);
+
+  const openCreate = () => {
+    setEditTab(null);
+    setNovoTipo("");
+    setNovaCategoria("");
+    setAddOpen(true);
+  };
+  const openEdit = (tab: Tab) => {
+    setEditTab(tab);
+    setNovoTipo(tab.tipo);
+    setNovaCategoria(tab.categoriaId ?? "");
+    setAddOpen(true);
+  };
+  const submitType = () => {
+    if (editTab) editType.mutate({ tab: editTab, nome: novoTipo, categoriaId: novaCategoria });
+    else addType.mutate({ nome: novoTipo, categoriaId: novaCategoria });
+  };
 
   const { data: tiposCustom = [] } = useQuery({
     queryKey: ["tipos-colaborador"],
@@ -187,6 +205,39 @@ function ColaboradoresPage() {
       toast.error(e?.code === "23505" ? "Tipo já existe." : e.message ?? "Erro ao criar tipo."),
   });
 
+  const editType = useMutation({
+    mutationFn: async ({ tab, nome, categoriaId }: { tab: Tab; nome: string; categoriaId: string }) => {
+      const v = nome.trim();
+      if (!v) throw new Error("Informe o nome do tipo.");
+      if (RESERVED.has(v.toLowerCase()) && v.toLowerCase() !== tab.tipo.toLowerCase())
+        throw new Error("Esse tipo já existe como tipo fixo.");
+      // Renomeou: propaga para os colaboradores desse tipo (colaboradores.tipo = nome).
+      if (v !== tab.tipo) {
+        const { error: cErr } = await supabase
+          .from("colaboradores")
+          .update({ tipo: v })
+          .eq("tipo", tab.tipo);
+        if (cErr) throw cErr;
+      }
+      const { error } = await supabase
+        .from("tipos_colaborador" as any)
+        .update({ nome: v, categoria_terceirizado_id: categoriaId || null })
+        .eq("id", tab.typeId!);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      setAddOpen(false);
+      setEditTab(null);
+      setNovoTipo("");
+      setNovaCategoria("");
+      qc.invalidateQueries({ queryKey: ["tipos-colaborador"] });
+      qc.invalidateQueries({ queryKey: ["colab-count"] });
+      toast.success("Tipo atualizado.");
+    },
+    onError: (e: any) =>
+      toast.error(e?.code === "23505" ? "Tipo já existe." : e.message ?? "Erro ao editar tipo."),
+  });
+
   const delType = useMutation({
     mutationFn: async (tab: Tab) => {
       const { count: used } = await supabase
@@ -233,7 +284,7 @@ function ColaboradoresPage() {
             ))}
           </SelectContent>
         </Select>
-        <Button type="button" variant="outline" size="icon" onClick={() => setAddOpen(true)} aria-label="Novo tipo">
+        <Button type="button" variant="outline" size="icon" onClick={openCreate} aria-label="Novo tipo">
           <Plus className="h-4 w-4" />
         </Button>
       </div>
@@ -247,7 +298,7 @@ function ColaboradoresPage() {
             </span>
             <button
               type="button"
-              onClick={() => setAddOpen(true)}
+              onClick={openCreate}
               className="text-muted-foreground hover:text-foreground"
               aria-label="Novo tipo"
             >
@@ -273,14 +324,24 @@ function ColaboradoresPage() {
                       {t.label}
                     </button>
                     {t.custom && (
-                      <button
-                        type="button"
-                        onClick={() => setDelTab(t)}
-                        className="px-2 text-muted-foreground/0 group-hover:text-muted-foreground hover:!text-destructive"
-                        aria-label={`Excluir tipo ${t.label}`}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => openEdit(t)}
+                          className="px-1 text-muted-foreground/0 group-hover:text-muted-foreground hover:!text-foreground"
+                          aria-label={`Editar tipo ${t.label}`}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDelTab(t)}
+                          className="px-2 text-muted-foreground/0 group-hover:text-muted-foreground hover:!text-destructive"
+                          aria-label={`Excluir tipo ${t.label}`}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </>
                     )}
                   </li>
                 );
@@ -313,14 +374,17 @@ function ColaboradoresPage() {
         </div>
       </div>
 
-      {/* Novo tipo */}
+      {/* Novo / editar tipo */}
       <Dialog
         open={addOpen}
-        onOpenChange={(o) => { setAddOpen(o); if (!o) { setNovoTipo(""); setNovaCategoria(""); } }}
+        onOpenChange={(o) => {
+          setAddOpen(o);
+          if (!o) { setEditTab(null); setNovoTipo(""); setNovaCategoria(""); }
+        }}
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Novo tipo de colaborador</DialogTitle>
+            <DialogTitle>{editTab ? "Editar tipo de colaborador" : "Novo tipo de colaborador"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div className="space-y-1.5">
@@ -333,7 +397,7 @@ function ColaboradoresPage() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
-                    addType.mutate({ nome: novoTipo, categoriaId: novaCategoria });
+                    submitType();
                   }
                 }}
               />
@@ -357,11 +421,10 @@ function ColaboradoresPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>Cancelar</Button>
-            <Button
-              onClick={() => addType.mutate({ nome: novoTipo, categoriaId: novaCategoria })}
-              disabled={addType.isPending}
-            >
-              {addType.isPending ? "Criando…" : "Criar"}
+            <Button onClick={submitType} disabled={addType.isPending || editType.isPending}>
+              {editTab
+                ? (editType.isPending ? "Salvando…" : "Salvar")
+                : (addType.isPending ? "Criando…" : "Criar")}
             </Button>
           </DialogFooter>
         </DialogContent>
