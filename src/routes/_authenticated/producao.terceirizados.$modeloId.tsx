@@ -186,18 +186,33 @@ function TercDetailPage() {
     },
   });
 
-  // Tecidos / forros / entretelas do modelo, para marcar o que foi enviado em cada bloco.
+  // Tecidos / forros / entretelas do modelo (com variantes), para marcar quais
+  // variantes foram enviadas em cada bloco.
   const { data: tecidosModelo = [] } = useQuery({
     queryKey: ["modelo-tecidos-terc", modeloId],
     queryFn: async () => {
       const { data } = await supabase
         .from("modelo_tecidos")
-        .select("id, tipo, numero, artigos:artigo_id(nome)")
+        .select(
+          "id, tipo, numero, artigos:artigo_id(nome), modelo_tecido_variantes(id, ordem, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante, cor:cor_id(nome)))",
+        )
         .eq("modelo_id", modeloId)
         .order("numero");
-      return (data ?? [])
-        .map((r: any) => ({ id: r.id as string, tipo: (r.tipo ?? "tecido") as string, nome: r.artigos?.nome ?? "—" }))
-        .filter((x: any) => x.id);
+      return (data ?? []).map((r: any) => ({
+        id: r.id as string,
+        tipo: (r.tipo ?? "tecido") as string,
+        nome: r.artigos?.nome ?? "—",
+        variantes: (r.modelo_tecido_variantes ?? [])
+          .map((v: any) => ({
+            id: v.id as string,
+            label:
+              v.variantes_tecido?.cor?.nome ||
+              v.variantes_tecido?.nome_variante ||
+              v.variantes_tecido?.codigo_variante ||
+              `Variante ${v.ordem ?? ""}`.trim(),
+          }))
+          .filter((v: any) => v.id),
+      }));
     },
   });
 
@@ -626,30 +641,42 @@ function TercDetailPage() {
             </div>
 
             <div>
-              <Label className="text-xs mb-2 block">Tecidos, Forros e Entretelas Enviados</Label>
-              <div className="flex flex-wrap gap-2">
-                {(tecidosModelo as any[]).length === 0 && (
-                  <p className="text-xs text-muted-foreground">Nenhum tecido/forro/entretela vinculado ao modelo.</p>
-                )}
+              <Label className="text-xs mb-2 block">Tecidos, Forros e Entretelas Enviados (variantes)</Label>
+              {(tecidosModelo as any[]).length === 0 && (
+                <p className="text-xs text-muted-foreground">Nenhum tecido/forro/entretela vinculado ao modelo.</p>
+              )}
+              <div className="space-y-2">
                 {(tecidosModelo as any[]).map((t) => {
-                  const checked = b.tecidos_enviados.includes(t.id);
                   const tipoLabel = t.tipo === "forro" ? " (Forro)" : t.tipo === "entretela" ? " (Entretela)" : "";
                   return (
-                    <Button
-                      key={t.id}
-                      type="button"
-                      size="sm"
-                      variant={checked ? "default" : "outline"}
-                      onClick={() =>
-                        updateBloco(idx, {
-                          tecidos_enviados: checked
-                            ? b.tecidos_enviados.filter((x) => x !== t.id)
-                            : [...b.tecidos_enviados, t.id],
-                        })
-                      }
-                    >
-                      {t.nome}{tipoLabel}
-                    </Button>
+                    <div key={t.id}>
+                      <p className="text-xs font-medium">{t.nome}{tipoLabel}</p>
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {t.variantes.length === 0 && (
+                          <span className="text-xs text-muted-foreground italic">Sem variantes cadastradas.</span>
+                        )}
+                        {t.variantes.map((v: any) => {
+                          const checked = b.tecidos_enviados.includes(v.id);
+                          return (
+                            <Button
+                              key={v.id}
+                              type="button"
+                              size="sm"
+                              variant={checked ? "default" : "outline"}
+                              onClick={() =>
+                                updateBloco(idx, {
+                                  tecidos_enviados: checked
+                                    ? b.tecidos_enviados.filter((x) => x !== v.id)
+                                    : [...b.tecidos_enviados, v.id],
+                                })
+                              }
+                            >
+                              {v.label}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   );
                 })}
               </div>
