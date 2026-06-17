@@ -848,6 +848,7 @@ function CadDetailPage() {
         grades={grades}
         tamanhosAll={tamanhosAll}
         aviamentos={aviamentos}
+        etiquetas={etiquetas}
         gradeTotalGeral={gradeTotalGeral}
         labelByNumero={gradeLabelByNumero}
         ocLinksByKey={ocLinksByKey}

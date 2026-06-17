@@ -1,5 +1,5 @@
 import { cell, cellH } from "./types";
-import type { AviamentoRow, GradeRow, TecidoRow } from "./types";
+import type { AviamentoRow, EtiquetaRow, GradeRow, TecidoRow } from "./types";
 import { EtiquetaLavagemArtigoPrint } from "@/components/shared/EtiquetaLavagemArtigo";
 import { fmtNum } from "@/lib/format";
 
@@ -12,6 +12,7 @@ type Props = {
   grades: GradeRow[];
   tamanhosAll: string[];
   aviamentos: AviamentoRow[];
+  etiquetas?: EtiquetaRow[];
   gradeTotalGeral?: number;
   labelByNumero?: Record<number, string>;
   ocLinksByKey?: Record<string, string[]>;
@@ -101,7 +102,14 @@ function Etiquetas({ blocks }: { blocks: TecidoRow[] }) {
   );
 }
 
-export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos, labelByNumero, ocLinksByKey, observacoesMolde }: Props) {
+export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos, etiquetas, gradeTotalGeral, labelByNumero, ocLinksByKey, observacoesMolde }: Props) {
+  const totalGeral = gradeTotalGeral ?? grades.reduce((s, g) => s + (Number(g.grade_total) || 0), 0);
+  const gradeSumT = (t: string) => grades.reduce((s, g) => s + (Number((g.grades as any)?.[t]) || 0), 0);
+  const fmtTam = (t: string | null) => {
+    if (!t) return "Geral";
+    const [num, sig] = t.split("|");
+    return sig ? `${sig} · ${num}` : t;
+  };
   const isConjunto = (modelo?.cat_p?.nome ?? "").trim().toLowerCase() === "conjunto";
   const tecidoBlocks = tecidos.filter((t) => t.tipo === "tecido");
   const forroBlocks = tecidos.filter((t) => t.tipo === "forro");
@@ -189,6 +197,38 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
               ))}
             </tbody>
           </table>
+
+          {(etiquetas ?? []).length > 0 && (
+            <>
+              <h3 style={{ fontSize: 14, fontWeight: 600, marginTop: 10 }}>TAG/Etiquetas</h3>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, marginTop: 4 }}>
+                <thead>
+                  <tr style={{ background: "#eee" }}>
+                    <th style={cellH}>Etiqueta</th>
+                    <th style={cellH}>Tamanho</th>
+                    <th style={cellH}>Consumo</th>
+                    <th style={cellH}>Quantidade Planejada</th>
+                    <th style={cellH}>Quantidade a Enviar</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(etiquetas ?? []).map((e, i) => {
+                    const base = e.tamanho ? gradeSumT(e.tamanho) : totalGeral;
+                    return (
+                      <tr key={i}>
+                        <td style={cell}>{e.etiqueta_nome ?? "—"}</td>
+                        <td style={cell}>{fmtTam(e.tamanho)}</td>
+                        <td style={cell}>{fmt2(e.consumo)}</td>
+                        <td style={cell}>{fmt2(e.consumo * base)}</td>
+                        <td style={cell}>{fmt2(e.quantidade_enviar)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </>
+          )}
+
           <Assinatura />
         </div>
 
