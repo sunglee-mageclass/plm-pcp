@@ -73,6 +73,7 @@ function LojasPage() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin", "tenants"] });
+      qc.invalidateQueries({ queryKey: ["tenant-switcher"] });
       toast.success("Loja atualizada");
     },
     onError: (e: Error) => toast.error(e.message),
@@ -210,6 +211,7 @@ function NovaLojaModal({ onClose }: { onClose: () => void }) {
       if (error) throw error;
       toast.success("Loja criada");
       qc.invalidateQueries({ queryKey: ["admin", "tenants"] });
+      qc.invalidateQueries({ queryKey: ["tenant-switcher"] });
       onClose();
     } catch (err) {
       toast.error((err as Error).message);
@@ -298,6 +300,7 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
       if (error) throw error;
       toast.success("Loja atualizada");
       qc.invalidateQueries({ queryKey: ["admin", "tenants"] });
+      qc.invalidateQueries({ queryKey: ["tenant-switcher"] });
       onClose();
     } catch (err) {
       toast.error((err as Error).message);

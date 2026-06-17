@@ -19,6 +19,7 @@ function AdminPage() {
     ? [
         { to: "/admin/lojas", icon: Building2, title: "Gerenciar Lojas", description: "Criar, editar e desativar lojas do sistema." },
         { to: "/admin/usuarios", icon: Users, title: "Gerenciar Usuários", description: "Visão global de usuários e papéis de todas as lojas." },
+        { to: "/admin/configuracoes", icon: Settings, title: "Configurações da Loja", description: "Fuso horário, parâmetros de produção, grade, kanban e nomes de campos da loja em visualização." },
         { to: "/admin/identidade", icon: Palette, title: "Identidade do Sistema", description: "Nome, subtítulo, logo e favicon exibidos no sistema." },
       ]
     : isTenantAdmin

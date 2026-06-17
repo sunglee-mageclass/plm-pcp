@@ -1,4 +1,4 @@
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Store } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -9,10 +9,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 /**
  * Seletor de loja para super_admin: troca o tenant_id do próprio usuário, fazendo
  * todas as telas (que filtram por get_user_tenant_id) passarem a mostrar a loja
- * escolhida. Após trocar, recarrega a página para refazer todas as queries.
+ * escolhida. Após trocar, LIMPA o cache do react-query para refazer as queries
+ * com a nova loja — sem recarregar a página inteira (era lento e re-bootava o app).
  */
 export function TenantSwitcher() {
   const { user, isSuperAdmin } = useAuth();
+  const qc = useQueryClient();
   const callSet = useServerFn(setActiveTenant);
 
   const { data: tenants = [] } = useQuery({
@@ -41,7 +43,11 @@ export function TenantSwitcher() {
 
   const switchMut = useMutation({
     mutationFn: (tenant_id: string) => callSet({ data: { tenant_id } }),
-    onSuccess: () => window.location.reload(),
+    onSuccess: () => {
+      // O tenant_id já foi atualizado no banco; limpar o cache faz todas as
+      // queries ativas refazerem o fetch já com a nova loja (RLS server-side).
+      qc.clear();
+    },
   });
 
   if (!isSuperAdmin) return null;
