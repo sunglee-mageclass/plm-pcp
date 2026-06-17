@@ -64,7 +64,7 @@ export function TecidoGroup({
               <div className="relative w-32">
                 <NumberInput type="number" step="0.01" className="pr-12"
                   placeholder="m/kg"
-                  value={items[0]?.rendimento ?? ""}
+                  value={items[0]?.rendimento ?? artigoAtual?.rendimento ?? ""}
                   onChange={(e) => setRendimento(e.target.value === "" ? null : Number(e.target.value))} />
                 <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
                   m/kg
