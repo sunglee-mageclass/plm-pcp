@@ -5,7 +5,7 @@ import { ArrowLeft, Save, Plus, Trash2, Type, ImageIcon, RotateCcw, Printer } fr
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { useSystemIdentity } from "@/hooks/useSystemIdentity";
+import { useTenantLogo } from "@/hooks/useTenantLogo";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,15 +29,18 @@ export const Route = createFileRoute("/_authenticated/admin/editor-impressao")({
 
 const DOC_TYPE = "ficha_corte";
 const COLS = 12;
-const CANVAS_W = 720;
-const cellW = CANVAS_W / COLS;
+// Largura útil de impressão ≈ A4 (210mm) − margens @page (12mm) − padding .print-area (16px).
+// Mantida igual entre editor e impressão para a escala bater.
+const CONTENT_W = 672;
+const A4_H = Math.round(CONTENT_W * Math.SQRT2); // proporção A4 (~950px) p/ "imitar" a folha
+const cellW = CONTENT_W / COLS; // 56
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 const uid = () => crypto.randomUUID().slice(0, 8);
 
 function EditorImpressaoPage() {
   const { isTenantAdmin, isSuperAdmin, loading } = useAuth();
   const qc = useQueryClient();
-  const identity = useSystemIdentity();
+  const logo = useTenantLogo();
 
   const [layout, setLayout] = useState<HeaderLayout>(DEFAULT_FICHA_CORTE_HEADER);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -177,43 +180,55 @@ function EditorImpressaoPage() {
       </Card>
 
       <div className="flex flex-wrap gap-4">
-        {/* Canvas */}
+        {/* Canvas — folha A4 (só o cabeçalho é editável) */}
         <div className="space-y-2">
-          <p className="text-xs text-muted-foreground">Pré-visualização com dados de exemplo (escala A4 da largura útil).</p>
-          <div
-            className="relative border bg-white shadow-sm"
-            style={{
-              width: CANVAS_W,
-              height: layout.rows * layout.rowH,
-              backgroundImage:
-                `linear-gradient(to right, #f1f1f1 1px, transparent 1px), linear-gradient(to bottom, #f6f6f6 1px, transparent 1px)`,
-              backgroundSize: `${cellW}px ${layout.rowH}px`,
-            }}
-            onPointerDown={() => setSelectedId(null)}
-          >
-            {layout.blocks.map((b) => (
+          <p className="text-xs text-muted-foreground">Folha A4 em escala — dados de exemplo. Só o cabeçalho (faixa de cima) é editável.</p>
+          <div className="bg-muted/40 p-6 rounded-lg w-fit overflow-auto" style={{ maxHeight: "75vh" }}>
+            <div className="relative bg-white shadow-md" style={{ width: CONTENT_W, height: A4_H }}>
+              {/* Faixa do cabeçalho (editável) */}
               <div
-                key={b.id}
-                onPointerDown={(e) => startDrag(e, b, "move")}
-                className={cn(
-                  "absolute overflow-hidden cursor-move select-none rounded-sm",
-                  selectedId === b.id ? "ring-2 ring-primary z-10" : "ring-1 ring-border/60 hover:ring-border",
-                )}
+                className="absolute left-0 top-0"
                 style={{
-                  left: b.x * cellW,
-                  top: b.y * layout.rowH,
-                  width: b.w * cellW,
-                  height: b.h * layout.rowH,
+                  width: CONTENT_W,
+                  height: layout.rows * layout.rowH,
+                  backgroundImage:
+                    `linear-gradient(to right, #eee 1px, transparent 1px), linear-gradient(to bottom, #f3f3f3 1px, transparent 1px)`,
+                  backgroundSize: `${cellW}px ${layout.rowH}px`,
                 }}
+                onPointerDown={() => setSelectedId(null)}
               >
-                <BlockContent block={b} logo={identity.logoSignedUrl} editor />
-                <span
-                  onPointerDown={(e) => startDrag(e, b, "resize")}
-                  className="absolute bottom-0 right-0 h-3 w-3 cursor-se-resize bg-primary/70"
-                  style={{ clipPath: "polygon(100% 0, 0 100%, 100% 100%)" }}
-                />
+                {layout.blocks.map((b) => (
+                  <div
+                    key={b.id}
+                    onPointerDown={(e) => startDrag(e, b, "move")}
+                    className={cn(
+                      "absolute overflow-hidden cursor-move select-none rounded-sm",
+                      selectedId === b.id ? "ring-2 ring-primary z-10" : "ring-1 ring-border/60 hover:ring-border",
+                    )}
+                    style={{
+                      left: b.x * cellW,
+                      top: b.y * layout.rowH,
+                      width: b.w * cellW,
+                      height: b.h * layout.rowH,
+                    }}
+                  >
+                    <BlockContent block={b} logo={logo} editor />
+                    <span
+                      onPointerDown={(e) => startDrag(e, b, "resize")}
+                      className="absolute bottom-0 right-0 h-3 w-3 cursor-se-resize bg-primary/70"
+                      style={{ clipPath: "polygon(100% 0, 0 100%, 100% 100%)" }}
+                    />
+                  </div>
+                ))}
               </div>
-            ))}
+              {/* Corpo da ficha (não editável neste PoC) */}
+              <div
+                className="absolute left-0 flex items-start justify-center text-xs text-muted-foreground"
+                style={{ top: layout.rows * layout.rowH, width: CONTENT_W, height: A4_H - layout.rows * layout.rowH, borderTop: "1px dashed #ddd", paddingTop: 12 }}
+              >
+                Corpo da ficha (Tecido, Grade, Aviamentos…) — layout fixo por enquanto.
+              </div>
+            </div>
           </div>
         </div>
 

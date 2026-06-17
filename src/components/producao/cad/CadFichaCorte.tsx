@@ -5,7 +5,7 @@ import { EtiquetaLavagemArtigoPrint } from "@/components/shared/EtiquetaLavagemA
 import { FichaCorteHeaderRender } from "@/components/shared/print-blocks";
 import { isHeaderLayout } from "@/lib/print-template";
 import { supabase } from "@/integrations/supabase/client";
-import { useSystemIdentity } from "@/hooks/useSystemIdentity";
+import { useTenantLogo } from "@/hooks/useTenantLogo";
 import { fmtNum } from "@/lib/format";
 
 type Props = {
@@ -109,7 +109,7 @@ function Etiquetas({ blocks }: { blocks: TecidoRow[] }) {
 
 export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos, etiquetas, gradeTotalGeral, previsaoEntrega, labelByNumero, ocLinksByKey, observacoesMolde }: Props) {
   // Cabeçalho personalizado (Editor de Impressão), se a loja salvou um.
-  const identity = useSystemIdentity();
+  const tenantLogo = useTenantLogo();
   const { data: headerTpl } = useQuery({
     queryKey: ["print-template", "ficha_corte"],
     queryFn: async () => {
@@ -166,7 +166,7 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
           {customHeader ? (
             <FichaCorteHeaderRender
               layout={customHeader}
-              logo={identity.logoSignedUrl}
+              logo={tenantLogo}
               modelo={modelo}
               previsaoEntrega={previsaoEntrega}
             />
