@@ -17,6 +17,7 @@ import { BlockContent } from "@/components/shared/print-blocks";
 import {
   DEFAULT_FICHA_CORTE_HEADER,
   FICHA_CORTE_FIELDS,
+  PRINT_CONTENT_W,
   fichaCorteFieldLabel,
   isHeaderLayout,
   type HeaderLayout,
@@ -31,7 +32,7 @@ const DOC_TYPE = "ficha_corte";
 const COLS = 12;
 // Largura útil de impressão ≈ A4 (210mm) − margens @page (12mm) − padding .print-area (16px).
 // Mantida igual entre editor e impressão para a escala bater.
-const CONTENT_W = 672;
+const CONTENT_W = PRINT_CONTENT_W;
 const A4_H = Math.round(CONTENT_W * Math.SQRT2); // proporção A4 (~950px) p/ "imitar" a folha
 const cellW = CONTENT_W / COLS; // 56
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -119,7 +120,8 @@ function EditorImpressaoPage() {
     },
     onSuccess: () => {
       toast.success("Layout salvo");
-      qc.invalidateQueries({ queryKey: ["print-template", DOC_TYPE] });
+      // Prefixo: atualiza tanto a query do editor quanto a da impressão (chaves distintas).
+      qc.invalidateQueries({ queryKey: ["print-template"] });
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao salvar"),
   });

@@ -22,6 +22,11 @@ export type HeaderLayout = {
   blocks: PrintBlock[];
 };
 
+// Largura útil de impressão (px @96dpi) ≈ A4 (210mm) − margens @page (12mm) −
+// padding .print-area (16px). Usada IDÊNTICA no editor e na impressão para a
+// escala (fontes/logo/posições) bater exatamente.
+export const PRINT_CONTENT_W = 672;
+
 // Campos disponíveis no cabeçalho da Ficha de Corte (com valor de exemplo p/ o editor).
 export const FICHA_CORTE_FIELDS: { key: string; label: string; mock: string }[] = [
   { key: "ref", label: "REF", mock: "1234" },

@@ -1,4 +1,5 @@
 import {
+  PRINT_CONTENT_W,
   fichaCorteFieldLabel,
   fichaCorteFieldMock,
   fichaCorteFieldValue,
@@ -58,17 +59,21 @@ export function FichaCorteHeaderRender({
   modelo: any;
   previsaoEntrega?: string;
 }) {
+  const isConjunto = (modelo?.cat_p?.nome ?? "").trim().toLowerCase() === "conjunto";
+  // Subcategoria só aparece quando a categoria é "Conjunto".
+  const blocks = layout.blocks.filter((b) => !(b.type === "field" && b.field === "subcategoria" && !isConjunto));
   return (
     <div
       style={{
         display: "grid",
+        width: PRINT_CONTENT_W,
         gridTemplateColumns: `repeat(${layout.cols}, 1fr)`,
         gridAutoRows: `${layout.rowH}px`,
         height: layout.rows * layout.rowH,
         marginBottom: 8,
       }}
     >
-      {layout.blocks.map((b) => (
+      {blocks.map((b) => (
         <div
           key={b.id}
           style={{

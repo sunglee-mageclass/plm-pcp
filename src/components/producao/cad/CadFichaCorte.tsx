@@ -111,7 +111,9 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
   // Cabeçalho personalizado (Editor de Impressão), se a loja salvou um.
   const tenantLogo = useTenantLogo();
   const { data: headerTpl } = useQuery({
-    queryKey: ["print-template", "ficha_corte"],
+    // Chave própria (retorna só o layout) — distinta da do editor (que retorna {id, layout})
+    // p/ evitar colisão de cache. A invalidação do editor usa o prefixo ["print-template"].
+    queryKey: ["print-template", "ficha_corte", "render"],
     queryFn: async () => {
       const { data } = await supabase
         .from("print_templates" as any)
