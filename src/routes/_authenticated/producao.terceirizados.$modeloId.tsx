@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { fmtNum } from "@/lib/format";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -40,6 +40,11 @@ const STATUS_COLORS: Record<string, string> = {
   pendente: "bg-amber-500",
   em_andamento: "bg-blue-500",
   finalizado: "bg-emerald-500",
+};
+const STATUS_LABELS: Record<string, string> = {
+  pendente: "Pendente",
+  em_andamento: "Em andamento",
+  finalizado: "Finalizado",
 };
 
 function TercDetailPage() {
@@ -126,7 +131,7 @@ function TercDetailPage() {
     },
   });
 
-  const { data: existing = [], refetch } = useQuery({
+  const { data: existing = [], refetch, isFetched: existingFetched, isFetching: existingFetching } = useQuery({
     queryKey: ["producao-terc", cad?.id],
     enabled: !!cad?.id,
     queryFn: async () => {
@@ -143,29 +148,33 @@ function TercDetailPage() {
   const [blocos, setBlocos] = useState<Bloco[]>([]);
   const [hydrated, setHydrated] = useState(false);
 
-  // hydrate
-  useMemo(() => {
-    if (!hydrated && existing.length >= 0 && cad?.id) {
-      setBlocos(
-        (existing as any[]).map((r) => ({
-          id: r.id,
-          categoria_terceirizado_id: r.categoria_terceirizado_id,
-          terceirizado_id: r.terceirizado_id,
-          preco_metro_unidade: Number(r.preco_metro_unidade ?? 0),
-          quantidade_enviada: Number(r.quantidade_enviada ?? 0),
-          quantidade_recebida: Number(r.quantidade_recebida ?? 0),
-          quantidade_defeito: Number(r.quantidade_defeito ?? 0),
-          data_enviado: r.data_enviado,
-          data_prevista: r.data_prevista,
-          data_entregue: r.data_entregue,
-          status: r.status,
-          observacao: r.observacao ?? "",
-          aviamentos_enviados: Array.isArray(r.aviamentos_enviados) ? r.aviamentos_enviados : [],
-        })),
-      );
-      setHydrated(true);
-    }
-  }, [existing, cad?.id, hydrated]);
+  // Hidrata os blocos a partir do servidor uma única vez (e de novo após salvar,
+  // quando liberamos o guard). Espera a query ASSENTAR (isFetched && !isFetching):
+  // hidratar do cache vazio enquanto o refetch ainda corria era o que zerava o
+  // formulário ao salvar.
+  useEffect(() => {
+    if (hydrated) return;
+    if (!cad?.id) return;
+    if (!existingFetched || existingFetching) return;
+    setBlocos(
+      (existing as any[]).map((r) => ({
+        id: r.id,
+        categoria_terceirizado_id: r.categoria_terceirizado_id,
+        terceirizado_id: r.terceirizado_id,
+        preco_metro_unidade: Number(r.preco_metro_unidade ?? 0),
+        quantidade_enviada: Number(r.quantidade_enviada ?? 0),
+        quantidade_recebida: Number(r.quantidade_recebida ?? 0),
+        quantidade_defeito: Number(r.quantidade_defeito ?? 0),
+        data_enviado: r.data_enviado,
+        data_prevista: r.data_prevista,
+        data_entregue: r.data_entregue,
+        status: r.status,
+        observacao: r.observacao ?? "",
+        aviamentos_enviados: Array.isArray(r.aviamentos_enviados) ? r.aviamentos_enviados : [],
+      })),
+    );
+    setHydrated(true);
+  }, [existing, cad?.id, hydrated, existingFetched, existingFetching]);
 
   const activeCategorias = new Set(blocos.map((b) => b.categoria_terceirizado_id));
 
@@ -240,9 +249,11 @@ function TercDetailPage() {
     },
     onSuccess: async () => {
       toast.success("Salvo com sucesso");
-      setHydrated(false);
+      // Busca os dados frescos ANTES de liberar o guard de hidratação, senão a
+      // re-hidratação rodava com o cache antigo (vazio) e o formulário "sumia".
       await qc.invalidateQueries({ queryKey: ["producao-terc", cad?.id] });
       await refetch();
+      setHydrated(false);
     },
     onError: (e: any) => toast.error(e?.message ?? "Erro ao salvar"),
   });
@@ -276,7 +287,7 @@ function TercDetailPage() {
         <div>
           <Label className="text-xs text-muted-foreground">Status Geral</Label>
           <div className="mt-1">
-            <Badge className={`${STATUS_COLORS[statusGeral] ?? "bg-muted"} text-white`}>{statusGeral}</Badge>
+            <Badge className={`${STATUS_COLORS[statusGeral] ?? "bg-muted"} text-white`}>{STATUS_LABELS[statusGeral] ?? statusGeral}</Badge>
           </div>
         </div>
         <div>
@@ -342,7 +353,7 @@ function TercDetailPage() {
           <Card key={b.categoria_terceirizado_id} className="p-5 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold text-lg">{catNome}</h3>
-              <Badge className={`${STATUS_COLORS[b.status ?? "pendente"] ?? "bg-muted"} text-white`}>{b.status ?? "pendente"}</Badge>
+              <Badge className={`${STATUS_COLORS[b.status ?? "pendente"] ?? "bg-muted"} text-white`}>{STATUS_LABELS[b.status ?? "pendente"] ?? (b.status ?? "pendente")}</Badge>
             </div>
 
             <div className="grid gap-4 md:grid-cols-3">
