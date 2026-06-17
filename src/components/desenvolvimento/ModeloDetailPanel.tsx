@@ -591,6 +591,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       qc.invalidateQueries({ queryKey: ["modelo-grades", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
       qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+      // A reserva de estoque é recalculada a partir do BOM salvo (1ª reserva).
+      qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao salvar"),
   });
