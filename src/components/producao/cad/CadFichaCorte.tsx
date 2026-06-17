@@ -29,7 +29,7 @@ const pageStyle: React.CSSProperties = { height: PAGE_H, display: "flex", flexDi
 const halfStyle: React.CSSProperties = { flex: "0 0 50%", overflow: "hidden", minHeight: 0 };
 const fmt2 = (n: number | null | undefined) => fmtNum(n);
 
-function Assinatura() {
+export function Assinatura() {
   return (
     <div style={{ marginTop: 54, fontSize: 12, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24 }}>
       {["Nome", "Data", "Assinatura"].map((l) => (
@@ -48,7 +48,7 @@ function varLabel(v: TecidoRow["variantes"][number]) {
 }
 
 /** Tabela de variantes (mesmo esquema p/ tecido e p/ forro/entretela). */
-function MaterialTable({ blocks, colMaterial, ocLinksByKey }: { blocks: TecidoRow[]; colMaterial: string; ocLinksByKey?: Record<string, string[]> }) {
+export function MaterialTable({ blocks, colMaterial, ocLinksByKey }: { blocks: TecidoRow[]; colMaterial: string; ocLinksByKey?: Record<string, string[]> }) {
   const rows = blocks.flatMap((t) =>
     (t.variantes ?? []).filter((v) => v.variante_tecido_id).map((v) => ({ t, v })),
   );
@@ -92,7 +92,7 @@ function MaterialTable({ blocks, colMaterial, ocLinksByKey }: { blocks: TecidoRo
   );
 }
 
-function Etiquetas({ blocks }: { blocks: TecidoRow[] }) {
+export function Etiquetas({ blocks }: { blocks: TecidoRow[] }) {
   const withEt = blocks.filter((t) => t.artigo_id && (t.etiqueta_lavagem_urls ?? []).length > 0);
   if (withEt.length === 0) return null;
   return (

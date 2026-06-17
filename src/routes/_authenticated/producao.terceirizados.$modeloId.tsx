@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { fmtNum } from "@/lib/format";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Users, Save, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Users, Save, Plus, Trash2, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useReadOnly } from "@/components/RequirePermission";
 import { ModeloObservacoes } from "@/components/shared/ModeloObservacoes";
+import { FichaTecnica } from "@/components/producao/FichaTecnica";
 
 export const Route = createFileRoute("/_authenticated/producao/terceirizados/$modeloId")({
   component: TercDetailPage,
@@ -395,9 +396,14 @@ function TercDetailPage() {
         <Link to="/producao/terceirizados" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
           <ArrowLeft className="h-4 w-4" /> Voltar
         </Link>
-        <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
-          <Save className="h-4 w-4 mr-2" /> Salvar
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => window.print()} disabled={!cad?.id}>
+            <FileText className="h-4 w-4 mr-2" /> Ficha Técnica
+          </Button>
+          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
+            <Save className="h-4 w-4 mr-2" /> Salvar
+          </Button>
+        </div>
       </div>
       <fieldset disabled={readOnly} className="contents">
 
@@ -746,6 +752,9 @@ function TercDetailPage() {
         </Card>
       )}
       </fieldset>
+
+      {/* Documento de impressão (oculto na tela; aparece só na impressão). */}
+      <FichaTecnica modeloId={modeloId} />
     </div>
   );
 }
