@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { fmtNum } from "@/lib/format";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Scissors, Plus } from "lucide-react";
@@ -130,7 +131,7 @@ function OcTecidoPage() {
       const out: Record<string, string> = {};
       for (const [ocId, parts] of Object.entries(sums)) {
         out[ocId] = Object.entries(parts)
-          .map(([u, v]) => `${v.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}${u !== "—" ? ` ${u}` : ""}`)
+          .map(([u, v]) => `${fmtNum(v)}${u !== "—" ? ` ${u}` : ""}`)
           .join(" + ");
       }
       return out;

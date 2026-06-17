@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { fmtNum } from "@/lib/format";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -181,7 +182,7 @@ function EstoqueTab() {
       <div className="grid gap-4 sm:grid-cols-3">
         <Kpi label="Variantes de Tecido" value={totalVariantes} icon={Boxes} />
         <Kpi label="Aviamentos" value={totalAviamentos} icon={Package} />
-        <Kpi label={threshold > 0 ? `Itens com estoque ≤ ${threshold.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}` : "Itens com estoque ≤ 0"} value={zerados} icon={AlertTriangle} />
+        <Kpi label={threshold > 0 ? `Itens com estoque ≤ ${fmtNum(threshold)}` : "Itens com estoque ≤ 0"} value={zerados} icon={AlertTriangle} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -202,7 +203,7 @@ function EstoqueTab() {
                     <td className="py-2 pr-3 truncate max-w-[260px]">{r.nome}</td>
                     <td className="py-2 pr-3">{r.tipo}</td>
                     <td className={"py-2 pr-3 text-right " + (Number(r.estoque) <= threshold ? "text-destructive font-medium" : "")}>
-                      {Number(r.estoque).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}
+                      {fmtNum(r.estoque)}
                     </td>
                   </tr>
                 ))}
@@ -319,7 +320,7 @@ function ProducaoTab() {
               return (
                 <tr key={i} className="border-b last:border-0">
                   <td className="py-2 pr-3">{r.nome}</td>
-                  <td className="py-2 pr-3 text-right">{Number(r.slaMedio ?? 0).toFixed(1)}</td>
+                  <td className="py-2 pr-3 text-right">{fmtNum(r.slaMedio)}</td>
                   <td className={"py-2 pr-3 text-right " + (Number(r.atrasos) > 0 ? "text-destructive" : "")}>{r.atrasos}</td>
                   <td className="py-2 pr-3 text-right">{r.total}</td>
                   <td className="py-2 pr-3 text-right">
@@ -328,7 +329,7 @@ function ProducaoTab() {
                         className={"inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium " + badgeCls}
                         title={`${defeito} defeito${defeito === 1 ? "" : "s"} / ${produzidas} peça${produzidas === 1 ? "" : "s"}`}
                       >
-                        {taxa.toFixed(1).replace(".", ",")}%
+                        {fmtNum(taxa)}%
                       </span>
                     ) : (
                       <span className="text-muted-foreground">—</span>
@@ -452,7 +453,7 @@ function CustosTab() {
                   <td className="py-2 pr-3 text-right">{brl(r.previsto)}</td>
                   <td className="py-2 pr-3 text-right">{brl(r.real)}</td>
                   <td className={"py-2 pr-3 text-right " + (Number(r.diff) > 0 ? "text-destructive" : Number(r.diff) < 0 ? "text-green-600 dark:text-green-400" : "")}>{brl(r.diff)}</td>
-                  <td className={"py-2 pr-3 text-right " + (Number(r.pct) > 0 ? "text-destructive" : Number(r.pct) < 0 ? "text-green-600 dark:text-green-400" : "")}>{Number(r.pct ?? 0).toFixed(1)}%</td>
+                  <td className={"py-2 pr-3 text-right " + (Number(r.pct) > 0 ? "text-destructive" : Number(r.pct) < 0 ? "text-green-600 dark:text-green-400" : "")}>{fmtNum(r.pct)}%</td>
                 </tr>
               ))}
               {!isLoading && rows.length === 0 && <tr><td colSpan={6} className="py-4 text-center text-muted-foreground">Sem dados.</td></tr>}

@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { fmtNum } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -76,7 +77,7 @@ export function OcTecidoCalculos({
                   <div className={cn("text-xs text-muted-foreground", i.cancelado && "line-through")}>{v?.nome_variante ?? v?.codigo_variante ?? "—"}</div>
                 </TableCell>
                 <TableCell className={cn(i.cancelado && "line-through")}>{i.quantidade_pedida}{sufixo ? ` ${sufixo}` : ""}</TableCell>
-                {hasKg && <TableCell className={cn(i.cancelado && "line-through")}>{metragemPedida(i).toFixed(2)} m</TableCell>}
+                {hasKg && <TableCell className={cn(i.cancelado && "line-through")}>{fmtNum(metragemPedida(i))} m</TableCell>}
                 <TableCell>
                   {i.cancelado ? (
                     <span className="text-sm line-through">
@@ -98,7 +99,7 @@ export function OcTecidoCalculos({
                     </div>
                   )}
                 </TableCell>
-                {hasKg && <TableCell className={cn(i.cancelado && "line-through")}>{metragemRecebida(i).toFixed(2)} m</TableCell>}
+                {hasKg && <TableCell className={cn(i.cancelado && "line-through")}>{fmtNum(metragemRecebida(i))} m</TableCell>}
                 <TableCell className={cn(i.cancelado && "line-through")}>{fmtMoney(valorPrev(i))}</TableCell>
                 <TableCell className={cn(i.cancelado && "line-through")}>{fmtMoney(valorReal(i))}</TableCell>
                 {canCancel && (

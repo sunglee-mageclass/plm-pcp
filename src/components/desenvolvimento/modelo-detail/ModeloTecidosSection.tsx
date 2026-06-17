@@ -12,10 +12,11 @@ import { Plus, Trash2, AlertTriangle, Check } from "lucide-react";
 import { Field, FieldSelectOpt } from "./shared";
 import { TIPOS, TIPO_LABEL, type TecidoBlock, type GradeRow, type OcAlloc } from "./types";
 import { EtiquetaLavagemArtigoView } from "@/components/shared/EtiquetaLavagemArtigo";
+import { fmtNum } from "@/lib/format";
 
 type ArtigoOpt = { id: string; nome: string; unidade_medida?: string | null };
 
-const fmtM = (n: number) => Number(n || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 });
+const fmtM = (n: number) => fmtNum(n);
 
 export function ModeloTecidosSection({
   modeloId,
@@ -230,7 +231,7 @@ function TecidoBlockEditor({
           options={artigos.map((a) => ({ id: a.id, nome: artigoLabel(a) }))}
         />
         <Field label="Custo Previsto">
-          <Input readOnly value={block.custo_previsto.toFixed(2)} />
+          <Input readOnly value={fmtNum(block.custo_previsto)} />
         </Field>
         <Field label="Consumo">
           <NumberInput type="number" step="0.001" value={block.consumo} onChange={(e) => onChangeBlock({ consumo: Number(e.target.value) || 0 })} />

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { fmtNum } from "@/lib/format";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Users, Save, Plus, Trash2, Wrench } from "lucide-react";
@@ -425,7 +426,7 @@ function TercDetailPage() {
                 <Label className="text-xs">Custo Total</Label>
                 <Input
                   readOnly
-                  value={(b.preco_metro_unidade * b.quantidade_enviada).toFixed(2)}
+                  value={fmtNum(b.preco_metro_unidade * b.quantidade_enviada)}
                   className="bg-muted"
                 />
               </div>

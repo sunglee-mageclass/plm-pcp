@@ -1,4 +1,5 @@
 import { Package } from "lucide-react";
+import { fmtNum } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { NumberInput } from "@/components/shared/NumberInput";
 import type { AviamentoRow } from "./types";
@@ -42,7 +43,7 @@ export function CadExplosaoSection({ aviamentos, gradeTotalGeral, updateAvi }: P
                       onChange={(e) => updateAvi(i, { consumo: Number(e.target.value), quantidade_enviar: Number((Number(e.target.value) * gradeTotalGeral).toFixed(4)) })} />
                   </td>
                   <td className="px-2 py-1 text-center font-medium">{gradeTotalGeral}</td>
-                  <td className="px-2 py-1 text-center font-medium">{a.quantidade_enviar.toFixed(2)}</td>
+                  <td className="px-2 py-1 text-center font-medium">{fmtNum(a.quantidade_enviar)}</td>
                   <td className="px-2 py-1">
                     <NumberInput type="number" step="0.01" value={a.quantidade_separar}
                       onChange={(e) => updateAvi(i, { quantidade_separar: Number(e.target.value) })} />

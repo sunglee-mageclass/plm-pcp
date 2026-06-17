@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { fmtNum } from "@/lib/format";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Wrench, Save, Printer } from "lucide-react";
@@ -234,7 +235,7 @@ function OficinaDetailPage() {
             </div>
             <div>
               <Label className="text-xs">Custo Total</Label>
-              <Input readOnly className="bg-muted" value={(form.preco_por_peca * form.quantidade_enviada).toFixed(2)} />
+              <Input readOnly className="bg-muted" value={fmtNum(form.preco_por_peca * form.quantidade_enviada)} />
             </div>
 
             <div>

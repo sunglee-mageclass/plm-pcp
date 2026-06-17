@@ -1,4 +1,5 @@
 import { Plus, X } from "lucide-react";
+import { fmtNum } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -39,7 +40,7 @@ export function ModeloAviamentosSection({
               options={aviamentos.map((a) => ({ id: a.id, nome: a.codigo_nome }))}
             />
             <Field label="Custo Previsto">
-              <Input readOnly value={r.custo_previsto.toFixed(2)} />
+              <Input readOnly value={fmtNum(r.custo_previsto)} />
             </Field>
             <Field label="Consumo">
               <NumberInput type="number" step="0.001" value={r.consumo} onChange={(e) => onChangeRow(i, { consumo: Number(e.target.value) || 0 })} />

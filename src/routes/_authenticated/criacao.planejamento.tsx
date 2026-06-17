@@ -18,6 +18,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
+import { fmtNum } from "@/lib/format";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 
 import { RequirePermission } from "@/components/RequirePermission";
@@ -572,8 +573,7 @@ function ModeloDialog({
 }
 
 type EstoqueArtigo = { fisico_m: number; reservado_m: number; disponivel_m: number };
-const fmtMetros = (n: number) =>
-  `${Number(n || 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} m`;
+const fmtMetros = (n: number) => `${fmtNum(n)} m`;
 
 function MultiArtigosField({ label, value, onChange, artigos, estoque }: {
   label: string; value: string[]; onChange: (v: string[]) => void; artigos: ArtigoOpt[];

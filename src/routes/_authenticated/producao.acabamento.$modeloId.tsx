@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { fmtNum } from "@/lib/format";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Sparkles, Save, Plus, Trash2, Wrench } from "lucide-react";
@@ -244,7 +245,7 @@ function AcabDetailPage() {
             </div>
             <div>
               <Label className="text-xs">Custo Total</Label>
-              <Input readOnly className="bg-muted" value={(b.preco_por_peca * b.quantidade_enviada).toFixed(2)} />
+              <Input readOnly className="bg-muted" value={fmtNum(b.preco_por_peca * b.quantidade_enviada)} />
             </div>
 
             <div>

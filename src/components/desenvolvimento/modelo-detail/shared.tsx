@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { fmtNum } from "@/lib/format";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { Opt } from "./types";
@@ -35,7 +36,7 @@ export function Row({ label, value, strong }: { label: string; value: number; st
   return (
     <div className={`flex justify-between ${strong ? "font-semibold text-base" : ""}`}>
       <span>{label}</span>
-      <span>R$ {value.toFixed(2)}</span>
+      <span>R$ {fmtNum(value)}</span>
     </div>
   );
 }

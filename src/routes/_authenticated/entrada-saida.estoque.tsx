@@ -9,6 +9,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Boxes, ArrowLeft, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { fmtNum } from "@/lib/format";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 
 import { RequirePermission } from "@/components/RequirePermission";
@@ -21,7 +22,7 @@ export const Route = createFileRoute("/_authenticated/entrada-saida/estoque")({
 });
 
 const num = (v: any) => Number(v ?? 0) || 0;
-const fmt = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
+const fmt = (v: number) => fmtNum(v);
 
 function useEstoqueThreshold() {
   const { data } = useQuery({

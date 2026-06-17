@@ -5,6 +5,7 @@ import { NumberInput } from "@/components/shared/NumberInput";
 import { Badge } from "@/components/ui/badge";
 import { Field } from "./shared";
 import { EtiquetaLavagemArtigoView } from "@/components/shared/EtiquetaLavagemArtigo";
+import { fmtNum } from "@/lib/format";
 import type { TecidoRow, VarianteRow } from "./types";
 
 type Props = {
@@ -49,9 +50,9 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary" className="capitalize">{t.tipo} {t.numero}</Badge>
             <span className="text-sm font-medium">{t.artigo_nome ?? "Sem artigo"}</span>
-            <span className="text-xs text-muted-foreground">(preço: R$ {t.preco.toFixed(2)}/m</span>
+            <span className="text-xs text-muted-foreground">(preço: R$ {fmtNum(t.preco)}/m</span>
             {Number(t.largura ?? 0) > 0 ? (
-              <span className="text-xs text-muted-foreground">· largura: {Number(t.largura).toFixed(2)} m)</span>
+              <span className="text-xs text-muted-foreground">· largura: {fmtNum(t.largura)} m)</span>
             ) : (
               <span className="text-xs text-destructive font-medium inline-flex items-center gap-1">
                 · <AlertTriangle className="h-3 w-3" /> largura não definida)
@@ -69,11 +70,11 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
                 onChange={(e) => updateTec(i, { loss_percent_cad: Number(e.target.value) })} />
             </Field>
             <Field label="Custo CAD (R$)">
-              <Input value={t.custo_cad.toFixed(2)} readOnly className="bg-muted" />
+              <Input value={fmtNum(t.custo_cad)} readOnly className="bg-muted" />
             </Field>
             <Field label="Tamanho da folha (m)">
               {ro ? (
-                <Input readOnly className="bg-muted" value={Number(t.tamanho_folha ?? 0).toFixed(2)} />
+                <Input readOnly className="bg-muted" value={fmtNum(t.tamanho_folha)} />
               ) : (
                 <NumberInput type="number" step="0.01" value={t.tamanho_folha}
                   onChange={(e) => updateTec(i, { tamanho_folha: Number(e.target.value) })} />
@@ -105,7 +106,7 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
                       )}
                       <td className="px-2 py-1">
                         {ro ? (
-                          <Input readOnly className="bg-muted" value={Number(v.quantidade_folhas ?? 0).toFixed(2)} />
+                          <Input readOnly className="bg-muted" value={fmtNum(v.quantidade_folhas)} />
                         ) : (
                           <NumberInput type="number" value={v.quantidade_folhas}
                             onChange={(e) => updateVar(i, j, { quantidade_folhas: Number(e.target.value) })} />
@@ -113,7 +114,7 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
                       </td>
                       <td className="px-2 py-1">
                         {ro ? (
-                          <Input readOnly className="bg-muted" value={Number(v.metragem_planejada ?? 0).toFixed(2)} />
+                          <Input readOnly className="bg-muted" value={fmtNum(v.metragem_planejada)} />
                         ) : (
                           <NumberInput type="number" step="0.01" value={v.metragem_planejada}
                             onChange={(e) => updateVar(i, j, { metragem_planejada: Number(e.target.value) })} />

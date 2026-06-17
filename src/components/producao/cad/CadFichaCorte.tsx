@@ -1,6 +1,7 @@
 import { cell, cellH } from "./types";
 import type { AviamentoRow, GradeRow, TecidoRow } from "./types";
 import { EtiquetaLavagemArtigoPrint } from "@/components/shared/EtiquetaLavagemArtigo";
+import { fmtNum } from "@/lib/format";
 
 type Props = {
   modelo: any;
@@ -18,7 +19,7 @@ type Props = {
 const PAGE_H = "250mm";
 const pageStyle: React.CSSProperties = { height: PAGE_H, display: "flex", flexDirection: "column" };
 const halfStyle: React.CSSProperties = { flex: "0 0 50%", overflow: "hidden", minHeight: 0 };
-const fmt2 = (n: number | null | undefined) => Number(n ?? 0).toFixed(2);
+const fmt2 = (n: number | null | undefined) => fmtNum(n);
 
 function Assinatura() {
   return (
