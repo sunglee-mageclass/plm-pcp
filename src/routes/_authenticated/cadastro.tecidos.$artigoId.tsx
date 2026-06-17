@@ -25,6 +25,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ImagePreview } from "@/components/shared/ImagePreview";
+import { EtiquetaLavagemArtigoEditor } from "@/components/shared/EtiquetaLavagemArtigo";
 import {
   Select,
   SelectTrigger,
@@ -408,6 +409,10 @@ function TecidoDetail() {
               />
             </Field>
           )}
+
+          <div className="md:col-span-2">
+            <EtiquetaLavagemArtigoEditor artigoId={artigoId} />
+          </div>
         </fieldset>
         </CardContent>
       </Card>
