@@ -12,7 +12,7 @@ export function Field({ label, children }: { label: string; children: React.Reac
   );
 }
 
-export function ModeloPhoto({ path, alt }: { path: string; alt?: string }) {
+export function ModeloPhoto({ path, alt, fit = "cover" }: { path: string; alt?: string; fit?: "cover" | "contain" }) {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
@@ -24,7 +24,11 @@ export function ModeloPhoto({ path, alt }: { path: string; alt?: string }) {
     };
   }, [path]);
   return url ? (
-    <img src={url} alt={alt ?? "Foto do modelo"} className="h-full w-full object-cover" />
+    <img
+      src={url}
+      alt={alt ?? "Foto do modelo"}
+      className={`h-full w-full ${fit === "contain" ? "object-contain" : "object-cover"}`}
+    />
   ) : (
     <ImageIcon className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
   );

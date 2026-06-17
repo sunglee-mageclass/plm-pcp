@@ -22,27 +22,28 @@ export const Route = createFileRoute("/_authenticated/producao/consumo-oc")({
   ),
 });
 
-type Modelo = {
+type ModeloRaw = {
   modelo_id: string;
   ref: string | null;
   nome: string | null;
-  origem: "planejado" | "baixado";
-  ordem: number | null;
   consumo_unit: number | null;
   mult: number | null;
   grade_variante: number | null;
   grade_geral: number | null;
-  consumo_m: number | null;
+  metragem_m: number | null;
+  baixado_m: number | null;
+  cortado: boolean;
 };
 type Item = {
   oc_tecido_item_id: string;
+  artigo_id: string | null;
   artigo_nome: string | null;
   unidade: string | null;
   variante: string | null;
   pedido_m: number | null;
   recebido_m: number | null;
   baixado_m: number | null;
-  modelos: Modelo[];
+  modelos: ModeloRaw[];
 };
 type OC = {
   oc_id: string;
@@ -54,6 +55,18 @@ type OC = {
 };
 type ModeloInfo = { id: string; fotos_modelo: string[] | null; proporcoes: Record<string, any> | null };
 
+// Agregados client-side
+type VarRow = { variante: string; grade_variante: number; metragem_m: number; baixado_m: number; cortado: boolean };
+type ModeloAgg = {
+  modelo_id: string; ref: string | null; nome: string | null;
+  consumo_unit: number; mult: number; grade_geral: number;
+  variantes: VarRow[]; cortado: boolean; consumoTotal: number;
+};
+type Tecido = {
+  artigo_id: string; artigo_nome: string; recebido: number; consumido: number; sobra: number;
+  modelos: ModeloAgg[];
+};
+
 const num = (v: any) => Number(v ?? 0) || 0;
 const fmt = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(2));
 const fmtDate = (s: string | null | undefined) => (s ? s.split("-").reverse().join("/") : "—");
@@ -64,6 +77,59 @@ const fmtProporcoes = (p: Record<string, any> | null | undefined) => {
     .map(([k, v]) => `${k.includes("|") ? k.split("|")[1] : k}:${num(v)}`);
   return parts.length ? parts.join("  ") : "—";
 };
+
+// OC → grupos por tecido (artigo), com um modelo por card e suas variantes juntas.
+function agruparPorTecido(oc: OC): Tecido[] {
+  const byArtigo = new Map<string, Item[]>();
+  for (const it of oc.itens) {
+    const k = it.artigo_id ?? `sem-${it.oc_tecido_item_id}`;
+    (byArtigo.get(k) ?? byArtigo.set(k, []).get(k)!).push(it);
+  }
+  const out: Tecido[] = [];
+  for (const [artigo_id, items] of byArtigo) {
+    const recebido = items.reduce((s, it) => s + (oc.status === "recebido" ? num(it.recebido_m) : num(it.pedido_m)), 0);
+    const modelMap = new Map<string, ModeloAgg>();
+    for (const it of items) {
+      for (const m of it.modelos) {
+        let agg = modelMap.get(m.modelo_id);
+        if (!agg) {
+          agg = {
+            modelo_id: m.modelo_id, ref: m.ref, nome: m.nome,
+            consumo_unit: num(m.consumo_unit), mult: num(m.mult) || 1, grade_geral: num(m.grade_geral),
+            variantes: [], cortado: false, consumoTotal: 0,
+          };
+          modelMap.set(m.modelo_id, agg);
+        }
+        agg.variantes.push({
+          variante: it.variante ?? "—",
+          grade_variante: num(m.grade_variante),
+          metragem_m: num(m.metragem_m),
+          baixado_m: num(m.baixado_m),
+          cortado: !!m.cortado,
+        });
+        if (m.cortado) agg.cortado = true;
+        if (num(m.consumo_unit) > 0) agg.consumo_unit = num(m.consumo_unit);
+        if (num(m.grade_geral) > 0) agg.grade_geral = num(m.grade_geral);
+      }
+    }
+    const modelos = Array.from(modelMap.values());
+    // Consumo total do modelo = Σ metragem das variantes + 1 peça piloto (consumo × mult), uma vez.
+    for (const a of modelos) {
+      const metragens = a.variantes.reduce((s, v) => s + v.metragem_m, 0);
+      a.consumoTotal = metragens + a.consumo_unit * a.mult;
+    }
+    const consumido = modelos.reduce((s, a) => s + a.consumoTotal, 0);
+    out.push({
+      artigo_id,
+      artigo_nome: items[0]?.artigo_nome ?? "—",
+      recebido,
+      consumido,
+      sobra: recebido - consumido,
+      modelos,
+    });
+  }
+  return out;
+}
 
 function ConsumoOcPage() {
   const qc = useQueryClient();
@@ -80,7 +146,6 @@ function ConsumoOcPage() {
     },
   });
 
-  // IDs de todos os modelos exibidos → busca foto + proporção em lote.
   const modeloIds = useMemo(() => {
     const s = new Set<string>();
     for (const oc of ocs) for (const it of oc.itens) for (const m of it.modelos) s.add(m.modelo_id);
@@ -112,7 +177,6 @@ function ConsumoOcPage() {
     );
   }, [ocs, search]);
 
-  // Ao fechar um editor, recarrega a posição (grade/consumo podem ter mudado).
   const closeEditors = () => {
     setDevId(null);
     setCadId(null);
@@ -127,7 +191,7 @@ function ConsumoOcPage() {
         <div>
           <h1 className="text-2xl font-bold">Consumo por OC</h1>
           <p className="text-sm text-muted-foreground">
-            Quanto cada modelo consome da OC e quanto sobra. Consumo = consumo × (grade + 1 piloto), sem perda. Clique num modelo para ajustar grade/proporção sem sair daqui.
+            Por tecido da OC: quanto cada modelo consome e quanto sobra. Consumo = Σ(consumo × grade por variante) + 1 piloto, sem perda. Clique num modelo para ajustar grade/proporção sem sair daqui.
           </p>
         </div>
       </header>
@@ -159,56 +223,45 @@ function ConsumoOcPage() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-5">
-                {oc.itens.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Sem itens.</p>
-                ) : (
-                  oc.itens.map((it) => {
-                    const total = it.modelos.reduce((s, m) => s + num(m.consumo_m), 0);
-                    const base = oc.status === "recebido" ? num(it.recebido_m) : num(it.pedido_m);
-                    const sobra = base - total;
-                    const sobraClass = sobra < 0 ? "text-destructive" : sobra <= base * 0.05 ? "text-emerald-600" : "text-foreground";
-                    return (
-                      <div key={it.oc_tecido_item_id} className="space-y-3">
-                        <div className="flex items-center justify-between gap-3 flex-wrap border-b pb-2">
-                          <div className="font-medium text-sm">
-                            {it.artigo_nome ?? "—"} <span className="text-muted-foreground">· {it.variante ?? "—"}</span>
-                          </div>
-                          <div className="flex items-center gap-4 text-sm tabular-nums">
-                            <span className="text-muted-foreground">{oc.status === "recebido" ? "Recebido" : "Pedido"}: <strong className="text-foreground">{fmt(base)} m</strong></span>
-                            <span className="text-muted-foreground">Consumido: <strong className="text-foreground">{fmt(total)} m</strong></span>
-                            <span className="text-muted-foreground">Sobra: <strong className={sobraClass}>{fmt(sobra)} m</strong></span>
-                          </div>
+              <CardContent className="space-y-6">
+                {agruparPorTecido(oc).map((t) => {
+                  const sobraClass = t.sobra < 0 ? "text-destructive" : t.sobra <= t.recebido * 0.05 ? "text-emerald-600" : "text-foreground";
+                  return (
+                    <div key={t.artigo_id} className="space-y-3">
+                      <div className="flex items-center justify-between gap-3 flex-wrap border-b pb-2">
+                        <div className="font-medium text-sm">{t.artigo_nome}</div>
+                        <div className="flex items-center gap-4 text-sm tabular-nums">
+                          <span className="text-muted-foreground">{oc.status === "recebido" ? "Recebido" : "Pedido"}: <strong className="text-foreground">{fmt(t.recebido)} m</strong></span>
+                          <span className="text-muted-foreground">Consumido: <strong className="text-foreground">{fmt(t.consumido)} m</strong></span>
+                          <span className="text-muted-foreground">Sobra: <strong className={sobraClass}>{fmt(t.sobra)} m</strong></span>
                         </div>
-                        {it.modelos.length === 0 ? (
-                          <p className="text-sm text-muted-foreground">Nenhum modelo consome desta OC ainda.</p>
-                        ) : (
-                          <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-                            {it.modelos.map((m, i) => (
-                              <ModeloMiniCard
-                                key={`${m.modelo_id}-${m.origem}-${i}`}
-                                m={m}
-                                info={modeloInfo[m.modelo_id]}
-                                onDev={() => setDevId(m.modelo_id)}
-                                onCad={() => setCadId(m.modelo_id)}
-                              />
-                            ))}
-                          </div>
-                        )}
                       </div>
-                    );
-                  })
-                )}
+                      {t.modelos.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">Nenhum modelo consome deste tecido ainda.</p>
+                      ) : (
+                        <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                          {t.modelos.map((a) => (
+                            <ModeloMiniCard
+                              key={a.modelo_id}
+                              a={a}
+                              info={modeloInfo[a.modelo_id]}
+                              onDev={() => setDevId(a.modelo_id)}
+                              onCad={() => setCadId(a.modelo_id)}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </CardContent>
             </Card>
           ))}
         </div>
       )}
 
-      {/* Editor de Desenvolvimento (Sheet próprio do componente) */}
       <ModeloDetailPanel modeloId={devId} onClose={closeEditors} />
 
-      {/* Editor de CAD num Sheet */}
       <Sheet open={!!cadId} onOpenChange={(o) => !o && closeEditors()}>
         <SheetContent className="w-full sm:w-[92vw] sm:max-w-[1100px] overflow-y-auto p-0">
           {cadId && <CadEditor modeloId={cadId} onAfterDelete={closeEditors} />}
@@ -218,66 +271,60 @@ function ConsumoOcPage() {
   );
 }
 
-function KV({ label, value }: { label: string; value: string }) {
+function KV({ label, value, valueClass }: { label: string; value: string; valueClass?: string }) {
   return (
     <div className="flex items-baseline justify-between gap-2 leading-tight">
       <span className="text-[11px] text-muted-foreground">{label}</span>
-      <span className="text-[11px] font-medium tabular-nums text-right">{value}</span>
+      <span className={`text-[11px] font-medium tabular-nums text-right ${valueClass ?? ""}`}>{value}</span>
     </div>
   );
 }
 
 function ModeloMiniCard({
-  m, info, onDev, onCad,
+  a, info, onDev, onCad,
 }: {
-  m: Modelo;
+  a: ModeloAgg;
   info: ModeloInfo | undefined;
   onDev: () => void;
   onCad: () => void;
 }) {
   const foto = info?.fotos_modelo?.[0] ?? null;
-  const cu = num(m.consumo_unit);
-  const mult = num(m.mult) || 1;
-  const gv = num(m.grade_variante);
-  const gg = num(m.grade_geral);
-  const metragemVar = cu * mult * gv;
-  const consumoTotal = cu * mult * (gg + 1); // total do tecido no modelo + 1 piloto
-  const planejado = m.origem === "planejado";
 
   return (
     <Popover>
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="text-left rounded-lg border bg-card hover:border-primary hover:shadow-sm transition overflow-hidden"
+          className="text-left rounded-lg border bg-card hover:border-primary hover:shadow-sm transition overflow-hidden flex flex-col"
         >
-          <div className="aspect-[4/3] bg-muted">
-            {foto ? <ModeloPhoto path={foto} alt={m.nome ?? "modelo"} /> : (
-              <div className="h-full w-full flex items-center justify-center text-muted-foreground text-xs">sem foto</div>
+          <div className="h-40 bg-muted flex items-center justify-center shrink-0">
+            {foto ? <ModeloPhoto path={foto} alt={a.nome ?? "modelo"} fit="contain" /> : (
+              <div className="text-muted-foreground text-xs">sem foto</div>
             )}
           </div>
-          <div className="p-2 space-y-1.5">
+          <div className="p-2.5 space-y-1.5">
             <div className="flex items-center justify-between gap-1">
-              <div className="text-xs font-semibold truncate">{[m.ref, m.nome].filter(Boolean).join(" · ") || "—"}</div>
-              {planejado
-                ? <Badge variant="outline" className="shrink-0 text-[10px] px-1 py-0">Plan.</Badge>
-                : <Badge variant="outline" className="shrink-0 text-[10px] px-1 py-0 border-emerald-500 text-emerald-600">Baixado</Badge>}
+              <div className="text-xs font-semibold truncate">{[a.ref, a.nome].filter(Boolean).join(" · ") || "—"}</div>
+              {a.cortado && <Badge variant="outline" className="shrink-0 text-[10px] px-1 py-0 border-emerald-500 text-emerald-600">Baixado</Badge>}
             </div>
-            {planejado ? (
-              <div className="space-y-0.5">
-                <KV label="Proporção" value={fmtProporcoes(info?.proporcoes)} />
-                <KV label="Grade variante" value={fmt(gv)} />
-                <KV label="Consumo" value={`${fmt(cu)} m`} />
-                <KV label="Metragem variante" value={`${fmt(metragemVar)} m`} />
-                <KV label="Grade geral" value={fmt(gg)} />
-                <KV label="Consumo total (+piloto)" value={`${fmt(consumoTotal)} m`} />
-              </div>
-            ) : (
-              <div className="space-y-0.5">
-                <KV label="Baixado" value={`${fmt(num(m.consumo_m))} m`} />
-                <KV label="Grade geral" value={fmt(gg)} />
-              </div>
-            )}
+            <KV label="Proporção" value={fmtProporcoes(info?.proporcoes)} />
+            <KV label="Consumo" value={`${fmt(a.consumo_unit)} m`} />
+
+            <div className="pt-1 mt-1 border-t space-y-1">
+              {a.variantes.map((v, i) => (
+                <div key={i} className="space-y-0.5">
+                  <div className="text-[11px] font-medium truncate">{v.variante}</div>
+                  <KV label="Grade" value={fmt(v.grade_variante)} />
+                  <KV label="Metragem" value={`${fmt(v.metragem_m)} m`} />
+                  {v.cortado && <KV label="Baixado" value={`${fmt(v.baixado_m)} m`} valueClass="text-emerald-600" />}
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-1 mt-1 border-t space-y-1">
+              <KV label="Grade geral" value={fmt(a.grade_geral)} />
+              <KV label="Consumo total (+piloto)" value={`${fmt(a.consumoTotal)} m`} />
+            </div>
           </div>
         </button>
       </PopoverTrigger>
