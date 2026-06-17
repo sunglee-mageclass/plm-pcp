@@ -334,7 +334,24 @@ function CadDetailPage() {
     });
   };
   const updateProporcao = (tam: string, val: number) => {
-    setProporcoes((p) => ({ ...p, [tam]: Math.max(0, val) }));
+    const oldProp = proporcoes;
+    const newProp = { ...oldProp, [tam]: Math.max(0, val) };
+    setProporcoes(newProp);
+    // Com cálculo automático ativo, redistribui a grade mantendo a escala.
+    if (gradeAuto) {
+      const oldSum = tamanhosAll.reduce((s, t) => s + (Number(oldProp[t]) || 0), 0);
+      if (oldSum > 0) {
+        setGrades((gs) => gs.map((g) => {
+          const total = g.grade_total || 0;
+          if (total <= 0) return g;
+          const unit = total / oldSum;
+          const grades: Record<string, number> = {};
+          tamanhosAll.forEach((t) => { grades[t] = Math.round(unit * (Number(newProp[t]) || 0)); });
+          const gt = tamanhosAll.reduce((s, t) => s + (grades[t] || 0), 0);
+          return { ...g, grades, grade_total: gt };
+        }));
+      }
+    }
   };
   const updateAvi = (i: number, patch: Partial<AviamentoRow>) => {
     setAviamentos((prev) => {

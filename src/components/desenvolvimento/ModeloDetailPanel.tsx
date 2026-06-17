@@ -847,7 +847,25 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     });
   };
   const updateProporcao = (tam: string, val: number) => {
-    setDraft((d: any) => ({ ...d, proporcoes: { ...(d?.proporcoes ?? {}), [tam]: val } }));
+    const oldProp = (draft?.proporcoes ?? {}) as Record<string, number>;
+    const newProp = { ...oldProp, [tam]: Math.max(0, val) };
+    setDraft((d: any) => ({ ...d, proporcoes: newProp }));
+    // Com cálculo automático ativo, mudar a proporção redistribui a grade
+    // mantendo a escala (unidade = total ÷ soma das proporções anterior).
+    if (gradeAuto) {
+      const oldSum = tamanhos.reduce((s, t) => s + (Number(oldProp[t]) || 0), 0);
+      if (oldSum > 0) {
+        setGrades((gs) => gs.map((g) => {
+          const total = g.grade_total || 0;
+          if (total <= 0) return g;
+          const unit = total / oldSum;
+          const next: Record<string, number> = {};
+          tamanhos.forEach((t) => { next[t] = Math.round(unit * (Number(newProp[t]) || 0)); });
+          const gt = tamanhos.reduce((s, t) => s + (next[t] || 0), 0);
+          return { ...g, grades: next, grade_total: gt };
+        }));
+      }
+    }
   };
 
   const uploadFicha = async (file: File) => {
