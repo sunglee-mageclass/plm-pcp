@@ -52,7 +52,7 @@ function OficinaDetailPage() {
   const { data: cad } = useQuery({
     queryKey: ["oficina-cad", modeloId],
     queryFn: async () => {
-      const { data } = await supabase.from("cad").select("id").eq("modelo_id", modeloId).maybeSingle();
+      const { data } = await supabase.from("cad").select("*").eq("modelo_id", modeloId).maybeSingle();
       return data;
     },
   });
@@ -112,7 +112,11 @@ function OficinaDetailPage() {
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    if (!hydrated && existing) {
+    if (hydrated) return;
+    // Espera as duas queries assentarem: producao_oficina e o cad (fonte do molde).
+    if (existing === undefined || cad === undefined) return;
+    const molde = (cad as any)?.observacoes_molde ?? "";
+    if (existing) {
       setForm({
         terceirizado_id: existing.terceirizado_id ?? "",
         preco_por_peca: Number(existing.preco_por_peca ?? 0),
@@ -123,13 +127,13 @@ function OficinaDetailPage() {
         data_prevista: existing.data_prevista ?? "",
         data_entregue: existing.data_entregue ?? "",
         observacao: existing.observacao ?? "",
-        observacoes_molde: existing.observacoes_molde ?? "",
+        observacoes_molde: molde,
       });
-      setHydrated(true);
-    } else if (!hydrated && existing === null) {
-      setHydrated(true);
+    } else {
+      setForm((f) => ({ ...f, observacoes_molde: molde }));
     }
-  }, [existing, hydrated]);
+    setHydrated(true);
+  }, [existing, cad, hydrated]);
 
   const status = computeStatus({
     data_enviado: form.data_enviado || null,
@@ -156,7 +160,6 @@ function OficinaDetailPage() {
         data_entregue: form.data_entregue || null,
         status,
         observacao: form.observacao,
-        observacoes_molde: form.observacoes_molde,
       };
       if (existing?.id) {
         const { error } = await supabase.from("producao_oficina").update(payload).eq("id", existing.id);
@@ -165,11 +168,18 @@ function OficinaDetailPage() {
         const { error } = await supabase.from("producao_oficina").insert(payload);
         if (error) throw error;
       }
+      // "Partes do Molde" tem fonte única no CAD (Ficha de Corte).
+      const { error: cadErr } = await supabase
+        .from("cad")
+        .update({ observacoes_molde: form.observacoes_molde || null } as any)
+        .eq("id", cad.id);
+      if (cadErr) throw cadErr;
     },
     onSuccess: async () => {
       toast.success("Salvo");
       setHydrated(false);
       await qc.invalidateQueries({ queryKey: ["producao-oficina", cad?.id] });
+      await qc.invalidateQueries({ queryKey: ["oficina-cad", modeloId] });
       await refetch();
     },
     onError: (e: any) => toast.error(e?.message ?? "Erro"),

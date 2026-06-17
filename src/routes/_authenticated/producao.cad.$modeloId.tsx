@@ -7,6 +7,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { ModeloPhoto } from "@/components/producao/cad/shared";
 import { calcCusto } from "@/components/producao/cad/types";
 import type {
@@ -181,6 +183,7 @@ function CadDetailPage() {
   const [grades, setGrades] = useState<GradeRow[]>([]);
   const [aviamentos, setAviamentos] = useState<AviamentoRow[]>([]);
   const [previsaoEntrega, setPrevisaoEntrega] = useState("");
+  const [observacoesMolde, setObservacoesMolde] = useState("");
   const [seeded, setSeeded] = useState(false);
   // Grade automática pela proporção (mesma lógica do Desenvolvimento).
   const [gradeAuto, setGradeAuto] = useState(false);
@@ -317,6 +320,7 @@ function CadDetailPage() {
     setAviamentos(initialAvi);
 
     if (cadRow?.data_previsao_corte) setPrevisaoEntrega(cadRow.data_previsao_corte);
+    setObservacoesMolde((cadRow as any)?.observacoes_molde ?? "");
 
     setSeeded(true);
   }, [modelo, cadRow, cadTecidos, modeloTecidos, cadGrades, modeloGrades, cadAviamentos, modeloAviamentos, cadTecidosFetched, cadGradesFetched, cadAviamentosFetched, seeded]);
@@ -481,9 +485,9 @@ function CadDetailPage() {
         );
         if (ae) throw ae;
       }
-      if (previsaoEntrega) {
-        await supabase.from("cad").update({ data_previsao_corte: previsaoEntrega }).eq("id", cad_id!);
-      }
+      const cadUpdate: any = { observacoes_molde: observacoesMolde || null };
+      if (previsaoEntrega) cadUpdate.data_previsao_corte = previsaoEntrega;
+      await supabase.from("cad").update(cadUpdate).eq("id", cad_id!);
       return cad_id;
     },
     onSuccess: () => {
@@ -732,6 +736,19 @@ function CadDetailPage() {
           gradeTotalGeral={gradeTotalGeral}
           updateAvi={updateAvi}
         />
+
+        <Card className="p-5 space-y-2">
+          <Label className="text-sm font-semibold">Observação de Partes do Molde</Label>
+          <Textarea
+            rows={3}
+            value={observacoesMolde}
+            onChange={(e) => setObservacoesMolde(e.target.value)}
+            placeholder="Instruções de corte / partes do molde…"
+          />
+          <p className="text-xs text-muted-foreground">
+            Aparece na Ficha de Corte e também na Oficina deste modelo.
+          </p>
+        </Card>
         </fieldset>
       </div>
 
@@ -740,6 +757,7 @@ function CadDetailPage() {
         modelo={modelo}
         cadRow={cadRow}
         previsaoEntrega={previsaoEntrega}
+        observacoesMolde={observacoesMolde}
         tecidos={tecidos}
         grades={grades}
         tamanhosAll={tamanhosAll}

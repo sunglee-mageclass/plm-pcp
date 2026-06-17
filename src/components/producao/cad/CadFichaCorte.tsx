@@ -7,6 +7,7 @@ type Props = {
   modelo: any;
   cadRow?: any;
   previsaoEntrega?: string;
+  observacoesMolde?: string;
   tecidos: TecidoRow[];
   grades: GradeRow[];
   tamanhosAll: string[];
@@ -100,7 +101,7 @@ function Etiquetas({ blocks }: { blocks: TecidoRow[] }) {
   );
 }
 
-export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos, labelByNumero, ocLinksByKey }: Props) {
+export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos, labelByNumero, ocLinksByKey, observacoesMolde }: Props) {
   const isConjunto = (modelo?.cat_p?.nome ?? "").trim().toLowerCase() === "conjunto";
   const tecidoBlocks = tecidos.filter((t) => t.tipo === "tecido");
   const forroBlocks = tecidos.filter((t) => t.tipo === "forro");
@@ -212,6 +213,11 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
               ))}
             </tbody>
           </table>
+
+          <h3 style={{ fontSize: 14, fontWeight: 600, margin: "10px 0 0" }}>Observação de Partes do Molde</h3>
+          <p style={{ fontSize: 11, whiteSpace: "pre-wrap", border: "1px solid #ccc", padding: 6, marginTop: 4, minHeight: 28 }}>
+            {observacoesMolde?.trim() || "—"}
+          </p>
         </div>
       </div>
     </div>

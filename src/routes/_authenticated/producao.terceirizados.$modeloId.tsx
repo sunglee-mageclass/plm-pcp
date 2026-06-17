@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { fmtNum } from "@/lib/format";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Users, Save, Plus, Trash2, Wrench } from "lucide-react";
+import { ArrowLeft, Users, Save, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +24,7 @@ type Bloco = {
   id?: string;
   categoria_terceirizado_id: string;
   categoria_nome?: string;
+  interno: boolean;
   terceirizado_id: string | null;
   preco_metro_unidade: number;
   quantidade_enviada: number;
@@ -95,13 +97,6 @@ function TercDetailPage() {
     },
   });
 
-  const { data: tenantCfg } = useQuery({
-    queryKey: ["tenant_config", "oficina"],
-    queryFn: async () => (await supabase.from("tenant_config").select("oficina_posicao, oficina_interna").maybeSingle()).data,
-  });
-  const oficinaEmTerc = ((tenantCfg as any)?.oficina_posicao ?? "terceirizados") === "terceirizados";
-  const oficinaInterna = Boolean((tenantCfg as any)?.oficina_interna);
-
   const { data: terceirizados = [] } = useQuery({
     queryKey: ["terceirizados-all"],
     queryFn: async () => {
@@ -160,6 +155,7 @@ function TercDetailPage() {
       (existing as any[]).map((r) => ({
         id: r.id,
         categoria_terceirizado_id: r.categoria_terceirizado_id,
+        interno: Boolean((r as any).interno),
         terceirizado_id: r.terceirizado_id,
         preco_metro_unidade: Number(r.preco_metro_unidade ?? 0),
         quantidade_enviada: Number(r.quantidade_enviada ?? 0),
@@ -187,6 +183,7 @@ function TercDetailPage() {
         {
           categoria_terceirizado_id: catId,
           categoria_nome: catNome,
+          interno: false,
           terceirizado_id: null,
           preco_metro_unidade: 0,
           quantidade_enviada: 0,
@@ -232,7 +229,8 @@ function TercDetailPage() {
       const payload = blocos.map((b) => ({
         cad_id: cad.id,
         categoria_terceirizado_id: b.categoria_terceirizado_id,
-        terceirizado_id: b.terceirizado_id,
+        interno: b.interno,
+        terceirizado_id: b.interno ? null : b.terceirizado_id,
         ativo: true,
         preco_metro_unidade: b.preco_metro_unidade,
         quantidade_enviada: b.quantidade_enviada,
@@ -244,7 +242,7 @@ function TercDetailPage() {
         observacao: b.observacao,
         aviamentos_enviados: b.aviamentos_enviados,
       }));
-      const { error } = await supabase.from("producao_terceirizados").insert(payload);
+      const { error } = await supabase.from("producao_terceirizados").insert(payload as any);
       if (error) throw error;
     },
     onSuccess: async () => {
@@ -334,14 +332,6 @@ function TercDetailPage() {
           {!categoriasLoading && !categoriasError && (categorias as any[]).length === 0 && (
             <p className="text-sm text-muted-foreground">Cadastre categorias em Cadastro &gt; Atributos.</p>
           )}
-          {oficinaEmTerc && (
-            <Link to="/producao/oficina/$modeloId" params={{ modeloId }}>
-              <Button type="button" variant="secondary" size="sm">
-                <Wrench className="h-3.5 w-3.5 mr-1" />
-                Oficina{oficinaInterna ? " (Interna)" : ""}
-              </Button>
-            </Link>
-          )}
         </div>
       </Card>
 
@@ -349,31 +339,66 @@ function TercDetailPage() {
       {blocos.map((b, idx) => {
         const catNome = (categorias as any[]).find((c) => c.id === b.categoria_terceirizado_id)?.nome ?? "—";
         const responsaveis = (terceirizados as any[]).filter((t) => (t.categorias_ids ?? []).includes(b.categoria_terceirizado_id));
+        // SLA do serviço: dias entre enviado e entregue (calculado das datas).
+        const slaBloco =
+          b.data_enviado && b.data_entregue
+            ? Math.round((new Date(b.data_entregue).getTime() - new Date(b.data_enviado).getTime()) / 86400000)
+            : null;
         return (
           <Card key={b.categoria_terceirizado_id} className="p-5 space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="font-semibold text-lg">{catNome}</h3>
-              <Badge className={`${STATUS_COLORS[b.status ?? "pendente"] ?? "bg-muted"} text-white`}>{STATUS_LABELS[b.status ?? "pendente"] ?? (b.status ?? "pendente")}</Badge>
+              <div className="flex items-center gap-2">
+                {/* Toggle Interno / PL (Interno esconde o responsável) */}
+                <div className="flex rounded-md border overflow-hidden text-xs font-medium">
+                  <button
+                    type="button"
+                    onClick={() => updateBloco(idx, { interno: true, terceirizado_id: null })}
+                    className={cn(
+                      "px-2.5 py-1 transition-colors",
+                      b.interno ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted",
+                    )}
+                  >
+                    Interno
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateBloco(idx, { interno: false })}
+                    className={cn(
+                      "px-2.5 py-1 transition-colors border-l",
+                      !b.interno ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted",
+                    )}
+                  >
+                    PL
+                  </button>
+                </div>
+                <Badge variant="outline" className="text-xs whitespace-nowrap">
+                  SLA: {slaBloco != null ? `${slaBloco}d` : "—"}
+                </Badge>
+                <Badge className={`${STATUS_COLORS[b.status ?? "pendente"] ?? "bg-muted"} text-white`}>{STATUS_LABELS[b.status ?? "pendente"] ?? (b.status ?? "pendente")}</Badge>
+              </div>
             </div>
 
             <div className="grid gap-4 md:grid-cols-3">
-              <div>
-                <Label className="text-xs">Responsável</Label>
-                <Select
-                  value={b.terceirizado_id ?? ""}
-                  onValueChange={(v) => updateBloco(idx, { terceirizado_id: v || null })}
-                >
-                  <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
-                  <SelectContent>
-                    {responsaveis.length === 0 && (
-                      <div className="p-2 text-xs text-muted-foreground">Nenhum cadastrado nesta categoria.</div>
-                    )}
-                    {responsaveis.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>{t.nome_responsavel}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {!b.interno && (
+                <div>
+                  <Label className="text-xs">Responsável</Label>
+                  <Select
+                    value={b.terceirizado_id ?? ""}
+                    onValueChange={(v) => updateBloco(idx, { terceirizado_id: v || null })}
+                  >
+                    <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                    <SelectContent>
+                      {responsaveis.length === 0 && (
+                        <div className="p-2 text-xs text-muted-foreground">Nenhum cadastrado nesta categoria.</div>
+                      )}
+                      {responsaveis.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>{t.nome_responsavel}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div>
                 <Label className="text-xs">Preço por metro/unidade</Label>
                 <NumberInput
