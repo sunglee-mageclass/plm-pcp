@@ -116,6 +116,33 @@ function CadDetailPage() {
       return data ?? [];
     },
   });
+
+  // OCs vinculadas no Desenvolvimento, p/ exibir na ficha (na ordem de prioridade).
+  const { data: ocLinks = [] } = useQuery({
+    queryKey: ["cad-oc-links", modeloId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("modelo_tecido_oc_links" as any)
+        .select("tipo, numero, ordem, variante_tecido_id, prioridade, oc_item:oc_tecido_item_id(ocs_tecido:oc_tecido_id(numero_pedido))")
+        .eq("modelo_id", modeloId);
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+  const ocLinksByKey = useMemo(() => {
+    const tmp: Record<string, { prioridade: number; num: string }[]> = {};
+    for (const l of ocLinks as any[]) {
+      const num = l.oc_item?.ocs_tecido?.numero_pedido;
+      if (!num) continue;
+      const key = `${l.tipo}-${l.numero}-${l.ordem}-${l.variante_tecido_id}`;
+      (tmp[key] ??= []).push({ prioridade: Number(l.prioridade ?? 1), num });
+    }
+    const out: Record<string, string[]> = {};
+    Object.entries(tmp).forEach(([k, arr]) => {
+      out[k] = arr.sort((a, b) => a.prioridade - b.prioridade).map((x) => x.num);
+    });
+    return out;
+  }, [ocLinks]);
   const { data: cadGrades = [], isFetched: cadGradesFetched } = useQuery({
     queryKey: ["cad-grades-rows", cadRow?.id],
     enabled: !!cadRow?.id,
@@ -493,6 +520,32 @@ function CadDetailPage() {
     onError: (e: any) => toast.error(e.message ?? "Erro"),
   });
 
+  const desmarcarEnvio = useMutation({
+    mutationFn: async () => {
+      if (!cadRow?.id) return;
+      // Reverte a baixa de estoque e devolve o CAD ao estado editável.
+      const { error: eDel } = await supabase.from("estoque_tecido_baixas").delete().eq("cad_id", cadRow.id);
+      if (eDel) throw eDel;
+      const { error } = await supabase
+        .from("cad")
+        .update({ enviado_corte: false, data_enviado_corte: null, status_corte: "pendente" })
+        .eq("id", cadRow.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Envio desmarcado — CAD voltou a editável");
+      qc.invalidateQueries({ queryKey: ["producao-cad-list"] });
+      qc.invalidateQueries({ queryKey: ["cad-row", modeloId] });
+      qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao desmarcar"),
+  });
+  const handleDesmarcar = () => {
+    if (window.confirm("Desmarcar o envio ao corte? A baixa de estoque será revertida e o CAD volta a ficar editável.")) {
+      desmarcarEnvio.mutate();
+    }
+  };
+
   const tamanhosConfig = useMemo<string[]>(() => {
     const raw = (tenantCfg as any)?.tamanhos_grade;
     if (Array.isArray(raw) && raw.length > 0) {
@@ -617,6 +670,7 @@ function CadDetailPage() {
           onPrint={handlePrint}
           onSave={() => saveAll.mutate()}
           onEnviar={handleEnviar}
+          onDesmarcar={handleDesmarcar}
           onExcluir={() => setConfirmDel(true)}
           saving={saveAll.isPending}
           enviando={enviarCorte.isPending}
@@ -681,19 +735,19 @@ function CadDetailPage() {
         </fieldset>
       </div>
 
-      {!cadRow?.enviado_corte && (
-        <CadFichaCorte
-          modelo={modelo}
-          cadRow={cadRow}
-          previsaoEntrega={previsaoEntrega}
-          tecidos={tecidos}
-          grades={grades}
-          tamanhosAll={tamanhosAll}
-          aviamentos={aviamentos}
-          gradeTotalGeral={gradeTotalGeral}
-          labelByNumero={gradeLabelByNumero}
-        />
-      )}
+      {/* Ficha sempre montada (oculta fora da impressão) — também imprime depois de enviado. */}
+      <CadFichaCorte
+        modelo={modelo}
+        cadRow={cadRow}
+        previsaoEntrega={previsaoEntrega}
+        tecidos={tecidos}
+        grades={grades}
+        tamanhosAll={tamanhosAll}
+        aviamentos={aviamentos}
+        gradeTotalGeral={gradeTotalGeral}
+        labelByNumero={gradeLabelByNumero}
+        ocLinksByKey={ocLinksByKey}
+      />
 
       <AlertDialog open={confirmZeroOpen} onOpenChange={setConfirmZeroOpen}>
         <AlertDialogContent>
