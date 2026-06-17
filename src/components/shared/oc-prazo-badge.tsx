@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { differenceInCalendarDays, parseISO } from "date-fns";
 import { todayISOInStoreTZ } from "@/lib/timezone";
+import { useStoreTimezone } from "@/hooks/useStoreTimezone";
 
 const dia = (n: number) => `${n} dia${n > 1 ? "s" : ""}`;
 
@@ -18,6 +19,8 @@ export function OcPrazoBadge({
   dataEntrega: string | null | undefined;
   status?: string | null;
 }) {
+  const tz = useStoreTimezone();
+
   if (status === "recebido") {
     if (dataEntrega && dataPrevista) {
       const diff = differenceInCalendarDays(parseISO(dataEntrega), parseISO(dataPrevista));
@@ -34,7 +37,7 @@ export function OcPrazoBadge({
 
   // encomendado (ou status indefinido): contagem regressiva / atraso vs. hoje.
   if (dataPrevista) {
-    const diff = differenceInCalendarDays(parseISO(dataPrevista), parseISO(todayISOInStoreTZ()));
+    const diff = differenceInCalendarDays(parseISO(dataPrevista), parseISO(todayISOInStoreTZ(tz)));
     if (diff > 0) {
       return <Badge variant="outline" className="bg-slate-500 text-white border-transparent">Faltam {dia(diff)}</Badge>;
     }

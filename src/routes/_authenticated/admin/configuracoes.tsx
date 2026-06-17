@@ -21,6 +21,7 @@ import { CSS } from "@dnd-kit/utilities";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { TIMEZONE_OPTIONS } from "@/lib/timezone";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/shared/NumberInput";
@@ -53,6 +54,7 @@ const DEFAULTS = {
   corte_interno: false,
   oficina_interna: false,
   oficina_posicao: "terceirizados" as "terceirizados" | "acabamento",
+  timezone: "America/Sao_Paulo" as string,
   formato_mes: "numeral" as "numeral" | "descrito" | "numeral_descrito",
   etapas_acabamento: ["Caseado", "Botão", "Passadoria"],
   tamanhos_grade: ["34|PPP", "36|PP", "38|P", "40|M", "42|G", "44|GG"],
@@ -111,6 +113,7 @@ function ConfiguracoesLojaPage() {
       corte_interno: r.corte_interno ?? DEFAULTS.corte_interno,
       oficina_interna: r.oficina_interna ?? DEFAULTS.oficina_interna,
       oficina_posicao: r.oficina_posicao ?? DEFAULTS.oficina_posicao,
+      timezone: r.timezone ?? DEFAULTS.timezone,
       formato_mes: r.formato_mes ?? DEFAULTS.formato_mes,
       etapas_acabamento: Array.isArray(r.etapas_acabamento)
         ? r.etapas_acabamento
@@ -141,6 +144,9 @@ function ConfiguracoesLojaPage() {
     onSuccess: () => {
       toast.success("Configurações salvas");
       qc.invalidateQueries({ queryKey: ["tenant-config"] });
+      // Reads espalhados pelo app usam a chave ["tenant_config", ...]
+      // (relógio, fuso, oficina_posicao, etc.) — invalida para refletir na hora.
+      qc.invalidateQueries({ queryKey: ["tenant_config"] });
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao salvar"),
   });
@@ -233,6 +239,32 @@ function ConfiguracoesLojaPage() {
         onChange={(items) => setCfg({ ...cfg, status_kanban: items })}
         placeholder="Ex: Em Modelagem"
       />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Data e Hora</CardTitle>
+          <CardDescription>
+            Fuso horário da loja. Afeta o relógio do topo e as mensagens de
+            prazo/atraso/adiantado das ordens de compra.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <Label>Fuso horário (GMT)</Label>
+          <Select
+            value={cfg.timezone}
+            onValueChange={(v) => setCfg({ ...cfg, timezone: v })}
+          >
+            <SelectTrigger className="w-full md:w-72">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TIMEZONE_OPTIONS.map((tz) => (
+                <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

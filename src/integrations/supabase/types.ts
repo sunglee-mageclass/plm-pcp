@@ -2445,6 +2445,7 @@ export type Database = {
           status_kanban: Json | null
           tamanhos_grade: Json | null
           tenant_id: string | null
+          timezone: string | null
           usa_pl: boolean | null
         }
         Insert: {
@@ -2460,6 +2461,7 @@ export type Database = {
           status_kanban?: Json | null
           tamanhos_grade?: Json | null
           tenant_id?: string | null
+          timezone?: string | null
           usa_pl?: boolean | null
         }
         Update: {
@@ -2475,6 +2477,7 @@ export type Database = {
           status_kanban?: Json | null
           tamanhos_grade?: Json | null
           tenant_id?: string | null
+          timezone?: string | null
           usa_pl?: boolean | null
         }
         Relationships: [
