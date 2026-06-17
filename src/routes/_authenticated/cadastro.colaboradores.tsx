@@ -80,6 +80,23 @@ const ITEMS: ColabItem[] = [
       fixedFilter: { field: "tipo", value: "piloteiro" },
     },
   },
+  {
+    value: "interno",
+    label: "Serviço Interno",
+    group: "COLABORADORES",
+    tipo: "interno",
+    config: {
+      table: "colaboradores",
+      nameField: "nome",
+      singular: "Colaborador interno",
+      plural: "Colaboradores internos",
+      usage: [
+        { table: "producao_terceirizados", column: "colaborador_id" },
+        { table: "producao_oficina", column: "colaborador_id" },
+      ],
+      fixedFilter: { field: "tipo", value: "interno" },
+    },
+  },
 ];
 
 const GROUP_ORDER: GroupKey[] = ["COLABORADORES"];

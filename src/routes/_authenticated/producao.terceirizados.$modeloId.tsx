@@ -539,7 +539,7 @@ function TercDetailPage() {
                     <SelectContent>
                       {colaboradores.length === 0 && (
                         <div className="p-2 text-xs text-muted-foreground">
-                          Cadastre colaboradores em Cadastro &gt; Atributos.
+                          Cadastre colaboradores em Cadastro &gt; Colaboradores.
                         </div>
                       )}
                       {colaboradores.map((c) => (
@@ -738,7 +738,7 @@ function TercDetailPage() {
                     <SelectContent>
                       {colaboradores.length === 0 && (
                         <div className="p-2 text-xs text-muted-foreground">
-                          Cadastre colaboradores em Cadastro &gt; Atributos.
+                          Cadastre colaboradores em Cadastro &gt; Colaboradores.
                         </div>
                       )}
                       {colaboradores.map((c) => (
