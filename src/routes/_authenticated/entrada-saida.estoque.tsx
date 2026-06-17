@@ -88,7 +88,7 @@ function TecidosTab() {
         supabase.from("cad_tecido_variantes").select("variante_tecido_id, metragem_enviada, cad_tecidos!inner(artigo_id, cad!inner(enviado_corte))"),
         supabase.from("modelo_tecidos").select("id, modelo_id, artigo_id, consumo, loss_percent"),
         supabase.from("modelo_tecido_variantes").select("variante_tecido_id, modelo_tecido_id, ordem"),
-        supabase.from("modelos").select("id, data_aprovacao, enviado_cad"),
+        supabase.from("modelos").select("id, status_desenvolvimento, cad(enviado_corte)"),
         supabase.from("modelo_grades").select("modelo_id, variante_numero, grade_total"),
       ]);
 
@@ -104,8 +104,15 @@ function TecidosTab() {
       const modelos = modelosRes.data ?? [];
       const modGrades = modGradesRes.data ?? [];
 
-      const modeloAprovadoNaoCad = new Set(
-        modelos.filter((m: any) => m.data_aprovacao && !m.enviado_cad).map((m: any) => m.id),
+      // 1ª reserva: vale desde o Desenvolvimento (BOM preenchido), exceto reprovados,
+      // e persiste até o corte ser confirmado (enviado_corte) — depois vira baixa.
+      const modeloReservavel = new Set(
+        modelos
+          .filter((m: any) =>
+            (m.status_desenvolvimento ?? "").toLowerCase() !== "reprovado" &&
+            !((m.cad ?? []) as any[]).some((c: any) => c.enviado_corte),
+          )
+          .map((m: any) => m.id),
       );
       const modTecById = new Map((modTec).map((m: any) => [m.id, m]));
 
@@ -162,7 +169,7 @@ function TecidosTab() {
       }
       for (const [mtId, vars] of variantesByModTec) {
         const mt: any = modTecById.get(mtId);
-        if (!mt || !modeloAprovadoNaoCad.has(mt.modelo_id)) continue;
+        if (!mt || !modeloReservavel.has(mt.modelo_id)) continue;
         const consumoComLoss = num(mt.consumo) * (1 + num(mt.loss_percent) / 100);
         const sorted = [...vars].sort((a, b) => a.ordem - b.ordem);
         sorted.forEach((v, idx) => {
@@ -457,7 +464,7 @@ function AviamentosTab() {
         supabase.from("ocs_aviamento_itens").select("aviamento_id, quantidade_pedida, quantidade_recebida, cancelado, oc_aviamento_id, ocs_aviamento!inner(status)"),
         supabase.from("cad_aviamentos").select("aviamento_id, quantidade_enviar, quantidade_separar, cad!inner(enviado_corte)"),
         supabase.from("modelo_aviamentos").select("modelo_id, aviamento_id, consumo"),
-        supabase.from("modelos").select("id, data_aprovacao, enviado_cad"),
+        supabase.from("modelos").select("id, status_desenvolvimento, cad(enviado_corte)"),
         supabase.from("modelo_grades").select("modelo_id, grade_total"),
       ]);
 
@@ -473,7 +480,12 @@ function AviamentosTab() {
       const modGrades = modGradesRes;
 
       const aprovadoNaoCad = new Set(
-        (modelos.data ?? []).filter((m: any) => m.data_aprovacao && !m.enviado_cad).map((m: any) => m.id),
+        (modelos.data ?? [])
+          .filter((m: any) =>
+            (m.status_desenvolvimento ?? "").toLowerCase() !== "reprovado" &&
+            !((m.cad ?? []) as any[]).some((c: any) => c.enviado_corte),
+          )
+          .map((m: any) => m.id),
       );
       const gradeByModelo = new Map<string, number>();
       for (const g of (modGrades.data ?? []) as any[]) {
