@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { fmtNum } from "@/lib/format";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Users, Save, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Users, Save, Plus, Trash2, Wrench, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
@@ -26,6 +26,7 @@ type Bloco = {
   categoria_nome?: string;
   interno: boolean;
   terceirizado_id: string | null;
+  colaborador_id: string | null;
   preco_metro_unidade: number;
   quantidade_enviada: number;
   quantidade_recebida: number;
@@ -80,8 +81,38 @@ function TercDetailPage() {
   const { data: cad } = useQuery({
     queryKey: ["terc-cad", modeloId],
     queryFn: async () => {
-      const { data } = await supabase.from("cad").select("id").eq("modelo_id", modeloId).maybeSingle();
+      const { data } = await supabase.from("cad").select("*").eq("modelo_id", modeloId).maybeSingle();
       return data;
+    },
+  });
+
+  // Grade Total Geral (soma das grades do CAD) — exibida no cabeçalho.
+  const { data: gradeTotalGeral = 0 } = useQuery({
+    queryKey: ["terc-grade-total", cad?.id],
+    enabled: !!cad?.id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("cad_grades")
+        .select("grade_total_planejada, grade_total_real")
+        .eq("cad_id", cad!.id);
+      return (data ?? []).reduce(
+        (a: number, g: any) => a + Number(g.grade_total_real ?? g.grade_total_planejada ?? 0),
+        0,
+      );
+    },
+  });
+
+  // Colaboradores internos (tipo='interno', cadastrados em Atributos) —
+  // responsáveis quando o serviço é Interno.
+  const { data: colaboradores = [] } = useQuery({
+    queryKey: ["colaboradores-interno"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("colaboradores")
+        .select("id, nome")
+        .eq("tipo", "interno")
+        .order("nome");
+      return (data ?? []) as { id: string; nome: string }[];
     },
   });
 
@@ -140,8 +171,67 @@ function TercDetailPage() {
     },
   });
 
+  // Oficina como card de serviço (1 linha por cad em producao_oficina).
+  const {
+    data: oficinaRow,
+    refetch: refetchOficina,
+    isFetched: ofFetched,
+    isFetching: ofFetching,
+  } = useQuery({
+    queryKey: ["producao-oficina-terc", cad?.id],
+    enabled: !!cad?.id,
+    queryFn: async () =>
+      (await supabase.from("producao_oficina").select("*").eq("cad_id", cad!.id).maybeSingle()).data,
+  });
+
   const [blocos, setBlocos] = useState<Bloco[]>([]);
   const [hydrated, setHydrated] = useState(false);
+
+  const emptyOficina = () => ({
+    interno: false,
+    terceirizado_id: null as string | null,
+    colaborador_id: null as string | null,
+    preco_por_peca: 0,
+    quantidade_enviada: 0,
+    quantidade_recebida: 0,
+    quantidade_defeito: 0,
+    data_enviado: null as string | null,
+    data_prevista: null as string | null,
+    data_entregue: null as string | null,
+    observacao: "",
+  });
+  const [oficinaAtiva, setOficinaAtiva] = useState(false);
+  const [oficina, setOficina] = useState(emptyOficina());
+  const [observacoesMolde, setObservacoesMolde] = useState("");
+  const [oficinaHydrated, setOficinaHydrated] = useState(false);
+
+  // Hidrata a oficina + a observação de molde (que vive no cad) uma vez.
+  useEffect(() => {
+    if (oficinaHydrated) return;
+    if (!cad?.id) return;
+    if (!ofFetched || ofFetching) return;
+    if (oficinaRow) {
+      setOficinaAtiva(true);
+      setOficina({
+        interno: Boolean((oficinaRow as any).interno),
+        terceirizado_id: (oficinaRow as any).terceirizado_id ?? null,
+        colaborador_id: (oficinaRow as any).colaborador_id ?? null,
+        preco_por_peca: Number((oficinaRow as any).preco_por_peca ?? 0),
+        quantidade_enviada: Number((oficinaRow as any).quantidade_enviada ?? 0),
+        quantidade_recebida: Number((oficinaRow as any).quantidade_recebida ?? 0),
+        quantidade_defeito: Number((oficinaRow as any).quantidade_defeito ?? 0),
+        data_enviado: (oficinaRow as any).data_enviado ?? null,
+        data_prevista: (oficinaRow as any).data_prevista ?? null,
+        data_entregue: (oficinaRow as any).data_entregue ?? null,
+        observacao: (oficinaRow as any).observacao ?? "",
+      });
+    }
+    setObservacoesMolde((cad as any)?.observacoes_molde ?? "");
+    setOficinaHydrated(true);
+  }, [oficinaRow, cad, ofFetched, ofFetching, oficinaHydrated]);
+
+  const updateOficina = (patch: Partial<ReturnType<typeof emptyOficina>>) =>
+    setOficina((o) => ({ ...o, ...patch }));
 
   // Hidrata os blocos a partir do servidor uma única vez (e de novo após salvar,
   // quando liberamos o guard). Espera a query ASSENTAR (isFetched && !isFetching):
@@ -157,6 +247,7 @@ function TercDetailPage() {
         categoria_terceirizado_id: r.categoria_terceirizado_id,
         interno: Boolean((r as any).interno),
         terceirizado_id: r.terceirizado_id,
+        colaborador_id: (r as any).colaborador_id ?? null,
         preco_metro_unidade: Number(r.preco_metro_unidade ?? 0),
         quantidade_enviada: Number(r.quantidade_enviada ?? 0),
         quantidade_recebida: Number(r.quantidade_recebida ?? 0),
@@ -185,6 +276,7 @@ function TercDetailPage() {
           categoria_nome: catNome,
           interno: false,
           terceirizado_id: null,
+          colaborador_id: null,
           preco_metro_unidade: 0,
           quantidade_enviada: 0,
           quantidade_recebida: 0,
@@ -225,33 +317,76 @@ function TercDetailPage() {
       // delete existing then insert all (simple sync)
       const { error: delErr } = await supabase.from("producao_terceirizados").delete().eq("cad_id", cad.id);
       if (delErr) throw delErr;
-      if (blocos.length === 0) return;
-      const payload = blocos.map((b) => ({
-        cad_id: cad.id,
-        categoria_terceirizado_id: b.categoria_terceirizado_id,
-        interno: b.interno,
-        terceirizado_id: b.interno ? null : b.terceirizado_id,
-        ativo: true,
-        preco_metro_unidade: b.preco_metro_unidade,
-        quantidade_enviada: b.quantidade_enviada,
-        quantidade_recebida: b.quantidade_recebida,
-        quantidade_defeito: b.quantidade_defeito,
-        data_enviado: b.data_enviado,
-        data_prevista: b.data_prevista,
-        data_entregue: b.data_entregue,
-        observacao: b.observacao,
-        aviamentos_enviados: b.aviamentos_enviados,
-      }));
-      const { error } = await supabase.from("producao_terceirizados").insert(payload as any);
-      if (error) throw error;
+      if (blocos.length > 0) {
+        const payload = blocos.map((b) => ({
+          cad_id: cad.id,
+          categoria_terceirizado_id: b.categoria_terceirizado_id,
+          interno: b.interno,
+          terceirizado_id: b.interno ? null : b.terceirizado_id,
+          colaborador_id: b.interno ? b.colaborador_id : null,
+          ativo: true,
+          preco_metro_unidade: b.interno ? 0 : b.preco_metro_unidade,
+          quantidade_enviada: b.quantidade_enviada,
+          quantidade_recebida: b.quantidade_recebida,
+          quantidade_defeito: b.quantidade_defeito,
+          data_enviado: b.data_enviado,
+          data_prevista: b.data_prevista,
+          data_entregue: b.data_entregue,
+          observacao: b.observacao,
+          aviamentos_enviados: b.aviamentos_enviados,
+        }));
+        const { error } = await supabase.from("producao_terceirizados").insert(payload as any);
+        if (error) throw error;
+      }
+
+      // Oficina (card de serviço) → producao_oficina (1 linha por cad).
+      const ofStatus = oficina.data_entregue ? "finalizado" : oficina.data_enviado ? "em_andamento" : "pendente";
+      if (oficinaAtiva) {
+        const ofPayload: any = {
+          cad_id: cad.id,
+          interno: oficina.interno,
+          terceirizado_id: oficina.interno ? null : oficina.terceirizado_id,
+          colaborador_id: oficina.interno ? oficina.colaborador_id : null,
+          preco_por_peca: oficina.interno ? 0 : oficina.preco_por_peca,
+          quantidade_enviada: oficina.quantidade_enviada,
+          quantidade_recebida: oficina.quantidade_recebida,
+          quantidade_defeito: oficina.quantidade_defeito,
+          data_enviado: oficina.data_enviado,
+          data_prevista: oficina.data_prevista,
+          data_entregue: oficina.data_entregue,
+          status: ofStatus,
+          observacao: oficina.observacao,
+        };
+        if ((oficinaRow as any)?.id) {
+          const { error } = await supabase.from("producao_oficina").update(ofPayload).eq("id", (oficinaRow as any).id);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase.from("producao_oficina").insert(ofPayload);
+          if (error) throw error;
+        }
+      } else if ((oficinaRow as any)?.id) {
+        const { error } = await supabase.from("producao_oficina").delete().eq("id", (oficinaRow as any).id);
+        if (error) throw error;
+      }
+
+      // "Observação de Partes do Molde": fonte única no cad.
+      const { error: cadErr } = await supabase
+        .from("cad")
+        .update({ observacoes_molde: observacoesMolde || null } as any)
+        .eq("id", cad.id);
+      if (cadErr) throw cadErr;
     },
     onSuccess: async () => {
       toast.success("Salvo com sucesso");
       // Busca os dados frescos ANTES de liberar o guard de hidratação, senão a
       // re-hidratação rodava com o cache antigo (vazio) e o formulário "sumia".
       await qc.invalidateQueries({ queryKey: ["producao-terc", cad?.id] });
+      await qc.invalidateQueries({ queryKey: ["producao-oficina-terc", cad?.id] });
+      await qc.invalidateQueries({ queryKey: ["terc-cad", modeloId] });
       await refetch();
+      await refetchOficina();
       setHydrated(false);
+      setOficinaHydrated(false);
     },
     onError: (e: any) => toast.error(e?.message ?? "Erro ao salvar"),
   });
@@ -281,7 +416,11 @@ function TercDetailPage() {
       </header>
 
       {/* Status geral */}
-      <Card className="p-4 grid gap-4 md:grid-cols-4">
+      <Card className="p-4 grid gap-4 md:grid-cols-5">
+        <div>
+          <Label className="text-xs text-muted-foreground">Grade Total Geral</Label>
+          <div className="mt-1 text-sm font-semibold">{fmtNum(gradeTotalGeral)}</div>
+        </div>
         <div>
           <Label className="text-xs text-muted-foreground">Status Geral</Label>
           <div className="mt-1">
@@ -332,6 +471,15 @@ function TercDetailPage() {
           {!categoriasLoading && !categoriasError && (categorias as any[]).length === 0 && (
             <p className="text-sm text-muted-foreground">Cadastre categorias em Cadastro &gt; Atributos.</p>
           )}
+          <Button
+            type="button"
+            variant={oficinaAtiva ? "default" : "outline"}
+            size="sm"
+            onClick={() => setOficinaAtiva((v) => !v)}
+          >
+            {oficinaAtiva ? <Trash2 className="h-3.5 w-3.5 mr-1" /> : <Plus className="h-3.5 w-3.5 mr-1" />}
+            <Wrench className="h-3.5 w-3.5 mr-1" /> Oficina
+          </Button>
         </div>
       </Card>
 
@@ -380,9 +528,26 @@ function TercDetailPage() {
             </div>
 
             <div className="grid gap-4 md:grid-cols-3">
-              {!b.interno && (
-                <div>
-                  <Label className="text-xs">Responsável</Label>
+              <div>
+                <Label className="text-xs">Responsável</Label>
+                {b.interno ? (
+                  <Select
+                    value={b.colaborador_id ?? ""}
+                    onValueChange={(v) => updateBloco(idx, { colaborador_id: v || null })}
+                  >
+                    <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                    <SelectContent>
+                      {colaboradores.length === 0 && (
+                        <div className="p-2 text-xs text-muted-foreground">
+                          Cadastre colaboradores em Cadastro &gt; Atributos.
+                        </div>
+                      )}
+                      {colaboradores.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
                   <Select
                     value={b.terceirizado_id ?? ""}
                     onValueChange={(v) => updateBloco(idx, { terceirizado_id: v || null })}
@@ -397,17 +562,19 @@ function TercDetailPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                )}
+              </div>
+              {!b.interno && (
+                <div>
+                  <Label className="text-xs">Preço por metro/unidade</Label>
+                  <NumberInput
+                    type="number"
+                    step="0.01"
+                    value={b.preco_metro_unidade}
+                    onChange={(e) => updateBloco(idx, { preco_metro_unidade: Number(e.target.value) })}
+                  />
                 </div>
               )}
-              <div>
-                <Label className="text-xs">Preço por metro/unidade</Label>
-                <NumberInput
-                  type="number"
-                  step="0.01"
-                  value={b.preco_metro_unidade}
-                  onChange={(e) => updateBloco(idx, { preco_metro_unidade: Number(e.target.value) })}
-                />
-              </div>
               <div>
                 <Label className="text-xs">Qtd Enviada</Label>
                 <NumberInput
@@ -458,14 +625,16 @@ function TercDetailPage() {
                   onChange={(e) => updateBloco(idx, { quantidade_defeito: Number(e.target.value) })}
                 />
               </div>
-              <div>
-                <Label className="text-xs">Custo Total</Label>
-                <Input
-                  readOnly
-                  value={fmtNum(b.preco_metro_unidade * b.quantidade_enviada)}
-                  className="bg-muted"
-                />
-              </div>
+              {!b.interno && (
+                <div>
+                  <Label className="text-xs">Custo Total</Label>
+                  <Input
+                    readOnly
+                    value={fmtNum(b.preco_metro_unidade * b.quantidade_enviada)}
+                    className="bg-muted"
+                  />
+                </div>
+              )}
             </div>
 
             <div>
@@ -509,9 +678,164 @@ function TercDetailPage() {
         );
       })}
 
-      {blocos.length === 0 && (
+      {/* Oficina — card de serviço (producao_oficina) */}
+      {oficinaAtiva && (() => {
+        const ofSla =
+          oficina.data_enviado && oficina.data_entregue
+            ? Math.round((new Date(oficina.data_entregue).getTime() - new Date(oficina.data_enviado).getTime()) / 86400000)
+            : null;
+        const ofStatus = oficina.data_entregue ? "finalizado" : oficina.data_enviado ? "em_andamento" : "pendente";
+        return (
+          <Card className="p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="font-semibold text-lg flex items-center gap-2">
+                <Wrench className="h-5 w-5 text-primary" /> Oficina
+              </h3>
+              <div className="flex items-center gap-2">
+                <div className="flex rounded-md border overflow-hidden text-xs font-medium">
+                  <button
+                    type="button"
+                    onClick={() => updateOficina({ interno: true, terceirizado_id: null })}
+                    className={cn(
+                      "px-2.5 py-1 transition-colors",
+                      oficina.interno ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted",
+                    )}
+                  >
+                    Interno
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateOficina({ interno: false })}
+                    className={cn(
+                      "px-2.5 py-1 transition-colors border-l",
+                      !oficina.interno ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted",
+                    )}
+                  >
+                    PL
+                  </button>
+                </div>
+                <Badge variant="outline" className="text-xs whitespace-nowrap">
+                  SLA: {ofSla != null ? `${ofSla}d` : "—"}
+                </Badge>
+                <Badge className={`${STATUS_COLORS[ofStatus] ?? "bg-muted"} text-white`}>{STATUS_LABELS[ofStatus] ?? ofStatus}</Badge>
+                <Link to="/producao/oficina/$modeloId" params={{ modeloId }}>
+                  <Button type="button" variant="ghost" size="sm">
+                    <Printer className="h-3.5 w-3.5 mr-1" /> Ficha
+                  </Button>
+                </Link>
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <div>
+                <Label className="text-xs">Responsável</Label>
+                {oficina.interno ? (
+                  <Select
+                    value={oficina.colaborador_id ?? ""}
+                    onValueChange={(v) => updateOficina({ colaborador_id: v || null })}
+                  >
+                    <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                    <SelectContent>
+                      {colaboradores.length === 0 && (
+                        <div className="p-2 text-xs text-muted-foreground">
+                          Cadastre colaboradores em Cadastro &gt; Atributos.
+                        </div>
+                      )}
+                      {colaboradores.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Select
+                    value={oficina.terceirizado_id ?? ""}
+                    onValueChange={(v) => updateOficina({ terceirizado_id: v || null })}
+                  >
+                    <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                    <SelectContent>
+                      {(terceirizados as any[]).length === 0 && (
+                        <div className="p-2 text-xs text-muted-foreground">Nenhum terceirizado cadastrado.</div>
+                      )}
+                      {(terceirizados as any[]).map((t) => (
+                        <SelectItem key={t.id} value={t.id}>{t.nome_responsavel}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+              {!oficina.interno && (
+                <div>
+                  <Label className="text-xs">Preço por Peça</Label>
+                  <NumberInput
+                    type="number"
+                    step="0.01"
+                    value={oficina.preco_por_peca}
+                    onChange={(e) => updateOficina({ preco_por_peca: Number(e.target.value) })}
+                  />
+                </div>
+              )}
+              <div>
+                <Label className="text-xs">Qtd Enviada</Label>
+                <NumberInput
+                  type="number"
+                  value={oficina.quantidade_enviada}
+                  onChange={(e) => updateOficina({ quantidade_enviada: Number(e.target.value) })}
+                />
+              </div>
+
+              <div>
+                <Label className="text-xs">Data Enviado</Label>
+                <Input type="date" value={oficina.data_enviado ?? ""} onChange={(e) => updateOficina({ data_enviado: e.target.value || null })} />
+              </div>
+              <div>
+                <Label className="text-xs">Data Prevista</Label>
+                <Input type="date" value={oficina.data_prevista ?? ""} onChange={(e) => updateOficina({ data_prevista: e.target.value || null })} />
+              </div>
+              <div>
+                <Label className="text-xs">Data Entregue</Label>
+                <Input type="date" value={oficina.data_entregue ?? ""} onChange={(e) => updateOficina({ data_entregue: e.target.value || null })} />
+              </div>
+
+              <div>
+                <Label className="text-xs">Qtd Recebida</Label>
+                <NumberInput
+                  type="number"
+                  value={oficina.quantidade_recebida}
+                  onChange={(e) => updateOficina({ quantidade_recebida: Number(e.target.value) })}
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Qtd Defeito</Label>
+                <NumberInput
+                  type="number"
+                  value={oficina.quantidade_defeito}
+                  onChange={(e) => updateOficina({ quantidade_defeito: Number(e.target.value) })}
+                />
+              </div>
+              {!oficina.interno && (
+                <div>
+                  <Label className="text-xs">Custo Total</Label>
+                  <Input readOnly value={fmtNum(oficina.preco_por_peca * oficina.quantidade_enviada)} className="bg-muted" />
+                </div>
+              )}
+            </div>
+
+            <div>
+              <Label className="text-xs">Observação</Label>
+              <Textarea value={oficina.observacao} onChange={(e) => updateOficina({ observacao: e.target.value })} rows={2} />
+            </div>
+            <div>
+              <Label className="text-xs">Observação de Partes do Molde</Label>
+              <Textarea value={observacoesMolde} onChange={(e) => setObservacoesMolde(e.target.value)} rows={3} />
+              <p className="text-xs text-muted-foreground mt-1">Compartilhada com o CAD / Ficha de Corte.</p>
+            </div>
+          </Card>
+        );
+      })()}
+
+      {blocos.length === 0 && !oficinaAtiva && (
         <Card className="p-8 text-center text-sm text-muted-foreground">
-          Ative uma categoria acima para começar.
+          Ative uma categoria ou a Oficina acima para começar.
         </Card>
       )}
 

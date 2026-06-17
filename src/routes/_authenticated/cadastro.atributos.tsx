@@ -49,6 +49,22 @@ const ATTRIBUTES: AttributeItem[] = [
     },
   },
   {
+    value: "colaborador",
+    label: "Colaborador",
+    group: "GERAL",
+    config: {
+      table: "colaboradores",
+      nameField: "nome",
+      singular: "Colaborador",
+      plural: "Colaboradores",
+      usage: [
+        { table: "producao_terceirizados", column: "colaborador_id" },
+        { table: "producao_oficina", column: "colaborador_id" },
+      ],
+      fixedFilter: { field: "tipo", value: "interno" },
+    },
+  },
+  {
     value: "anos",
     label: "Ano",
     group: "GERAL",
