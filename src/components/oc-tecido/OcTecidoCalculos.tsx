@@ -12,7 +12,7 @@ import { fmtMoney, type Artigo, type ItemDraft, type Variante } from "./shared";
 
 export function OcTecidoCalculos({
   items, artigoMap, varianteMap, setQtd,
-  totalPrevisto, totalReal, dataPrevista, dataEntrega, readOnly = false,
+  totalPrevisto, totalReal, dataPrevista, dataEntrega, status, readOnly = false,
   toggleCancelado, canCancel,
 }: {
   items: ItemDraft[];
@@ -23,6 +23,7 @@ export function OcTecidoCalculos({
   totalReal: number;
   dataPrevista: string;
   dataEntrega: string;
+  status?: string | null;
   readOnly?: boolean;
   toggleCancelado?: (tempId: string, value: boolean) => void;
   canCancel?: boolean;
@@ -124,7 +125,7 @@ export function OcTecidoCalculos({
       <div className="flex gap-6 justify-end mt-3 text-sm">
         <div>Total Previsto: <b>{fmtMoney(totalPrevisto)}</b></div>
         <div>Total Real: <b>{fmtMoney(totalReal)}</b></div>
-        <OcPrazoBadge dataPrevista={dataPrevista} dataEntrega={dataEntrega} />
+        <OcPrazoBadge dataPrevista={dataPrevista} dataEntrega={dataEntrega} status={status} />
       </div>
     </Card>
   );

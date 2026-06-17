@@ -1,6 +1,7 @@
 import { createFileRoute, Outlet, Navigate, useRouterState } from "@tanstack/react-router";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
+import { StoreClock } from "@/components/shared/StoreClock";
 import { useAuth } from "@/hooks/useAuth";
 import { useApplySystemIdentity } from "@/hooks/useSystemIdentity";
 import { PAGES_CATALOG } from "@/lib/permissions-catalog";
@@ -46,6 +47,7 @@ function AuthenticatedLayout() {
             <div className="ml-2 text-sm font-medium text-muted-foreground">
               {moduleLabel}
             </div>
+            <StoreClock className="ml-auto" />
           </header>
           <main className="flex-1 p-6 overflow-auto">
             <Outlet />

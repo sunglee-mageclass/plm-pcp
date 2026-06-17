@@ -231,7 +231,7 @@ function OcAviamentoPage() {
                     <TableCell>{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</TableCell>
                     <TableCell>{fmtDate(o.data_prevista_entrega)}</TableCell>
                     <TableCell>{fmtMoney(itemsByOC[o.id]?.previsto ?? 0)}</TableCell>
-                    <TableCell><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} /></TableCell>
+                    <TableCell><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status="encomendado" /></TableCell>
                     <TableCell>
                       <Button
                         size="icon"
@@ -270,7 +270,7 @@ function OcAviamentoPage() {
                     <TableCell className="font-medium">{o.numero_pedido ?? "—"}</TableCell>
                     <TableCell>{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</TableCell>
                     <TableCell>{fmtDate(o.data_entrega)}</TableCell>
-                    <TableCell><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} /></TableCell>
+                    <TableCell><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status="recebido" /></TableCell>
                     <TableCell>{fmtMoney(itemsByOC[o.id]?.real ?? 0)}</TableCell>
                   </TableRow>
                 ))}
@@ -894,7 +894,7 @@ function OcDialog({
               </div>
 
               <div className="text-sm">
-                <OcPrazoBadge dataPrevista={draft.data_prevista_entrega} dataEntrega={draft.data_entrega} />
+                <OcPrazoBadge dataPrevista={draft.data_prevista_entrega} dataEntrega={draft.data_entrega} status={status} />
               </div>
             </>
           )}

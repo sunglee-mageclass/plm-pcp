@@ -12,7 +12,7 @@ import type { Artigo, Draft, ItemDraft, ParcelaRecebimento, Variante } from "./s
 export function OcTecidoRecebimento({
   draft, setDraft, handleSingleUpload,
   items, artigoMap, varianteMap, setQtd, totalPrevisto, totalReal,
-  tecido2Aberto, artigoId1, artigoId2, readOnly = false,
+  tecido2Aberto, artigoId1, artigoId2, status, readOnly = false,
   toggleCancelado, canCancel,
 }: {
   draft: Draft;
@@ -27,6 +27,7 @@ export function OcTecidoRecebimento({
   tecido2Aberto: boolean;
   artigoId1: string | null;
   artigoId2: string | null;
+  status?: string | null;
   readOnly?: boolean;
   toggleCancelado?: (tempId: string, value: boolean) => void;
   canCancel?: boolean;
@@ -152,6 +153,7 @@ export function OcTecidoRecebimento({
           totalReal={totalReal}
           dataPrevista={draft.data_prevista_entrega}
           dataEntrega={draft.data_entrega}
+          status={status}
           readOnly={readOnly}
           toggleCancelado={toggleCancelado}
           canCancel={canCancel}

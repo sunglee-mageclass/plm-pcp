@@ -62,7 +62,7 @@ export function OcTecidoList({
                   <TableCell>{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</TableCell>
                   <TableCell>{fmtDate(o.data_prevista_entrega)}</TableCell>
                   <TableCell>{fmtMoney(o.valor_previsto_total ?? 0)}</TableCell>
-                  <TableCell><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} /></TableCell>
+                  <TableCell><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status="encomendado" /></TableCell>
                   <TableCell>
                     {onDelete && (
                       <Button
@@ -104,7 +104,7 @@ export function OcTecidoList({
                   <TableCell className="font-medium">{o.numero_pedido ?? "—"}</TableCell>
                   <TableCell>{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</TableCell>
                   <TableCell>{fmtDate(o.data_entrega)}</TableCell>
-                  <TableCell><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} /></TableCell>
+                  <TableCell><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status="recebido" /></TableCell>
                   <TableCell>{qtdRecebidaByOc?.[o.id] ?? "—"}</TableCell>
                   <TableCell>{fmtMoney(o.valor_real_total)}</TableCell>
                 </TableRow>
