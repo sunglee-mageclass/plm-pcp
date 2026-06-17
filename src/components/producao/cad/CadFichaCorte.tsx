@@ -1,6 +1,6 @@
 import { cell, cellH } from "./types";
 import type { AviamentoRow, GradeRow, TecidoRow } from "./types";
-import { EtiquetaLavagemArtigoView } from "@/components/shared/EtiquetaLavagemArtigo";
+import { EtiquetaLavagemArtigoPrint } from "@/components/shared/EtiquetaLavagemArtigo";
 
 type Props = {
   modelo: any;
@@ -22,10 +22,13 @@ const fmt2 = (n: number | null | undefined) => Number(n ?? 0).toFixed(2);
 
 function Assinatura() {
   return (
-    <div style={{ marginTop: 14, fontSize: 12, display: "flex", gap: 28, flexWrap: "wrap" }}>
-      <span>Nome: ____________________</span>
-      <span>Data: ____________</span>
-      <span>Assinatura: ____________________</span>
+    <div style={{ marginTop: 16, fontSize: 12, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24 }}>
+      {["Nome", "Data", "Assinatura"].map((l) => (
+        <div key={l}>
+          <div style={{ borderBottom: "1px solid #000", height: 16 }} />
+          <div style={{ marginTop: 2 }}>{l}</div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -79,7 +82,7 @@ function Etiquetas({ blocks }: { blocks: TecidoRow[] }) {
       {withEt.map((t, i) => (
         <div key={i} style={{ fontSize: 11 }}>
           <div style={{ fontWeight: 600, marginBottom: 2 }}>Etiqueta — {t.artigo_nome}</div>
-          <EtiquetaLavagemArtigoView artigoId={t.artigo_id} label="" size="sm" />
+          <EtiquetaLavagemArtigoPrint artigoId={t.artigo_id} />
         </div>
       ))}
     </div>
@@ -99,6 +102,18 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
     WebkitPrintColorAdjust: "exact",
     printColorAdjust: "exact",
   };
+  const repHl: React.CSSProperties = {
+    marginLeft: 8,
+    background: "#fff3cd",
+    border: "1px solid #e0a800",
+    color: "#8a6d00",
+    borderRadius: 3,
+    padding: "0 6px",
+    fontSize: 11,
+    fontWeight: 600,
+    WebkitPrintColorAdjust: "exact",
+    printColorAdjust: "exact",
+  };
 
   return (
     <div className="print-area">
@@ -107,14 +122,15 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
         {/* Metade de cima: cabeçalho + Tecido */}
         <div className="print-section" style={halfStyle}>
           <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>FICHA DE CORTE</h1>
-          <div style={{ fontSize: 13, marginBottom: 6 }}>
-            REF: <span style={refHl}>{modelo?.ref ?? "—"}</span>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, fontSize: 12, marginBottom: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px", fontSize: 12, marginBottom: 8 }}>
+            <div>
+              REF: <span style={refHl}>{modelo?.ref ?? "—"}</span>
+              {Number(modelo?.versao ?? 1) > 1 && <span style={repHl}>↻ Repetição v{modelo.versao}</span>}
+            </div>
             <div>Modelo: <b>{modelo?.nome ?? "—"}</b></div>
+            <div>Coleção: {modelo?.colecao ?? "—"}</div>
             <div>Linha: {modelo?.linha?.nome ?? "—"}</div>
             <div>Categoria: {modelo?.cat_p?.nome ?? "—"}</div>
-            <div>Coleção: {modelo?.colecao ?? "—"}</div>
             {isConjunto && <div>Subcategoria: {modelo?.cat_s?.nome ?? "—"}</div>}
           </div>
           <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Tecido</h3>

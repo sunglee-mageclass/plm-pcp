@@ -643,9 +643,9 @@ function CadDetailPage() {
               <VersaoBadge versao={modelo?.versao} />
             </div>
             <div className="text-sm text-muted-foreground grid grid-cols-2 gap-x-6 gap-y-1 mt-2">
-              <span>Estilista: {modelo?.estilista?.nome ?? "—"}</span>
-              <span>Linha: {modelo?.linha?.nome ?? "—"}</span>
+              <span className="col-span-2">Estilista: {modelo?.estilista?.nome ?? "—"}</span>
               <span>Coleção: {modelo?.colecao ?? "—"}</span>
+              <span>Linha: {modelo?.linha?.nome ?? "—"}</span>
               <span>Categoria: {modelo?.cat_p?.nome ?? "—"}</span>
               {(modelo?.cat_p?.nome ?? "").toLowerCase() === "conjunto" && (
                 <span>Sub-categoria: {modelo?.cat_s?.nome ?? "—"}</span>

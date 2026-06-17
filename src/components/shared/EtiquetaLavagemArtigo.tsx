@@ -131,6 +131,40 @@ export function EtiquetaLavagemArtigoView({
   );
 }
 
+/** Versão p/ impressão: <img> simples, sem ImagePreview/botão (que o print esconde). */
+export function EtiquetaLavagemArtigoPrint({ artigoId }: { artigoId: string | null | undefined }) {
+  const { data: urls = [] } = useQuery({
+    queryKey: ["artigo-etiqueta", artigoId],
+    enabled: !!artigoId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("artigos")
+        .select("etiqueta_lavagem_urls")
+        .eq("id", artigoId!)
+        .maybeSingle();
+      if (error) throw error;
+      return ((data as any)?.etiqueta_lavagem_urls ?? []) as string[];
+    },
+    staleTime: 60_000,
+  });
+  const signed = useSignedUrls(urls);
+  if (!artigoId || urls.length === 0) return null;
+  return (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+      {urls.map((p) =>
+        signed[p] ? (
+          <img
+            key={p}
+            src={signed[p]}
+            alt="Etiqueta de lavagem"
+            style={{ height: 56, width: 56, objectFit: "cover", border: "1px solid #ccc", borderRadius: 4 }}
+          />
+        ) : null,
+      )}
+    </div>
+  );
+}
+
 /** Editable etiquetas for an artigo (used in OC recebimento). */
 export function EtiquetaLavagemArtigoEditor({
   artigoId,
