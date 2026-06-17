@@ -54,7 +54,8 @@ export function ModeloObservacoes({ modeloId, readOnly = false }: { modeloId: st
       const linhas = (data ?? [])
         .map((t: any) => {
           const c = (t.artigos?.composicao ?? "").trim();
-          return c ? `${tecLabel(t.tipo, t.numero)}: ${c}` : null;
+          // % na mesma linha separadas por " | "; cada linha = um tecido.
+          return c ? `${tecLabel(t.tipo, t.numero)}: ${c.replace(/\s*[,;]\s*/g, " | ")}` : null;
         })
         .filter(Boolean);
       return linhas.join("\n");

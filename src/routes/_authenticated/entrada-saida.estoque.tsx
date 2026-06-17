@@ -23,6 +23,8 @@ export const Route = createFileRoute("/_authenticated/entrada-saida/estoque")({
 
 const num = (v: any) => Number(v ?? 0) || 0;
 const fmt = (v: number) => fmtNum(v);
+const fmtEnd = (e: any) => [e?.rua && `Rua ${e.rua}`, e?.prateleira && `Prat. ${e.prateleira}`].filter(Boolean).join(" ") || "—";
+const endCompact = (e: any) => `${e?.rua || "?"}/${e?.prateleira || "?"}`;
 
 function useEstoqueThresholds() {
   const { data } = useQuery({
@@ -87,7 +89,7 @@ function TecidosTab() {
     queryKey: ["estoque-tecidos"],
     queryFn: async () => {
       const [variantesRes, ocItensRes, cadTecVarRes, modTecRes, modTecVarRes, modelosRes, modGradesRes, osItensRes] = await Promise.all([
-        supabase.from("variantes_tecido").select("id, artigo_id, nome_variante, codigo_variante, rua, prateleira, cores(nome), artigos(id, nome, unidade_medida, rendimento, empresa_id, categoria_tecido_id, empresas(nome_fantasia), categorias_tecido(nome))"),
+        supabase.from("variantes_tecido").select("id, artigo_id, nome_variante, codigo_variante, rua, prateleira, enderecos, cores(nome), artigos(id, nome, unidade_medida, rendimento, empresa_id, categoria_tecido_id, empresas(nome_fantasia), categorias_tecido(nome))"),
         supabase.from("ocs_tecido_itens").select("artigo_id, variante_tecido_id, quantidade_pedida, quantidade_recebida, cancelado, oc_tecido_id, ocs_tecido!inner(status)"),
         supabase.from("cad_tecido_variantes").select("variante_tecido_id, metragem_enviada, cad_tecidos!inner(artigo_id, cad!inner(enviado_corte))"),
         supabase.from("modelo_tecidos").select("id, modelo_id, artigo_id, consumo, loss_percent"),
@@ -209,8 +211,9 @@ function TecidosTab() {
         return {
           varId: v.id,
           nomeVariante: v.nome_variante || v.codigo_variante || v.cores?.nome || "—",
-          rua: v.rua ?? null,
-          prateleira: v.prateleira ?? null,
+          enderecos: (Array.isArray(v.enderecos) && v.enderecos.length > 0)
+            ? v.enderecos
+            : ((v.rua || v.prateleira) ? [{ rua: v.rua, prateleira: v.prateleira }] : []),
           artigoId: v.artigo_id,
           artigoNome: a?.nome ?? "—",
           fornecedor: a?.empresas?.nome_fantasia ?? "—",
@@ -359,9 +362,9 @@ function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
         <td className="py-2 pr-3">
           {row.nomeVariante}
           <span className="ml-1 text-[10px] text-muted-foreground">[{row.isKg ? "kg→m" : "m"}]</span>
-          {(row.rua || row.prateleira) && (
-            <span className="ml-2 text-[10px] text-muted-foreground whitespace-nowrap">
-              📍 {[row.rua && `Rua ${row.rua}`, row.prateleira && `Prat. ${row.prateleira}`].filter(Boolean).join(" · ")}
+          {row.enderecos.length > 0 && (
+            <span className="ml-2 text-[10px] text-muted-foreground whitespace-nowrap" title={row.enderecos.map(fmtEnd).join(" | ")}>
+              📍 {endCompact(row.enderecos[0])}{row.enderecos.length > 1 ? ` +${row.enderecos.length - 1}` : ""}
             </span>
           )}
         </td>
@@ -390,6 +393,12 @@ function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
         <tr className="bg-muted/30">
           <td></td>
           <td colSpan={7} className="py-2 pr-3 space-y-2">
+            <div className="text-xs flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="font-semibold text-muted-foreground">Endereços:</span>
+              {row.enderecos.length > 0
+                ? row.enderecos.map((e: any, i: number) => <span key={i} className="whitespace-nowrap">📍 {fmtEnd(e)}</span>)
+                : <span className="text-muted-foreground">—</span>}
+            </div>
             <p className="text-xs font-semibold text-muted-foreground">Estoque por OC</p>
             {(isLoading || loadingPend) && <p className="text-xs text-muted-foreground">Carregando…</p>}
             {!isLoading && !loadingPend && ocRows.length === 0 && (

@@ -170,7 +170,8 @@ export function useFichaData(modeloId: string): FichaData {
       .sort((a, b) => (a.tipo > b.tipo ? 1 : a.tipo < b.tipo ? -1 : 0) || a.numero - b.numero)
       .map((t) => {
         const c = (t.artigos?.composicao ?? "").trim();
-        return c ? `${tecLabel(t.tipo, t.numero)}: ${c}` : null;
+        // % na mesma linha separadas por " | "; cada linha = um tecido.
+        return c ? `${tecLabel(t.tipo, t.numero)}: ${c.replace(/\s*[,;]\s*/g, " | ")}` : null;
       })
       .filter(Boolean);
     return lines.join("\n");

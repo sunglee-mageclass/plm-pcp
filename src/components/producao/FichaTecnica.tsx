@@ -23,7 +23,6 @@ export function FichaTecnica({ modeloId }: { modeloId: string }) {
   const forroBlocks = d.tecidos.filter((t) => t.tipo === "forro");
   const entretelaBlocks = d.tecidos.filter((t) => t.tipo === "entretela");
   const gradeSumT = (t: string) => d.grades.reduce((s, g) => s + (Number((g.grades as any)?.[t]) || 0), 0);
-  const fmtPrev = d.previsaoEntrega ? d.previsaoEntrega.split("-").reverse().join("/") : "—";
 
   return (
     <div className="print-area">
@@ -38,7 +37,10 @@ export function FichaTecnica({ modeloId }: { modeloId: string }) {
             {isConjunto && m?.cat_s?.nome ? ` / ${m.cat_s.nome}` : ""}
           </div>
         </div>
-        <div style={{ fontSize: 12, textAlign: "right" }}>Data prevista<br /><b>{fmtPrev}</b></div>
+        <div style={{ fontSize: 12, textAlign: "right" }}>
+          Data prevista<br />
+          <span style={{ display: "inline-block", borderBottom: "1px solid #000", width: 130, height: 16 }} />
+        </div>
       </div>
 
       {/* Foto do modelo + etiqueta(s) de lavagem */}
@@ -49,31 +51,6 @@ export function FichaTecnica({ modeloId }: { modeloId: string }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <Etiquetas blocks={d.tecidos} />
         </div>
-      </div>
-
-      {/* Composição + Observações */}
-      <div className="print-section">
-        <h3 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 4px" }}>Composição e Observações</h3>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-          <thead>
-            <tr style={{ background: "#eee" }}>
-              <th style={{ ...cellH, width: "28%" }}>Descrição</th>
-              <th style={cellH}>Observação</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td style={cell}>Composição</td>
-              <td style={{ ...cell, whiteSpace: "pre-wrap" }}>{d.composicao || "—"}</td>
-            </tr>
-            {d.observacoes.map((o) => (
-              <tr key={o.id}>
-                <td style={cell}>{o.descricao || "—"}</td>
-                <td style={{ ...cell, whiteSpace: "pre-wrap" }}>{o.observacao || "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
       </div>
 
       {/* Grade por variante */}
@@ -175,6 +152,31 @@ export function FichaTecnica({ modeloId }: { modeloId: string }) {
           </table>
         </div>
       )}
+
+      {/* Observações (última tabela) */}
+      <div className="print-section" style={{ marginTop: 10 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 600, margin: "0 0 4px" }}>Observações</h3>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+          <thead>
+            <tr style={{ background: "#eee" }}>
+              <th style={{ ...cellH, width: "28%" }}>Descrição</th>
+              <th style={cellH}>Observação</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style={cell}>Composição</td>
+              <td style={{ ...cell, whiteSpace: "pre-wrap" }}>{d.composicao || "—"}</td>
+            </tr>
+            {d.observacoes.map((o) => (
+              <tr key={o.id}>
+                <td style={cell}>{o.descricao || "—"}</td>
+                <td style={{ ...cell, whiteSpace: "pre-wrap" }}>{o.observacao || "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       <Assinatura />
     </div>

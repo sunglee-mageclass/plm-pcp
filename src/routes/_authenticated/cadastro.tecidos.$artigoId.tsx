@@ -12,6 +12,8 @@ import {
   ChevronDown,
   ChevronUp,
   ChevronsUpDown,
+  Plus,
+  MapPin,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -655,8 +657,12 @@ function VariantRow({
   const [expanded, setExpanded] = useState(false);
   const [nome, setNome] = useState(variante.nome_variante ?? "");
   const [codigo, setCodigo] = useState(variante.codigo_variante ?? "");
-  const [rua, setRua] = useState((variante as any).rua ?? "");
-  const [prateleira, setPrateleira] = useState((variante as any).prateleira ?? "");
+  const [enderecos, setEnderecos] = useState<{ rua: string; prateleira: string }[]>(() => {
+    const e = (variante as any).enderecos;
+    if (Array.isArray(e) && e.length > 0) return e.map((x: any) => ({ rua: x?.rua ?? "", prateleira: x?.prateleira ?? "" }));
+    const r = (variante as any).rua, p = (variante as any).prateleira;
+    return r || p ? [{ rua: r ?? "", prateleira: p ?? "" }] : [];
+  });
   const [uploading, setUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const photoUrl = useSignedUrl(variante.foto_url);
@@ -745,25 +751,43 @@ function VariantRow({
               readOnly={readOnly}
             />
           </div>
-          <div className="space-y-1.5">
-            <Label>Rua</Label>
-            <Input
-              value={rua}
-              onChange={(e) => setRua(e.target.value)}
-              onBlur={() => rua !== ((variante as any).rua ?? "") && saveMut.mutate({ rua } as any)}
-              readOnly={readOnly}
-              placeholder="Ex: A"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Prateleira</Label>
-            <Input
-              value={prateleira}
-              onChange={(e) => setPrateleira(e.target.value)}
-              onBlur={() => prateleira !== ((variante as any).prateleira ?? "") && saveMut.mutate({ prateleira } as any)}
-              readOnly={readOnly}
-              placeholder="Ex: 3"
-            />
+          <div className="space-y-1.5 md:col-span-3">
+            <Label className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" /> Endereços</Label>
+            <div className="space-y-1.5">
+              {enderecos.length === 0 && (
+                <p className="text-xs text-muted-foreground">Sem endereço. Adicione um local de estoque.</p>
+              )}
+              {enderecos.map((end, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <Input
+                    className="flex-1"
+                    placeholder="Rua"
+                    value={end.rua}
+                    readOnly={readOnly}
+                    onChange={(e) => setEnderecos((prev) => prev.map((x, j) => (j === i ? { ...x, rua: e.target.value } : x)))}
+                    onBlur={() => saveMut.mutate({ enderecos } as any)}
+                  />
+                  <Input
+                    className="flex-1"
+                    placeholder="Prateleira"
+                    value={end.prateleira}
+                    readOnly={readOnly}
+                    onChange={(e) => setEnderecos((prev) => prev.map((x, j) => (j === i ? { ...x, prateleira: e.target.value } : x)))}
+                    onBlur={() => saveMut.mutate({ enderecos } as any)}
+                  />
+                  {!readOnly && (
+                    <Button size="icon" variant="ghost" onClick={() => { const next = enderecos.filter((_, j) => j !== i); setEnderecos(next); saveMut.mutate({ enderecos: next } as any); }} aria-label="Remover endereço">
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+              {!readOnly && (
+                <Button size="sm" variant="outline" onClick={() => { const next = [...enderecos, { rua: "", prateleira: "" }]; setEnderecos(next); saveMut.mutate({ enderecos: next } as any); }}>
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Endereço
+                </Button>
+              )}
+            </div>
           </div>
           <div className="space-y-1.5">
             <Label>Foto</Label>
