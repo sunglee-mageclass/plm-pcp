@@ -17,6 +17,13 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
 } from "@/components/ui/dialog";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
+import { PAGES_CATALOG } from "@/lib/permissions-catalog";
+
+// Toggles de módulo (chaves batem com tenant_config.modules e PAGES_CATALOG).
+const MODULE_TOGGLES = PAGES_CATALOG.map((m) => ({ key: m.module, label: m.label }));
+const MODULE_DEFAULTS: Record<string, boolean> = Object.fromEntries(
+  MODULE_TOGGLES.map((m) => [m.key, true]),
+);
 
 function TenantLogo({ path, alt }: { path: string | null; alt: string }) {
   const url = useSignedUrl(path, "tenant-logos");
@@ -268,6 +275,21 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
   const [contato, setContato] = useState(tenant.contato ?? "");
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [modules, setModules] = useState<Record<string, boolean>>(MODULE_DEFAULTS);
+
+  // Módulos habilitados desta loja (tenant_config da loja editada; super_admin
+  // lê/escreve via policy super_admin_all_tenant_config).
+  const { data: cfgModules } = useQuery({
+    queryKey: ["admin", "tenant-modules", tenant.id],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("tenant_config")
+        .select("modules")
+        .eq("tenant_id", tenant.id)
+        .maybeSingle();
+      return ((data as any)?.modules ?? null) as Record<string, boolean> | null;
+    },
+  });
 
   useEffect(() => {
     setNome(tenant.nome);
@@ -275,6 +297,11 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
     setContato(tenant.contato ?? "");
     setLogoFile(null);
   }, [tenant]);
+
+  useEffect(() => {
+    // cadastro sempre ligado (base de dados de tudo).
+    setModules({ ...MODULE_DEFAULTS, ...(cfgModules ?? {}), cadastro: true });
+  }, [cfgModules, tenant.id]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -298,9 +325,19 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
       if (logo_url !== undefined) payload.logo_url = logo_url;
       const { error } = await supabase.from("tenants").update(payload).eq("id", tenant.id);
       if (error) throw error;
+      // Módulos habilitados → tenant_config da loja (upsert; cadastro forçado on).
+      const { error: cfgErr } = await supabase
+        .from("tenant_config")
+        .upsert(
+          { tenant_id: tenant.id, modules: { ...modules, cadastro: true } } as any,
+          { onConflict: "tenant_id" },
+        );
+      if (cfgErr) throw cfgErr;
       toast.success("Loja atualizada");
       qc.invalidateQueries({ queryKey: ["admin", "tenants"] });
       qc.invalidateQueries({ queryKey: ["tenant-switcher"] });
+      qc.invalidateQueries({ queryKey: ["admin", "tenant-modules", tenant.id] });
+      qc.invalidateQueries({ queryKey: ["tenant_config", "modules"] });
       onClose();
     } catch (err) {
       toast.error((err as Error).message);
@@ -339,6 +376,32 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
               />
               <Upload className="h-4 w-4 text-muted-foreground" />
             </div>
+          </div>
+          <div>
+            <Label>Módulos habilitados</Label>
+            <div className="mt-2 space-y-2 rounded-md border p-3">
+              {MODULE_TOGGLES.map((m) => {
+                const locked = m.key === "cadastro";
+                return (
+                  <div key={m.key} className="flex items-center justify-between">
+                    <span className="text-sm">
+                      {m.label}
+                      {locked && <span className="text-xs text-muted-foreground"> (sempre ativo)</span>}
+                    </span>
+                    <Switch
+                      checked={locked ? true : !!modules[m.key]}
+                      disabled={locked}
+                      onCheckedChange={(checked) =>
+                        setModules((prev) => ({ ...prev, [m.key]: checked }))
+                      }
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Só os módulos ligados aparecem para a loja. Apenas Cadastro + Entrada e Saída = modo só-estoque.
+            </p>
           </div>
         </div>
         <DialogFooter>

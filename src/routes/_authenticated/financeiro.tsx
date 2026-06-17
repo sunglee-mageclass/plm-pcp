@@ -20,11 +20,14 @@ import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } from "recharts";
 
 import { RequirePermission } from "@/components/RequirePermission";
+import { ModuleGuard } from "@/components/ModuleGuard";
 export const Route = createFileRoute("/_authenticated/financeiro")({
   component: () => (
-    <RequirePermission anyOf={["financeiro_parcelas","financeiro_calendario","financeiro_resumo"]}>
-      <FinanceiroPage />
-    </RequirePermission>
+    <ModuleGuard module="financeiro">
+      <RequirePermission anyOf={["financeiro_parcelas","financeiro_calendario","financeiro_resumo"]}>
+        <FinanceiroPage />
+      </RequirePermission>
+    </ModuleGuard>
   ),
 });
 

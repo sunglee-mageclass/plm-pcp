@@ -1,5 +1,6 @@
-import { createFileRoute, Outlet } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
+import { ModuleGuard } from "@/components/ModuleGuard";
 
 export const Route = createFileRoute("/_authenticated/entrada-saida")({
-  component: () => <Outlet />,
+  component: () => <ModuleGuard module="entrada_saida" />,
 });

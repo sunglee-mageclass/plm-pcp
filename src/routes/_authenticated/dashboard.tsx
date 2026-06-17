@@ -16,12 +16,15 @@ import {
 } from "recharts";
 
 import { RequirePermission } from "@/components/RequirePermission";
+import { ModuleGuard } from "@/components/ModuleGuard";
 import { ProducaoCalendario } from "@/components/producao/ProducaoCalendario";
 export const Route = createFileRoute("/_authenticated/dashboard")({
   component: () => (
-    <RequirePermission anyOf={["dashboard_colecao","dashboard_estoque","dashboard_producao","dashboard_financeiro","dashboard_custos"]}>
-      <Dashboard />
-    </RequirePermission>
+    <ModuleGuard module="dashboard">
+      <RequirePermission anyOf={["dashboard_colecao","dashboard_estoque","dashboard_producao","dashboard_financeiro","dashboard_custos"]}>
+        <Dashboard />
+      </RequirePermission>
+    </ModuleGuard>
   ),
 });
 

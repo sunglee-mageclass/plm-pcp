@@ -48,6 +48,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { useAuth } from "@/hooks/useAuth";
+import { useTenantModules } from "@/hooks/useTenantModules";
 import { Button } from "@/components/ui/button";
 import { PAGES_CATALOG } from "@/lib/permissions-catalog";
 import { useQuery } from "@tanstack/react-query";
@@ -92,6 +93,7 @@ export function AppSidebar() {
   const collapsed = state === "collapsed";
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { isAdmin, isSuperAdmin, isTenantAdmin, canView, user, signOut } = useAuth();
+  const { isModuleEnabled } = useTenantModules();
 
   const { data: tenantCfg } = useQuery({
     queryKey: ["tenant_config", "oficina_posicao"],
@@ -103,6 +105,8 @@ export function AppSidebar() {
   const oficinaPos = tenantCfg?.oficina_posicao ?? "terceirizados";
 
   const visibleMainItems = PAGES_CATALOG
+    // Gate de módulo (a loja contratou?): vale para todos os papéis, inclusive admin.
+    .filter((m) => isModuleEnabled(m.module))
     .filter((m) =>
       isAdmin || isSuperAdmin || isTenantAdmin
         ? true
