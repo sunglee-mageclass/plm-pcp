@@ -551,9 +551,10 @@ function CadDetailPage() {
             cad_id,
             etiqueta_id: e.etiqueta_id,
             consumo: e.consumo,
-            quantidade_planejada: e.tamanho
-              ? Number((e.consumo * gradeSumByTamanho(e.tamanho)).toFixed(2))
-              : e.quantidade_planejada,
+            // Sem tamanho atrelado, usa a grade total geral; com tamanho, a grade do tamanho.
+            quantidade_planejada: Number(
+              (e.consumo * (e.tamanho ? gradeSumByTamanho(e.tamanho) : gradeTotalGeral)).toFixed(2),
+            ),
             quantidade_enviar: e.quantidade_enviar,
           })),
         );
@@ -816,6 +817,7 @@ function CadDetailPage() {
           etiquetas={etiquetas}
           disponiveis={etiquetasDisponiveis}
           gradeSumByTamanho={gradeSumByTamanho}
+          gradeTotalGeral={gradeTotalGeral}
           onUpdate={updateEtiqueta}
           onAdd={addEtiqueta}
           onRemove={removeEtiqueta}

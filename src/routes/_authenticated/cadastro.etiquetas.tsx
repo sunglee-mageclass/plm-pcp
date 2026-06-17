@@ -1,13 +1,24 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Tag, Plus, Trash2 } from "lucide-react";
+import { Tag, Plus, Pencil, Trash2, Search, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table";
 import { RequirePermission } from "@/components/RequirePermission";
 
 export const Route = createFileRoute("/_authenticated/cadastro/etiquetas")({
@@ -20,6 +31,9 @@ export const Route = createFileRoute("/_authenticated/cadastro/etiquetas")({
 
 type Etiqueta = { id: string; nome: string; tamanho: string | null };
 
+// Mesma grade padrão usada no CAD/Configurações quando a loja ainda não salvou.
+const DEFAULT_TAMANHOS = ["34|PPP", "36|PP", "38|P", "40|M", "42|G", "44|GG"];
+
 // "38|P" -> "P · 38"
 const fmtTamanho = (t: string) => {
   const [num, sig] = t.split("|");
@@ -28,8 +42,12 @@ const fmtTamanho = (t: string) => {
 
 function EtiquetasPage() {
   const qc = useQueryClient();
-  const [nome, setNome] = useState("");
-  const [tamanho, setTamanho] = useState("");
+  const [search, setSearch] = useState("");
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<Etiqueta | null>(null);
+  const [formNome, setFormNome] = useState("");
+  const [formTamanho, setFormTamanho] = useState("");
+  const [deleteRow, setDeleteRow] = useState<Etiqueta | null>(null);
 
   const { data: etiquetas = [], isLoading } = useQuery({
     queryKey: ["etiquetas-cadastro"],
@@ -40,38 +58,51 @@ function EtiquetasPage() {
     },
   });
 
+  // Tamanhos da grade configurada na loja; cai no padrão se ainda não houver config.
   const { data: tamanhos = [] } = useQuery({
     queryKey: ["tenant-tamanhos-grade"],
     queryFn: async () => {
-      const { data } = await supabase.from("tenant_config").select("tamanhos_grade").maybeSingle();
-      const raw = (data as any)?.tamanhos_grade;
-      return (Array.isArray(raw) ? raw : []).map((x: any) => (typeof x === "string" ? x : String(x))) as string[];
+      const { data } = await supabase.from("tenant_config").select("tamanhos_grade").limit(1);
+      const raw = (data ?? [])[0]?.tamanhos_grade as any;
+      const list = Array.isArray(raw) && raw.length > 0
+        ? raw.map((x: any) => (typeof x === "string" ? x : (x?.nome ?? x?.label ?? String(x))))
+        : DEFAULT_TAMANHOS;
+      return list as string[];
     },
   });
+
+  const filtered = useMemo(() => {
+    const s = search.trim().toLowerCase();
+    if (!s) return etiquetas;
+    return etiquetas.filter((e) => e.nome.toLowerCase().includes(s));
+  }, [etiquetas, search]);
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["etiquetas-cadastro"] });
     qc.invalidateQueries({ queryKey: ["etiquetas-opts"] }); // select do CAD
   };
 
-  const addMut = useMutation({
-    mutationFn: async () => {
-      const v = nome.trim();
-      if (!v) throw new Error("Informe o nome da etiqueta.");
-      const { error } = await supabase.from("etiquetas" as any).insert({ nome: v, tamanho: tamanho || null });
-      if (error) throw error;
-    },
-    onSuccess: () => { setNome(""); setTamanho(""); invalidate(); },
-    onError: (e: any) =>
-      toast.error(e?.code === "23505" ? "Etiqueta já existe." : e.message ?? "Erro ao adicionar."),
-  });
+  const openCreate = () => { setEditing(null); setFormNome(""); setFormTamanho(""); setOpen(true); };
+  const openEdit = (e: Etiqueta) => { setEditing(e); setFormNome(e.nome); setFormTamanho(e.tamanho ?? ""); setOpen(true); };
 
-  const updateMut = useMutation({
-    mutationFn: async ({ id, patch }: { id: string; patch: Partial<Etiqueta> }) => {
-      const { error } = await supabase.from("etiquetas" as any).update(patch).eq("id", id);
-      if (error) throw error;
+  const saveMut = useMutation({
+    mutationFn: async () => {
+      const v = formNome.trim();
+      if (!v) throw new Error("Informe o nome da etiqueta.");
+      const payload = { nome: v, tamanho: formTamanho || null };
+      if (editing) {
+        const { error } = await supabase.from("etiquetas" as any).update(payload).eq("id", editing.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("etiquetas" as any).insert(payload);
+        if (error) throw error;
+      }
     },
-    onSuccess: invalidate,
+    onSuccess: () => {
+      toast.success(editing ? "Etiqueta atualizada." : "Etiqueta criada.");
+      setOpen(false);
+      invalidate();
+    },
     onError: (e: any) =>
       toast.error(e?.code === "23505" ? "Etiqueta já existe." : e.message ?? "Erro ao salvar."),
   });
@@ -81,7 +112,11 @@ function EtiquetasPage() {
       const { error } = await supabase.from("etiquetas" as any).delete().eq("id", id);
       if (error) throw error;
     },
-    onSuccess: invalidate,
+    onSuccess: () => {
+      toast.success("Excluída.");
+      setDeleteRow(null);
+      invalidate();
+    },
     onError: (e: any) =>
       toast.error(e?.code === "23503" ? "Etiqueta em uso em algum CAD. Remova de lá antes." : e.message ?? "Erro ao excluir."),
   });
@@ -98,90 +133,132 @@ function EtiquetasPage() {
         </div>
       </header>
 
-      <div className="rounded-lg border bg-card p-4 space-y-4 max-w-3xl">
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="grid gap-1 flex-1 min-w-[180px]">
-            <Label className="text-xs">Nome</Label>
-            <Input
-              value={nome}
-              onChange={(e) => setNome(e.target.value)}
-              placeholder="Ex: Etiqueta de composição"
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addMut.mutate(); } }}
-            />
-          </div>
-          <div className="grid gap-1 w-48">
-            <Label className="text-xs">Tamanho (opcional)</Label>
-            <Select value={tamanho || "none"} onValueChange={(v) => setTamanho(v === "none" ? "" : v)}>
-              <SelectTrigger><SelectValue placeholder="Sem tamanho" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">Sem tamanho</SelectItem>
-                {tamanhos.map((t) => <SelectItem key={t} value={t}>{fmtTamanho(t)}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <Button type="button" onClick={() => addMut.mutate()} disabled={addMut.isPending}>
-            <Plus className="h-4 w-4 mr-1" /> Adicionar
-          </Button>
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Buscar etiquetas…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
         </div>
-
-        {isLoading ? (
-          <p className="text-sm text-muted-foreground">Carregando…</p>
-        ) : etiquetas.length === 0 ? (
-          <p className="text-sm text-muted-foreground italic">Nenhuma etiqueta ainda.</p>
-        ) : (
-          <ul className="space-y-2">
-            {etiquetas.map((et) => (
-              <EtiquetaRowItem
-                key={et.id}
-                etiqueta={et}
-                tamanhos={tamanhos}
-                onRename={(n) => updateMut.mutate({ id: et.id, patch: { nome: n } })}
-                onTamanho={(t) => updateMut.mutate({ id: et.id, patch: { tamanho: t } })}
-                onRemove={() => delMut.mutate(et.id)}
-              />
-            ))}
-          </ul>
-        )}
+        <Button onClick={openCreate}>
+          <Plus className="h-4 w-4 mr-1" /> Novo
+        </Button>
       </div>
-    </div>
-  );
-}
 
-function EtiquetaRowItem({
-  etiqueta, tamanhos, onRename, onTamanho, onRemove,
-}: {
-  etiqueta: Etiqueta;
-  tamanhos: string[];
-  onRename: (nome: string) => void;
-  onTamanho: (tamanho: string | null) => void;
-  onRemove: () => void;
-}) {
-  const [value, setValue] = useState(etiqueta.nome);
-  useEffect(() => setValue(etiqueta.nome), [etiqueta.nome]);
-  const commit = () => {
-    const v = value.trim();
-    if (!v) { setValue(etiqueta.nome); return; }
-    if (v !== etiqueta.nome) onRename(v);
-  };
-  return (
-    <li className="flex items-center gap-2 rounded-md border bg-card p-2">
-      <Input
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
-        className="h-8 flex-1 border-0 shadow-none focus-visible:ring-1"
-      />
-      <Select value={etiqueta.tamanho || "none"} onValueChange={(v) => onTamanho(v === "none" ? null : v)}>
-        <SelectTrigger className="h-8 w-40"><SelectValue placeholder="Sem tamanho" /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="none">Sem tamanho</SelectItem>
-          {tamanhos.map((t) => <SelectItem key={t} value={t}>{fmtTamanho(t)}</SelectItem>)}
-        </SelectContent>
-      </Select>
-      <Button type="button" size="icon" variant="ghost" onClick={onRemove}>
-        <Trash2 className="h-4 w-4 text-destructive" />
-      </Button>
-    </li>
+      <div className="rounded-lg border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Nome</TableHead>
+              <TableHead>Tamanho</TableHead>
+              <TableHead className="w-32 text-right">Ações</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading ? (
+              <TableRow>
+                <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin inline mr-2" /> Carregando…
+                </TableCell>
+              </TableRow>
+            ) : filtered.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
+                  Nenhuma etiqueta encontrada.
+                </TableCell>
+              </TableRow>
+            ) : (
+              filtered.map((e) => (
+                <TableRow key={e.id}>
+                  <TableCell>
+                    <button type="button" className="text-left hover:underline" onClick={() => openEdit(e)}>
+                      {e.nome}
+                    </button>
+                  </TableCell>
+                  <TableCell>
+                    {e.tamanho ? <Badge variant="secondary">{fmtTamanho(e.tamanho)}</Badge> : <span className="text-muted-foreground">—</span>}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button size="icon" variant="ghost" onClick={() => openEdit(e)}>
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button size="icon" variant="ghost" onClick={() => setDeleteRow(e)}>
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      <div className="text-xs text-muted-foreground">
+        <Badge variant="secondary">{filtered.length}</Badge> registro(s)
+      </div>
+
+      {/* Criar / editar */}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editing ? "Editar etiqueta" : "Nova etiqueta"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label>Nome</Label>
+              <Input
+                autoFocus
+                value={formNome}
+                onChange={(e) => setFormNome(e.target.value)}
+                placeholder="Ex: Etiqueta de composição"
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); saveMut.mutate(); } }}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Tamanho (opcional)</Label>
+              <Select value={formTamanho || "none"} onValueChange={(v) => setFormTamanho(v === "none" ? "" : v)}>
+                <SelectTrigger><SelectValue placeholder="Sem tamanho" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sem tamanho</SelectItem>
+                  {tamanhos.map((t) => <SelectItem key={t} value={t}>{fmtTamanho(t)}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Atrelado a um tamanho, a Qtd Planejada no CAD = consumo × grade desse tamanho.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
+            <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+              {saveMut.isPending ? "Salvando…" : "Salvar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!deleteRow} onOpenChange={(o) => !o && setDeleteRow(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir etiqueta?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir <strong>{deleteRow?.nome}</strong>?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); if (deleteRow) delMut.mutate(deleteRow.id); }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
   );
 }
