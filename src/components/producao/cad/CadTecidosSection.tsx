@@ -89,7 +89,7 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
                     {compl && <th className="px-2 py-1">× grade</th>}
                     <th className="px-2 py-1">Qtd Folhas</th>
                     <th className="px-2 py-1">Metr. Planejada</th>
-                    <th className="px-2 py-1">Metr. Enviada</th>
+                    <th className="px-2 py-1">Metr. a Separar/Enviar</th>
                   </tr>
                 </thead>
                 <tbody>

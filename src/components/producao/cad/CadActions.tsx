@@ -48,8 +48,8 @@ export function CadActions({ onPrint, onSave, onEnviar, onExcluir, saving, envia
             <Button variant="outline" onClick={onPrint}>
               <Printer className="h-4 w-4 mr-1" /> Imprimir Ficha
             </Button>
-            <Button onClick={onEnviar} disabled={enviando || readOnly}>
-              <Send className="h-4 w-4 mr-1" /> Confirmar CAD
+            <Button onClick={() => { onPrint(); onEnviar(); }} disabled={enviando || readOnly}>
+              <Send className="h-4 w-4 mr-1" /> Imprimir e Enviar
             </Button>
           </>
         )}
