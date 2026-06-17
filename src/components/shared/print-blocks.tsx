@@ -1,5 +1,4 @@
 import {
-  PRINT_CONTENT_W,
   fichaCorteFieldLabel,
   fichaCorteFieldMock,
   fichaCorteFieldValue,
@@ -66,7 +65,7 @@ export function FichaCorteHeaderRender({
     <div
       style={{
         display: "grid",
-        width: PRINT_CONTENT_W,
+        width: "100%", // preenche a largura da folha; a grade de 12 colunas mantém as posições proporcionais
         gridTemplateColumns: `repeat(${layout.cols}, 1fr)`,
         gridAutoRows: `${layout.rowH}px`,
         height: layout.rows * layout.rowH,
