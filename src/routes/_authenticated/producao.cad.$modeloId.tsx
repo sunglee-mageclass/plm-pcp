@@ -293,6 +293,9 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
         };
       });
     }
+    // Ordena os blocos: Tecido → Forro → Entretela (e por número dentro do tipo).
+    const TIPO_ORDER: Record<string, number> = { tecido: 0, forro: 1, entretela: 2 };
+    initialTec.sort((a, b) => (TIPO_ORDER[a.tipo] ?? 9) - (TIPO_ORDER[b.tipo] ?? 9) || ((a.numero ?? 0) - (b.numero ?? 0)));
     setTecidos(initialTec);
 
     // Grade única, = a do modelo (modelo_grades). Acompanha as variantes do

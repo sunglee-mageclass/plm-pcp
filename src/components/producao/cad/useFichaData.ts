@@ -142,7 +142,11 @@ export function useFichaData(modeloId: string): FichaData {
           variante_nome: v.variantes_tecido?.nome_variante,
           variante_cor: v.variantes_tecido?.cor?.nome,
         })),
-      })),
+      }))
+      .sort((a, b) => {
+        const ord: Record<string, number> = { tecido: 0, forro: 1, entretela: 2 };
+        return (ord[a.tipo] ?? 9) - (ord[b.tipo] ?? 9) || ((a.numero ?? 0) - (b.numero ?? 0));
+      }),
     [cadTecidos],
   );
 
