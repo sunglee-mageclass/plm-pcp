@@ -37,10 +37,13 @@ function emptyGrades(): GradesByEtapa {
   return { recebimento: {}, conserto: {}, lavagem: {}, defeito: {} };
 }
 
-// Rótulo curto do tamanho ("38|P" -> "P"); cai pro token inteiro se não houver sigla.
-const tamLabel = (t: string) => {
-  const [num, sig] = t.split("|");
-  return sig || num || t;
+// Ordem canônica padrão (mesma do CAD) usada quando o tenant_config não carrega.
+const DEFAULT_TAMANHOS = ["34|PPP", "36|PP", "38|P", "40|M", "42|G", "44|GG"];
+// Ordena tokens pelo prefixo numérico ("34|PPP" antes de "36|PP"); fallback alfabético.
+const byNumPrefix = (a: string, b: string) => {
+  const na = Number(a.split("|")[0]);
+  const nb = Number(b.split("|")[0]);
+  return Number.isNaN(na) || Number.isNaN(nb) ? a.localeCompare(b) : na - nb;
 };
 
 function CqDetailPage() {
@@ -121,16 +124,18 @@ function CqDetailPage() {
     };
   }, [tercs]);
 
-  // Tamanhos = os cadastrados na grade do modelo (na ordem do tenant_config).
+  // Tamanhos = os cadastrados na grade do modelo, exibidos EXATAMENTE como
+  // cadastrados ("34|PPP") e na ordem do tenant_config (default canônico se a
+  // config não carregar). Tamanhos fora da config vão ao fim, ordenados pelo nº.
   const tamanhos = useMemo<string[]>(() => {
     const cfg = (tenantCfg as any)?.tamanhos_grade;
-    const order: string[] = Array.isArray(cfg) && cfg.length ? cfg.map(String) : [];
+    const order: string[] = Array.isArray(cfg) && cfg.length ? cfg.map(String) : DEFAULT_TAMANHOS;
     const present = new Set<string>();
     (modeloGrades as any[]).forEach((g) => Object.keys(g.grades ?? {}).forEach((k) => present.add(k)));
+    if (present.size === 0) return order; // ainda sem grade → mostra a config
     const ordered = order.filter((t) => present.has(t));
-    present.forEach((t) => { if (!ordered.includes(t)) ordered.push(t); });
-    if (ordered.length) return ordered;
-    return order.length ? order : ["PP", "P", "M", "G", "GG"];
+    const extras = [...present].filter((t) => !ordered.includes(t)).sort(byNumPrefix);
+    return [...ordered, ...extras];
   }, [modeloGrades, tenantCfg]);
 
   // Lista de variantes a exibir (do Tecido Principal; fallback p/ grade do modelo).
@@ -546,7 +551,7 @@ function CqDetailPage() {
             <thead>
               <tr className="bg-muted/50">
                 <th className="border px-2 py-1 text-left">Variante</th>
-                {tamanhos.map((t) => <th key={t} className="border px-2 py-1 text-center w-16">{tamLabel(t)}</th>)}
+                {tamanhos.map((t) => <th key={t} className="border px-2 py-1 text-center w-16">{t}</th>)}
                 <th className="border px-2 py-1 text-center w-20">Total</th>
               </tr>
             </thead>
@@ -674,7 +679,7 @@ function GradeMatrix(props: {
           <tr className="bg-muted/50">
             <th className="border px-2 py-1 text-left">Variante</th>
             {tamanhos.map((t) => (
-              <th key={t} className="border px-2 py-1 text-center w-16">{tamLabel(t)}</th>
+              <th key={t} className="border px-2 py-1 text-center w-16">{t}</th>
             ))}
             <th className="border px-2 py-1 text-center w-20">Total</th>
             {extraCols.map((c) => (
