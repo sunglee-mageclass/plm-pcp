@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Compass, Search } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -13,6 +13,7 @@ export const Route = createFileRoute("/_authenticated/producao/direcionamento/")
 });
 
 function DirListPage() {
+  const navigate = useNavigate();
   const [q, setQ] = useState("");
   const [fColecao, setFColecao] = useState("all");
 
@@ -21,15 +22,17 @@ function DirListPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, ref, versao, nome, colecao, categorias_produto:categoria_principal_id(nome), cad(enviado_corte)")
+        .select("id, ref, versao, nome, colecao, categorias_produto:categoria_principal_id(nome), cad(controle_qualidade(status))")
         .eq("enviado_cad", true)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      // Só aparece após o CAD ser confirmado.
-      return (data ?? []).filter((m: any) => m.cad?.[0]?.enviado_corte === true).map((m: any) => ({
-        modelo_id: m.id, ref: m.ref, versao: m.versao, nome: m.nome, colecao: m.colecao,
-        categoria_nome: m.categorias_produto?.nome ?? null,
-      }));
+      // Só aparece após o Controle de Qualidade ser Confirmado.
+      return (data ?? [])
+        .filter((m: any) => (m.cad?.[0]?.controle_qualidade?.[0]?.status ?? "pendente") === "confirmado")
+        .map((m: any) => ({
+          modelo_id: m.id, ref: m.ref, versao: m.versao, nome: m.nome, colecao: m.colecao,
+          categoria_nome: m.categorias_produto?.nome ?? null,
+        }));
     },
   });
   const colecoes = useMemo(
@@ -82,18 +85,16 @@ function DirListPage() {
               <tr><td className="px-4 py-6 text-muted-foreground" colSpan={4}>Nenhum modelo disponível.</td></tr>
             )}
             {filtered.map((r: any) => (
-              <tr key={r.modelo_id} className="border-t hover:bg-muted/30">
+              <tr
+                key={r.modelo_id}
+                className="border-t hover:bg-muted/30 cursor-pointer"
+                onClick={() => navigate({ to: "/producao/direcionamento/$modeloId", params: { modeloId: r.modelo_id } })}
+              >
                 <td className="px-4 py-2">
-                  <Link to="/producao/direcionamento/$modeloId" params={{ modeloId: r.modelo_id }} className="font-mono text-primary hover:underline">
-                    {r.ref ?? "—"}
-                  </Link>
+                  <span className="font-mono text-primary">{r.ref ?? "—"}</span>
                   <VersaoBadge versao={r.versao} className="ml-2 text-[10px]" />
                 </td>
-                <td className="px-4 py-2">
-                  <Link to="/producao/direcionamento/$modeloId" params={{ modeloId: r.modelo_id }} className="hover:underline">
-                    {r.nome ?? "—"}
-                  </Link>
-                </td>
+                <td className="px-4 py-2">{r.nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground">{r.categoria_nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground">{r.colecao ?? "—"}</td>
               </tr>

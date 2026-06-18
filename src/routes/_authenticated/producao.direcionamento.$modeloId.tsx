@@ -40,11 +40,6 @@ function DirDetailPage() {
     queryKey: ["tenant_config", "tamanhos"],
     queryFn: async () => (await supabase.from("tenant_config").select("tamanhos_grade").maybeSingle()).data,
   });
-  const tamanhos = useMemo<string[]>(() => {
-    const t = (tenantCfg as any)?.tamanhos_grade;
-    if (Array.isArray(t) && t.length) return t.map(String);
-    return ["PP", "P", "M", "G", "GG"];
-  }, [tenantCfg]);
 
   const { data: cadGrades = [] } = useQuery({
     queryKey: ["cad-grades", cad?.id],
@@ -58,6 +53,17 @@ function DirDetailPage() {
       return data ?? [];
     },
   });
+
+  // Ordem do tenant_config + qualquer tamanho presente na Grade Real (do CQ).
+  const tamanhos = useMemo<string[]>(() => {
+    const cfg = (tenantCfg as any)?.tamanhos_grade;
+    const order: string[] = Array.isArray(cfg) && cfg.length ? cfg.map(String) : ["PP", "P", "M", "G", "GG"];
+    const result = [...order];
+    (cadGrades as any[]).forEach((g) => Object.keys(g.grades_reais ?? {}).forEach((k) => {
+      if (!result.includes(k)) result.push(k);
+    }));
+    return result;
+  }, [tenantCfg, cadGrades]);
 
   const { data: existing = [], refetch } = useQuery({
     queryKey: ["direcionamento", cad?.id],

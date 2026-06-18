@@ -1,13 +1,15 @@
 import { useMemo, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Scissors, Search } from "lucide-react";
+import { Scissors, Search, Printer } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
+import { PrintFicha } from "@/components/producao/PrintFicha";
 
 export const Route = createFileRoute("/_authenticated/producao/cad/")({
   component: CadListPage,
@@ -44,6 +46,7 @@ function CadListPage() {
   const [fMes, setFMes] = useState("all");
   const [fAno, setFAno] = useState("all");
   const [fStatus, setFStatus] = useState("all");
+  const [printId, setPrintId] = useState<string | null>(null);
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["producao-cad-list"],
@@ -154,14 +157,15 @@ function CadListPage() {
               <th className="px-4 py-2">Nome</th>
               <th className="px-4 py-2">Categoria</th>
               <th className="px-4 py-2">Status CAD</th>
+              <th className="px-4 py-2 w-12 text-center">Ficha</th>
             </tr>
           </thead>
           <tbody>
             {isLoading && (
-              <tr><td className="px-4 py-6 text-muted-foreground" colSpan={4}>Carregando…</td></tr>
+              <tr><td className="px-4 py-6 text-muted-foreground" colSpan={5}>Carregando…</td></tr>
             )}
             {!isLoading && filtered.length === 0 && (
-              <tr><td className="px-4 py-6 text-muted-foreground" colSpan={4}>Nenhum modelo enviado ao CAD.</td></tr>
+              <tr><td className="px-4 py-6 text-muted-foreground" colSpan={5}>Nenhum modelo enviado ao CAD.</td></tr>
             )}
             {filtered.map((r: any) => (
               <tr
@@ -180,11 +184,25 @@ function CadListPage() {
                     {STATUS_LABELS[r.status_corte] ?? r.status_corte}
                   </Badge>
                 </td>
+                <td className="px-4 py-2 text-center">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    title="Imprimir Ficha de Corte"
+                    disabled={printId === r.modelo_id}
+                    onClick={(e) => { e.stopPropagation(); setPrintId(r.modelo_id); }}
+                  >
+                    <Printer className="h-4 w-4" />
+                  </Button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </Card>
+
+      {printId && <PrintFicha modeloId={printId} kind="corte" onDone={() => setPrintId(null)} />}
     </div>
   );
 }

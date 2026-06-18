@@ -703,8 +703,15 @@ function VariantRow({
 
   return (
     <li className="rounded-lg border bg-card overflow-hidden">
-      <div className="flex items-center gap-3 p-2">
-        <div className="h-12 w-12 rounded bg-muted overflow-hidden flex items-center justify-center shrink-0">
+      {/* Clicar em qualquer ponto da linha expande/recolhe (exceto a foto e os botões). */}
+      <div
+        className="flex items-center gap-3 p-2 cursor-pointer"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <div
+          className="h-12 w-12 rounded bg-muted overflow-hidden flex items-center justify-center shrink-0"
+          onClick={(e) => e.stopPropagation()}
+        >
           {photoUrl ? (
             <ImagePreview src={photoUrl} alt={corLabel}>
               <img src={photoUrl} alt={corLabel} className="w-full h-full object-cover" />
@@ -719,10 +726,10 @@ function VariantRow({
             {variante.codigo_variante || variante.nome_variante || "Sem código"}
           </p>
         </div>
-        <Button variant="ghost" size="icon" onClick={() => setExpanded((v) => !v)}>
+        <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}>
           {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
         </Button>
-        <Button variant="ghost" size="icon" onClick={onRemove} disabled={readOnly}>
+        <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); onRemove(); }} disabled={readOnly}>
           <Trash2 className="h-4 w-4 text-destructive" />
         </Button>
       </div>

@@ -1,12 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
 import { cell, cellH } from "./types";
 import type { AviamentoRow, EtiquetaRow, GradeRow, TecidoRow } from "./types";
 import { EtiquetaLavagemArtigoPrint } from "@/components/shared/EtiquetaLavagemArtigo";
-import { FichaCorteHeaderRender } from "@/components/shared/print-blocks";
 import { FichaHeader } from "@/components/producao/FichaHeader";
-import { isHeaderLayout } from "@/lib/print-template";
-import { supabase } from "@/integrations/supabase/client";
 import { useTenantLogo } from "@/hooks/useTenantLogo";
+import { useFichaData } from "./useFichaData";
 import { fmtNum } from "@/lib/format";
 
 type Props = {
@@ -109,22 +106,7 @@ export function Etiquetas({ blocks }: { blocks: TecidoRow[] }) {
 }
 
 export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos, etiquetas, gradeTotalGeral, previsaoEntrega, labelByNumero, ocLinksByKey, observacoesMolde }: Props) {
-  // Cabeçalho personalizado (Editor de Impressão), se a loja salvou um.
   const tenantLogo = useTenantLogo();
-  const { data: headerTpl } = useQuery({
-    // Chave própria (retorna só o layout) — distinta da do editor (que retorna {id, layout})
-    // p/ evitar colisão de cache. A invalidação do editor usa o prefixo ["print-template"].
-    queryKey: ["print-template", "ficha_corte", "render"],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("print_templates" as any)
-        .select("layout")
-        .eq("doc_type", "ficha_corte")
-        .maybeSingle();
-      return ((data as any)?.layout ?? null);
-    },
-  });
-  const customHeader = isHeaderLayout(headerTpl) ? headerTpl : null;
 
   const totalGeral = gradeTotalGeral ?? grades.reduce((s, g) => s + (Number(g.grade_total) || 0), 0);
   const gradeSumT = (t: string) => grades.reduce((s, g) => s + (Number((g.grades as any)?.[t]) || 0), 0);
@@ -138,18 +120,9 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
   const entretelaBlocks = tecidos.filter((t) => t.tipo === "entretela");
   const forroEntretela = [...forroBlocks, ...entretelaBlocks];
 
-  // Cabeçalho padrão (igual ao da Ficha Técnica). Se a loja tiver um layout
-  // salvo no Editor de Impressão, ele continua valendo como override.
-  const pageHeader = customHeader ? (
-    <FichaCorteHeaderRender
-      layout={customHeader}
-      logo={tenantLogo}
-      modelo={modelo}
-      previsaoEntrega={previsaoEntrega}
-    />
-  ) : (
-    <FichaHeader title="FICHA DE CORTE" modelo={modelo} logo={tenantLogo} />
-  );
+  // Cabeçalho EXATAMENTE igual ao da Ficha Técnica (mesmo componente FichaHeader),
+  // mudando apenas o título do documento.
+  const pageHeader = <FichaHeader title="FICHA DE CORTE" modelo={modelo} logo={tenantLogo} />;
 
   return (
     <div className="print-area">
@@ -265,5 +238,29 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Ficha de Corte (documento de impressão) carregada só pelo modeloId — usa os
+ * dados SALVOS do CAD (mesma fonte da Ficha Técnica). Permite imprimir a Ficha de
+ * Corte sem abrir o CAD (ícone de impressão na lista).
+ */
+export function FichaCorteDoc({ modeloId }: { modeloId: string }) {
+  const d = useFichaData(modeloId);
+  return (
+    <CadFichaCorte
+      modelo={d.modelo}
+      cadRow={d.cadRow}
+      previsaoEntrega={d.previsaoEntrega}
+      observacoesMolde={d.observacoesMolde}
+      tecidos={d.tecidos}
+      grades={d.grades}
+      tamanhosAll={d.tamanhosAll}
+      aviamentos={d.aviamentos}
+      etiquetas={d.etiquetas}
+      gradeTotalGeral={d.gradeTotalGeral}
+      labelByNumero={d.labelByNumero}
+    />
   );
 }
