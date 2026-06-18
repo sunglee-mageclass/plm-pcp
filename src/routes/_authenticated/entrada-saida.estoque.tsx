@@ -88,9 +88,9 @@ function TecidosTab() {
   const { data, isLoading, error } = useQuery({
     queryKey: ["estoque-tecidos"],
     queryFn: async () => {
-      const [variantesRes, ocItensRes, cadTecVarRes, modTecRes, modTecVarRes, modelosRes, modGradesRes, osItensRes] = await Promise.all([
+      const [variantesRes, ocItensRes, cadTecVarRes, modTecRes, modTecVarRes, modelosRes, modGradesRes, osItensRes, baixasRes] = await Promise.all([
         supabase.from("variantes_tecido").select("id, artigo_id, nome_variante, codigo_variante, rua, prateleira, enderecos, cores(nome), artigos(id, nome, unidade_medida, rendimento, empresa_id, categoria_tecido_id, empresas(nome_fantasia), categorias_tecido(nome))"),
-        supabase.from("ocs_tecido_itens").select("artigo_id, variante_tecido_id, quantidade_pedida, quantidade_recebida, cancelado, oc_tecido_id, ocs_tecido!inner(status)"),
+        supabase.from("ocs_tecido_itens").select("id, artigo_id, variante_tecido_id, quantidade_pedida, quantidade_recebida, cancelado, estoque_zerado, oc_tecido_id, ocs_tecido!inner(status)"),
         supabase.from("cad_tecido_variantes").select("variante_tecido_id, metragem_enviada, cad_tecidos!inner(artigo_id, cad!inner(enviado_corte))"),
         supabase.from("modelo_tecidos").select("id, modelo_id, artigo_id, consumo, loss_percent"),
         supabase.from("modelo_tecido_variantes").select("variante_tecido_id, modelo_tecido_id, ordem, multiplicador"),
@@ -98,10 +98,19 @@ function TecidosTab() {
         supabase.from("modelo_grades").select("modelo_id, variante_numero, grade_total"),
         // OS Tecido (baixa manual do modo só-estoque): somada ao motor de estoque.
         supabase.from("ordens_saida_tecido_itens" as any).select("variante_tecido_id, reserva, baixa, ordens_saida_tecido!inner(baixado)"),
+        // Baixas por item de OC (ledger) — usado para "estoque zerado": o item zerado
+        // passa a contar só o que foi cortado dele (sobra/negativo viram 0).
+        supabase.from("estoque_tecido_baixas" as any).select("oc_tecido_item_id, quantidade"),
       ]);
 
-      for (const r of [variantesRes, ocItensRes, cadTecVarRes, modTecRes, modTecVarRes, modelosRes, modGradesRes, osItensRes]) {
+      for (const r of [variantesRes, ocItensRes, cadTecVarRes, modTecRes, modTecVarRes, modelosRes, modGradesRes, osItensRes, baixasRes]) {
         if (r.error) throw r.error;
+      }
+      // Total baixado (em metros) por item de OC.
+      const baixaByItem = new Map<string, number>();
+      for (const b of (baixasRes.data ?? []) as any[]) {
+        if (!b.oc_tecido_item_id) continue;
+        baixaByItem.set(b.oc_tecido_item_id, (baixaByItem.get(b.oc_tecido_item_id) ?? 0) + num(b.quantidade));
       }
 
       const variantes = variantesRes.data ?? [];
@@ -159,7 +168,11 @@ function TecidosTab() {
         if ((it as any).ocs_tecido?.status === "recebido") {
           // quantidade_recebida null = recebeu o pedido cheio (mesma regra do
           // financeiro: COALESCE(recebida, pedida)). 0 explícito permanece 0.
-          acc.recebido += toMetros(art, num(it.quantidade_recebida ?? it.quantidade_pedida));
+          // Item "estoque zerado": conta só o que foi cortado dele (ledger),
+          // assim a sobra/negativo some do estoque real.
+          acc.recebido += (it as any).estoque_zerado
+            ? (baixaByItem.get((it as any).id) ?? 0)
+            : toMetros(art, num(it.quantidade_recebida ?? it.quantidade_pedida));
         }
       }
 

@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -30,7 +31,7 @@ type ModeloRaw = {
   metragem_m: number | null; baixado_m: number | null; cortado: boolean;
 };
 type Item = {
-  oc_tecido_item_id: string; artigo_id: string | null; artigo_nome: string | null;
+  oc_tecido_item_id: string; estoque_zerado?: boolean; artigo_id: string | null; artigo_nome: string | null;
   unidade: string | null; variante: string | null;
   pedido_m: number | null; recebido_m: number | null; baixado_m: number | null;
   modelos: ModeloRaw[];
@@ -256,6 +257,32 @@ function ConsumoOcPage() {
     return n;
   });
 
+  // Marca/desmarca "estoque zerado" de um item de OC (some a sobra/negativo dele
+  // do estoque real). Atualização otimista no cache do consumo.
+  const zerarMut = useMutation({
+    mutationFn: async ({ id, value }: { id: string; value: boolean }) => {
+      const { error } = await supabase.from("ocs_tecido_itens").update({ estoque_zerado: value }).eq("id", id);
+      if (error) throw error;
+    },
+    onMutate: async ({ id, value }) => {
+      await qc.cancelQueries({ queryKey: ["consumo-por-oc"] });
+      const prev = qc.getQueryData<OC[]>(["consumo-por-oc"]);
+      qc.setQueryData<OC[]>(["consumo-por-oc"], (old) =>
+        (old ?? []).map((oc) => ({ ...oc, itens: oc.itens.map((it) => it.oc_tecido_item_id === id ? { ...it, estoque_zerado: value } : it) })),
+      );
+      return { prev };
+    },
+    onError: (e: any, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["consumo-por-oc"], ctx.prev);
+      toast.error(e?.message ?? "Erro ao zerar estoque");
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["consumo-por-oc"] });
+      qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
+    },
+  });
+  const onZerar = (id: string, value: boolean) => zerarMut.mutate({ id, value });
+
   const closeEditors = () => {
     setDevId(null); setCadId(null);
     qc.invalidateQueries({ queryKey: ["consumo-por-oc"] });
@@ -354,7 +381,7 @@ function ConsumoOcPage() {
                       );
                     })
                   ) : (
-                    <ResumoVariantes oc={oc} keep={keepModel} />
+                    <ResumoVariantes oc={oc} keep={keepModel} onZerar={onZerar} />
                   )}
                 </CardContent>
               </Card>
@@ -375,13 +402,14 @@ function ConsumoOcPage() {
 }
 
 // Resumo enxuto (OC colapsada): uma linha por variante, com nº de modelos.
-function ResumoVariantes({ oc, keep }: { oc: OC; keep: (id: string) => boolean }) {
+function ResumoVariantes({ oc, keep, onZerar }: { oc: OC; keep: (id: string) => boolean; onZerar: (id: string, value: boolean) => void }) {
   return (
     <div className="rounded-md border divide-y text-sm">
       {oc.itens.map((it) => {
         const modelos = it.modelos.filter((m) => keep(m.modelo_id));
         const recebido = recebidoItem(oc, it);
         const consumido = modelos.reduce((s, m) => s + num(m.metragem_m), 0);
+        const zerado = !!it.estoque_zerado;
         const sobra = recebido - consumido;
         const sobraClass = sobra < 0 ? "text-destructive" : sobra <= recebido * 0.05 ? "text-emerald-600" : "text-foreground";
         return (
@@ -390,10 +418,22 @@ function ResumoVariantes({ oc, keep }: { oc: OC; keep: (id: string) => boolean }
               <span className="font-medium">{it.artigo_nome ?? "—"}</span>
               <span className="text-muted-foreground"> · {it.variante ?? "—"}</span>
             </div>
-            <div className="flex items-center gap-4 tabular-nums">
+            <div className="flex items-center gap-3 tabular-nums">
               <Badge variant="secondary">{modelos.length} modelo{modelos.length === 1 ? "" : "s"}</Badge>
               <span className="text-muted-foreground">{oc.status === "recebido" ? "Receb." : "Ped."}: <strong className="text-foreground">{fmt(recebido)} m</strong></span>
-              <span className="text-muted-foreground">Sobra: <strong className={sobraClass}>{fmt(sobra)} m</strong></span>
+              <span className="text-muted-foreground">Sobra: {zerado
+                ? <strong className="text-emerald-600">zerado</strong>
+                : <strong className={sobraClass}>{fmt(sobra)} m</strong>}</span>
+              <Button
+                type="button"
+                size="sm"
+                variant={zerado ? "default" : "outline"}
+                className={"h-7 " + (zerado ? "bg-emerald-500 hover:bg-emerald-600" : "")}
+                onClick={(e) => { e.stopPropagation(); onZerar(it.oc_tecido_item_id, !zerado); }}
+                title="Zerar a sobra/negativo deste item no estoque real"
+              >
+                {zerado ? "Zerado" : "Zerar"}
+              </Button>
             </div>
           </div>
         );

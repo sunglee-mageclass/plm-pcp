@@ -2069,6 +2069,7 @@ export type Database = {
           artigo_numero: number | null
           cancelado: boolean
           created_at: string | null
+          estoque_zerado: boolean
           id: string
           oc_tecido_id: string | null
           quantidade_pedida: number | null
@@ -2081,6 +2082,7 @@ export type Database = {
           artigo_numero?: number | null
           cancelado?: boolean
           created_at?: string | null
+          estoque_zerado?: boolean
           id?: string
           oc_tecido_id?: string | null
           quantidade_pedida?: number | null
@@ -2093,6 +2095,7 @@ export type Database = {
           artigo_numero?: number | null
           cancelado?: boolean
           created_at?: string | null
+          estoque_zerado?: boolean
           id?: string
           oc_tecido_id?: string | null
           quantidade_pedida?: number | null
