@@ -49,37 +49,38 @@ async function syncTecidosToDesenvolvimento(modeloId: string, planejados: string
     .eq("modelo_id", modeloId)
     .eq("tipo", "tecido");
   if (eFetch) throw eFetch;
-  const byNumero = new Map<number, { id: string; artigo_id: string | null }>();
-  (existing ?? []).forEach((r: any) => byNumero.set(r.numero, { id: r.id, artigo_id: r.artigo_id }));
+  const rows = (existing ?? []) as any[];
 
-  // Remove tecidos cujo numero não consta mais
-  const validNumeros = new Set(planejados.map((_, i) => i + 1));
-  const toDelete = (existing ?? []).filter((r: any) => !validNumeros.has(r.numero));
-  if (toDelete.length > 0) {
-    const ids = toDelete.map((r: any) => r.id);
-    await supabase.from("modelo_tecido_variantes").delete().in("modelo_tecido_id", ids);
-    await supabase.from("modelo_tecidos").delete().in("id", ids);
-  }
-
-  // Insere/atualiza por posição
+  // Casa por ARTIGO (e não por posição): assim REORDENAR ou REMOVER um tecido no
+  // Planejamento NÃO apaga as variantes/cores e o consumo já preenchidos no
+  // Desenvolvimento — só reposiciona (numero) ou insere/remove o que mudou.
+  const usedIds = new Set<string>();
   for (let i = 0; i < planejados.length; i++) {
     const numero = i + 1;
     const artigoId = planejados[i];
-    const cur = byNumero.get(numero);
-    if (!cur) {
+    const match = rows.find((r) => r.artigo_id === artigoId && !usedIds.has(r.id));
+    if (match) {
+      usedIds.add(match.id);
+      if (match.numero !== numero) {
+        const { error } = await supabase.from("modelo_tecidos").update({ numero }).eq("id", match.id);
+        if (error) throw error;
+      }
+    } else {
       const { error } = await supabase.from("modelo_tecidos").insert({
         modelo_id: modeloId, tipo: "tecido", numero, artigo_id: artigoId,
         consumo: 0, loss_percent: 0, custo_previsto: 0,
       });
       if (error) throw error;
-    } else if (cur.artigo_id !== artigoId) {
-      await supabase.from("modelo_tecido_variantes").delete().eq("modelo_tecido_id", cur.id);
-      const { error } = await supabase
-        .from("modelo_tecidos")
-        .update({ artigo_id: artigoId })
-        .eq("id", cur.id);
-      if (error) throw error;
     }
+  }
+
+  // Remove só os tecidos cujo artigo NÃO está mais planejado (aí sim apaga as
+  // variantes deles).
+  const toDelete = rows.filter((r) => !usedIds.has(r.id));
+  if (toDelete.length > 0) {
+    const ids = toDelete.map((r) => r.id);
+    await supabase.from("modelo_tecido_variantes").delete().in("modelo_tecido_id", ids);
+    await supabase.from("modelo_tecidos").delete().in("id", ids);
   }
 }
 
