@@ -197,9 +197,11 @@ export function useFichaData(modeloId: string): FichaData {
   }, [ocLinks]);
 
   const composicao = useMemo(() => {
+    // Hierarquia fixa: tecido > forro > entretela (e por número dentro do tipo).
+    const tipoOrder: Record<string, number> = { tecido: 0, forro: 1, entretela: 2 };
     const lines = (cadTecidos as any[])
       .slice()
-      .sort((a, b) => (a.tipo > b.tipo ? 1 : a.tipo < b.tipo ? -1 : 0) || a.numero - b.numero)
+      .sort((a, b) => ((tipoOrder[a.tipo] ?? 9) - (tipoOrder[b.tipo] ?? 9)) || a.numero - b.numero)
       .map((t) => {
         const c = (t.artigos?.composicao ?? "").trim();
         // Junta tudo numa linha só (quebras → espaço); cada linha = um tecido.

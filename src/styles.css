@@ -172,7 +172,9 @@
   body * { visibility: hidden !important; }
   .print-area, .print-area * { visibility: visible !important; }
   .print-area { display: block !important; position: absolute; left: 0; top: 0; width: 100%; padding: 16px; background: white !important; color: black !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .print-area table, .print-area thead, .print-area tbody, .print-area tr { background: white !important; color: black !important; }
+  .print-area table, .print-area tbody, .print-area tbody tr { background: white !important; color: black !important; }
+  /* Linha de título/cabeçalho das tabelas em cinza claro (sem isto o print forçava branco). */
+  .print-area thead tr, .print-area tr.print-title { background: #eee !important; color: black !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .print-area section, .print-area .print-section { page-break-inside: avoid; break-inside: avoid; }
   .no-print { display: none !important; }
   [data-sidebar="sidebar"], header, nav, aside, button, .sidebar { display: none !important; }

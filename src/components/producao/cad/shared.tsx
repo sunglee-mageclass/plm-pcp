@@ -33,3 +33,27 @@ export function ModeloPhoto({ path, alt, fit = "cover" }: { path: string; alt?: 
     <ImageIcon className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
   );
 }
+
+/**
+ * Foto do modelo para IMPRESSÃO: <img> que RESPEITA a proporção da imagem
+ * enviada (object-contain, sem deformar/quadrar), limitada por maxH/maxW.
+ * Usada nas fichas (uma por foto, lado a lado).
+ */
+export function ModeloPhotoPrint({ path, maxH = 240, maxW = 190 }: { path: string; maxH?: number; maxW?: number }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    supabase.storage.from("modelos").createSignedUrl(path, 3600).then(({ data }) => {
+      if (alive && data?.signedUrl) setUrl(data.signedUrl);
+    });
+    return () => { alive = false; };
+  }, [path]);
+  if (!url) return null;
+  return (
+    <img
+      src={url}
+      alt="Foto do modelo"
+      style={{ maxHeight: maxH, maxWidth: maxW, height: "auto", width: "auto", objectFit: "contain", border: "1px solid #999" }}
+    />
+  );
+}

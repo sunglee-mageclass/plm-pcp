@@ -157,7 +157,7 @@ export function EtiquetaLavagemArtigoPrint({ artigoId }: { artigoId: string | nu
             key={p}
             src={signed[p]}
             alt="Etiqueta de lavagem"
-            style={{ height: 56, width: 56, objectFit: "cover", border: "1px solid #ccc", borderRadius: 4 }}
+            style={{ maxHeight: 96, maxWidth: 150, height: "auto", width: "auto", objectFit: "contain", border: "1px solid #ccc", borderRadius: 4 }}
           />
         ) : null,
       )}

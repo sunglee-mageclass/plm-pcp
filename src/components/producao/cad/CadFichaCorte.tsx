@@ -52,7 +52,7 @@ export function MaterialTable({ blocks, colMaterial, ocLinksByKey }: { blocks: T
   const rows = blocks.flatMap((t) =>
     (t.variantes ?? []).filter((v) => v.variante_tecido_id).map((v) => ({ t, v })),
   );
-  if (rows.length === 0) return <p style={{ fontSize: 11, color: "#666" }}>—</p>;
+  if (rows.length === 0) return null;
   const cw = ["15%", "15%", "14%", "9%", "11%", "9%", "12%", "15%"];
   const chW: React.CSSProperties = { ...cellH, overflowWrap: "anywhere", wordBreak: "break-word" };
   const cW: React.CSSProperties = { ...cell, overflowWrap: "anywhere", wordBreak: "break-word" };
@@ -77,8 +77,8 @@ export function MaterialTable({ blocks, colMaterial, ocLinksByKey }: { blocks: T
           return (
             <tr key={i}>
               <td style={cW}>{varLabel(v)}</td>
-              <td style={cW}>{t.artigo_nome ?? "—"}</td>
-              <td style={cW}>{ocs.length ? ocs.map((n) => `OC ${n}`).join(", ") : "—"}</td>
+              <td style={cW}>{t.artigo_nome ?? ""}</td>
+              <td style={cW}>{ocs.length ? ocs.map((n) => `OC ${n}`).join(", ") : ""}</td>
               <td style={cW}>{fmt2(t.consumo_cad)}</td>
               <td style={cW}>{fmt2(v.metragem_planejada)}</td>
               <td style={cW}>{fmt2(v.quantidade_folhas)}</td>
@@ -168,7 +168,7 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
             <tbody>
               {aviamentos.map((a, i) => (
                 <tr key={i}>
-                  <td style={cell}>{a.aviamento_nome ?? "—"}</td>
+                  <td style={cell}>{a.aviamento_nome ?? ""}</td>
                   <td style={cell}>{fmt2(a.consumo)}</td>
                   <td style={cell}>{fmt2(a.quantidade_enviar)}</td>
                   <td style={cell}>{fmt2(a.quantidade_separar)}</td>
@@ -195,7 +195,7 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
                     const base = e.tamanho ? gradeSumT(e.tamanho) : totalGeral;
                     return (
                       <tr key={i}>
-                        <td style={cell}>{e.etiqueta_nome ?? "—"}</td>
+                        <td style={cell}>{e.etiqueta_nome ?? ""}</td>
                         <td style={cell}>{fmtTam(e.tamanho)}</td>
                         <td style={cell}>{fmt2(e.consumo)}</td>
                         <td style={cell}>{fmt2(e.consumo * base)}</td>
@@ -235,7 +235,7 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
 
           <h3 style={{ fontSize: 14, fontWeight: 600, margin: "10px 0 0" }}>Observação de Partes do Molde</h3>
           <p style={{ fontSize: 11, whiteSpace: "pre-wrap", border: "1px solid #ccc", padding: 6, marginTop: 4, minHeight: 28 }}>
-            {observacoesMolde?.trim() || "—"}
+            {observacoesMolde?.trim() || ""}
           </p>
         </div>
       </div>

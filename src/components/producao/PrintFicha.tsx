@@ -4,88 +4,60 @@ import { FichaCorteDoc } from "@/components/producao/cad/CadFichaCorte";
 import { useFichaData } from "@/components/producao/cad/useFichaData";
 
 /**
- * Monta a ficha (Técnica ou de Corte) oculta no DOCUMENTO PRINCIPAL (o CSS
- * @media print mostra só `.print-area` e esconde o resto), espera as imagens e
- * chama window.print() — mesma abordagem das telas de detalhe (CAD/Serviços),
- * que funciona no preview do Lovable. Use uma `key` única por clique p/ remontar
- * e poder imprimir o mesmo item de novo.
+ * Monta a ficha (Técnica ou de Corte) OCULTA no documento (CSS: `.print-area`
+ * fica `display:none` na tela e só aparece no @media print) e chama
+ * window.print() quando os dados+imagens carregam.
  *
- * `onDone` vai por ref para NÃO entrar nas deps do efeito (senão um re-render do
- * pai recriava onDone, disparava o cleanup e cancelava a impressão pendente).
+ * NÃO desmonta entre impressões: o disparo é por `token` (incrementa a cada
+ * clique no ícone). Manter montado evita a corrida de remontagem que fazia a 2ª
+ * impressão NÃO reabrir, e deixa as imagens já carregadas para a reimpressão.
+ * Trocar o `modeloId` recarrega os dados da ficha do outro modelo.
  */
 export function PrintFicha({
   modeloId,
   kind,
-  onDone,
+  token,
 }: {
   modeloId: string;
   kind: "tecnica" | "corte";
-  onDone: () => void;
+  token: number;
 }) {
   const d = useFichaData(modeloId);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const startedRef = useRef(false);
-  const onDoneRef = useRef(onDone);
-  onDoneRef.current = onDone;
-  // Só imprime quando os dados ESSENCIAIS da ficha já carregaram (isReady),
-  // senão o 1º clique (cache frio) saía em branco e era preciso clicar de novo.
+  const lastPrinted = useRef(0);
   const ready = d.isReady;
 
   useEffect(() => {
-    if (!ready || startedRef.current) return;
-    startedRef.current = true;
+    if (!token || token === lastPrinted.current) return; // só em um novo pedido
+    if (!ready) return; // espera os dados; quando `ready` virar true, o efeito re-roda
+    lastPrinted.current = token;
     let cancelled = false;
-    let fallback: ReturnType<typeof setTimeout> | undefined;
 
-    // Desmonta SÓ quando o diálogo fecha (evento afterprint) — não por timer.
-    // Isso elimina a corrida em que um setTimeout escondia a .print-area antes
-    // de o navegador capturar o layout, e permite reimprimir limpando o estado.
-    const done = () => {
-      if (cancelled) return;
-      cancelled = true;
-      window.removeEventListener("afterprint", done);
-      if (fallback) clearTimeout(fallback);
-      onDoneRef.current();
-    };
-
-    // Todas as <img> PRESENTES estão carregadas (true também quando ainda não há
-    // nenhuma — daí o piso de settle abaixo dar tempo de a foto assíncrona montar).
+    // Todas as <img> PRESENTES carregaram (true também quando ainda não há nenhuma
+    // — daí o piso de settle abaixo dar tempo das fotos assíncronas montarem).
     const imgsLoaded = () => {
       const imgs = Array.from(wrapRef.current?.querySelectorAll("img") ?? []);
       return imgs.every((img) => img.complete && img.naturalWidth > 0);
     };
 
-    const doPrint = () => {
-      if (cancelled) return;
-      window.addEventListener("afterprint", done);
-      // Rede de segurança caso afterprint não dispare (raro em alguns navegadores).
-      fallback = setTimeout(done, 60000);
-      window.print();
-    };
-
-    // Espera um piso (p/ a foto do modelo — signed URL assíncrona — montar e
-    // carregar) e todas as imagens completarem; teto de 4s (dentro da janela de
-    // "transient activation" do navegador, p/ o print() não ser suprimido).
+    // Piso (p/ as fotos — signed URLs assíncronas — montarem e carregarem) +
+    // todas as imagens completas; teto de 4s (dentro da janela de ativação).
     const MIN_SETTLE = 400;
     const MAX_WAIT = 4000;
     const start = Date.now();
-    const poll = async () => {
+    const run = async () => {
       while (!cancelled) {
-        const elapsed = Date.now() - start;
-        if (elapsed >= MAX_WAIT) break;
-        if (elapsed >= MIN_SETTLE && imgsLoaded()) break;
+        const el = Date.now() - start;
+        if (el >= MAX_WAIT) break;
+        if (el >= MIN_SETTLE && imgsLoaded()) break;
         await new Promise((r) => setTimeout(r, 100));
       }
-      doPrint();
+      if (!cancelled) window.print();
     };
-    poll();
+    run();
 
-    return () => {
-      cancelled = true;
-      window.removeEventListener("afterprint", done);
-      if (fallback) clearTimeout(fallback);
-    };
-  }, [ready]);
+    return () => { cancelled = true; };
+  }, [token, ready]);
 
   return (
     <div ref={wrapRef}>

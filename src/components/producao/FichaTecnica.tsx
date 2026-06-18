@@ -1,6 +1,6 @@
 import { useTenantLogo } from "@/hooks/useTenantLogo";
 import { FichaHeader } from "@/components/producao/FichaHeader";
-import { ModeloPhoto } from "@/components/producao/cad/shared";
+import { ModeloPhotoPrint } from "@/components/producao/cad/shared";
 import { MaterialTable, Etiquetas, Assinatura } from "@/components/producao/cad/CadFichaCorte";
 import { cell, cellH } from "@/components/producao/cad/types";
 import { fmtNum } from "@/lib/format";
@@ -18,7 +18,7 @@ export function FichaTecnica({ modeloId }: { modeloId: string }) {
   const d = useFichaData(modeloId);
   const logo = useTenantLogo();
   const m: any = d.modelo;
-  const foto = (m?.fotos_modelo as string[] | null)?.[0] ?? null;
+  const fotos = (m?.fotos_modelo as string[] | null) ?? [];
   const tecidoBlocks = d.tecidos.filter((t) => t.tipo === "tecido");
   const forroBlocks = d.tecidos.filter((t) => t.tipo === "forro");
   const entretelaBlocks = d.tecidos.filter((t) => t.tipo === "entretela");
@@ -28,10 +28,12 @@ export function FichaTecnica({ modeloId }: { modeloId: string }) {
     <div className="print-area">
       <FichaHeader title="FICHA TÉCNICA" modelo={m} logo={logo} />
 
-      {/* Foto do modelo + etiqueta(s) de lavagem */}
-      <div className="print-section" style={{ display: "flex", gap: 16, marginBottom: 10 }}>
-        <div style={{ width: 160, height: 200, border: "1px solid #999", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0 }}>
-          {foto ? <ModeloPhoto path={foto} alt={m?.nome ?? "modelo"} fit="contain" /> : <span style={{ fontSize: 11, color: "#999" }}>sem foto</span>}
+      {/* Fotos do modelo (todas, lado a lado, respeitando a proporção) + etiqueta(s) */}
+      <div className="print-section" style={{ display: "flex", gap: 16, marginBottom: 10, alignItems: "flex-start" }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", flexShrink: 0, maxWidth: "62%" }}>
+          {fotos.length
+            ? fotos.map((p, i) => <ModeloPhotoPrint key={i} path={p} />)
+            : <span style={{ fontSize: 11, color: "#999" }}>sem foto</span>}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <Etiquetas blocks={d.tecidos} />
@@ -93,10 +95,10 @@ export function FichaTecnica({ modeloId }: { modeloId: string }) {
           </thead>
           <tbody>
             {d.aviamentos.length === 0 ? (
-              <tr><td style={cell} colSpan={4}>—</td></tr>
+              <tr><td style={cell} colSpan={4}></td></tr>
             ) : d.aviamentos.map((a, i) => (
               <tr key={i}>
-                <td style={cell}>{a.aviamento_nome ?? "—"}</td>
+                <td style={cell}>{a.aviamento_nome ?? ""}</td>
                 <td style={cell}>{fmt(a.consumo)}</td>
                 <td style={cell}>{fmt(a.quantidade_enviar)}</td>
                 <td style={cell}>{fmt(a.quantidade_separar)}</td>
@@ -125,7 +127,7 @@ export function FichaTecnica({ modeloId }: { modeloId: string }) {
                 const base = e.tamanho ? gradeSumT(e.tamanho) : d.gradeTotalGeral;
                 return (
                   <tr key={i}>
-                    <td style={cell}>{e.etiqueta_nome ?? "—"}</td>
+                    <td style={cell}>{e.etiqueta_nome ?? ""}</td>
                     <td style={cell}>{fmtTam(e.tamanho)}</td>
                     <td style={cell}>{fmt(e.consumo)}</td>
                     <td style={cell}>{fmt(e.consumo * base)}</td>
@@ -151,12 +153,12 @@ export function FichaTecnica({ modeloId }: { modeloId: string }) {
           <tbody>
             <tr>
               <td style={cell}>Composição</td>
-              <td style={{ ...cell, whiteSpace: "pre-wrap" }}>{d.composicao || "—"}</td>
+              <td style={{ ...cell, whiteSpace: "pre-wrap" }}>{d.composicao || ""}</td>
             </tr>
             {d.observacoes.map((o) => (
               <tr key={o.id}>
-                <td style={cell}>{o.descricao || "—"}</td>
-                <td style={{ ...cell, whiteSpace: "pre-wrap" }}>{o.observacao || "—"}</td>
+                <td style={cell}>{o.descricao || ""}</td>
+                <td style={{ ...cell, whiteSpace: "pre-wrap" }}>{o.observacao || ""}</td>
               </tr>
             ))}
           </tbody>
