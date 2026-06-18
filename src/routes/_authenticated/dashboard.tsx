@@ -244,10 +244,20 @@ function EstoqueTab() {
 
 function ProducaoTab() {
   const fl = useFieldLabels();
+  const [mes, setMes] = useState("all");
+  const [ano, setAno] = useState("all");
+  const [colecao, setColecao] = useState("all");
+  const [linha, setLinha] = useState("all");
+
   const { data, isLoading } = useQuery({
-    queryKey: ["dash-producao"],
+    queryKey: ["dash-producao", mes, ano, colecao, linha],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("dashboard_producao");
+      const { data, error } = await supabase.rpc("dashboard_producao", {
+        p_mes: mes === "all" ? undefined : mes,
+        p_ano: ano === "all" ? undefined : ano,
+        p_colecao: colecao === "all" ? undefined : colecao,
+        p_linha: linha === "all" ? undefined : linha,
+      });
       if (error) throw error;
       return data as any;
     },
@@ -256,15 +266,94 @@ function ProducaoTab() {
   const timeline = data?.timeline ?? [];
   const slaPorTerc = data?.slaPorTerc ?? [];
   const kpiPrazo = data?.kpiPrazo ?? { noPrazo: 0, atrasadas: 0, pct: 0 };
+  const cortes = data?.cortesPorMes ?? [];
+  const entregues = data?.entreguesPorMes ?? [];
+  const kanbanObj = data?.kanban ?? {};
   const etapas = ["CAD", "Terceirizado", "Oficina", "Controle de Qualidade", "Acabamento", "Direcionamento", "Lançado"];
+  const kanbanData = etapas.map((e) => ({ etapa: e, total: Number(kanbanObj?.[e] ?? 0) }));
+
+  const meses: Opt[] = data?.filtros?.meses ?? [];
+  const anos: Opt[] = data?.filtros?.anos ?? [];
+  const colecoes: string[] = data?.filtros?.colecoes ?? [];
+  const linhas: Opt[] = data?.filtros?.linhas ?? [];
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-end gap-2">
+        <FilterButton
+          filters={[
+            { label: "Mês", value: mes, onChange: setMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
+            { label: "Ano", value: ano, onChange: setAno, options: [{ id: "all", nome: "Todos" }, ...anos] },
+            { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
+            { label: "Linha", value: linha, onChange: setLinha, options: [{ id: "all", nome: "Todas" }, ...linhas] },
+          ]}
+        />
+      </div>
+
       <div className="grid gap-4 sm:grid-cols-3">
         <Kpi label="Entregas no prazo" value={kpiPrazo.noPrazo} icon={BarChart3} />
         <Kpi label="Atrasadas" value={kpiPrazo.atrasadas} icon={AlertTriangle} />
         <Kpi label="% no prazo" value={Math.round(Number(kpiPrazo.pct) || 0)} icon={Sparkles} />
       </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card className="p-4">
+          <h3 className="font-semibold mb-3">Cortes por mês</h3>
+          <p className="text-xs text-muted-foreground mb-2">Modelos cortados e grade total (peças) por mês do corte.</p>
+          <div style={{ width: "100%", height: 300 }}>
+            <ResponsiveContainer>
+              <BarChart data={cortes}>
+                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                <XAxis dataKey="mes" />
+                <YAxis yAxisId="left" allowDecimals={false} />
+                <YAxis yAxisId="right" orientation="right" tickFormatter={(v) => Number(v).toLocaleString("pt-BR")} />
+                <Tooltip formatter={(v: any) => fmtNum(v)} />
+                <Legend />
+                <Bar yAxisId="left" dataKey="modelos" name="Modelos" fill={PIE_COLORS[0]} />
+                <Bar yAxisId="right" dataKey="grade" name="Grade total" fill={PIE_COLORS[1]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          {!isLoading && cortes.length === 0 && <p className="text-sm text-muted-foreground text-center mt-2">Sem cortes no período.</p>}
+        </Card>
+
+        <Card className="p-4">
+          <h3 className="font-semibold mb-3">Produção finalizada por mês</h3>
+          <p className="text-xs text-muted-foreground mb-2">Modelos lançados e grade total (peças) por mês do lançamento.</p>
+          <div style={{ width: "100%", height: 300 }}>
+            <ResponsiveContainer>
+              <BarChart data={entregues}>
+                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                <XAxis dataKey="mes" />
+                <YAxis yAxisId="left" allowDecimals={false} />
+                <YAxis yAxisId="right" orientation="right" tickFormatter={(v) => Number(v).toLocaleString("pt-BR")} />
+                <Tooltip formatter={(v: any) => fmtNum(v)} />
+                <Legend />
+                <Bar yAxisId="left" dataKey="modelos" name="Modelos" fill={PIE_COLORS[2]} />
+                <Bar yAxisId="right" dataKey="grade" name="Grade total" fill={PIE_COLORS[3]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          {!isLoading && entregues.length === 0 && <p className="text-sm text-muted-foreground text-center mt-2">Nada finalizado no período.</p>}
+        </Card>
+      </div>
+
+      <Card className="p-4">
+        <h3 className="font-semibold mb-3">Modelos por etapa do kanban</h3>
+        <div style={{ width: "100%", height: 320 }}>
+          <ResponsiveContainer>
+            <BarChart data={kanbanData} layout="vertical" margin={{ left: 24, right: 24 }}>
+              <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+              <XAxis type="number" allowDecimals={false} />
+              <YAxis type="category" dataKey="etapa" width={150} tick={{ fontSize: 12 }} />
+              <Tooltip />
+              <Bar dataKey="total" name="Modelos" fill={PIE_COLORS[0]} radius={[0, 4, 4, 0]}>
+                <LabelList dataKey="total" position="right" />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </Card>
 
       <ProducaoCalendario />
 
@@ -355,11 +444,19 @@ function ProducaoTab() {
 
 /* ============================ FINANCEIRO ============================ */
 
+const MESES_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+
 function FinanceiroTab() {
+  const [mes, setMes] = useState("all");
+  const [ano, setAno] = useState("all");
+
   const { data, isLoading } = useQuery({
-    queryKey: ["dash-financeiro"],
+    queryKey: ["dash-financeiro", mes, ano],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("dashboard_financeiro");
+      const { data, error } = await supabase.rpc("dashboard_financeiro", {
+        p_ano: ano === "all" ? undefined : Number(ano),
+        p_mes: mes === "all" ? undefined : Number(mes),
+      });
       if (error) throw error;
       return data as any;
     },
@@ -369,18 +466,27 @@ function FinanceiroTab() {
   const pago = Number(data?.pago ?? 0);
   const pendente = Number(data?.pendente ?? 0);
   const chartData = data?.chartData ?? [];
+  const anos: number[] = data?.filtros?.anos ?? [];
 
   const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-end gap-2">
+        <FilterButton
+          filters={[
+            { label: "Mês", value: mes, onChange: setMes, options: [{ id: "all", nome: "Todos" }, ...MESES_PT.map((m, i) => ({ id: String(i + 1), nome: m }))] },
+            { label: "Ano", value: ano, onChange: setAno, options: [{ id: "all", nome: "Todos" }, ...anos.map((a) => ({ id: String(a), nome: String(a) }))] },
+          ]}
+        />
+      </div>
       <div className="grid gap-4 sm:grid-cols-3">
         <Card><CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Investido em matéria-prima</CardTitle></CardHeader><CardContent><div className="text-2xl font-semibold">{brl(investido)}</div></CardContent></Card>
         <Card><CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Total pago</CardTitle></CardHeader><CardContent><div className="text-2xl font-semibold text-green-600 dark:text-green-400">{brl(pago)}</div></CardContent></Card>
         <Card><CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Total pendente</CardTitle></CardHeader><CardContent><div className="text-2xl font-semibold text-yellow-600 dark:text-yellow-400">{brl(pendente)}</div></CardContent></Card>
       </div>
       <Card className="p-4">
-        <h3 className="font-semibold mb-3">Contas a pagar — próximos 6 meses</h3>
+        <h3 className="font-semibold mb-3">{ano === "all" ? "Contas a pagar — próximos 6 meses" : `Contas a pagar — ${ano}`}</h3>
         <div style={{ width: "100%", height: 320 }}>
           <ResponsiveContainer>
             <BarChart data={chartData}>
