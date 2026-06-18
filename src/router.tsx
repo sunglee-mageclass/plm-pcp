@@ -2,6 +2,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { createRouter } from "@tanstack/react-router";
 import { routeTree } from "./routeTree.gen";
 
+export const getRouter = () => {
   // staleTime fica em 0 (padrão): VÁRIOS editores hidratam o formulário via
   // side-effect no queryFn (setDraft/setItems dentro do queryFn). Com staleTime>0,
   // reabrir o mesmo registro dentro da janela servia cache SEM rodar o queryFn,
