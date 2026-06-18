@@ -49,6 +49,7 @@ import {
 } from "@/components/ui/collapsible";
 import { useAuth } from "@/hooks/useAuth";
 import { useTenantModules } from "@/hooks/useTenantModules";
+import { useTabLabels } from "@/hooks/useTabLabels";
 import { Button } from "@/components/ui/button";
 import { PAGES_CATALOG, pageInProfile } from "@/lib/permissions-catalog";
 import { useQuery } from "@tanstack/react-query";
@@ -99,6 +100,7 @@ export function AppSidebar() {
   const { isAdmin, isSuperAdmin, isTenantAdmin, canView, user, signOut } = useAuth();
   const { isModuleEnabled, isStockOnly } = useTenantModules();
   const profile = isStockOnly ? "stock" : "full";
+  const tabLabels = useTabLabels();
 
   const { data: tenantCfg } = useQuery({
     queryKey: ["tenant_config", "oficina_posicao"],
@@ -132,10 +134,10 @@ export function AppSidebar() {
       const subs = pages
         .filter((p) => pageInProfile(p, profile))
         .filter((p) => PAGE_URLS[p.key] && (isAdmin || isSuperAdmin || isTenantAdmin || canView(p.key)))
-        .map((p) => ({ key: p.key, label: p.label, url: PAGE_URLS[p.key] }));
+        .map((p) => ({ key: p.key, label: tabLabels[p.key] || p.label, url: PAGE_URLS[p.key] }));
       return {
         url: m.basePath,
-        title: MODULE_META[m.module]?.title ?? m.label,
+        title: tabLabels[m.module] || MODULE_META[m.module]?.title || m.label,
         icon: MODULE_META[m.module]?.icon ?? BarChart3,
         subs,
       };

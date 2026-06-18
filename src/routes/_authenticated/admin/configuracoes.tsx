@@ -27,6 +27,7 @@ import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import {
   Select,
   SelectTrigger,
@@ -34,6 +35,7 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
+import { PAGES_CATALOG } from "@/lib/permissions-catalog";
 
 export const Route = createFileRoute("/_authenticated/admin/configuracoes")({
   component: ConfiguracoesLojaPage,
@@ -318,6 +320,9 @@ function ConfiguracoesLojaPage() {
               />
             </div>
           ))}
+          <div className="pt-2 border-t">
+            <NomesDasAbasDialog tenantId={data?.tenantId ?? null} modules={(data?.cfg as any)?.modules ?? {}} />
+          </div>
         </CardContent>
       </Card>
 
@@ -506,22 +511,106 @@ function SortableItem({
   );
 }
 
+// Editor dos nomes das abas (módulos + páginas) que aparecem no menu lateral.
+function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; modules: Record<string, boolean> }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [labels, setLabels] = useState<Record<string, string>>({});
+  const [hydrated, setHydrated] = useState(false);
+
+  const { data: current } = useQuery({
+    queryKey: ["tenant_config", "tab_labels_edit"],
+    enabled: open && !!tenantId,
+    queryFn: async () => {
+      const { data } = await supabase.from("tenant_config").select("tab_labels").eq("tenant_id", tenantId!).maybeSingle();
+      return ((data as any)?.tab_labels ?? {}) as Record<string, string>;
+    },
+  });
+
+  useEffect(() => {
+    if (open && current && !hydrated) { setLabels(current); setHydrated(true); }
+    if (!open) setHydrated(false);
+  }, [open, current, hydrated]);
+
+  const enabledModules = PAGES_CATALOG.filter((m) => modules[m.module] !== false);
+  const set = (key: string, value: string) => setLabels((l) => ({ ...l, [key]: value }));
+
+  const saveMut = useMutation({
+    mutationFn: async () => {
+      if (!tenantId) throw new Error("Loja não identificada.");
+      const clean: Record<string, string> = {};
+      Object.entries(labels).forEach(([k, v]) => { if (v && v.trim()) clean[k] = v.trim(); });
+      const { error } = await supabase.from("tenant_config").update({ tab_labels: clean } as any).eq("tenant_id", tenantId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Nomes das abas salvos");
+      qc.invalidateQueries({ queryKey: ["tenant_config", "tab_labels"] });
+      qc.invalidateQueries({ queryKey: ["tenant_config", "tab_labels_edit"] });
+      setOpen(false);
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao salvar"),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button type="button" variant="outline" disabled={!tenantId}>
+          <Settings className="h-4 w-4 mr-2" /> Nomes das abas (módulos e páginas)
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Nomes das abas do menu</DialogTitle>
+        </DialogHeader>
+        <p className="text-xs text-muted-foreground">
+          Renomeie como cada módulo e página aparecem no menu lateral. Em branco = nome padrão.
+        </p>
+        <div className="space-y-4">
+          {enabledModules.map((m) => (
+            <div key={m.module} className="rounded-md border p-3 space-y-2">
+              <div className="grid grid-cols-1 md:grid-cols-[170px_1fr] items-center gap-2">
+                <Label className="text-sm font-semibold">{m.label} <span className="text-muted-foreground font-normal">(módulo)</span></Label>
+                <Input placeholder={m.label} value={labels[m.module] ?? ""} onChange={(e) => set(m.module, e.target.value)} />
+              </div>
+              {m.pages.map((p) => (
+                <div key={p.key} className="grid grid-cols-1 md:grid-cols-[170px_1fr] items-center gap-2 md:pl-4">
+                  <Label className="text-xs text-muted-foreground">{p.label}</Label>
+                  <Input className="h-8" placeholder={p.label} value={labels[p.key] ?? ""} onChange={(e) => set(p.key, e.target.value)} />
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>
+          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+            <Save className="h-4 w-4 mr-2" /> Salvar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // Categorias de Terceirizado (mesma lista usada em Cadastro → Serviço → Terceirizados).
 // Mesmo padrão visual do card de Acabamento, mas persiste direto na tabela
 // `categorias_terceirizado` (cada ação salva na hora, não depende do botão "Salvar").
 function ServicosCard({ tenantId }: { tenantId: string | null }) {
   const qc = useQueryClient();
   const [draft, setDraft] = useState("");
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const { data: categorias = [], isLoading } = useQuery({
     queryKey: ["categorias_terceirizado", "config"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("categorias_terceirizado")
-        .select("id, nome")
+        .select("id, nome, ordem")
+        .order("ordem")
         .order("nome");
       if (error) throw error;
-      return (data ?? []) as { id: string; nome: string }[];
+      return (data ?? []) as unknown as { id: string; nome: string; ordem: number }[];
     },
   });
 
@@ -529,12 +618,34 @@ function ServicosCard({ tenantId }: { tenantId: string | null }) {
     qc.invalidateQueries({ queryKey: ["categorias_terceirizado", "config"] });
     // Mesma lista consumida no cadastro de Terceirizados.
     qc.invalidateQueries({ queryKey: ["cat-terceirizado-options"] });
+    qc.invalidateQueries({ queryKey: ["categorias_terceirizado"] });
+  };
+
+  const reorderMut = useMutation({
+    mutationFn: async (ordered: { id: string }[]) => {
+      await Promise.all(
+        ordered.map((c, i) => supabase.from("categorias_terceirizado").update({ ordem: i } as any).eq("id", c.id)),
+      );
+    },
+    onSuccess: invalidate,
+    onError: (e: any) => toast.error(e.message ?? "Erro ao reordenar."),
+  });
+
+  const handleDragEnd = (e: DragEndEvent) => {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const oldIndex = categorias.findIndex((c) => c.id === active.id);
+    const newIndex = categorias.findIndex((c) => c.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const next = arrayMove(categorias, oldIndex, newIndex);
+    qc.setQueryData(["categorias_terceirizado", "config"], next); // otimista
+    reorderMut.mutate(next);
   };
 
   const addMut = useMutation({
     mutationFn: async (nome: string) => {
       // tenant_id é preenchido pelo trigger set_tenant_id.
-      const { error } = await supabase.from("categorias_terceirizado").insert({ nome });
+      const { error } = await supabase.from("categorias_terceirizado").insert({ nome, ordem: categorias.length } as any);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -617,19 +728,24 @@ function ServicosCard({ tenantId }: { tenantId: string | null }) {
             <Loader2 className="h-4 w-4 animate-spin" /> Carregando…
           </p>
         ) : (
-          <ul className="space-y-2">
-            {categorias.map((c) => (
-              <ServicoRow
-                key={c.id}
-                nome={c.nome}
-                onRename={(nome) => renameMut.mutate({ id: c.id, nome })}
-                onRemove={() => removeMut.mutate(c.id)}
-              />
-            ))}
-            {categorias.length === 0 && (
-              <li className="text-sm text-muted-foreground italic">Nenhuma categoria ainda.</li>
-            )}
-          </ul>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={categorias.map((c) => c.id)} strategy={verticalListSortingStrategy}>
+              <ul className="space-y-2">
+                {categorias.map((c) => (
+                  <ServicoRow
+                    key={c.id}
+                    id={c.id}
+                    nome={c.nome}
+                    onRename={(nome) => renameMut.mutate({ id: c.id, nome })}
+                    onRemove={() => removeMut.mutate(c.id)}
+                  />
+                ))}
+                {categorias.length === 0 && (
+                  <li className="text-sm text-muted-foreground italic">Nenhuma categoria ainda.</li>
+                )}
+              </ul>
+            </SortableContext>
+          </DndContext>
         )}
       </CardContent>
     </Card>
@@ -637,16 +753,20 @@ function ServicosCard({ tenantId }: { tenantId: string | null }) {
 }
 
 function ServicoRow({
+  id,
   nome,
   onRename,
   onRemove,
 }: {
+  id: string;
   nome: string;
   onRename: (nome: string) => void;
   onRemove: () => void;
 }) {
   const [value, setValue] = useState(nome);
   useEffect(() => setValue(nome), [nome]);
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.6 : 1 };
 
   const commit = () => {
     const v = value.trim();
@@ -658,7 +778,16 @@ function ServicoRow({
   };
 
   return (
-    <li className="flex items-center gap-2 rounded-md border bg-card p-2">
+    <li ref={setNodeRef} style={style} className="flex items-center gap-2 rounded-md border bg-card p-2">
+      <button
+        type="button"
+        className="cursor-grab text-muted-foreground hover:text-foreground touch-none"
+        {...attributes}
+        {...listeners}
+        aria-label="Arrastar"
+      >
+        <GripVertical className="h-4 w-4" />
+      </button>
       <Input
         value={value}
         onChange={(e) => setValue(e.target.value)}

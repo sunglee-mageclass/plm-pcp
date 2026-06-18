@@ -154,6 +154,7 @@ function TercDetailPage() {
       const { data, error } = await supabase
         .from("categorias_terceirizado")
         .select("id, nome")
+        .order("ordem")
         .order("nome");
       if (error) throw error;
       return data ?? [];
