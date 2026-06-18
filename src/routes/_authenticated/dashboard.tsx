@@ -300,6 +300,7 @@ function ProducaoTab() {
 
       <Card className="p-4">
         <h3 className="font-semibold mb-3">SLA por terceirizado</h3>
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="text-left text-muted-foreground">
             <tr className="border-b">
@@ -344,6 +345,7 @@ function ProducaoTab() {
             {!isLoading && slaPorTerc.length === 0 && <tr><td colSpan={5} className="py-4 text-center text-muted-foreground">Sem entregas registradas.</td></tr>}
           </tbody>
         </table>
+        </div>
       </Card>
     </div>
   );
