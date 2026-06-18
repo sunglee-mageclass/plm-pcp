@@ -43,10 +43,24 @@ export function TenantSwitcher() {
 
   const switchMut = useMutation({
     mutationFn: (tenant_id: string) => callSet({ data: { tenant_id } }),
-    onSuccess: () => {
-      // O tenant_id já foi atualizado no banco; limpar o cache faz todas as
-      // queries ativas refazerem o fetch já com a nova loja (RLS server-side).
-      qc.clear();
+    onMutate: (tenant_id: string) => {
+      // Reflete a loja escolhida no seletor IMEDIATAMENTE.
+      qc.setQueryData(["tenant-switcher", "current", user?.id], tenant_id);
+    },
+    onSuccess: async () => {
+      // Atualiza PRIMEIRO o que controla o menu (módulos, abas, posição da
+      // oficina) — assim os toggles mudam rápido — e SEM tela em branco
+      // (invalidate mantém o conteúdo antigo até o novo chegar; clear() blanqueava
+      // tudo e disparava um refetch-storm lento). O resto refaz em background.
+      await Promise.all([
+        qc.refetchQueries({ queryKey: ["tenant_config", "modules"], type: "active" }),
+        qc.refetchQueries({ queryKey: ["tenant_config", "oficina_posicao"], type: "active" }),
+        qc.refetchQueries({ queryKey: ["tenant_config", "tab_labels"], type: "active" }),
+      ]);
+      qc.invalidateQueries();
+    },
+    onError: () => {
+      qc.invalidateQueries({ queryKey: ["tenant-switcher", "current"] });
     },
   });
 
