@@ -24,6 +24,7 @@ export type FichaData = {
   labelByNumero: Record<number, string>;
   composicao: string;
   observacoes: ObsRow[];
+  ocLinksByKey: Record<string, string[]>;
 };
 
 /** Carrega os dados SALVOS do CAD de um modelo nos formatos da ficha (read-only). */
@@ -68,6 +69,20 @@ export function useFichaData(modeloId: string): FichaData {
   const { data: modeloGrades = [] } = useQuery({
     queryKey: ["ft-grades", modeloId],
     queryFn: async () => (await supabase.from("modelo_grades").select("*").eq("modelo_id", modeloId)).data ?? [],
+  });
+
+  // OCs vinculadas (Desenvolvimento) p/ a coluna OC(s) da Ficha de Corte — mesma
+  // fonte/chave usada na tela de detalhe do CAD, para a impressão pela LISTA
+  // também mostrar as OCs (antes saíam como "—").
+  const { data: ocLinks = [] } = useQuery({
+    queryKey: ["ft-oc-links", modeloId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("modelo_tecido_oc_links" as any)
+        .select("tipo, numero, ordem, variante_tecido_id, prioridade, oc_item:oc_tecido_item_id(ocs_tecido:oc_tecido_id(numero_pedido))")
+        .eq("modelo_id", modeloId);
+      return (data ?? []) as any[];
+    },
   });
 
   const { data: cadAviamentos = [] } = useQuery({
@@ -164,6 +179,21 @@ export function useFichaData(modeloId: string): FichaData {
 
   const gradeTotalGeral = useMemo(() => grades.reduce((a, g) => a + (g.grade_total || 0), 0), [grades]);
 
+  const ocLinksByKey = useMemo(() => {
+    const tmp: Record<string, { prioridade: number; num: string }[]> = {};
+    for (const l of ocLinks as any[]) {
+      const num = l.oc_item?.ocs_tecido?.numero_pedido;
+      if (!num) continue;
+      const key = `${l.tipo}-${l.numero}-${l.ordem}-${l.variante_tecido_id}`;
+      (tmp[key] ??= []).push({ prioridade: Number(l.prioridade ?? 1), num });
+    }
+    const out: Record<string, string[]> = {};
+    Object.entries(tmp).forEach(([k, arr]) => {
+      out[k] = arr.sort((a, b) => a.prioridade - b.prioridade).map((x) => x.num);
+    });
+    return out;
+  }, [ocLinks]);
+
   const composicao = useMemo(() => {
     const lines = (cadTecidos as any[])
       .slice()
@@ -191,5 +221,6 @@ export function useFichaData(modeloId: string): FichaData {
     labelByNumero,
     composicao,
     observacoes: observacoes as ObsRow[],
+    ocLinksByKey,
   };
 }

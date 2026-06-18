@@ -327,7 +327,7 @@ export type Database = {
           {
             foreignKeyName: "cad_modelo_id_fkey"
             columns: ["modelo_id"]
-            isOneToOne: true
+            isOneToOne: false
             referencedRelation: "modelos"
             referencedColumns: ["id"]
           },

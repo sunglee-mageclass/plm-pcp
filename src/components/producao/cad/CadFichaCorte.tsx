@@ -263,6 +263,7 @@ export function FichaCorteDoc({ modeloId }: { modeloId: string }) {
       etiquetas={d.etiquetas}
       gradeTotalGeral={d.gradeTotalGeral}
       labelByNumero={d.labelByNumero}
+      ocLinksByKey={d.ocLinksByKey}
     />
   );
 }
