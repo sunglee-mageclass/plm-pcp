@@ -50,6 +50,16 @@ const FIELD_LABEL_DEFAULTS: Record<string, string> = {
   linha: "Linha",
 };
 
+// Campos personalizáveis que aparecem em cada módulo (chaves de campos_editaveis).
+const MODULE_FIELD_KEYS: Record<string, string[]> = {
+  cadastro: ["colecao", "ref", "linha"],
+  criacao: ["colecao", "ref", "linha", "estilista", "modelista", "piloteiro"],
+  producao: ["ref", "colecao", "linha"],
+  entrada_saida: [],
+  financeiro: [],
+  dashboard: [],
+};
+
 const DEFAULTS = {
   usa_pl: true,
   corte_interno: false,
@@ -511,42 +521,60 @@ function SortableItem({
   );
 }
 
-// Editor dos nomes das abas (módulos + páginas) que aparecem no menu lateral.
+// Editor das nomenclaturas por módulo: nomes das abas (módulo + páginas) e dos
+// campos. O usuário escolhe UM módulo por vez.
 function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; modules: Record<string, boolean> }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [labels, setLabels] = useState<Record<string, string>>({});
+  const [tabs, setTabs] = useState<Record<string, string>>({});
+  const [campos, setCampos] = useState<Record<string, string>>({});
   const [hydrated, setHydrated] = useState(false);
+  const enabledModules = PAGES_CATALOG.filter((m) => modules[m.module] !== false);
+  const [selModule, setSelModule] = useState<string>(enabledModules[0]?.module ?? "");
 
   const { data: current } = useQuery({
-    queryKey: ["tenant_config", "tab_labels_edit"],
+    queryKey: ["tenant_config", "nomenclaturas_edit"],
     enabled: open && !!tenantId,
     queryFn: async () => {
-      const { data } = await supabase.from("tenant_config").select("tab_labels").eq("tenant_id", tenantId!).maybeSingle();
-      return ((data as any)?.tab_labels ?? {}) as Record<string, string>;
+      const { data } = await supabase.from("tenant_config").select("tab_labels, campos_editaveis").eq("tenant_id", tenantId!).maybeSingle();
+      return {
+        tab_labels: ((data as any)?.tab_labels ?? {}) as Record<string, string>,
+        campos_editaveis: ((data as any)?.campos_editaveis ?? {}) as Record<string, string>,
+      };
     },
   });
 
   useEffect(() => {
-    if (open && current && !hydrated) { setLabels(current); setHydrated(true); }
+    if (open && current && !hydrated) {
+      setTabs(current.tab_labels);
+      setCampos(current.campos_editaveis);
+      if (!selModule && enabledModules[0]) setSelModule(enabledModules[0].module);
+      setHydrated(true);
+    }
     if (!open) setHydrated(false);
-  }, [open, current, hydrated]);
+  }, [open, current, hydrated, enabledModules, selModule]);
 
-  const enabledModules = PAGES_CATALOG.filter((m) => modules[m.module] !== false);
-  const set = (key: string, value: string) => setLabels((l) => ({ ...l, [key]: value }));
+  const mod = PAGES_CATALOG.find((m) => m.module === selModule);
+  const fieldKeys = MODULE_FIELD_KEYS[selModule] ?? [];
 
   const saveMut = useMutation({
     mutationFn: async () => {
       if (!tenantId) throw new Error("Loja não identificada.");
-      const clean: Record<string, string> = {};
-      Object.entries(labels).forEach(([k, v]) => { if (v && v.trim()) clean[k] = v.trim(); });
-      const { error } = await supabase.from("tenant_config").update({ tab_labels: clean } as any).eq("tenant_id", tenantId);
+      const cleanTabs: Record<string, string> = {};
+      Object.entries(tabs).forEach(([k, v]) => { if (v && v.trim()) cleanTabs[k] = v.trim(); });
+      const cleanCampos: Record<string, string> = {};
+      Object.entries(campos).forEach(([k, v]) => { if (v && v.trim()) cleanCampos[k] = v.trim(); });
+      const { error } = await supabase
+        .from("tenant_config")
+        .update({ tab_labels: cleanTabs, campos_editaveis: cleanCampos } as any)
+        .eq("tenant_id", tenantId);
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Nomes das abas salvos");
+      toast.success("Nomenclaturas salvas");
       qc.invalidateQueries({ queryKey: ["tenant_config", "tab_labels"] });
-      qc.invalidateQueries({ queryKey: ["tenant_config", "tab_labels_edit"] });
+      qc.invalidateQueries({ queryKey: ["tenant_config", "campos_editaveis"] });
+      qc.invalidateQueries({ queryKey: ["tenant_config", "nomenclaturas_edit"] });
       setOpen(false);
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao salvar"),
@@ -556,32 +584,59 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button type="button" variant="outline" disabled={!tenantId}>
-          <Settings className="h-4 w-4 mr-2" /> Nomes das abas (módulos e páginas)
+          <Settings className="h-4 w-4 mr-2" /> Editar nomenclaturas por módulo
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Nomes das abas do menu</DialogTitle>
+          <DialogTitle>Nomenclaturas</DialogTitle>
         </DialogHeader>
-        <p className="text-xs text-muted-foreground">
-          Renomeie como cada módulo e página aparecem no menu lateral. Em branco = nome padrão.
-        </p>
-        <div className="space-y-4">
-          {enabledModules.map((m) => (
-            <div key={m.module} className="rounded-md border p-3 space-y-2">
+
+        <div className="grid grid-cols-1 md:grid-cols-[170px_1fr] items-center gap-2">
+          <Label className="text-sm font-semibold">Módulo a editar</Label>
+          <Select value={selModule} onValueChange={setSelModule}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {enabledModules.map((m) => <SelectItem key={m.module} value={m.module}>{m.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {mod && (
+          <div className="space-y-4">
+            {/* Nomes das abas (módulo + páginas) */}
+            <div className="rounded-md border p-3 space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground">Nomes das abas (menu)</p>
               <div className="grid grid-cols-1 md:grid-cols-[170px_1fr] items-center gap-2">
-                <Label className="text-sm font-semibold">{m.label} <span className="text-muted-foreground font-normal">(módulo)</span></Label>
-                <Input placeholder={m.label} value={labels[m.module] ?? ""} onChange={(e) => set(m.module, e.target.value)} />
+                <Label className="text-sm">{mod.label} <span className="text-muted-foreground">(módulo)</span></Label>
+                <Input placeholder={mod.label} value={tabs[mod.module] ?? ""} onChange={(e) => setTabs((t) => ({ ...t, [mod.module]: e.target.value }))} />
               </div>
-              {m.pages.map((p) => (
+              {mod.pages.map((p) => (
                 <div key={p.key} className="grid grid-cols-1 md:grid-cols-[170px_1fr] items-center gap-2 md:pl-4">
                   <Label className="text-xs text-muted-foreground">{p.label}</Label>
-                  <Input className="h-8" placeholder={p.label} value={labels[p.key] ?? ""} onChange={(e) => set(p.key, e.target.value)} />
+                  <Input className="h-8" placeholder={p.label} value={tabs[p.key] ?? ""} onChange={(e) => setTabs((t) => ({ ...t, [p.key]: e.target.value }))} />
                 </div>
               ))}
             </div>
-          ))}
-        </div>
+
+            {/* Nomes de campos do módulo */}
+            <div className="rounded-md border p-3 space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground">Nomes de campos</p>
+              {fieldKeys.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">Nenhum campo personalizável neste módulo.</p>
+              ) : (
+                fieldKeys.map((k) => (
+                  <div key={k} className="grid grid-cols-1 md:grid-cols-[170px_1fr] items-center gap-2">
+                    <Label className="text-xs text-muted-foreground">{FIELD_LABEL_DEFAULTS[k] ?? k}</Label>
+                    <Input className="h-8" placeholder={FIELD_LABEL_DEFAULTS[k] ?? k} value={campos[k] ?? ""} onChange={(e) => setCampos((c) => ({ ...c, [k]: e.target.value }))} />
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        <p className="text-xs text-muted-foreground">Em branco = nome padrão.</p>
         <DialogFooter>
           <Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>
           <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>

@@ -51,10 +51,18 @@ type Parcela = {
 
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
+// Data de hoje no fuso local como "yyyy-MM-dd" (sem hora, sem UTC).
+function todayLocalISO(): string {
+  const t = new Date();
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+}
+
 function effectiveStatus(p: Parcela): "pago" | "vencido" | "a_pagar" {
   if (p.status === "pago" || p.data_pagamento) return "pago";
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  if (parseISO(p.data_vencimento) < today) return "vencido";
+  // Comparação de strings "yyyy-MM-dd" (lexicográfica = cronológica) — robusta,
+  // sem depender de parseISO/fuso. Vencimento ANTES de hoje = vencido.
+  const venc = (p.data_vencimento ?? "").slice(0, 10);
+  if (venc && venc < todayLocalISO()) return "vencido";
   return "a_pagar";
 }
 
@@ -296,8 +304,7 @@ function ParcelaDetailDialog({
       if (!parcela) return;
       const update: Record<string, any> = { data_vencimento: vencimento };
       if (!parcela.data_pagamento && parcela.status !== "pago") {
-        const today = new Date(); today.setHours(0, 0, 0, 0);
-        update.status = parseISO(vencimento) < today ? "vencido" : "a_pagar";
+        update.status = vencimento < todayLocalISO() ? "vencido" : "a_pagar";
       }
       const { error } = await supabase.from("parcelas").update(update as any).eq("id", parcela.id);
       if (error) throw error;
@@ -306,11 +313,10 @@ function ParcelaDetailDialog({
       if (!parcela) return {};
       await qc.cancelQueries({ queryKey: ["parcelas"] });
       const prev = qc.getQueryData<any[]>(["parcelas"]);
-      const today = new Date(); today.setHours(0, 0, 0, 0);
       const paid = !!parcela.data_pagamento || parcela.status === "pago";
       qc.setQueryData<any[]>(["parcelas"], (old) => (old ?? []).map((p) =>
         p.id === parcela.id
-          ? { ...p, data_vencimento: vencimento, status: paid ? p.status : (parseISO(vencimento) < today ? "vencido" : "a_pagar") }
+          ? { ...p, data_vencimento: vencimento, status: paid ? p.status : (vencimento < todayLocalISO() ? "vencido" : "a_pagar") }
           : p));
       return { prev };
     },
@@ -467,10 +473,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
   const updateVencimentoMut = useMutation({
     mutationFn: async ({ id, data, paid }: { id: string; data: string; paid: boolean }) => {
       const update: Record<string, any> = { data_vencimento: data };
-      if (!paid) {
-        const today = new Date(); today.setHours(0, 0, 0, 0);
-        update.status = parseISO(data) < today ? "vencido" : "a_pagar";
-      }
+      if (!paid) update.status = data < todayLocalISO() ? "vencido" : "a_pagar";
       const { error } = await supabase.from("parcelas").update(update as any).eq("id", id);
       if (error) throw error;
     },
@@ -479,10 +482,9 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
     onMutate: async ({ id, data, paid }) => {
       await qc.cancelQueries({ queryKey: ["parcelas"] });
       const prev = qc.getQueryData<any[]>(["parcelas"]);
-      const today = new Date(); today.setHours(0, 0, 0, 0);
       qc.setQueryData<any[]>(["parcelas"], (old) => (old ?? []).map((p) =>
         p.id === id
-          ? { ...p, data_vencimento: data, status: paid ? p.status : (parseISO(data) < today ? "vencido" : "a_pagar") }
+          ? { ...p, data_vencimento: data, status: paid ? p.status : (data < todayLocalISO() ? "vencido" : "a_pagar") }
           : p));
       return { prev };
     },

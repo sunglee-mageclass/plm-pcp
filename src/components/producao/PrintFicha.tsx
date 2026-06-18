@@ -64,6 +64,11 @@ export function PrintFicha({
   const d = useFichaData(modeloId);
   const wrapRef = useRef<HTMLDivElement>(null);
   const startedRef = useRef(false);
+  // onDone via ref para NÃO entrar nas deps do efeito — senão, qualquer re-render
+  // do pai recriava onDone, disparava o cleanup e CANCELAVA a impressão pendente
+  // (era o motivo de "não poder imprimir de novo").
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
   const ready = !!d.modelo && d.cadRow !== undefined;
 
   useEffect(() => {
@@ -74,10 +79,10 @@ export function PrintFicha({
     const t = setTimeout(async () => {
       const area = wrapRef.current?.querySelector(".print-area") as HTMLElement | null;
       if (area && !cancelled) await printAreaViaIframe(area);
-      if (!cancelled) onDone();
+      if (!cancelled) onDoneRef.current();
     }, 150);
     return () => { cancelled = true; clearTimeout(t); };
-  }, [ready, onDone]);
+  }, [ready]);
 
   return (
     <div ref={wrapRef}>
