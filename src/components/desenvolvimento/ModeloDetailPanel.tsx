@@ -11,6 +11,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
+import { useFieldLabels } from "@/hooks/useFieldLabels";
 
 import {
   BUCKET,
@@ -47,6 +48,7 @@ export function ModeloDetailPanel({ modeloId, onClose }: {
 
 function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => void }) {
   const qc = useQueryClient();
+  const fl = useFieldLabels();
 
   const linhas = useOpts("linhas");
   const modelistas = useColabs("modelista");
@@ -460,7 +462,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const piloto3Aberto = !!(draft?.piloteiro3_id || (draft?.data_piloto3 ?? "").trim());
   const cadMissing: string[] = [];
   if (isAprovado && !draft?.enviado_cad) {
-    if ((draft?.ref ?? "").trim() === "") cadMissing.push("REF");
+    if ((draft?.ref ?? "").trim() === "") cadMissing.push(fl("ref"));
     if ((draft?.nome ?? "").trim() === "") cadMissing.push("Nome");
     if (!(modelo as any)?.estilista_id) cadMissing.push("Estilista");
     if (!(modelo as any)?.categoria_principal_id) cadMissing.push("Categoria");

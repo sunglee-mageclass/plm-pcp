@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { fmtNum } from "@/lib/format";
 import { useMemo, useState } from "react";
+import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -242,6 +243,7 @@ function EstoqueTab() {
 /* ============================ PRODUÇÃO ============================ */
 
 function ProducaoTab() {
+  const fl = useFieldLabels();
   const { data, isLoading } = useQuery({
     queryKey: ["dash-producao"],
     queryFn: async () => {
@@ -267,12 +269,12 @@ function ProducaoTab() {
       <ProducaoCalendario />
 
       <Card className="p-4">
-        <h3 className="font-semibold mb-3">Timeline por REF</h3>
+        <h3 className="font-semibold mb-3">Timeline por {fl("ref")}</h3>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="text-left text-muted-foreground">
               <tr className="border-b">
-                <th className="py-2 pr-3">REF</th>
+                <th className="py-2 pr-3">{fl("ref")}</th>
                 <th className="py-2 pr-3">Nome</th>
                 {etapas.map((e) => <th key={e} className="py-2 px-2 text-center text-xs">{e}</th>)}
               </tr>
@@ -399,6 +401,7 @@ function FinanceiroTab() {
 /* ============================ CUSTOS ============================ */
 
 function CustosTab() {
+  const fl = useFieldLabels();
   const [colecao, setColecao] = useState("all");
   const [mes, setMes] = useState("all");
   const [categoria, setCategoria] = useState("all");
@@ -442,7 +445,7 @@ function CustosTab() {
           <table className="w-full text-sm">
             <thead className="text-left text-muted-foreground">
               <tr className="border-b">
-                <th className="py-2 pr-3">REF</th>
+                <th className="py-2 pr-3">{fl("ref")}</th>
                 <th className="py-2 pr-3">Modelo</th>
                 <th className="py-2 pr-3 text-right">Previsto</th>
                 <th className="py-2 pr-3 text-right">Real</th>

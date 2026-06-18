@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
+import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -34,6 +35,7 @@ function computeStatus(b: { data_enviado: string | null; data_entregue: string |
 function OficinaDetailPage() {
   const { modeloId } = Route.useParams();
   const qc = useQueryClient();
+  const fl = useFieldLabels();
   const readOnly = useReadOnly();
 
   const { data: modelo } = useQuery({
@@ -316,7 +318,7 @@ function OficinaDetailPage() {
               <img src={fotos[0]} alt={`Modelo ${modelo?.ref ?? ""} ${modelo?.nome ?? ""}`.trim() || "Foto do modelo"} style={{ width: 180, height: 240, objectFit: "cover", border: "1px solid #ccc" }} />
             )}
             <div style={{ fontSize: 12, lineHeight: 1.6 }}>
-              <div><strong>REF:</strong> {modelo?.ref ?? "—"}</div>
+              <div><strong>{fl("ref")}:</strong> {modelo?.ref ?? "—"}</div>
               <div><strong>Modelo:</strong> {modelo?.nome ?? "—"}</div>
               <div><strong>Coleção:</strong> {modelo?.colecao ?? "—"}</div>
               <div><strong>Categoria:</strong> {(modelo as any)?.categorias_produto?.nome ?? "—"}</div>

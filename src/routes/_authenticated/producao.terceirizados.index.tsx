@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FilterButton } from "@/components/shared/filters";
 import { PrintFicha } from "@/components/producao/PrintFicha";
+import { useFieldLabels } from "@/hooks/useFieldLabels";
 
 export const Route = createFileRoute("/_authenticated/producao/terceirizados/")({
   component: TercListPage,
@@ -17,6 +18,7 @@ export const Route = createFileRoute("/_authenticated/producao/terceirizados/")(
 
 function TercListPage() {
   const navigate = useNavigate();
+  const fl = useFieldLabels();
   const [q, setQ] = useState("");
   const [fColecao, setFColecao] = useState("all");
   const [fMes, setFMes] = useState("all");
@@ -99,7 +101,7 @@ function TercListPage() {
       <div className="flex items-center gap-2">
         <div className="relative flex-1 max-w-sm">
           <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input className="pl-9" placeholder="REF ou nome…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <Input className="pl-9" placeholder={`${fl("ref")} ou nome…`} value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
         <FilterButton
           filters={[
@@ -121,7 +123,7 @@ function TercListPage() {
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left">
             <tr>
-              <th className="px-4 py-2">REF</th>
+              <th className="px-4 py-2">{fl("ref")}</th>
               <th className="px-4 py-2">Nome</th>
               <th className="px-4 py-2">Categoria</th>
               <th className="px-4 py-2">Coleção</th>

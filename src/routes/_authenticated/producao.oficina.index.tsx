@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export const Route = createFileRoute("/_authenticated/producao/oficina/")({
@@ -13,6 +14,7 @@ export const Route = createFileRoute("/_authenticated/producao/oficina/")({
 });
 
 function OficinaListPage() {
+  const fl = useFieldLabels();
   const [q, setQ] = useState("");
   const [fColecao, setFColecao] = useState("all");
   const [fMes, setFMes] = useState("all");
@@ -78,7 +80,7 @@ function OficinaListPage() {
       <Card className="p-4 grid gap-3 md:grid-cols-5">
         <div className="relative md:col-span-2">
           <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input className="pl-9" placeholder="REF ou nome…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <Input className="pl-9" placeholder={`${fl("ref")} ou nome…`} value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
         <Select value={fColecao} onValueChange={setFColecao}>
           <SelectTrigger><SelectValue placeholder="Coleção" /></SelectTrigger>
@@ -107,7 +109,7 @@ function OficinaListPage() {
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left">
             <tr>
-              <th className="px-4 py-2">REF</th>
+              <th className="px-4 py-2">{fl("ref")}</th>
               <th className="px-4 py-2">Nome</th>
               <th className="px-4 py-2">Categoria</th>
               <th className="px-4 py-2">Coleção</th>

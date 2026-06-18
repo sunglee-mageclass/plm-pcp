@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
+import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS, useCompactCards } from "@/hooks/useGridCols";
 import { LayoutGrid } from "lucide-react";
 
@@ -43,6 +44,7 @@ type LancCard = {
 
 function LancamentosPage() {
   const qc = useQueryClient();
+  const fl = useFieldLabels();
   const readOnly = useReadOnly();
   const gridRef = useRef<HTMLDivElement>(null);
   const [cols, setCols] = useGridCols("lancamentos");
@@ -215,7 +217,7 @@ function LancamentosPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <SearchToggle value={q} onChange={setQ} placeholder="REF ou nome…" />
+          <SearchToggle value={q} onChange={setQ} placeholder={`${fl("ref")} ou nome…`} />
           <FilterButton
             filters={[
               { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
