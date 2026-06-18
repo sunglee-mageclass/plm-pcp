@@ -460,117 +460,60 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
   // --- mutations ---
   const saveAll = useMutation({
     mutationFn: async () => {
-      let cad_id = cadRow?.id as string | undefined;
-      if (!cad_id) {
-        const { data, error } = await supabase
-          .from("cad")
-          .insert({ modelo_id: modeloId, status_corte: "pendente" })
-          .select("id")
-          .single();
-        if (error) throw error;
-        cad_id = data.id;
-      }
-      await supabase.from("cad_tecidos").delete().eq("cad_id", cad_id!);
-      await supabase.from("cad_grades").delete().eq("cad_id", cad_id!);
-      for (const t of tecidos) {
-        const { data: ins, error } = await supabase
-          .from("cad_tecidos")
-          .insert({
-            cad_id,
-            artigo_id: t.artigo_id,
-            numero: t.numero,
-            tipo: t.tipo,
-            consumo_cad: t.consumo_cad,
-            loss_percent_cad: t.loss_percent_cad,
-            custo_cad: t.custo_cad,
-            tamanho_folha: t.tamanho_folha,
-          })
-          .select("id")
-          .single();
-        if (error) throw error;
-        if (t.variantes.length > 0) {
-          const payload = t.variantes.map((v) => ({
-            cad_tecido_id: ins.id,
+      // Persistência ATÔMICA via RPC: todo o delete-then-insert acontece dentro
+      // de uma única transação no banco (salvar_cad_completo). Se qualquer passo
+      // falhar, faz ROLLBACK — nunca deixa a grade/tecidos apagados sem reescrever.
+      // A aritmética (qtd planejada da etiqueta, filtro de grades) continua aqui,
+      // então os números gravados são idênticos aos de antes.
+      const gradesToSave = grades.filter(
+        (g) => (g.grade_total || 0) > 0 || Object.values(g.grades || {}).some((v) => (Number(v) || 0) > 0),
+      );
+      const { data, error } = await supabase.rpc("salvar_cad_completo" as any, {
+        _modelo_id: modeloId,
+        _tecidos: tecidos.map((t) => ({
+          artigo_id: t.artigo_id,
+          numero: t.numero,
+          tipo: t.tipo,
+          consumo_cad: t.consumo_cad,
+          loss_percent_cad: t.loss_percent_cad,
+          custo_cad: t.custo_cad,
+          tamanho_folha: t.tamanho_folha,
+          variantes: t.variantes.map((v) => ({
             variante_tecido_id: v.variante_tecido_id,
             ordem: v.ordem,
             multiplicador: Number(v.multiplicador ?? 1) || 1,
             quantidade_folhas: v.quantidade_folhas,
             metragem_planejada: v.metragem_planejada,
             metragem_enviada: v.metragem_enviada,
-          }));
-          const { error: ve } = await supabase.from("cad_tecido_variantes").insert(payload);
-          if (ve) throw ve;
-        }
-      }
-      // Grade ÚNICA: grava direto em modelo_grades (compartilhada com o
-      // Desenvolvimento) + proporções no modelo. O que muda aqui reflete lá e
-      // recalcula a reserva de estoque.
-      await supabase.from("modelos").update({ proporcoes }).eq("id", modeloId);
-      await supabase.from("modelo_grades").delete().eq("modelo_id", modeloId);
-      const gradesToSave = grades.filter(
-        (g) => (g.grade_total || 0) > 0 || Object.values(g.grades || {}).some((v) => (Number(v) || 0) > 0),
-      );
-      if (gradesToSave.length > 0) {
-        const { error: ge } = await supabase.from("modelo_grades").insert(
-          gradesToSave.map((g) => ({
-            modelo_id: modeloId,
-            variante_numero: g.variante_numero,
-            grades: g.grades,
-            grade_total: g.grade_total,
           })),
-        );
-        if (ge) throw ge;
-      }
-      // Espelha a grade única em cad_grades (planejada = real = grade), pois
-      // Direcionamento e Oficina ainda leem dessa tabela.
-      if (gradesToSave.length > 0) {
-        const { error: gce } = await supabase.from("cad_grades").insert(
-          gradesToSave.map((g) => ({
-            cad_id,
-            variante_numero: g.variante_numero,
-            grades_planejadas: g.grades,
-            grades_reais: g.grades,
-            grade_total_planejada: g.grade_total,
-            grade_total_real: g.grade_total,
-          })),
-        );
-        if (gce) throw gce;
-      }
-      await supabase.from("cad_aviamentos").delete().eq("cad_id", cad_id!);
-      if (aviamentos.length > 0) {
-        const { error: ae } = await supabase.from("cad_aviamentos").insert(
-          aviamentos.map((a) => ({
-            cad_id,
-            aviamento_id: a.aviamento_id,
-            numero: a.numero,
-            consumo: a.consumo,
-            quantidade_enviar: a.quantidade_enviar,
-            quantidade_separar: a.quantidade_separar,
-          })),
-        );
-        if (ae) throw ae;
-      }
-      // TAG/Etiquetas do CAD. Qtd Planejada é calculada quando há tamanho atrelado.
-      await supabase.from("cad_etiquetas" as any).delete().eq("cad_id", cad_id!);
-      if (etiquetas.length > 0) {
-        const { error: ee } = await supabase.from("cad_etiquetas" as any).insert(
-          etiquetas.map((e) => ({
-            cad_id,
-            etiqueta_id: e.etiqueta_id,
-            consumo: e.consumo,
-            // Sem tamanho atrelado, usa a grade total geral; com tamanho, a grade do tamanho.
-            quantidade_planejada: Number(
-              (e.consumo * (e.tamanho ? gradeSumByTamanho(e.tamanho) : gradeTotalGeral)).toFixed(2),
-            ),
-            quantidade_enviar: e.quantidade_enviar,
-          })),
-        );
-        if (ee) throw ee;
-      }
-      const cadUpdate: any = { observacoes_molde: observacoesMolde || null };
-      if (previsaoEntrega) cadUpdate.data_previsao_corte = previsaoEntrega;
-      await supabase.from("cad").update(cadUpdate).eq("id", cad_id!);
-      return cad_id;
+        })),
+        _grades: gradesToSave.map((g) => ({
+          variante_numero: g.variante_numero,
+          grades: g.grades,
+          grade_total: g.grade_total,
+        })),
+        _aviamentos: aviamentos.map((a) => ({
+          aviamento_id: a.aviamento_id,
+          numero: a.numero,
+          consumo: a.consumo,
+          quantidade_enviar: a.quantidade_enviar,
+          quantidade_separar: a.quantidade_separar,
+        })),
+        _etiquetas: etiquetas.map((e) => ({
+          etiqueta_id: e.etiqueta_id,
+          consumo: e.consumo,
+          // Sem tamanho atrelado, usa a grade total geral; com tamanho, a grade do tamanho.
+          quantidade_planejada: Number(
+            (e.consumo * (e.tamanho ? gradeSumByTamanho(e.tamanho) : gradeTotalGeral)).toFixed(2),
+          ),
+          quantidade_enviar: e.quantidade_enviar,
+        })),
+        _proporcoes: proporcoes,
+        _observacoes_molde: observacoesMolde || null,
+        _data_previsao_corte: previsaoEntrega || null,
+      });
+      if (error) throw error;
+      return data as string;
     },
     onSuccess: () => {
       toast.success("CAD salvo");

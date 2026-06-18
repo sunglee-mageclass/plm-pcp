@@ -604,104 +604,15 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     mutationFn: async () => {
       // Salva o BOM atual antes de copiar para o CAD (consumos/variantes corretos).
       await persistModelo();
-      const { data: mdl, error: eM } = await supabase
-        .from("modelos").select("tenant_id").eq("id", modeloId).maybeSingle();
-      if (eM) throw eM;
-      const tenantId = mdl?.tenant_id;
-      const { data: cadIns, error: eC } = await supabase.from("cad").insert({
-        modelo_id: modeloId,
-        tenant_id: tenantId,
-        observacoes_tecnicas: draft?.observacoes_tecnicas || null,
-        ficha_medida_url: draft?.ficha_medida_url || null,
-        status_corte: "pendente",
-      }).select("id").single();
-      if (eC) throw eC;
-      const cadId = cadIns.id;
-
-      // Copia tecidos/forros/entretelas e variantes do Desenvolvimento para o CAD,
-      // para que o CAD já comece com os dados e possa ajustar seus próprios consumos.
-      const { data: mTecidos, error: eMT } = await supabase
-        .from("modelo_tecidos")
-        .select("artigo_id, numero, tipo, consumo, loss_percent, custo_previsto, modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador)")
-        .eq("modelo_id", modeloId);
-      if (eMT) throw eMT;
-      for (const t of mTecidos ?? []) {
-        const { data: ctIns, error: eCT } = await supabase
-          .from("cad_tecidos")
-          .insert({
-            cad_id: cadId,
-            artigo_id: t.artigo_id,
-            numero: t.numero,
-            tipo: t.tipo,
-            consumo_cad: t.consumo,
-            loss_percent_cad: t.loss_percent,
-            custo_cad: t.custo_previsto,
-            tamanho_folha: 0,
-          })
-          .select("id")
-          .single();
-        if (eCT) throw eCT;
-        const variantes = (t.modelo_tecido_variantes ?? []) as { variante_tecido_id: string; ordem: number; multiplicador?: number }[];
-        if (variantes.length > 0) {
-          const { error: eCV } = await supabase.from("cad_tecido_variantes").insert(
-            variantes.map((v) => ({
-              cad_tecido_id: ctIns.id,
-              variante_tecido_id: v.variante_tecido_id,
-              ordem: v.ordem,
-              multiplicador: Number(v.multiplicador ?? 1) || 1,
-              quantidade_folhas: 0,
-              metragem_planejada: 0,
-              metragem_enviada: 0,
-            })),
-          );
-          if (eCV) throw eCV;
-        }
-      }
-
-      // Copia grade planejada
-      const { data: mGrades, error: eMG } = await supabase
-        .from("modelo_grades").select("variante_numero, grades, grade_total").eq("modelo_id", modeloId);
-      if (eMG) throw eMG;
-      if ((mGrades ?? []).length > 0) {
-        const { error: eCG } = await supabase.from("cad_grades").insert(
-          mGrades!.map((g) => ({
-            cad_id: cadId,
-            variante_numero: g.variante_numero,
-            grades_planejadas: g.grades ?? {},
-            grades_reais: g.grades ?? {},
-            grade_total_planejada: g.grade_total ?? 0,
-            grade_total_real: g.grade_total ?? 0,
-          })),
-        );
-        if (eCG) throw eCG;
-      }
-
-      // Copia aviamentos
-      const gradeTotal = (mGrades ?? []).reduce((s, g) => s + (g.grade_total ?? 0), 0);
-      const { data: mAviamentos, error: eMA } = await supabase
-        .from("modelo_aviamentos").select("aviamento_id, consumo").eq("modelo_id", modeloId).order("numero");
-      if (eMA) throw eMA;
-      if ((mAviamentos ?? []).length > 0) {
-        const { error: eCA } = await supabase.from("cad_aviamentos").insert(
-          mAviamentos!.map((a, i) => {
-            const consumo = Number(a.consumo ?? 0);
-            const qtd = Number((consumo * gradeTotal).toFixed(4));
-            return {
-              cad_id: cadId,
-              aviamento_id: a.aviamento_id,
-              numero: i + 1,
-              consumo,
-              quantidade_enviar: qtd,
-              quantidade_separar: qtd,
-            };
-          }),
-        );
-        if (eCA) throw eCA;
-      }
-
-      const { error: eU } = await supabase
-        .from("modelos").update({ enviado_cad: true }).eq("id", modeloId);
-      if (eU) throw eU;
+      // Criação do CAD + cópia do BOM (tecidos/variantes/grade/aviamentos) agora é
+      // ATÔMICA e IDEMPOTENTE via RPC: recusa um segundo CAD para o mesmo modelo
+      // (UNIQUE cad.modelo_id) e, em qualquer falha parcial, faz ROLLBACK de tudo.
+      const { error } = await supabase.rpc("enviar_modelo_para_cad" as any, {
+        _modelo_id: modeloId,
+        _observacoes_tecnicas: draft?.observacoes_tecnicas || null,
+        _ficha_medida_url: draft?.ficha_medida_url || null,
+      });
+      if (error) throw error;
     },
     onSuccess: () => {
       toast.success("Enviado para o CAD");
