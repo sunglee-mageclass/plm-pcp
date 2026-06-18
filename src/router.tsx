@@ -2,19 +2,13 @@ import { QueryClient } from "@tanstack/react-query";
 import { createRouter } from "@tanstack/react-router";
 import { routeTree } from "./routeTree.gen";
 
-export const getRouter = () => {
-  // staleTime padrão: evita o refetch-storm em CADA montagem/foco de janela
-  // (antes era 0 = tudo sempre "stale" -> refazia toda query ao navegar e ao
-  // trocar de loja). Mutações continuam chamando invalidateQueries/setQueryData
-  // nas suas chaves, então dados editados NÃO ficam velhos; só reusa o cache por
-  // até 30s em navegação normal. (rec. #3c do diagnóstico.)
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: {
-        staleTime: 30_000,
-      },
-    },
-  });
+  // staleTime fica em 0 (padrão): VÁRIOS editores hidratam o formulário via
+  // side-effect no queryFn (setDraft/setItems dentro do queryFn). Com staleTime>0,
+  // reabrir o mesmo registro dentro da janela servia cache SEM rodar o queryFn,
+  // deixando o form no estado vazio e o Salvar sobrescrevia com vazio (perda de
+  // dados — Planejamento, OCs, etc.). Não reintroduzir staleTime global sem antes
+  // migrar essas hidratações de queryFn->useEffect.
+  const queryClient = new QueryClient();
 
   const router = createRouter({
     routeTree,
