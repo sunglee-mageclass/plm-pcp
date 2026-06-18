@@ -4,11 +4,11 @@ import { FichaCorteDoc } from "@/components/producao/cad/CadFichaCorte";
 import { useFichaData } from "@/components/producao/cad/useFichaData";
 
 /**
- * Monta a ficha (Técnica ou de Corte) de um modelo de forma oculta e dispara
- * window.print() assim que os dados E as imagens (fotos/etiquetas via signed URL)
- * carregam — permite imprimir direto da lista, sem abrir o item. Desmonta no
- * evento afterprint (com fallback), para não cortar a impressão nem travar o
- * segundo clique.
+ * Monta a ficha (Técnica ou de Corte) de um modelo de forma oculta, espera as
+ * imagens (signed URLs) carregarem e dispara window.print(). Como print() é
+ * bloqueante, chamamos onDone() logo depois (já com o diálogo fechado) — o que
+ * SEMPRE reseta o estado, liberando uma nova impressão. Use uma `key` única por
+ * clique para forçar a remontagem mesmo no mesmo modelo.
  */
 export function PrintFicha({
   modeloId,
@@ -29,33 +29,19 @@ export function PrintFicha({
     if (!ready || startedRef.current) return;
     startedRef.current = true;
     let cancelled = false;
-    let done = false;
-
-    const finish = () => {
-      if (done) return;
-      done = true;
-      window.removeEventListener("afterprint", finish);
-      onDone();
-    };
-
-    const imagesReady = () => {
-      const imgs = Array.from(wrapRef.current?.querySelectorAll("img") ?? []);
-      if (imgs.length === 0) return true;
-      return imgs.every((img) => img.complete && img.naturalWidth > 0);
-    };
 
     const run = async () => {
-      // Espera as imagens carregarem (signed URLs são assíncronas), no máx. ~4s.
+      // Espera as imagens carregarem (no máx. ~4s), p/ a foto não sair em branco.
       const start = Date.now();
       while (!cancelled && Date.now() - start < 4000) {
-        if (imagesReady() && Date.now() - start > 250) break;
+        const imgs = Array.from(wrapRef.current?.querySelectorAll("img") ?? []);
+        const allLoaded = imgs.length === 0 || imgs.every((img) => img.complete && img.naturalWidth > 0);
+        if (allLoaded && Date.now() - start > 250) break;
         await new Promise((r) => setTimeout(r, 120));
       }
       if (cancelled) return;
-      window.addEventListener("afterprint", finish);
-      // Fallback: alguns navegadores não disparam afterprint de forma confiável.
-      setTimeout(finish, 2000);
-      window.print();
+      window.print();         // bloqueante: retorna após fechar/cancelar o diálogo
+      if (!cancelled) onDone();
     };
     run();
     return () => { cancelled = true; };

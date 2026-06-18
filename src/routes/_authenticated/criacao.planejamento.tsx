@@ -18,6 +18,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
+import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS } from "@/hooks/useGridCols";
 import { fmtNum } from "@/lib/format";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 
@@ -109,15 +110,6 @@ const STATUS_OPTS = [
 ];
 const statusMeta = (s: string | null) => STATUS_OPTS.find((o) => o.value === s) ?? STATUS_OPTS[0];
 
-// Quantidade de cards por linha (grid). Classes literais p/ o Tailwind não purgar.
-const COL_OPTS = [2, 3, 4, 5, 6] as const;
-const COL_CLASS: Record<number, string> = {
-  2: "grid gap-4 grid-cols-1 sm:grid-cols-2",
-  3: "grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3",
-  4: "grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4",
-  5: "grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5",
-  6: "grid gap-4 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6",
-};
 
 async function uploadFile(file: File, prefix: string) {
   const { tenantPrefix } = await import("@/lib/storage-tenant");
@@ -153,7 +145,7 @@ function PlanejamentoPage() {
   const [openNew, setOpenNew] = useState(false);
   const [openBatch, setOpenBatch] = useState(false);
   const [groupByCat, setGroupByCat] = useState(false);
-  const [cols, setCols] = useState(4);
+  const [cols, setCols] = useGridCols("planejamento");
 
   const { data: estilistas = [] } = useQuery({
     queryKey: ["colab-estilistas"],
@@ -284,7 +276,7 @@ function PlanejamentoPage() {
           <Select value={String(cols)} onValueChange={(v) => setCols(Number(v))}>
             <SelectTrigger className="h-8 w-16"><SelectValue /></SelectTrigger>
             <SelectContent>
-              {COL_OPTS.map((n) => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}
+              {GRID_COLS_OPTIONS.map((n) => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
@@ -300,12 +292,12 @@ function PlanejamentoPage() {
                 <h2 className="text-lg font-semibold">{g.nome}</h2>
                 <Badge variant="secondary">{g.items.length}</Badge>
               </div>
-              <div className={COL_CLASS[cols]}>{g.items.map(renderCard)}</div>
+              <div className={GRID_COLS_CLASS[cols]}>{g.items.map(renderCard)}</div>
             </section>
           ))}
         </div>
       ) : (
-        <div className={COL_CLASS[cols]}>{filtered.map(renderCard)}</div>
+        <div className={GRID_COLS_CLASS[cols]}>{filtered.map(renderCard)}</div>
       )}
 
       {(openNew || openId) && (

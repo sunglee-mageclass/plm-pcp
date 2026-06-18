@@ -18,6 +18,7 @@ import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
+import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS } from "@/hooks/useGridCols";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/shared/NumberInput";
@@ -83,7 +84,7 @@ type Option = { id: string; nome: string };
 type Empresa = { id: string; nome_fantasia: string };
 type Subcategoria = { id: string; nome: string; categoria_aviamento_id: string };
 
-const COLUMN_OPTIONS = [2, 3, 4, 5];
+const COLUMN_OPTIONS = GRID_COLS_OPTIONS;
 const SORT_OPTIONS = [
   { value: "nome", label: "Nome (A-Z)" },
   { value: "preco", label: "Preço (menor)" },
@@ -98,7 +99,7 @@ const fmtBRL = (n: number | null | undefined) =>
 
 function AviamentosGallery() {
   const qc = useQueryClient();
-  const [cols, setCols] = useState(4);
+  const [cols, setCols] = useGridCols("aviamentos");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("nome");
   const [fCat, setFCat] = useState("all");
@@ -236,12 +237,6 @@ function AviamentosGallery() {
     onError: (e: any) => toast.error(e.message ?? "Erro ao excluir."),
   });
 
-  const gridClass: Record<number, string> = {
-    2: "grid-cols-1 sm:grid-cols-2",
-    3: "grid-cols-2 md:grid-cols-3",
-    4: "grid-cols-2 md:grid-cols-3 lg:grid-cols-4",
-    5: "grid-cols-2 md:grid-cols-3 lg:grid-cols-5",
-  };
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -312,7 +307,7 @@ function AviamentosGallery() {
           Nenhum aviamento cadastrado.
         </div>
       ) : (
-        <div className={`grid gap-4 ${gridClass[cols]}`}>
+        <div className={GRID_COLS_CLASS[cols]}>
           {filtered.map((a) => (
             <AviamentoCard
               key={a.id}

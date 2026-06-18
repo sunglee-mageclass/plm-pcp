@@ -54,15 +54,17 @@ function DirDetailPage() {
     },
   });
 
-  // Ordem do tenant_config + qualquer tamanho presente na Grade Real (do CQ).
+  // Apenas os tamanhos presentes na Grade Real (cadastrados), na ordem do
+  // tenant_config — não traz os tamanhos da config que o modelo não usa.
   const tamanhos = useMemo<string[]>(() => {
     const cfg = (tenantCfg as any)?.tamanhos_grade;
     const order: string[] = Array.isArray(cfg) && cfg.length ? cfg.map(String) : ["PP", "P", "M", "G", "GG"];
-    const result = [...order];
-    (cadGrades as any[]).forEach((g) => Object.keys(g.grades_reais ?? {}).forEach((k) => {
-      if (!result.includes(k)) result.push(k);
-    }));
-    return result;
+    const present = new Set<string>();
+    (cadGrades as any[]).forEach((g) => Object.keys(g.grades_reais ?? {}).forEach((k) => present.add(k)));
+    if (present.size === 0) return order;
+    const ordered = order.filter((t) => present.has(t));
+    const extras = [...present].filter((t) => !ordered.includes(t)).sort();
+    return [...ordered, ...extras];
   }, [tenantCfg, cadGrades]);
 
   const { data: existing = [], refetch } = useQuery({
@@ -208,7 +210,7 @@ function DirDetailPage() {
                     ))}
                     <td className="border px-2 py-1 text-center font-semibold">{realTotal}</td>
                   </tr>
-                  <tr>
+                  <tr className="bg-amber-100/70 dark:bg-amber-900/30">
                     <td className="border px-2 py-1 font-medium">E-commerce</td>
                     {tamanhos.map((t) => {
                       const real = Number(v.real?.[t] ?? 0);
@@ -218,7 +220,7 @@ function DirDetailPage() {
                         <td key={t} className="border p-0">
                           <NumberInput
                             type="number" min={0} max={real}
-                            className={`h-8 border-0 text-center ${over ? "text-destructive" : ""}`}
+                            className={`h-8 border-0 bg-transparent text-center ${over ? "text-destructive" : ""}`}
                             value={v.ecommerce?.[t] ?? ""}
                             onChange={(e) => setEcommerce(v.variante_numero, t, Math.max(0, Number(e.target.value) || 0))}
                           />

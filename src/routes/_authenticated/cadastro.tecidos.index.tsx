@@ -26,6 +26,7 @@ import {
 
 import { supabase } from "@/integrations/supabase/client";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
+import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS } from "@/hooks/useGridCols";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -66,7 +67,7 @@ type Variante = { artigo_id: string; foto_url: string | null; created_at: string
 type Empresa = { id: string; nome_fantasia: string };
 type Categoria = { id: string; nome: string };
 
-const COLUMN_OPTIONS = [2, 3, 4, 5];
+const COLUMN_OPTIONS = GRID_COLS_OPTIONS;
 const SORT_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "nome", label: "Nome (A-Z)" },
   { value: "preco", label: "Preço (menor)" },
@@ -76,7 +77,7 @@ const SORT_OPTIONS: Array<{ value: string; label: string }> = [
 
 function TecidosGallery() {
   const qc = useQueryClient();
-  const [cols, setCols] = useState<number>(4);
+  const [cols, setCols] = useGridCols("tecidos");
   const [search, setSearch] = useState("");
   const [empresaFilter, setEmpresaFilter] = useState<string>("all");
   const [catFilter, setCatFilter] = useState<string>("all");
@@ -270,13 +271,6 @@ function TecidosGallery() {
     onError: (e: any) => toast.error(e.message ?? "Erro ao excluir."),
   });
 
-  const gridClass: Record<number, string> = {
-    2: "grid-cols-1 sm:grid-cols-2",
-    3: "grid-cols-2 md:grid-cols-3",
-    4: "grid-cols-2 md:grid-cols-3 lg:grid-cols-4",
-    5: "grid-cols-2 md:grid-cols-3 lg:grid-cols-5",
-  };
-
   return (
     <div className="container mx-auto p-6 space-y-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
@@ -342,7 +336,7 @@ function TecidosGallery() {
           Nenhum tecido cadastrado ainda.
         </div>
       ) : (
-        <div className={`grid gap-4 ${gridClass[cols]}`}>
+        <div className={GRID_COLS_CLASS[cols]}>
           {filtered.map((a) => (
             <TecidoCard
               key={a.id}

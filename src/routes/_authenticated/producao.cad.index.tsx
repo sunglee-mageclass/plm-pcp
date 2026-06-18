@@ -7,8 +7,8 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
+import { FilterButton } from "@/components/shared/filters";
 import { PrintFicha } from "@/components/producao/PrintFicha";
 
 export const Route = createFileRoute("/_authenticated/producao/cad/")({
@@ -46,7 +46,7 @@ function CadListPage() {
   const [fMes, setFMes] = useState("all");
   const [fAno, setFAno] = useState("all");
   const [fStatus, setFStatus] = useState("all");
-  const [printId, setPrintId] = useState<string | null>(null);
+  const [printReq, setPrintReq] = useState<{ id: string; n: number } | null>(null);
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["producao-cad-list"],
@@ -114,40 +114,20 @@ function CadListPage() {
         </div>
       </header>
 
-      <Card className="p-4 grid gap-3 md:grid-cols-6">
-        <div className="relative md:col-span-2">
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1 max-w-sm">
           <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input className="pl-9" placeholder="REF ou nome…" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
-        <Select value={fColecao} onValueChange={setFColecao}>
-          <SelectTrigger><SelectValue placeholder="Coleção" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todas coleções</SelectItem>
-            {colecoes.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Select value={fMes} onValueChange={setFMes}>
-          <SelectTrigger><SelectValue placeholder="Mês" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos meses</SelectItem>
-            {(meses as any[]).map((m) => <SelectItem key={m.id} value={m.id}>{m.nome}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Select value={fAno} onValueChange={setFAno}>
-          <SelectTrigger><SelectValue placeholder="Ano" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos anos</SelectItem>
-            {(anos as any[]).map((a) => <SelectItem key={a.id} value={a.id}>{a.nome}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Select value={fStatus} onValueChange={setFStatus}>
-          <SelectTrigger><SelectValue placeholder="Status CAD" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos status</SelectItem>
-            {Object.entries(STATUS_LABELS).map(([v, label]) => <SelectItem key={v} value={v}>{label}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </Card>
+        <FilterButton
+          filters={[
+            { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
+            { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...(meses as any[])] },
+            { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...(anos as any[])] },
+            { label: "Status CAD", value: fStatus, onChange: setFStatus, options: [{ id: "all", nome: "Todos" }, ...Object.entries(STATUS_LABELS).map(([v, label]) => ({ id: v, nome: label }))] },
+          ]}
+        />
+      </div>
 
       <Card className="overflow-hidden">
         <table className="w-full text-sm">
@@ -190,8 +170,7 @@ function CadListPage() {
                     size="icon"
                     className="h-8 w-8"
                     title="Imprimir Ficha de Corte"
-                    disabled={printId === r.modelo_id}
-                    onClick={(e) => { e.stopPropagation(); setPrintId(r.modelo_id); }}
+                    onClick={(e) => { e.stopPropagation(); setPrintReq((p) => ({ id: r.modelo_id, n: (p?.n ?? 0) + 1 })); }}
                   >
                     <Printer className="h-4 w-4" />
                   </Button>
@@ -202,7 +181,7 @@ function CadListPage() {
         </table>
       </Card>
 
-      {printId && <PrintFicha modeloId={printId} kind="corte" onDone={() => setPrintId(null)} />}
+      {printReq && <PrintFicha key={printReq.n} modeloId={printReq.id} kind="corte" onDone={() => setPrintReq(null)} />}
     </div>
   );
 }

@@ -294,7 +294,12 @@ function ParcelaDetailDialog({
   const updateVencimentoMut = useMutation({
     mutationFn: async () => {
       if (!parcela) return;
-      const { error } = await supabase.from("parcelas").update({ data_vencimento: vencimento }).eq("id", parcela.id);
+      const update: Record<string, any> = { data_vencimento: vencimento };
+      if (!parcela.data_pagamento && parcela.status !== "pago") {
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        update.status = parseISO(vencimento) < today ? "vencido" : "a_pagar";
+      }
+      const { error } = await supabase.from("parcelas").update(update as any).eq("id", parcela.id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -447,8 +452,13 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
   });
 
   const updateVencimentoMut = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: string }) => {
-      const { error } = await supabase.from("parcelas").update({ data_vencimento: data }).eq("id", id);
+    mutationFn: async ({ id, data, paid }: { id: string; data: string; paid: boolean }) => {
+      const update: Record<string, any> = { data_vencimento: data };
+      if (!paid) {
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        update.status = parseISO(data) < today ? "vencido" : "a_pagar";
+      }
+      const { error } = await supabase.from("parcelas").update(update as any).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -549,7 +559,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
                       <Input
                         type="date"
                         value={p.data_vencimento}
-                        onChange={(e) => { if (e.target.value && e.target.value !== p.data_vencimento) updateVencimentoMut.mutate({ id: p.id, data: e.target.value }); }}
+                        onChange={(e) => { if (e.target.value && e.target.value !== p.data_vencimento) updateVencimentoMut.mutate({ id: p.id, data: e.target.value, paid: !!p.data_pagamento }); }}
                         className="h-7 w-auto"
                       />
                     </td>

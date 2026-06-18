@@ -6,7 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FilterButton } from "@/components/shared/filters";
 
 export const Route = createFileRoute("/_authenticated/producao/direcionamento/")({
   component: DirListPage,
@@ -55,19 +55,17 @@ function DirListPage() {
         </div>
       </header>
 
-      <Card className="p-4 grid gap-3 md:grid-cols-3">
-        <div className="relative md:col-span-2">
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1 max-w-sm">
           <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input className="pl-9" placeholder="REF ou nome…" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
-        <Select value={fColecao} onValueChange={setFColecao}>
-          <SelectTrigger><SelectValue placeholder="Coleção" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todas coleções</SelectItem>
-            {colecoes.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </Card>
+        <FilterButton
+          filters={[
+            { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
+          ]}
+        />
+      </div>
 
       <Card className="overflow-hidden">
         <table className="w-full text-sm">
