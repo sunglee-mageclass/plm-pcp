@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Compass, Save } from "lucide-react";
+import { ArrowLeft, Compass, Save, CheckCircle2, RotateCcw, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 import { NumberInput } from "@/components/shared/NumberInput";
-import { Label } from "@/components/ui/label";
 import { useReadOnly } from "@/components/RequirePermission";
 
 export const Route = createFileRoute("/_authenticated/producao/direcionamento/$modeloId")({
@@ -25,6 +24,10 @@ function DirDetailPage() {
   const { modeloId } = Route.useParams();
   const qc = useQueryClient();
   const readOnly = useReadOnly();
+  // Status do Direcionamento: 'pendente' (default) -> 'separado' ao Confirmar.
+  // Confirmado trava as edições; "Editar" reabre e Salvar volta a travar.
+  const [status, setStatus] = useState("pendente");
+  const [editing, setEditing] = useState(false);
 
   const { data: modelo } = useQuery({
     queryKey: ["dir-modelo", modeloId],
@@ -33,8 +36,11 @@ function DirDetailPage() {
 
   const { data: cad } = useQuery({
     queryKey: ["dir-cad", modeloId],
-    queryFn: async () => (await supabase.from("cad").select("id").eq("modelo_id", modeloId).maybeSingle()).data,
+    queryFn: async () => (await supabase.from("cad").select("id, direcionamento_status, direcionamento_confirmado_at").eq("modelo_id", modeloId).maybeSingle()).data,
   });
+  useEffect(() => {
+    if (cad) setStatus((cad as any).direcionamento_status ?? "pendente");
+  }, [cad]);
 
   const { data: tenantCfg } = useQuery({
     queryKey: ["tenant_config", "tamanhos"],
@@ -143,6 +149,7 @@ function DirDetailPage() {
     },
     onSuccess: async () => {
       toast.success("Salvo");
+      setEditing(false); // salvar trava novamente quando já está confirmado
       // Busca os dados frescos ANTES de liberar a hidratação (senão re-hidrata do
       // cache antigo e zera os números).
       await qc.invalidateQueries({ queryKey: ["direcionamento", cad?.id] });
@@ -152,26 +159,97 @@ function DirDetailPage() {
     onError: (e: any) => toast.error(e?.message ?? "Erro"),
   });
 
+  const confirmMut = useMutation({
+    mutationFn: async () => {
+      await saveMut.mutateAsync();
+      if (!cad?.id) throw new Error("CAD não encontrado.");
+      const { error } = await supabase
+        .from("cad")
+        .update({ direcionamento_status: "separado", direcionamento_confirmado_at: new Date().toISOString() } as any)
+        .eq("id", cad.id);
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      toast.success("Direcionamento confirmado — Separado");
+      setStatus("separado");
+      setEditing(false);
+      await qc.invalidateQueries({ queryKey: ["dir-cad", modeloId] });
+      await qc.invalidateQueries({ queryKey: ["dir-list"] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Erro ao confirmar"),
+  });
+
+  const desmarcarMut = useMutation({
+    mutationFn: async () => {
+      if (!cad?.id) return;
+      const { error } = await supabase
+        .from("cad")
+        .update({ direcionamento_status: "pendente", direcionamento_confirmado_at: null } as any)
+        .eq("id", cad.id);
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      toast.success("Confirmação desmarcada — voltou a editável");
+      setStatus("pendente");
+      setEditing(false);
+      await qc.invalidateQueries({ queryKey: ["dir-cad", modeloId] });
+      await qc.invalidateQueries({ queryKey: ["dir-list"] });
+    },
+    onError: (e: any) => toast.error(e?.message ?? "Erro ao desmarcar"),
+  });
+
+  const confirmado = status === "separado";
+  const locked = confirmado && !editing;
   const variantes = Object.values(state).sort((a, b) => a.variante_numero - b.variante_numero);
 
   return (
     <div className="container mx-auto p-6 space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <Link to="/producao/direcionamento" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
           <ArrowLeft className="h-4 w-4" /> Voltar
         </Link>
-        <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
-          <Save className="h-4 w-4 mr-2" /> Salvar
-        </Button>
+        <div className="flex items-center gap-2">
+          {!confirmado ? (
+            <>
+              <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
+                <Save className="h-4 w-4 mr-2" /> Salvar
+              </Button>
+              <Button onClick={() => confirmMut.mutate()} disabled={confirmMut.isPending || saveMut.isPending || readOnly || !cad?.id}>
+                <CheckCircle2 className="h-4 w-4 mr-2" /> Confirmar Direcionamento
+              </Button>
+            </>
+          ) : editing ? (
+            <>
+              <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
+                <Save className="h-4 w-4 mr-2" /> Salvar
+              </Button>
+              <Button variant="ghost" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || readOnly}>
+                <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outline" onClick={() => setEditing(true)} disabled={readOnly}>
+                <Pencil className="h-4 w-4 mr-2" /> Editar
+              </Button>
+              <Button variant="ghost" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || readOnly}>
+                <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar
+              </Button>
+            </>
+          )}
+        </div>
       </div>
-      <fieldset disabled={readOnly} className="contents">
+      <fieldset disabled={readOnly || locked} className="contents">
 
       <header className="flex items-center gap-3">
         <Compass className="h-7 w-7 text-primary" />
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl font-bold">{modelo?.ref ?? "…"} — {modelo?.nome ?? ""}</h1>
           <p className="text-sm text-muted-foreground">{modelo?.colecao ?? "—"}</p>
         </div>
+        <Badge className={confirmado ? "bg-emerald-500 hover:bg-emerald-500 text-white" : "bg-amber-500 hover:bg-amber-500 text-white"}>
+          {confirmado ? "Separado" : "Pendente"}
+        </Badge>
       </header>
 
       {!cad?.id && (

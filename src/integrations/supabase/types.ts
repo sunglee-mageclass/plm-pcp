@@ -283,6 +283,8 @@ export type Database = {
           data_corte_pronto: string | null
           data_enviado_corte: string | null
           data_previsao_corte: string | null
+          direcionamento_confirmado_at: string | null
+          direcionamento_status: string
           enviado_corte: boolean | null
           ficha_medida_url: string | null
           id: string
@@ -298,6 +300,8 @@ export type Database = {
           data_corte_pronto?: string | null
           data_enviado_corte?: string | null
           data_previsao_corte?: string | null
+          direcionamento_confirmado_at?: string | null
+          direcionamento_status?: string
           enviado_corte?: boolean | null
           ficha_medida_url?: string | null
           id?: string
@@ -313,6 +317,8 @@ export type Database = {
           data_corte_pronto?: string | null
           data_enviado_corte?: string | null
           data_previsao_corte?: string | null
+          direcionamento_confirmado_at?: string | null
+          direcionamento_status?: string
           enviado_corte?: boolean | null
           ficha_medida_url?: string | null
           id?: string
