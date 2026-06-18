@@ -90,7 +90,7 @@ export function useFichaData(modeloId: string): FichaData {
   const { data: cadAviamentos = [] } = useQuery({
     queryKey: ["ft-aviamentos", cadId],
     enabled: !!cadId,
-    queryFn: async () => (await supabase.from("cad_aviamentos").select("*, aviamentos:aviamento_id(codigo_nome)").eq("cad_id", cadId).order("numero")).data ?? [],
+    queryFn: async () => (await supabase.from("cad_aviamentos").select("*, aviamentos:aviamento_id(codigo_nome, preco)").eq("cad_id", cadId).order("numero")).data ?? [],
   });
 
   const { data: cadEtiquetas = [] } = useQuery({
@@ -152,7 +152,7 @@ export function useFichaData(modeloId: string): FichaData {
   );
 
   const aviamentos: AviamentoRow[] = useMemo(
-    () => (cadAviamentos as any[]).map((a) => ({ id: a.id, numero: a.numero, aviamento_id: a.aviamento_id, aviamento_nome: a.aviamentos?.codigo_nome, consumo: num(a.consumo), grade_total: 0, quantidade_enviar: num(a.quantidade_enviar), quantidade_separar: num(a.quantidade_separar) })),
+    () => (cadAviamentos as any[]).map((a) => { const consumo = num(a.consumo); const preco = num(a.aviamentos?.preco); return ({ id: a.id, numero: a.numero, aviamento_id: a.aviamento_id, aviamento_nome: a.aviamentos?.codigo_nome, consumo, grade_total: 0, quantidade_enviar: num(a.quantidade_enviar), quantidade_separar: num(a.quantidade_separar), preco, custo_cad: Number((consumo * preco).toFixed(2)) }); }),
     [cadAviamentos],
   );
 

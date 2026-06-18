@@ -171,7 +171,7 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
     queryFn: async () => {
       const { data } = await supabase
         .from("modelo_aviamentos")
-        .select("id, numero, aviamento_id, consumo, aviamentos:aviamento_id(codigo_nome)")
+        .select("id, numero, aviamento_id, consumo, aviamentos:aviamento_id(codigo_nome, preco)")
         .eq("modelo_id", modeloId)
         .order("numero");
       return data ?? [];
@@ -183,7 +183,7 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
     queryFn: async () => {
       const { data } = await supabase
         .from("cad_aviamentos")
-        .select("*, aviamentos:aviamento_id(codigo_nome)")
+        .select("*, aviamentos:aviamento_id(codigo_nome, preco)")
         .eq("cad_id", cadRow!.id)
         .order("numero");
       return data ?? [];
@@ -325,19 +325,26 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
 
     let initialAvi: AviamentoRow[];
     if ((cadAviamentos as any[]).length > 0) {
-      initialAvi = (cadAviamentos as any[]).map((a) => ({
-        id: a.id,
-        numero: a.numero,
-        aviamento_id: a.aviamento_id,
-        aviamento_nome: a.aviamentos?.codigo_nome,
-        consumo: Number(a.consumo ?? 0),
-        grade_total: gradeTotalGeral,
-        quantidade_enviar: Number(a.quantidade_enviar ?? 0),
-        quantidade_separar: Number(a.quantidade_separar ?? 0),
-      }));
+      initialAvi = (cadAviamentos as any[]).map((a) => {
+        const consumo = Number(a.consumo ?? 0);
+        const preco = Number(a.aviamentos?.preco ?? 0);
+        return {
+          id: a.id,
+          numero: a.numero,
+          aviamento_id: a.aviamento_id,
+          aviamento_nome: a.aviamentos?.codigo_nome,
+          consumo,
+          grade_total: gradeTotalGeral,
+          quantidade_enviar: Number(a.quantidade_enviar ?? 0),
+          quantidade_separar: Number(a.quantidade_separar ?? 0),
+          preco,
+          custo_cad: Number((consumo * preco).toFixed(2)),
+        };
+      });
     } else {
       initialAvi = (modeloAviamentos as any[]).map((ma) => {
         const consumo = Number(ma.consumo ?? 0);
+        const preco = Number(ma.aviamentos?.preco ?? 0);
         const qEnviar = Number((consumo * gradeTotalGeral).toFixed(4));
         return {
           numero: ma.numero,
@@ -347,6 +354,8 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
           grade_total: gradeTotalGeral,
           quantidade_enviar: qEnviar,
           quantidade_separar: qEnviar,
+          preco,
+          custo_cad: Number((consumo * preco).toFixed(2)),
         };
       });
     }
@@ -432,7 +441,9 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
   const updateAvi = (i: number, patch: Partial<AviamentoRow>) => {
     setAviamentos((prev) => {
       const next = [...prev];
-      next[i] = { ...next[i], ...patch };
+      const merged = { ...next[i], ...patch };
+      merged.custo_cad = Number(((Number(merged.consumo) || 0) * (Number(merged.preco) || 0)).toFixed(2));
+      next[i] = merged;
       return next;
     });
   };
@@ -613,6 +624,14 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
     [grades],
   );
 
+  // Custo real por peça (CAD, sem serviços) = soma dos custos de tecido + aviamento.
+  const custoRealPeca = useMemo(
+    () =>
+      tecidos.reduce((a, t) => a + (Number(t.custo_cad) || 0), 0) +
+      aviamentos.reduce((a, av) => a + (Number(av.custo_cad) || 0), 0),
+    [tecidos, aviamentos],
+  );
+
   // Cálculo automático (quando ligado): por variante, qtd de folhas e metragem
   // planejada; por tecido, tamanho da folha. Tudo derivado de consumo + grade +
   // proporção + largura. metragem_enviada continua manual.
@@ -740,6 +759,11 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
               {(modelo?.cat_p?.nome ?? "").toLowerCase() === "conjunto" && (
                 <span>Sub-categoria: {modelo?.cat_s?.nome ?? "—"}</span>
               )}
+            </div>
+            <div className="mt-3 inline-flex items-center gap-2 rounded-md bg-primary/10 px-3 py-1.5 text-sm">
+              <span className="text-muted-foreground">Custo real (CAD, sem serviços):</span>
+              <b className="text-primary">{custoRealPeca.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</b>
+              <span className="text-xs text-muted-foreground">/ peça</span>
             </div>
           </div>
         </Card>

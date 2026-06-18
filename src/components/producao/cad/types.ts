@@ -46,6 +46,9 @@ export type AviamentoRow = {
   grade_total: number;
   quantidade_enviar: number;
   quantidade_separar: number;
+  preco: number;
+  // Custo do aviamento por peça = consumo * preço (sem perda).
+  custo_cad: number;
 };
 
 export type EtiquetaRow = {

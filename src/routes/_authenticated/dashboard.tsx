@@ -572,7 +572,7 @@ function CustosTab() {
                   </td>
                   <td className="py-2 pr-3">{r.nome}</td>
                   <td className="py-2 pr-3 text-right">{brl(r.previsto)}</td>
-                  <td className="py-2 pr-3 text-right">{brl(r.real)}</td>
+                  <td className={"py-2 pr-3 text-right " + (r.confirmado ? "" : "text-muted-foreground italic")} title={r.confirmado ? undefined : "Ainda não confirmado em CAD — exibindo o previsto"}>{brl(r.real)}</td>
                   <td className={"py-2 pr-3 text-right " + (Number(r.diff) > 0 ? "text-destructive" : Number(r.diff) < 0 ? "text-green-600 dark:text-green-400" : "")}>{brl(r.diff)}</td>
                   <td className={"py-2 pr-3 text-right " + (Number(r.pct) > 0 ? "text-destructive" : Number(r.pct) < 0 ? "text-green-600 dark:text-green-400" : "")}>{fmtNum(r.pct)}%</td>
                 </tr>
