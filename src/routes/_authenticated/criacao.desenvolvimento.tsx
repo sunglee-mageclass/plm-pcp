@@ -5,6 +5,7 @@ import { Hammer, ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useFieldLabels } from "@/hooks/useFieldLabels";
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -361,6 +362,7 @@ function MobileCard({ modelo, estilistaNome, categoriaNome, statuses, onOpen, on
   onChangeStatus: (status: string) => void;
   editable: boolean;
 }) {
+  const fl = useFieldLabels();
   const photo = modelo.fotos_modelo?.[0] ?? null;
   const url = useSignedUrlBucket(photo);
   const current = modelo.status_desenvolvimento ?? statuses[0]?.key ?? "";
@@ -376,7 +378,7 @@ function MobileCard({ modelo, estilistaNome, categoriaNome, statuses, onOpen, on
             <p className="text-sm font-medium truncate">{modelo.nome ?? "Sem nome"}</p>
             <VersaoBadge versao={modelo.versao} className="text-[10px]" />
           </div>
-          {modelo.ref && <p className="text-xs font-mono text-primary truncate">REF {modelo.ref}</p>}
+          {modelo.ref && <p className="text-xs font-mono text-primary truncate">{fl("ref")} {modelo.ref}</p>}
           <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
           <p className="text-xs text-muted-foreground truncate">{categoriaNome ?? "—"}</p>
         </div>
@@ -403,6 +405,7 @@ function MobileCard({ modelo, estilistaNome, categoriaNome, statuses, onOpen, on
 function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: isDraggable }: {
   modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; onOpen: () => void; draggable: boolean;
 }) {
+  const fl = useFieldLabels();
   const photo = modelo.fotos_modelo?.[0] ?? null;
   const url = useSignedUrlBucket(photo);
   return (
@@ -425,7 +428,7 @@ function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: i
             <p className="text-sm font-medium truncate">{modelo.nome ?? "Sem nome"}</p>
             <VersaoBadge versao={modelo.versao} className="text-[10px]" />
           </div>
-          {modelo.ref && <p className="text-xs font-mono text-primary truncate">REF {modelo.ref}</p>}
+          {modelo.ref && <p className="text-xs font-mono text-primary truncate">{fl("ref")} {modelo.ref}</p>}
           <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
           <p className="text-xs text-muted-foreground truncate">{categoriaNome ?? "—"}</p>
         </div>

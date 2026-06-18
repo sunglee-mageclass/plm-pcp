@@ -44,19 +44,13 @@ export function TenantSwitcher() {
   const switchMut = useMutation({
     mutationFn: (tenant_id: string) => callSet({ data: { tenant_id } }),
     onMutate: (tenant_id: string) => {
-      // Reflete a loja escolhida no seletor IMEDIATAMENTE.
+      // Reflete a loja escolhida no seletor IMEDIATAMENTE (sem esperar o servidor).
       qc.setQueryData(["tenant-switcher", "current", user?.id], tenant_id);
     },
-    onSuccess: async () => {
-      // Atualiza PRIMEIRO o que controla o menu (módulos, abas, posição da
-      // oficina) — assim os toggles mudam rápido — e SEM tela em branco
-      // (invalidate mantém o conteúdo antigo até o novo chegar; clear() blanqueava
-      // tudo e disparava um refetch-storm lento). O resto refaz em background.
-      await Promise.all([
-        qc.refetchQueries({ queryKey: ["tenant_config", "modules"], type: "active" }),
-        qc.refetchQueries({ queryKey: ["tenant_config", "oficina_posicao"], type: "active" }),
-        qc.refetchQueries({ queryKey: ["tenant_config", "tab_labels"], type: "active" }),
-      ]);
+    onSuccess: () => {
+      // Invalida TUDO (refetch em paralelo, em background) — SEM tela em branco:
+      // o conteúdo antigo fica visível até o novo chegar. (clear() blanqueava tudo
+      // e gerava um refetch-storm lento; awaits serializados também atrasavam.)
       qc.invalidateQueries();
     },
     onError: () => {

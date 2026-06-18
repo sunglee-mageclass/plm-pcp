@@ -57,6 +57,12 @@ function todayLocalISO(): string {
   return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
 }
 
+// Parse de "yyyy-MM-dd" como data LOCAL (parseISO trata date-only como UTC → shift de dia em BRT).
+function parseLocalDate(s: string | null | undefined): Date {
+  const [y, m, d] = (s ?? "").slice(0, 10).split("-").map(Number);
+  return new Date(y || 1970, (m || 1) - 1, d || 1);
+}
+
 function effectiveStatus(p: Parcela): "pago" | "vencido" | "a_pagar" {
   if (p.status === "pago" || p.data_pagamento) return "pago";
   // Comparação de strings "yyyy-MM-dd" (lexicográfica = cronológica) — robusta,
@@ -154,10 +160,10 @@ function CalendarioView({ parcelas, loading }: { parcelas: Parcela[]; loading: b
   useEffect(() => {
     if (autoJumped.current || parcelas.length === 0) return;
     const now = startOfMonth(new Date());
-    const hasCurrent = parcelas.some((p) => isSameMonth(parseISO(p.data_vencimento), now));
+    const hasCurrent = parcelas.some((p) => isSameMonth(parseLocalDate(p.data_vencimento), now));
     if (hasCurrent) { autoJumped.current = true; return; }
     const future = parcelas
-      .map((p) => parseISO(p.data_vencimento))
+      .map((p) => parseLocalDate(p.data_vencimento))
       .filter((d) => d >= now)
       .sort((a, b) => a.getTime() - b.getTime())[0];
     if (future) setCursor(startOfMonth(future));
@@ -222,7 +228,7 @@ function CalendarioView({ parcelas, loading }: { parcelas: Parcela[]; loading: b
               <div className="space-y-1">
                 {items.slice(0, 3).map((p) => {
                   const st = effectiveStatus(p);
-                  const venc = parseISO(p.data_vencimento);
+                  const venc = parseLocalDate(p.data_vencimento);
                   const diff = differenceInCalendarDays(venc, today);
                   let color = "bg-muted text-muted-foreground";
                   if (st === "pago") color = "bg-green-500/20 text-green-700 dark:text-green-300";
@@ -441,6 +447,22 @@ function Legend2({ color, label }: { color: string; label: string }) {
 
 /* ============================== LISTA ============================== */
 
+// Célula de vencimento com estado local: salva no BLUR (não a cada tecla) e mostra
+// o que o usuário escolheu enquanto edita.
+function VencimentoCell({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+  const [v, setV] = useState(value);
+  useEffect(() => { setV(value); }, [value]);
+  return (
+    <Input
+      type="date"
+      value={v}
+      onChange={(e) => setV(e.target.value)}
+      onBlur={() => { if (v && v !== value) onSave(v); }}
+      className="h-7 w-auto"
+    />
+  );
+}
+
 function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolean }) {
   const qc = useQueryClient();
   const [fornecedor, setFornecedor] = useState("all");
@@ -574,11 +596,9 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
                     <td className="py-2 pr-3">{p.numero_parcela}</td>
                     <td className="py-2 pr-3 text-right">{brl(Number(p.valor))}</td>
                     <td className="py-2 pr-3">
-                      <Input
-                        type="date"
+                      <VencimentoCell
                         value={p.data_vencimento}
-                        onChange={(e) => { if (e.target.value && e.target.value !== p.data_vencimento) updateVencimentoMut.mutate({ id: p.id, data: e.target.value }); }}
-                        className="h-7 w-auto"
+                        onSave={(v) => updateVencimentoMut.mutate({ id: p.id, data: v })}
                       />
                     </td>
                     <td className="py-2 pr-3">
@@ -798,7 +818,7 @@ function ResumoView({ parcelas }: { parcelas: Parcela[] }) {
       const k = p.data_vencimento.slice(0, 7);
       let row = m.get(k);
       if (!row) {
-        row = { mes: format(parseISO(p.data_vencimento), "MMM/yy", { locale: ptBR }), ord: k, pago: 0, a_pagar: 0, vencido: 0 };
+        row = { mes: format(parseLocalDate(p.data_vencimento), "MMM/yy", { locale: ptBR }), ord: k, pago: 0, a_pagar: 0, vencido: 0 };
         m.set(k, row);
       }
       row[effectiveStatus(p)] += Number(p.valor);

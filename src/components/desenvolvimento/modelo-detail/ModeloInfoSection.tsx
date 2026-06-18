@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Field, FieldSelectOpt } from "./shared";
 import { STATUS_DESENV_OPTS, type Opt } from "./types";
+import { useFieldLabels } from "@/hooks/useFieldLabels";
 
 type StatusOpt = { value: string; label: string };
 
@@ -30,6 +31,7 @@ export function ModeloInfoSection({
   isReprovado: boolean;
   statusOptions?: StatusOpt[];
 }) {
+  const fl = useFieldLabels();
   const [visiblePilotos, setVisiblePilotos] = useState<Set<number>>(() => {
     const has2 = !!(draft.piloteiro2_id || draft.data_piloto2);
     const has3 = !!(draft.piloteiro3_id || draft.data_piloto3);
@@ -79,7 +81,7 @@ export function ModeloInfoSection({
           </Select>
         </Field>
         {isAprovado && (
-          <Field label="REF">
+          <Field label={fl("ref")}>
             <Input value={draft.ref} onChange={(e) => setDraft({ ...draft, ref: e.target.value })} />
           </Field>
         )}
@@ -88,10 +90,10 @@ export function ModeloInfoSection({
             <Textarea rows={2} value={draft.motivo_cancelamento} onChange={(e) => setDraft({ ...draft, motivo_cancelamento: e.target.value })} />
           </Field>
         )}
-        <FieldSelectOpt label="Linha" value={draft.linha_id} onChange={(v) => setDraft({ ...draft, linha_id: v })} options={linhas} />
-        <FieldSelectOpt label="Modelista" value={draft.modelista_id} onChange={(v) => setDraft({ ...draft, modelista_id: v })} options={modelistas} />
+        <FieldSelectOpt label={fl("linha")} value={draft.linha_id} onChange={(v) => setDraft({ ...draft, linha_id: v })} options={linhas} />
+        <FieldSelectOpt label={fl("modelista")} value={draft.modelista_id} onChange={(v) => setDraft({ ...draft, modelista_id: v })} options={modelistas} />
         <div className="sm:col-span-2 grid sm:grid-cols-2 gap-3">
-          <FieldSelectOpt label="Piloteiro 1" value={draft.piloteiro1_id} onChange={(v) => setDraft({ ...draft, piloteiro1_id: v })} options={piloteiros} />
+          <FieldSelectOpt label={`${fl("piloteiro")} 1`} value={draft.piloteiro1_id} onChange={(v) => setDraft({ ...draft, piloteiro1_id: v })} options={piloteiros} />
           <Field label="Data Piloto 1">
             <Input type="date" value={draft.data_piloto1 ?? ""} onChange={(e) => setDraft({ ...draft, data_piloto1: e.target.value })} />
           </Field>
@@ -105,7 +107,7 @@ export function ModeloInfoSection({
               </Button>
             </div>
             <div className="sm:col-span-2 grid sm:grid-cols-2 gap-3">
-              <FieldSelectOpt label="Piloteiro 2" value={draft.piloteiro2_id} onChange={(v) => setDraft({ ...draft, piloteiro2_id: v })} options={piloteiros} />
+              <FieldSelectOpt label={`${fl("piloteiro")} 2`} value={draft.piloteiro2_id} onChange={(v) => setDraft({ ...draft, piloteiro2_id: v })} options={piloteiros} />
               <Field label="Data Piloto 2">
                 <Input type="date" value={draft.data_piloto2 ?? ""} onChange={(e) => setDraft({ ...draft, data_piloto2: e.target.value })} />
               </Field>
@@ -121,7 +123,7 @@ export function ModeloInfoSection({
               </Button>
             </div>
             <div className="sm:col-span-2 grid sm:grid-cols-2 gap-3">
-              <FieldSelectOpt label="Piloteiro 3" value={draft.piloteiro3_id} onChange={(v) => setDraft({ ...draft, piloteiro3_id: v })} options={piloteiros} />
+              <FieldSelectOpt label={`${fl("piloteiro")} 3`} value={draft.piloteiro3_id} onChange={(v) => setDraft({ ...draft, piloteiro3_id: v })} options={piloteiros} />
               <Field label="Data Piloto 3">
                 <Input type="date" value={draft.data_piloto3 ?? ""} onChange={(e) => setDraft({ ...draft, data_piloto3: e.target.value })} />
               </Field>

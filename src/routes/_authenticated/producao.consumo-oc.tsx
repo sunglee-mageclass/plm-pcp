@@ -189,6 +189,8 @@ function ConsumoOcPage() {
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
     return ocs.filter((oc) => {
+      // OC sem itens (ex.: só tinha entretela, agora oculta) não aparece.
+      if (!oc.itens || oc.itens.length === 0) return false;
       if (s && !(
         (oc.numero_pedido ?? "").toLowerCase().includes(s) ||
         (oc.fornecedor ?? "").toLowerCase().includes(s) ||
