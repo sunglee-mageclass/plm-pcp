@@ -1,7 +1,8 @@
 /**
  * Cabeçalho padrão das fichas de impressão (Ficha Técnica e Ficha de Corte):
- * logo da loja + título + linha com REF/nome/coleção/linha/categoria + "Data
- * prevista" em branco para preenchimento manual.
+ * logo da loja + título + linha com REF/nome/coleção/linha/categoria.
+ * (A "Data Prevista" não fica no cabeçalho — na Ficha Técnica vai no rodapé de
+ * assinatura; na Ficha de Corte não é usada.)
  */
 export function FichaHeader({ title, modelo, logo }: { title: string; modelo: any; logo?: string | null }) {
   const m = modelo ?? {};
@@ -17,10 +18,6 @@ export function FichaHeader({ title, modelo, logo }: { title: string; modelo: an
           {m?.linha?.nome ? ` · ${m.linha.nome}` : ""} · {m?.cat_p?.nome ?? "—"}
           {isConjunto && m?.cat_s?.nome ? ` / ${m.cat_s.nome}` : ""}
         </div>
-      </div>
-      <div style={{ fontSize: 12, textAlign: "right" }}>
-        Data prevista<br />
-        <span style={{ display: "inline-block", borderBottom: "1px solid #000", width: 130, height: 16 }} />
       </div>
     </div>
   );

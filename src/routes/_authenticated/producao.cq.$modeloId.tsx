@@ -250,6 +250,15 @@ function CqDetailPage() {
     });
   };
 
+  // Grade editada no CAD (modelo_grades) — referência read-only exibida no topo.
+  const cadGradeByNum = useMemo(() => {
+    const m: Record<number, { grades: Record<string, number>; total: number }> = {};
+    (modeloGrades as any[]).forEach((g) => {
+      m[Number(g.variante_numero)] = { grades: g.grades ?? {}, total: Number(g.grade_total ?? 0) };
+    });
+    return m;
+  }, [modeloGrades]);
+
   // Grade Real = Recebimento − Defeito (por variante, por tamanho; mínimo 0).
   const realByNum = useMemo(() => {
     const out: Record<number, { grades: Record<string, number>; total: number }> = {};
@@ -456,6 +465,42 @@ function CqDetailPage() {
           Este modelo ainda não tem registro de CAD. Abra a página de CAD desse modelo antes de salvar.
         </Card>
       )}
+
+      {/* Grade editada no CAD (referência, read-only) */}
+      <Card className="p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-lg">Grade (CAD)</h3>
+          <span className="text-xs text-muted-foreground">Grade planejada no CAD · referência</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr className="bg-muted/50">
+                <th className="border px-2 py-1 text-left">Variante</th>
+                {tamanhos.map((t) => <th key={t} className="border px-2 py-1 text-center w-16">{t}</th>)}
+                <th className="border px-2 py-1 text-center w-20">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {variantList.length === 0 && (
+                <tr><td className="border px-2 py-2 text-muted-foreground" colSpan={tamanhos.length + 2}>Sem variantes no Tecido Principal.</td></tr>
+              )}
+              {variantList.map(({ num, label }) => {
+                const g = cadGradeByNum[num] ?? { grades: {}, total: 0 };
+                return (
+                  <tr key={num}>
+                    <td className="border px-2 py-1">{label}</td>
+                    {tamanhos.map((t) => (
+                      <td key={t} className="border px-2 py-1 text-center bg-muted/20">{g.grades[t] ?? 0}</td>
+                    ))}
+                    <td className="border px-2 py-1 text-center font-semibold">{g.total}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
 
       {/* Seção 1 - Recebimento (datas vêm de Serviços, read-only) */}
       <EtapaSection

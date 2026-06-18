@@ -27,10 +27,12 @@ const pageStyle: React.CSSProperties = { height: PAGE_H, display: "flex", flexDi
 const halfStyle: React.CSSProperties = { flex: "0 0 50%", overflow: "hidden", minHeight: 0 };
 const fmt2 = (n: number | null | undefined) => fmtNum(n);
 
-export function Assinatura() {
+export function Assinatura({ dataPrevista = false }: { dataPrevista?: boolean }) {
+  // Ficha Técnica inclui "Data Prevista" entre Data e Assinatura; Ficha de Corte não.
+  const labels = dataPrevista ? ["Nome", "Data", "Data Prevista", "Assinatura"] : ["Nome", "Data", "Assinatura"];
   return (
-    <div style={{ marginTop: 54, fontSize: 12, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 24 }}>
-      {["Nome", "Data", "Assinatura"].map((l) => (
+    <div style={{ marginTop: 54, fontSize: 12, display: "grid", gridTemplateColumns: `repeat(${labels.length}, 1fr)`, gap: 24 }}>
+      {labels.map((l) => (
         <div key={l}>
           <div style={{ borderBottom: "1px solid #000", height: 16 }} />
           <div style={{ marginTop: 2 }}>{l}</div>

@@ -163,7 +163,7 @@ export function FichaTecnica({ modeloId }: { modeloId: string }) {
         </table>
       </div>
 
-      <Assinatura />
+      <Assinatura dataPrevista />
     </div>
   );
 }
