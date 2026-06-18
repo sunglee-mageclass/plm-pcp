@@ -114,6 +114,9 @@ function ConsumoOcPage() {
   const [fColecao, setFColecao] = useState("all");
   const [fMes, setFMes] = useState("all");
   const [fAno, setFAno] = useState("all");
+  // Filtro por categoria do tecido. Default: só "tecido" (forro deselecionado;
+  // entretela já não entra — o RPC consumo_por_oc a exclui).
+  const [cats, setCats] = useState<Set<string>>(() => new Set(["tecido"]));
 
   const { data: ocs = [], isLoading } = useQuery({
     queryKey: ["consumo-por-oc"],
@@ -129,6 +132,44 @@ function ConsumoOcPage() {
     for (const oc of ocs) for (const it of oc.itens) for (const m of it.modelos) s.add(m.modelo_id);
     return Array.from(s).sort();
   }, [ocs]);
+
+  const artigoIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const oc of ocs) for (const it of oc.itens) if (it.artigo_id) s.add(it.artigo_id);
+    return Array.from(s).sort();
+  }, [ocs]);
+
+  // Categoria de cada artigo (tecido/forro/entretela), via categorias_tecido
+  // (principal + vínculos artigo_categorias_tecido). Forro/Entretela são
+  // categorias nomeadas; o resto é "tecido".
+  const { data: artigoBucket = {} } = useQuery({
+    queryKey: ["consumo-oc-artigo-cats", artigoIds],
+    enabled: artigoIds.length > 0,
+    queryFn: async () => {
+      const [{ data: catsData }, { data: arts }, { data: links }] = await Promise.all([
+        supabase.from("categorias_tecido").select("id, nome"),
+        supabase.from("artigos").select("id, categoria_tecido_id").in("id", artigoIds),
+        supabase.from("artigo_categorias_tecido").select("artigo_id, categoria_tecido_id").in("artigo_id", artigoIds),
+      ]);
+      const idByName = (n: string) => ((catsData ?? []) as any[]).find((c) => (c.nome ?? "").trim().toLowerCase() === n)?.id as string | undefined;
+      const forroId = idByName("forro");
+      const entreId = idByName("entretela");
+      const linkMap = new Map<string, Set<string>>();
+      for (const l of (links ?? []) as any[]) {
+        const set = linkMap.get(l.artigo_id) ?? new Set<string>();
+        set.add(l.categoria_tecido_id); linkMap.set(l.artigo_id, set);
+      }
+      const out: Record<string, "tecido" | "forro" | "entretela"> = {};
+      for (const a of (arts ?? []) as any[]) {
+        const set = linkMap.get(a.id) ?? new Set<string>();
+        if (a.categoria_tecido_id) set.add(a.categoria_tecido_id);
+        out[a.id] = entreId && set.has(entreId) ? "entretela" : forroId && set.has(forroId) ? "forro" : "tecido";
+      }
+      return out;
+    },
+  });
+  const catOf = (artigoId: string | null | undefined) => (artigoId && (artigoBucket as any)[artigoId]) || "tecido";
+  const catKeep = (artigoId: string | null | undefined) => cats.has(catOf(artigoId));
 
   const { data: modeloInfo = {} } = useQuery({
     queryKey: ["consumo-oc-modelos", modeloIds],
@@ -197,6 +238,8 @@ function ConsumoOcPage() {
     return ocs.filter((oc) => {
       // OC sem itens (ex.: só tinha entretela, agora oculta) não aparece.
       if (!oc.itens || oc.itens.length === 0) return false;
+      // Esconde a OC se nenhum item bate com a categoria de tecido selecionada.
+      if (!oc.itens.some((it) => catKeep(it.artigo_id))) return false;
       if (s && !(
         (oc.numero_pedido ?? "").toLowerCase().includes(s) ||
         (oc.fornecedor ?? "").toLowerCase().includes(s) ||
@@ -205,7 +248,7 @@ function ConsumoOcPage() {
       if (anyFilter && !oc.itens.some((it) => it.modelos.some((m) => keepModel(m.modelo_id)))) return false;
       return true;
     });
-  }, [ocs, search, anyFilter, fColecao, fMes, fAno, modeloInfo]);
+  }, [ocs, search, anyFilter, fColecao, fMes, fAno, modeloInfo, cats, artigoBucket]);
 
   const toggle = (id: string) => setExpanded((prev) => {
     const n = new Set(prev);
@@ -243,6 +286,20 @@ function ConsumoOcPage() {
             { label: "Ano", value: fAno, onChange: setFAno, options: anoOpts },
           ]}
         />
+        {/* Categoria do tecido (entretela não entra; forro deselecionado por padrão). */}
+        <div className="flex items-center gap-1">
+          {(["tecido", "forro"] as const).map((c) => (
+            <Button
+              key={c}
+              type="button"
+              size="sm"
+              variant={cats.has(c) ? "default" : "outline"}
+              onClick={() => setCats((prev) => { const n = new Set(prev); n.has(c) ? n.delete(c) : n.add(c); return n; })}
+            >
+              {c === "tecido" ? "Tecido" : "Forro"}
+            </Button>
+          ))}
+        </div>
       </div>
 
       {isLoading ? (
@@ -272,7 +329,7 @@ function ConsumoOcPage() {
                 </CardHeader>
                 <CardContent className={isOpen ? "space-y-6" : "pt-0"}>
                   {isOpen ? (
-                    agruparPorTecido(oc, keepModel, anyFilter).map((t) => {
+                    agruparPorTecido(oc, keepModel, anyFilter).filter((t) => catKeep(t.artigo_id)).map((t) => {
                       const sobraClass = t.sobra < 0 ? "text-destructive" : t.sobra <= t.recebido * 0.05 ? "text-emerald-600" : "text-foreground";
                       return (
                         <div key={t.artigo_id} className="space-y-3">
