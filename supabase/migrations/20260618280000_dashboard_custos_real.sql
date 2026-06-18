@@ -21,13 +21,16 @@ BEGIN
     WHERE c.tenant_id = v_tenant AND c.enviado_corte
     ORDER BY c.modelo_id, c.data_enviado_corte DESC NULLS LAST
   ),
-  mat AS (  -- materiais por peça do CAD confirmado
+  mat AS (  -- por peça do CAD confirmado: materiais + serviço REAL (producao_terceirizados)
     SELECT cc.modelo_id,
       COALESCE((SELECT SUM(CASE WHEN ct.custo_cad IS NOT NULL THEN ct.custo_cad
           ELSE COALESCE(ct.consumo_cad,0) * (1 + COALESCE(ct.loss_percent_cad,0)/100.0) * COALESCE(a.preco_por_metro,0) END)
         FROM cad_tecidos ct LEFT JOIN artigos a ON a.id = ct.artigo_id WHERE ct.cad_id = cc.cad_id), 0)
       + COALESCE((SELECT SUM(COALESCE(ca.consumo,0) * COALESCE(av.preco,0))
-        FROM cad_aviamentos ca LEFT JOIN aviamentos av ON av.id = ca.aviamento_id WHERE ca.cad_id = cc.cad_id), 0) AS materials
+        FROM cad_aviamentos ca LEFT JOIN aviamentos av ON av.id = ca.aviamento_id WHERE ca.cad_id = cc.cad_id), 0) AS materials,
+      COALESCE((SELECT SUM(COALESCE(pt.preco_metro_unidade,0) * COALESCE(pt.quantidade_enviada,0))
+        FROM producao_terceirizados pt WHERE pt.cad_id = cc.cad_id AND COALESCE(pt.interno,false) = false), 0) AS servico_total,
+      COALESCE((SELECT SUM(COALESCE(g.grade_total_real, g.grade_total_planejada, 0)) FROM cad_grades g WHERE g.cad_id = cc.cad_id), 0) AS grade
     FROM cad_conf cc
   ),
   base AS (
@@ -35,7 +38,8 @@ BEGIN
       EXISTS(SELECT 1 FROM cad_conf cc WHERE cc.modelo_id = m.id) AS confirmado,
       COALESCE(m.custo_peca_previsto, 0) AS previsto,
       CASE WHEN EXISTS(SELECT 1 FROM cad_conf cc WHERE cc.modelo_id = m.id)
-        THEN COALESCE((SELECT materials FROM mat WHERE mat.modelo_id = m.id), 0) + COALESCE(m.custo_terceirizados_previsto, 0)
+        THEN COALESCE((SELECT materials + CASE WHEN grade > 0 THEN servico_total / grade ELSE 0 END
+                       FROM mat WHERE mat.modelo_id = m.id), 0)
         ELSE COALESCE(m.custo_peca_previsto, 0)
       END AS real
     FROM modelos m

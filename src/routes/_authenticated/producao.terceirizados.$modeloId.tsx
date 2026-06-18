@@ -106,6 +106,25 @@ function TercDetailPage() {
     },
   });
 
+  // Custo de materiais do CAD por peça (tecidos + aviamentos) — base do custo real.
+  const { data: materiaisPorPeca = 0 } = useQuery({
+    queryKey: ["terc-cad-materiais", cad?.id],
+    enabled: !!cad?.id,
+    queryFn: async () => {
+      const [tecRes, aviRes] = await Promise.all([
+        supabase.from("cad_tecidos").select("custo_cad, consumo_cad, loss_percent_cad, artigos:artigo_id(preco_por_metro)").eq("cad_id", cad!.id),
+        supabase.from("cad_aviamentos").select("consumo, aviamentos:aviamento_id(preco)").eq("cad_id", cad!.id),
+      ]);
+      const tec = (tecRes.data ?? []).reduce((s: number, t: any) =>
+        s + (t.custo_cad != null
+          ? Number(t.custo_cad)
+          : (Number(t.consumo_cad) || 0) * (1 + (Number(t.loss_percent_cad) || 0) / 100) * (Number(t.artigos?.preco_por_metro) || 0)), 0);
+      const avi = (aviRes.data ?? []).reduce((s: number, a: any) =>
+        s + (Number(a.consumo) || 0) * (Number(a.aviamentos?.preco) || 0), 0);
+      return tec + avi;
+    },
+  });
+
   // Colaboradores (Cadastro > Colaboradores) — responsáveis quando o serviço é Interno.
   const { data: colaboradores = [] } = useQuery({
     queryKey: ["colaboradores-all"],
@@ -334,6 +353,15 @@ function TercDetailPage() {
     return { statusGeral: todasEntregues ? "finalizado" : "em_andamento", dataInicial: di, dataFinal: df, slaDias: sla };
   }, [blocos]);
 
+  // Custo de serviço por peça e custo real (= materiais do CAD + serviço).
+  const servicoTotal = useMemo(
+    () => blocos.reduce((s, b) => s + (b.interno ? 0 : (Number(b.preco_metro_unidade) || 0) * (Number(b.quantidade_enviada) || 0)), 0),
+    [blocos],
+  );
+  const servicoPorPeca = gradeTotalGeral > 0 ? servicoTotal / gradeTotalGeral : 0;
+  const custoRealPeca = (Number(materiaisPorPeca) || 0) + servicoPorPeca;
+  const brl = (v: number) => Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
   const saveMut = useMutation({
     mutationFn: async () => {
       if (!cad?.id) throw new Error("CAD não encontrado para este modelo. Abra o CAD primeiro.");
@@ -433,7 +461,7 @@ function TercDetailPage() {
       </header>
 
       {/* Status geral */}
-      <Card className="p-4 grid gap-4 md:grid-cols-5">
+      <Card className="p-4 grid gap-4 md:grid-cols-3 lg:grid-cols-6">
         <div>
           <Label className="text-xs text-muted-foreground">Grade Total Geral</Label>
           <div className="mt-1 text-sm font-semibold">{fmtNum(gradeTotalGeral)}</div>
@@ -455,6 +483,12 @@ function TercDetailPage() {
         <div>
           <Label className="text-xs text-muted-foreground">SLA (dias)</Label>
           <div className="mt-1 text-sm">{slaDias ?? "—"}</div>
+        </div>
+        <div>
+          <Label className="text-xs text-muted-foreground">Custo real (c/ serviço) / peça</Label>
+          <div className="mt-1 text-sm font-bold text-primary" title={`Materiais CAD ${brl(Number(materiaisPorPeca) || 0)} + serviço ${brl(servicoPorPeca)}`}>
+            {brl(custoRealPeca)}
+          </div>
         </div>
       </Card>
 
