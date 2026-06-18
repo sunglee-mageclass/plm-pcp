@@ -67,16 +67,18 @@ function ColecaoTab() {
   const [periodo, setPeriodo] = useState<Periodo>(undefined);
   const [colecao, setColecao] = useState("all");
   const [estilista, setEstilista] = useState("all");
+  const [linha, setLinha] = useState("all");
   const ini = isoDate(periodo?.from), fim = isoDate(periodo?.to);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["dash-colecao", ini, fim, colecao, estilista],
+    queryKey: ["dash-colecao", ini, fim, colecao, estilista, linha],
     queryFn: async () => {
       const { data, error } = await supabase.rpc("dashboard_colecao", {
         p_inicio: ini,
         p_fim: fim,
         p_colecao: colecao === "all" ? undefined : colecao,
         p_estilista: estilista === "all" ? undefined : estilista,
+        p_linha: linha === "all" ? undefined : linha,
       });
       if (error) throw error;
       return data as any;
@@ -87,6 +89,7 @@ function ColecaoTab() {
   const funnel = (data?.funnel ?? []).map((f: any, i: number) => ({ ...f, fill: PIE_COLORS[i % PIE_COLORS.length] }));
   const pieData = data?.pie ?? [];
   const estilistas: Opt[] = data?.filtros?.estilistas ?? [];
+  const linhas: Opt[] = data?.filtros?.linhas ?? [];
   const colecoes: string[] = data?.filtros?.colecoes ?? [];
 
   return (
@@ -96,6 +99,7 @@ function ColecaoTab() {
         <FilterButton
           filters={[
             { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.filter(Boolean).map((c) => ({ id: c, nome: c }))] },
+            { label: "Linha", value: linha, onChange: setLinha, options: [{ id: "all", nome: "Todas" }, ...linhas] },
             { label: "Estilista", value: estilista, onChange: setEstilista, options: [{ id: "all", nome: "Todos" }, ...estilistas] },
           ]}
         />
@@ -512,16 +516,18 @@ function CustosTab() {
   const [periodo, setPeriodo] = useState<Periodo>(undefined);
   const [colecao, setColecao] = useState("all");
   const [categoria, setCategoria] = useState("all");
+  const [linha, setLinha] = useState("all");
   const ini = isoDate(periodo?.from), fim = isoDate(periodo?.to);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["dash-custos", ini, fim, colecao, categoria],
+    queryKey: ["dash-custos", ini, fim, colecao, categoria, linha],
     queryFn: async () => {
       const { data, error } = await supabase.rpc("dashboard_custos", {
         p_inicio: ini,
         p_fim: fim,
         p_colecao: colecao === "all" ? undefined : colecao,
         p_categoria: categoria === "all" ? undefined : categoria,
+        p_linha: linha === "all" ? undefined : linha,
       });
       if (error) throw error;
       return data as any;
@@ -531,6 +537,7 @@ function CustosTab() {
   const rows = data?.rows ?? [];
   const chartData = data?.chartData ?? [];
   const categorias: Opt[] = data?.filtros?.categorias ?? [];
+  const linhas: Opt[] = data?.filtros?.linhas ?? [];
   const colecoes: string[] = data?.filtros?.colecoes ?? [];
 
   const brl = (v: number) => Number(v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -542,6 +549,7 @@ function CustosTab() {
         <FilterButton
           filters={[
             { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.filter(Boolean).map((c) => ({ id: c, nome: c }))] },
+            { label: "Linha", value: linha, onChange: setLinha, options: [{ id: "all", nome: "Todas" }, ...linhas] },
             { label: "Categoria", value: categoria, onChange: setCategoria, options: [{ id: "all", nome: "Todas" }, ...categorias] },
           ]}
         />

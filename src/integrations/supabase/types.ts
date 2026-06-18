@@ -3282,11 +3282,12 @@ export type Database = {
           p_fim?: string
           p_colecao?: string
           p_estilista?: string
+          p_linha?: string
         }
         Returns: Json
       }
       dashboard_custos: {
-        Args: { p_inicio?: string; p_fim?: string; p_colecao?: string; p_categoria?: string }
+        Args: { p_inicio?: string; p_fim?: string; p_colecao?: string; p_categoria?: string; p_linha?: string }
         Returns: Json
       }
       dashboard_estoque: { Args: never; Returns: Json }
