@@ -44,16 +44,17 @@ export function TenantSwitcher() {
   const switchMut = useMutation({
     mutationFn: (tenant_id: string) => callSet({ data: { tenant_id } }),
     onMutate: (tenant_id: string) => {
-      // Reflete a loja escolhida no seletor IMEDIATAMENTE (sem esperar o servidor).
+      // Reflete SÓ o seletor imediatamente. NÃO seta o active-tenant-id otimista:
+      // se setasse, a query de módulos (chaveada por tenant) refazia AGORA, com o
+      // tenant ANTIGO ainda no servidor, e cacheava os módulos errados sob a chave
+      // nova — por isso a sidebar não respeitava as toggles da loja selecionada.
       qc.setQueryData(["tenant-switcher", "current", user?.id], tenant_id);
-      // E no tenant ATIVO que chaveia as queries de identidade (módulos/abas/fuso/
-      // logo/nomenclatura): a sidebar passa a refletir a loja nova na hora.
-      qc.setQueryData(["active-tenant-id", user?.id], tenant_id);
     },
-    onSuccess: () => {
-      // Invalida TUDO (refetch em paralelo, em background) — SEM tela em branco:
-      // o conteúdo antigo fica visível até o novo chegar. (clear() blanqueava tudo
-      // e gerava um refetch-storm lento; awaits serializados também atrasavam.)
+    onSuccess: async () => {
+      // DEPOIS que o servidor trocou o tenant: relê o tenant ATIVO (muda a chave
+      // das queries de identidade -> módulos/abas/fuso/logo/nomenclatura da loja
+      // nova) e então invalida o resto dos dados.
+      await qc.refetchQueries({ queryKey: ["active-tenant-id"] });
       qc.invalidateQueries();
     },
     onError: () => {

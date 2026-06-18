@@ -92,6 +92,15 @@ export function ModeloInfoSection({
         )}
         <FieldSelectOpt label={fl("linha")} value={draft.linha_id} onChange={(v) => setDraft({ ...draft, linha_id: v })} options={linhas} />
         <FieldSelectOpt label={fl("modelista")} value={draft.modelista_id} onChange={(v) => setDraft({ ...draft, modelista_id: v })} options={modelistas} />
+        {/* Categoria/Subcategoria (definidas no Planejamento) — exibição read-only. */}
+        <Field label="Categoria">
+          <Input value={draft.categoria_principal_nome ?? "—"} readOnly disabled />
+        </Field>
+        {draft.categoria_secundaria_nome && (
+          <Field label="Subcategoria">
+            <Input value={draft.categoria_secundaria_nome} readOnly disabled />
+          </Field>
+        )}
         <div className="sm:col-span-2 grid sm:grid-cols-2 gap-3">
           <FieldSelectOpt label={`${fl("piloteiro")} 1`} value={draft.piloteiro1_id} onChange={(v) => setDraft({ ...draft, piloteiro1_id: v })} options={piloteiros} />
           <Field label="Data Piloto 1">

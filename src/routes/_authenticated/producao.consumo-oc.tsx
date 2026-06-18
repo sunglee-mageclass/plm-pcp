@@ -57,7 +57,13 @@ const fmt = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(2));
 const fmtDate = (s: string | null | undefined) => (s ? s.split("-").reverse().join("/") : "—");
 const fmtProporcoes = (p: Record<string, any> | null | undefined) => {
   if (!p || typeof p !== "object") return "—";
-  const parts = Object.entries(p).filter(([, v]) => num(v) > 0).map(([k, v]) => `${k.includes("|") ? k.split("|")[1] : k}:${num(v)}`);
+  // Ordena pelo prefixo numérico do tamanho ("34|PPP" -> 34), como no resto do
+  // projeto — Object.entries vinha na ordem de inserção (tamanhos fora de ordem).
+  const ord = (k: string) => { const n = Number(k.split("|")[0]); return Number.isNaN(n) ? Infinity : n; };
+  const parts = Object.entries(p)
+    .filter(([, v]) => num(v) > 0)
+    .sort(([a], [b]) => ord(a) - ord(b) || a.localeCompare(b))
+    .map(([k, v]) => `${k.includes("|") ? k.split("|")[1] : k}:${num(v)}`);
   return parts.length ? parts.join("  ") : "—";
 };
 const recebidoItem = (oc: OC, it: Item) => (oc.status === "recebido" ? num(it.recebido_m) : num(it.pedido_m));

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { fmtNum } from "@/lib/format";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Users, Save, Plus, Trash2, FileText } from "lucide-react";
+import { ArrowLeft, Users, Save, Plus, Trash2, FileText, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
@@ -236,6 +236,9 @@ function TercDetailPage() {
 
   const [blocos, setBlocos] = useState<Bloco[]>([]);
   const [hydrated, setHydrated] = useState(false);
+  // Trava por segurança quando o serviço está Finalizado: só edita ao clicar
+  // "Editar", e o Salvar volta a travar.
+  const [editing, setEditing] = useState(false);
 
   // "Observação de Partes do Molde": mesmo campo do CAD (cad.observacoes_molde).
   const [observacoesMolde, setObservacoesMolde] = useState("");
@@ -380,6 +383,7 @@ function TercDetailPage() {
     },
     onSuccess: async () => {
       toast.success("Salvo com sucesso");
+      setEditing(false); // salvar trava novamente quando está Finalizado
       // Busca os dados frescos ANTES de liberar o guard de hidratação, senão a
       // re-hidratação rodava com o cache antigo (vazio) e o formulário "sumia".
       await qc.invalidateQueries({ queryKey: ["producao-terc", cad?.id] });
@@ -391,6 +395,8 @@ function TercDetailPage() {
     onError: (e: any) => toast.error(e?.message ?? "Erro ao salvar"),
   });
 
+  const locked = statusGeral === "finalizado" && !editing;
+
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -401,12 +407,18 @@ function TercDetailPage() {
           <Button variant="outline" onClick={() => window.print()} disabled={!cad?.id}>
             <FileText className="h-4 w-4 mr-2" /> Ficha Técnica
           </Button>
-          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
-            <Save className="h-4 w-4 mr-2" /> Salvar
-          </Button>
+          {locked ? (
+            <Button variant="outline" onClick={() => setEditing(true)} disabled={readOnly}>
+              <Pencil className="h-4 w-4 mr-2" /> Editar
+            </Button>
+          ) : (
+            <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
+              <Save className="h-4 w-4 mr-2" /> Salvar
+            </Button>
+          )}
         </div>
       </div>
-      <fieldset disabled={readOnly} className="contents">
+      <fieldset disabled={readOnly || locked} className="contents">
 
       <header className="flex items-center gap-3">
         <Users className="h-7 w-7 text-primary" />

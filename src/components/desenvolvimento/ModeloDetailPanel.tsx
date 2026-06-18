@@ -167,7 +167,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const { data: modelo, isLoading: loadingModelo } = useQuery({
     queryKey: ["modelo-detail", modeloId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("modelos").select("*").eq("id", modeloId).maybeSingle();
+      const { data, error } = await supabase.from("modelos").select("*, cat_p:categoria_principal_id(nome), cat_s:categoria_secundaria_id(nome)").eq("id", modeloId).maybeSingle();
       if (error) throw error;
       return data;
     },
@@ -307,6 +307,9 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         enviado_cad: !!modelo.enviado_cad,
         fotos_modelo: (modelo.fotos_modelo ?? []) as string[],
         fotos_referencia: (modelo.fotos_referencia ?? []) as string[],
+        // Só exibição (read-only): categoria vem do Planejamento.
+        categoria_principal_nome: (modelo as any).cat_p?.nome ?? null,
+        categoria_secundaria_nome: (modelo as any).cat_s?.nome ?? null,
       });
     }
   }, [modelo]);
