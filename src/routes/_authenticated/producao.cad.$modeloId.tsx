@@ -54,6 +54,9 @@ function CadDetailPage() {
 export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAfterDelete?: () => void }) {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
+  // Trava por SEGURANÇA após enviar ao corte: só edita ao clicar "Editar", e o
+  // Salvar volta a travar. (mesma ideia do Controle de Qualidade)
+  const [editing, setEditing] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
 
   // --- queries ---
@@ -517,6 +520,7 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
     },
     onSuccess: () => {
       toast.success("CAD salvo");
+      setEditing(false); // salvar trava novamente quando já foi enviado
       qc.invalidateQueries({ queryKey: ["cad-row", modeloId] });
       qc.invalidateQueries({ queryKey: ["cad-tecidos"] });
       qc.invalidateQueries({ queryKey: ["cad-aviamentos-rows"] });
@@ -707,9 +711,11 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
           enviado={!!cadRow?.enviado_corte}
           dataEnviado={cadRow?.data_enviado_corte}
           readOnly={readOnly}
+          editing={editing}
+          onEditar={() => setEditing(true)}
         />
 
-        <fieldset disabled={readOnly} className="contents">
+        <fieldset disabled={readOnly || (!!cadRow?.enviado_corte && !editing)} className="contents">
         {/* SEÇÃO 1 */}
         <Card className="p-5 flex gap-5">
           <div className="h-32 w-32 rounded-md bg-muted overflow-hidden flex items-center justify-center">

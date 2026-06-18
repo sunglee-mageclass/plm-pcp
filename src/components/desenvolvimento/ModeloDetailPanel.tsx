@@ -5,7 +5,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Loader2, Send } from "lucide-react";
+import { Loader2, Pencil, Send } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -237,6 +237,10 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const [grades, setGrades] = useState<GradeRow[]>([]);
   const [uploading, setUploading] = useState(false);
   const [confirmEnviarCad, setConfirmEnviarCad] = useState(false);
+  // Trava por SEGURANÇA após enviar ao CAD: só edita ao clicar "Editar", e o
+  // Salvar volta a travar. Reseta ao abrir outro modelo.
+  const [editing, setEditing] = useState(false);
+  useEffect(() => { setEditing(false); }, [modeloId]);
   // Grade automática: ao digitar uma célula, escala as demais pela proporção.
   const [gradeAuto, setGradeAuto] = useState(false);
 
@@ -589,6 +593,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     mutationFn: persistModelo,
     onSuccess: () => {
       toast.success("Modelo salvo");
+      setEditing(false); // salvar trava novamente quando já foi enviado ao CAD
       qc.invalidateQueries({ queryKey: ["modelo-detail", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-tecidos", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-tecido-oc-links", modeloId] });
@@ -828,12 +833,14 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     );
   }
 
+  const locked = !!draft?.enviado_cad && !editing;
   return (
     <>
       <SheetHeader>
         <SheetTitle>{draft.nome || "Modelo"}</SheetTitle>
       </SheetHeader>
 
+      <fieldset disabled={locked} className="contents">
       <div className="mt-4">
         <Accordion type="multiple" defaultValue={["s1"]}>
           <AccordionItem value="s1">
@@ -935,6 +942,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           <ModeloObservacoes modeloId={modeloId} />
         </div>
       </div>
+      </fieldset>
 
       <div className="sticky bottom-0 bg-background border-t mt-4 pt-3 flex flex-wrap gap-2 justify-end items-center">
         {draft.enviado_cad && (
@@ -952,9 +960,15 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
             <Send className="h-4 w-4 mr-2" /> Enviar para o CAD
           </Button>
         )}
-        <Button onClick={() => save.mutate()} disabled={save.isPending}>
-          {save.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Salvar
-        </Button>
+        {locked ? (
+          <Button variant="secondary" onClick={() => setEditing(true)}>
+            <Pencil className="h-4 w-4 mr-2" /> Editar
+          </Button>
+        ) : (
+          <Button onClick={() => save.mutate()} disabled={save.isPending}>
+            {save.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Salvar
+          </Button>
+        )}
       </div>
 
       <AlertDialog open={confirmEnviarCad} onOpenChange={setConfirmEnviarCad}>
