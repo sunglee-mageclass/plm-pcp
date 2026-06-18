@@ -25,11 +25,13 @@ export type FichaData = {
   composicao: string;
   observacoes: ObsRow[];
   ocLinksByKey: Record<string, string[]>;
+  /** true quando os dados essenciais da ficha já carregaram (p/ imprimir só depois). */
+  isReady: boolean;
 };
 
 /** Carrega os dados SALVOS do CAD de um modelo nos formatos da ficha (read-only). */
 export function useFichaData(modeloId: string): FichaData {
-  const { data: modelo } = useQuery({
+  const { data: modelo, isFetched: modeloFetched } = useQuery({
     queryKey: ["ft-modelo", modeloId],
     queryFn: async () => {
       const { data } = await supabase
@@ -41,7 +43,7 @@ export function useFichaData(modeloId: string): FichaData {
     },
   });
 
-  const { data: cadRow } = useQuery({
+  const { data: cadRow, isFetched: cadFetched } = useQuery({
     queryKey: ["ft-cad", modeloId],
     queryFn: async () => {
       const { data } = await supabase
@@ -54,7 +56,7 @@ export function useFichaData(modeloId: string): FichaData {
   });
   const cadId = (cadRow as any)?.id;
 
-  const { data: cadTecidos = [] } = useQuery({
+  const { data: cadTecidos = [], isFetched: tecidosFetched } = useQuery({
     queryKey: ["ft-tecidos", cadId],
     enabled: !!cadId,
     queryFn: async () => {
@@ -66,7 +68,7 @@ export function useFichaData(modeloId: string): FichaData {
     },
   });
 
-  const { data: modeloGrades = [] } = useQuery({
+  const { data: modeloGrades = [], isFetched: gradesFetched } = useQuery({
     queryKey: ["ft-grades", modeloId],
     queryFn: async () => (await supabase.from("modelo_grades").select("*").eq("modelo_id", modeloId)).data ?? [],
   });
@@ -222,5 +224,8 @@ export function useFichaData(modeloId: string): FichaData {
     composicao,
     observacoes: observacoes as ObsRow[],
     ocLinksByKey,
+    // Só está "pronto" quando o modelo, o CAD e a grade carregaram (e, havendo
+    // CAD, os tecidos). Evita imprimir a ficha em branco no 1º clique (cache frio).
+    isReady: modeloFetched && cadFetched && gradesFetched && (!cadId || tecidosFetched),
   };
 }

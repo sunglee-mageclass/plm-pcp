@@ -27,7 +27,9 @@ export function PrintFicha({
   const startedRef = useRef(false);
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
-  const ready = !!d.modelo && d.cadRow !== undefined;
+  // Só imprime quando os dados ESSENCIAIS da ficha já carregaram (isReady),
+  // senão o 1º clique (cache frio) saía em branco e era preciso clicar de novo.
+  const ready = d.isReady;
 
   useEffect(() => {
     if (!ready || startedRef.current) return;
@@ -46,9 +48,11 @@ export function PrintFicha({
       onDoneRef.current();
     };
 
-    const imgsReady = () => {
+    // Todas as <img> PRESENTES estão carregadas (true também quando ainda não há
+    // nenhuma — daí o piso de settle abaixo dar tempo de a foto assíncrona montar).
+    const imgsLoaded = () => {
       const imgs = Array.from(wrapRef.current?.querySelectorAll("img") ?? []);
-      return imgs.length === 0 || imgs.every((img) => img.complete && img.naturalWidth > 0);
+      return imgs.every((img) => img.complete && img.naturalWidth > 0);
     };
 
     const doPrint = () => {
@@ -59,24 +63,22 @@ export function PrintFicha({
       window.print();
     };
 
-    if (imgsReady()) {
-      // Caso comum (reimpressão / imagens em cache): imprime IMEDIATAMENTE, o
-      // mais perto possível do clique. Antes, um piso de 250ms forçava o print()
-      // a sair de um setTimeout (fora do gesto), e o Chrome SUPRIMIA a 2ª
-      // impressão silenciosamente. Síncrono aqui resolve o "não reabre".
+    // Espera um piso (p/ a foto do modelo — signed URL assíncrona — montar e
+    // carregar) e todas as imagens completarem; teto de 4s (dentro da janela de
+    // "transient activation" do navegador, p/ o print() não ser suprimido).
+    const MIN_SETTLE = 400;
+    const MAX_WAIT = 4000;
+    const start = Date.now();
+    const poll = async () => {
+      while (!cancelled) {
+        const elapsed = Date.now() - start;
+        if (elapsed >= MAX_WAIT) break;
+        if (elapsed >= MIN_SETTLE && imgsLoaded()) break;
+        await new Promise((r) => setTimeout(r, 100));
+      }
       doPrint();
-    } else {
-      // Só espera (máx ~4s) quando a foto ainda não carregou, p/ não sair branca.
-      const start = Date.now();
-      const poll = async () => {
-        while (!cancelled && Date.now() - start < 4000) {
-          if (imgsReady()) break;
-          await new Promise((r) => setTimeout(r, 100));
-        }
-        doPrint();
-      };
-      poll();
-    }
+    };
+    poll();
 
     return () => {
       cancelled = true;

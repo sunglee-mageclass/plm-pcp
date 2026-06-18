@@ -316,21 +316,6 @@ function LancamentoCard(props: { card: LancCard; compact: boolean; onUpload: (f:
         </div>
       )}
 
-      {!compact && (
-        <div className="p-3 pt-0">
-          <input
-            ref={ref}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) onUpload(f); e.target.value = ""; }}
-          />
-          <Button size="sm" variant="outline" className="w-full" onClick={() => ref.current?.click()} disabled={uploading || readOnly}>
-            <Upload className="h-3.5 w-3.5 mr-1" />
-            {card.lancamento?.foto_peca_amostra ? "Trocar foto" : "Enviar foto"}
-          </Button>
-        </div>
-      )}
     </Card>
   );
 }
