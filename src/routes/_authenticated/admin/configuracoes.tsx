@@ -150,7 +150,10 @@ function ConfiguracoesLojaPage() {
   const save = useMutation({
     mutationFn: async () => {
       if (!data?.tenantId) throw new Error("Loja não identificada para este usuário.");
-      const payload = { tenant_id: data.tenantId, ...cfg };
+      // campos_editaveis é gerenciado SÓ pela janela de Nomenclaturas — não inclui
+      // aqui para não sobrescrever o que foi salvo lá.
+      const { campos_editaveis: _ce, ...cfgRest } = cfg;
+      const payload = { tenant_id: data.tenantId, ...cfgRest };
       const { error } = await supabase
         .from("tenant_config")
         .upsert(payload, { onConflict: "tenant_id" });
@@ -308,31 +311,14 @@ function ConfiguracoesLojaPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Nomes de Campos</CardTitle>
+          <CardTitle>Nomenclaturas</CardTitle>
           <CardDescription>
-            Personalize como rótulos aparecem no sistema (ex: trocar "Coleção" por "Drop").
+            Renomeie as abas do menu (módulos e páginas) e os campos de cada módulo.
             Deixe em branco para manter o nome padrão.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
-          {Object.entries(FIELD_LABEL_DEFAULTS).map(([key, padrao]) => (
-            <div key={key} className="grid grid-cols-1 md:grid-cols-[200px_1fr] items-center gap-2">
-              <Label className="text-sm text-muted-foreground">{padrao}</Label>
-              <Input
-                placeholder={padrao}
-                value={cfg.campos_editaveis[key] ?? ""}
-                onChange={(e) =>
-                  setCfg({
-                    ...cfg,
-                    campos_editaveis: { ...cfg.campos_editaveis, [key]: e.target.value },
-                  })
-                }
-              />
-            </div>
-          ))}
-          <div className="pt-2 border-t">
-            <NomesDasAbasDialog tenantId={data?.tenantId ?? null} modules={(data?.cfg as any)?.modules ?? {}} />
-          </div>
+        <CardContent>
+          <NomesDasAbasDialog tenantId={data?.tenantId ?? null} modules={(data?.cfg as any)?.modules ?? {}} />
         </CardContent>
       </Card>
 

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Users, Search, Printer } from "lucide-react";
@@ -23,6 +23,7 @@ function TercListPage() {
   const [fAno, setFAno] = useState("all");
   const [fStatus, setFStatus] = useState("all");
   const [printReq, setPrintReq] = useState<{ id: string; n: number } | null>(null);
+  const printSeq = useRef(0);
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["producao-terc-list"],
@@ -155,7 +156,7 @@ function TercListPage() {
                     size="icon"
                     className="h-8 w-8"
                     title="Imprimir Ficha Técnica"
-                    onClick={(e) => { e.stopPropagation(); setPrintReq((p) => ({ id: r.modelo_id, n: (p?.n ?? 0) + 1 })); }}
+                    onClick={(e) => { e.stopPropagation(); printSeq.current += 1; setPrintReq({ id: r.modelo_id, n: printSeq.current }); }}
                   >
                     <Printer className="h-4 w-4" />
                   </Button>

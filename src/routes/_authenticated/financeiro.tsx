@@ -302,22 +302,15 @@ function ParcelaDetailDialog({
   const updateVencimentoMut = useMutation({
     mutationFn: async () => {
       if (!parcela) return;
-      const update: Record<string, any> = { data_vencimento: vencimento };
-      if (!parcela.data_pagamento && parcela.status !== "pago") {
-        update.status = vencimento < todayLocalISO() ? "vencido" : "a_pagar";
-      }
-      const { error } = await supabase.from("parcelas").update(update as any).eq("id", parcela.id);
+      const { error } = await supabase.from("parcelas").update({ data_vencimento: vencimento } as any).eq("id", parcela.id);
       if (error) throw error;
     },
     onMutate: async () => {
       if (!parcela) return {};
       await qc.cancelQueries({ queryKey: ["parcelas"] });
       const prev = qc.getQueryData<any[]>(["parcelas"]);
-      const paid = !!parcela.data_pagamento || parcela.status === "pago";
       qc.setQueryData<any[]>(["parcelas"], (old) => (old ?? []).map((p) =>
-        p.id === parcela.id
-          ? { ...p, data_vencimento: vencimento, status: paid ? p.status : (vencimento < todayLocalISO() ? "vencido" : "a_pagar") }
-          : p));
+        p.id === parcela.id ? { ...p, data_vencimento: vencimento } : p));
       return { prev };
     },
     onError: (e: any, _vars, ctx: any) => {
@@ -471,21 +464,18 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
   });
 
   const updateVencimentoMut = useMutation({
-    mutationFn: async ({ id, data, paid }: { id: string; data: string; paid: boolean }) => {
-      const update: Record<string, any> = { data_vencimento: data };
-      if (!paid) update.status = data < todayLocalISO() ? "vencido" : "a_pagar";
-      const { error } = await supabase.from("parcelas").update(update as any).eq("id", id);
+    // Só grava a DATA. O status "Vencido/A pagar" é DERIVADO da data (effectiveStatus),
+    // então não precisa (e não deve) ser persistido aqui — evita falha de update.
+    mutationFn: async ({ id, data }: { id: string; data: string }) => {
+      const { error } = await supabase.from("parcelas").update({ data_vencimento: data } as any).eq("id", id);
       if (error) throw error;
     },
-    // Atualização otimista: o cartão/badge muda na hora (vencido/a pagar), sem
-    // depender do refetch.
-    onMutate: async ({ id, data, paid }) => {
+    // Atualização otimista: a badge recalcula na hora pela nova data.
+    onMutate: async ({ id, data }) => {
       await qc.cancelQueries({ queryKey: ["parcelas"] });
       const prev = qc.getQueryData<any[]>(["parcelas"]);
       qc.setQueryData<any[]>(["parcelas"], (old) => (old ?? []).map((p) =>
-        p.id === id
-          ? { ...p, data_vencimento: data, status: paid ? p.status : (data < todayLocalISO() ? "vencido" : "a_pagar") }
-          : p));
+        p.id === id ? { ...p, data_vencimento: data } : p));
       return { prev };
     },
     onError: (e: any, _vars, ctx: any) => {
@@ -587,7 +577,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
                       <Input
                         type="date"
                         value={p.data_vencimento}
-                        onChange={(e) => { if (e.target.value && e.target.value !== p.data_vencimento) updateVencimentoMut.mutate({ id: p.id, data: e.target.value, paid: !!p.data_pagamento }); }}
+                        onChange={(e) => { if (e.target.value && e.target.value !== p.data_vencimento) updateVencimentoMut.mutate({ id: p.id, data: e.target.value }); }}
                         className="h-7 w-auto"
                       />
                     </td>
