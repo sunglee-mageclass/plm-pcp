@@ -7,9 +7,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { BarChart3, Package, Palette, Boxes, AlertTriangle, Layers, Sparkles } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { BarChart3, Package, Palette, Boxes, AlertTriangle, Layers, Sparkles, CalendarRange } from "lucide-react";
+import { format } from "date-fns";
 import { FilterButton } from "@/components/shared/filters";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
@@ -18,7 +21,6 @@ import {
 
 import { RequirePermission } from "@/components/RequirePermission";
 import { ModuleGuard } from "@/components/ModuleGuard";
-import { ProducaoCalendario } from "@/components/producao/ProducaoCalendario";
 export const Route = createFileRoute("/_authenticated/dashboard")({
   component: () => (
     <ModuleGuard module="dashboard">
@@ -240,6 +242,54 @@ function EstoqueTab() {
   );
 }
 
+/* Barra vertical por mês (um único indicador). */
+function MonthBarCard({ title, subtitle, data, dataKey, name, color, empty, loading }: {
+  title: string; subtitle?: string; data: any[]; dataKey: string; name: string; color: string; empty: string; loading: boolean;
+}) {
+  return (
+    <Card className="p-4">
+      <h3 className="font-semibold mb-1">{title}</h3>
+      {subtitle && <p className="text-xs text-muted-foreground mb-2">{subtitle}</p>}
+      <div style={{ width: "100%", height: 280 }}>
+        <ResponsiveContainer>
+          <BarChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+            <XAxis dataKey="mes" />
+            <YAxis allowDecimals={false} tickFormatter={(v) => Number(v).toLocaleString("pt-BR")} />
+            <Tooltip formatter={(v: any) => fmtNum(v)} />
+            <Bar dataKey={dataKey} name={name} fill={color} radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      {!loading && data.length === 0 && <p className="text-sm text-muted-foreground text-center mt-2">{empty}</p>}
+    </Card>
+  );
+}
+
+/* Barra horizontal por etapa do kanban (um único indicador). */
+function EtapaBarCard({ title, data, dataKey, name, color }: {
+  title: string; data: any[]; dataKey: string; name: string; color: string;
+}) {
+  return (
+    <Card className="p-4">
+      <h3 className="font-semibold mb-3">{title}</h3>
+      <div style={{ width: "100%", height: 360 }}>
+        <ResponsiveContainer>
+          <BarChart data={data} layout="vertical" margin={{ left: 24, right: 24 }}>
+            <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+            <XAxis type="number" allowDecimals={false} />
+            <YAxis type="category" dataKey="label" width={140} tick={{ fontSize: 11 }} />
+            <Tooltip formatter={(v: any) => fmtNum(v)} />
+            <Bar dataKey={dataKey} name={name} fill={color} radius={[0, 4, 4, 0]}>
+              <LabelList dataKey={dataKey} position="right" />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </Card>
+  );
+}
+
 /* ============================ PRODUÇÃO ============================ */
 
 function ProducaoTab() {
@@ -267,10 +317,9 @@ function ProducaoTab() {
   const slaPorTerc = data?.slaPorTerc ?? [];
   const kpiPrazo = data?.kpiPrazo ?? { noPrazo: 0, atrasadas: 0, pct: 0 };
   const cortes = data?.cortesPorMes ?? [];
-  const entregues = data?.entreguesPorMes ?? [];
-  const kanbanObj = data?.kanban ?? {};
+  const finalizadas = data?.finalizadasPorMes ?? [];
+  const kanbanDev = data?.kanbanDev ?? [];
   const etapas = ["CAD", "Terceirizado", "Oficina", "Controle de Qualidade", "Acabamento", "Direcionamento", "Lançado"];
-  const kanbanData = etapas.map((e) => ({ etapa: e, total: Number(kanbanObj?.[e] ?? 0) }));
 
   const meses: Opt[] = data?.filtros?.meses ?? [];
   const anos: Opt[] = data?.filtros?.anos ?? [];
@@ -296,66 +345,29 @@ function ProducaoTab() {
         <Kpi label="% no prazo" value={Math.round(Number(kpiPrazo.pct) || 0)} icon={Sparkles} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="p-4">
-          <h3 className="font-semibold mb-3">Cortes por mês</h3>
-          <p className="text-xs text-muted-foreground mb-2">Modelos cortados e grade total (peças) por mês do corte.</p>
-          <div style={{ width: "100%", height: 300 }}>
-            <ResponsiveContainer>
-              <BarChart data={cortes}>
-                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                <XAxis dataKey="mes" />
-                <YAxis yAxisId="left" allowDecimals={false} />
-                <YAxis yAxisId="right" orientation="right" tickFormatter={(v) => Number(v).toLocaleString("pt-BR")} />
-                <Tooltip formatter={(v: any) => fmtNum(v)} />
-                <Legend />
-                <Bar yAxisId="left" dataKey="modelos" name="Modelos" fill={PIE_COLORS[0]} />
-                <Bar yAxisId="right" dataKey="grade" name="Grade total" fill={PIE_COLORS[1]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          {!isLoading && cortes.length === 0 && <p className="text-sm text-muted-foreground text-center mt-2">Sem cortes no período.</p>}
-        </Card>
-
-        <Card className="p-4">
-          <h3 className="font-semibold mb-3">Produção finalizada por mês</h3>
-          <p className="text-xs text-muted-foreground mb-2">Modelos lançados e grade total (peças) por mês do lançamento.</p>
-          <div style={{ width: "100%", height: 300 }}>
-            <ResponsiveContainer>
-              <BarChart data={entregues}>
-                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                <XAxis dataKey="mes" />
-                <YAxis yAxisId="left" allowDecimals={false} />
-                <YAxis yAxisId="right" orientation="right" tickFormatter={(v) => Number(v).toLocaleString("pt-BR")} />
-                <Tooltip formatter={(v: any) => fmtNum(v)} />
-                <Legend />
-                <Bar yAxisId="left" dataKey="modelos" name="Modelos" fill={PIE_COLORS[2]} />
-                <Bar yAxisId="right" dataKey="grade" name="Grade total" fill={PIE_COLORS[3]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-          {!isLoading && entregues.length === 0 && <p className="text-sm text-muted-foreground text-center mt-2">Nada finalizado no período.</p>}
-        </Card>
+      <div>
+        <h2 className="text-sm font-semibold text-muted-foreground mb-2">Cortes por mês <span className="font-normal">· por data de entrega do corte</span></h2>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <MonthBarCard title="Modelos cortados" data={cortes} dataKey="modelos" name="Modelos" color={PIE_COLORS[0]} empty="Sem cortes no período." loading={isLoading} />
+          <MonthBarCard title="Grade total cortada" subtitle="peças" data={cortes} dataKey="grade" name="Grade total" color={PIE_COLORS[1]} empty="Sem cortes no período." loading={isLoading} />
+        </div>
       </div>
 
-      <Card className="p-4">
-        <h3 className="font-semibold mb-3">Modelos por etapa do kanban</h3>
-        <div style={{ width: "100%", height: 320 }}>
-          <ResponsiveContainer>
-            <BarChart data={kanbanData} layout="vertical" margin={{ left: 24, right: 24 }}>
-              <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-              <XAxis type="number" allowDecimals={false} />
-              <YAxis type="category" dataKey="etapa" width={150} tick={{ fontSize: 12 }} />
-              <Tooltip />
-              <Bar dataKey="total" name="Modelos" fill={PIE_COLORS[0]} radius={[0, 4, 4, 0]}>
-                <LabelList dataKey="total" position="right" />
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+      <div>
+        <h2 className="text-sm font-semibold text-muted-foreground mb-2">Produção finalizada por mês <span className="font-normal">· Serviços com status finalizado</span></h2>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <MonthBarCard title="Modelos finalizados" data={finalizadas} dataKey="modelos" name="Modelos" color={PIE_COLORS[2]} empty="Nada finalizado no período." loading={isLoading} />
+          <MonthBarCard title="Grade total finalizada" subtitle="peças" data={finalizadas} dataKey="grade" name="Grade total" color={PIE_COLORS[3]} empty="Nada finalizado no período." loading={isLoading} />
         </div>
-      </Card>
+      </div>
 
-      <ProducaoCalendario />
+      <div>
+        <h2 className="text-sm font-semibold text-muted-foreground mb-2">Etapa do kanban de Desenvolvimento</h2>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <EtapaBarCard title="Modelos por etapa" data={kanbanDev} dataKey="modelos" name="Modelos" color={PIE_COLORS[0]} />
+          <EtapaBarCard title="Grade total por etapa" data={kanbanDev} dataKey="grade" name="Grade total" color={PIE_COLORS[1]} />
+        </div>
+      </div>
 
       <Card className="p-4">
         <h3 className="font-semibold mb-3">Timeline por {fl("ref")}</h3>
@@ -373,7 +385,12 @@ function ProducaoTab() {
                 const idx = etapas.indexOf(r.etapa);
                 return (
                   <tr key={r.id} className="border-b last:border-0">
-                    <td className="py-2 pr-3 font-medium">{r.ref}</td>
+                    <td className="py-2 pr-3 font-medium">
+                      <span className="inline-flex items-center gap-1.5">
+                        {r.ref ?? "—"}
+                        {r.versao != null && <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">v{r.versao}</Badge>}
+                      </span>
+                    </td>
                     <td className="py-2 pr-3">{r.nome}</td>
                     {etapas.map((_, i) => (
                       <td key={i} className="py-2 px-2 text-center">
@@ -444,18 +461,20 @@ function ProducaoTab() {
 
 /* ============================ FINANCEIRO ============================ */
 
-const MESES_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
-
 function FinanceiroTab() {
-  const [mes, setMes] = useState("all");
-  const [ano, setAno] = useState("all");
+  const [range, setRange] = useState<{ from?: Date; to?: Date } | undefined>(undefined);
+  const inicio = range?.from ? format(range.from, "yyyy-MM-dd") : undefined;
+  const fim = range?.to ? format(range.to, "yyyy-MM-dd") : undefined;
+  const periodoLabel = range?.from
+    ? `${format(range.from, "dd/MM/yy")}${range.to ? " – " + format(range.to, "dd/MM/yy") : " – …"}`
+    : "Período";
 
   const { data, isLoading } = useQuery({
-    queryKey: ["dash-financeiro", mes, ano],
+    queryKey: ["dash-financeiro", inicio, fim],
     queryFn: async () => {
       const { data, error } = await supabase.rpc("dashboard_financeiro", {
-        p_ano: ano === "all" ? undefined : Number(ano),
-        p_mes: mes === "all" ? undefined : Number(mes),
+        p_inicio: inicio,
+        p_fim: fim,
       });
       if (error) throw error;
       return data as any;
@@ -466,19 +485,30 @@ function FinanceiroTab() {
   const pago = Number(data?.pago ?? 0);
   const pendente = Number(data?.pendente ?? 0);
   const chartData = data?.chartData ?? [];
-  const anos: number[] = data?.filtros?.anos ?? [];
 
   const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-end gap-2">
-        <FilterButton
-          filters={[
-            { label: "Mês", value: mes, onChange: setMes, options: [{ id: "all", nome: "Todos" }, ...MESES_PT.map((m, i) => ({ id: String(i + 1), nome: m }))] },
-            { label: "Ano", value: ano, onChange: setAno, options: [{ id: "all", nome: "Todos" }, ...anos.map((a) => ({ id: String(a), nome: String(a) }))] },
-          ]}
-        />
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm" className="gap-2">
+              <CalendarRange className="h-4 w-4" />
+              <span>{periodoLabel}</span>
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-auto p-0">
+            <Calendar mode="range" numberOfMonths={2} selected={range as any} onSelect={setRange as any} />
+            {range?.from && (
+              <div className="p-2 border-t">
+                <Button type="button" variant="ghost" size="sm" className="w-full" onClick={() => setRange(undefined)}>
+                  Limpar período
+                </Button>
+              </div>
+            )}
+          </PopoverContent>
+        </Popover>
       </div>
       <div className="grid gap-4 sm:grid-cols-3">
         <Card><CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Investido em matéria-prima</CardTitle></CardHeader><CardContent><div className="text-2xl font-semibold">{brl(investido)}</div></CardContent></Card>
@@ -486,7 +516,7 @@ function FinanceiroTab() {
         <Card><CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Total pendente</CardTitle></CardHeader><CardContent><div className="text-2xl font-semibold text-yellow-600 dark:text-yellow-400">{brl(pendente)}</div></CardContent></Card>
       </div>
       <Card className="p-4">
-        <h3 className="font-semibold mb-3">{ano === "all" ? "Contas a pagar — próximos 6 meses" : `Contas a pagar — ${ano}`}</h3>
+        <h3 className="font-semibold mb-3">{range?.from && range?.to ? "Contas a pagar — período" : "Contas a pagar — próximos 6 meses"}</h3>
         <div style={{ width: "100%", height: 320 }}>
           <ResponsiveContainer>
             <BarChart data={chartData}>
@@ -553,8 +583,8 @@ function CustosTab() {
               <tr className="border-b">
                 <th className="py-2 pr-3">{fl("ref")}</th>
                 <th className="py-2 pr-3">Modelo</th>
-                <th className="py-2 pr-3 text-right">Previsto</th>
-                <th className="py-2 pr-3 text-right">Real</th>
+                <th className="py-2 pr-3 text-right">Previsto (un.)</th>
+                <th className="py-2 pr-3 text-right">Real (un.)</th>
                 <th className="py-2 pr-3 text-right">Diferença</th>
                 <th className="py-2 pr-3 text-right">%</th>
               </tr>
@@ -562,7 +592,12 @@ function CustosTab() {
             <tbody>
               {rows.map((r: any) => (
                 <tr key={r.id} className="border-b last:border-0">
-                  <td className="py-2 pr-3 font-medium">{r.ref}</td>
+                  <td className="py-2 pr-3 font-medium">
+                    <span className="inline-flex items-center gap-1.5">
+                      {r.ref ?? "—"}
+                      {r.versao != null && <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">v{r.versao}</Badge>}
+                    </span>
+                  </td>
                   <td className="py-2 pr-3">{r.nome}</td>
                   <td className="py-2 pr-3 text-right">{brl(r.previsto)}</td>
                   <td className="py-2 pr-3 text-right">{brl(r.real)}</td>

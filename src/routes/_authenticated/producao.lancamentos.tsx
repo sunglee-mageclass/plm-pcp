@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Rocket, Upload, CheckCircle2 } from "lucide-react";
+import { Rocket, Upload, CheckCircle2, Camera } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -39,6 +39,7 @@ type LancCard = {
   tecido_nome: string | null;
   variantes: VarInfo[];
   gradeTotal: number;
+  fotoCompleta: boolean;
   lancamento?: any;
 };
 
@@ -70,7 +71,7 @@ function LancamentosPage() {
       // Produtos cujo Controle de Qualidade foi CONFIRMADO.
       const { data: modelos, error } = await supabase
         .from("modelos")
-        .select("id, ref, nome, colecao, mes_id, ano_id, linha_id, fotos_modelo, linha:linha_id(nome), categorias_produto:categoria_principal_id(nome), cad(id, controle_qualidade(status))")
+        .select("id, ref, nome, colecao, mes_id, ano_id, linha_id, fotos_modelo, linha:linha_id(nome), categorias_produto:categoria_principal_id(nome), cad(id, controle_qualidade(status, fotografado_variantes))")
         .eq("enviado_cad", true);
       if (error) throw error;
 
@@ -120,6 +121,8 @@ function LancamentosPage() {
           })
           .sort((a, b) => a.num - b.num);
         const gradeTotal = gradeRows.reduce((s, g) => s + g.total, 0);
+        const fv = m.cad?.[0]?.controle_qualidade?.[0]?.fotografado_variantes ?? {};
+        const fotoCompleta = variantes.length > 0 && variantes.every((v) => fv?.[String(v.num)] === true);
         return {
           modelo_id: m.id,
           cad_id: cadId,
@@ -137,6 +140,7 @@ function LancamentosPage() {
           tecido_nome: tec?.artigos?.nome ?? null,
           variantes,
           gradeTotal,
+          fotoCompleta,
           lancamento: m.lancamentos?.[0] ?? null,
         };
       });
@@ -292,7 +296,12 @@ function LancamentoCard(props: { card: LancCard; compact: boolean; onUpload: (f:
 
       {!compact && (
         <div className="p-3 space-y-1 flex-1 text-xs">
-          <p className="font-mono text-primary">{card.ref ?? "—"}</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="font-mono text-primary">{card.ref ?? "—"}</p>
+            <span title={card.fotoCompleta ? "Todas as variantes fotografadas" : "Variantes ainda não fotografadas"}>
+              <Camera className={"h-4 w-4 " + (card.fotoCompleta ? "text-emerald-500" : "text-muted-foreground/40")} />
+            </span>
+          </div>
           <p className="font-semibold text-sm leading-tight line-clamp-2">{card.nome ?? "—"}</p>
           <p className="text-muted-foreground">
             {[card.colecao, card.linha, card.categoria_nome].filter(Boolean).join(" · ") || "—"}

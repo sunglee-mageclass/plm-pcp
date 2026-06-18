@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ClipboardCheck, Save, CheckCircle2, RotateCcw } from "lucide-react";
+import { ArrowLeft, ClipboardCheck, Save, CheckCircle2, RotateCcw, Camera } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -189,6 +189,7 @@ function CqDetailPage() {
     pecas_sem_etiqueta: 0,
   });
   const [grades, setGrades] = useState<GradesByEtapa>(emptyGrades());
+  const [fotografado, setFotografado] = useState<Record<number, boolean>>({});
   const [status, setStatus] = useState<string>("pendente");
   const [hydrated, setHydrated] = useState(false);
 
@@ -217,6 +218,10 @@ function CqDetailPage() {
           pecas_sem_etiqueta: Number(cqRow.pecas_sem_etiqueta ?? 0),
         });
         setStatus((cqRow as any).status ?? "pendente");
+        const fv = (cqRow as any).fotografado_variantes ?? {};
+        const fmap: Record<number, boolean> = {};
+        Object.entries(fv).forEach(([k, v]) => { fmap[Number(k)] = Boolean(v); });
+        setFotografado(fmap);
       }
       const g = emptyGrades();
       (varRows as any[]).forEach((v) => {
@@ -302,6 +307,10 @@ function CqDetailPage() {
         pecas_incompletas: form.pecas_incompletas,
         pecas_faltantes: form.pecas_faltantes,
         pecas_sem_etiqueta: form.pecas_sem_etiqueta,
+        // Foto por variante: só as marcadas como fotografadas.
+        fotografado_variantes: Object.fromEntries(
+          variantList.filter((v) => fotografado[v.num]).map((v) => [String(v.num), true]),
+        ),
       };
 
       let cqId = cqRow?.id;
@@ -607,14 +616,16 @@ function CqDetailPage() {
                 <th className="border px-2 py-1 text-left">Variante</th>
                 {tamanhos.map((t) => <th key={t} className="border px-2 py-1 text-center w-16">{t}</th>)}
                 <th className="border px-2 py-1 text-center w-20">Total</th>
+                <th className="border px-2 py-1 text-center w-24">Foto</th>
               </tr>
             </thead>
             <tbody>
               {variantList.length === 0 && (
-                <tr><td className="border px-2 py-2 text-muted-foreground" colSpan={tamanhos.length + 2}>Sem variantes no Tecido Principal.</td></tr>
+                <tr><td className="border px-2 py-2 text-muted-foreground" colSpan={tamanhos.length + 3}>Sem variantes no Tecido Principal.</td></tr>
               )}
               {variantList.map(({ num, label }) => {
                 const real = realByNum[num] ?? { grades: {}, total: 0 };
+                const foto = !!fotografado[num];
                 return (
                   <tr key={num}>
                     <td className="border px-2 py-1">{label}</td>
@@ -622,6 +633,17 @@ function CqDetailPage() {
                       <td key={t} className="border px-2 py-1 text-center bg-muted/20">{real.grades[t] ?? 0}</td>
                     ))}
                     <td className="border px-2 py-1 text-center font-semibold">{real.total}</td>
+                    <td className="border px-2 py-1 text-center">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={foto ? "default" : "outline"}
+                        className={foto ? "h-7 gap-1 bg-emerald-500 hover:bg-emerald-600" : "h-7 gap-1"}
+                        onClick={() => setFotografado((f) => ({ ...f, [num]: !f[num] }))}
+                      >
+                        <Camera className="h-3.5 w-3.5" /> {foto ? "Sim" : "Não"}
+                      </Button>
+                    </td>
                   </tr>
                 );
               })}

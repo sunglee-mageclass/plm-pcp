@@ -778,6 +778,7 @@ export type Database = {
           data_recebimento_entregue: string | null
           data_recebimento_enviado_oficina: string | null
           data_recebimento_prevista: string | null
+          fotografado_variantes: Json
           id: string
           observacoes_cq: string | null
           pecas_faltantes: number | null
@@ -798,6 +799,7 @@ export type Database = {
           data_recebimento_entregue?: string | null
           data_recebimento_enviado_oficina?: string | null
           data_recebimento_prevista?: string | null
+          fotografado_variantes?: Json
           id?: string
           observacoes_cq?: string | null
           pecas_faltantes?: number | null
@@ -818,6 +820,7 @@ export type Database = {
           data_recebimento_entregue?: string | null
           data_recebimento_enviado_oficina?: string | null
           data_recebimento_prevista?: string | null
+          fotografado_variantes?: Json
           id?: string
           observacoes_cq?: string | null
           pecas_faltantes?: number | null
@@ -3288,8 +3291,14 @@ export type Database = {
         Returns: Json
       }
       dashboard_estoque: { Args: never; Returns: Json }
-      dashboard_financeiro: { Args: never; Returns: Json }
-      dashboard_producao: { Args: never; Returns: Json }
+      dashboard_financeiro: {
+        Args: { p_inicio?: string; p_fim?: string }
+        Returns: Json
+      }
+      dashboard_producao: {
+        Args: { p_mes?: string; p_ano?: string; p_colecao?: string; p_linha?: string }
+        Returns: Json
+      }
       detalhe_estoque_variante: {
         Args: { _variante_id: string }
         Returns: Json
