@@ -21,6 +21,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, Cart
 
 import { RequirePermission } from "@/components/RequirePermission";
 import { ModuleGuard } from "@/components/ModuleGuard";
+import { FilterButton } from "@/components/shared/filters";
 export const Route = createFileRoute("/_authenticated/financeiro")({
   component: () => (
     <ModuleGuard module="financeiro">
@@ -340,27 +341,21 @@ function ParcelaDetailDialog({
           <div><span className="text-muted-foreground">Valor:</span> <b>{brl(Number(parcela.valor))}</b></div>
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground">Vencimento:</span>
-            {canRecalc ? (
-              <>
-                <Input
-                  type="date"
-                  value={vencimento}
-                  onChange={(e) => setVencimento(e.target.value)}
-                  className="h-7 w-auto"
-                />
-                {vencimento !== parcela.data_vencimento && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => updateVencimentoMut.mutate()}
-                    disabled={updateVencimentoMut.isPending}
-                  >
-                    Salvar
-                  </Button>
-                )}
-              </>
-            ) : (
-              format(parseISO(parcela.data_vencimento), "dd/MM/yyyy")
+            <Input
+              type="date"
+              value={vencimento}
+              onChange={(e) => setVencimento(e.target.value)}
+              className="h-7 w-auto"
+            />
+            {vencimento !== parcela.data_vencimento && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => updateVencimentoMut.mutate()}
+                disabled={updateVencimentoMut.isPending}
+              >
+                Salvar
+              </Button>
             )}
           </div>
           <div>
@@ -376,10 +371,11 @@ function ParcelaDetailDialog({
             <div><ComprovanteLink value={parcela.comprovante_url} label="Ver comprovante" className="text-primary" /></div>
           )}
         </div>
-        <DialogFooter className="gap-2">
-          <Button variant="ghost" onClick={onClose}>Fechar</Button>
+        <DialogFooter className="flex-row flex-wrap justify-end gap-2">
+          <Button size="sm" variant="ghost" onClick={onClose}>Fechar</Button>
           {(parcela.oc_tecido_id || parcela.oc_aviamento_id) && (
             <Button
+              size="sm"
               variant="outline"
               onClick={() => onOpenOc(parcela.tipo_oc, (parcela.oc_tecido_id ?? parcela.oc_aviamento_id)!)}
             >
@@ -388,6 +384,7 @@ function ParcelaDetailDialog({
           )}
           {canRecalc && (
             <Button
+              size="sm"
               variant="outline"
               onClick={() => {
                 if (confirm("Recalcular parcelas desta OC? Parcelas pagas serão preservadas; as demais serão regeradas com os valores atuais.")) {
@@ -396,15 +393,15 @@ function ParcelaDetailDialog({
               }}
               disabled={recalcMut.isPending}
             >
-              Recalcular Parcelas
+              Recalcular
             </Button>
           )}
           {st === "pago" ? (
-            <Button variant="outline" onClick={() => desmarcarPagoMut.mutate()} disabled={desmarcarPagoMut.isPending}>
+            <Button size="sm" variant="destructive" onClick={() => desmarcarPagoMut.mutate()} disabled={desmarcarPagoMut.isPending}>
               Desmarcar pago
             </Button>
           ) : (
-            <Button onClick={() => onMarkPaid(parcela.id)}>Marcar pago</Button>
+            <Button size="sm" onClick={() => onMarkPaid(parcela.id)}>Marcar pago</Button>
           )}
         </DialogFooter>
       </DialogContent>
@@ -447,6 +444,18 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
       qc.invalidateQueries({ queryKey: ["parcelas"] });
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao desmarcar"),
+  });
+
+  const updateVencimentoMut = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: string }) => {
+      const { error } = await supabase.from("parcelas").update({ data_vencimento: data }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Vencimento atualizado");
+      qc.invalidateQueries({ queryKey: ["parcelas"] });
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao atualizar vencimento"),
   });
 
   const fornecedores = useMemo(() => {
@@ -536,7 +545,14 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
                     </td>
                     <td className="py-2 pr-3">{p.numero_parcela}</td>
                     <td className="py-2 pr-3 text-right">{brl(Number(p.valor))}</td>
-                    <td className="py-2 pr-3">{format(parseISO(p.data_vencimento), "dd/MM/yyyy")}</td>
+                    <td className="py-2 pr-3">
+                      <Input
+                        type="date"
+                        value={p.data_vencimento}
+                        onChange={(e) => { if (e.target.value && e.target.value !== p.data_vencimento) updateVencimentoMut.mutate({ id: p.id, data: e.target.value }); }}
+                        className="h-7 w-auto"
+                      />
+                    </td>
                     <td className="py-2 pr-3">
                       <Badge variant={st === "pago" ? "default" : st === "vencido" ? "destructive" : "secondary"}>
                         {st === "a_pagar" ? "A pagar" : st === "pago" ? "Pago" : "Vencido"}
@@ -547,7 +563,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
                       {st !== "pago" ? (
                         <Button size="sm" variant="outline" onClick={() => setPagandoId(p.id)}>Marcar pago</Button>
                       ) : (
-                        <Button size="sm" variant="outline" onClick={() => desmarcarMut.mutate(p.id)} disabled={desmarcarMut.isPending}>Desmarcar</Button>
+                        <Button size="sm" variant="destructive" onClick={() => desmarcarMut.mutate(p.id)} disabled={desmarcarMut.isPending}>Desmarcar</Button>
                       )}
                       {p.comprovante_url && (
                         <ComprovanteLink value={p.comprovante_url} label="comprovante" className="text-xs text-primary ml-2" />
@@ -719,51 +735,100 @@ function PagarDialog({ parcelaId, onClose }: { parcelaId: string | null; onClose
 
 /* ============================== RESUMO ============================== */
 
+type StatusSel = "a_pagar" | "pago" | "vencido";
+
 function ResumoView({ parcelas }: { parcelas: Parcela[] }) {
-  const today = new Date();
-  const ms = startOfMonth(today);
-  const me = endOfMonth(today);
+  const [fFornecedor, setFFornecedor] = useState("all");
+  const [fMes, setFMes] = useState("");   // yyyy-MM
+  const [fDe, setFDe] = useState("");
+  const [fAte, setFAte] = useState("");
+  const [selected, setSelected] = useState<StatusSel | null>(null);
 
-  const totalPagarMes = parcelas
-    .filter((p) => effectiveStatus(p) !== "pago" && parseISO(p.data_vencimento) >= ms && parseISO(p.data_vencimento) <= me)
-    .reduce((s, p) => s + Number(p.valor), 0);
+  const fornecedores = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of parcelas) if (p.empresa_id) m.set(p.empresa_id, p.empresas?.nome ?? "—");
+    return Array.from(m, ([id, nome]) => ({ id, nome }));
+  }, [parcelas]);
 
-  const totalPagoMes = parcelas
-    .filter((p) => p.data_pagamento && parseISO(p.data_pagamento) >= ms && parseISO(p.data_pagamento) <= me)
-    .reduce((s, p) => s + Number(p.valor), 0);
+  // Conjunto-base após os filtros (fornecedor, mês, intervalo de datas).
+  const base = useMemo(() => parcelas.filter((p) => {
+    if (fFornecedor !== "all" && p.empresa_id !== fFornecedor) return false;
+    if (fMes && p.data_vencimento.slice(0, 7) !== fMes) return false;
+    if (fDe && p.data_vencimento < fDe) return false;
+    if (fAte && p.data_vencimento > fAte) return false;
+    return true;
+  }), [parcelas, fFornecedor, fMes, fDe, fAte]);
 
-  const totalVencido = parcelas
-    .filter((p) => effectiveStatus(p) === "vencido")
-    .reduce((s, p) => s + Number(p.valor), 0);
+  const sumBy = (st: StatusSel) => base.filter((p) => effectiveStatus(p) === st).reduce((s, p) => s + Number(p.valor), 0);
+  const totalAPagar = sumBy("a_pagar");
+  const totalPago = sumBy("pago");
+  const totalVencido = sumBy("vencido");
 
   const chartData = useMemo(() => {
-    const m = new Map<string, { mes: string; pago: number; a_pagar: number }>();
-    const base = addMonths(startOfMonth(today), -5);
-    for (let i = 0; i < 12; i++) {
-      const d = addMonths(base, i);
-      const k = format(d, "yyyy-MM");
-      m.set(k, { mes: format(d, "MMM/yy", { locale: ptBR }), pago: 0, a_pagar: 0 });
-    }
-    for (const p of parcelas) {
+    const m = new Map<string, { mes: string; ord: string; pago: number; a_pagar: number; vencido: number }>();
+    for (const p of base) {
       const k = p.data_vencimento.slice(0, 7);
-      const row = m.get(k);
-      if (!row) continue;
-      const st = effectiveStatus(p);
-      if (st === "pago") row.pago += Number(p.valor);
-      else row.a_pagar += Number(p.valor);
+      let row = m.get(k);
+      if (!row) {
+        row = { mes: format(parseISO(p.data_vencimento), "MMM/yy", { locale: ptBR }), ord: k, pago: 0, a_pagar: 0, vencido: 0 };
+        m.set(k, row);
+      }
+      row[effectiveStatus(p)] += Number(p.valor);
     }
-    return Array.from(m.values());
-  }, [parcelas]);
+    return Array.from(m.values()).sort((a, b) => a.ord.localeCompare(b.ord));
+  }, [base]);
+
+  const activeCount = (fFornecedor !== "all" ? 1 : 0) + (fMes ? 1 : 0) + (fDe ? 1 : 0) + (fAte ? 1 : 0);
+  const clearFilters = () => { setFFornecedor("all"); setFMes(""); setFDe(""); setFAte(""); };
+  const toggle = (s: StatusSel) => setSelected((cur) => (cur === s ? null : s));
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 sm:grid-cols-3">
-        <SummaryCard title="Total a pagar (mês)" value={brl(totalPagarMes)} accent="text-yellow-600 dark:text-yellow-400" />
-        <SummaryCard title="Total pago (mês)" value={brl(totalPagoMes)} accent="text-green-600 dark:text-green-400" />
-        <SummaryCard title="Total vencido" value={brl(totalVencido)} accent="text-destructive" />
+      <div className="flex justify-end">
+        <FilterButton activeCount={activeCount} onClear={clearFilters}>
+          <div className="grid gap-1">
+            <Label className="text-xs">Fornecedor</Label>
+            <Select value={fFornecedor} onValueChange={setFFornecedor}>
+              <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                {fornecedores.map((f) => <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-1">
+            <Label className="text-xs">Mês</Label>
+            <Input type="month" className="h-8 text-sm" value={fMes} onChange={(e) => setFMes(e.target.value)} />
+          </div>
+          <div className="grid gap-1">
+            <Label className="text-xs">De</Label>
+            <Input type="date" className="h-8 text-sm" value={fDe} onChange={(e) => setFDe(e.target.value)} />
+          </div>
+          <div className="grid gap-1">
+            <Label className="text-xs">Até</Label>
+            <Input type="date" className="h-8 text-sm" value={fAte} onChange={(e) => setFAte(e.target.value)} />
+          </div>
+        </FilterButton>
       </div>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <SummaryCard title="Total a pagar" value={brl(totalAPagar)} accent="text-yellow-600 dark:text-yellow-400"
+          active={selected === "a_pagar"} onClick={() => toggle("a_pagar")} />
+        <SummaryCard title="Total pago" value={brl(totalPago)} accent="text-green-600 dark:text-green-400"
+          active={selected === "pago"} onClick={() => toggle("pago")} />
+        <SummaryCard title="Total vencido" value={brl(totalVencido)} accent="text-destructive"
+          active={selected === "vencido"} onClick={() => toggle("vencido")} />
+      </div>
+
       <Card className="p-4">
-        <h3 className="font-semibold mb-3">Evolução mensal</h3>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold">Evolução mensal</h3>
+          {selected && (
+            <button type="button" className="text-xs text-primary hover:underline" onClick={() => setSelected(null)}>
+              Mostrar todos
+            </button>
+          )}
+        </div>
         <div style={{ width: "100%", height: 320 }}>
           <ResponsiveContainer>
             <BarChart data={chartData}>
@@ -772,8 +837,9 @@ function ResumoView({ parcelas }: { parcelas: Parcela[] }) {
               <YAxis tickFormatter={(v) => v.toLocaleString("pt-BR")} />
               <Tooltip formatter={(v: any) => brl(Number(v))} />
               <Legend />
-              <Bar dataKey="pago" name="Pago" fill="hsl(142 71% 45%)" />
-              <Bar dataKey="a_pagar" name="A pagar" fill="hsl(45 93% 47%)" />
+              {(!selected || selected === "pago") && <Bar dataKey="pago" name="Pago" fill="hsl(142 71% 45%)" />}
+              {(!selected || selected === "a_pagar") && <Bar dataKey="a_pagar" name="A pagar" fill="hsl(45 93% 47%)" />}
+              {(!selected || selected === "vencido") && <Bar dataKey="vencido" name="Vencido" fill="hsl(0 72% 51%)" />}
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -782,9 +848,12 @@ function ResumoView({ parcelas }: { parcelas: Parcela[] }) {
   );
 }
 
-function SummaryCard({ title, value, accent }: { title: string; value: string; accent: string }) {
+function SummaryCard({ title, value, accent, active, onClick }: { title: string; value: string; accent: string; active?: boolean; onClick?: () => void }) {
   return (
-    <Card className="p-5">
+    <Card
+      className={cn("p-5", onClick && "cursor-pointer transition-shadow hover:shadow-md", active && "ring-2 ring-primary")}
+      onClick={onClick}
+    >
       <p className="text-sm text-muted-foreground">{title}</p>
       <p className={cn("text-2xl font-bold mt-1", accent)}>{value}</p>
     </Card>
