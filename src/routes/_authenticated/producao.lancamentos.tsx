@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Rocket, Upload, CheckCircle2, Camera } from "lucide-react";
@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS, useCompactCards } from "@/hooks/useGridCols";
@@ -39,7 +40,8 @@ type LancCard = {
   tecido_nome: string | null;
   variantes: VarInfo[];
   gradeTotal: number;
-  fotoCompleta: boolean;
+  cqId: string | null;
+  fotoByNum: Record<string, boolean>;
   lancamento?: any;
 };
 
@@ -71,7 +73,7 @@ function LancamentosPage() {
       // Produtos cujo Controle de Qualidade foi CONFIRMADO.
       const { data: modelos, error } = await supabase
         .from("modelos")
-        .select("id, ref, nome, colecao, mes_id, ano_id, linha_id, fotos_modelo, linha:linha_id(nome), categorias_produto:categoria_principal_id(nome), cad(id, controle_qualidade(status, fotografado_variantes))")
+        .select("id, ref, nome, colecao, mes_id, ano_id, linha_id, fotos_modelo, linha:linha_id(nome), categorias_produto:categoria_principal_id(nome), cad(id, controle_qualidade(id, status, fotografado_variantes))")
         .eq("enviado_cad", true);
       if (error) throw error;
 
@@ -121,8 +123,10 @@ function LancamentosPage() {
           })
           .sort((a, b) => a.num - b.num);
         const gradeTotal = gradeRows.reduce((s, g) => s + g.total, 0);
-        const fv = m.cad?.[0]?.controle_qualidade?.[0]?.fotografado_variantes ?? {};
-        const fotoCompleta = variantes.length > 0 && variantes.every((v) => fv?.[String(v.num)] === true);
+        const cqRow = m.cad?.[0]?.controle_qualidade?.[0];
+        const fv = cqRow?.fotografado_variantes ?? {};
+        const fotoByNum: Record<string, boolean> = {};
+        variantes.forEach((v) => { fotoByNum[String(v.num)] = fv?.[String(v.num)] === true; });
         return {
           modelo_id: m.id,
           cad_id: cadId,
@@ -140,7 +144,8 @@ function LancamentosPage() {
           tecido_nome: tec?.artigos?.nome ?? null,
           variantes,
           gradeTotal,
-          fotoCompleta,
+          cqId: cqRow?.id ?? null,
+          fotoByNum,
           lancamento: m.lancamentos?.[0] ?? null,
         };
       });
@@ -264,8 +269,10 @@ function LancamentosPage() {
 }
 
 function LancamentoCard(props: { card: LancCard; compact: boolean; onUpload: (f: File) => void; uploading: boolean; readOnly: boolean }) {
-  const { card, compact, onUpload, uploading, readOnly } = props;
-  const ref = useRef<HTMLInputElement>(null);
+  const { card, compact, readOnly } = props;
+  const qc = useQueryClient();
+  const [foto, setFoto] = useState<Record<string, boolean>>(card.fotoByNum);
+  useEffect(() => { setFoto(card.fotoByNum); }, [card.cqId, JSON.stringify(card.fotoByNum)]);
 
   const { data: amostraUrl } = useQuery({
     queryKey: ["lanc-amostra", card.lancamento?.foto_peca_amostra],
@@ -277,54 +284,111 @@ function LancamentoCard(props: { card: LancCard; compact: boolean; onUpload: (f:
     enabled: !!card.fotos_modelo?.[0],
     queryFn: async () => (await supabase.storage.from("modelos").createSignedUrl(card.fotos_modelo[0], 3600)).data?.signedUrl ?? null,
   });
-  const foto = amostraUrl ?? modeloFoto ?? null;
+  const img = amostraUrl ?? modeloFoto ?? null;
+
+  // Câmera em 3 níveis: nenhuma foto → sem ícone; parcial → cinza; todas → verde.
+  const total = card.variantes.length;
+  const count = card.variantes.filter((v) => foto[String(v.num)]).length;
+  const camColor = count === 0 ? null : count === total ? "text-emerald-500" : "text-muted-foreground";
+
+  const saveFoto = useMutation({
+    mutationFn: async (next: Record<string, boolean>) => {
+      if (!card.cqId) throw new Error("Sem Controle de Qualidade para este modelo.");
+      const clean = Object.fromEntries(Object.entries(next).filter(([, v]) => v).map(([k]) => [k, true]));
+      const { error } = await supabase.from("controle_qualidade").update({ fotografado_variantes: clean }).eq("id", card.cqId);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["lancamentos-cards"] }),
+    onError: (e: any) => toast.error(e?.message ?? "Erro ao salvar foto"),
+  });
+
+  const toggle = (num: number) => {
+    if (readOnly) return;
+    const next = { ...foto, [String(num)]: !foto[String(num)] };
+    setFoto(next);
+    saveFoto.mutate(next);
+  };
 
   return (
-    <Card className="overflow-hidden flex flex-col">
-      <div className="aspect-square bg-muted relative">
-        {foto ? (
-          <img src={foto} alt={card.ref ?? ""} className="w-full h-full object-cover" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">Sem foto</div>
-        )}
-        {card.lancamento?.verificado && (
-          <Badge className="absolute top-2 right-2 bg-emerald-500 text-white">
-            <CheckCircle2 className="h-3 w-3 mr-1" /> Lançado
-          </Badge>
-        )}
-      </div>
-
-      {!compact && (
-        <div className="p-3 space-y-1 flex-1 text-xs">
-          <div className="flex items-center justify-between gap-2">
-            <p className="font-mono text-primary">{card.ref ?? "—"}</p>
-            <span title={card.fotoCompleta ? "Todas as variantes fotografadas" : "Variantes ainda não fotografadas"}>
-              <Camera className={"h-4 w-4 " + (card.fotoCompleta ? "text-emerald-500" : "text-muted-foreground/40")} />
-            </span>
+    <Dialog>
+      <DialogTrigger asChild>
+        <Card className="overflow-hidden flex flex-col cursor-pointer transition hover:ring-1 hover:ring-primary/40">
+          <div className="aspect-square bg-muted relative">
+            {img ? (
+              <img src={img} alt={card.ref ?? ""} className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">Sem foto</div>
+            )}
+            {card.lancamento?.verificado && (
+              <Badge className="absolute top-2 right-2 bg-emerald-500 text-white">
+                <CheckCircle2 className="h-3 w-3 mr-1" /> Lançado
+              </Badge>
+            )}
+            {compact && camColor && (
+              <span className="absolute top-2 left-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-background/80">
+                <Camera className={"h-3.5 w-3.5 " + camColor} />
+              </span>
+            )}
           </div>
-          <p className="font-semibold text-sm leading-tight line-clamp-2">{card.nome ?? "—"}</p>
-          <p className="text-muted-foreground">
-            {[card.colecao, card.linha, card.categoria_nome].filter(Boolean).join(" · ") || "—"}
-          </p>
-          <p className="text-muted-foreground">{[card.mes, card.ano].filter(Boolean).join(" / ") || "—"}</p>
-          {card.tecido_nome && <p className="text-muted-foreground">Tecido: {card.tecido_nome}</p>}
-          {card.variantes.length > 0 && (
-            <div className="pt-1 mt-1 border-t space-y-0.5">
-              {card.variantes.map((v) => (
-                <div key={v.num} className="flex items-center justify-between gap-2">
-                  <span className="truncate">{v.label}</span>
-                  <span className="tabular-nums text-muted-foreground shrink-0">{v.gradeTotal}</span>
-                </div>
-              ))}
-              <div className="flex items-center justify-between gap-2 pt-0.5 border-t font-medium">
-                <span>Grade total</span>
-                <span className="tabular-nums">{card.gradeTotal}</span>
+
+          {!compact && (
+            <div className="p-3 space-y-1 flex-1 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-mono text-primary">{card.ref ?? "—"}</p>
+                {camColor && <Camera className={"h-4 w-4 " + camColor} />}
               </div>
+              <p className="font-semibold text-sm leading-tight line-clamp-2">{card.nome ?? "—"}</p>
+              <p className="text-muted-foreground">
+                {[card.colecao, card.linha, card.categoria_nome].filter(Boolean).join(" · ") || "—"}
+              </p>
+              <p className="text-muted-foreground">{[card.mes, card.ano].filter(Boolean).join(" / ") || "—"}</p>
+              {card.tecido_nome && <p className="text-muted-foreground">Tecido: {card.tecido_nome}</p>}
+              {card.variantes.length > 0 && (
+                <div className="pt-1 mt-1 border-t space-y-0.5">
+                  {card.variantes.map((v) => (
+                    <div key={v.num} className="flex items-center justify-between gap-2">
+                      <span className="truncate">{v.label}</span>
+                      <span className="tabular-nums text-muted-foreground shrink-0">{v.gradeTotal}</span>
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between gap-2 pt-0.5 border-t font-medium">
+                    <span>Grade total</span>
+                    <span className="tabular-nums">{card.gradeTotal}</span>
+                  </div>
+                </div>
+              )}
             </div>
           )}
-        </div>
-      )}
+        </Card>
+      </DialogTrigger>
 
-    </Card>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="text-base">Fotos por variante — {card.ref ?? "—"}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-1">
+          {card.variantes.length === 0 && <p className="text-sm text-muted-foreground">Sem variantes no Tecido Principal.</p>}
+          {card.variantes.map((v) => {
+            const on = !!foto[String(v.num)];
+            return (
+              <div key={v.num} className="flex items-center justify-between gap-2 rounded px-2 py-1 hover:bg-muted/50">
+                <span className="text-sm truncate">{v.label}</span>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant={on ? "default" : "outline"}
+                  className={"h-7 w-7 shrink-0 " + (on ? "bg-emerald-500 hover:bg-emerald-600" : "")}
+                  disabled={readOnly || saveFoto.isPending || !card.cqId}
+                  onClick={() => toggle(v.num)}
+                  title={on ? "Fotografada" : "Sem foto"}
+                >
+                  <Camera className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

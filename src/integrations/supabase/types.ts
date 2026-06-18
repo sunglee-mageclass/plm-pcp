@@ -3278,16 +3278,15 @@ export type Database = {
       consumo_por_oc: { Args: never; Returns: Json }
       dashboard_colecao: {
         Args: {
-          p_ano?: string
+          p_inicio?: string
+          p_fim?: string
           p_colecao?: string
           p_estilista?: string
-          p_mes?: string
-          p_semana?: number
         }
         Returns: Json
       }
       dashboard_custos: {
-        Args: { p_categoria?: string; p_colecao?: string; p_mes?: string }
+        Args: { p_inicio?: string; p_fim?: string; p_colecao?: string; p_categoria?: string }
         Returns: Json
       }
       dashboard_estoque: { Args: never; Returns: Json }
@@ -3296,7 +3295,7 @@ export type Database = {
         Returns: Json
       }
       dashboard_producao: {
-        Args: { p_mes?: string; p_ano?: string; p_colecao?: string; p_linha?: string }
+        Args: { p_inicio?: string; p_fim?: string; p_colecao?: string; p_linha?: string }
         Returns: Json
       }
       detalhe_estoque_variante: {

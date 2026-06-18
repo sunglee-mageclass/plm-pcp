@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ClipboardCheck, Save, CheckCircle2, RotateCcw, Camera } from "lucide-react";
+import { ArrowLeft, ClipboardCheck, Save, CheckCircle2, RotateCcw, Camera, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -191,10 +191,12 @@ function CqDetailPage() {
   const [grades, setGrades] = useState<GradesByEtapa>(emptyGrades());
   const [fotografado, setFotografado] = useState<Record<number, boolean>>({});
   const [status, setStatus] = useState<string>("pendente");
+  const [editing, setEditing] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
   const confirmado = status === "confirmado";
-  const readOnly = permReadOnly || confirmado; // confirmado trava a edição até desmarcar
+  // Confirmado trava a edição; "Editar" reabre sem desmarcar a confirmação.
+  const readOnly = permReadOnly || (confirmado && !editing);
 
   // Só hidrata quando as queries ASSENTARAM (fetched && !fetching) — senão, ao
   // salvar, rehidratava do cache vazio/antigo e os números digitados sumiam.
@@ -346,10 +348,15 @@ function CqDetailPage() {
         const { error } = await supabase.from("cq_variantes").insert(rows);
         if (error) throw error;
       }
+      // Editando um CQ já confirmado: mantém a Grade Real (cad_grades) em sincronia.
+      if (status === "confirmado") {
+        await writeGradeReal(cad.id, false);
+      }
       return cqId as string;
     },
     onSuccess: async () => {
       toast.success("Salvo");
+      setEditing(false);
       // Busca os dados frescos ANTES de liberar a hidratação (senão re-hidrata do
       // cache antigo/vazio e zera os números).
       await qc.invalidateQueries({ queryKey: ["cq", cad?.id] });
@@ -455,10 +462,24 @@ function CqDetailPage() {
                 <CheckCircle2 className="h-4 w-4 mr-2" /> Confirmar Controle de Qualidade
               </Button>
             </>
+          ) : editing ? (
+            <>
+              <Button variant="ghost" onClick={() => { setEditing(false); setHydrated(false); }} disabled={saveMut.isPending}>
+                Cancelar
+              </Button>
+              <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly}>
+                <Save className="h-4 w-4 mr-2" /> Salvar
+              </Button>
+            </>
           ) : (
-            <Button variant="outline" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || permReadOnly}>
-              <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar confirmação
-            </Button>
+            <>
+              <Button variant="outline" onClick={() => setEditing(true)} disabled={permReadOnly}>
+                <Pencil className="h-4 w-4 mr-2" /> Editar
+              </Button>
+              <Button variant="outline" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || permReadOnly}>
+                <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar confirmação
+              </Button>
+            </>
           )}
         </div>
       </div>

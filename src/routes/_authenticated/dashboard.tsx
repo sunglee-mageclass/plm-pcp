@@ -8,12 +8,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
-import { BarChart3, Package, Palette, Boxes, AlertTriangle, Layers, Sparkles, CalendarRange } from "lucide-react";
+import { BarChart3, Package, Palette, Boxes, AlertTriangle, Layers, Sparkles } from "lucide-react";
 import { format } from "date-fns";
 import { FilterButton } from "@/components/shared/filters";
+import { PeriodoPicker, type Periodo } from "@/components/shared/PeriodoPicker";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
   PieChart, Pie, Cell, FunnelChart, Funnel, LabelList,
@@ -32,6 +30,8 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 });
 
 const PIE_COLORS = ["hsl(217 91% 60%)", "hsl(142 71% 45%)", "hsl(45 93% 47%)", "hsl(0 84% 60%)", "hsl(280 70% 60%)", "hsl(190 80% 50%)", "hsl(20 90% 55%)", "hsl(160 60% 45%)"];
+
+const isoDate = (d?: Date) => (d ? format(d, "yyyy-MM-dd") : undefined);
 
 function Dashboard() {
   const [tab, setTab] = useState("colecao");
@@ -64,19 +64,17 @@ type Opt = { id: string; nome: string };
 /* ============================ COLEÇÃO ============================ */
 
 function ColecaoTab() {
-  const [mes, setMes] = useState("all");
-  const [ano, setAno] = useState("all");
-  const [semana, setSemana] = useState("");
+  const [periodo, setPeriodo] = useState<Periodo>(undefined);
   const [colecao, setColecao] = useState("all");
   const [estilista, setEstilista] = useState("all");
+  const ini = isoDate(periodo?.from), fim = isoDate(periodo?.to);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["dash-colecao", mes, ano, semana, colecao, estilista],
+    queryKey: ["dash-colecao", ini, fim, colecao, estilista],
     queryFn: async () => {
       const { data, error } = await supabase.rpc("dashboard_colecao", {
-        p_mes: mes === "all" ? undefined : mes,
-        p_ano: ano === "all" ? undefined : ano,
-        p_semana: semana ? Number(semana) : undefined,
+        p_inicio: ini,
+        p_fim: fim,
         p_colecao: colecao === "all" ? undefined : colecao,
         p_estilista: estilista === "all" ? undefined : estilista,
       });
@@ -88,19 +86,15 @@ function ColecaoTab() {
   const kpis = data?.kpis ?? { total: 0, planejamento: 0, desenvolvimento: 0, producao: 0, lancados: 0 };
   const funnel = (data?.funnel ?? []).map((f: any, i: number) => ({ ...f, fill: PIE_COLORS[i % PIE_COLORS.length] }));
   const pieData = data?.pie ?? [];
-  const meses: Opt[] = data?.filtros?.meses ?? [];
-  const anos: Opt[] = data?.filtros?.anos ?? [];
   const estilistas: Opt[] = data?.filtros?.estilistas ?? [];
   const colecoes: string[] = data?.filtros?.colecoes ?? [];
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-end gap-2">
+        <PeriodoPicker value={periodo} onChange={setPeriodo} />
         <FilterButton
           filters={[
-            { label: "Mês", value: mes, onChange: setMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
-            { label: "Ano", value: ano, onChange: setAno, options: [{ id: "all", nome: "Todos" }, ...anos] },
-            { label: "Semana", value: semana || "all", onChange: (v) => setSemana(v === "all" ? "" : v), options: [{ id: "all", nome: "Todas" }, ...["1","2","3","4","5"].map((s) => ({ id: s, nome: s }))] },
             { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
             { label: "Estilista", value: estilista, onChange: setEstilista, options: [{ id: "all", nome: "Todos" }, ...estilistas] },
           ]}
@@ -270,15 +264,16 @@ function MonthBarCard({ title, subtitle, data, dataKey, name, color, empty, load
 function EtapaBarCard({ title, data, dataKey, name, color }: {
   title: string; data: any[]; dataKey: string; name: string; color: string;
 }) {
+  const height = Math.max(320, data.length * 30 + 40);
   return (
     <Card className="p-4">
       <h3 className="font-semibold mb-3">{title}</h3>
-      <div style={{ width: "100%", height: 360 }}>
+      <div style={{ width: "100%", height }}>
         <ResponsiveContainer>
           <BarChart data={data} layout="vertical" margin={{ left: 24, right: 24 }}>
             <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
             <XAxis type="number" allowDecimals={false} />
-            <YAxis type="category" dataKey="label" width={140} tick={{ fontSize: 11 }} />
+            <YAxis type="category" dataKey="label" width={150} tick={{ fontSize: 11 }} interval={0} />
             <Tooltip formatter={(v: any) => fmtNum(v)} />
             <Bar dataKey={dataKey} name={name} fill={color} radius={[0, 4, 4, 0]}>
               <LabelList dataKey={dataKey} position="right" />
@@ -294,17 +289,17 @@ function EtapaBarCard({ title, data, dataKey, name, color }: {
 
 function ProducaoTab() {
   const fl = useFieldLabels();
-  const [mes, setMes] = useState("all");
-  const [ano, setAno] = useState("all");
+  const [periodo, setPeriodo] = useState<Periodo>(undefined);
   const [colecao, setColecao] = useState("all");
   const [linha, setLinha] = useState("all");
+  const ini = isoDate(periodo?.from), fim = isoDate(periodo?.to);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["dash-producao", mes, ano, colecao, linha],
+    queryKey: ["dash-producao", ini, fim, colecao, linha],
     queryFn: async () => {
       const { data, error } = await supabase.rpc("dashboard_producao", {
-        p_mes: mes === "all" ? undefined : mes,
-        p_ano: ano === "all" ? undefined : ano,
+        p_inicio: ini,
+        p_fim: fim,
         p_colecao: colecao === "all" ? undefined : colecao,
         p_linha: linha === "all" ? undefined : linha,
       });
@@ -321,18 +316,15 @@ function ProducaoTab() {
   const kanbanDev = data?.kanbanDev ?? [];
   const etapas = ["CAD", "Terceirizado", "Oficina", "Controle de Qualidade", "Acabamento", "Direcionamento", "Lançado"];
 
-  const meses: Opt[] = data?.filtros?.meses ?? [];
-  const anos: Opt[] = data?.filtros?.anos ?? [];
   const colecoes: string[] = data?.filtros?.colecoes ?? [];
   const linhas: Opt[] = data?.filtros?.linhas ?? [];
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-end gap-2">
+        <PeriodoPicker value={periodo} onChange={setPeriodo} />
         <FilterButton
           filters={[
-            { label: "Mês", value: mes, onChange: setMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
-            { label: "Ano", value: ano, onChange: setAno, options: [{ id: "all", nome: "Todos" }, ...anos] },
             { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
             { label: "Linha", value: linha, onChange: setLinha, options: [{ id: "all", nome: "Todas" }, ...linhas] },
           ]}
@@ -462,12 +454,8 @@ function ProducaoTab() {
 /* ============================ FINANCEIRO ============================ */
 
 function FinanceiroTab() {
-  const [range, setRange] = useState<{ from?: Date; to?: Date } | undefined>(undefined);
-  const inicio = range?.from ? format(range.from, "yyyy-MM-dd") : undefined;
-  const fim = range?.to ? format(range.to, "yyyy-MM-dd") : undefined;
-  const periodoLabel = range?.from
-    ? `${format(range.from, "dd/MM/yy")}${range.to ? " – " + format(range.to, "dd/MM/yy") : " – …"}`
-    : "Período";
+  const [periodo, setPeriodo] = useState<Periodo>(undefined);
+  const inicio = isoDate(periodo?.from), fim = isoDate(periodo?.to);
 
   const { data, isLoading } = useQuery({
     queryKey: ["dash-financeiro", inicio, fim],
@@ -491,24 +479,7 @@ function FinanceiroTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-end gap-2">
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-2">
-              <CalendarRange className="h-4 w-4" />
-              <span>{periodoLabel}</span>
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-auto p-0">
-            <Calendar mode="range" numberOfMonths={2} selected={range as any} onSelect={setRange as any} />
-            {range?.from && (
-              <div className="p-2 border-t">
-                <Button type="button" variant="ghost" size="sm" className="w-full" onClick={() => setRange(undefined)}>
-                  Limpar período
-                </Button>
-              </div>
-            )}
-          </PopoverContent>
-        </Popover>
+        <PeriodoPicker value={periodo} onChange={setPeriodo} />
       </div>
       <div className="grid gap-4 sm:grid-cols-3">
         <Card><CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Investido em matéria-prima</CardTitle></CardHeader><CardContent><div className="text-2xl font-semibold">{brl(investido)}</div></CardContent></Card>
@@ -516,7 +487,7 @@ function FinanceiroTab() {
         <Card><CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Total pendente</CardTitle></CardHeader><CardContent><div className="text-2xl font-semibold text-yellow-600 dark:text-yellow-400">{brl(pendente)}</div></CardContent></Card>
       </div>
       <Card className="p-4">
-        <h3 className="font-semibold mb-3">{range?.from && range?.to ? "Contas a pagar — período" : "Contas a pagar — próximos 6 meses"}</h3>
+        <h3 className="font-semibold mb-3">{periodo?.from && periodo?.to ? "Contas a pagar — período" : "Contas a pagar — próximos 6 meses"}</h3>
         <div style={{ width: "100%", height: 320 }}>
           <ResponsiveContainer>
             <BarChart data={chartData}>
@@ -538,16 +509,18 @@ function FinanceiroTab() {
 
 function CustosTab() {
   const fl = useFieldLabels();
+  const [periodo, setPeriodo] = useState<Periodo>(undefined);
   const [colecao, setColecao] = useState("all");
-  const [mes, setMes] = useState("all");
   const [categoria, setCategoria] = useState("all");
+  const ini = isoDate(periodo?.from), fim = isoDate(periodo?.to);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["dash-custos", colecao, mes, categoria],
+    queryKey: ["dash-custos", ini, fim, colecao, categoria],
     queryFn: async () => {
       const { data, error } = await supabase.rpc("dashboard_custos", {
+        p_inicio: ini,
+        p_fim: fim,
         p_colecao: colecao === "all" ? undefined : colecao,
-        p_mes: mes === "all" ? undefined : mes,
         p_categoria: categoria === "all" ? undefined : categoria,
       });
       if (error) throw error;
@@ -557,7 +530,6 @@ function CustosTab() {
 
   const rows = data?.rows ?? [];
   const chartData = data?.chartData ?? [];
-  const meses: Opt[] = data?.filtros?.meses ?? [];
   const categorias: Opt[] = data?.filtros?.categorias ?? [];
   const colecoes: string[] = data?.filtros?.colecoes ?? [];
 
@@ -566,10 +538,10 @@ function CustosTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-end gap-2">
+        <PeriodoPicker value={periodo} onChange={setPeriodo} />
         <FilterButton
           filters={[
             { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
-            { label: "Mês", value: mes, onChange: setMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
             { label: "Categoria", value: categoria, onChange: setCategoria, options: [{ id: "all", nome: "Todas" }, ...categorias] },
           ]}
         />
