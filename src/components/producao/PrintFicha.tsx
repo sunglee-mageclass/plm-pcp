@@ -33,28 +33,56 @@ export function PrintFicha({
     if (!ready || startedRef.current) return;
     startedRef.current = true;
     let cancelled = false;
-    let doneTimer: ReturnType<typeof setTimeout> | undefined;
+    let fallback: ReturnType<typeof setTimeout> | undefined;
 
-    const run = async () => {
-      // Espera as imagens (signed URLs) carregarem, no máx. ~4s, p/ a foto não
-      // sair em branco.
-      const start = Date.now();
-      while (!cancelled && Date.now() - start < 4000) {
-        const imgs = Array.from(wrapRef.current?.querySelectorAll("img") ?? []);
-        const allLoaded = imgs.length === 0 || imgs.every((img) => img.complete && img.naturalWidth > 0);
-        if (allLoaded && Date.now() - start > 250) break;
-        await new Promise((r) => setTimeout(r, 120));
-      }
+    // Desmonta SÓ quando o diálogo fecha (evento afterprint) — não por timer.
+    // Isso elimina a corrida em que um setTimeout escondia a .print-area antes
+    // de o navegador capturar o layout, e permite reimprimir limpando o estado.
+    const done = () => {
       if (cancelled) return;
-      window.print();
-      // Desmonta SÓ depois de um tempo: em navegadores onde print() é bloqueante
-      // já voltou; nos não-bloqueantes (o conteúdo é capturado na chamada) damos
-      // folga p/ não sumir antes. O clearTimeout no cleanup evita corrida quando
-      // o usuário reimprime (nova key) antes desse tempo.
-      doneTimer = setTimeout(() => { if (!cancelled) onDoneRef.current(); }, 1500);
+      cancelled = true;
+      window.removeEventListener("afterprint", done);
+      if (fallback) clearTimeout(fallback);
+      onDoneRef.current();
     };
-    run();
-    return () => { cancelled = true; if (doneTimer) clearTimeout(doneTimer); };
+
+    const imgsReady = () => {
+      const imgs = Array.from(wrapRef.current?.querySelectorAll("img") ?? []);
+      return imgs.length === 0 || imgs.every((img) => img.complete && img.naturalWidth > 0);
+    };
+
+    const doPrint = () => {
+      if (cancelled) return;
+      window.addEventListener("afterprint", done);
+      // Rede de segurança caso afterprint não dispare (raro em alguns navegadores).
+      fallback = setTimeout(done, 60000);
+      window.print();
+    };
+
+    if (imgsReady()) {
+      // Caso comum (reimpressão / imagens em cache): imprime IMEDIATAMENTE, o
+      // mais perto possível do clique. Antes, um piso de 250ms forçava o print()
+      // a sair de um setTimeout (fora do gesto), e o Chrome SUPRIMIA a 2ª
+      // impressão silenciosamente. Síncrono aqui resolve o "não reabre".
+      doPrint();
+    } else {
+      // Só espera (máx ~4s) quando a foto ainda não carregou, p/ não sair branca.
+      const start = Date.now();
+      const poll = async () => {
+        while (!cancelled && Date.now() - start < 4000) {
+          if (imgsReady()) break;
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        doPrint();
+      };
+      poll();
+    }
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("afterprint", done);
+      if (fallback) clearTimeout(fallback);
+    };
   }, [ready]);
 
   return (

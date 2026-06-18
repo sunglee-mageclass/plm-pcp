@@ -266,6 +266,7 @@ function CalendarioView({ parcelas, loading }: { parcelas: Parcela[]; loading: b
         onClose={() => setDetalheId(null)}
         onMarkPaid={(id) => { setDetalheId(null); setPagandoId(id); }}
         onOpenOc={(tipo, id) => { setDetalheId(null); setOcView({ tipo, id }); }}
+        onVencimentoSaved={(d) => { autoJumped.current = true; setCursor(startOfMonth(parseLocalDate(d))); }}
       />
       <PagarDialog parcelaId={pagandoId} onClose={() => setPagandoId(null)} />
       <OcViewDialog view={ocView} onClose={() => setOcView(null)} />
@@ -274,12 +275,13 @@ function CalendarioView({ parcelas, loading }: { parcelas: Parcela[]; loading: b
 }
 
 function ParcelaDetailDialog({
-  parcela, onClose, onMarkPaid, onOpenOc,
+  parcela, onClose, onMarkPaid, onOpenOc, onVencimentoSaved,
 }: {
   parcela: Parcela | null;
   onClose: () => void;
   onMarkPaid: (id: string) => void;
   onOpenOc: (tipo: string, ocId: string) => void;
+  onVencimentoSaved?: (date: string) => void;
 }) {
   const qc = useQueryClient();
   const { isAdmin, isSuperAdmin, isTenantAdmin } = useAuth();
@@ -323,7 +325,13 @@ function ParcelaDetailDialog({
       if (ctx?.prev) qc.setQueryData(["parcelas"], ctx.prev);
       toast.error(e.message ?? "Erro ao atualizar vencimento");
     },
-    onSuccess: () => toast.success("Vencimento atualizado"),
+    onSuccess: () => {
+      toast.success("Vencimento atualizado");
+      // Mantém a parcela editada VISÍVEL: salta o calendário para o mês da nova
+      // data (senão o chip re-chaveia para um mês fora da vista e parece sumir).
+      // O badge já está vermelho aqui — a lógica de status NÃO muda.
+      onVencimentoSaved?.(vencimento);
+    },
     onSettled: () => qc.invalidateQueries({ queryKey: ["parcelas"] }),
   });
 
@@ -471,6 +479,10 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
   const [dataFim, setDataFim] = useState("");
   const [pagandoId, setPagandoId] = useState<string | null>(null);
   const [ocView, setOcView] = useState<{ tipo: string; id: string } | null>(null);
+  // Realce transitório da linha recém-editada: como a lista é ordenada por
+  // data_vencimento, mudar a data faz a linha SALTAR de posição no re-sort —
+  // o realce ajuda o usuário a seguir para onde ela foi (e ver o novo status).
+  const [highlightId, setHighlightId] = useState<string | null>(null);
 
   const desmarcarMut = useMutation({
     mutationFn: async (id: string) => {
@@ -504,7 +516,11 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
       if (ctx?.prev) qc.setQueryData(["parcelas"], ctx.prev);
       toast.error(e.message ?? "Erro ao atualizar vencimento");
     },
-    onSuccess: () => toast.success("Vencimento atualizado"),
+    onSuccess: (_data, vars) => {
+      toast.success("Vencimento atualizado");
+      setHighlightId(vars.id);
+      setTimeout(() => setHighlightId((cur) => (cur === vars.id ? null : cur)), 2500);
+    },
     onSettled: () => qc.invalidateQueries({ queryKey: ["parcelas"] }),
   });
 
@@ -580,7 +596,10 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
               {filtered.map((p) => {
                 const st = effectiveStatus(p);
                 return (
-                  <tr key={p.id} className="border-b last:border-0">
+                  <tr
+                    key={p.id}
+                    className={`border-b last:border-0 transition-colors ${p.id === highlightId ? "bg-primary/10" : ""}`}
+                  >
                     <td className="py-2 pr-3">{p.empresas?.nome ?? "—"}</td>
                     <td className="py-2 pr-3">
                       {(p.oc_tecido_id || p.oc_aviamento_id) ? (
