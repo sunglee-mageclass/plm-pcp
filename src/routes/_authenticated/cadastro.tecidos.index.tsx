@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -26,7 +26,7 @@ import {
 
 import { supabase } from "@/integrations/supabase/client";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
-import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS } from "@/hooks/useGridCols";
+import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS, useCompactCards } from "@/hooks/useGridCols";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -78,6 +78,8 @@ const SORT_OPTIONS: Array<{ value: string; label: string }> = [
 function TecidosGallery() {
   const qc = useQueryClient();
   const [cols, setCols] = useGridCols("tecidos");
+  const gridRef = useRef<HTMLDivElement>(null);
+  const compact = useCompactCards(gridRef, cols);
   const [search, setSearch] = useState("");
   const [empresaFilter, setEmpresaFilter] = useState<string>("all");
   const [catFilter, setCatFilter] = useState<string>("all");
@@ -336,7 +338,7 @@ function TecidosGallery() {
           Nenhum tecido cadastrado ainda.
         </div>
       ) : (
-        <div className={GRID_COLS_CLASS[cols]}>
+        <div ref={gridRef} className={GRID_COLS_CLASS[cols]}>
           {filtered.map((a) => (
             <TecidoCard
               key={a.id}
@@ -345,6 +347,7 @@ function TecidosGallery() {
               fornecedor={a.empresa_id ? empresasMap.get(a.empresa_id) ?? null : null}
               fotoPath={firstVarMap.get(a.id) ?? null}
               onDelete={() => startDelete(a)}
+              compact={compact}
             />
           ))}
         </div>
@@ -414,12 +417,14 @@ function TecidoCard({
   fornecedor,
   fotoPath,
   onDelete,
+  compact,
 }: {
   artigo: Artigo;
   categorias: string[];
   fornecedor: string | null;
   fotoPath: string | null;
   onDelete: () => void;
+  compact?: boolean;
 }) {
   const url = useSignedUrl(fotoPath);
   const semCategoria = categorias.length === 0;
@@ -466,6 +471,7 @@ function TecidoCard({
               </div>
             )}
           </div>
+          {!compact && (
           <div className="p-3 space-y-1">
             <h3 className="font-medium leading-tight line-clamp-1">{artigo.nome}</h3>
             {(semCategoria || semFornecedor) && (
@@ -503,6 +509,7 @@ function TecidoCard({
               </span>
             </p>
           </div>
+          )}
         </Card>
       </Link>
     </div>

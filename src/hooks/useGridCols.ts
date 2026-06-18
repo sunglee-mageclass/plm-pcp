@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type RefObject } from "react";
 import { useAuth } from "@/hooks/useAuth";
 
 // Classes literais (o Tailwind não pode purgar): mobile sempre 2 colunas;
@@ -47,4 +47,30 @@ export function useGridCols(pageKey: string, fallback = 4) {
   );
 
   return [cols, setCols] as const;
+}
+
+/**
+ * Mede a largura real de cada card (largura do grid / colunas efetivas) e diz se
+ * deve ficar "compacto" (só imagem, sem descrições) — porque, com muitas colunas
+ * na tela do usuário, os cards ficam estreitos demais. Mobile usa 2 colunas.
+ */
+export function useCompactCards(ref: RefObject<HTMLElement | null>, cols: number, threshold = 170) {
+  const [compact, setCompact] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const recompute = () => {
+      const w = el.clientWidth;
+      if (!w) return;
+      const effCols = window.innerWidth < 1024 ? 2 : cols; // lg: usa cols; abaixo: 2
+      const gap = 16; // gap-4
+      const cardW = (w - (effCols - 1) * gap) / effCols;
+      setCompact(cardW < threshold);
+    };
+    recompute();
+    const ro = new ResizeObserver(recompute);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref, cols, threshold]);
+  return compact;
 }

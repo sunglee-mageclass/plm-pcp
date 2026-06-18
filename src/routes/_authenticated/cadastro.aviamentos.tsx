@@ -18,7 +18,7 @@ import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
-import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS } from "@/hooks/useGridCols";
+import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS, useCompactCards } from "@/hooks/useGridCols";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/shared/NumberInput";
@@ -100,6 +100,8 @@ const fmtBRL = (n: number | null | undefined) =>
 function AviamentosGallery() {
   const qc = useQueryClient();
   const [cols, setCols] = useGridCols("aviamentos");
+  const gridRef = useRef<HTMLDivElement>(null);
+  const compact = useCompactCards(gridRef, cols);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("nome");
   const [fCat, setFCat] = useState("all");
@@ -307,7 +309,7 @@ function AviamentosGallery() {
           Nenhum aviamento cadastrado.
         </div>
       ) : (
-        <div className={GRID_COLS_CLASS[cols]}>
+        <div ref={gridRef} className={GRID_COLS_CLASS[cols]}>
           {filtered.map((a) => (
             <AviamentoCard
               key={a.id}
@@ -316,6 +318,7 @@ function AviamentosGallery() {
               fornecedor={a.empresa_id ? empresasMap.get(a.empresa_id) ?? null : null}
               onEdit={() => setEditing(a)}
               onDelete={() => setDeleting(a)}
+              compact={compact}
             />
           ))}
         </div>
@@ -371,12 +374,14 @@ function AviamentoCard({
   fornecedor,
   onEdit,
   onDelete,
+  compact,
 }: {
   aviamento: Aviamento;
   categoria: string | null;
   fornecedor: string | null;
   onEdit: () => void;
   onDelete: () => void;
+  compact?: boolean;
 }) {
   const url = useSignedUrl(aviamento.foto_url, "aviamentos");
   return (
@@ -405,6 +410,7 @@ function AviamentoCard({
           </Button>
         </div>
       </div>
+      {!compact && (
       <div className="p-3 space-y-1">
         <h3 className="font-medium leading-tight line-clamp-1">{aviamento.codigo_nome}</h3>
         {(!categoria || !fornecedor) && (
@@ -423,6 +429,7 @@ function AviamentoCard({
         <p className="text-xs text-muted-foreground line-clamp-1">{fornecedor ?? "—"}</p>
         <p className="text-sm font-semibold text-primary">{fmtBRL(aviamento.preco)}</p>
       </div>
+      )}
     </Card>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, Group, LayoutGrid, FileText } from "lucide-react";
@@ -18,7 +18,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
-import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS } from "@/hooks/useGridCols";
+import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS, useCompactCards } from "@/hooks/useGridCols";
 import { fmtNum } from "@/lib/format";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 
@@ -146,6 +146,8 @@ function PlanejamentoPage() {
   const [openBatch, setOpenBatch] = useState(false);
   const [groupByCat, setGroupByCat] = useState(false);
   const [cols, setCols] = useGridCols("planejamento");
+  const gridRef = useRef<HTMLDivElement>(null);
+  const compact = useCompactCards(gridRef, cols);
 
   const { data: estilistas = [] } = useQuery({
     queryKey: ["colab-estilistas"],
@@ -213,6 +215,7 @@ function PlanejamentoPage() {
       categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
       linhaNome={m.linha_id ? linhaMap[m.linha_id] : null}
       onOpen={() => setOpenId(m.id)}
+      compact={compact}
     />
   );
 
@@ -282,6 +285,7 @@ function PlanejamentoPage() {
         </div>
       </div>
 
+      <div ref={gridRef}>
       {filtered.length === 0 ? (
         <Card className="p-12 text-center text-muted-foreground">Nenhum modelo encontrado.</Card>
       ) : groupByCat ? (
@@ -299,6 +303,7 @@ function PlanejamentoPage() {
       ) : (
         <div className={GRID_COLS_CLASS[cols]}>{filtered.map(renderCard)}</div>
       )}
+      </div>
 
       {(openNew || openId) && (
         <ModeloDialog
@@ -328,8 +333,8 @@ function PlanejamentoPage() {
 }
 
 
-function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, onOpen }: {
-  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; onOpen: () => void;
+function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, onOpen, compact }: {
+  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; onOpen: () => void; compact?: boolean;
 }) {
   const photo = modelo.fotos_modelo?.[0] ?? null;
   const url = useSignedUrlBucket(photo);
@@ -340,6 +345,7 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, onOpen }:
         {url ? <img src={url} alt={modelo.nome ?? ""} className="w-full h-full object-cover" />
              : <ImageIcon className="h-10 w-10 text-muted-foreground" />}
       </div>
+      {!compact && (
       <div className="p-3 space-y-1.5">
         <h3 className="font-semibold text-sm leading-tight truncate">{modelo.nome || "Sem nome"}</h3>
         <div className="flex flex-wrap items-center gap-1.5">
@@ -351,6 +357,7 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, onOpen }:
         <p className="text-xs text-muted-foreground truncate">{categoriaNome ?? "Sem categoria"}</p>
         <p className="text-xs text-muted-foreground truncate">{linhaNome ?? "Sem linha"}</p>
       </div>
+      )}
     </Card>
   );
 }
