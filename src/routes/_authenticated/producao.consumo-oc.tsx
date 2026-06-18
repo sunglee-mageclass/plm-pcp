@@ -31,7 +31,7 @@ type ModeloRaw = {
   metragem_m: number | null; baixado_m: number | null; cortado: boolean;
 };
 type Item = {
-  oc_tecido_item_id: string; estoque_zerado?: boolean; artigo_id: string | null; artigo_nome: string | null;
+  oc_tecido_item_id: string; estoque_zerado?: boolean; pode_zerar?: boolean; artigo_id: string | null; artigo_nome: string | null;
   unidade: string | null; variante: string | null;
   pedido_m: number | null; recebido_m: number | null; baixado_m: number | null;
   modelos: ModeloRaw[];
@@ -279,6 +279,8 @@ function ConsumoOcPage() {
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ["consumo-por-oc"] });
       qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
+      qc.invalidateQueries({ queryKey: ["estoque-tecido-detalhe-oc"] });
+      qc.invalidateQueries({ queryKey: ["dash-estoque"] });
     },
   });
   const onZerar = (id: string, value: boolean) => zerarMut.mutate({ id, value });
@@ -410,6 +412,7 @@ function ResumoVariantes({ oc, keep, onZerar }: { oc: OC; keep: (id: string) => 
         const recebido = recebidoItem(oc, it);
         const consumido = modelos.reduce((s, m) => s + num(m.metragem_m), 0);
         const zerado = !!it.estoque_zerado;
+        const podeZerar = it.pode_zerar !== false; // default permissivo se o campo não vier
         const sobra = recebido - consumido;
         const sobraClass = sobra < 0 ? "text-destructive" : sobra <= recebido * 0.05 ? "text-emerald-600" : "text-foreground";
         return (
@@ -429,8 +432,11 @@ function ResumoVariantes({ oc, keep, onZerar }: { oc: OC; keep: (id: string) => 
                 size="sm"
                 variant={zerado ? "default" : "outline"}
                 className={"h-7 " + (zerado ? "bg-emerald-500 hover:bg-emerald-600" : "")}
+                disabled={!zerado && !podeZerar}
                 onClick={(e) => { e.stopPropagation(); onZerar(it.oc_tecido_item_id, !zerado); }}
-                title="Zerar a sobra/negativo deste item no estoque real"
+                title={!zerado && !podeZerar
+                  ? "Só é possível zerar quando todos os modelos desta variante estiverem enviados ao corte"
+                  : "Zerar a sobra/negativo deste item no estoque real"}
               >
                 {zerado ? "Zerado" : "Zerar"}
               </Button>
