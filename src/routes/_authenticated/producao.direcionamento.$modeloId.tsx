@@ -41,7 +41,7 @@ function DirDetailPage() {
     queryFn: async () => (await supabase.from("tenant_config").select("tamanhos_grade").maybeSingle()).data,
   });
 
-  const { data: cadGrades = [] } = useQuery({
+  const { data: cadGrades = [], isFetched: gradesFetched, isFetching: gradesFetching } = useQuery({
     queryKey: ["cad-grades", cad?.id],
     enabled: !!cad?.id,
     queryFn: async () => {
@@ -67,7 +67,7 @@ function DirDetailPage() {
     return [...ordered, ...extras];
   }, [tenantCfg, cadGrades]);
 
-  const { data: existing = [], refetch } = useQuery({
+  const { data: existing = [], refetch, isFetched: existingFetched, isFetching: existingFetching } = useQuery({
     queryKey: ["direcionamento", cad?.id],
     enabled: !!cad?.id,
     queryFn: async () => {
@@ -79,8 +79,13 @@ function DirDetailPage() {
   const [state, setState] = useState<Record<number, VarState>>({});
   const [hydrated, setHydrated] = useState(false);
 
+  // Só hidrata quando AMBAS as queries assentaram — senão hidrata do cache vazio
+  // (no 1º acesso e ao salvar) e os números somem.
+  const dataSettled = gradesFetched && !gradesFetching && existingFetched && !existingFetching;
+
   useEffect(() => {
     if (hydrated || !cad?.id) return;
+    if (!dataSettled) return;
     const obj: Record<number, VarState> = {};
     (cadGrades as any[]).forEach((g) => {
       obj[g.variante_numero] = {
@@ -97,7 +102,7 @@ function DirDetailPage() {
     });
     setState(obj);
     setHydrated(true);
-  }, [cadGrades, existing, cad?.id, hydrated]);
+  }, [cadGrades, existing, cad?.id, hydrated, dataSettled]);
 
   const setEcommerce = (num: number, tam: string, qtd: number) => {
     setState((s) => ({
@@ -138,9 +143,11 @@ function DirDetailPage() {
     },
     onSuccess: async () => {
       toast.success("Salvo");
-      setHydrated(false);
+      // Busca os dados frescos ANTES de liberar a hidratação (senão re-hidrata do
+      // cache antigo e zera os números).
       await qc.invalidateQueries({ queryKey: ["direcionamento", cad?.id] });
       await refetch();
+      setHydrated(false);
     },
     onError: (e: any) => toast.error(e?.message ?? "Erro"),
   });

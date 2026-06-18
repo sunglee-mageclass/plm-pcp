@@ -302,11 +302,24 @@ function ParcelaDetailDialog({
       const { error } = await supabase.from("parcelas").update(update as any).eq("id", parcela.id);
       if (error) throw error;
     },
-    onSuccess: () => {
-      toast.success("Vencimento atualizado");
-      qc.invalidateQueries({ queryKey: ["parcelas"] });
+    onMutate: async () => {
+      if (!parcela) return {};
+      await qc.cancelQueries({ queryKey: ["parcelas"] });
+      const prev = qc.getQueryData<any[]>(["parcelas"]);
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const paid = !!parcela.data_pagamento || parcela.status === "pago";
+      qc.setQueryData<any[]>(["parcelas"], (old) => (old ?? []).map((p) =>
+        p.id === parcela.id
+          ? { ...p, data_vencimento: vencimento, status: paid ? p.status : (parseISO(vencimento) < today ? "vencido" : "a_pagar") }
+          : p));
+      return { prev };
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao atualizar vencimento"),
+    onError: (e: any, _vars, ctx: any) => {
+      if (ctx?.prev) qc.setQueryData(["parcelas"], ctx.prev);
+      toast.error(e.message ?? "Erro ao atualizar vencimento");
+    },
+    onSuccess: () => toast.success("Vencimento atualizado"),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["parcelas"] }),
   });
 
   const recalcMut = useMutation({
@@ -461,11 +474,24 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
       const { error } = await supabase.from("parcelas").update(update as any).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => {
-      toast.success("Vencimento atualizado");
-      qc.invalidateQueries({ queryKey: ["parcelas"] });
+    // Atualização otimista: o cartão/badge muda na hora (vencido/a pagar), sem
+    // depender do refetch.
+    onMutate: async ({ id, data, paid }) => {
+      await qc.cancelQueries({ queryKey: ["parcelas"] });
+      const prev = qc.getQueryData<any[]>(["parcelas"]);
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      qc.setQueryData<any[]>(["parcelas"], (old) => (old ?? []).map((p) =>
+        p.id === id
+          ? { ...p, data_vencimento: data, status: paid ? p.status : (parseISO(data) < today ? "vencido" : "a_pagar") }
+          : p));
+      return { prev };
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao atualizar vencimento"),
+    onError: (e: any, _vars, ctx: any) => {
+      if (ctx?.prev) qc.setQueryData(["parcelas"], ctx.prev);
+      toast.error(e.message ?? "Erro ao atualizar vencimento");
+    },
+    onSuccess: () => toast.success("Vencimento atualizado"),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["parcelas"] }),
   });
 
   const fornecedores = useMemo(() => {
