@@ -113,13 +113,28 @@ repo muda rápido (Lovable + VS Code). Backlog histórico em
 - Não editar arquivos em `src/components/ui/` (shadcn gerado) sem necessidade.
 - Não commitar `.env` (já está no `.gitignore`).
 
-## Agentes disponíveis (ajustados para sisTrama)
+## Agentes — organizados em times (`.claude/agents/`)
 
-- `debug-expert`: debug de bugs (OC, estoque, storage tenant, RPCs)
-- `code-reviewer`: revisão de código React + TanStack Router + Supabase
-- `domain-plm-pcp`: conhecimento de domínio PLM+PCP **para confecção de moda**
-- `architect-system`: design arquitetura **Vite+React+Supabase multi-tenant**
-- `product-lead`: estratégia + backlog **para sisTrama**
-- `ux-tester`: testes de usabilidade **telas de cadastro/criação/produção/financeiro**
-- `qa-engineer`: testes automatizados **TanStack Query + Supabase RPC + storage**
-- `devops-specialist`: infra + deploy **Lovable Cloud + git push/pull**
+Times pequenos por especialidade. Em auditoria/varredura, agentes são **read-only**
+(encontram e sugerem; não executam nem inventam).
+
+- **Produto & Domínio**
+  - `product-lead`: estratégia + backlog **para sisTrama**
+  - `domain-plm-pcp`: domínio PLM+PCP **para confecção de moda** (BOM, OC, PCP, grade)
+- **Arquitetura & Dados**
+  - `architect-system`: arquitetura **Vite+React+TanStack+Supabase multi-tenant**
+  - `data-engineer`: schema Postgres, integridade, índices, RPCs/triggers, perf de query, consistência front↔banco
+- **Qualidade & Código**
+  - `code-reviewer`: revisão React + TanStack Router + Supabase + RLS
+  - `qa-engineer`: verificação via build/tsc/lint + teste manual de RPC por SQL
+  - `debug-expert`: debug de bugs (OC, estoque, storage tenant, RPCs)
+- **UX**
+  - `ux-tester`: usabilidade das telas cadastro/criação/produção/financeiro/dashboard
+  - `ui-ux-mobile`: UI/UX **mobile-first** (responsividade, toque, galerias/tabelas no celular)
+- **Segurança & Infra**
+  - `security-auditor`: RLS multi-tenant, RPCs SECURITY DEFINER, storage por tenant, escalonamento de role
+  - `devops-specialist`: infra + deploy (Supabase próprio `db push --db-url`, git push/pull, build, migrations)
+
+Para varredura de auditoria: rode os agentes em **paralelo** por módulo/setor; cada
+um devolve achados com `arquivo:linha` e severidade. Se um módulo está bom, o agente
+deve dizer "sem achados" — **nunca inventar** melhoria.
