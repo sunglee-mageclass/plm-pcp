@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 
 /**
  * Módulos habilitáveis por loja (tenant_config.modules, jsonb).
@@ -44,8 +45,10 @@ const LANDING_ORDER: ModuleKey[] = [
 ];
 
 export function useTenantModules() {
+  const tenantId = useActiveTenantId();
   const { data, isLoading } = useQuery({
-    queryKey: ["tenant_config", "modules"],
+    // tenantId na key: troca de loja => key nova => refaz o fetch da loja nova.
+    queryKey: ["tenant_config", "modules", tenantId],
     queryFn: async () => {
       const { data } = await supabase.from("tenant_config").select("modules").maybeSingle();
       return ((data as any)?.modules ?? null) as Partial<Record<ModuleKey, boolean>> | null;

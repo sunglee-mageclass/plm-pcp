@@ -46,6 +46,9 @@ export function TenantSwitcher() {
     onMutate: (tenant_id: string) => {
       // Reflete a loja escolhida no seletor IMEDIATAMENTE (sem esperar o servidor).
       qc.setQueryData(["tenant-switcher", "current", user?.id], tenant_id);
+      // E no tenant ATIVO que chaveia as queries de identidade (módulos/abas/fuso/
+      // logo/nomenclatura): a sidebar passa a refletir a loja nova na hora.
+      qc.setQueryData(["active-tenant-id", user?.id], tenant_id);
     },
     onSuccess: () => {
       // Invalida TUDO (refetch em paralelo, em background) — SEM tela em branco:

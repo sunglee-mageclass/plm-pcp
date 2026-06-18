@@ -49,6 +49,7 @@ import {
 } from "@/components/ui/collapsible";
 import { useAuth } from "@/hooks/useAuth";
 import { useTenantModules } from "@/hooks/useTenantModules";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { useTabLabels } from "@/hooks/useTabLabels";
 import { Button } from "@/components/ui/button";
 import { PAGES_CATALOG, pageInProfile } from "@/lib/permissions-catalog";
@@ -101,9 +102,10 @@ export function AppSidebar() {
   const { isModuleEnabled, isStockOnly } = useTenantModules();
   const profile = isStockOnly ? "stock" : "full";
   const tabLabels = useTabLabels();
+  const activeTenantId = useActiveTenantId();
 
   const { data: tenantCfg } = useQuery({
-    queryKey: ["tenant_config", "oficina_posicao"],
+    queryKey: ["tenant_config", "oficina_posicao", activeTenantId],
     queryFn: async () => {
       const { data } = await supabase.from("tenant_config").select("oficina_posicao").maybeSingle();
       return data as { oficina_posicao?: "terceirizados" | "acabamento" } | null;

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 
 export const DEFAULT_FIELD_LABELS = {
   colecao: "Coleção",
@@ -19,8 +20,9 @@ export type FieldKey = keyof typeof DEFAULT_FIELD_LABELS;
  * Uso: const labels = useFieldLabels(); labels("colecao") -> "Drop" ou "Coleção".
  */
 export function useFieldLabels() {
+  const tenantId = useActiveTenantId();
   const { data } = useQuery({
-    queryKey: ["tenant_config", "campos_editaveis"],
+    queryKey: ["tenant_config", "campos_editaveis", tenantId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("tenant_config")

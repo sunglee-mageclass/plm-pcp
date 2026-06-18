@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 
 /**
  * URL assinada da logo da loja (tenants.logo_url, bucket "tenant-logos"),
@@ -8,8 +9,9 @@ import { useAuth } from "@/hooks/useAuth";
  */
 export function useTenantLogo(): string | null {
   const { user } = useAuth();
+  const tenantId = useActiveTenantId();
   const { data } = useQuery({
-    queryKey: ["tenant-logo", user?.id],
+    queryKey: ["tenant-logo", user?.id, tenantId],
     enabled: !!user,
     queryFn: async () => {
       const { data: u } = await supabase
