@@ -177,10 +177,12 @@ function OficinaDetailPage() {
     },
     onSuccess: async () => {
       toast.success("Salvo");
-      setHydrated(false);
+      // Busca os dados frescos ANTES de liberar a hidratação (senão re-hidrata do
+      // cache antigo).
       await qc.invalidateQueries({ queryKey: ["producao-oficina", cad?.id] });
       await qc.invalidateQueries({ queryKey: ["oficina-cad", modeloId] });
       await refetch();
+      setHydrated(false);
     },
     onError: (e: any) => toast.error(e?.message ?? "Erro"),
   });

@@ -91,7 +91,7 @@ function AcabDetailPage() {
     },
   });
 
-  const { data: existing = [], refetch } = useQuery({
+  const { data: existing = [], refetch, isFetched: existingFetched, isFetching: existingFetching } = useQuery({
     queryKey: ["producao-acabamento", cad?.id],
     enabled: !!cad?.id,
     queryFn: async () => {
@@ -104,7 +104,10 @@ function AcabDetailPage() {
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    if (!hydrated && cad?.id) {
+    // Só hidrata quando a query assentou — senão hidrata do cache vazio (no save
+    // e no 1º acesso) e os blocos somem.
+    if (hydrated || !cad?.id || !existingFetched || existingFetching) return;
+    {
       setBlocos((existing as any[]).map((r) => ({
         id: r.id,
         tipo: r.tipo,
@@ -122,7 +125,7 @@ function AcabDetailPage() {
       })));
       setHydrated(true);
     }
-  }, [existing, cad?.id, hydrated]);
+  }, [existing, cad?.id, hydrated, existingFetched, existingFetching]);
 
   const activeTipos = new Set(blocos.map((b) => b.tipo));
 
@@ -146,30 +149,40 @@ function AcabDetailPage() {
   const saveMut = useMutation({
     mutationFn: async () => {
       if (!cad?.id) throw new Error("CAD não encontrado. Abra o CAD desse modelo primeiro.");
-      const { error: delErr } = await supabase.from("producao_acabamento").delete().eq("cad_id", cad.id);
-      if (delErr) throw delErr;
-      if (blocos.length === 0) return;
-      const payload = blocos.map((b) => ({
-        cad_id: cad.id, ativo: true, tipo: b.tipo,
-        terceirizado_id: b.terceirizado_id,
-        preco_por_peca: b.preco_por_peca,
-        quantidade_enviada: b.quantidade_enviada,
-        quantidade_recebida: b.quantidade_recebida,
-        quantidade_defeito: b.quantidade_defeito,
-        data_enviado: b.data_enviado,
-        data_prevista: b.data_prevista,
-        data_entregue: b.data_entregue,
-        observacao: b.observacao,
-        aviamentos_utilizados: b.aviamentos_utilizados,
-      }));
-      const { error } = await supabase.from("producao_acabamento").insert(payload);
-      if (error) throw error;
+      // Insere os novos ANTES de remover os antigos: se o insert falhar, os
+      // blocos antigos NÃO são perdidos.
+      const { data: oldRows, error: oldErr } = await supabase
+        .from("producao_acabamento").select("id").eq("cad_id", cad.id);
+      if (oldErr) throw oldErr;
+      const oldIds = (oldRows ?? []).map((r: any) => r.id);
+
+      if (blocos.length > 0) {
+        const payload = blocos.map((b) => ({
+          cad_id: cad.id, ativo: true, tipo: b.tipo,
+          terceirizado_id: b.terceirizado_id,
+          preco_por_peca: b.preco_por_peca,
+          quantidade_enviada: b.quantidade_enviada,
+          quantidade_recebida: b.quantidade_recebida,
+          quantidade_defeito: b.quantidade_defeito,
+          data_enviado: b.data_enviado,
+          data_prevista: b.data_prevista,
+          data_entregue: b.data_entregue,
+          observacao: b.observacao,
+          aviamentos_utilizados: b.aviamentos_utilizados,
+        }));
+        const { error } = await supabase.from("producao_acabamento").insert(payload);
+        if (error) throw error;
+      }
+      if (oldIds.length > 0) {
+        const { error: delErr } = await supabase.from("producao_acabamento").delete().in("id", oldIds);
+        if (delErr) throw delErr;
+      }
     },
     onSuccess: async () => {
       toast.success("Salvo");
-      setHydrated(false);
       await qc.invalidateQueries({ queryKey: ["producao-acabamento", cad?.id] });
       await refetch();
+      setHydrated(false);
     },
     onError: (e: any) => toast.error(e?.message ?? "Erro"),
   });

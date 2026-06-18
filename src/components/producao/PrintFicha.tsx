@@ -33,6 +33,7 @@ export function PrintFicha({
     if (!ready || startedRef.current) return;
     startedRef.current = true;
     let cancelled = false;
+    let doneTimer: ReturnType<typeof setTimeout> | undefined;
 
     const run = async () => {
       // Espera as imagens (signed URLs) carregarem, no máx. ~4s, p/ a foto não
@@ -45,11 +46,15 @@ export function PrintFicha({
         await new Promise((r) => setTimeout(r, 120));
       }
       if (cancelled) return;
-      window.print();          // bloqueante; retorna após fechar/cancelar o diálogo
-      if (!cancelled) onDoneRef.current();
+      window.print();
+      // Desmonta SÓ depois de um tempo: em navegadores onde print() é bloqueante
+      // já voltou; nos não-bloqueantes (o conteúdo é capturado na chamada) damos
+      // folga p/ não sumir antes. O clearTimeout no cleanup evita corrida quando
+      // o usuário reimprime (nova key) antes desse tempo.
+      doneTimer = setTimeout(() => { if (!cancelled) onDoneRef.current(); }, 1500);
     };
     run();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; if (doneTimer) clearTimeout(doneTimer); };
   }, [ready]);
 
   return (
