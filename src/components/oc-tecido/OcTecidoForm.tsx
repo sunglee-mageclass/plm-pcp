@@ -86,7 +86,6 @@ export function OcTecidoForm({
             const qtd = parts.length > 0 ? Math.max(1, Math.min(6, parts.length)) : 1;
             setDraft((d) => ({ ...d, prazo_pagamento: v, quantidade_prazos: qtd }));
           }} placeholder="Ex: 30/60/90" />
-          <p className="text-[11px] text-muted-foreground">Gera as parcelas a pagar no Financeiro (ex.: 30/60/90 = 3 parcelas).</p>
         </div>
 
         <div className="grid gap-1">
@@ -116,13 +115,11 @@ export function OcTecidoForm({
               });
             }}
           />
-          <p className="text-[11px] text-muted-foreground">Cronograma de entregas da mercadoria — não afeta o pagamento.</p>
         </div>
 
         <div className="grid gap-1">
           <Label>Qtd de Parcelas (Pagamento)</Label>
           <NumberInput type="number" value={draft.quantidade_prazos} readOnly disabled />
-          <p className="text-[11px] text-muted-foreground">Derivada do prazo de pagamento.</p>
         </div>
       </div>
 

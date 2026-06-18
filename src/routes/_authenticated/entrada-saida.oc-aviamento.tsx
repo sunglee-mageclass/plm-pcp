@@ -699,7 +699,6 @@ function OcDialog({
                 }}
                 placeholder="Ex: 30/60/90"
               />
-              <p className="text-[11px] text-muted-foreground">Gera as parcelas a pagar no Financeiro (ex.: 30/60/90 = 3 parcelas).</p>
             </div>
 
             <div className="grid gap-1">
@@ -731,7 +730,6 @@ function OcDialog({
                 }}
                 disabled={isReadOnlyRecebimento}
               />
-              <p className="text-[11px] text-muted-foreground">Cronograma de entregas da mercadoria — não afeta o pagamento.</p>
             </div>
           </div>
 

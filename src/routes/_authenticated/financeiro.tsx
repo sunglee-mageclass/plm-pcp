@@ -137,6 +137,7 @@ function FinanceiroPage() {
 function CalendarioView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolean }) {
   const [detalheId, setDetalheId] = useState<string | null>(null);
   const [pagandoId, setPagandoId] = useState<string | null>(null);
+  const [ocView, setOcView] = useState<{ tipo: string; id: string } | null>(null);
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
   const autoJumped = useRef(false);
 
@@ -249,22 +250,40 @@ function CalendarioView({ parcelas, loading }: { parcelas: Parcela[]; loading: b
         parcela={detalheId ? parcelas.find((p) => p.id === detalheId) ?? null : null}
         onClose={() => setDetalheId(null)}
         onMarkPaid={(id) => { setDetalheId(null); setPagandoId(id); }}
+        onOpenOc={(tipo, id) => { setDetalheId(null); setOcView({ tipo, id }); }}
       />
       <PagarDialog parcelaId={pagandoId} onClose={() => setPagandoId(null)} />
+      <OcViewDialog view={ocView} onClose={() => setOcView(null)} />
     </Card>
   );
 }
 
 function ParcelaDetailDialog({
-  parcela, onClose, onMarkPaid,
+  parcela, onClose, onMarkPaid, onOpenOc,
 }: {
   parcela: Parcela | null;
   onClose: () => void;
   onMarkPaid: (id: string) => void;
+  onOpenOc: (tipo: string, ocId: string) => void;
 }) {
   const qc = useQueryClient();
   const { isAdmin, isSuperAdmin, isTenantAdmin } = useAuth();
   const canRecalc = isAdmin || isSuperAdmin || isTenantAdmin;
+
+  const desmarcarPagoMut = useMutation({
+    mutationFn: async () => {
+      if (!parcela) return;
+      const { error } = await supabase.from("parcelas")
+        .update({ status: "a_pagar", data_pagamento: null }).eq("id", parcela.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Pagamento desmarcado");
+      qc.invalidateQueries({ queryKey: ["parcelas"] });
+      onClose();
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao desmarcar"),
+  });
 
   const [vencimento, setVencimento] = useState(parcela?.data_vencimento ?? "");
   useEffect(() => {
@@ -359,6 +378,14 @@ function ParcelaDetailDialog({
         </div>
         <DialogFooter className="gap-2">
           <Button variant="ghost" onClick={onClose}>Fechar</Button>
+          {(parcela.oc_tecido_id || parcela.oc_aviamento_id) && (
+            <Button
+              variant="outline"
+              onClick={() => onOpenOc(parcela.tipo_oc, (parcela.oc_tecido_id ?? parcela.oc_aviamento_id)!)}
+            >
+              Abrir OC
+            </Button>
+          )}
           {canRecalc && (
             <Button
               variant="outline"
@@ -372,7 +399,11 @@ function ParcelaDetailDialog({
               Recalcular Parcelas
             </Button>
           )}
-          {st !== "pago" && (
+          {st === "pago" ? (
+            <Button variant="outline" onClick={() => desmarcarPagoMut.mutate()} disabled={desmarcarPagoMut.isPending}>
+              Desmarcar pago
+            </Button>
+          ) : (
             <Button onClick={() => onMarkPaid(parcela.id)}>Marcar pago</Button>
           )}
         </DialogFooter>
@@ -397,11 +428,26 @@ function Legend2({ color, label }: { color: string; label: string }) {
 /* ============================== LISTA ============================== */
 
 function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolean }) {
+  const qc = useQueryClient();
   const [fornecedor, setFornecedor] = useState("all");
   const [status, setStatus] = useState("all");
   const [dataIni, setDataIni] = useState("");
   const [dataFim, setDataFim] = useState("");
   const [pagandoId, setPagandoId] = useState<string | null>(null);
+  const [ocView, setOcView] = useState<{ tipo: string; id: string } | null>(null);
+
+  const desmarcarMut = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("parcelas")
+        .update({ status: "a_pagar", data_pagamento: null }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Pagamento desmarcado");
+      qc.invalidateQueries({ queryKey: ["parcelas"] });
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao desmarcar"),
+  });
 
   const fornecedores = useMemo(() => {
     const m = new Map<string, string>();
@@ -477,7 +523,17 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
                 return (
                   <tr key={p.id} className="border-b last:border-0">
                     <td className="py-2 pr-3">{p.empresas?.nome ?? "—"}</td>
-                    <td className="py-2 pr-3">{ocNumero(p)}</td>
+                    <td className="py-2 pr-3">
+                      {(p.oc_tecido_id || p.oc_aviamento_id) ? (
+                        <button
+                          type="button"
+                          className="text-primary hover:underline"
+                          onClick={() => setOcView({ tipo: p.tipo_oc, id: (p.oc_tecido_id ?? p.oc_aviamento_id)! })}
+                        >
+                          {ocNumero(p)}
+                        </button>
+                      ) : ocNumero(p)}
+                    </td>
                     <td className="py-2 pr-3">{p.numero_parcela}</td>
                     <td className="py-2 pr-3 text-right">{brl(Number(p.valor))}</td>
                     <td className="py-2 pr-3">{format(parseISO(p.data_vencimento), "dd/MM/yyyy")}</td>
@@ -488,8 +544,10 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
                     </td>
                     <td className="py-2 pr-3">{p.data_pagamento ? format(parseISO(p.data_pagamento), "dd/MM/yyyy") : "—"}</td>
                     <td className="py-2 pr-3">
-                      {st !== "pago" && (
+                      {st !== "pago" ? (
                         <Button size="sm" variant="outline" onClick={() => setPagandoId(p.id)}>Marcar pago</Button>
+                      ) : (
+                        <Button size="sm" variant="outline" onClick={() => desmarcarMut.mutate(p.id)} disabled={desmarcarMut.isPending}>Desmarcar</Button>
                       )}
                       {p.comprovante_url && (
                         <ComprovanteLink value={p.comprovante_url} label="comprovante" className="text-xs text-primary ml-2" />
@@ -507,7 +565,96 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
       </Card>
 
       <PagarDialog parcelaId={pagandoId} onClose={() => setPagandoId(null)} />
+      <OcViewDialog view={ocView} onClose={() => setOcView(null)} />
     </div>
+  );
+}
+
+/* ===== Janela read-only da OC (acessível pelas parcelas) ===== */
+
+function OcViewDialog({ view, onClose }: { view: { tipo: string; id: string } | null; onClose: () => void }) {
+  const { data: oc, isLoading } = useQuery({
+    queryKey: ["oc-view", view?.tipo, view?.id],
+    enabled: !!view?.id,
+    queryFn: async () => {
+      if (view!.tipo === "tecido") {
+        const { data } = await supabase
+          .from("ocs_tecido")
+          .select("*, empresas:empresa_id(nome_fantasia), ocs_tecido_itens(quantidade_pedida, quantidade_recebida, artigos:artigo_id(nome), variantes_tecido:variante_tecido_id(nome_variante, cor:cor_id(nome)))")
+          .eq("id", view!.id)
+          .maybeSingle();
+        return data as any;
+      }
+      const { data } = await supabase
+        .from("ocs_aviamento")
+        .select("*, empresas:empresa_id(nome_fantasia), ocs_aviamento_itens(quantidade_pedida, quantidade_recebida, aviamentos:aviamento_id(codigo_nome))")
+        .eq("id", view!.id)
+        .maybeSingle();
+      return data as any;
+    },
+  });
+
+  const itens: any[] = view?.tipo === "tecido" ? (oc?.ocs_tecido_itens ?? []) : (oc?.ocs_aviamento_itens ?? []);
+  const fmtD = (d: string | null) => (d ? format(parseISO(d), "dd/MM/yyyy") : "—");
+
+  return (
+    <Dialog open={!!view} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>
+            OC {view?.tipo === "tecido" ? "de Tecido" : "de Aviamento"} {oc?.numero_pedido ? `· Nº ${oc.numero_pedido}` : ""}
+          </DialogTitle>
+        </DialogHeader>
+        {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+        {!isLoading && oc && (
+          <div className="space-y-3 text-sm">
+            <div className="grid grid-cols-2 gap-2">
+              <div><span className="text-muted-foreground">Fornecedor:</span> <b>{oc.empresas?.nome_fantasia ?? "—"}</b></div>
+              <div><span className="text-muted-foreground">Status:</span> {oc.status ?? "—"}</div>
+              <div><span className="text-muted-foreground">Data do Pedido:</span> {fmtD(oc.data_pedido)}</div>
+              <div><span className="text-muted-foreground">Prevista:</span> {fmtD(oc.data_prevista_entrega)}</div>
+              <div><span className="text-muted-foreground">Entrega:</span> {fmtD(oc.data_entrega)}</div>
+              <div><span className="text-muted-foreground">Prazo de Pagamento:</span> {oc.prazo_pagamento ?? "—"}</div>
+            </div>
+            <div className="border-t pt-2">
+              <p className="font-medium mb-1">Itens</p>
+              <div className="max-h-60 overflow-y-auto">
+                <table className="w-full text-xs">
+                  <thead className="text-left text-muted-foreground">
+                    <tr className="border-b">
+                      <th className="py-1 pr-2">Item</th>
+                      <th className="py-1 pr-2 text-right">Pedida</th>
+                      <th className="py-1 pr-2 text-right">Recebida</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {itens.length === 0 && (
+                      <tr><td colSpan={3} className="py-2 text-muted-foreground">Sem itens.</td></tr>
+                    )}
+                    {itens.map((it, i) => {
+                      const nome = view?.tipo === "tecido"
+                        ? `${it.artigos?.nome ?? "—"}${it.variantes_tecido?.cor?.nome ? ` · ${it.variantes_tecido.cor.nome}` : it.variantes_tecido?.nome_variante ? ` · ${it.variantes_tecido.nome_variante}` : ""}`
+                        : (it.aviamentos?.codigo_nome ?? "—");
+                      return (
+                        <tr key={i} className="border-b last:border-0">
+                          <td className="py-1 pr-2">{nome}</td>
+                          <td className="py-1 pr-2 text-right">{Number(it.quantidade_pedida ?? 0)}</td>
+                          <td className="py-1 pr-2 text-right">{Number(it.quantidade_recebida ?? 0)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+        {!isLoading && !oc && <p className="text-sm text-muted-foreground">OC não encontrada.</p>}
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>Fechar</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

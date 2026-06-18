@@ -159,7 +159,7 @@ function CqDetailPage() {
     return m;
   }, [variantList]);
 
-  const { data: cqRow, refetch: refetchCq } = useQuery({
+  const { data: cqRow, refetch: refetchCq, isFetched: cqFetched, isFetching: cqFetching } = useQuery({
     queryKey: ["cq", cad?.id],
     enabled: !!cad?.id,
     queryFn: async () => {
@@ -168,7 +168,7 @@ function CqDetailPage() {
     },
   });
 
-  const { data: varRows = [], refetch: refetchVars } = useQuery({
+  const { data: varRows = [], refetch: refetchVars, isFetched: varsFetched, isFetching: varsFetching } = useQuery({
     queryKey: ["cq_variantes", cqRow?.id],
     enabled: !!cqRow?.id,
     queryFn: async () => {
@@ -195,8 +195,14 @@ function CqDetailPage() {
   const confirmado = status === "confirmado";
   const readOnly = permReadOnly || confirmado; // confirmado trava a edição até desmarcar
 
+  // Só hidrata quando as queries ASSENTARAM (fetched && !fetching) — senão, ao
+  // salvar, rehidratava do cache vazio/antigo e os números digitados sumiam.
+  const cqSettled = cqFetched && !cqFetching;
+  const varsSettled = !cqRow?.id || (varsFetched && !varsFetching);
+
   useEffect(() => {
     if (hydrated || !cad?.id) return;
+    if (!cqSettled || !varsSettled) return;
     if (cqRow !== undefined) {
       if (cqRow) {
         setForm({
@@ -227,7 +233,7 @@ function CqDetailPage() {
       setGrades(g);
       setHydrated(true);
     }
-  }, [cqRow, varRows, cad?.id, hydrated]);
+  }, [cqRow, varRows, cad?.id, hydrated, cqSettled, varsSettled]);
 
   const ensureRow = (etapa: Etapa, num: number): VarRow => {
     return grades[etapa][num] ?? { variante_numero: num, grades: {}, grade_total: 0 };
@@ -335,10 +341,12 @@ function CqDetailPage() {
     },
     onSuccess: async () => {
       toast.success("Salvo");
-      setHydrated(false);
+      // Busca os dados frescos ANTES de liberar a hidratação (senão re-hidrata do
+      // cache antigo/vazio e zera os números).
       await qc.invalidateQueries({ queryKey: ["cq", cad?.id] });
       await refetchCq();
       await refetchVars();
+      setHydrated(false);
     },
     onError: (e: any) => toast.error(e?.message ?? "Erro"),
   });
@@ -391,12 +399,12 @@ function CqDetailPage() {
     onSuccess: async () => {
       toast.success("Controle de Qualidade confirmado — enviado ao Direcionamento");
       setStatus("confirmado");
-      setHydrated(false);
       await qc.invalidateQueries({ queryKey: ["cq", cad?.id] });
       await qc.invalidateQueries({ queryKey: ["producao-cq-list"] });
       await qc.invalidateQueries({ queryKey: ["dir-list"] });
       await refetchCq();
       await refetchVars();
+      setHydrated(false);
     },
     onError: (e: any) => toast.error(e?.message ?? "Erro ao confirmar"),
   });
@@ -517,6 +525,7 @@ function CqDetailPage() {
         labelByNumero={labelByNumero}
         grades={grades}
         setQtd={setQtd}
+        overFn={(num, t, val) => val > (cadGradeByNum[num]?.grades?.[t] ?? 0)}
       />
 
       {/* Seção 2 - Conserto */}
@@ -669,8 +678,9 @@ function EtapaSection(props: {
   labelByNumero: Record<number, string>;
   grades: GradesByEtapa;
   setQtd: (etapa: Etapa, num: number, tam: string, qtd: number) => void;
+  overFn?: (num: number, tam: string, val: number) => boolean;
 }) {
-  const { title, etapa, datas, readOnlyDatas, form, setForm, tamanhos, variantList, labelByNumero, grades, setQtd } = props;
+  const { title, etapa, datas, readOnlyDatas, form, setForm, tamanhos, variantList, labelByNumero, grades, setQtd, overFn } = props;
   return (
     <Card className="p-5 space-y-4">
       <h3 className="font-semibold text-lg">{title}</h3>
@@ -690,9 +700,6 @@ function EtapaSection(props: {
           </div>
         ))}
       </div>
-      {readOnlyDatas && (
-        <p className="text-xs text-muted-foreground -mt-2">As datas de oficina vêm de Serviços.</p>
-      )}
       <GradeMatrix
         etapa={etapa}
         tamanhos={tamanhos}
@@ -700,6 +707,7 @@ function EtapaSection(props: {
         labelByNumero={labelByNumero}
         grades={grades}
         setQtd={setQtd}
+        overFn={overFn}
       />
     </Card>
   );
@@ -714,8 +722,10 @@ function GradeMatrix(props: {
   setQtd: (etapa: Etapa, num: number, tam: string, qtd: number) => void;
   extraCols?: string[];
   renderExtra?: (variante_numero: number) => React.ReactNode;
+  /** Marca a célula em vermelho quando o valor for "demais" (ex.: recebimento > grade do CAD). */
+  overFn?: (num: number, tam: string, val: number) => boolean;
 }) {
-  const { etapa, tamanhos, variantList, labelByNumero, grades, setQtd, extraCols = [], renderExtra } = props;
+  const { etapa, tamanhos, variantList, labelByNumero, grades, setQtd, extraCols = [], renderExtra, overFn } = props;
 
   return (
     <div className="overflow-x-auto">
@@ -741,16 +751,19 @@ function GradeMatrix(props: {
             return (
               <tr key={num}>
                 <td className="border px-2 py-1">{labelByNumero[num] ?? `Variante ${num}`}</td>
-                {tamanhos.map((t) => (
-                  <td key={t} className="border p-0">
-                    <NumberInput
-                      type="number"
-                      className="h-8 border-0 text-center"
-                      value={row?.grades?.[t] ?? ""}
-                      onChange={(e) => setQtd(etapa, num, t, Number(e.target.value) || 0)}
-                    />
-                  </td>
-                ))}
+                {tamanhos.map((t) => {
+                  const over = overFn?.(num, t, Number(row?.grades?.[t] ?? 0)) ?? false;
+                  return (
+                    <td key={t} className={`border p-0 ${over ? "bg-destructive/15" : ""}`}>
+                      <NumberInput
+                        type="number"
+                        className={`h-8 border-0 text-center ${over ? "text-destructive font-semibold" : ""}`}
+                        value={row?.grades?.[t] ?? ""}
+                        onChange={(e) => setQtd(etapa, num, t, Number(e.target.value) || 0)}
+                      />
+                    </td>
+                  );
+                })}
                 <td className="border px-2 py-1 text-center font-semibold">{row?.grade_total ?? 0}</td>
                 {extraCols.length > 0 && (
                   <td className="border px-2 py-1">
