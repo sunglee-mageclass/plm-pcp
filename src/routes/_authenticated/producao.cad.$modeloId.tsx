@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ImageIcon, Scissors, AlertTriangle } from "lucide-react";
+import { DownstreamImpactAlert } from "@/components/desenvolvimento/DownstreamImpactAlert";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -741,6 +742,8 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
           editing={editing}
           onEditar={() => setEditing(true)}
         />
+
+        <DownstreamImpactAlert modeloId={modeloId} from="cad" />
 
         {gradeAlterada && (
           <Card className="p-3 border-amber-500/60 bg-amber-500/10 text-sm flex items-start gap-2">

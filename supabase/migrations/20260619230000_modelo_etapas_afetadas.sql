@@ -26,6 +26,7 @@ BEGIN
   RETURN jsonb_build_object(
     'cad', true,
     'corte', v_enviado OR EXISTS (SELECT 1 FROM public.estoque_tecido_baixas WHERE cad_id = v_cad),
+    'baixa_total', COALESCE((SELECT SUM(quantidade) FROM public.estoque_tecido_baixas WHERE cad_id = v_cad), 0),
     'terceirizados', EXISTS (SELECT 1 FROM public.producao_terceirizados WHERE cad_id = v_cad),
     'oficina', EXISTS (SELECT 1 FROM public.producao_oficina WHERE cad_id = v_cad),
     'cq', EXISTS (SELECT 1 FROM public.controle_qualidade WHERE cad_id = v_cad),
