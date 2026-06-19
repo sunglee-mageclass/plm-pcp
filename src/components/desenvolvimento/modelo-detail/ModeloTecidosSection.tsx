@@ -339,6 +339,8 @@ function TecidoBlockEditor({
 type OcDisp = {
   oc_tecido_item_id: string;
   numero_pedido: string;
+  is_rolo?: boolean;
+  rolo_codigo?: string | null;
   data_entrega: string | null;
   recebida: boolean;
   disponivel_m: number;
@@ -437,7 +439,7 @@ function OcLinksField({
           return (
             <label key={o.oc_tecido_item_id} className="flex items-center gap-1.5 text-[11px] cursor-pointer">
               <input type="checkbox" className="h-3 w-3 shrink-0" checked={checked} onChange={() => toggle(o.oc_tecido_item_id)} />
-              <span className="font-mono">OC {o.numero_pedido}</span>
+              <span className="font-mono">{o.is_rolo ? `Rolo ${o.rolo_codigo ?? o.numero_pedido}` : `OC ${o.numero_pedido}`}</span>
               {!o.recebida && (
                 <Badge variant="outline" className="h-4 px-1 text-[9px] border-amber-500 text-amber-600">prevista · {entrega}</Badge>
               )}

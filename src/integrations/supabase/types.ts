@@ -1967,6 +1967,8 @@ export type Database = {
           is_rolo: boolean
           rolo_codigo: string | null
           rolo_origem_item_id: string | null
+          rolo_rua: string | null
+          rolo_prateleira: string | null
           data_entrega: string | null
           data_pedido: string | null
           data_prevista_entrega: string | null
@@ -1996,6 +1998,8 @@ export type Database = {
           is_rolo?: boolean
           rolo_codigo?: string | null
           rolo_origem_item_id?: string | null
+          rolo_rua?: string | null
+          rolo_prateleira?: string | null
           data_entrega?: string | null
           data_pedido?: string | null
           data_prevista_entrega?: string | null
@@ -2025,6 +2029,8 @@ export type Database = {
           is_rolo?: boolean
           rolo_codigo?: string | null
           rolo_origem_item_id?: string | null
+          rolo_rua?: string | null
+          rolo_prateleira?: string | null
           data_entrega?: string | null
           data_pedido?: string | null
           data_prevista_entrega?: string | null

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Trash2 } from "lucide-react";
+import { Trash2, Pencil } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { fmtNum } from "@/lib/format";
@@ -38,6 +38,8 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
   const qc = useQueryClient();
   const [modo, setModo] = useState<"avulso" | "oc">("avulso");
   const [codigo, setCodigo] = useState("");
+  const [rua, setRua] = useState("");
+  const [prateleira, setPrateleira] = useState("");
   // avulso
   const [artigoId, setArtigoId] = useState("");
   const [varMet, setVarMet] = useState<Record<string, string>>({});
@@ -117,6 +119,7 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
         if (payload.length === 0) throw new Error("Informe a metragem de ao menos uma variante.");
         const { error } = await supabase.rpc("criar_rolo" as any, {
           _codigo: codigo, _artigo_id: artigoId, _variantes: payload, _origem_item_id: null,
+          _rua: rua, _prateleira: prateleira,
         });
         if (error) throw error;
       } else {
@@ -127,7 +130,7 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
         const { error } = await supabase.rpc("criar_rolo" as any, {
           _codigo: codigo, _artigo_id: item.artigo_id,
           _variantes: [{ variante_tecido_id: item.variante_tecido_id, metragem: m }],
-          _origem_item_id: ocItemId,
+          _origem_item_id: ocItemId, _rua: rua, _prateleira: prateleira,
         });
         if (error) throw error;
       }
@@ -160,6 +163,17 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
           <div className="space-y-1.5">
             <Label>Código</Label>
             <Input value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="Ex.: ROLO-001" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Rua</Label>
+              <Input value={rua} onChange={(e) => setRua(e.target.value)} placeholder="Endereço (rua)" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Prateleira</Label>
+              <Input value={prateleira} onChange={(e) => setPrateleira(e.target.value)} placeholder="Endereço (prateleira)" />
+            </div>
           </div>
 
           {modo === "avulso" ? (
@@ -261,6 +275,8 @@ type RoloRow = {
   id: string;
   rolo_codigo: string | null;
   rolo_origem_item_id: string | null;
+  rolo_rua: string | null;
+  rolo_prateleira: string | null;
   ocs_tecido_itens: {
     id: string;
     quantidade_recebida: number | null;
@@ -272,6 +288,7 @@ type RoloRow = {
 export function RolosList() {
   const qc = useQueryClient();
   const [deleting, setDeleting] = useState<RoloRow | null>(null);
+  const [editing, setEditing] = useState<RoloRow | null>(null);
 
   const { data: rolos = [] } = useQuery({
     queryKey: ["rolos"],
@@ -279,7 +296,7 @@ export function RolosList() {
       const { data, error } = await supabase
         .from("ocs_tecido")
         .select(
-          "id, rolo_codigo, rolo_origem_item_id, ocs_tecido_itens(id, quantidade_recebida, artigos(nome, unidade_medida, rendimento), variantes_tecido(nome_variante, codigo_variante))",
+          "id, rolo_codigo, rolo_origem_item_id, rolo_rua, rolo_prateleira, ocs_tecido_itens(id, quantidade_recebida, artigos(nome, unidade_medida, rendimento), variantes_tecido(nome_variante, codigo_variante))",
         )
         .eq("is_rolo", true)
         .order("created_at", { ascending: false });
@@ -319,8 +336,9 @@ export function RolosList() {
                 <TableHead>Tecido</TableHead>
                 <TableHead>Variantes</TableHead>
                 <TableHead className="text-right">Metragem (m)</TableHead>
+                <TableHead>Endereço</TableHead>
                 <TableHead>Origem</TableHead>
-                <TableHead className="w-10" />
+                <TableHead className="w-20" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -342,13 +360,22 @@ export function RolosList() {
                     <TableCell className="text-muted-foreground">{vars || "—"}</TableCell>
                     <TableCell className="text-right">{fmtNum(total)}</TableCell>
                     <TableCell className="text-muted-foreground">
+                      {[r.rolo_rua, r.rolo_prateleira].filter(Boolean).join(" · ") || "—"}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
                       {r.rolo_origem_item_id ? "Separado de OC" : "Avulso"}
                     </TableCell>
                     <TableCell>
-                      <Button variant="ghost" size="icon" className="h-8 w-8"
-                        onClick={() => setDeleting(r)}>
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
+                      <div className="flex">
+                        <Button variant="ghost" size="icon" className="h-8 w-8"
+                          onClick={() => setEditing(r)}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8"
+                          onClick={() => setDeleting(r)}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 );
@@ -356,6 +383,10 @@ export function RolosList() {
             </TableBody>
           </Table>
         </div>
+      )}
+
+      {editing && (
+        <RoloEditDialog rolo={editing} onClose={() => setEditing(null)} />
       )}
 
       <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
@@ -376,5 +407,66 @@ export function RolosList() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+// ───────────────────── Editar rolo (código + endereço) ─────────────────────
+function RoloEditDialog({ rolo, onClose }: { rolo: RoloRow; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [codigo, setCodigo] = useState(rolo.rolo_codigo ?? "");
+  const [rua, setRua] = useState(rolo.rolo_rua ?? "");
+  const [prateleira, setPrateleira] = useState(rolo.rolo_prateleira ?? "");
+
+  const salvar = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase
+        .from("ocs_tecido")
+        .update({
+          rolo_codigo: codigo || null,
+          numero_pedido: codigo || "ROLO",
+          rolo_rua: rua || null,
+          rolo_prateleira: prateleira || null,
+        })
+        .eq("id", rolo.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Rolo atualizado");
+      qc.invalidateQueries({ queryKey: ["rolos"] });
+      qc.invalidateQueries({ queryKey: ["consumo-por-oc"] });
+      onClose();
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao atualizar rolo"),
+  });
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader><DialogTitle>Editar rolo</DialogTitle></DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Código</Label>
+            <Input value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="Ex.: ROLO-001" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Rua</Label>
+              <Input value={rua} onChange={(e) => setRua(e.target.value)} placeholder="Endereço (rua)" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Prateleira</Label>
+              <Input value={prateleira} onChange={(e) => setPrateleira(e.target.value)} placeholder="Endereço (prateleira)" />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Para mudar tecido/variantes/metragem, exclua e recrie o rolo.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={() => salvar.mutate()} disabled={salvar.isPending}>Salvar</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

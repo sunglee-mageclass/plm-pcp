@@ -43,6 +43,8 @@ type Item = {
 type OC = {
   oc_id: string; numero_pedido: string | null; status: string | null;
   data_entrega: string | null; fornecedor: string | null; itens: Item[];
+  is_rolo?: boolean; rolo_codigo?: string | null;
+  rolo_rua?: string | null; rolo_prateleira?: string | null;
 };
 type ModeloInfo = {
   id: string; fotos_modelo: string[] | null; proporcoes: Record<string, any> | null;
@@ -113,6 +115,7 @@ function agruparPorTecido(oc: OC, keep: (id: string) => boolean, anyFilter: bool
 function ConsumoOcPage() {
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
+  const [roloView, setRoloView] = useState(false); // false = OCs, true = Rolos
   const [devId, setDevId] = useState<string | null>(null);
   const [cadId, setCadId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -241,6 +244,8 @@ function ConsumoOcPage() {
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
     return ocs.filter((oc) => {
+      // Separa OCs de Rolos por aba.
+      if (!!oc.is_rolo !== roloView) return false;
       // OC sem itens (ex.: só tinha entretela, agora oculta) não aparece.
       if (!oc.itens || oc.itens.length === 0) return false;
       // Esconde a OC se nenhum item bate com a categoria de tecido selecionada.
@@ -253,7 +258,7 @@ function ConsumoOcPage() {
       if (anyFilter && !oc.itens.some((it) => it.modelos.some((m) => keepModel(m.modelo_id)))) return false;
       return true;
     });
-  }, [ocs, search, anyFilter, fColecao, fMes, fAno, modeloInfo, cats, artigoBucket]);
+  }, [ocs, search, anyFilter, fColecao, fMes, fAno, modeloInfo, cats, artigoBucket, roloView]);
 
   const toggle = (id: string) => setExpanded((prev) => {
     const n = new Set(prev);
@@ -304,6 +309,10 @@ function ConsumoOcPage() {
       </header>
 
       <div className="flex items-center gap-2">
+        <div className="flex rounded-md border p-0.5">
+          <Button size="sm" variant={!roloView ? "secondary" : "ghost"} onClick={() => setRoloView(false)}>OCs</Button>
+          <Button size="sm" variant={roloView ? "secondary" : "ghost"} onClick={() => setRoloView(true)}>Rolos</Button>
+        </div>
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input placeholder="Buscar OC, fornecedor, tecido…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
@@ -334,7 +343,7 @@ function ConsumoOcPage() {
       {isLoading ? (
         <div className="text-center py-12 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin inline mr-2" /> Carregando…</div>
       ) : filtered.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">Nenhuma OC encontrada.</div>
+        <div className="text-center py-12 text-muted-foreground">{roloView ? "Nenhum rolo encontrado." : "Nenhuma OC encontrada."}</div>
       ) : (
         <div className="space-y-4">
           {filtered.map((oc) => {
@@ -345,7 +354,14 @@ function ConsumoOcPage() {
                   <div className="flex items-center justify-between gap-3 flex-wrap">
                     <CardTitle className="text-base flex items-center gap-2">
                       <ChevronRight className={`h-4 w-4 transition-transform ${isOpen ? "rotate-90" : ""}`} />
-                      OC {oc.numero_pedido ?? "—"}
+                      {oc.is_rolo
+                        ? `Rolo ${oc.rolo_codigo ?? oc.numero_pedido ?? "—"}`
+                        : `OC ${oc.numero_pedido ?? "—"}`}
+                      {oc.is_rolo && (oc.rolo_rua || oc.rolo_prateleira) && (
+                        <span className="text-xs font-normal text-muted-foreground">
+                          📍 {[oc.rolo_rua, oc.rolo_prateleira].filter(Boolean).join(" · ")}
+                        </span>
+                      )}
                       <span className="text-sm font-normal text-muted-foreground">{oc.fornecedor ?? ""}</span>
                     </CardTitle>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
