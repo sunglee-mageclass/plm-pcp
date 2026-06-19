@@ -56,6 +56,10 @@ const STATUS_LABELS: Record<string, string> = {
 
 function TercDetailPage() {
   const { modeloId } = Route.useParams();
+  return <TerceirizadosDetail modeloId={modeloId} />;
+}
+
+export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; onClose?: () => void }) {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
 
@@ -428,9 +432,15 @@ function TercDetailPage() {
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <Link to="/producao/terceirizados" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
-          <ArrowLeft className="h-4 w-4" /> Voltar
-        </Link>
+        {onClose ? (
+          <button onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+            <ArrowLeft className="h-4 w-4" /> Voltar
+          </button>
+        ) : (
+          <Link to="/producao/terceirizados" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+            <ArrowLeft className="h-4 w-4" /> Voltar
+          </Link>
+        )}
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={() => window.print()} disabled={!cad?.id}>
             <FileText className="h-4 w-4 mr-2" /> Ficha Técnica

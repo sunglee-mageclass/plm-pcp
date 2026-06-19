@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { ClipboardCheck, Search } from "lucide-react";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { CqDetail } from "@/routes/_authenticated/producao.cq.$modeloId";
 import { supabase } from "@/integrations/supabase/client";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { Card } from "@/components/ui/card";
@@ -15,8 +17,8 @@ export const Route = createFileRoute("/_authenticated/producao/cq/")({
 });
 
 function CqListPage() {
-  const navigate = useNavigate();
   const fl = useFieldLabels();
+  const [sheetId, setSheetId] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [fColecao, setFColecao] = useState("all");
   const [fMes, setFMes] = useState("all");
@@ -121,7 +123,7 @@ function CqListPage() {
               <tr
                 key={r.modelo_id}
                 className="border-t hover:bg-muted/30 cursor-pointer"
-                onClick={() => navigate({ to: "/producao/cq/$modeloId", params: { modeloId: r.modelo_id } })}
+                onClick={() => setSheetId(r.modelo_id)}
               >
                 <td className="px-4 py-2">
                   <span className="font-mono text-primary">{r.ref ?? "—"}</span>
@@ -136,6 +138,12 @@ function CqListPage() {
           </tbody>
         </table>
       </Card>
+
+      <Sheet open={!!sheetId} onOpenChange={(o) => !o && setSheetId(null)}>
+        <SheetContent className="w-full sm:w-[92vw] sm:max-w-[1100px] overflow-y-auto p-0">
+          {sheetId && <CqDetail modeloId={sheetId} onClose={() => setSheetId(null)} />}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

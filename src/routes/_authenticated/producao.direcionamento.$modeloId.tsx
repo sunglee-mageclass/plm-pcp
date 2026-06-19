@@ -22,6 +22,10 @@ type VarState = {
 
 function DirDetailPage() {
   const { modeloId } = Route.useParams();
+  return <DirecionamentoDetail modeloId={modeloId} />;
+}
+
+export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; onClose?: () => void }) {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
   // Status do Direcionamento: 'pendente' (default) -> 'separado' ao Confirmar.
@@ -205,9 +209,15 @@ function DirDetailPage() {
   return (
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between gap-2">
-        <Link to="/producao/direcionamento" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
-          <ArrowLeft className="h-4 w-4" /> Voltar
-        </Link>
+        {onClose ? (
+          <button onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+            <ArrowLeft className="h-4 w-4" /> Voltar
+          </button>
+        ) : (
+          <Link to="/producao/direcionamento" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+            <ArrowLeft className="h-4 w-4" /> Voltar
+          </Link>
+        )}
         <div className="flex items-center gap-2">
           {!confirmado ? (
             <>
