@@ -103,7 +103,10 @@ function agruparPorTecido(oc: OC, keep: (id: string) => boolean, anyFilter: bool
     const modelos = Array.from(modelMap.values());
     for (const a of modelos) {
       const metragens = a.variantes.reduce((s, v) => s + v.metragem_m, 0);
-      a.consumoTotal = metragens + a.consumo_unit * a.mult; // + 1 peça piloto, uma vez por modelo
+      const baixado = a.variantes.reduce((s, v) => s + v.baixado_m, 0);
+      // Regra baixa × reserva: modelo CORTADO consome a baixa REAL; ainda não
+      // cortado consome o planejado (BOM) + 1 peça piloto.
+      a.consumoTotal = a.cortado ? baixado : metragens + a.consumo_unit * a.mult;
     }
     if (anyFilter && modelos.length === 0) continue; // com filtro ativo, esconde tecido sem modelos
     const consumido = modelos.reduce((s, a) => s + a.consumoTotal, 0);
@@ -446,7 +449,8 @@ function ResumoVariantes({ oc, keep, onToggleZerar }: { oc: OC; keep: (id: strin
       {oc.itens.map((it) => {
         const modelos = it.modelos.filter((m) => keep(m.modelo_id));
         const recebido = recebidoItem(oc, it);
-        const consumido = modelos.reduce((s, m) => s + num(m.metragem_m), 0);
+        // Regra baixa × reserva: cortado usa a baixa REAL; senão o planejado.
+        const consumido = modelos.reduce((s, m) => s + (m.cortado ? num(m.baixado_m) : num(m.metragem_m)), 0);
         const zerado = !!it.estoque_zerado;
         const podeZerar = it.pode_zerar !== false; // default permissivo se o campo não vier
         const sobra = recebido - consumido;
