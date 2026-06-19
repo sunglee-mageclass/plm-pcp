@@ -48,19 +48,24 @@ function OcTecidoPage() {
   const [tab, setTab] = useState<OCStatus>("encomendado");
   const [filterEmpresa, setFilterEmpresa] = useState<string>("all");
   const [filterResp, setFilterResp] = useState<string>("all");
+  const [filterAlerta, setFilterAlerta] = useState<string>("all");
   const [openNew, setOpenNew] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<OC | null>(null);
 
+  const alertaAtivo = tab === "recebido" && filterAlerta !== "all";
   const { data: ocs = [] } = useQuery({
-    queryKey: ["ocs_tecido", tab, filterEmpresa, filterResp],
+    queryKey: ["ocs_tecido", tab, filterEmpresa, filterResp, filterAlerta],
     queryFn: async () => {
-      let q = supabase.from("ocs_tecido").select("*").eq("status", tab).eq("is_rolo", false).order("created_at", { ascending: false });
+      // Filtro por tipo de alerta: traz só OCs com ≥1 item naquele status (embed !inner).
+      const sel = alertaAtivo ? "*, ocs_tecido_itens!oc_tecido_id!inner(cq_alerta_status)" : "*";
+      let q = supabase.from("ocs_tecido").select(sel).eq("status", tab).eq("is_rolo", false).order("created_at", { ascending: false });
       if (filterEmpresa !== "all") q = q.eq("empresa_id", filterEmpresa);
       if (filterResp !== "all") q = q.eq("responsavel_id", filterResp);
+      if (alertaAtivo) q = q.eq("ocs_tecido_itens.cq_alerta_status", filterAlerta);
       const { data, error } = await q;
       if (error) throw error;
-      return (data ?? []) as OC[];
+      return (data ?? []) as unknown as OC[];
     },
   });
 
@@ -167,6 +172,17 @@ function OcTecidoPage() {
                   { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
                   ...(tab === "encomendado"
                     ? [{ label: "Responsável", value: filterResp, onChange: setFilterResp, options: [{ id: "all", nome: "Todos" }, ...estilistas.map((e) => ({ id: e.id, nome: e.nome }))] }]
+                    : []),
+                  ...(tab === "recebido"
+                    ? [{ label: "Alerta", value: filterAlerta, onChange: setFilterAlerta, options: [
+                        { id: "all", nome: "Todos" },
+                        { id: "alertado", nome: "Alerta estilo" },
+                        { id: "troca_pendente", nome: "Troca pendente" },
+                        { id: "trocado", nome: "Trocado" },
+                        { id: "estilo_ok", nome: "Estilo OK" },
+                        { id: "devolucao", nome: "Devolução" },
+                        { id: "cancelado", nome: "Cancelado" },
+                      ] }]
                     : []),
                 ]}
               />
