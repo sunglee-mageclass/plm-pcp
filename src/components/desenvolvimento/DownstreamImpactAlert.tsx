@@ -42,9 +42,9 @@ const STAGES: StageDef[] = [
 export type CamposAlterados = { grade?: boolean; consumo?: boolean; aviamentos?: boolean };
 const FIELD_IMPACT: { key: keyof CamposAlterados; label: string; stages: (keyof Etapas)[]; motivo: string }[] = [
   { key: "grade", label: "Grade", stages: ["corte", "terceirizados", "oficina", "cq", "acabamento", "direcionamento", "lancamentos"],
-    motivo: "a grade total (por variante e geral) muda — as QUANTIDADES de produção mudam em cada etapa" },
+    motivo: "a grade total (por variante e geral) muda — as QUANTIDADES de produção e a metragem planejada (consumo×grade) mudam" },
   { key: "consumo", label: "Consumo / tecido", stages: ["corte"],
-    motivo: "a metragem de tecido baixada no corte e o custo mudam" },
+    motivo: "a metragem planejada do CAD (consumo×grade), a metragem baixada no corte e o custo mudam" },
   { key: "aviamentos", label: "Aviamentos", stages: ["corte"],
     motivo: "a baixa de aviamentos no corte e o custo mudam" },
 ];
@@ -100,6 +100,7 @@ export function DownstreamConfirmDialog({
     .filter((f) => changes?.[f.key])
     .map((f) => ({ ...f, atinge: f.stages.filter((k) => reachedKeys.has(k)).map((k) => STAGE_LABEL[k] ?? k) }))
     .filter((f) => f.atinge.length > 0);
+  const corteAfetado = !!etapas.corte && impactos.some((f) => f.stages.includes("corte"));
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -122,13 +123,12 @@ export function DownstreamConfirmDialog({
           </div>
         )}
 
-        <ul className="space-y-1.5 text-sm list-disc pl-5">
-          {reached.map((s) => (
-            <li key={s.key}>
-              <b>{s.label}</b> — <span className="text-muted-foreground">{typeof s.desc === "function" ? s.desc(etapas) : s.desc}</span>
-            </li>
-          ))}
-        </ul>
+        {corteAfetado && (etapas.baixa_total ?? 0) > 0 && (
+          <div className="rounded-md border border-destructive/40 bg-destructive/5 p-2.5 text-sm">
+            <b>Corte:</b> já foram baixados <b>{fmtNum(Number(etapas.baixa_total ?? 0))}m</b> de tecido no envio ao corte —
+            a baixa <b>não se desfaz sozinha</b>. Re-enviar ao corte regrava a baixa com os novos valores.
+          </div>
+        )}
 
         <AlertDialogFooter>
           <AlertDialogCancel>Voltar a editar</AlertDialogCancel>
