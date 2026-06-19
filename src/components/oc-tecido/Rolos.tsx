@@ -26,7 +26,7 @@ import {
 type ArtigoLite = { id: string; nome: string; unidade_medida: string | null; rendimento: number | null };
 type VarLite = { id: string; artigo_id: string; nome_variante: string | null; codigo_variante: string | null };
 type RoloOcItem = { oc_tecido_item_id: string; artigo_id: string | null; artigo_nome: string | null; variante_tecido_id: string | null; variante: string; disponivel_m: number };
-type RoloOc = { oc_id: string; numero_pedido: string | null; itens: RoloOcItem[] };
+type RoloOc = { oc_id: string; numero_pedido: string | null; is_rolo?: boolean; label?: string | null; itens: RoloOcItem[] };
 
 const varName = (v?: VarLite | null) => (v ? v.nome_variante || v.codigo_variante || "—" : "—");
 // quantidade armazenada → metros (kg guarda em kg, ler × rendimento)
@@ -133,7 +133,7 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
             <Button type="button" size="sm" variant={modo === "avulso" ? "default" : "outline"}
               onClick={() => setModo("avulso")}>Avulso</Button>
             <Button type="button" size="sm" variant={modo === "oc" ? "default" : "outline"}
-              onClick={() => setModo("oc")}>Separar de uma OC</Button>
+              onClick={() => setModo("oc")}>Separar de OC/Rolo</Button>
           </div>
 
           <div className="space-y-1.5">
@@ -199,17 +199,19 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
           ) : (
             <>
               <div className="space-y-1.5">
-                <Label>OC de origem (com saldo)</Label>
+                <Label>Origem (OC ou Rolo, com saldo)</Label>
                 <Select value={ocId} onValueChange={(v) => { setOcId(v); setOcItemId(""); }}>
-                  <SelectTrigger><SelectValue placeholder="Selecione a OC" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="Selecione a OC ou o rolo" /></SelectTrigger>
                   <SelectContent>
                     {ocsRolo.map((o) => (
-                      <SelectItem key={o.oc_id} value={o.oc_id}>{o.numero_pedido || "(sem número)"}</SelectItem>
+                      <SelectItem key={o.oc_id} value={o.oc_id}>
+                        {o.is_rolo ? "Rolo" : "OC"} {o.label || o.numero_pedido || "(sem número)"}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 {ocsRolo.length === 0 && (
-                  <p className="text-xs text-muted-foreground">Nenhuma OC com saldo disponível.</p>
+                  <p className="text-xs text-muted-foreground">Nenhuma OC ou rolo com saldo disponível.</p>
                 )}
               </div>
               {ocId && (
