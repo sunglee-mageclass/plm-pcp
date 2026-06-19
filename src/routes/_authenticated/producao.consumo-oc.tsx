@@ -268,24 +268,15 @@ function ConsumoOcPage() {
       const { error } = await supabase.from("ocs_tecido_itens").update({ estoque_zerado: value }).eq("id", id);
       if (error) throw error;
     },
-    onMutate: async ({ id, value }) => {
-      await qc.cancelQueries({ queryKey: ["consumo-por-oc"] });
-      const prev = qc.getQueryData<OC[]>(["consumo-por-oc"]);
-      qc.setQueryData<OC[]>(["consumo-por-oc"], (old) =>
-        (old ?? []).map((oc) => ({ ...oc, itens: oc.itens.map((it) => it.oc_tecido_item_id === id ? { ...it, estoque_zerado: value } : it) })),
-      );
-      return { prev };
-    },
-    onError: (e: any, _v, ctx) => {
-      if (ctx?.prev) qc.setQueryData(["consumo-por-oc"], ctx.prev);
-      toast.error(e?.message ?? "Erro ao zerar estoque");
-    },
-    onSettled: () => {
-      qc.invalidateQueries({ queryKey: ["consumo-por-oc"] });
+    // Sem update otimista: refaz a busca do servidor (fonte da verdade) — garante
+    // que ao desmarcar a metragem volta e o estoque atualiza.
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["consumo-por-oc"] });
       qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
       qc.invalidateQueries({ queryKey: ["estoque-tecido-detalhe-oc"] });
       qc.invalidateQueries({ queryKey: ["dash-estoque"] });
     },
+    onError: (e: any) => toast.error(e?.message ?? "Erro ao zerar estoque"),
   });
   // Zerar exige confirmação; desmarcar (voltar ao número) é direto.
   const [confirmZerarId, setConfirmZerarId] = useState<string | null>(null);

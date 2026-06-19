@@ -373,9 +373,6 @@ function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
         <td className="py-2 pr-3">
           {row.nomeVariante}
           <span className="ml-1 text-[10px] text-muted-foreground">[{row.isKg ? "kg→m" : "m"}]</span>
-          {row.temZerado && (
-            <Badge className="ml-1.5 h-4 px-1 text-[9px] bg-emerald-500 hover:bg-emerald-500">Zerado</Badge>
-          )}
           {row.enderecos.length > 0 && (
             <span className="ml-2 text-[10px] text-muted-foreground whitespace-nowrap" title={row.enderecos.map(fmtEnd).join(" | ")}>
               📍 {endCompact(row.enderecos[0])}{row.enderecos.length > 1 ? ` +${row.enderecos.length - 1}` : ""}
