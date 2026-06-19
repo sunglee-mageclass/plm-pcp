@@ -21,7 +21,7 @@ import {
 
 import { OcTecidoList } from "@/components/oc-tecido/OcTecidoList";
 import { RolosList, RoloDialog, RemoverMetragemDialog, AjustesList } from "@/components/oc-tecido/Rolos";
-import { OcCqSection } from "@/components/oc-tecido/CqTecido";
+import { OcCqSection, alertaBadge } from "@/components/oc-tecido/CqTecido";
 import { FilterButton } from "@/components/shared/filters";
 import { OcTecidoForm } from "@/components/oc-tecido/OcTecidoForm";
 import { OcTecidoRecebimento } from "@/components/oc-tecido/OcTecidoRecebimento";
@@ -39,16 +39,6 @@ export const Route = createFileRoute("/_authenticated/entrada-saida/oc-tecido")(
     </RequirePermission>
   ),
 });
-
-// Resumo do alerta de uma OC (prioridade: pendente > troca > cancelado > ok).
-function alertaBadge(statuses: string[]): { label: string; cls: string } | null {
-  if (statuses.includes("alertado")) return { label: "Alerta", cls: "bg-amber-500 hover:bg-amber-500" };
-  if (statuses.includes("troca_pendente")) return { label: "Troca", cls: "bg-orange-500 hover:bg-orange-500" };
-  if (statuses.includes("trocado")) return { label: "Trocado", cls: "bg-blue-600 hover:bg-blue-600" };
-  if (statuses.some((s) => s === "cancelado" || s === "devolucao")) return { label: "Cancelado", cls: "bg-zinc-500 hover:bg-zinc-500" };
-  if (statuses.includes("estilo_ok")) return { label: "Estilo OK", cls: "bg-emerald-500 hover:bg-emerald-500" };
-  return null;
-}
 
 function OcTecidoPage() {
   const qc = useQueryClient();

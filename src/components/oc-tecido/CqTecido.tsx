@@ -47,6 +47,16 @@ const STATUS_BADGE: Record<CqStatus, { label: string; cls: string } | null> = {
 const SELECT_COLS =
   "id, cancelado, variante_tecido_id, cq_observacao, cq_ok, cq_alerta_status, artigos(nome), variantes_tecido(nome_variante, codigo_variante)";
 
+// Badge-resumo do alerta de uma OC (prioridade: pendente > troca > trocado > cancelado > ok).
+export function alertaBadge(statuses: string[]): { label: string; cls: string } | null {
+  if (statuses.includes("alertado")) return { label: "Alerta", cls: "bg-amber-500 hover:bg-amber-500" };
+  if (statuses.includes("troca_pendente")) return { label: "Troca", cls: "bg-orange-500 hover:bg-orange-500" };
+  if (statuses.includes("trocado")) return { label: "Trocado", cls: "bg-blue-600 hover:bg-blue-600" };
+  if (statuses.some((s) => s === "cancelado" || s === "devolucao")) return { label: "Cancelado", cls: "bg-zinc-500 hover:bg-zinc-500" };
+  if (statuses.includes("estilo_ok")) return { label: "Estilo OK", cls: "bg-emerald-500 hover:bg-emerald-500" };
+  return null;
+}
+
 const vName = (v?: { nome_variante: string | null; codigo_variante: string | null } | null) =>
   v ? v.nome_variante || v.codigo_variante || "—" : "—";
 

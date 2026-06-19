@@ -22,6 +22,8 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, Cart
 import { RequirePermission } from "@/components/RequirePermission";
 import { ModuleGuard } from "@/components/ModuleGuard";
 import { FilterButton } from "@/components/shared/filters";
+import { alertaBadge } from "@/components/oc-tecido/CqTecido";
+import { AlertTriangle } from "lucide-react";
 export const Route = createFileRoute("/_authenticated/financeiro")({
   component: () => (
     <ModuleGuard module="financeiro">
@@ -47,6 +49,7 @@ type Parcela = {
   empresas?: { nome: string } | null;
   ocs_tecido?: { numero_pedido: string | null } | null;
   ocs_aviamento?: { numero_pedido: string | null } | null;
+  ocBadge?: { label: string; cls: string } | null;
 };
 
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -93,7 +96,7 @@ function FinanceiroPage() {
           : Promise.resolve({ data: [], error: null } as const),
 
         tecidoIds.length
-          ? supabase.from("ocs_tecido").select("id,numero_pedido").in("id", tecidoIds)
+          ? supabase.from("ocs_tecido").select("id, numero_pedido, ocs_tecido_itens!oc_tecido_id(cq_alerta_status)").in("id", tecidoIds)
           : Promise.resolve({ data: [], error: null } as const),
         aviamentoIds.length
           ? supabase.from("ocs_aviamento").select("id,numero_pedido").in("id", aviamentoIds)
@@ -106,16 +109,40 @@ function FinanceiroPage() {
       const empMap = new Map((empresasRes.data ?? []).map((e: any) => [e.id, e.nome_fantasia as string]));
       const tecMap = new Map((tecidoRes.data ?? []).map((o: any) => [o.id, o.numero_pedido as string | null]));
       const aviMap = new Map((aviamentoRes.data ?? []).map((o: any) => [o.id, o.numero_pedido as string | null]));
+      // Badge de alerta (troca/cancelamento/etc.) por OC de tecido.
+      const tecBadge = new Map(
+        (tecidoRes.data ?? []).map((o: any) => [o.id, alertaBadge((o.ocs_tecido_itens ?? []).map((it: any) => it.cq_alerta_status))]),
+      );
 
       return list.map((p) => ({
         ...p,
         empresas: p.empresa_id ? { nome: empMap.get(p.empresa_id) ?? "—" } : null,
         ocs_tecido: p.oc_tecido_id ? { numero_pedido: tecMap.get(p.oc_tecido_id) ?? null } : null,
         ocs_aviamento: p.oc_aviamento_id ? { numero_pedido: aviMap.get(p.oc_aviamento_id) ?? null } : null,
+        ocBadge: p.oc_tecido_id ? tecBadge.get(p.oc_tecido_id) ?? null : null,
       }));
     },
   });
 
+  // Pendências de recebimento: OCs com troca pendente / reposição ainda não recebida.
+  const { data: pendencias = [] } = useQuery({
+    queryKey: ["financeiro-pendencias-receb"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("ocs_tecido")
+        .select("id, numero_pedido, ocs_tecido_itens!oc_tecido_id(cq_alerta_status, substitui_item_id, quantidade_recebida)")
+        .eq("status", "recebido").eq("is_rolo", false);
+      if (error) throw error;
+      return ((data ?? []) as any[])
+        .map((oc) => {
+          const its = oc.ocs_tecido_itens ?? [];
+          const pend = its.some((it: any) => it.cq_alerta_status === "troca_pendente"
+            || (it.substitui_item_id && it.quantidade_recebida == null));
+          return pend ? { id: oc.id, numero_pedido: oc.numero_pedido as string | null } : null;
+        })
+        .filter(Boolean) as { id: string; numero_pedido: string | null }[];
+    },
+  });
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -126,6 +153,21 @@ function FinanceiroPage() {
           <p className="text-sm text-muted-foreground">Parcelas, calendário e resumo financeiro.</p>
         </div>
       </header>
+
+      {pendencias.length > 0 && (
+        <Card className="p-3 border-amber-500/50 bg-amber-500/5">
+          <div className="flex items-start gap-2 text-sm">
+            <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+            <div>
+              <b>Pendências de recebimento ({pendencias.length}).</b> Há troca(s) com reposição ainda
+              não recebida — o valor da OC pode mudar quando a reposição chegar:{" "}
+              <span className="text-muted-foreground">
+                {pendencias.map((p) => p.numero_pedido || "—").join(", ")}
+              </span>
+            </div>
+          </div>
+        </Card>
+      )}
 
       <Tabs defaultValue="calendario">
         <TabsList>
@@ -367,7 +409,8 @@ function ParcelaDetailDialog({
         <DialogHeader><DialogTitle>Detalhes da Parcela</DialogTitle></DialogHeader>
         <div className="space-y-2 text-sm">
           <div><span className="text-muted-foreground">Fornecedor:</span> <b>{parcela.empresas?.nome ?? "—"}</b></div>
-          <div><span className="text-muted-foreground">Origem:</span> {tipoLabel} · Nº {ocNumero}</div>
+          <div className="flex items-center gap-2"><span className="text-muted-foreground">Origem:</span> {tipoLabel} · Nº {ocNumero}
+            {parcela.ocBadge && <Badge className={parcela.ocBadge.cls}>{parcela.ocBadge.label}</Badge>}</div>
           <div><span className="text-muted-foreground">Parcela:</span> {parcela.numero_parcela}</div>
           <div><span className="text-muted-foreground">Valor:</span> <b>{brl(Number(parcela.valor))}</b></div>
           <div className="flex items-center gap-2">
@@ -602,15 +645,18 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
                   >
                     <td className="py-2 pr-3">{p.empresas?.nome ?? "—"}</td>
                     <td className="py-2 pr-3">
-                      {(p.oc_tecido_id || p.oc_aviamento_id) ? (
-                        <button
-                          type="button"
-                          className="text-primary hover:underline"
-                          onClick={() => setOcView({ tipo: p.tipo_oc, id: (p.oc_tecido_id ?? p.oc_aviamento_id)! })}
-                        >
-                          {ocNumero(p)}
-                        </button>
-                      ) : ocNumero(p)}
+                      <span className="inline-flex items-center gap-2">
+                        {(p.oc_tecido_id || p.oc_aviamento_id) ? (
+                          <button
+                            type="button"
+                            className="text-primary hover:underline"
+                            onClick={() => setOcView({ tipo: p.tipo_oc, id: (p.oc_tecido_id ?? p.oc_aviamento_id)! })}
+                          >
+                            {ocNumero(p)}
+                          </button>
+                        ) : ocNumero(p)}
+                        {p.ocBadge && <Badge className={p.ocBadge.cls}>{p.ocBadge.label}</Badge>}
+                      </span>
                     </td>
                     <td className="py-2 pr-3">{p.numero_parcela}</td>
                     <td className="py-2 pr-3 text-right">{brl(Number(p.valor))}</td>
