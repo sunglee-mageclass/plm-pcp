@@ -276,7 +276,8 @@ export function RolosList() {
       const { data, error } = await supabase
         .from("ocs_tecido")
         .select(
-          "id, rolo_codigo, rolo_origem_item_id, rolo_rua, rolo_prateleira, ocs_tecido_itens(id, quantidade_recebida, artigos(nome, unidade_medida, rendimento), variantes_tecido(nome_variante, codigo_variante))",
+          // relacionamento explícito (!oc_tecido_id) p/ não depender do schema cache.
+          "id, rolo_codigo, rolo_origem_item_id, rolo_rua, rolo_prateleira, ocs_tecido_itens!oc_tecido_id(id, quantidade_recebida, artigos(nome, unidade_medida, rendimento), variantes_tecido(nome_variante, codigo_variante))",
         )
         .eq("is_rolo", true)
         .order("created_at", { ascending: false });
