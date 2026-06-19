@@ -21,6 +21,7 @@ import {
 
 import { OcTecidoList } from "@/components/oc-tecido/OcTecidoList";
 import { RolosList, RoloDialog } from "@/components/oc-tecido/Rolos";
+import { CqTecidoList, AlertasList } from "@/components/oc-tecido/CqTecido";
 import { FilterButton } from "@/components/shared/filters";
 import { OcTecidoForm } from "@/components/oc-tecido/OcTecidoForm";
 import { OcTecidoRecebimento } from "@/components/oc-tecido/OcTecidoRecebimento";
@@ -41,7 +42,7 @@ export const Route = createFileRoute("/_authenticated/entrada-saida/oc-tecido")(
 
 function OcTecidoPage() {
   const qc = useQueryClient();
-  const [view, setView] = useState<"ocs" | "rolos">("ocs");
+  const [view, setView] = useState<"ocs" | "rolos" | "cq" | "alertas">("ocs");
   const [openRolo, setOpenRolo] = useState(false);
   const [tab, setTab] = useState<OCStatus>("encomendado");
   const [filterEmpresa, setFilterEmpresa] = useState<string>("all");
@@ -157,6 +158,8 @@ function OcTecidoPage() {
           <div className="flex rounded-md border p-0.5">
             <Button size="sm" variant={view === "ocs" ? "secondary" : "ghost"} onClick={() => setView("ocs")}>OCs</Button>
             <Button size="sm" variant={view === "rolos" ? "secondary" : "ghost"} onClick={() => setView("rolos")}>Rolos</Button>
+            <Button size="sm" variant={view === "cq" ? "secondary" : "ghost"} onClick={() => setView("cq")}>CQ de Tecido</Button>
+            <Button size="sm" variant={view === "alertas" ? "secondary" : "ghost"} onClick={() => setView("alertas")}>Alertas</Button>
           </div>
           {view === "ocs" && (
             <>
@@ -197,8 +200,12 @@ function OcTecidoPage() {
           onDelete={(oc) => setDeleting(oc)}
           qtdRecebidaByOc={qtdRecebidaByOc}
         />
-      ) : (
+      ) : view === "rolos" ? (
         <RolosList />
+      ) : view === "cq" ? (
+        <CqTecidoList />
+      ) : (
+        <AlertasList />
       )}
 
       {openRolo && (

@@ -2083,6 +2083,10 @@ export type Database = {
           artigo_id: string | null
           artigo_numero: number | null
           cancelado: boolean
+          cq_alertar_estilo: boolean
+          cq_estilo_ok: boolean
+          cq_observacao: string | null
+          cq_ok: boolean
           created_at: string | null
           estoque_zerado: boolean
           id: string
@@ -2096,6 +2100,10 @@ export type Database = {
           artigo_id?: string | null
           artigo_numero?: number | null
           cancelado?: boolean
+          cq_alertar_estilo?: boolean
+          cq_estilo_ok?: boolean
+          cq_observacao?: string | null
+          cq_ok?: boolean
           created_at?: string | null
           estoque_zerado?: boolean
           id?: string
@@ -2109,6 +2117,10 @@ export type Database = {
           artigo_id?: string | null
           artigo_numero?: number | null
           cancelado?: boolean
+          cq_alertar_estilo?: boolean
+          cq_estilo_ok?: boolean
+          cq_observacao?: string | null
+          cq_ok?: boolean
           created_at?: string | null
           estoque_zerado?: boolean
           id?: string
