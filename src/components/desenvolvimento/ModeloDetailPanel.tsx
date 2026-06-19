@@ -30,7 +30,7 @@ import { ModeloAviamentosSection } from "./modelo-detail/ModeloAviamentosSection
 import { ModeloGradeSection } from "./modelo-detail/ModeloGradeSection";
 import { ModeloCustosSection } from "./modelo-detail/ModeloCustosSection";
 import { ModeloAnexosSection } from "./modelo-detail/ModeloAnexosSection";
-import { DownstreamImpactAlert } from "./DownstreamImpactAlert";
+import { useEtapasAfetadas, DownstreamConfirmDialog } from "./DownstreamImpactAlert";
 import { ModeloObservacoes } from "@/components/shared/ModeloObservacoes";
 
 export function ModeloDetailPanel({ modeloId, onClose }: {
@@ -241,6 +241,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   // Trava por SEGURANÇA após enviar ao CAD: só edita ao clicar "Editar", e o
   // Salvar volta a travar. Reseta ao abrir outro modelo.
   const [editing, setEditing] = useState(false);
+  const [confirmEditOpen, setConfirmEditOpen] = useState(false);
+  const { hasDownstream } = useEtapasAfetadas(modeloId);
   useEffect(() => { setEditing(false); }, [modeloId]);
   // Grade automática: ao digitar uma célula, escala as demais pela proporção.
   const [gradeAuto, setGradeAuto] = useState(false);
@@ -844,9 +846,12 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         <SheetTitle>{draft.nome || "Modelo"}</SheetTitle>
       </SheetHeader>
 
-      <div className="mt-3">
-        <DownstreamImpactAlert modeloId={modeloId} />
-      </div>
+      <DownstreamConfirmDialog
+        modeloId={modeloId}
+        open={confirmEditOpen}
+        onOpenChange={setConfirmEditOpen}
+        onConfirm={() => { setConfirmEditOpen(false); setEditing(true); }}
+      />
 
       <fieldset disabled={locked} className="contents">
       <div className="mt-4">
@@ -969,7 +974,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           </Button>
         )}
         {locked ? (
-          <Button variant="secondary" onClick={() => setEditing(true)}>
+          <Button variant="secondary" onClick={() => (hasDownstream ? setConfirmEditOpen(true) : setEditing(true))}>
             <Pencil className="h-4 w-4 mr-2" /> Editar
           </Button>
         ) : (

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ImageIcon, Scissors, AlertTriangle } from "lucide-react";
-import { DownstreamImpactAlert } from "@/components/desenvolvimento/DownstreamImpactAlert";
+import { useEtapasAfetadas, DownstreamConfirmDialog } from "@/components/desenvolvimento/DownstreamImpactAlert";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -58,6 +58,8 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
   // Trava por SEGURANÇA após enviar ao corte: só edita ao clicar "Editar", e o
   // Salvar volta a travar. (mesma ideia do Controle de Qualidade)
   const [editing, setEditing] = useState(false);
+  const [confirmEditOpen, setConfirmEditOpen] = useState(false);
+  const { hasDownstream: hasDownstreamCad } = useEtapasAfetadas(modeloId, "cad");
   // Alerta: grade alterada → metragens/consumos podem estar desatualizados.
   const [gradeAlterada, setGradeAlterada] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -740,10 +742,16 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
           dataEnviado={cadRow?.data_enviado_corte}
           readOnly={readOnly}
           editing={editing}
-          onEditar={() => setEditing(true)}
+          onEditar={() => (hasDownstreamCad ? setConfirmEditOpen(true) : setEditing(true))}
         />
 
-        <DownstreamImpactAlert modeloId={modeloId} from="cad" />
+        <DownstreamConfirmDialog
+          modeloId={modeloId}
+          from="cad"
+          open={confirmEditOpen}
+          onOpenChange={setConfirmEditOpen}
+          onConfirm={() => { setConfirmEditOpen(false); setEditing(true); }}
+        />
 
         {gradeAlterada && (
           <Card className="p-3 border-amber-500/60 bg-amber-500/10 text-sm flex items-start gap-2">

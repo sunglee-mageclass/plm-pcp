@@ -3,8 +3,11 @@ import { AlertTriangle, ExternalLink } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { fmtNum } from "@/lib/format";
-import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type Etapas = {
   cad?: boolean;
@@ -22,12 +25,9 @@ type StageDef = {
   key: keyof Etapas;
   label: string;
   desc: string | ((e: Etapas) => string);
-  // sem href = etapa sem página própria (ex.: corte fica dentro do CAD).
   href?: (id: string) => string;
 };
 
-// Etapas na ordem do fluxo, com o que cada uma usa do upstream (pode ficar
-// desatualizado) e a rota pra abrir.
 const STAGES: StageDef[] = [
   { key: "cad", label: "CAD", desc: "Metragem planejada, consumos e custo previsto.", href: (id) => `/producao/cad/${id}` },
   { key: "corte", label: "Corte", desc: (e) => `Já enviado ao corte — ${fmtNum(Number(e.baixa_total ?? 0))}m baixados; a baixa não se desfaz sozinha.` },
@@ -39,20 +39,8 @@ const STAGES: StageDef[] = [
   { key: "lancamentos", label: "Lançamentos", desc: "Lançamentos de produção.", href: () => `/producao/lancamentos` },
 ];
 
-/**
- * Avisa que o modelo já avançou e detalha CADA etapa seguinte afetada (o que ela
- * usa do upstream + botão para abrir em nova aba). `from`:
- *  - "desenvolvimento": lista a partir do CAD (edição no Desenvolvimento).
- *  - "cad": lista a partir do Corte (edição no próprio CAD; não mostra o CAD).
- * Não renderiza nada se não houver etapa seguinte atingida.
- */
-export function DownstreamImpactAlert({
-  modeloId,
-  from = "desenvolvimento",
-}: {
-  modeloId: string;
-  from?: "desenvolvimento" | "cad";
-}) {
+/** Quais etapas seguintes o modelo já atingiu (a partir do ponto de edição). */
+export function useEtapasAfetadas(modeloId: string, from: "desenvolvimento" | "cad" = "desenvolvimento") {
   const { data } = useQuery({
     queryKey: ["etapas-afetadas", modeloId],
     enabled: !!modeloId,
@@ -62,41 +50,69 @@ export function DownstreamImpactAlert({
       return (data ?? {}) as Etapas;
     },
   });
-
-  if (!data?.cad) return null;
-
-  // No CAD, pula o próprio CAD (começa no Corte).
+  const etapas = (data ?? {}) as Etapas;
   const startIdx = from === "cad" ? 1 : 0;
-  const reached = STAGES.slice(startIdx).filter((s) => data[s.key]);
-  if (reached.length === 0) return null;
+  const reached = etapas.cad ? STAGES.slice(startIdx).filter((s) => etapas[s.key]) : [];
+  return { etapas, reached, hasDownstream: reached.length > 0 };
+}
+
+/**
+ * Confirmação ao TENTAR editar um modelo que já avançou. Lista cada etapa seguinte
+ * afetada (o que usa do upstream + botão para abrir em nova aba). Cancelar = não
+ * edita; "Editar mesmo assim" = libera a edição (onConfirm).
+ */
+export function DownstreamConfirmDialog({
+  modeloId,
+  from = "desenvolvimento",
+  open,
+  onOpenChange,
+  onConfirm,
+}: {
+  modeloId: string;
+  from?: "desenvolvimento" | "cad";
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  onConfirm: () => void;
+}) {
+  const { etapas, reached } = useEtapasAfetadas(modeloId, from);
 
   const intro =
     from === "cad"
-      ? "Este modelo já foi enviado ao corte ou tem produção. Alterar grade, consumos ou aviamentos no CAD pode afetar:"
+      ? "Este modelo já foi enviado ao corte ou tem produção. Alterar grade, consumos ou aviamentos aqui pode afetar:"
       : "Este modelo já avançou. Alterar consumo, grade ou tecidos aqui pode afetar as etapas seguintes (a metragem planejada do CAD não muda sozinha):";
 
   return (
-    <Card className="border-amber-500/60 bg-amber-500/10 p-3 text-sm space-y-2">
-      <div className="flex items-start gap-2">
-        <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-        <div><b>Atenção.</b> {intro}</div>
-      </div>
-      <ul className="space-y-1.5 pl-6">
-        {reached.map((s) => (
-          <li key={s.key} className="flex items-start justify-between gap-3">
-            <span>
-              <b>{s.label}</b> — <span className="text-muted-foreground">{typeof s.desc === "function" ? s.desc(data) : s.desc}</span>
-            </span>
-            {s.href && (
-              <Button asChild size="sm" variant="outline" className="h-7 shrink-0">
-                <a href={s.href(modeloId)} target="_blank" rel="noreferrer">
-                  Abrir <ExternalLink className="h-3 w-3 ml-1" />
-                </a>
-              </Button>
-            )}
-          </li>
-        ))}
-      </ul>
-    </Card>
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-600" /> Editar pode afetar etapas seguintes
+          </AlertDialogTitle>
+          <AlertDialogDescription>{intro}</AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <ul className="space-y-1.5 text-sm">
+          {reached.map((s) => (
+            <li key={s.key} className="flex items-start justify-between gap-3">
+              <span>
+                <b>{s.label}</b> — <span className="text-muted-foreground">{typeof s.desc === "function" ? s.desc(etapas) : s.desc}</span>
+              </span>
+              {s.href && (
+                <Button asChild size="sm" variant="outline" className="h-7 shrink-0">
+                  <a href={s.href(modeloId)} target="_blank" rel="noreferrer">
+                    Abrir <ExternalLink className="h-3 w-3 ml-1" />
+                  </a>
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction onClick={onConfirm}>Editar mesmo assim</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
