@@ -305,7 +305,6 @@ function TecidosTab() {
                   <th className="py-2 pr-3">Variante</th>
                   <th className="py-2 pr-3 text-right">Prev. Receb.</th>
                   <th className="py-2 pr-3 text-right">Recebido</th>
-                  <th className="py-2 pr-3 text-right">Baixa Real</th>
                   <th className="py-2 pr-3 text-right">Físico Real</th>
                   <th className="py-2 pr-3 text-right">Reservado</th>
                   <th className="py-2 pr-3 text-right">Previsto</th>
@@ -391,7 +390,6 @@ function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
             </div>
           ) : (`${fmt(row.recebidoM)} m`)}
         </td>
-        <td className="py-2 pr-3 text-right">{fmt(row.baixa)} m</td>
         <td className={cn("py-2 pr-3 text-right font-medium", row.fisico <= threshold && "text-destructive")}>{fmt(row.fisico)} m</td>
         <td className="py-2 pr-3 text-right">{fmt(row.reservado)} m</td>
         <td className="py-2 pr-3 text-right">{fmt(row.previsto)} m</td>
@@ -399,7 +397,7 @@ function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
       {open && (
         <tr className="bg-muted/30">
           <td></td>
-          <td colSpan={7} className="py-2 pr-3 space-y-2">
+          <td colSpan={6} className="py-2 pr-3 space-y-2">
             <div className="text-xs flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className="font-semibold text-muted-foreground">Endereços:</span>
               {row.enderecos.length > 0
@@ -618,7 +616,6 @@ function AviamentosTab() {
                 <th className="py-2 pr-3">Categoria</th>
                 <th className="py-2 pr-3 text-right">Prev. Receb.</th>
                 <th className="py-2 pr-3 text-right">Recebido</th>
-                <th className="py-2 pr-3 text-right">Baixa</th>
                 <th className="py-2 pr-3 text-right">Físico Real</th>
                 <th className="py-2 pr-3 text-right">Reservado</th>
                 <th className="py-2 pr-3 text-right">Previsto</th>
@@ -677,7 +674,6 @@ function AviamentoRow({ row, threshold }: { row: any; threshold: number }) {
         <td className="py-2 pr-3">{row.categoria}</td>
         <td className="py-2 pr-3 text-right">{fmt(row.prevReceb)}</td>
         <td className="py-2 pr-3 text-right">{fmt(row.recebido)}</td>
-        <td className="py-2 pr-3 text-right">{fmt(row.baixa)}</td>
         <td className={cn("py-2 pr-3 text-right font-medium", row.fisico <= threshold && "text-destructive")}>{fmt(row.fisico)}</td>
         <td className="py-2 pr-3 text-right">{fmt(row.reservado)}</td>
         <td className="py-2 pr-3 text-right">{fmt(row.previsto)}</td>
@@ -685,7 +681,7 @@ function AviamentoRow({ row, threshold }: { row: any; threshold: number }) {
       {open && (
         <tr className="bg-muted/30">
           <td></td>
-          <td colSpan={9} className="py-2 pr-3 space-y-3">
+          <td colSpan={8} className="py-2 pr-3 space-y-3">
             <div>
               <p className="text-xs font-semibold text-muted-foreground mb-1">OCs Recebidas</p>
               {loadingRec && <p className="text-xs text-muted-foreground">Carregando…</p>}
