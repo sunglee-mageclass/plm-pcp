@@ -62,6 +62,9 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
   const { hasDownstream: hasDownstreamCad } = useEtapasAfetadas(modeloId, "cad");
   // Alerta: grade alterada → metragens/consumos podem estar desatualizados.
   const [gradeAlterada, setGradeAlterada] = useState(false);
+  // Rastreio p/ o alerta inteligente (o que mudou → impacto específico).
+  const [consumoAlterado, setConsumoAlterado] = useState(false);
+  const [aviamentoAlterado, setAviamentoAlterado] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
 
   // --- queries ---
@@ -389,6 +392,7 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
 
   // --- helpers ---
   const updateTec = (i: number, patch: Partial<TecidoRow>) => {
+    setConsumoAlterado(true);
     setTecidos((prev) => {
       const next = [...prev];
       const merged = { ...next[i], ...patch };
@@ -398,6 +402,7 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
     });
   };
   const updateVar = (i: number, j: number, patch: Partial<VarianteRow>) => {
+    setConsumoAlterado(true);
     setTecidos((prev) => {
       const next = [...prev];
       const variantes = [...next[i].variantes];
@@ -449,6 +454,7 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
     }
   };
   const updateAvi = (i: number, patch: Partial<AviamentoRow>) => {
+    setAviamentoAlterado(true);
     setAviamentos((prev) => {
       const next = [...prev];
       const merged = { ...next[i], ...patch };
@@ -543,6 +549,8 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
       toast.success("CAD salvo");
       setEditing(false); // salvar trava novamente quando já foi enviado
       setGradeAlterada(false);
+      setConsumoAlterado(false);
+      setAviamentoAlterado(false);
       qc.invalidateQueries({ queryKey: ["cad-row", modeloId] });
       qc.invalidateQueries({ queryKey: ["cad-tecidos"] });
       qc.invalidateQueries({ queryKey: ["cad-aviamentos-rows"] });
@@ -751,6 +759,7 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
           open={confirmEditOpen}
           onOpenChange={setConfirmEditOpen}
           onConfirm={() => { setConfirmEditOpen(false); saveAll.mutate(); }}
+          changes={{ grade: gradeAlterada, consumo: consumoAlterado, aviamentos: aviamentoAlterado }}
         />
 
         {gradeAlterada && (

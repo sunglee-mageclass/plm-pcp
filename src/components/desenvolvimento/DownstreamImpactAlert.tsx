@@ -39,6 +39,18 @@ const STAGES: StageDef[] = [
   { key: "lancamentos", label: "Lançamentos", desc: "Lançamentos de produção.", href: () => `/producao/lancamentos` },
 ];
 
+// Impacto por CAMPO editado: o que muda e quais etapas isso atinge.
+export type CamposAlterados = { grade?: boolean; consumo?: boolean; aviamentos?: boolean };
+const FIELD_IMPACT: { key: keyof CamposAlterados; label: string; stages: (keyof Etapas)[]; motivo: string }[] = [
+  { key: "grade", label: "Grade", stages: ["corte", "terceirizados", "oficina", "cq", "acabamento", "direcionamento", "lancamentos"],
+    motivo: "a grade total (por variante e geral) muda — as QUANTIDADES de produção mudam em cada etapa" },
+  { key: "consumo", label: "Consumo / tecido", stages: ["corte"],
+    motivo: "a metragem de tecido baixada no corte e o custo mudam" },
+  { key: "aviamentos", label: "Aviamentos", stages: ["corte"],
+    motivo: "a baixa de aviamentos no corte e o custo mudam" },
+];
+const STAGE_LABEL: Record<string, string> = Object.fromEntries(STAGES.map((s) => [s.key, s.label]));
+
 /** Quais etapas seguintes o modelo já atingiu (a partir do ponto de edição). */
 export function useEtapasAfetadas(modeloId: string, from: "desenvolvimento" | "cad" = "desenvolvimento") {
   const { data } = useQuery({
@@ -67,19 +79,28 @@ export function DownstreamConfirmDialog({
   open,
   onOpenChange,
   onConfirm,
+  changes,
 }: {
   modeloId: string;
   from?: "desenvolvimento" | "cad";
   open: boolean;
   onOpenChange: (o: boolean) => void;
   onConfirm: () => void;
+  changes?: CamposAlterados;
 }) {
   const { etapas, reached } = useEtapasAfetadas(modeloId, from);
+  const reachedKeys = new Set(reached.map((s) => s.key));
 
   const intro =
     from === "cad"
       ? "Este modelo já foi enviado ao corte ou tem produção. Salvar estas alterações do CAD vai afetar:"
       : "Este modelo já avançou. Salvar estas alterações vai afetar as etapas seguintes (a metragem planejada do CAD não muda sozinha):";
+
+  // Impacto específico do que foi alterado (alerta inteligente).
+  const impactos = FIELD_IMPACT
+    .filter((f) => changes?.[f.key])
+    .map((f) => ({ ...f, atinge: f.stages.filter((k) => reachedKeys.has(k)).map((k) => STAGE_LABEL[k] ?? k) }))
+    .filter((f) => f.atinge.length > 0);
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -90,6 +111,17 @@ export function DownstreamConfirmDialog({
           </AlertDialogTitle>
           <AlertDialogDescription>{intro}</AlertDialogDescription>
         </AlertDialogHeader>
+
+        {impactos.length > 0 && (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-2.5 text-sm space-y-1.5">
+            <p className="font-medium">O que você mudou e por quê afeta:</p>
+            {impactos.map((f) => (
+              <p key={f.key}>
+                <b>{f.label}</b> → {f.motivo}. <span className="text-muted-foreground">Afeta: {f.atinge.join(", ")}.</span>
+              </p>
+            ))}
+          </div>
+        )}
 
         <ul className="space-y-1.5 text-sm">
           {reached.map((s) => (
