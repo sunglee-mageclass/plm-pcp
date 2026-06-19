@@ -1,15 +1,18 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { AlertTriangle, Check } from "lucide-react";
+import { AlertTriangle, Check, Ban } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type CqItem = {
   id: string;
@@ -20,6 +23,7 @@ type CqItem = {
   cq_ok: boolean;
   cq_alertar_estilo: boolean;
   cq_estilo_ok: boolean;
+  cq_pendente_troca: boolean;
 };
 
 type OcEmbed = {
@@ -31,6 +35,7 @@ type OcEmbed = {
     cq_ok: boolean | null;
     cq_alertar_estilo: boolean | null;
     cq_estilo_ok: boolean | null;
+    cq_pendente_troca: boolean | null;
     artigos: { nome: string } | null;
     variantes_tecido: { nome_variante: string | null; codigo_variante: string | null } | null;
   }[];
@@ -46,7 +51,7 @@ function useFlatCqItems() {
       const { data, error } = await supabase
         .from("ocs_tecido")
         .select(
-          "id, numero_pedido, ocs_tecido_itens!oc_tecido_id(id, cancelado, cq_observacao, cq_ok, cq_alertar_estilo, cq_estilo_ok, artigos(nome), variantes_tecido(nome_variante, codigo_variante))",
+          "id, numero_pedido, ocs_tecido_itens!oc_tecido_id(id, cancelado, cq_observacao, cq_ok, cq_alertar_estilo, cq_estilo_ok, cq_pendente_troca, artigos(nome), variantes_tecido(nome_variante, codigo_variante))",
         )
         .eq("status", "recebido")
         .eq("is_rolo", false)
@@ -70,6 +75,7 @@ function useFlatCqItems() {
           cq_ok: !!it.cq_ok,
           cq_alertar_estilo: !!it.cq_alertar_estilo,
           cq_estilo_ok: !!it.cq_estilo_ok,
+          cq_pendente_troca: !!it.cq_pendente_troca,
         });
       }
     }
@@ -82,7 +88,7 @@ function useFlatCqItems() {
 function useCqUpdate() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, patch }: { id: string; patch: Partial<CqItem> }) => {
+    mutationFn: async ({ id, patch }: { id: string; patch: Record<string, any> }) => {
       const { error } = await supabase.from("ocs_tecido_itens").update(patch as any).eq("id", id);
       if (error) throw error;
     },
@@ -90,6 +96,11 @@ function useCqUpdate() {
       qc.invalidateQueries({ queryKey: ["cq-tecido"] });
       qc.invalidateQueries({ queryKey: ["cq-oc"] });
       qc.invalidateQueries({ queryKey: ["alertas-tecido"] });
+      // cancelar uma variante mexe em estoque/consumo/prévia
+      qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
+      qc.invalidateQueries({ queryKey: ["dash-estoque"] });
+      qc.invalidateQueries({ queryKey: ["consumo-por-oc"] });
+      qc.invalidateQueries({ queryKey: ["ocs_tecido"] });
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao salvar CQ"),
   });
@@ -171,6 +182,7 @@ export function OcCqSection({ ocId }: { ocId: string }) {
           cq_ok: !!it.cq_ok,
           cq_alertar_estilo: !!it.cq_alertar_estilo,
           cq_estilo_ok: !!it.cq_estilo_ok,
+          cq_pendente_troca: !!it.cq_pendente_troca,
         }));
     },
   });
@@ -190,6 +202,7 @@ export function OcCqSection({ ocId }: { ocId: string }) {
 export function AlertasList() {
   const { items, isLoading } = useFlatCqItems();
   const update = useCqUpdate();
+  const [confirmCancel, setConfirmCancel] = useState<CqItem | null>(null);
   const alertas = items.filter((i) => i.cq_alertar_estilo && !i.cq_estilo_ok);
 
   if (isLoading) return <p className="text-sm text-muted-foreground py-12 text-center">Carregando…</p>;
@@ -203,32 +216,67 @@ export function AlertasList() {
   return (
     <div className="space-y-3">
       {alertas.map((it) => (
-        <Card key={it.id} className="p-3 border-amber-500/50 bg-amber-500/5">
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <div className="flex items-start gap-2 min-w-0">
-              <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-              <div className="min-w-0">
-                <div>
-                  <span className="font-medium">{it.artigo}</span>
-                  <span className="text-muted-foreground"> · {it.variante}</span>
-                  <Badge variant="outline" className="ml-2">OC {it.oc_numero ?? "—"}</Badge>
-                </div>
-                {it.cq_observacao && (
-                  <p className="text-sm text-muted-foreground mt-1">{it.cq_observacao}</p>
-                )}
+        <Card key={it.id} className="p-3 border-amber-500/50 bg-amber-500/5 space-y-3">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-medium">{it.artigo}</span>
+                <span className="text-muted-foreground">· {it.variante}</span>
+                <Badge variant="outline">OC {it.oc_numero ?? "—"}</Badge>
+                {it.cq_pendente_troca && <Badge className="bg-orange-500 hover:bg-orange-500">Troca pendente</Badge>}
               </div>
+              {it.cq_observacao && (
+                <p className="text-sm text-muted-foreground mt-1">{it.cq_observacao}</p>
+              )}
             </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pl-6">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <Switch
+                checked={it.cq_pendente_troca}
+                onCheckedChange={(v) => update.mutate({ id: it.id, patch: { cq_pendente_troca: v } })}
+              />
+              Pendente para troca
+            </label>
+            <Button size="sm" variant="outline" onClick={() => update.mutate({ id: it.id, patch: { cq_estilo_ok: true } })}>
+              <Check className="h-4 w-4 mr-1" /> Estilo OK
+            </Button>
             <Button
               size="sm"
               variant="outline"
-              className="shrink-0"
-              onClick={() => update.mutate({ id: it.id, patch: { cq_estilo_ok: true } })}
+              className="text-destructive border-destructive/40 hover:bg-destructive/10"
+              onClick={() => setConfirmCancel(it)}
             >
-              <Check className="h-4 w-4 mr-1" /> Estilo OK
+              <Ban className="h-4 w-4 mr-1" /> Cancelar variante
             </Button>
           </div>
         </Card>
       ))}
+
+      <AlertDialog open={!!confirmCancel} onOpenChange={(o) => !o && setConfirmCancel(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancelar esta variante?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A variante "{confirmCancel?.variante}" da OC {confirmCancel?.oc_numero ?? "—"} será marcada
+              como cancelada: deixa de contar no estoque, no consumo e na prévia, e influencia tudo que usa
+              essa variante. (Pode ser revertida na OC.)
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (confirmCancel) update.mutate({ id: confirmCancel.id, patch: { cancelado: true } });
+                setConfirmCancel(null);
+              }}
+            >
+              Cancelar variante
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -2087,6 +2087,7 @@ export type Database = {
           cq_estilo_ok: boolean
           cq_observacao: string | null
           cq_ok: boolean
+          cq_pendente_troca: boolean
           created_at: string | null
           estoque_zerado: boolean
           id: string
@@ -2104,6 +2105,7 @@ export type Database = {
           cq_estilo_ok?: boolean
           cq_observacao?: string | null
           cq_ok?: boolean
+          cq_pendente_troca?: boolean
           created_at?: string | null
           estoque_zerado?: boolean
           id?: string
@@ -2121,6 +2123,7 @@ export type Database = {
           cq_estilo_ok?: boolean
           cq_observacao?: string | null
           cq_ok?: boolean
+          cq_pendente_troca?: boolean
           created_at?: string | null
           estoque_zerado?: boolean
           id?: string
