@@ -3,10 +3,13 @@
 -- por OC, estoque). "Criar a partir de uma OC" = baixa de separação no item de
 -- origem (a metragem sai da OC e vira o rolo). Standalone = rolo a mais.
 
+-- rolo_origem_item_id é só informativo (sem FK de propósito: um FK entre
+-- ocs_tecido e ocs_tecido_itens criaria um 2º relacionamento e deixaria os
+-- embeds do PostgREST ambíguos — "more than one relationship").
 ALTER TABLE public.ocs_tecido
   ADD COLUMN IF NOT EXISTS is_rolo boolean NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS rolo_codigo text,
-  ADD COLUMN IF NOT EXISTS rolo_origem_item_id uuid REFERENCES public.ocs_tecido_itens(id) ON DELETE SET NULL;
+  ADD COLUMN IF NOT EXISTS rolo_origem_item_id uuid;
 
 -- Baixa de separação de rolo não tem CAD.
 ALTER TABLE public.estoque_tecido_baixas ALTER COLUMN cad_id DROP NOT NULL;
