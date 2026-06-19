@@ -269,7 +269,7 @@ type RoloRow = {
   }[];
 };
 
-export function RolosList({ onNew }: { onNew: () => void }) {
+export function RolosList() {
   const qc = useQueryClient();
   const [deleting, setDeleting] = useState<RoloRow | null>(null);
 
@@ -306,10 +306,6 @@ export function RolosList({ onNew }: { onNew: () => void }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
-        <Button onClick={onNew}>+ Rolo</Button>
-      </div>
-
       {rolos.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-12">
           Nenhum rolo. Crie um com <b>+ Rolo</b> (avulso ou separado de uma OC).

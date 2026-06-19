@@ -173,6 +173,11 @@ function OcTecidoPage() {
               </Button>
             </>
           )}
+          {view === "rolos" && (
+            <Button onClick={() => setOpenRolo(true)}>
+              <Plus className="h-4 w-4 mr-1" /> Novo Rolo
+            </Button>
+          )}
         </div>
       </header>
 
@@ -193,7 +198,7 @@ function OcTecidoPage() {
           qtdRecebidaByOc={qtdRecebidaByOc}
         />
       ) : (
-        <RolosList onNew={() => setOpenRolo(true)} />
+        <RolosList />
       )}
 
       {openRolo && (
