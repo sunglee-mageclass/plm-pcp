@@ -243,6 +243,10 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const [editing, setEditing] = useState(false);
   const [confirmEditOpen, setConfirmEditOpen] = useState(false);
   const { hasDownstream } = useEtapasAfetadas(modeloId);
+  // Rastreio p/ o alerta inteligente (o que mudou → impacto específico).
+  const [gradeAlterada, setGradeAlterada] = useState(false);
+  const [consumoAlterado, setConsumoAlterado] = useState(false);
+  const [aviamentoAlterado, setAviamentoAlterado] = useState(false);
   useEffect(() => { setEditing(false); }, [modeloId]);
   // Grade automática: ao digitar uma célula, escala as demais pela proporção.
   const [gradeAuto, setGradeAuto] = useState(false);
@@ -600,6 +604,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     onSuccess: () => {
       toast.success("Modelo salvo");
       setEditing(false); // salvar trava novamente quando já foi enviado ao CAD
+      setGradeAlterada(false); setConsumoAlterado(false); setAviamentoAlterado(false);
       qc.invalidateQueries({ queryKey: ["modelo-detail", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-tecidos", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-tecido-oc-links", modeloId] });
@@ -636,6 +641,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   });
 
   const updateBlock = (idx: number, patch: Partial<TecidoBlock>) => {
+    setConsumoAlterado(true);
     const target = blocks[idx];
     const isTecido1 = target?.tipo === "tecido" && target?.numero === 1;
     // Trocar o artigo do Tecido 1 zera suas variantes; a grade é indexada por
@@ -666,6 +672,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     }));
   };
   const updateBlockVariante = (idx: number, vIdx: number, value: string | null) => {
+    setConsumoAlterado(true);
     const target = blocks[idx];
     const isTecido1 = target?.tipo === "tecido" && target?.numero === 1;
     if (isTecido1 && !value) {
@@ -716,15 +723,18 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   };
 
   const updateAviamento = (idx: number, patch: Partial<AviamentoRow>) => {
+    setAviamentoAlterado(true);
     setAviamentosState((rows) => rows.map((r, i) => i === idx ? recomputeAviamento({ ...r, ...patch }, aviamentoMap) : r));
   };
   const addAviamento = () => {
+    setAviamentoAlterado(true);
     if (aviamentosState.length >= 10) return;
     setAviamentosState((rows) => [...rows, { aviamento_id: null, consumo: 0, loss_percent: 0, custo_previsto: 0 }]);
   };
-  const removeAviamento = (idx: number) => setAviamentosState((rows) => rows.filter((_, i) => i !== idx));
+  const removeAviamento = (idx: number) => { setAviamentoAlterado(true); setAviamentosState((rows) => rows.filter((_, i) => i !== idx)); };
 
   const updateGradeTotal = (n: number, total: number) => {
+    setGradeAlterada(true);
     setGrades((gs) => {
       const cur = gs.find((g) => g.variante_numero === n) ?? { variante_numero: n, grades: {}, grade_total: 0 };
       const props = draft?.proporcoes ?? {};
@@ -754,6 +764,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     });
   };
   const updateGradeCell = (n: number, tam: string, qty: number) => {
+    setGradeAlterada(true);
     setGrades((gs) => {
       const cur = gs.find((g) => g.variante_numero === n) ?? { variante_numero: n, grades: {}, grade_total: 0 };
       const props = draft?.proporcoes ?? {};
@@ -776,6 +787,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     });
   };
   const updateProporcao = (tam: string, val: number) => {
+    setGradeAlterada(true);
     const oldProp = (draft?.proporcoes ?? {}) as Record<string, number>;
     const newProp = { ...oldProp, [tam]: Math.max(0, val) };
     setDraft((d: any) => ({ ...d, proporcoes: newProp }));
@@ -851,6 +863,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         open={confirmEditOpen}
         onOpenChange={setConfirmEditOpen}
         onConfirm={() => { setConfirmEditOpen(false); save.mutate(); }}
+        changes={{ grade: gradeAlterada, consumo: consumoAlterado, aviamentos: aviamentoAlterado }}
       />
 
       <fieldset disabled={locked} className="contents">
