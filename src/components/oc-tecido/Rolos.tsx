@@ -25,8 +25,8 @@ import {
 
 type ArtigoLite = { id: string; nome: string; unidade_medida: string | null; rendimento: number | null };
 type VarLite = { id: string; artigo_id: string; nome_variante: string | null; codigo_variante: string | null };
-type OcLite = { id: string; numero_pedido: string | null };
-type OcItemLite = { id: string; artigo_id: string | null; variante_tecido_id: string | null };
+type RoloOcItem = { oc_tecido_item_id: string; artigo_id: string | null; variante_tecido_id: string | null; variante: string; disponivel_m: number };
+type RoloOc = { oc_id: string; numero_pedido: string | null; itens: RoloOcItem[] };
 
 const varName = (v?: VarLite | null) => (v ? v.nome_variante || v.codigo_variante || "—" : "—");
 // quantidade armazenada → metros (kg guarda em kg, ler × rendimento)
@@ -68,45 +68,19 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
       return (data ?? []) as VarLite[];
     },
   });
-  const { data: ocs = [] } = useQuery({
-    queryKey: ["rolo-ocs"],
+  // Só OCs recebidas com saldo físico (não zeradas, recebido − baixa > 0).
+  const { data: ocsRolo = [] } = useQuery({
+    queryKey: ["ocs-para-rolo"],
     enabled: modo === "oc",
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("ocs_tecido").select("id, numero_pedido")
-        .eq("status", "recebido").eq("is_rolo", false)
-        .order("created_at", { ascending: false });
+      const { data, error } = await supabase.rpc("ocs_para_rolo" as any);
       if (error) throw error;
-      return (data ?? []) as OcLite[];
+      return (data ?? []) as RoloOc[];
     },
   });
-  const { data: ocItems = [] } = useQuery({
-    queryKey: ["rolo-oc-items", ocId],
-    enabled: modo === "oc" && !!ocId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("ocs_tecido_itens").select("id, artigo_id, variante_tecido_id")
-        .eq("oc_tecido_id", ocId);
-      if (error) throw error;
-      return ((data ?? []) as OcItemLite[]).filter((i) => i.variante_tecido_id);
-    },
-  });
-  const ocVarIds = useMemo(
-    () => ocItems.map((i) => i.variante_tecido_id).filter(Boolean) as string[],
-    [ocItems],
-  );
-  const { data: ocVars = [] } = useQuery({
-    queryKey: ["rolo-oc-vars", ocVarIds],
-    enabled: ocVarIds.length > 0,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("variantes_tecido").select("id, artigo_id, nome_variante, codigo_variante")
-        .in("id", ocVarIds);
-      if (error) throw error;
-      return (data ?? []) as VarLite[];
-    },
-  });
-  const ocVarMap = useMemo(() => Object.fromEntries(ocVars.map((v) => [v.id, v])), [ocVars]);
+  const selectedOc = ocsRolo.find((o) => o.oc_id === ocId);
+  const ocItems = selectedOc?.itens ?? [];
+  const selectedItem = ocItems.find((i) => i.oc_tecido_item_id === ocItemId);
 
   const criar = useMutation({
     mutationFn: async () => {
@@ -123,10 +97,12 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
         });
         if (error) throw error;
       } else {
-        const item = ocItems.find((i) => i.id === ocItemId);
+        const item = selectedItem;
         if (!item) throw new Error("Selecione a variante da OC.");
         const m = Number(metragemSep);
         if (!(m > 0)) throw new Error("Informe a metragem a separar.");
+        if (m > item.disponivel_m + 1e-6)
+          throw new Error(`Só há ${item.disponivel_m.toFixed(2)}m disponíveis nessa OC.`);
         const { error } = await supabase.rpc("criar_rolo" as any, {
           _codigo: codigo, _artigo_id: item.artigo_id,
           _variantes: [{ variante_tecido_id: item.variante_tecido_id, metragem: m }],
@@ -223,15 +199,18 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
           ) : (
             <>
               <div className="space-y-1.5">
-                <Label>OC de origem (recebida)</Label>
+                <Label>OC de origem (com saldo)</Label>
                 <Select value={ocId} onValueChange={(v) => { setOcId(v); setOcItemId(""); }}>
                   <SelectTrigger><SelectValue placeholder="Selecione a OC" /></SelectTrigger>
                   <SelectContent>
-                    {ocs.map((o) => (
-                      <SelectItem key={o.id} value={o.id}>{o.numero_pedido || "(sem número)"}</SelectItem>
+                    {ocsRolo.map((o) => (
+                      <SelectItem key={o.oc_id} value={o.oc_id}>{o.numero_pedido || "(sem número)"}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                {ocsRolo.length === 0 && (
+                  <p className="text-xs text-muted-foreground">Nenhuma OC com saldo disponível.</p>
+                )}
               </div>
               {ocId && (
                 <div className="space-y-1.5">
@@ -240,21 +219,22 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
                     <SelectTrigger><SelectValue placeholder="Selecione a variante" /></SelectTrigger>
                     <SelectContent>
                       {ocItems.map((it) => (
-                        <SelectItem key={it.id} value={it.id}>
-                          {varName(ocVarMap[it.variante_tecido_id || ""])}
+                        <SelectItem key={it.oc_tecido_item_id} value={it.oc_tecido_item_id}>
+                          {it.variante} — {it.disponivel_m.toFixed(2)}m
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
               )}
-              {ocItemId && (
+              {selectedItem && (
                 <div className="space-y-1.5">
                   <Label>Metragem a separar (m)</Label>
-                  <Input type="number" value={metragemSep}
+                  <Input type="number" value={metragemSep} max={selectedItem.disponivel_m}
                     onChange={(e) => setMetragemSep(e.target.value)} placeholder="metros" />
                   <p className="text-xs text-muted-foreground">
-                    A metragem sai do estoque dessa OC e passa a ser o rolo.
+                    Disponível: {selectedItem.disponivel_m.toFixed(2)}m. A metragem sai do estoque
+                    dessa OC e passa a ser o rolo.
                   </p>
                 </div>
               )}
