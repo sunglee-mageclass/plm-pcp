@@ -88,7 +88,7 @@ function TecidosTab() {
   const { data, isLoading, error } = useQuery({
     queryKey: ["estoque-tecidos"],
     queryFn: async () => {
-      const [variantesRes, ocItensRes, cadTecVarRes, modTecRes, modTecVarRes, modelosRes, modGradesRes, osItensRes, baixasRes] = await Promise.all([
+      const [variantesRes, ocItensRes, cadTecVarRes, modTecRes, modTecVarRes, modelosRes, modGradesRes, osItensRes] = await Promise.all([
         supabase.from("variantes_tecido").select("id, artigo_id, nome_variante, codigo_variante, rua, prateleira, enderecos, cores(nome), artigos(id, nome, unidade_medida, rendimento, empresa_id, categoria_tecido_id, empresas(nome_fantasia), categorias_tecido(nome))"),
         supabase.from("ocs_tecido_itens").select("id, artigo_id, variante_tecido_id, quantidade_pedida, quantidade_recebida, cancelado, estoque_zerado, oc_tecido_id, ocs_tecido!inner(status)"),
         supabase.from("cad_tecido_variantes").select("variante_tecido_id, metragem_enviada, cad_tecidos!inner(artigo_id, cad!inner(enviado_corte))"),
@@ -98,19 +98,10 @@ function TecidosTab() {
         supabase.from("modelo_grades").select("modelo_id, variante_numero, grade_total"),
         // OS Tecido (baixa manual do modo só-estoque): somada ao motor de estoque.
         supabase.from("ordens_saida_tecido_itens" as any).select("variante_tecido_id, reserva, baixa, ordens_saida_tecido!inner(baixado)"),
-        // Baixas por item de OC (ledger) — usado para "estoque zerado": o item zerado
-        // passa a contar só o que foi cortado dele (sobra/negativo viram 0).
-        supabase.from("estoque_tecido_baixas" as any).select("oc_tecido_item_id, quantidade"),
       ]);
 
-      for (const r of [variantesRes, ocItensRes, cadTecVarRes, modTecRes, modTecVarRes, modelosRes, modGradesRes, osItensRes, baixasRes]) {
+      for (const r of [variantesRes, ocItensRes, cadTecVarRes, modTecRes, modTecVarRes, modelosRes, modGradesRes, osItensRes]) {
         if (r.error) throw r.error;
-      }
-      // Total baixado (em metros) por item de OC.
-      const baixaByItem = new Map<string, number>();
-      for (const b of (baixasRes.data ?? []) as any[]) {
-        if (!b.oc_tecido_item_id) continue;
-        baixaByItem.set(b.oc_tecido_item_id, (baixaByItem.get(b.oc_tecido_item_id) ?? 0) + num(b.quantidade));
       }
 
       const variantes = variantesRes.data ?? [];
@@ -147,10 +138,10 @@ function TecidosTab() {
         if (v.artigos && v.artigo_id) artById.set(v.artigo_id, v.artigos);
       }
 
-      type Acc = { prevReceb: number; recebido: number; baixa: number; reservado: number };
+      type Acc = { prevReceb: number; recebido: number; baixa: number; reservado: number; temZerado: boolean };
       const byVar = new Map<string, Acc>();
       const get = (id: string) => {
-        if (!byVar.has(id)) byVar.set(id, { prevReceb: 0, recebido: 0, baixa: 0, reservado: 0 });
+        if (!byVar.has(id)) byVar.set(id, { prevReceb: 0, recebido: 0, baixa: 0, reservado: 0, temZerado: false });
         return byVar.get(id)!;
       };
 
@@ -166,13 +157,15 @@ function TecidosTab() {
           acc.prevReceb += num(it.quantidade_pedida);
         }
         if ((it as any).ocs_tecido?.status === "recebido") {
-          // quantidade_recebida null = recebeu o pedido cheio (mesma regra do
-          // financeiro: COALESCE(recebida, pedida)). 0 explícito permanece 0.
-          // Item "estoque zerado": conta só o que foi cortado dele (ledger),
-          // assim a sobra/negativo some do estoque real.
-          acc.recebido += (it as any).estoque_zerado
-            ? (baixaByItem.get((it as any).id) ?? 0)
-            : toMetros(art, num(it.quantidade_recebida ?? it.quantidade_pedida));
+          // Item "estoque zerado": não soma recebido (some a sobra). O físico da
+          // variante é travado em >= 0 mais abaixo — sem precisar da baixa real.
+          if ((it as any).estoque_zerado) {
+            acc.temZerado = true;
+          } else {
+            // quantidade_recebida null = recebeu o pedido cheio (mesma regra do
+            // financeiro: COALESCE(recebida, pedida)). 0 explícito permanece 0.
+            acc.recebido += toMetros(art, num(it.quantidade_recebida ?? it.quantidade_pedida));
+          }
         }
       }
 
@@ -210,7 +203,7 @@ function TecidosTab() {
 
       const rows = (variantes as any[]).map((v: any) => {
         const a: any = v.artigos ?? artById.get(v.artigo_id);
-        const acc = byVar.get(v.id) ?? { prevReceb: 0, recebido: 0, baixa: 0, reservado: 0 };
+        const acc = byVar.get(v.id) ?? { prevReceb: 0, recebido: 0, baixa: 0, reservado: 0, temZerado: false };
         // Artigo em kg: estoque/reserva/baixa trabalham em METROS (× rendimento).
         // acc.prevReceb está na unidade do artigo (kg p/ kg); acc.recebido já em metros.
         const isKg = a?.unidade_medida === "kg";
@@ -219,7 +212,8 @@ function TecidosTab() {
         const prevRecebM = isKg ? acc.prevReceb * rend : acc.prevReceb;
         const recebidoM = acc.recebido;
         const recebidoKg = isKg && rend ? acc.recebido / rend : acc.recebido;
-        const fisico = recebidoM - acc.baixa;
+        // Variante com item zerado: físico nunca negativo (sem sobra nem negativo).
+        const fisico = acc.temZerado ? Math.max(0, recebidoM - acc.baixa) : recebidoM - acc.baixa;
         const previsto = fisico + prevRecebM - acc.reservado;
         return {
           varId: v.id,
