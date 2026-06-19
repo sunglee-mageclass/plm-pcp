@@ -50,6 +50,14 @@ const FIELD_IMPACT: { key: keyof CamposAlterados; label: string; stages: (keyof 
 ];
 const STAGE_LABEL: Record<string, string> = Object.fromEntries(STAGES.map((s) => [s.key, s.label]));
 
+// Etapas (já atingidas) afetadas pelos campos alterados — p/ marcar revisão pendente.
+export function etapasAfetadasPorMudanca(changes: CamposAlterados | undefined, reachedKeys: Set<string>): string[] {
+  const set = new Set<string>();
+  FIELD_IMPACT.filter((f) => changes?.[f.key]).forEach((f) =>
+    f.stages.forEach((k) => { if (reachedKeys.has(k)) set.add(k as string); }));
+  return [...set];
+}
+
 /** Quais etapas seguintes o modelo já atingiu (a partir do ponto de edição). */
 export function useEtapasAfetadas(modeloId: string, from: "desenvolvimento" | "cad" = "desenvolvimento") {
   const { data } = useQuery({

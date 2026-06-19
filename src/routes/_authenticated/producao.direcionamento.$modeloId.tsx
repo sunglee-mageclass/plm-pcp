@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { useReadOnly } from "@/components/RequirePermission";
+import { VerificarRevisao } from "@/components/producao/RevisaoErro";
 
 export const Route = createFileRoute("/_authenticated/producao/direcionamento/$modeloId")({
   component: DirDetailPage,
@@ -208,6 +209,7 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
 
   return (
     <div className="container mx-auto p-6 space-y-6">
+      <VerificarRevisao modeloId={modeloId} etapa="direcionamento" />
       <div className="flex items-center justify-between gap-2">
         {onClose ? (
           <button onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">

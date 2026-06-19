@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useReadOnly } from "@/components/RequirePermission";
 import { ModeloObservacoes } from "@/components/shared/ModeloObservacoes";
+import { VerificarRevisao } from "@/components/producao/RevisaoErro";
 import { FichaTecnica } from "@/components/producao/FichaTecnica";
 
 export const Route = createFileRoute("/_authenticated/producao/terceirizados/$modeloId")({
@@ -431,6 +432,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
 
   return (
     <div className="container mx-auto p-6 space-y-6">
+      <VerificarRevisao modeloId={modeloId} etapa="terceirizados" />
       <div className="flex items-center justify-between">
         {onClose ? (
           <button onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">

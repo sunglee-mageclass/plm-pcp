@@ -1664,6 +1664,7 @@ export type Database = {
           piloteiro2_id: string | null
           piloteiro3_id: string | null
           proporcoes: Json | null
+          revisao_pendente: Json
           ref: string | null
           semana: string | null
           status_desenvolvimento: string | null
@@ -1709,6 +1710,7 @@ export type Database = {
           piloteiro2_id?: string | null
           piloteiro3_id?: string | null
           proporcoes?: Json | null
+          revisao_pendente?: Json
           ref?: string | null
           semana?: string | null
           status_desenvolvimento?: string | null
@@ -1754,6 +1756,7 @@ export type Database = {
           piloteiro2_id?: string | null
           piloteiro3_id?: string | null
           proporcoes?: Json | null
+          revisao_pendente?: Json
           ref?: string | null
           semana?: string | null
           status_desenvolvimento?: string | null

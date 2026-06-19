@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { useReadOnly } from "@/components/RequirePermission";
+import { VerificarRevisao } from "@/components/producao/RevisaoErro";
 
 export const Route = createFileRoute("/_authenticated/producao/cq/$modeloId")({
   component: CqDetailPage,
@@ -452,6 +453,7 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
 
   return (
     <div className="container mx-auto p-6 space-y-6">
+      <VerificarRevisao modeloId={modeloId} etapa="cq" />
       <div className="flex items-center justify-between gap-2">
         {onClose ? (
           <button onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">

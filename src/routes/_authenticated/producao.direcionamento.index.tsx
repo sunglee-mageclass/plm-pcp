@@ -6,6 +6,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { DirecionamentoDetail } from "@/routes/_authenticated/producao.direcionamento.$modeloId";
 import { supabase } from "@/integrations/supabase/client";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
+import { RevisaoErroBadge } from "@/components/producao/RevisaoErro";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -31,7 +32,7 @@ function DirListPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, ref, versao, nome, colecao, mes_id, ano_id, linha_id, linha:linha_id(nome), categorias_produto:categoria_principal_id(nome), cad(direcionamento_status, controle_qualidade(status))")
+        .select("id, ref, versao, nome, colecao, mes_id, ano_id, linha_id, revisao_pendente, linha:linha_id(nome), categorias_produto:categoria_principal_id(nome), cad(direcionamento_status, controle_qualidade(status))")
         .eq("enviado_cad", true)
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -40,7 +41,7 @@ function DirListPage() {
         .filter((m: any) => (m.cad?.[0]?.controle_qualidade?.[0]?.status ?? "pendente") === "confirmado")
         .map((m: any) => ({
           modelo_id: m.id, ref: m.ref, versao: m.versao, nome: m.nome, colecao: m.colecao,
-          mes_id: m.mes_id, ano_id: m.ano_id, linha_id: m.linha_id,
+          mes_id: m.mes_id, ano_id: m.ano_id, linha_id: m.linha_id, revisao_pendente: m.revisao_pendente,
           linha_nome: m.linha?.nome ?? null,
           categoria_nome: m.categorias_produto?.nome ?? null,
           dir_status: m.cad?.[0]?.direcionamento_status ?? "pendente",
@@ -126,6 +127,7 @@ function DirListPage() {
                 <td className="px-4 py-2">
                   <span className="font-mono text-primary">{r.ref ?? "—"}</span>
                   <VersaoBadge versao={r.versao} className="ml-2 text-[10px]" />
+                  <span className="ml-2"><RevisaoErroBadge revisao={r.revisao_pendente} etapa="direcionamento" /></span>
                 </td>
                 <td className="px-4 py-2">{r.nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground">{r.categoria_nome ?? "—"}</td>
