@@ -40,6 +40,15 @@ export const Route = createFileRoute("/_authenticated/entrada-saida/oc-tecido")(
   ),
 });
 
+// Resumo do alerta de uma OC (prioridade: pendente > troca > cancelado > ok).
+function alertaBadge(statuses: string[]): { label: string; cls: string } | null {
+  if (statuses.includes("alertado")) return { label: "Alerta", cls: "bg-amber-500 hover:bg-amber-500" };
+  if (statuses.some((s) => s === "troca_pendente" || s === "trocado")) return { label: "Troca", cls: "bg-blue-500 hover:bg-blue-500" };
+  if (statuses.some((s) => s === "cancelado" || s === "devolucao")) return { label: "Cancelado", cls: "bg-zinc-500 hover:bg-zinc-500" };
+  if (statuses.includes("estilo_ok")) return { label: "Estilo OK", cls: "bg-emerald-500 hover:bg-emerald-500" };
+  return null;
+}
+
 function OcTecidoPage() {
   const qc = useQueryClient();
   const [view, setView] = useState<"ocs" | "rolos">("ocs");
@@ -53,21 +62,31 @@ function OcTecidoPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<OC | null>(null);
 
-  const alertaAtivo = tab === "recebido" && filterAlerta !== "all";
   const { data: ocs = [] } = useQuery({
     queryKey: ["ocs_tecido", tab, filterEmpresa, filterResp, filterAlerta],
     queryFn: async () => {
-      // Filtro por tipo de alerta: traz só OCs com ≥1 item naquele status (embed !inner).
-      const sel = alertaAtivo ? "*, ocs_tecido_itens!oc_tecido_id!inner(cq_alerta_status)" : "*";
+      // Recebidos trazem o status de alerta dos itens (p/ badge na lista + filtro).
+      const sel = tab === "recebido" ? "*, ocs_tecido_itens!oc_tecido_id(cq_alerta_status)" : "*";
       let q = supabase.from("ocs_tecido").select(sel).eq("status", tab).eq("is_rolo", false).order("created_at", { ascending: false });
       if (filterEmpresa !== "all") q = q.eq("empresa_id", filterEmpresa);
       if (filterResp !== "all") q = q.eq("responsavel_id", filterResp);
-      if (alertaAtivo) q = q.eq("ocs_tecido_itens.cq_alerta_status", filterAlerta);
       const { data, error } = await q;
       if (error) throw error;
-      return (data ?? []) as unknown as OC[];
+      let rows = (data ?? []) as any[];
+      if (tab === "recebido" && filterAlerta !== "all")
+        rows = rows.filter((oc) => (oc.ocs_tecido_itens ?? []).some((it: any) => it.cq_alerta_status === filterAlerta));
+      return rows as unknown as OC[];
     },
   });
+
+  // Badge de alerta por OC (na lista de Recebidos), pro operador ver sem abrir.
+  const alertaBadgeByOc = useMemo(() => {
+    const m: Record<string, { label: string; cls: string } | null> = {};
+    for (const oc of ocs as any[]) {
+      m[oc.id] = alertaBadge((oc.ocs_tecido_itens ?? []).map((it: any) => it.cq_alerta_status));
+    }
+    return m;
+  }, [ocs]);
 
   const { data: empresas = [] } = useQuery({
     queryKey: ["empresas-options", "tecido-forro-entretela"],
@@ -219,6 +238,7 @@ function OcTecidoPage() {
           onRowClick={(id) => { setEditingId(id); setOpenNew(true); }}
           onDelete={(oc) => setDeleting(oc)}
           qtdRecebidaByOc={qtdRecebidaByOc}
+          alertaBadgeByOc={alertaBadgeByOc}
         />
       ) : (
         <div className="space-y-6">

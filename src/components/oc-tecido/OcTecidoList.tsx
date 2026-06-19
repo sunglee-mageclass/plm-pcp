@@ -14,7 +14,7 @@ export function OcTecidoList({
   filterEmpresa, setFilterEmpresa,
   filterResp, setFilterResp,
   empresas, estilistas, ocs, empresaMap, onRowClick, onDelete,
-  qtdRecebidaByOc,
+  qtdRecebidaByOc, alertaBadgeByOc,
 }: {
   tab: OCStatus;
   setTab: (t: OCStatus) => void;
@@ -29,6 +29,7 @@ export function OcTecidoList({
   onRowClick: (id: string) => void;
   onDelete?: (oc: OC) => void;
   qtdRecebidaByOc?: Record<string, string>;
+  alertaBadgeByOc?: Record<string, { label: string; cls: string } | null>;
 }) {
   // Filters now live in the page header via FilterButton; this component renders just tabs + table.
   void filterEmpresa; void setFilterEmpresa; void filterResp; void setFilterResp; void empresas; void estilistas;
@@ -99,16 +100,24 @@ export function OcTecidoList({
               {ocs.length === 0 && (
                 <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">Nenhuma OC recebida.</TableCell></TableRow>
               )}
-              {ocs.map((o) => (
+              {ocs.map((o) => {
+                const ab = alertaBadgeByOc?.[o.id];
+                return (
                 <TableRow key={o.id} className="cursor-pointer" onClick={() => onRowClick(o.id)}>
-                  <TableCell className="font-medium">{o.numero_pedido ?? "—"}</TableCell>
+                  <TableCell className="font-medium">
+                    <span className="inline-flex items-center gap-2">
+                      {o.numero_pedido ?? "—"}
+                      {ab && <Badge className={ab.cls}>{ab.label}</Badge>}
+                    </span>
+                  </TableCell>
                   <TableCell>{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</TableCell>
                   <TableCell>{fmtDate(o.data_entrega)}</TableCell>
                   <TableCell><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status="recebido" /></TableCell>
                   <TableCell>{qtdRecebidaByOc?.[o.id] ?? "—"}</TableCell>
                   <TableCell>{fmtMoney(o.valor_real_total)}</TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
         </Card>
