@@ -43,7 +43,8 @@ export const Route = createFileRoute("/_authenticated/entrada-saida/oc-tecido")(
 // Resumo do alerta de uma OC (prioridade: pendente > troca > cancelado > ok).
 function alertaBadge(statuses: string[]): { label: string; cls: string } | null {
   if (statuses.includes("alertado")) return { label: "Alerta", cls: "bg-amber-500 hover:bg-amber-500" };
-  if (statuses.some((s) => s === "troca_pendente" || s === "trocado")) return { label: "Troca", cls: "bg-blue-500 hover:bg-blue-500" };
+  if (statuses.includes("troca_pendente")) return { label: "Troca", cls: "bg-orange-500 hover:bg-orange-500" };
+  if (statuses.includes("trocado")) return { label: "Trocado", cls: "bg-blue-600 hover:bg-blue-600" };
   if (statuses.some((s) => s === "cancelado" || s === "devolucao")) return { label: "Cancelado", cls: "bg-zinc-500 hover:bg-zinc-500" };
   if (statuses.includes("estilo_ok")) return { label: "Estilo OK", cls: "bg-emerald-500 hover:bg-emerald-500" };
   return null;

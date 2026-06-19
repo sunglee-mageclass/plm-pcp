@@ -128,6 +128,25 @@ function useResolucao() {
   });
 }
 
+// Receber a reposição de uma troca (marca recebido + data, vira 'trocado').
+function useReceberReposicao() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { item_id: string; data: string; metragem: number }) => {
+      const { error } = await supabase.rpc("receber_reposicao_troca" as any, {
+        _original_item_id: args.item_id, _data: args.data, _metragem: args.metragem,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      ["cq-tecido", "cq-oc", "alertas-tecido", "estoque-tecidos", "dash-estoque",
+        "consumo-por-oc", "ocs_tecido", "parcelas", "dash-financeiro"]
+        .forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao receber reposição"),
+  });
+}
+
 // ───────────────────────── CQ de Tecido (dentro da OC) ─────────────────────────
 function CqItemCard({ item, showOc = true }: { item: CqItem; showOc?: boolean }) {
   const update = useCqUpdate();
@@ -215,9 +234,11 @@ export function AlertasList() {
   const { items, isLoading } = useFlatCqItems();
   const update = useCqUpdate();   // observação
   const resol = useResolucao();   // ações (recalculam valor + parcelas)
+  const reposicao = useReceberReposicao();
   const [aba, setAba] = useState<"pendentes" | "resolvidos">("pendentes");
   const [confirmCancel, setConfirmCancel] = useState<CqItem | null>(null);
   const [troca, setTroca] = useState<CqItem | null>(null);
+  const [receber, setReceber] = useState<CqItem | null>(null);
 
   const lista = items.filter((i) =>
     aba === "pendentes" ? PENDENTES.includes(i.cq_alerta_status) : RESOLVIDOS.includes(i.cq_alerta_status),
@@ -260,6 +281,15 @@ export function AlertasList() {
                   <Button size="sm" variant="outline" onClick={() => resol.mutate({ item_id: it.id, acao: "reabrir" })}>
                     <RotateCcw className="h-4 w-4 mr-1" /> Reabrir
                   </Button>
+                ) : it.cq_alerta_status === "troca_pendente" ? (
+                  <>
+                    <Button size="sm" onClick={() => setReceber(it)}>
+                      <Check className="h-4 w-4 mr-1" /> Receber reposição
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => resol.mutate({ item_id: it.id, acao: "reabrir" })}>
+                      <RotateCcw className="h-4 w-4 mr-1" /> Desfazer troca
+                    </Button>
+                  </>
                 ) : (
                   <>
                     <Button size="sm" variant="outline" onClick={() => resol.mutate({ item_id: it.id, acao: "estilo_ok" })}>
@@ -301,7 +331,50 @@ export function AlertasList() {
       </AlertDialog>
 
       {troca && <TrocaDialog original={troca} resol={resol} onClose={() => setTroca(null)} />}
+      {receber && <ReceberReposicaoDialog original={receber} reposicao={reposicao} onClose={() => setReceber(null)} />}
     </div>
+  );
+}
+
+// Receber a reposição da troca: data + metragem recebida → original vira 'trocado'.
+function ReceberReposicaoDialog({ original, reposicao, onClose }: { original: CqItem; reposicao: ReturnType<typeof useReceberReposicao>; onClose: () => void }) {
+  const [data, setData] = useState("");
+  const [metragem, setMetragem] = useState("");
+  const confirmar = () => {
+    if (!data) { toast.error("Informe a data de recebimento."); return; }
+    const m = Number(metragem);
+    if (!(m > 0)) { toast.error("Informe a metragem recebida."); return; }
+    reposicao.mutate(
+      { item_id: original.id, data, metragem: m },
+      { onSuccess: () => { toast.success("Reposição recebida — troca concluída"); onClose(); } },
+    );
+  };
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader><DialogTitle>Receber reposição</DialogTitle></DialogHeader>
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Reposição da troca de <b>{original.artigo} · {original.variante}</b> (OC {original.oc_numero ?? "—"}).
+            Ao confirmar, a troca fica concluída (badge "Trocado") e o valor/parcelas sobem de volta.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Data recebida</Label>
+              <Input type="date" value={data} onChange={(e) => setData(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Metragem recebida (m)</Label>
+              <Input type="number" value={metragem} onChange={(e) => setMetragem(e.target.value)} placeholder="metros" />
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={confirmar} disabled={reposicao.isPending}>Confirmar recebimento</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
