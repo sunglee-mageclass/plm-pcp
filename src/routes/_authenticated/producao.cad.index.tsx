@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Scissors, Search, Printer } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -11,6 +11,8 @@ import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { FilterButton } from "@/components/shared/filters";
 import { PrintFicha } from "@/components/producao/PrintFicha";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { CadEditor } from "@/routes/_authenticated/producao.cad.$modeloId";
 
 export const Route = createFileRoute("/_authenticated/producao/cad/")({
   component: CadListPage,
@@ -41,8 +43,8 @@ const STATUS_LABELS: Record<string, string> = {
 const normalizeStatus = (s: string | null) => (s === "em_corte" || s === "pronto" ? "enviado" : s ?? "pendente");
 
 function CadListPage() {
-  const navigate = useNavigate();
   const fl = useFieldLabels();
+  const [sheetId, setSheetId] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [fColecao, setFColecao] = useState("all");
   const [fMes, setFMes] = useState("all");
@@ -153,7 +155,7 @@ function CadListPage() {
               <tr
                 key={r.modelo_id}
                 className="border-t hover:bg-muted/30 cursor-pointer"
-                onClick={() => navigate({ to: "/producao/cad/$modeloId", params: { modeloId: r.modelo_id } })}
+                onClick={() => setSheetId(r.modelo_id)}
               >
                 <td className="px-4 py-2">
                   <span className="font-mono text-primary">{r.ref ?? "—"}</span>
@@ -184,6 +186,12 @@ function CadListPage() {
       </Card>
 
       {printReq && <PrintFicha modeloId={printReq.id} kind="corte" token={printReq.token} />}
+
+      <Sheet open={!!sheetId} onOpenChange={(o) => !o && setSheetId(null)}>
+        <SheetContent className="w-full sm:w-[92vw] sm:max-w-[1100px] overflow-y-auto p-0">
+          {sheetId && <CadEditor modeloId={sheetId} onAfterDelete={() => setSheetId(null)} />}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
