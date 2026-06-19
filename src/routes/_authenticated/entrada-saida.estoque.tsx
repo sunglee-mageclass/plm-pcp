@@ -88,10 +88,12 @@ function TecidosTab() {
   const { data, isLoading, error } = useQuery({
     queryKey: ["estoque-tecidos"],
     queryFn: async () => {
-      const [variantesRes, ocItensRes, cadTecVarRes, modTecRes, modTecVarRes, modelosRes, modGradesRes, osItensRes] = await Promise.all([
+      const [variantesRes, ocItensRes, baixasRes, modTecRes, modTecVarRes, modelosRes, modGradesRes, osItensRes] = await Promise.all([
         supabase.from("variantes_tecido").select("id, artigo_id, nome_variante, codigo_variante, rua, prateleira, enderecos, cores(nome), artigos(id, nome, unidade_medida, rendimento, empresa_id, categoria_tecido_id, empresas(nome_fantasia), categorias_tecido(nome))"),
         supabase.from("ocs_tecido_itens").select("id, artigo_id, variante_tecido_id, quantidade_pedida, quantidade_recebida, cancelado, estoque_zerado, oc_tecido_id, ocs_tecido!inner(status)"),
-        supabase.from("cad_tecido_variantes").select("variante_tecido_id, metragem_enviada, cad_tecidos!inner(artigo_id, cad!inner(enviado_corte))"),
+        // Baixa real = ledger estoque_tecido_baixas (consumo de estoque RECEBIDO no
+        // corte, capado no saldo) — fonte única de baixa, igual ao detalhe/corte.
+        supabase.from("estoque_tecido_baixas" as any).select("variante_tecido_id, quantidade"),
         supabase.from("modelo_tecidos").select("id, modelo_id, artigo_id, consumo, loss_percent"),
         supabase.from("modelo_tecido_variantes").select("variante_tecido_id, modelo_tecido_id, ordem, multiplicador"),
         supabase.from("modelos").select("id, status_desenvolvimento, cad(enviado_corte)"),
@@ -100,13 +102,13 @@ function TecidosTab() {
         supabase.from("ordens_saida_tecido_itens" as any).select("variante_tecido_id, reserva, baixa, ordens_saida_tecido!inner(baixado)"),
       ]);
 
-      for (const r of [variantesRes, ocItensRes, cadTecVarRes, modTecRes, modTecVarRes, modelosRes, modGradesRes, osItensRes]) {
+      for (const r of [variantesRes, ocItensRes, baixasRes, modTecRes, modTecVarRes, modelosRes, modGradesRes, osItensRes]) {
         if (r.error) throw r.error;
       }
 
       const variantes = variantesRes.data ?? [];
       const ocItens = ocItensRes.data ?? [];
-      const cadTecVar = cadTecVarRes.data ?? [];
+      const baixas = (baixasRes.data ?? []) as any[];
       const modTec = modTecRes.data ?? [];
       const modTecVar = modTecVarRes.data ?? [];
       const modelos = modelosRes.data ?? [];
@@ -169,10 +171,9 @@ function TecidosTab() {
         }
       }
 
-      for (const cv of cadTecVar) {
-        if (!cv.variante_tecido_id) continue;
-        if (!(cv as any).cad_tecidos?.cad?.enviado_corte) continue;
-        get(cv.variante_tecido_id).baixa += num(cv.metragem_enviada);
+      for (const b of baixas) {
+        if (!b.variante_tecido_id) continue;
+        get(b.variante_tecido_id).baixa += num(b.quantidade);
       }
 
       const variantesByModTec = new Map<string, { ordem: number; varId: string; mult: number }[]>();
@@ -352,7 +353,8 @@ function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
     const baixa = Number(d.baixado_m ?? 0);
     const reservado = Number(d.reservado_m ?? 0);
     const prevReceb = Number(d.prev_receb_m ?? 0);
-    const fisico = recebido - baixa;
+    // Item zerado: físico nunca negativo (mesma regra do resumo).
+    const fisico = d.estoque_zerado ? Math.max(0, recebido - baixa) : recebido - baixa;
     return {
       key: d.oc_tecido_item_id,
       status: d.recebida ? ("recebida" as const) : ("pendente" as const),
@@ -418,7 +420,6 @@ function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
                     <th className="py-1 pr-3">Entrega</th>
                     <th className="py-1 pr-3 text-right">Prev. Receb.</th>
                     <th className="py-1 pr-3 text-right">Recebido</th>
-                    <th className="py-1 pr-3 text-right">Baixa Real</th>
                     <th className="py-1 pr-3 text-right">Físico Real</th>
                     <th className="py-1 pr-3 text-right">Reservado</th>
                     <th className="py-1 pr-3 text-right">Previsto</th>
@@ -437,7 +438,6 @@ function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
                       <td className="py-1 pr-3">{d.entrega ? new Date(d.entrega).toLocaleDateString("pt-BR") : "—"}</td>
                       <td className="py-1 pr-3 text-right">{fmt(d.prevReceb)} m</td>
                       <td className="py-1 pr-3 text-right">{fmt(d.recebido)} m</td>
-                      <td className="py-1 pr-3 text-right">{fmt(d.baixa)} m</td>
                       <td className="py-1 pr-3 text-right font-medium">{fmt(d.fisico)} m</td>
                       <td className="py-1 pr-3 text-right">{fmt(d.reservado)} m</td>
                       <td className="py-1 pr-3 text-right">{fmt(d.previsto)} m</td>
