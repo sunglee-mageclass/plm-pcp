@@ -9,6 +9,10 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { FilterButton } from "@/components/shared/filters";
 import { Boxes, Search, Loader2, Palette, Scissors, ChevronRight } from "lucide-react";
 import { RequirePermission } from "@/components/RequirePermission";
@@ -283,7 +287,12 @@ function ConsumoOcPage() {
       qc.invalidateQueries({ queryKey: ["dash-estoque"] });
     },
   });
-  const onZerar = (id: string, value: boolean) => zerarMut.mutate({ id, value });
+  // Zerar exige confirmação; desmarcar (voltar ao número) é direto.
+  const [confirmZerarId, setConfirmZerarId] = useState<string | null>(null);
+  const onToggleZerar = (id: string, zerado: boolean) => {
+    if (zerado) zerarMut.mutate({ id, value: false });
+    else setConfirmZerarId(id);
+  };
 
   const closeEditors = () => {
     setDevId(null); setCadId(null);
@@ -383,7 +392,7 @@ function ConsumoOcPage() {
                       );
                     })
                   ) : (
-                    <ResumoVariantes oc={oc} keep={keepModel} onZerar={onZerar} />
+                    <ResumoVariantes oc={oc} keep={keepModel} onToggleZerar={onToggleZerar} />
                   )}
                 </CardContent>
               </Card>
@@ -391,6 +400,26 @@ function ConsumoOcPage() {
           })}
         </div>
       )}
+
+      <AlertDialog open={!!confirmZerarId} onOpenChange={(o) => !o && setConfirmZerarId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Zerar estoque deste item?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Você tem certeza? Zerar este produto vai influenciar no estoque — a sobra (ou o negativo) deste item deixa de ser contabilizada no estoque real.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-emerald-500 hover:bg-emerald-600"
+              onClick={() => { if (confirmZerarId) zerarMut.mutate({ id: confirmZerarId, value: true }); setConfirmZerarId(null); }}
+            >
+              Zerar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <ModeloDetailPanel modeloId={devId} onClose={closeEditors} />
 
@@ -404,7 +433,7 @@ function ConsumoOcPage() {
 }
 
 // Resumo enxuto (OC colapsada): uma linha por variante, com nº de modelos.
-function ResumoVariantes({ oc, keep, onZerar }: { oc: OC; keep: (id: string) => boolean; onZerar: (id: string, value: boolean) => void }) {
+function ResumoVariantes({ oc, keep, onToggleZerar }: { oc: OC; keep: (id: string) => boolean; onToggleZerar: (id: string, zerado: boolean) => void }) {
   return (
     <div className="rounded-md border divide-y text-sm">
       {oc.itens.map((it) => {
@@ -433,7 +462,7 @@ function ResumoVariantes({ oc, keep, onZerar }: { oc: OC; keep: (id: string) => 
                 variant={zerado ? "default" : "outline"}
                 className={"h-7 " + (zerado ? "bg-emerald-500 hover:bg-emerald-600" : "")}
                 disabled={!zerado && !podeZerar}
-                onClick={(e) => { e.stopPropagation(); onZerar(it.oc_tecido_item_id, !zerado); }}
+                onClick={(e) => { e.stopPropagation(); onToggleZerar(it.oc_tecido_item_id, zerado); }}
                 title={!zerado && !podeZerar
                   ? "Só é possível zerar quando todos os modelos desta variante estiverem enviados ao corte"
                   : "Zerar a sobra/negativo deste item no estoque real"}

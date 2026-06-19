@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -218,6 +219,7 @@ function TecidosTab() {
         const previsto = fisico + prevRecebM - acc.reservado;
         return {
           varId: v.id,
+          temZerado: acc.temZerado,
           nomeVariante: v.nome_variante || v.codigo_variante || v.cores?.nome || "—",
           enderecos: (Array.isArray(v.enderecos) && v.enderecos.length > 0)
             ? v.enderecos
@@ -358,6 +360,7 @@ function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
     return {
       key: d.oc_tecido_item_id,
       status: d.recebida ? ("recebida" as const) : ("pendente" as const),
+      zerado: !!d.estoque_zerado,
       oc: d.numero_pedido, fornecedor: d.fornecedor, entrega: d.data_entrega,
       prevReceb, recebido, baixa, fisico, reservado, previsto: fisico + prevReceb - reservado,
     };
@@ -370,6 +373,9 @@ function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
         <td className="py-2 pr-3">
           {row.nomeVariante}
           <span className="ml-1 text-[10px] text-muted-foreground">[{row.isKg ? "kg→m" : "m"}]</span>
+          {row.temZerado && (
+            <Badge className="ml-1.5 h-4 px-1 text-[9px] bg-emerald-500 hover:bg-emerald-500">Zerado</Badge>
+          )}
           {row.enderecos.length > 0 && (
             <span className="ml-2 text-[10px] text-muted-foreground whitespace-nowrap" title={row.enderecos.map(fmtEnd).join(" | ")}>
               📍 {endCompact(row.enderecos[0])}{row.enderecos.length > 1 ? ` +${row.enderecos.length - 1}` : ""}
@@ -433,6 +439,9 @@ function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
                         <span className={cn("ml-1 text-[9px] uppercase", d.status === "recebida" ? "text-emerald-700" : "text-amber-700")}>
                           {d.status}
                         </span>
+                        {d.zerado && (
+                          <Badge className="ml-1.5 h-4 px-1 text-[9px] bg-emerald-500 hover:bg-emerald-500">Zerado</Badge>
+                        )}
                       </td>
                       <td className="py-1 pr-3">{d.fornecedor ?? "—"}</td>
                       <td className="py-1 pr-3">{d.entrega ? new Date(d.entrega).toLocaleDateString("pt-BR") : "—"}</td>
