@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 import { OcTecidoList } from "@/components/oc-tecido/OcTecidoList";
+import { RolosList, RoloDialog } from "@/components/oc-tecido/Rolos";
 import { FilterButton } from "@/components/shared/filters";
 import { OcTecidoForm } from "@/components/oc-tecido/OcTecidoForm";
 import { OcTecidoRecebimento } from "@/components/oc-tecido/OcTecidoRecebimento";
@@ -40,6 +41,8 @@ export const Route = createFileRoute("/_authenticated/entrada-saida/oc-tecido")(
 
 function OcTecidoPage() {
   const qc = useQueryClient();
+  const [view, setView] = useState<"ocs" | "rolos">("ocs");
+  const [openRolo, setOpenRolo] = useState(false);
   const [tab, setTab] = useState<OCStatus>("encomendado");
   const [filterEmpresa, setFilterEmpresa] = useState<string>("all");
   const [filterResp, setFilterResp] = useState<string>("all");
@@ -50,7 +53,7 @@ function OcTecidoPage() {
   const { data: ocs = [] } = useQuery({
     queryKey: ["ocs_tecido", tab, filterEmpresa, filterResp],
     queryFn: async () => {
-      let q = supabase.from("ocs_tecido").select("*").eq("status", tab).order("created_at", { ascending: false });
+      let q = supabase.from("ocs_tecido").select("*").eq("status", tab).eq("is_rolo", false).order("created_at", { ascending: false });
       if (filterEmpresa !== "all") q = q.eq("empresa_id", filterEmpresa);
       if (filterResp !== "all") q = q.eq("responsavel_id", filterResp);
       const { data, error } = await q;
@@ -151,35 +154,51 @@ function OcTecidoPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <FilterButton
-            filters={[
-              { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
-              ...(tab === "encomendado"
-                ? [{ label: "Responsável", value: filterResp, onChange: setFilterResp, options: [{ id: "all", nome: "Todos" }, ...estilistas.map((e) => ({ id: e.id, nome: e.nome }))] }]
-                : []),
-            ]}
-          />
-          <Button onClick={() => { setEditingId(null); setOpenNew(true); }}>
-            <Plus className="h-4 w-4 mr-1" /> Nova OC
-          </Button>
+          <div className="flex rounded-md border p-0.5">
+            <Button size="sm" variant={view === "ocs" ? "secondary" : "ghost"} onClick={() => setView("ocs")}>OCs</Button>
+            <Button size="sm" variant={view === "rolos" ? "secondary" : "ghost"} onClick={() => setView("rolos")}>Rolos</Button>
+          </div>
+          {view === "ocs" && (
+            <>
+              <FilterButton
+                filters={[
+                  { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
+                  ...(tab === "encomendado"
+                    ? [{ label: "Responsável", value: filterResp, onChange: setFilterResp, options: [{ id: "all", nome: "Todos" }, ...estilistas.map((e) => ({ id: e.id, nome: e.nome }))] }]
+                    : []),
+                ]}
+              />
+              <Button onClick={() => { setEditingId(null); setOpenNew(true); }}>
+                <Plus className="h-4 w-4 mr-1" /> Nova OC
+              </Button>
+            </>
+          )}
         </div>
       </header>
 
-      <OcTecidoList
-        tab={tab}
-        setTab={setTab}
-        filterEmpresa={filterEmpresa}
-        setFilterEmpresa={setFilterEmpresa}
-        filterResp={filterResp}
-        setFilterResp={setFilterResp}
-        empresas={empresas}
-        estilistas={estilistas}
-        ocs={ocs}
-        empresaMap={empresaMap}
-        onRowClick={(id) => { setEditingId(id); setOpenNew(true); }}
-        onDelete={(oc) => setDeleting(oc)}
-        qtdRecebidaByOc={qtdRecebidaByOc}
-      />
+      {view === "ocs" ? (
+        <OcTecidoList
+          tab={tab}
+          setTab={setTab}
+          filterEmpresa={filterEmpresa}
+          setFilterEmpresa={setFilterEmpresa}
+          filterResp={filterResp}
+          setFilterResp={setFilterResp}
+          empresas={empresas}
+          estilistas={estilistas}
+          ocs={ocs}
+          empresaMap={empresaMap}
+          onRowClick={(id) => { setEditingId(id); setOpenNew(true); }}
+          onDelete={(oc) => setDeleting(oc)}
+          qtdRecebidaByOc={qtdRecebidaByOc}
+        />
+      ) : (
+        <RolosList onNew={() => setOpenRolo(true)} />
+      )}
+
+      {openRolo && (
+        <RoloDialog onClose={() => setOpenRolo(false)} onSaved={() => {}} />
+      )}
 
       {openNew && (
         <OcDialog
