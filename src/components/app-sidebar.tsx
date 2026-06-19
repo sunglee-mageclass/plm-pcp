@@ -76,6 +76,7 @@ const PAGE_URLS: Record<string, string> = {
   cadastro_etiquetas: "/cadastro/etiquetas",
   cadastro_destinos: "/cadastro/destinos",
   entrada_oc_tecido: "/entrada-saida/oc-tecido",
+  entrada_alertas_tecido: "/entrada-saida/alertas-tecido",
   entrada_oc_aviamento: "/entrada-saida/oc-aviamento",
   entrada_os_tecido: "/entrada-saida/os-tecido",
   entrada_os_aviamento: "/entrada-saida/os-aviamento",
