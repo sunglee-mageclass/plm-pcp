@@ -1,9 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ExternalLink } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { fmtNum } from "@/lib/format";
-import { Button } from "@/components/ui/button";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -123,19 +122,10 @@ export function DownstreamConfirmDialog({
           </div>
         )}
 
-        <ul className="space-y-1.5 text-sm">
+        <ul className="space-y-1.5 text-sm list-disc pl-5">
           {reached.map((s) => (
-            <li key={s.key} className="flex items-start justify-between gap-3">
-              <span>
-                <b>{s.label}</b> — <span className="text-muted-foreground">{typeof s.desc === "function" ? s.desc(etapas) : s.desc}</span>
-              </span>
-              {s.href && (
-                <Button asChild size="sm" variant="outline" className="h-7 shrink-0">
-                  <a href={s.href(modeloId)} target="_blank" rel="noreferrer">
-                    Abrir <ExternalLink className="h-3 w-3 ml-1" />
-                  </a>
-                </Button>
-              )}
+            <li key={s.key}>
+              <b>{s.label}</b> — <span className="text-muted-foreground">{typeof s.desc === "function" ? s.desc(etapas) : s.desc}</span>
             </li>
           ))}
         </ul>
