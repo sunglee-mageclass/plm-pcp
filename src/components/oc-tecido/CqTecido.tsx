@@ -88,13 +88,16 @@ function useCqUpdate() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["cq-tecido"] });
+      qc.invalidateQueries({ queryKey: ["cq-oc"] });
+      qc.invalidateQueries({ queryKey: ["alertas-tecido"] });
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao salvar CQ"),
   });
 }
 
 // ───────────────────────── CQ de Tecido (conferência) ─────────────────────────
-function CqItemCard({ item }: { item: CqItem }) {
+// estiloReadOnly: "Estilo ok" só é editável na página Alertas, não no CQ da OC.
+function CqItemCard({ item, estiloReadOnly = false, showOc = true }: { item: CqItem; estiloReadOnly?: boolean; showOc?: boolean }) {
   const update = useCqUpdate();
   const [obs, setObs] = useState(item.cq_observacao ?? "");
 
@@ -116,7 +119,7 @@ function CqItemCard({ item }: { item: CqItem }) {
           {item.cq_alertar_estilo && !item.cq_estilo_ok && (
             <Badge className="bg-amber-500 hover:bg-amber-500">Alerta estilo</Badge>
           )}
-          <Badge variant="outline">OC {item.oc_numero ?? "—"}</Badge>
+          {showOc && <Badge variant="outline">OC {item.oc_numero ?? "—"}</Badge>}
         </div>
       </div>
 
@@ -137,28 +140,47 @@ function CqItemCard({ item }: { item: CqItem }) {
           <Switch checked={item.cq_alertar_estilo} onCheckedChange={(v) => setFlag({ cq_alertar_estilo: v })} />
           Alertar estilo
         </label>
-        <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <Switch checked={item.cq_estilo_ok} onCheckedChange={(v) => setFlag({ cq_estilo_ok: v })} />
-          Estilo ok
+        <label className={`flex items-center gap-2 text-sm ${estiloReadOnly ? "opacity-60" : "cursor-pointer"}`}>
+          <Switch checked={item.cq_estilo_ok} disabled={estiloReadOnly} onCheckedChange={(v) => setFlag({ cq_estilo_ok: v })} />
+          Estilo ok{estiloReadOnly && <span className="text-xs text-muted-foreground">(só em Alertas)</span>}
         </label>
       </div>
     </Card>
   );
 }
 
-export function CqTecidoList() {
-  const { items, isLoading } = useFlatCqItems();
-  if (isLoading) return <p className="text-sm text-muted-foreground py-12 text-center">Carregando…</p>;
-  if (items.length === 0)
-    return (
-      <p className="text-sm text-muted-foreground py-12 text-center">
-        Nenhum tecido recebido para conferir.
-      </p>
-    );
+// Seção de CQ dentro da OC (Encomendado/Recebido). "Estilo ok" read-only aqui.
+export function OcCqSection({ ocId }: { ocId: string }) {
+  const { data: items = [] } = useQuery({
+    queryKey: ["cq-oc", ocId],
+    enabled: !!ocId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("ocs_tecido_itens")
+        .select("id, cancelado, variante_tecido_id, cq_observacao, cq_ok, cq_alertar_estilo, cq_estilo_ok, artigos(nome), variantes_tecido(nome_variante, codigo_variante)")
+        .eq("oc_tecido_id", ocId);
+      if (error) throw error;
+      return ((data ?? []) as any[])
+        .filter((it) => !it.cancelado && it.variante_tecido_id)
+        .map((it): CqItem => ({
+          id: it.id,
+          oc_numero: null,
+          artigo: it.artigos?.nome ?? "—",
+          variante: vName(it.variantes_tecido),
+          cq_observacao: it.cq_observacao,
+          cq_ok: !!it.cq_ok,
+          cq_alertar_estilo: !!it.cq_alertar_estilo,
+          cq_estilo_ok: !!it.cq_estilo_ok,
+        }));
+    },
+  });
+
+  if (items.length === 0) return null;
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
+      <h3 className="text-sm font-semibold">CQ de Tecido</h3>
       {items.map((it) => (
-        <CqItemCard key={it.id} item={it} />
+        <CqItemCard key={it.id} item={it} estiloReadOnly showOc={false} />
       ))}
     </div>
   );
