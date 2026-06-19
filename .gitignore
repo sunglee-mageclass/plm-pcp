@@ -40,3 +40,6 @@ supabase/.temp/
 *.sln
 *.sw?
 
+
+# Documento de referência local (não versionar)
+docs/mapeamento-campos-calculos.md
