@@ -673,17 +673,22 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
     setTecidos((prev) => {
       let changed = false;
       const next = prev.map((t) => {
+        // Metragem planejada INCLUI o %loss (bate com a reserva e o custo). O tamanho
+        // de folha usa a metragem-base SEM loss (o desperdício não infla o layout).
+        const lossFactor = 1 + (Number(t.loss_percent_cad) || 0) / 100;
+        let baseMetragem = 0;
         const variantes = t.variantes.map((v) => {
           const mult = Number(v.multiplicador ?? 1) || 1;
           const pecas = gradeTotalByNumero(v.ordem) * mult;
           const quantidade_folhas = sumProporcoes > 0 ? round2(pecas / sumProporcoes) : 0;
-          const metragem_planejada = round2(pecas * (t.consumo_cad || 0));
+          const base = pecas * (t.consumo_cad || 0);
+          baseMetragem += base;
+          const metragem_planejada = round2(base * lossFactor);
           if (v.quantidade_folhas !== quantidade_folhas || v.metragem_planejada !== metragem_planejada) changed = true;
           return { ...v, quantidade_folhas, metragem_planejada };
         });
-        const totalMetragem = variantes.reduce((a, v) => a + v.metragem_planejada, 0);
         const totalFolhas = variantes.reduce((a, v) => a + v.quantidade_folhas, 0);
-        const a = totalFolhas > 0 ? totalMetragem / totalFolhas : 0;
+        const a = totalFolhas > 0 ? baseMetragem / totalFolhas : 0;
         const largura = Number(t.largura || 0);
         const tamanho_folha = largura > 0 ? round2(a / largura) : 0;
         if (t.tamanho_folha !== tamanho_folha) changed = true;
