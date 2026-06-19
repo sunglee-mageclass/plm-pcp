@@ -7,19 +7,24 @@ export function ImagePreview({ src, alt, children }: {
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const abrir = (e: React.SyntheticEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setOpen(true);
+  };
   return (
     <>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          setOpen(true);
-        }}
-        className="cursor-zoom-in"
+      {/* div (não <button>) p/ não ser desabilitado por um <fieldset disabled>
+          ao redor — ex.: CAD travado escondia o zoom da etiqueta de lavagem. */}
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={abrir}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") abrir(e); }}
+        className="cursor-zoom-in inline-flex"
       >
         {children}
-      </button>
+      </div>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-5xl p-1 border-none bg-transparent shadow-none [&>button]:!text-white [&>button]:top-2 [&>button]:right-2">
           <img
