@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { AlertTriangle, Check, Ban, Undo2, RotateCcw } from "lucide-react";
+import { AlertTriangle, Check, Ban, RotateCcw, Repeat } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -9,6 +9,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -99,6 +103,31 @@ function useCqUpdate() {
   });
 }
 
+// Resolução de alerta via RPC (recalcula valor + parcelas).
+function useResolucao() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: {
+      item_id: string; acao: "cancelar" | "estilo_ok" | "reabrir" | "troca";
+      rep_artigo_id?: string; rep_variante_id?: string; rep_metragem?: number;
+    }) => {
+      const { error } = await supabase.rpc("aplicar_resolucao_alerta_tecido" as any, {
+        _item_id: args.item_id, _acao: args.acao,
+        _rep_artigo_id: args.rep_artigo_id ?? null,
+        _rep_variante_id: args.rep_variante_id ?? null,
+        _rep_metragem: args.rep_metragem ?? null,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      ["cq-tecido", "cq-oc", "alertas-tecido", "estoque-tecidos", "dash-estoque",
+        "consumo-por-oc", "ocs_tecido", "parcelas", "dash-financeiro"]
+        .forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao aplicar resolução"),
+  });
+}
+
 // ───────────────────────── CQ de Tecido (dentro da OC) ─────────────────────────
 function CqItemCard({ item, showOc = true }: { item: CqItem; showOc?: boolean }) {
   const update = useCqUpdate();
@@ -184,20 +213,17 @@ export function OcCqSection({ ocId }: { ocId: string }) {
 // ───────────────────────── Alertas (página do estilo) ─────────────────────────
 export function AlertasList() {
   const { items, isLoading } = useFlatCqItems();
-  const update = useCqUpdate();
+  const update = useCqUpdate();   // observação
+  const resol = useResolucao();   // ações (recalculam valor + parcelas)
   const [aba, setAba] = useState<"pendentes" | "resolvidos">("pendentes");
-  const [confirm, setConfirm] = useState<{ item: CqItem; acao: "cancelado" | "devolucao" } | null>(null);
+  const [confirmCancel, setConfirmCancel] = useState<CqItem | null>(null);
+  const [troca, setTroca] = useState<CqItem | null>(null);
 
   const lista = items.filter((i) =>
     aba === "pendentes" ? PENDENTES.includes(i.cq_alerta_status) : RESOLVIDOS.includes(i.cq_alerta_status),
   );
 
   if (isLoading) return <p className="text-sm text-muted-foreground py-12 text-center">Carregando…</p>;
-
-  const setStatus = (item: CqItem, status: CqStatus) => {
-    const cancela = status === "cancelado" || status === "devolucao" || status === "trocado";
-    update.mutate({ id: item.id, patch: { cq_alerta_status: status, cancelado: cancela } });
-  };
 
   return (
     <div className="space-y-4">
@@ -231,27 +257,20 @@ export function AlertasList() {
 
               <div className="flex flex-wrap items-center gap-2 pl-6">
                 {resolvido ? (
-                  <Button size="sm" variant="outline" onClick={() => setStatus(it, "alertado")}>
+                  <Button size="sm" variant="outline" onClick={() => resol.mutate({ item_id: it.id, acao: "reabrir" })}>
                     <RotateCcw className="h-4 w-4 mr-1" /> Reabrir
                   </Button>
                 ) : (
                   <>
-                    <Button size="sm" variant="outline" onClick={() => setStatus(it, "estilo_ok")}>
+                    <Button size="sm" variant="outline" onClick={() => resol.mutate({ item_id: it.id, acao: "estilo_ok" })}>
                       <Check className="h-4 w-4 mr-1" /> Estilo OK
                     </Button>
-                    {it.cq_alerta_status !== "troca_pendente" && (
-                      <Button size="sm" variant="outline" onClick={() => setStatus(it, "troca_pendente")}>
-                        Troca pendente
-                      </Button>
-                    )}
-                    <Button size="sm" variant="outline"
-                      className="text-red-600 border-red-500/40 hover:bg-red-500/10"
-                      onClick={() => setConfirm({ item: it, acao: "devolucao" })}>
-                      <Undo2 className="h-4 w-4 mr-1" /> Devolução
+                    <Button size="sm" variant="outline" onClick={() => setTroca(it)}>
+                      <Repeat className="h-4 w-4 mr-1" /> Troca
                     </Button>
                     <Button size="sm" variant="outline"
                       className="text-destructive border-destructive/40 hover:bg-destructive/10"
-                      onClick={() => setConfirm({ item: it, acao: "cancelado" })}>
+                      onClick={() => setConfirmCancel(it)}>
                       <Ban className="h-4 w-4 mr-1" /> Cancelar variante
                     </Button>
                   </>
@@ -262,27 +281,109 @@ export function AlertasList() {
         })
       )}
 
-      <AlertDialog open={!!confirm} onOpenChange={(o) => !o && setConfirm(null)}>
+      <AlertDialog open={!!confirmCancel} onOpenChange={(o) => !o && setConfirmCancel(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {confirm?.acao === "devolucao" ? "Marcar devolução?" : "Cancelar esta variante?"}
-            </AlertDialogTitle>
+            <AlertDialogTitle>Cancelar esta variante?</AlertDialogTitle>
             <AlertDialogDescription>
-              A variante "{confirm?.item.variante}" da OC {confirm?.item.oc_numero ?? "—"} sai do estoque,
-              consumo e prévia{confirm?.acao === "devolucao" ? " (devolução ao fornecedor — reembolso é tratado no Financeiro)" : ""}.
-              Pode ser revertida em Resolvidos (Reabrir).
+              A variante "{confirmCancel?.variante}" da OC {confirmCancel?.oc_numero ?? "—"} sai do estoque,
+              consumo e prévia, e o valor/parcelas da OC são recalculados. Pode ser revertida em Resolvidos
+              (Reabrir).
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Voltar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { if (confirm) setStatus(confirm.item, confirm.acao); setConfirm(null); }}>
-              {confirm?.acao === "devolucao" ? "Confirmar devolução" : "Cancelar variante"}
+            <AlertDialogAction onClick={() => { if (confirmCancel) resol.mutate({ item_id: confirmCancel.id, acao: "cancelar" }); setConfirmCancel(null); }}>
+              Cancelar variante
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {troca && <TrocaDialog original={troca} resol={resol} onClose={() => setTroca(null)} />}
     </div>
+  );
+}
+
+// ───────────────────────── Troca: seleciona o tecido/variante substituto ─────────────────────────
+function TrocaDialog({ original, resol, onClose }: { original: CqItem; resol: ReturnType<typeof useResolucao>; onClose: () => void }) {
+  const [artigoId, setArtigoId] = useState("");
+  const [varId, setVarId] = useState("");
+  const [metragem, setMetragem] = useState("");
+
+  const { data: artigos = [] } = useQuery({
+    queryKey: ["troca-artigos"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("artigos").select("id, nome, unidade_medida").order("nome");
+      if (error) throw error;
+      return (data ?? []) as { id: string; nome: string; unidade_medida: string | null }[];
+    },
+  });
+  const { data: variantes = [] } = useQuery({
+    queryKey: ["troca-variantes", artigoId],
+    enabled: !!artigoId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("variantes_tecido").select("id, nome_variante, codigo_variante").eq("artigo_id", artigoId);
+      if (error) throw error;
+      return (data ?? []) as { id: string; nome_variante: string | null; codigo_variante: string | null }[];
+    },
+  });
+
+  const confirmar = () => {
+    if (!artigoId || !varId) { toast.error("Selecione o tecido e a variante substitutos."); return; }
+    const m = Number(metragem);
+    if (!(m > 0)) { toast.error("Informe a metragem esperada."); return; }
+    resol.mutate(
+      { item_id: original.id, acao: "troca", rep_artigo_id: artigoId, rep_variante_id: varId, rep_metragem: m },
+      { onSuccess: () => { toast.success("Troca registrada — substituto a receber"); onClose(); } },
+    );
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader><DialogTitle>Trocar variante</DialogTitle></DialogHeader>
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Substituindo <b>{original.artigo} · {original.variante}</b> (OC {original.oc_numero ?? "—"}). O original
+            sai do estoque/consumo e o substituto entra como <b>a receber</b>.
+          </p>
+          <div className="space-y-1.5">
+            <Label>Tecido substituto</Label>
+            <Select value={artigoId} onValueChange={(v) => { setArtigoId(v); setVarId(""); }}>
+              <SelectTrigger><SelectValue placeholder="Selecione o tecido" /></SelectTrigger>
+              <SelectContent>
+                {artigos.map((a) => (
+                  <SelectItem key={a.id} value={a.id}>{a.nome}{a.unidade_medida === "kg" ? " [kg]" : ""}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {artigoId && (
+            <div className="space-y-1.5">
+              <Label>Variante</Label>
+              <Select value={varId} onValueChange={setVarId}>
+                <SelectTrigger><SelectValue placeholder="Selecione a variante" /></SelectTrigger>
+                <SelectContent>
+                  {variantes.map((v) => (
+                    <SelectItem key={v.id} value={v.id}>{v.nome_variante || v.codigo_variante || "—"}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <div className="space-y-1.5">
+            <Label>Metragem esperada (m)</Label>
+            <Input type="number" value={metragem} onChange={(e) => setMetragem(e.target.value)} placeholder="metros" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={confirmar} disabled={resol.isPending}>Confirmar troca</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
