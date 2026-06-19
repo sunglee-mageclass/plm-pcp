@@ -22,6 +22,7 @@ import {
 import { OcTecidoList } from "@/components/oc-tecido/OcTecidoList";
 import { RolosList, RoloDialog, RemoverMetragemDialog, AjustesList } from "@/components/oc-tecido/Rolos";
 import { OcCqSection, alertaBadge } from "@/components/oc-tecido/CqTecido";
+import { OcNfHistorico } from "@/components/oc-tecido/OcNfHistorico";
 import { FilterButton } from "@/components/shared/filters";
 import { OcTecidoForm } from "@/components/oc-tecido/OcTecidoForm";
 import { OcTecidoRecebimento } from "@/components/oc-tecido/OcTecidoRecebimento";
@@ -766,6 +767,7 @@ function OcDialog({
           )}
 
           {isEdit && ocId && <OcCqSection ocId={ocId} />}
+          {isEdit && ocId && <OcNfHistorico ocId={ocId} />}
         </div>
 
         <DialogFooter className="gap-2">

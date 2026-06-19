@@ -1858,6 +1858,7 @@ export type Database = {
           empresa_id: string | null
           id: string
           nf_url: string | null
+          nf_historico: Json
           numero_pedido: string | null
           parcelas_recebimento: Json
           prazo_pagamento: string | null
@@ -1874,6 +1875,7 @@ export type Database = {
           empresa_id?: string | null
           id?: string
           nf_url?: string | null
+          nf_historico?: Json
           numero_pedido?: string | null
           parcelas_recebimento?: Json
           prazo_pagamento?: string | null
@@ -1890,6 +1892,7 @@ export type Database = {
           empresa_id?: string | null
           id?: string
           nf_url?: string | null
+          nf_historico?: Json
           numero_pedido?: string | null
           parcelas_recebimento?: Json
           prazo_pagamento?: string | null
