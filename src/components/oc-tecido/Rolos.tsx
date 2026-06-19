@@ -25,7 +25,7 @@ import {
 
 type ArtigoLite = { id: string; nome: string; unidade_medida: string | null; rendimento: number | null };
 type VarLite = { id: string; artigo_id: string; nome_variante: string | null; codigo_variante: string | null };
-type RoloOcItem = { oc_tecido_item_id: string; artigo_id: string | null; variante_tecido_id: string | null; variante: string; disponivel_m: number };
+type RoloOcItem = { oc_tecido_item_id: string; artigo_id: string | null; artigo_nome: string | null; variante_tecido_id: string | null; variante: string; disponivel_m: number };
 type RoloOc = { oc_id: string; numero_pedido: string | null; itens: RoloOcItem[] };
 
 const varName = (v?: VarLite | null) => (v ? v.nome_variante || v.codigo_variante || "—" : "—");
@@ -214,13 +214,13 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
               </div>
               {ocId && (
                 <div className="space-y-1.5">
-                  <Label>Variante (item da OC)</Label>
+                  <Label>Tecido / variante (item da OC)</Label>
                   <Select value={ocItemId} onValueChange={setOcItemId}>
-                    <SelectTrigger><SelectValue placeholder="Selecione a variante" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="Selecione o tecido / variante" /></SelectTrigger>
                     <SelectContent>
                       {ocItems.map((it) => (
                         <SelectItem key={it.oc_tecido_item_id} value={it.oc_tecido_item_id}>
-                          {it.variante} — {it.disponivel_m.toFixed(2)}m
+                          {it.artigo_nome ?? "—"} · {it.variante} — {it.disponivel_m.toFixed(2)}m
                         </SelectItem>
                       ))}
                     </SelectContent>
