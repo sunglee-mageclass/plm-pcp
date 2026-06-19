@@ -2085,9 +2085,11 @@ export type Database = {
           cancelado: boolean
           cq_alertar_estilo: boolean
           cq_estilo_ok: boolean
+          cq_alerta_status: string
           cq_observacao: string | null
           cq_ok: boolean
           cq_pendente_troca: boolean
+          substitui_item_id: string | null
           created_at: string | null
           estoque_zerado: boolean
           id: string
@@ -2103,9 +2105,11 @@ export type Database = {
           cancelado?: boolean
           cq_alertar_estilo?: boolean
           cq_estilo_ok?: boolean
+          cq_alerta_status?: string
           cq_observacao?: string | null
           cq_ok?: boolean
           cq_pendente_troca?: boolean
+          substitui_item_id?: string | null
           created_at?: string | null
           estoque_zerado?: boolean
           id?: string
@@ -2121,9 +2125,11 @@ export type Database = {
           cancelado?: boolean
           cq_alertar_estilo?: boolean
           cq_estilo_ok?: boolean
+          cq_alerta_status?: string
           cq_observacao?: string | null
           cq_ok?: boolean
           cq_pendente_troca?: boolean
+          substitui_item_id?: string | null
           created_at?: string | null
           estoque_zerado?: boolean
           id?: string

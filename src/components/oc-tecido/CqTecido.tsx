@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { AlertTriangle, Check, Ban } from "lucide-react";
+import { AlertTriangle, Check, Ban, Undo2, RotateCcw } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -14,75 +14,74 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+export type CqStatus = "sem_alerta" | "alertado" | "troca_pendente" | "trocado" | "estilo_ok" | "cancelado" | "devolucao";
+
 type CqItem = {
   id: string;
+  oc_id: string | null;
   oc_numero: string | null;
   artigo: string;
   variante: string;
   cq_observacao: string | null;
   cq_ok: boolean;
-  cq_alertar_estilo: boolean;
-  cq_estilo_ok: boolean;
-  cq_pendente_troca: boolean;
+  cq_alerta_status: CqStatus;
 };
 
-type OcEmbed = {
-  numero_pedido: string | null;
-  ocs_tecido_itens: {
-    id: string;
-    cancelado: boolean | null;
-    cq_observacao: string | null;
-    cq_ok: boolean | null;
-    cq_alertar_estilo: boolean | null;
-    cq_estilo_ok: boolean | null;
-    cq_pendente_troca: boolean | null;
-    artigos: { nome: string } | null;
-    variantes_tecido: { nome_variante: string | null; codigo_variante: string | null } | null;
-  }[];
+const PENDENTES: CqStatus[] = ["alertado", "troca_pendente"];
+const RESOLVIDOS: CqStatus[] = ["estilo_ok", "trocado", "cancelado", "devolucao"];
+
+const STATUS_BADGE: Record<CqStatus, { label: string; cls: string } | null> = {
+  sem_alerta: null,
+  alertado: { label: "Alerta estilo", cls: "bg-amber-500 hover:bg-amber-500" },
+  troca_pendente: { label: "Troca pendente", cls: "bg-orange-500 hover:bg-orange-500" },
+  trocado: { label: "Trocado", cls: "bg-blue-500 hover:bg-blue-500" },
+  estilo_ok: { label: "Estilo OK", cls: "bg-emerald-500 hover:bg-emerald-500" },
+  cancelado: { label: "Cancelado", cls: "bg-zinc-500 hover:bg-zinc-500" },
+  devolucao: { label: "Devolução", cls: "bg-red-500 hover:bg-red-500" },
 };
+
+const SELECT_COLS =
+  "id, cancelado, variante_tecido_id, cq_observacao, cq_ok, cq_alerta_status, artigos(nome), variantes_tecido(nome_variante, codigo_variante)";
 
 const vName = (v?: { nome_variante: string | null; codigo_variante: string | null } | null) =>
   v ? v.nome_variante || v.codigo_variante || "—" : "—";
 
+const toCqItem = (it: any, ocId: string | null, ocNumero: string | null): CqItem => ({
+  id: it.id,
+  oc_id: ocId,
+  oc_numero: ocNumero,
+  artigo: it.artigos?.nome ?? "—",
+  variante: vName(it.variantes_tecido),
+  cq_observacao: it.cq_observacao,
+  cq_ok: !!it.cq_ok,
+  cq_alerta_status: (it.cq_alerta_status ?? "sem_alerta") as CqStatus,
+});
+
 function useFlatCqItems() {
-  const { data: ocs = [], ...rest } = useQuery({
+  const { data: ocs = [], isLoading } = useQuery({
     queryKey: ["cq-tecido"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("ocs_tecido")
-        .select(
-          "id, numero_pedido, ocs_tecido_itens!oc_tecido_id(id, cancelado, cq_observacao, cq_ok, cq_alertar_estilo, cq_estilo_ok, cq_pendente_troca, artigos(nome), variantes_tecido(nome_variante, codigo_variante))",
-        )
+        .select(`id, numero_pedido, ocs_tecido_itens!oc_tecido_id(${SELECT_COLS})`)
         .eq("status", "recebido")
         .eq("is_rolo", false)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as unknown as OcEmbed[];
+      return (data ?? []) as any[];
     },
   });
-
   const items = useMemo<CqItem[]>(() => {
     const out: CqItem[] = [];
     for (const oc of ocs) {
       for (const it of oc.ocs_tecido_itens ?? []) {
-        if (it.cancelado) continue;
-        out.push({
-          id: it.id,
-          oc_numero: oc.numero_pedido,
-          artigo: it.artigos?.nome ?? "—",
-          variante: vName(it.variantes_tecido),
-          cq_observacao: it.cq_observacao,
-          cq_ok: !!it.cq_ok,
-          cq_alertar_estilo: !!it.cq_alertar_estilo,
-          cq_estilo_ok: !!it.cq_estilo_ok,
-          cq_pendente_troca: !!it.cq_pendente_troca,
-        });
+        if (it.cancelado && it.cq_alerta_status === "sem_alerta") continue; // cancelado de pedido (não-CQ)
+        out.push(toCqItem(it, oc.id, oc.numero_pedido));
       }
     }
     return out;
   }, [ocs]);
-
-  return { items, ...rest };
+  return { items, isLoading };
 }
 
 function useCqUpdate() {
@@ -93,26 +92,20 @@ function useCqUpdate() {
       if (error) throw error;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["cq-tecido"] });
-      qc.invalidateQueries({ queryKey: ["cq-oc"] });
-      qc.invalidateQueries({ queryKey: ["alertas-tecido"] });
-      // cancelar uma variante mexe em estoque/consumo/prévia
-      qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
-      qc.invalidateQueries({ queryKey: ["dash-estoque"] });
-      qc.invalidateQueries({ queryKey: ["consumo-por-oc"] });
-      qc.invalidateQueries({ queryKey: ["ocs_tecido"] });
+      ["cq-tecido", "cq-oc", "alertas-tecido", "estoque-tecidos", "dash-estoque", "consumo-por-oc", "ocs_tecido"]
+        .forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao salvar CQ"),
   });
 }
 
-// ───────────────────────── CQ de Tecido (conferência) ─────────────────────────
-// estiloReadOnly: "Estilo ok" só é editável na página Alertas, não no CQ da OC.
-function CqItemCard({ item, estiloReadOnly = false, showOc = true }: { item: CqItem; estiloReadOnly?: boolean; showOc?: boolean }) {
+// ───────────────────────── CQ de Tecido (dentro da OC) ─────────────────────────
+function CqItemCard({ item, showOc = true }: { item: CqItem; showOc?: boolean }) {
   const update = useCqUpdate();
   const [obs, setObs] = useState(item.cq_observacao ?? "");
+  const badge = STATUS_BADGE[item.cq_alerta_status];
+  const alertado = item.cq_alerta_status !== "sem_alerta";
 
-  const setFlag = (patch: Partial<CqItem>) => update.mutate({ id: item.id, patch });
   const saveObs = () => {
     if ((obs || "") !== (item.cq_observacao ?? "")) {
       update.mutate({ id: item.id, patch: { cq_observacao: obs || null } });
@@ -127,9 +120,7 @@ function CqItemCard({ item, estiloReadOnly = false, showOc = true }: { item: CqI
           <span className="text-muted-foreground"> · {item.variante}</span>
         </div>
         <div className="flex items-center gap-2">
-          {item.cq_alertar_estilo && !item.cq_estilo_ok && (
-            <Badge className="bg-amber-500 hover:bg-amber-500">Alerta estilo</Badge>
-          )}
+          {badge && <Badge className={badge.cls}>{badge.label}</Badge>}
           {showOc && <Badge variant="outline">OC {item.oc_numero ?? "—"}</Badge>}
         </div>
       </div>
@@ -144,23 +135,25 @@ function CqItemCard({ item, estiloReadOnly = false, showOc = true }: { item: CqI
 
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
         <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <Switch checked={item.cq_ok} onCheckedChange={(v) => setFlag({ cq_ok: v })} />
+          <Switch checked={item.cq_ok} onCheckedChange={(v) => update.mutate({ id: item.id, patch: { cq_ok: v } })} />
           CQ ok
         </label>
         <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <Switch checked={item.cq_alertar_estilo} onCheckedChange={(v) => setFlag({ cq_alertar_estilo: v })} />
+          <Switch
+            checked={alertado}
+            onCheckedChange={(v) => update.mutate({ id: item.id, patch: { cq_alerta_status: v ? "alertado" : "sem_alerta" } })}
+          />
           Alertar estilo
         </label>
-        <label className={`flex items-center gap-2 text-sm ${estiloReadOnly ? "opacity-60" : "cursor-pointer"}`}>
-          <Switch checked={item.cq_estilo_ok} disabled={estiloReadOnly} onCheckedChange={(v) => setFlag({ cq_estilo_ok: v })} />
-          Estilo ok{estiloReadOnly && <span className="text-xs text-muted-foreground">(só em Alertas)</span>}
-        </label>
+        {alertado && (
+          <span className="text-xs text-muted-foreground">Resolução (Estilo OK / troca / devolução / cancelar) na página Alertas.</span>
+        )}
       </div>
     </Card>
   );
 }
 
-// Seção de CQ dentro da OC (Encomendado/Recebido). "Estilo ok" read-only aqui.
+// Seção de CQ dentro da OC (Encomendado/Recebido).
 export function OcCqSection({ ocId }: { ocId: string }) {
   const { data: items = [] } = useQuery({
     queryKey: ["cq-oc", ocId],
@@ -168,22 +161,12 @@ export function OcCqSection({ ocId }: { ocId: string }) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("ocs_tecido_itens")
-        .select("id, cancelado, variante_tecido_id, cq_observacao, cq_ok, cq_alertar_estilo, cq_estilo_ok, artigos(nome), variantes_tecido(nome_variante, codigo_variante)")
+        .select(SELECT_COLS)
         .eq("oc_tecido_id", ocId);
       if (error) throw error;
       return ((data ?? []) as any[])
-        .filter((it) => !it.cancelado && it.variante_tecido_id)
-        .map((it): CqItem => ({
-          id: it.id,
-          oc_numero: null,
-          artigo: it.artigos?.nome ?? "—",
-          variante: vName(it.variantes_tecido),
-          cq_observacao: it.cq_observacao,
-          cq_ok: !!it.cq_ok,
-          cq_alertar_estilo: !!it.cq_alertar_estilo,
-          cq_estilo_ok: !!it.cq_estilo_ok,
-          cq_pendente_troca: !!it.cq_pendente_troca,
-        }));
+        .filter((it) => !(it.cancelado && it.cq_alerta_status === "sem_alerta") && it.variante_tecido_id)
+        .map((it) => toCqItem(it, ocId, null));
     },
   });
 
@@ -192,91 +175,127 @@ export function OcCqSection({ ocId }: { ocId: string }) {
     <div className="space-y-2">
       <h3 className="text-sm font-semibold">CQ de Tecido</h3>
       {items.map((it) => (
-        <CqItemCard key={it.id} item={it} estiloReadOnly showOc={false} />
+        <CqItemCard key={it.id} item={it} showOc={false} />
       ))}
     </div>
   );
 }
 
-// ───────────────────────── Alertas (estilo) ─────────────────────────
+// ───────────────────────── Alertas (página do estilo) ─────────────────────────
 export function AlertasList() {
   const { items, isLoading } = useFlatCqItems();
   const update = useCqUpdate();
-  const [confirmCancel, setConfirmCancel] = useState<CqItem | null>(null);
-  const alertas = items.filter((i) => i.cq_alertar_estilo && !i.cq_estilo_ok);
+  const [aba, setAba] = useState<"pendentes" | "resolvidos">("pendentes");
+  const [confirm, setConfirm] = useState<{ item: CqItem; acao: "cancelado" | "devolucao" } | null>(null);
+
+  const lista = items.filter((i) =>
+    aba === "pendentes" ? PENDENTES.includes(i.cq_alerta_status) : RESOLVIDOS.includes(i.cq_alerta_status),
+  );
 
   if (isLoading) return <p className="text-sm text-muted-foreground py-12 text-center">Carregando…</p>;
-  if (alertas.length === 0)
-    return (
-      <p className="text-sm text-muted-foreground py-12 text-center">
-        Nenhum alerta de estilo pendente.
-      </p>
-    );
+
+  const setStatus = (item: CqItem, status: CqStatus) => {
+    const cancela = status === "cancelado" || status === "devolucao" || status === "trocado";
+    update.mutate({ id: item.id, patch: { cq_alerta_status: status, cancelado: cancela } });
+  };
 
   return (
-    <div className="space-y-3">
-      {alertas.map((it) => (
-        <Card key={it.id} className="p-3 border-amber-500/50 bg-amber-500/5 space-y-3">
-          <div className="flex items-start gap-2">
-            <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-medium">{it.artigo}</span>
-                <span className="text-muted-foreground">· {it.variante}</span>
-                <Badge variant="outline">OC {it.oc_numero ?? "—"}</Badge>
-                {it.cq_pendente_troca && <Badge className="bg-orange-500 hover:bg-orange-500">Troca pendente</Badge>}
-              </div>
-              {it.cq_observacao && (
-                <p className="text-sm text-muted-foreground mt-1">{it.cq_observacao}</p>
-              )}
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pl-6">
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <Switch
-                checked={it.cq_pendente_troca}
-                onCheckedChange={(v) => update.mutate({ id: it.id, patch: { cq_pendente_troca: v } })}
-              />
-              Pendente para troca
-            </label>
-            <Button size="sm" variant="outline" onClick={() => update.mutate({ id: it.id, patch: { cq_estilo_ok: true } })}>
-              <Check className="h-4 w-4 mr-1" /> Estilo OK
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="text-destructive border-destructive/40 hover:bg-destructive/10"
-              onClick={() => setConfirmCancel(it)}
-            >
-              <Ban className="h-4 w-4 mr-1" /> Cancelar variante
-            </Button>
-          </div>
-        </Card>
-      ))}
+    <div className="space-y-4">
+      <div className="flex rounded-md border p-0.5 w-fit">
+        <Button size="sm" variant={aba === "pendentes" ? "secondary" : "ghost"} onClick={() => setAba("pendentes")}>Pendentes</Button>
+        <Button size="sm" variant={aba === "resolvidos" ? "secondary" : "ghost"} onClick={() => setAba("resolvidos")}>Resolvidos</Button>
+      </div>
 
-      <AlertDialog open={!!confirmCancel} onOpenChange={(o) => !o && setConfirmCancel(null)}>
+      {lista.length === 0 ? (
+        <p className="text-sm text-muted-foreground py-12 text-center">
+          {aba === "pendentes" ? "Nenhum alerta de estilo pendente." : "Nenhum alerta resolvido."}
+        </p>
+      ) : (
+        lista.map((it) => {
+          const badge = STATUS_BADGE[it.cq_alerta_status];
+          const resolvido = RESOLVIDOS.includes(it.cq_alerta_status);
+          return (
+            <Card key={it.id} className="p-3 border-amber-500/40 bg-amber-500/5 space-y-3">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium">{it.artigo}</span>
+                    <span className="text-muted-foreground">· {it.variante}</span>
+                    <Badge variant="outline">OC {it.oc_numero ?? "—"}</Badge>
+                    {badge && <Badge className={badge.cls}>{badge.label}</Badge>}
+                  </div>
+                  <ObsField item={it} update={update} />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 pl-6">
+                {resolvido ? (
+                  <Button size="sm" variant="outline" onClick={() => setStatus(it, "alertado")}>
+                    <RotateCcw className="h-4 w-4 mr-1" /> Reabrir
+                  </Button>
+                ) : (
+                  <>
+                    <Button size="sm" variant="outline" onClick={() => setStatus(it, "estilo_ok")}>
+                      <Check className="h-4 w-4 mr-1" /> Estilo OK
+                    </Button>
+                    {it.cq_alerta_status !== "troca_pendente" && (
+                      <Button size="sm" variant="outline" onClick={() => setStatus(it, "troca_pendente")}>
+                        Troca pendente
+                      </Button>
+                    )}
+                    <Button size="sm" variant="outline"
+                      className="text-red-600 border-red-500/40 hover:bg-red-500/10"
+                      onClick={() => setConfirm({ item: it, acao: "devolucao" })}>
+                      <Undo2 className="h-4 w-4 mr-1" /> Devolução
+                    </Button>
+                    <Button size="sm" variant="outline"
+                      className="text-destructive border-destructive/40 hover:bg-destructive/10"
+                      onClick={() => setConfirm({ item: it, acao: "cancelado" })}>
+                      <Ban className="h-4 w-4 mr-1" /> Cancelar variante
+                    </Button>
+                  </>
+                )}
+              </div>
+            </Card>
+          );
+        })
+      )}
+
+      <AlertDialog open={!!confirm} onOpenChange={(o) => !o && setConfirm(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Cancelar esta variante?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {confirm?.acao === "devolucao" ? "Marcar devolução?" : "Cancelar esta variante?"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              A variante "{confirmCancel?.variante}" da OC {confirmCancel?.oc_numero ?? "—"} será marcada
-              como cancelada: deixa de contar no estoque, no consumo e na prévia, e influencia tudo que usa
-              essa variante. (Pode ser revertida na OC.)
+              A variante "{confirm?.item.variante}" da OC {confirm?.item.oc_numero ?? "—"} sai do estoque,
+              consumo e prévia{confirm?.acao === "devolucao" ? " (devolução ao fornecedor — reembolso é tratado no Financeiro)" : ""}.
+              Pode ser revertida em Resolvidos (Reabrir).
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Voltar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (confirmCancel) update.mutate({ id: confirmCancel.id, patch: { cancelado: true } });
-                setConfirmCancel(null);
-              }}
-            >
-              Cancelar variante
+            <AlertDialogAction onClick={() => { if (confirm) setStatus(confirm.item, confirm.acao); setConfirm(null); }}>
+              {confirm?.acao === "devolucao" ? "Confirmar devolução" : "Cancelar variante"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+// Observação editável (compartilhada com o CQ da OC).
+function ObsField({ item, update }: { item: CqItem; update: ReturnType<typeof useCqUpdate> }) {
+  const [obs, setObs] = useState(item.cq_observacao ?? "");
+  return (
+    <Textarea
+      value={obs}
+      onChange={(e) => setObs(e.target.value)}
+      onBlur={() => { if ((obs || "") !== (item.cq_observacao ?? "")) update.mutate({ id: item.id, patch: { cq_observacao: obs || null } }); }}
+      placeholder="Observação (compartilhada com o CQ da OC)…"
+      className="min-h-[48px] text-sm mt-1"
+    />
   );
 }
