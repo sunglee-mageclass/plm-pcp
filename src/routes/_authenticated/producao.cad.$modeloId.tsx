@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ImageIcon, Scissors } from "lucide-react";
+import { ImageIcon, Scissors, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -57,6 +57,8 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
   // Trava por SEGURANÇA após enviar ao corte: só edita ao clicar "Editar", e o
   // Salvar volta a travar. (mesma ideia do Controle de Qualidade)
   const [editing, setEditing] = useState(false);
+  // Alerta: grade alterada → metragens/consumos podem estar desatualizados.
+  const [gradeAlterada, setGradeAlterada] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
 
   // --- queries ---
@@ -402,6 +404,7 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
     });
   };
   const updateGradeCell = (gi: number, tamanho: string, value: number) => {
+    setGradeAlterada(true);
     setGrades((prev) => {
       const next = [...prev];
       const propTam = Number(proporcoes[tamanho]) || 0;
@@ -422,6 +425,7 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
     });
   };
   const updateProporcao = (tam: string, val: number) => {
+    setGradeAlterada(true);
     const oldProp = proporcoes;
     const newProp = { ...oldProp, [tam]: Math.max(0, val) };
     setProporcoes(newProp);
@@ -535,6 +539,7 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
     onSuccess: () => {
       toast.success("CAD salvo");
       setEditing(false); // salvar trava novamente quando já foi enviado
+      setGradeAlterada(false);
       qc.invalidateQueries({ queryKey: ["cad-row", modeloId] });
       qc.invalidateQueries({ queryKey: ["cad-tecidos"] });
       qc.invalidateQueries({ queryKey: ["cad-aviamentos-rows"] });
@@ -736,6 +741,16 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
           editing={editing}
           onEditar={() => setEditing(true)}
         />
+
+        {gradeAlterada && (
+          <Card className="p-3 border-amber-500/60 bg-amber-500/10 text-sm flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+            <span>
+              <b>A grade foi alterada.</b> Revise as metragens dos Tecidos/Aviamentos e os consumos —
+              os cálculos de consumo/metragem podem estar desatualizados. Salve para confirmar.
+            </span>
+          </Card>
+        )}
 
         <fieldset disabled={readOnly || (!!cadRow?.enviado_corte && !editing)} className="contents">
         {/* SEÇÃO 1 */}
