@@ -30,7 +30,7 @@ import { ModeloAviamentosSection } from "./modelo-detail/ModeloAviamentosSection
 import { ModeloGradeSection } from "./modelo-detail/ModeloGradeSection";
 import { ModeloCustosSection } from "./modelo-detail/ModeloCustosSection";
 import { ModeloAnexosSection } from "./modelo-detail/ModeloAnexosSection";
-import { useEtapasAfetadas, DownstreamConfirmDialog, etapasAfetadasPorMudanca } from "./DownstreamImpactAlert";
+import { useEtapasAfetadas, DownstreamConfirmDialog } from "./DownstreamImpactAlert";
 import { ModeloObservacoes } from "@/components/shared/ModeloObservacoes";
 
 export function ModeloDetailPanel({ modeloId, onClose }: {
@@ -242,7 +242,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   // Salvar volta a travar. Reseta ao abrir outro modelo.
   const [editing, setEditing] = useState(false);
   const [confirmEditOpen, setConfirmEditOpen] = useState(false);
-  const { hasDownstream, reached } = useEtapasAfetadas(modeloId);
+  const { hasDownstream } = useEtapasAfetadas(modeloId);
   // Rastreio p/ o alerta inteligente (o que mudou → impacto específico).
   const [gradeAlterada, setGradeAlterada] = useState(false);
   const [consumoAlterado, setConsumoAlterado] = useState(false);
@@ -604,12 +604,12 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     onSuccess: () => {
       toast.success("Modelo salvo");
       setEditing(false); // salvar trava novamente quando já foi enviado ao CAD
-      // Marca revisão pendente (#Erro) nas etapas afetadas pelo que mudou.
-      const etps = etapasAfetadasPorMudanca(
-        { grade: gradeAlterada, consumo: consumoAlterado, aviamentos: aviamentoAlterado },
-        new Set(reached.map((s) => s.key)),
-      );
-      if (etps.length) supabase.rpc("marcar_revisao_pendente" as any, { _modelo_id: modeloId, _etapas: etps });
+      // Marca revisão pendente (#Erro) nas etapas afetadas — calculado no servidor.
+      supabase.rpc("marcar_revisao_por_mudanca" as any, {
+        _modelo_id: modeloId, _grade: gradeAlterada, _consumo: consumoAlterado, _aviamentos: aviamentoAlterado,
+      }).then(() => {
+        ["producao-terc-list", "producao-cq-list", "dir-list"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+      });
       setGradeAlterada(false); setConsumoAlterado(false); setAviamentoAlterado(false);
       qc.invalidateQueries({ queryKey: ["modelo-detail", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-tecidos", modeloId] });

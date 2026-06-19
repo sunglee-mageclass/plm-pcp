@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ImageIcon, Scissors, AlertTriangle } from "lucide-react";
-import { useEtapasAfetadas, DownstreamConfirmDialog, etapasAfetadasPorMudanca } from "@/components/desenvolvimento/DownstreamImpactAlert";
+import { useEtapasAfetadas, DownstreamConfirmDialog } from "@/components/desenvolvimento/DownstreamImpactAlert";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -59,7 +59,7 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
   // Salvar volta a travar. (mesma ideia do Controle de Qualidade)
   const [editing, setEditing] = useState(false);
   const [confirmEditOpen, setConfirmEditOpen] = useState(false);
-  const { hasDownstream: hasDownstreamCad, reached: reachedCad } = useEtapasAfetadas(modeloId, "cad");
+  const { hasDownstream: hasDownstreamCad } = useEtapasAfetadas(modeloId, "cad");
   // Alerta: grade alterada → metragens/consumos podem estar desatualizados.
   const [gradeAlterada, setGradeAlterada] = useState(false);
   // Rastreio p/ o alerta inteligente (o que mudou → impacto específico).
@@ -548,12 +548,12 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
     onSuccess: () => {
       toast.success("CAD salvo");
       setEditing(false); // salvar trava novamente quando já foi enviado
-      // Marca revisão pendente (#Erro) nas etapas afetadas pelo que mudou.
-      const etps = etapasAfetadasPorMudanca(
-        { grade: gradeAlterada, consumo: consumoAlterado, aviamentos: aviamentoAlterado },
-        new Set(reachedCad.map((s) => s.key)),
-      );
-      if (etps.length) supabase.rpc("marcar_revisao_pendente" as any, { _modelo_id: modeloId, _etapas: etps });
+      // Marca revisão pendente (#Erro) nas etapas afetadas — calculado no servidor.
+      supabase.rpc("marcar_revisao_por_mudanca" as any, {
+        _modelo_id: modeloId, _grade: gradeAlterada, _consumo: consumoAlterado, _aviamentos: aviamentoAlterado,
+      }).then(() => {
+        ["producao-terc-list", "producao-cq-list", "dir-list"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+      });
       setGradeAlterada(false);
       setConsumoAlterado(false);
       setAviamentoAlterado(false);
