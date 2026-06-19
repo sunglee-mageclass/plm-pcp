@@ -732,7 +732,7 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
       <div className="container mx-auto p-6 space-y-6 no-print">
         <CadActions
           onPrint={handlePrint}
-          onSave={() => saveAll.mutate()}
+          onSave={() => (hasDownstreamCad ? setConfirmEditOpen(true) : saveAll.mutate())}
           onEnviar={handleEnviar}
           onDesmarcar={handleDesmarcar}
           onExcluir={() => setConfirmDel(true)}
@@ -742,7 +742,7 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
           dataEnviado={cadRow?.data_enviado_corte}
           readOnly={readOnly}
           editing={editing}
-          onEditar={() => (hasDownstreamCad ? setConfirmEditOpen(true) : setEditing(true))}
+          onEditar={() => setEditing(true)}
         />
 
         <DownstreamConfirmDialog
@@ -750,7 +750,7 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
           from="cad"
           open={confirmEditOpen}
           onOpenChange={setConfirmEditOpen}
-          onConfirm={() => { setConfirmEditOpen(false); setEditing(true); }}
+          onConfirm={() => { setConfirmEditOpen(false); saveAll.mutate(); }}
         />
 
         {gradeAlterada && (

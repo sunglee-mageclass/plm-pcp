@@ -57,9 +57,9 @@ export function useEtapasAfetadas(modeloId: string, from: "desenvolvimento" | "c
 }
 
 /**
- * Confirmação ao TENTAR editar um modelo que já avançou. Lista cada etapa seguinte
- * afetada (o que usa do upstream + botão para abrir em nova aba). Cancelar = não
- * edita; "Editar mesmo assim" = libera a edição (onConfirm).
+ * Confirmação ao SALVAR um modelo que já avançou. Lista cada etapa seguinte
+ * afetada (o que usa do upstream + botão para abrir em nova aba). "Salvar mesmo
+ * assim" = salva (onConfirm); "Voltar a editar" = não salva, segue na edição.
  */
 export function DownstreamConfirmDialog({
   modeloId,
@@ -78,15 +78,15 @@ export function DownstreamConfirmDialog({
 
   const intro =
     from === "cad"
-      ? "Este modelo já foi enviado ao corte ou tem produção. Alterar grade, consumos ou aviamentos aqui pode afetar:"
-      : "Este modelo já avançou. Alterar consumo, grade ou tecidos aqui pode afetar as etapas seguintes (a metragem planejada do CAD não muda sozinha):";
+      ? "Este modelo já foi enviado ao corte ou tem produção. Salvar estas alterações do CAD vai afetar:"
+      : "Este modelo já avançou. Salvar estas alterações vai afetar as etapas seguintes (a metragem planejada do CAD não muda sozinha):";
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle className="flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-amber-600" /> Editar pode afetar etapas seguintes
+            <AlertTriangle className="h-4 w-4 text-amber-600" /> Salvar vai afetar etapas seguintes
           </AlertDialogTitle>
           <AlertDialogDescription>{intro}</AlertDialogDescription>
         </AlertDialogHeader>
@@ -109,8 +109,8 @@ export function DownstreamConfirmDialog({
         </ul>
 
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancelar</AlertDialogCancel>
-          <AlertDialogAction onClick={onConfirm}>Editar mesmo assim</AlertDialogAction>
+          <AlertDialogCancel>Voltar a editar</AlertDialogCancel>
+          <AlertDialogAction onClick={onConfirm}>Salvar mesmo assim</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

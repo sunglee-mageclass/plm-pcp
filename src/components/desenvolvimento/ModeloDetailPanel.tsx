@@ -850,7 +850,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         modeloId={modeloId}
         open={confirmEditOpen}
         onOpenChange={setConfirmEditOpen}
-        onConfirm={() => { setConfirmEditOpen(false); setEditing(true); }}
+        onConfirm={() => { setConfirmEditOpen(false); save.mutate(); }}
       />
 
       <fieldset disabled={locked} className="contents">
@@ -974,11 +974,11 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           </Button>
         )}
         {locked ? (
-          <Button variant="secondary" onClick={() => (hasDownstream ? setConfirmEditOpen(true) : setEditing(true))}>
+          <Button variant="secondary" onClick={() => setEditing(true)}>
             <Pencil className="h-4 w-4 mr-2" /> Editar
           </Button>
         ) : (
-          <Button onClick={() => save.mutate()} disabled={save.isPending}>
+          <Button onClick={() => (hasDownstream ? setConfirmEditOpen(true) : save.mutate())} disabled={save.isPending}>
             {save.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Salvar
           </Button>
         )}
