@@ -158,6 +158,9 @@ function TecidosTab() {
         baixaByItem.set(b.oc_tecido_item_id, (baixaByItem.get(b.oc_tecido_item_id) ?? 0) + num(b.quantidade));
       }
 
+      // Variantes com algum item zerado → liberam a reserva (decisão: zerar = resolvido).
+      const variantesZeradas = new Set<string>();
+
       for (const it of ocItens) {
         if (!it.variante_tecido_id) continue;
         if ((it as any).cancelado) continue;
@@ -169,7 +172,7 @@ function TecidosTab() {
         if ((it as any).ocs_tecido?.status === "recebido") {
           // Item "estoque zerado": fica FORA do físico (recebido E baixa dele),
           // assim a sobra/negativo some sem afetar itens não-zerados da mesma variante.
-          if ((it as any).estoque_zerado) continue;
+          if ((it as any).estoque_zerado) { variantesZeradas.add(it.variante_tecido_id); continue; }
           // quantidade_recebida null = recebeu o pedido cheio (COALESCE(recebida, pedida)).
           acc.recebido += toMetros(art, num(it.quantidade_recebida ?? it.quantidade_pedida));
           // Baixa do próprio item (ledger), capada no saldo recebido → físico do item ≥ 0.
@@ -217,7 +220,9 @@ function TecidosTab() {
         // Físico por item (recebido − baixa, com itens zerados fora) → nunca negativo
         // por causa de sobra/zerado; baixa de OS pode reduzir.
         const fisico = recebidoM - acc.baixa;
-        const previsto = fisico + prevRecebM - acc.reservado;
+        // Variante zerada libera a reserva (não mostra previsto negativo por reserva).
+        const reservado = variantesZeradas.has(v.id) ? 0 : acc.reservado;
+        const previsto = fisico + prevRecebM - reservado;
         return {
           varId: v.id,
           nomeVariante: v.nome_variante || v.codigo_variante || v.cores?.nome || "—",
@@ -236,7 +241,7 @@ function TecidosTab() {
           recebidoKg,
           recebidoM,
           baixa: acc.baixa,
-          reservado: acc.reservado,
+          reservado,
           fisico,
           previsto,
         };
