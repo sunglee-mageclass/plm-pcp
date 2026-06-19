@@ -96,7 +96,7 @@ function FinanceiroPage() {
           : Promise.resolve({ data: [], error: null } as const),
 
         tecidoIds.length
-          ? supabase.from("ocs_tecido").select("id, numero_pedido, ocs_tecido_itens!oc_tecido_id(cq_alerta_status)").in("id", tecidoIds)
+          ? supabase.from("ocs_tecido").select("id, numero_pedido, valor_real_total, ocs_tecido_itens!oc_tecido_id(cq_alerta_status, cancelado)").in("id", tecidoIds)
           : Promise.resolve({ data: [], error: null } as const),
         aviamentoIds.length
           ? supabase.from("ocs_aviamento").select("id,numero_pedido").in("id", aviamentoIds)
@@ -113,8 +113,17 @@ function FinanceiroPage() {
       const tecBadge = new Map(
         (tecidoRes.data ?? []).map((o: any) => [o.id, alertaBadge((o.ocs_tecido_itens ?? []).map((it: any) => it.cq_alerta_status))]),
       );
+      // OC de tecido "cancelada" = todos os itens cancelados (valor real 0). Some do Financeiro.
+      const ocCancelada = new Set(
+        (tecidoRes.data ?? []).filter((o: any) => {
+          const its = o.ocs_tecido_itens ?? [];
+          return its.length > 0 && its.every((it: any) => it.cancelado) ;
+        }).map((o: any) => o.id),
+      );
 
-      return list.map((p) => ({
+      return list
+        .filter((p) => !(p.oc_tecido_id && ocCancelada.has(p.oc_tecido_id)))
+        .map((p) => ({
         ...p,
         empresas: p.empresa_id ? { nome: empMap.get(p.empresa_id) ?? "—" } : null,
         ocs_tecido: p.oc_tecido_id ? { numero_pedido: tecMap.get(p.oc_tecido_id) ?? null } : null,
