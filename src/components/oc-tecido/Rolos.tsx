@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Trash2, Pencil } from "lucide-react";
+import { Trash2, Pencil, Undo2 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { fmtNum } from "@/lib/format";
@@ -451,5 +451,174 @@ function RoloEditDialog({ rolo, onClose }: { rolo: RoloRow; onClose: () => void 
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+const ROLO_INVALIDATE = ["ocs-para-rolo", "ajustes-estoque", "rolos", "ocs_tecido", "estoque-tecidos", "dash-estoque", "consumo-por-oc"];
+
+// ───────────────────── - Metragem (remover de uma OC/Rolo) ─────────────────────
+export function RemoverMetragemDialog({ onClose }: { onClose: () => void }) {
+  const qc = useQueryClient();
+  const [ocId, setOcId] = useState("");
+  const [ocItemId, setOcItemId] = useState("");
+  const [metragem, setMetragem] = useState("");
+  const [motivo, setMotivo] = useState("");
+
+  const { data: ocsRolo = [] } = useQuery({
+    queryKey: ["ocs-para-rolo"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("ocs_para_rolo" as any);
+      if (error) throw error;
+      return (data ?? []) as RoloOc[];
+    },
+  });
+  const selectedOc = ocsRolo.find((o) => o.oc_id === ocId);
+  const ocItems = selectedOc?.itens ?? [];
+  const selectedItem = ocItems.find((i) => i.oc_tecido_item_id === ocItemId);
+
+  const remover = useMutation({
+    mutationFn: async () => {
+      if (!selectedItem) throw new Error("Selecione o tecido / variante.");
+      const m = Number(metragem);
+      if (!(m > 0)) throw new Error("Informe a metragem a remover.");
+      if (m > selectedItem.disponivel_m + 1e-6) throw new Error(`Só há ${selectedItem.disponivel_m.toFixed(2)}m disponíveis.`);
+      if (!motivo.trim()) throw new Error("Informe o motivo.");
+      const { error } = await supabase.rpc("remover_metragem_oc" as any, {
+        _oc_tecido_item_id: ocItemId, _metragem: m, _motivo: motivo,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Metragem removida");
+      ROLO_INVALIDATE.forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+      onClose();
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao remover metragem"),
+  });
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader><DialogTitle>Remover metragem</DialogTitle></DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Origem (OC ou Rolo, com saldo)</Label>
+            <Select value={ocId} onValueChange={(v) => { setOcId(v); setOcItemId(""); }}>
+              <SelectTrigger><SelectValue placeholder="Selecione a OC ou o rolo" /></SelectTrigger>
+              <SelectContent>
+                {ocsRolo.map((o) => (
+                  <SelectItem key={o.oc_id} value={o.oc_id}>
+                    {o.is_rolo ? "Rolo" : "OC"} {o.label || o.numero_pedido || "(sem número)"}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {ocsRolo.length === 0 && (
+              <p className="text-xs text-muted-foreground">Nenhuma OC ou rolo com saldo disponível.</p>
+            )}
+          </div>
+          {ocId && (
+            <div className="space-y-1.5">
+              <Label>Tecido / variante</Label>
+              <Select value={ocItemId} onValueChange={setOcItemId}>
+                <SelectTrigger><SelectValue placeholder="Selecione o tecido / variante" /></SelectTrigger>
+                <SelectContent>
+                  {ocItems.map((it) => (
+                    <SelectItem key={it.oc_tecido_item_id} value={it.oc_tecido_item_id}>
+                      {it.artigo_nome ?? "—"} · {it.variante} — {it.disponivel_m.toFixed(2)}m
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {selectedItem && (
+            <>
+              <div className="space-y-1.5">
+                <Label>Metragem a remover (m)</Label>
+                <Input type="number" value={metragem} max={selectedItem.disponivel_m}
+                  onChange={(e) => setMetragem(e.target.value)} placeholder="metros" />
+                <p className="text-xs text-muted-foreground">Disponível: {selectedItem.disponivel_m.toFixed(2)}m.</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Motivo</Label>
+                <Input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex.: contagem errada / conserto" />
+              </div>
+            </>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={() => remover.mutate()} disabled={remover.isPending}>Remover</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ───────────────────── Lista de ajustes (auditoria / desfazer) ─────────────────────
+type AjusteRow = {
+  id: string; created_at: string; quantidade: number; motivo: string | null;
+  origem_label: string; artigo: string; variante: string; por: string;
+};
+
+export function AjustesList() {
+  const qc = useQueryClient();
+  const { data: ajustes = [] } = useQuery({
+    queryKey: ["ajustes-estoque"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("ajustes_estoque_lista" as any);
+      if (error) throw error;
+      return (data ?? []) as AjusteRow[];
+    },
+  });
+  const reverter = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.rpc("reverter_ajuste_estoque" as any, { _baixa_id: id });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Ajuste revertido");
+      ROLO_INVALIDATE.forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao reverter ajuste"),
+  });
+
+  if (ajustes.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      <h3 className="text-sm font-semibold">Ajustes de estoque (remoções)</h3>
+      <div className="rounded-lg border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Origem</TableHead>
+              <TableHead>Tecido</TableHead>
+              <TableHead className="text-right">Removido (m)</TableHead>
+              <TableHead>Motivo</TableHead>
+              <TableHead>Por</TableHead>
+              <TableHead className="w-10" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {ajustes.map((a) => (
+              <TableRow key={a.id}>
+                <TableCell className="font-medium">{a.origem_label}</TableCell>
+                <TableCell className="text-muted-foreground">{a.artigo} · {a.variante}</TableCell>
+                <TableCell className="text-right">{fmtNum(a.quantidade)}</TableCell>
+                <TableCell className="text-muted-foreground">{a.motivo || "—"}</TableCell>
+                <TableCell className="text-muted-foreground">{a.por}</TableCell>
+                <TableCell>
+                  <Button variant="ghost" size="icon" className="h-8 w-8" title="Desfazer"
+                    onClick={() => reverter.mutate(a.id)}>
+                    <Undo2 className="h-4 w-4" />
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
   );
 }

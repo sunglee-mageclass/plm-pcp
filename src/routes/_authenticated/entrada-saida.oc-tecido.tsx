@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { fmtNum } from "@/lib/format";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Scissors, Plus } from "lucide-react";
+import { Scissors, Plus, Minus } from "lucide-react";
 import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 import { OcTecidoList } from "@/components/oc-tecido/OcTecidoList";
-import { RolosList, RoloDialog } from "@/components/oc-tecido/Rolos";
+import { RolosList, RoloDialog, RemoverMetragemDialog, AjustesList } from "@/components/oc-tecido/Rolos";
 import { OcCqSection } from "@/components/oc-tecido/CqTecido";
 import { FilterButton } from "@/components/shared/filters";
 import { OcTecidoForm } from "@/components/oc-tecido/OcTecidoForm";
@@ -44,6 +44,7 @@ function OcTecidoPage() {
   const qc = useQueryClient();
   const [view, setView] = useState<"ocs" | "rolos">("ocs");
   const [openRolo, setOpenRolo] = useState(false);
+  const [openRemover, setOpenRemover] = useState(false);
   const [tab, setTab] = useState<OCStatus>("encomendado");
   const [filterEmpresa, setFilterEmpresa] = useState<string>("all");
   const [filterResp, setFilterResp] = useState<string>("all");
@@ -175,9 +176,14 @@ function OcTecidoPage() {
             </>
           )}
           {view === "rolos" && (
-            <Button onClick={() => setOpenRolo(true)}>
-              <Plus className="h-4 w-4 mr-1" /> Novo Rolo
-            </Button>
+            <>
+              <Button variant="outline" onClick={() => setOpenRemover(true)}>
+                <Minus className="h-4 w-4 mr-1" /> Metragem
+              </Button>
+              <Button onClick={() => setOpenRolo(true)}>
+                <Plus className="h-4 w-4 mr-1" /> Novo Rolo
+              </Button>
+            </>
           )}
         </div>
       </header>
@@ -199,11 +205,18 @@ function OcTecidoPage() {
           qtdRecebidaByOc={qtdRecebidaByOc}
         />
       ) : (
-        <RolosList />
+        <div className="space-y-6">
+          <RolosList />
+          <AjustesList />
+        </div>
       )}
 
       {openRolo && (
         <RoloDialog onClose={() => setOpenRolo(false)} onSaved={() => {}} />
+      )}
+
+      {openRemover && (
+        <RemoverMetragemDialog onClose={() => setOpenRemover(false)} />
       )}
 
       {openNew && (
