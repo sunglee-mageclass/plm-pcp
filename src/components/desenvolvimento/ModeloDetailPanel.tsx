@@ -30,6 +30,7 @@ import { ModeloAviamentosSection } from "./modelo-detail/ModeloAviamentosSection
 import { ModeloGradeSection } from "./modelo-detail/ModeloGradeSection";
 import { ModeloCustosSection } from "./modelo-detail/ModeloCustosSection";
 import { ModeloAnexosSection } from "./modelo-detail/ModeloAnexosSection";
+import { DownstreamImpactAlert } from "./DownstreamImpactAlert";
 import { ModeloObservacoes } from "@/components/shared/ModeloObservacoes";
 
 export function ModeloDetailPanel({ modeloId, onClose }: {
@@ -842,6 +843,10 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       <SheetHeader>
         <SheetTitle>{draft.nome || "Modelo"}</SheetTitle>
       </SheetHeader>
+
+      <div className="mt-3">
+        <DownstreamImpactAlert modeloId={modeloId} />
+      </div>
 
       <fieldset disabled={locked} className="contents">
       <div className="mt-4">
