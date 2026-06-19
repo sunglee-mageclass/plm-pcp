@@ -264,6 +264,7 @@ type RoloRow = {
     quantidade_recebida: number | null;
     artigos: { nome: string; unidade_medida: string | null; rendimento: number | null } | null;
     variantes_tecido: { nome_variante: string | null; codigo_variante: string | null } | null;
+    estoque_tecido_baixas: { quantidade: number | null }[] | null;
   }[];
 };
 
@@ -279,7 +280,7 @@ export function RolosList() {
         .from("ocs_tecido")
         .select(
           // relacionamento explícito (!oc_tecido_id) p/ não depender do schema cache.
-          "id, rolo_codigo, rolo_origem_item_id, rolo_rua, rolo_prateleira, ocs_tecido_itens!oc_tecido_id(id, quantidade_recebida, artigos(nome, unidade_medida, rendimento), variantes_tecido(nome_variante, codigo_variante))",
+          "id, rolo_codigo, rolo_origem_item_id, rolo_rua, rolo_prateleira, ocs_tecido_itens!oc_tecido_id(id, quantidade_recebida, artigos(nome, unidade_medida, rendimento), variantes_tecido(nome_variante, codigo_variante), estoque_tecido_baixas(quantidade))",
         )
         .eq("is_rolo", true)
         .order("created_at", { ascending: false });
@@ -328,10 +329,12 @@ export function RolosList() {
               {rolos.map((r) => {
                 const itens = r.ocs_tecido_itens ?? [];
                 const tecido = itens[0]?.artigos?.nome ?? "—";
-                const total = itens.reduce(
-                  (s, it) => s + toMetros(it.quantidade_recebida ?? 0, it.artigos?.unidade_medida ?? null, it.artigos?.rendimento ?? null),
-                  0,
-                );
+                // Físico = recebido − baixas (separação/ajuste). Baixa já está em metros.
+                const total = itens.reduce((s, it) => {
+                  const recebidoM = toMetros(it.quantidade_recebida ?? 0, it.artigos?.unidade_medida ?? null, it.artigos?.rendimento ?? null);
+                  const baixaM = (it.estoque_tecido_baixas ?? []).reduce((b, x) => b + (x.quantidade ?? 0), 0);
+                  return s + Math.max(0, recebidoM - baixaM);
+                }, 0);
                 const vars = itens
                   .map((it) => it.variantes_tecido?.nome_variante || it.variantes_tecido?.codigo_variante)
                   .filter(Boolean)
