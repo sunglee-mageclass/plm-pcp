@@ -452,6 +452,10 @@ function OcDialog({
       if (selecionados.some((i) => !(Number(i.quantidade_pedida) > 0)))
         throw new Error("Informe a quantidade (maior que zero) de cada aviamento.");
       const parcelas = draft.parcelas_recebimento ?? [];
+      // Data de entrega = data da última parcela de recebimento (igual à OC Tecido).
+      const lastDate = parcelas.length > 0
+        ? [...parcelas].map((p) => p.data).filter(Boolean).sort().slice(-1)[0] ?? draft.data_entrega
+        : draft.data_entrega;
       const payload: any = {
         numero_pedido: draft.numero_pedido || null,
         responsavel_nome: respMode === "select"
@@ -460,7 +464,7 @@ function OcDialog({
         empresa_id: draft.empresa_id,
         data_pedido: draft.data_pedido || null,
         data_prevista_entrega: draft.data_prevista_entrega || null,
-        data_entrega: draft.data_entrega || null,
+        data_entrega: markReceived ? (lastDate || null) : (draft.data_entrega || null),
         prazo_pagamento: draft.prazo_pagamento || null,
         quantidade_prazos: draft.quantidade_prazos,
         nf_url: draft.nf_url,
@@ -607,18 +611,20 @@ function OcDialog({
   const parcelas = draft.parcelas_recebimento ?? [];
   const todasParcelasOk =
     parcelas.length > 0 && parcelas.every((p) => !!p.data && p.recebido === true);
+  // Data de entrega derivada da última parcela de recebimento (não se digita à mão).
+  const derivedEntrega = parcelas.length > 0
+    ? ([...parcelas].map((p) => p.data).filter(Boolean).sort().slice(-1)[0] ?? "")
+    : "";
   const canMarkReceived =
     canShowRecebimento &&
     !isReadOnlyRecebimento &&
     items.some((i) => (i.quantidade_recebida ?? 0) > 0) &&
-    !!draft.data_entrega &&
     !!draft.nf_url &&
     todasParcelasOk;
 
   const getMissingRequirements = (): string[] => {
     const m: string[] = [];
     if (!items.some((i) => (i.quantidade_recebida ?? 0) > 0)) m.push("Preencha a quantidade recebida de pelo menos um aviamento");
-    if (!draft.data_entrega) m.push("Informe a data da entrega");
     if (!draft.nf_url) m.push("Anexe a nota fiscal");
     if (parcelas.length === 0) {
       m.push("Defina a quantidade de parcelas de recebimento");
@@ -825,8 +831,8 @@ function OcDialog({
               <h3 className="text-lg font-semibold">Recebimento</h3>
               <div className="grid sm:grid-cols-2 gap-4">
                 <div className="grid gap-1">
-                  <Label>Data da Entrega</Label>
-                  <Input type="date" value={draft.data_entrega} disabled={isReadOnlyRecebimento} onChange={(e) => setDraft((d) => ({ ...d, data_entrega: e.target.value }))} />
+                  <Label>Data da Entrega <span className="text-xs text-muted-foreground">(última parcela recebida)</span></Label>
+                  <Input type="date" value={draft.data_entrega || derivedEntrega} disabled readOnly />
                 </div>
                 <div className="grid gap-1">
                   <Label>Nota Fiscal</Label>
