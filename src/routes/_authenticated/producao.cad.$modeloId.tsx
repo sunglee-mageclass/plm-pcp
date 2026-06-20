@@ -573,16 +573,22 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
   const enviarCorte = useMutation({
     mutationFn: async () => {
       const cad_id = (await saveAll.mutateAsync()) as string;
-      const { error } = await supabase
-        .from("cad")
-        .update({ enviado_corte: true, data_enviado_corte: new Date().toISOString().slice(0, 10), status_corte: "enviado" })
-        .eq("id", cad_id);
+      // RPC atômica: marca enviado_corte + baixa o estoque na mesma transação e
+      // retorna o déficit por variante (o que faltou baixar de metragem_enviada).
+      const { data, error } = await supabase.rpc("baixar_estoque_tecido_corte" as any, { _cad_id: cad_id });
       if (error) throw error;
-      const { error: eBx } = await supabase.rpc("baixar_estoque_tecido_corte" as any, { _cad_id: cad_id });
-      if (eBx) throw eBx;
+      return data as any;
     },
-    onSuccess: () => {
-      toast.success("Enviado ao corte");
+    onSuccess: (res: any) => {
+      const def: any[] = Array.isArray(res?.deficit) ? res.deficit : [];
+      if (def.length > 0) {
+        const linhas = def
+          .map((d) => `${d.variante}: faltaram ${Number(d.deficit).toLocaleString("pt-BR", { maximumFractionDigits: 2 })} m`)
+          .join("; ");
+        toast.warning(`Enviado ao corte, mas faltou estoque — ${linhas}`, { duration: 12000 });
+      } else {
+        toast.success("Enviado ao corte");
+      }
       qc.invalidateQueries({ queryKey: ["producao-cad-list"] });
       qc.invalidateQueries({ queryKey: ["cad-row", modeloId] });
       qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
