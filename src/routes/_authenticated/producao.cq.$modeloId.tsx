@@ -295,70 +295,65 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
     return out;
   }, [grades, variantList, tamanhos]);
 
-  // Persiste CQ (controle_qualidade + cq_variantes). Retorna o id do CQ.
-  const saveMut = useMutation({
-    mutationFn: async () => {
-      if (!cad?.id) throw new Error("CAD não encontrado. Abra o CAD desse modelo primeiro.");
-      const payload = {
-        cad_id: cad.id,
-        // Datas de oficina vêm de Serviços (read-only no CQ) — gravadas como snapshot.
-        data_recebimento_enviado_oficina: oficina.enviado || null,
-        data_recebimento_prevista: oficina.prevista || null,
-        data_recebimento_entregue: oficina.entregue || null,
-        data_conserto_enviado: form.data_conserto_enviado || null,
-        data_conserto_prevista: form.data_conserto_prevista || null,
-        data_conserto_entregue: form.data_conserto_entregue || null,
-        data_lavagem_enviado: form.data_lavagem_enviado || null,
-        data_lavagem_entregue: form.data_lavagem_entregue || null,
-        observacoes_cq: form.observacoes_cq,
-        pecas_incompletas: form.pecas_incompletas,
-        pecas_faltantes: form.pecas_faltantes,
-        pecas_sem_etiqueta: form.pecas_sem_etiqueta,
-        // Foto por variante: só as marcadas como fotografadas.
-        fotografado_variantes: Object.fromEntries(
-          variantList.filter((v) => fotografado[v.num]).map((v) => [String(v.num), true]),
-        ),
-      };
-
-      let cqId = cqRow?.id;
-      if (cqId) {
-        const { error } = await supabase.from("controle_qualidade").update(payload).eq("id", cqId);
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase.from("controle_qualidade").insert(payload).select("id").single();
-        if (error) throw error;
-        cqId = data.id;
-      }
-
-      // Replace cq_variantes
-      const { error: delErr } = await supabase.from("cq_variantes").delete().eq("controle_qualidade_id", cqId);
-      if (delErr) throw delErr;
-
-      const rows: any[] = [];
-      ETAPAS.forEach((et) => {
-        Object.values(grades[et]).forEach((r) => {
-          const hasAny = r.grade_total > 0 || (et === "defeito" && r.destino_defeito);
-          if (!hasAny) return;
-          rows.push({
-            controle_qualidade_id: cqId,
-            variante_numero: r.variante_numero,
-            etapa: et,
-            grades: r.grades,
-            grade_total: r.grade_total,
-            destino_defeito: et === "defeito" ? r.destino_defeito ?? null : null,
-          });
+  // Monta os dados do CQ (controle_qualidade + cq_variantes + grade real) para o RPC.
+  const buildCqData = () => {
+    const cq = {
+      // Datas de oficina vêm de Serviços (read-only no CQ) — gravadas como snapshot.
+      data_recebimento_enviado_oficina: oficina.enviado || null,
+      data_recebimento_prevista: oficina.prevista || null,
+      data_recebimento_entregue: oficina.entregue || null,
+      data_conserto_enviado: form.data_conserto_enviado || null,
+      data_conserto_prevista: form.data_conserto_prevista || null,
+      data_conserto_entregue: form.data_conserto_entregue || null,
+      data_lavagem_enviado: form.data_lavagem_enviado || null,
+      data_lavagem_entregue: form.data_lavagem_entregue || null,
+      observacoes_cq: form.observacoes_cq,
+      pecas_incompletas: form.pecas_incompletas,
+      pecas_faltantes: form.pecas_faltantes,
+      pecas_sem_etiqueta: form.pecas_sem_etiqueta,
+      fotografado_variantes: Object.fromEntries(
+        variantList.filter((v) => fotografado[v.num]).map((v) => [String(v.num), true]),
+      ),
+    };
+    const variantes: any[] = [];
+    ETAPAS.forEach((et) => {
+      Object.values(grades[et]).forEach((r) => {
+        const hasAny = r.grade_total > 0 || (et === "defeito" && r.destino_defeito);
+        if (!hasAny) return;
+        variantes.push({
+          variante_numero: r.variante_numero,
+          etapa: et,
+          grades: r.grades,
+          grade_total: r.grade_total,
+          destino_defeito: et === "defeito" ? r.destino_defeito ?? null : null,
         });
       });
-      if (rows.length) {
-        const { error } = await supabase.from("cq_variantes").insert(rows);
-        if (error) throw error;
-      }
-      // Editando um CQ já confirmado: mantém a Grade Real (cad_grades) em sincronia.
-      if (status === "confirmado") {
-        await writeGradeReal(cad.id, false);
-      }
-      return cqId as string;
-    },
+    });
+    const reais = variantList.map((v) => ({
+      variante_numero: v.num,
+      grades: realByNum[v.num]?.grades ?? {},
+      grade_total: realByNum[v.num]?.total ?? 0,
+    }));
+    return { cq, variantes, reais };
+  };
+
+  // RPC transacional: salva (e opcionalmente confirma) o CQ. cq_variantes e a
+  // Grade Real (cad_grades) na MESMA transação — tudo ou nada.
+  const saveCq = async (confirmar: boolean) => {
+    if (!cad?.id) throw new Error("CAD não encontrado. Abra o CAD desse modelo primeiro.");
+    const { cq, variantes, reais } = buildCqData();
+    const { error } = await supabase.rpc("salvar_cq" as any, {
+      _cad_id: cad.id,
+      _cq: cq,
+      _variantes: variantes,
+      _reais: reais,
+      _confirmar: confirmar,
+    });
+    if (error) throw error;
+  };
+
+  const saveMut = useMutation({
+    mutationFn: () => saveCq(false),
     onSuccess: async () => {
       toast.success("Salvo");
       setEditing(false);
@@ -372,51 +367,8 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
     onError: (e: any) => toast.error(e?.message ?? "Erro"),
   });
 
-  // Grava a Grade Real (Recebimento − Defeito) em cad_grades.grades_reais, que é a
-  // grade usada pelo Direcionamento.
-  const writeGradeReal = async (cadId: string, revert: boolean) => {
-    const { data: existing } = await supabase.from("cad_grades").select("id, variante_numero, grades_planejadas, grade_total_planejada").eq("cad_id", cadId);
-    const byNum = new Map<number, any>();
-    (existing ?? []).forEach((r: any) => byNum.set(Number(r.variante_numero), r));
-    for (const { num } of variantList) {
-      const row = byNum.get(num);
-      if (revert) {
-        // Desmarcar: volta a Grade Real à grade planejada.
-        if (row) {
-          await supabase.from("cad_grades")
-            .update({ grades_reais: row.grades_planejadas ?? {}, grade_total_real: row.grade_total_planejada ?? 0 })
-            .eq("id", row.id);
-        }
-        continue;
-      }
-      const real = realByNum[num] ?? { grades: {}, total: 0 };
-      if (row) {
-        await supabase.from("cad_grades")
-          .update({ grades_reais: real.grades, grade_total_real: real.total })
-          .eq("id", row.id);
-      } else {
-        await supabase.from("cad_grades").insert({
-          cad_id: cadId,
-          variante_numero: num,
-          grades_planejadas: real.grades,
-          grades_reais: real.grades,
-          grade_total_planejada: real.total,
-          grade_total_real: real.total,
-        });
-      }
-    }
-  };
-
   const confirmMut = useMutation({
-    mutationFn: async () => {
-      const cqId = await saveMut.mutateAsync();
-      const { error } = await supabase
-        .from("controle_qualidade")
-        .update({ status: "confirmado", confirmado_at: new Date().toISOString() } as any)
-        .eq("id", cqId);
-      if (error) throw error;
-      await writeGradeReal(cad!.id, false);
-    },
+    mutationFn: () => saveCq(true),
     onSuccess: async () => {
       toast.success("Controle de Qualidade confirmado — enviado ao Direcionamento");
       setStatus("confirmado");
@@ -432,13 +384,9 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
 
   const desmarcarMut = useMutation({
     mutationFn: async () => {
-      if (!cqRow?.id || !cad?.id) return;
-      const { error } = await supabase
-        .from("controle_qualidade")
-        .update({ status: "pendente", confirmado_at: null } as any)
-        .eq("id", cqRow.id);
+      if (!cad?.id) return;
+      const { error } = await supabase.rpc("desmarcar_cq" as any, { _cad_id: cad.id });
       if (error) throw error;
-      await writeGradeReal(cad.id, true);
     },
     onSuccess: async () => {
       toast.success("Confirmação desmarcada — CQ voltou a editável");
