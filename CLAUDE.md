@@ -34,10 +34,11 @@ Scripts: `npm run dev` · `npm run build` · `npm run lint`
    `supabase db push --db-url "postgresql://postgres.ruinwcuabilumcspeyjk:<SENHA>@aws-1-sa-east-1.pooler.supabase.com:5432/postgres"`.
    ⚠️ A `supabase/config.toml` ainda aponta pro ref **ANTIGO** (`wccapbvbbejjzpvlvyuf`),
    então **sempre** passar `--db-url` pro banco novo (senha em `/tmp/dbpass.txt`,
-   **Session pooler**/IPv4; senha vai dentro da URL). Depois de aplicar, **sempre
-   entregar o SQL/prompt** pro usuário colar no Lovable quando quiser sincronizar
-   o ambiente dele (ele ainda usa o Lovable pra alguns fronts). `psql "$DBURL"`
-   serve pra inspeção. Edição de **frontend** flui normal via `git push`.
+   **Session pooler**/IPv4; senha vai dentro da URL). Atalho: `psql "$(cat /tmp/dburl.txt)" -f <migration>`.
+   `psql "$(cat /tmp/dburl.txt)"` serve pra inspeção e para **testar RPCs com
+   teste transacional revertido** (`BEGIN; set_config('request.jwt.claims', ...); ...; ROLLBACK;`).
+   **Não é mais necessário entregar SQL pro Lovable** (decisão do dono, jun/2026):
+   aplicar a migration no banco próprio basta. Edição de **frontend** flui via `git push`.
 
 2. **Auth acoplado ao Lovable.** O login usa `src/integrations/lovable/` e o
    endpoint `/~oauth/initiate`, que só existe no ambiente do Lovable. **OAuth
@@ -104,14 +105,47 @@ A maioria do backlog já foi corrigido. Padrões a **preservar** (não regredir)
 repo muda rápido (Lovable + VS Code). Backlog histórico em
 `plm-pcp-status-e-prompts.md`, mas confira contra o código atual antes de usar.
 
+## Fase 0 — integridade (jun/2026, padrões a preservar)
+
+Auditoria por times + correção dos P0 de integridade. Não regredir:
+
+6. **Grade Real do CQ** — `salvar_cad_completo` PRESERVA `grades_reais`/
+   `grade_total_real` quando o CQ daquele CAD está `confirmado` (snapshot antes do
+   DELETE). Salvar o CAD não pode zerar a grade real produzida.
+7. **1 CAD por modelo (e 1 por cad_id)** — garantido por TRIGGER `enforce_unique_fk`
+   (não por UNIQUE — ver "O que NÃO fazer"). `cad_grades(cad_id,variante_numero)` é
+   UNIQUE composta (ok p/ `ON CONFLICT`).
+8. **Enviar ao corte** — RPC `baixar_estoque_tecido_corte` é ATÔMICA: marca
+   `enviado_corte` na mesma transação da baixa e retorna `deficit[]` por variante;
+   o front mostra `toast.warning` com o déficit. Não voltar a fazer `update` + RPC
+   separados no front.
+9. **Parcelas a pagar** — `recalcular_parcelas` distribui `valor_total − Σ(pagas)`
+   sobre as não-pagas (Σ == `valor_real_total`); núcleo em `_recalcular_parcelas_core`
+   (sem auth) + wrapper com auth. É **automática**: trigger `trg_recalc_parcelas_valor`
+   em `ocs_tecido` recalcula quando o valor muda numa OC já recebida. Guard
+   `valor_total<=0` nos triggers de geração. Parcela (a pagar) ≠ `parcelas_recebimento`
+   (entrega) — nunca confundir.
+10. **CQ transacional** — `salvar_cq`/`desmarcar_cq` fazem status + `cq_variantes` +
+    Grade Real (`cad_grades`) numa transação. O front (`producao.cq.$modeloId.tsx`)
+    só chama os RPCs (sem `writeGradeReal` em loop).
+
+**Docs de referência LOCAIS (gitignored, manter atualizados):**
+`docs/mapeamento-campos-calculos.md` (campos×campos, fórmulas, etapas) e
+`docs/plano-de-ataque.md` (auditoria das 7 frentes + plano de Fases; rastreia o que
+já foi feito). Ler/atualizar ao mexer em consumo/grade/estoque/custo/financeiro/CQ.
+
 ## O que NÃO fazer
 
-- Não esquecer de aplicar a migration com `db push --db-url` no banco novo nem
-  de entregar o SQL/prompt pro Lovable (regra 1).
+- Não esquecer de aplicar a migration com `psql -f`/`db push --db-url` no banco novo (regra 1).
 - Não mexer no fluxo de OAuth para "fazer funcionar local" (regra 2).
 - Não atualizar recharts para v3 agora (tem breaking changes).
 - Não editar arquivos em `src/components/ui/` (shadcn gerado) sem necessidade.
 - Não commitar `.env` (já está no `.gitignore`).
+- **Não criar `UNIQUE`/FK em coluna ÚNICA que é embedada** (ex.: `cad.modelo_id`,
+  `controle_qualidade.cad_id`): o PostgREST passa a tratar o embed como **objeto**
+  (to-one) e quebra todo código que usa `x?.[0]`/`(x ?? []).some(...)`. Para garantir
+  "1:1" use **TRIGGER** (`enforce_unique_fk`), não constraint. UNIQUE **composta**
+  (ex.: `cad_grades(cad_id,variante_numero)`) é segura. (Regressão real em jun/2026.)
 
 ## Agentes — organizados em times (`.claude/agents/`)
 
