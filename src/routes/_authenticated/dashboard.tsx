@@ -19,6 +19,7 @@ import {
 
 import { RequirePermission } from "@/components/RequirePermission";
 import { ModuleGuard } from "@/components/ModuleGuard";
+import { useAuth } from "@/hooks/useAuth";
 export const Route = createFileRoute("/_authenticated/dashboard")({
   component: () => (
     <ModuleGuard module="dashboard">
@@ -33,27 +34,38 @@ const PIE_COLORS = ["hsl(217 91% 60%)", "hsl(142 71% 45%)", "hsl(45 93% 47%)", "
 
 const isoDate = (d?: Date) => (d ? format(d, "yyyy-MM-dd") : undefined);
 
+const DASH_TABS = [
+  { value: "colecao", label: "Coleção", Comp: ColecaoTab },
+  { value: "estoque", label: "Estoque", Comp: EstoqueTab },
+  { value: "producao", label: "Produção", Comp: ProducaoTab },
+  { value: "financeiro", label: "Financeiro", Comp: FinanceiroTab },
+  { value: "custos", label: "Custos", Comp: CustosTab },
+] as const;
+
 function Dashboard() {
-  const [tab, setTab] = useState("colecao");
+  const { canView } = useAuth();
+  // Só mostra as abas que o usuário pode ver (a RPC de cada aba também checa
+  // a permissão no banco — ver migration dashboard_permissao_por_aba).
+  const tabs = DASH_TABS.filter((t) => canView(`dashboard_${t.value}`));
+  const [tab, setTab] = useState<string>(tabs[0]?.value ?? "colecao");
+  const active = tabs.some((t) => t.value === tab) ? tab : (tabs[0]?.value ?? "colecao");
   return (
     <div className="container mx-auto p-6 space-y-6">
       <header>
         <h1 className="text-2xl font-bold">Dashboard</h1>
         <p className="text-sm text-muted-foreground">Visão geral da coleção e do estoque.</p>
       </header>
-      <Tabs value={tab} onValueChange={setTab}>
+      <Tabs value={active} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="colecao">Coleção</TabsTrigger>
-          <TabsTrigger value="estoque">Estoque</TabsTrigger>
-          <TabsTrigger value="producao">Produção</TabsTrigger>
-          <TabsTrigger value="financeiro">Financeiro</TabsTrigger>
-          <TabsTrigger value="custos">Custos</TabsTrigger>
+          {tabs.map((t) => (
+            <TabsTrigger key={t.value} value={t.value}>{t.label}</TabsTrigger>
+          ))}
         </TabsList>
-        <TabsContent value="colecao" className="mt-4">{tab === "colecao" && <ColecaoTab />}</TabsContent>
-        <TabsContent value="estoque" className="mt-4">{tab === "estoque" && <EstoqueTab />}</TabsContent>
-        <TabsContent value="producao" className="mt-4">{tab === "producao" && <ProducaoTab />}</TabsContent>
-        <TabsContent value="financeiro" className="mt-4">{tab === "financeiro" && <FinanceiroTab />}</TabsContent>
-        <TabsContent value="custos" className="mt-4">{tab === "custos" && <CustosTab />}</TabsContent>
+        {tabs.map((t) => (
+          <TabsContent key={t.value} value={t.value} className="mt-4">
+            {active === t.value && <t.Comp />}
+          </TabsContent>
+        ))}
       </Tabs>
     </div>
   );
