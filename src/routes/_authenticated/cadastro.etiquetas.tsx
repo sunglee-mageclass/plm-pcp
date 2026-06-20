@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Tag, Plus, Pencil, Trash2, Search, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,6 +43,7 @@ const fmtTamanho = (t: string) => {
 
 function EtiquetasPage() {
   const qc = useQueryClient();
+  const tenantId = useActiveTenantId();
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Etiqueta | null>(null);
@@ -60,9 +62,10 @@ function EtiquetasPage() {
 
   // Tamanhos da grade configurada na loja; cai no padrão se ainda não houver config.
   const { data: tamanhos = [] } = useQuery({
-    queryKey: ["tenant-tamanhos-grade"],
+    queryKey: ["tenant-tamanhos-grade", tenantId],
+    enabled: !!tenantId,
     queryFn: async () => {
-      const { data } = await supabase.from("tenant_config").select("tamanhos_grade").limit(1);
+      const { data } = await supabase.from("tenant_config").select("tamanhos_grade").eq("tenant_id", tenantId).limit(1);
       const raw = (data ?? [])[0]?.tamanhos_grade as any;
       const list = Array.isArray(raw) && raw.length > 0
         ? raw.map((x: any) => (typeof x === "string" ? x : (x?.nome ?? x?.label ?? String(x))))

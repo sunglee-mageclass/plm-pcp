@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Factory, Scissors, Users, Wrench, ClipboardCheck, Sparkles, Compass, Rocket } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { Card } from "@/components/ui/card";
 
 export const Route = createFileRoute("/_authenticated/producao/")({
@@ -19,10 +20,12 @@ const SECTIONS = {
 } as const;
 
 function ProducaoIndex() {
+  const tenantId = useActiveTenantId();
   const { data: cfg } = useQuery({
-    queryKey: ["tenant_config", "oficina_posicao"],
+    queryKey: ["tenant_config", "oficina_posicao", tenantId],
+    enabled: !!tenantId,
     queryFn: async () => {
-      const { data } = await supabase.from("tenant_config").select("oficina_posicao").maybeSingle();
+      const { data } = await supabase.from("tenant_config").select("oficina_posicao").eq("tenant_id", tenantId).maybeSingle();
       return data;
     },
   });

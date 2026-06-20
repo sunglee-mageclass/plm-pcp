@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { useReadOnly } from "@/components/RequirePermission";
 import { VerificarRevisao } from "@/components/producao/RevisaoErro";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 
 export const Route = createFileRoute("/_authenticated/producao/cq/$modeloId")({
   component: CqDetailPage,
@@ -55,6 +56,7 @@ function CqDetailPage() {
 export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: () => void }) {
   const qc = useQueryClient();
   const permReadOnly = useReadOnly();
+  const tenantId = useActiveTenantId();
 
   const { data: modelo } = useQuery({
     queryKey: ["cq-modelo", modeloId],
@@ -100,8 +102,9 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
   });
 
   const { data: tenantCfg } = useQuery({
-    queryKey: ["tenant_config", "tamanhos"],
-    queryFn: async () => (await supabase.from("tenant_config").select("tamanhos_grade").maybeSingle()).data,
+    queryKey: ["tenant_config", "tamanhos", tenantId],
+    enabled: !!tenantId,
+    queryFn: async () => (await supabase.from("tenant_config").select("tamanhos_grade").eq("tenant_id", tenantId).maybeSingle()).data,
   });
 
   // Datas de oficina: vêm de Serviços (producao_terceirizados).

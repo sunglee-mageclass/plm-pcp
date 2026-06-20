@@ -12,6 +12,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 
 import {
   BUCKET,
@@ -50,16 +51,18 @@ export function ModeloDetailPanel({ modeloId, onClose }: {
 function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => void }) {
   const qc = useQueryClient();
   const fl = useFieldLabels();
+  const tenantId = useActiveTenantId();
 
   const linhas = useOpts("linhas");
   const modelistas = useColabs("modelista");
   const piloteiros = useColabs("piloteiro");
 
   const { data: tenantCfg } = useQuery({
-    queryKey: ["tenant-config-grade"],
+    queryKey: ["tenant-config-grade", tenantId],
+    enabled: !!tenantId,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("tenant_config").select("tamanhos_grade, status_kanban").maybeSingle();
+        .from("tenant_config").select("tamanhos_grade, status_kanban").eq("tenant_id", tenantId).maybeSingle();
       if (error) throw error;
       return data;
     },

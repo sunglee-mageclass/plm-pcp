@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -28,12 +29,15 @@ const fmtEnd = (e: any) => [e?.rua && `Rua ${e.rua}`, e?.prateleira && `Prat. ${
 const endCompact = (e: any) => `${e?.rua || "?"}/${e?.prateleira || "?"}`;
 
 function useEstoqueThresholds() {
+  const tenantId = useActiveTenantId();
   const { data } = useQuery({
-    queryKey: ["tenant-config-threshold"],
+    queryKey: ["tenant-config-threshold", tenantId],
+    enabled: !!tenantId,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("tenant_config")
         .select("estoque_critico_threshold, estoque_critico_aviamento")
+        .eq("tenant_id", tenantId)
         .maybeSingle();
       if (error) throw error;
       return {

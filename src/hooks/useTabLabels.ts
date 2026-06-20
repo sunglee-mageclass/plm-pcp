@@ -10,9 +10,10 @@ export function useTabLabels() {
   const tenantId = useActiveTenantId();
   const { data } = useQuery({
     queryKey: ["tenant_config", "tab_labels", tenantId],
+    enabled: !!tenantId,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
-      const { data } = await supabase.from("tenant_config").select("tab_labels").maybeSingle();
+      const { data } = await supabase.from("tenant_config").select("tab_labels").eq("tenant_id", tenantId).maybeSingle();
       return ((data as any)?.tab_labels ?? {}) as Record<string, string>;
     },
   });

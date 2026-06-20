@@ -23,10 +23,12 @@ export function useFieldLabels() {
   const tenantId = useActiveTenantId();
   const { data } = useQuery({
     queryKey: ["tenant_config", "campos_editaveis", tenantId],
+    enabled: !!tenantId,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("tenant_config")
         .select("campos_editaveis")
+        .eq("tenant_id", tenantId)
         .maybeSingle();
       if (error) throw error;
       return (data?.campos_editaveis ?? {}) as Record<string, string>;

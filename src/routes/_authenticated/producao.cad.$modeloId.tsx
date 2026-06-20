@@ -37,6 +37,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useReadOnly } from "@/components/RequirePermission";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 
 export const Route = createFileRoute("/_authenticated/producao/cad/$modeloId")({
@@ -55,6 +56,7 @@ function CadDetailPage() {
 export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAfterDelete?: () => void }) {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
+  const tenantId = useActiveTenantId();
   // Trava por SEGURANÇA após enviar ao corte: só edita ao clicar "Editar", e o
   // Salvar volta a travar. (mesma ideia do Controle de Qualidade)
   const [editing, setEditing] = useState(false);
@@ -93,9 +95,10 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
 
   // Ordem canônica dos tamanhos (mesma do Desenvolvimento), p/ a grade não sair fora de ordem.
   const { data: tenantCfg } = useQuery({
-    queryKey: ["cad-tenant-config-grade"],
+    queryKey: ["cad-tenant-config-grade", tenantId],
+    enabled: !!tenantId,
     queryFn: async () => {
-      const { data } = await supabase.from("tenant_config").select("tamanhos_grade").maybeSingle();
+      const { data } = await supabase.from("tenant_config").select("tamanhos_grade").eq("tenant_id", tenantId).maybeSingle();
       return data;
     },
   });

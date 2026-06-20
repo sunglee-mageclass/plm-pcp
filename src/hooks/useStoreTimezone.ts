@@ -10,9 +10,10 @@ export function useStoreTimezone(): string {
   const tenantId = useActiveTenantId();
   const { data } = useQuery({
     queryKey: ["tenant_config", "timezone", tenantId],
+    enabled: !!tenantId,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
-      const { data } = await supabase.from("tenant_config").select("timezone").maybeSingle();
+      const { data } = await supabase.from("tenant_config").select("timezone").eq("tenant_id", tenantId).maybeSingle();
       return (data as { timezone?: string | null } | null)?.timezone ?? null;
     },
   });

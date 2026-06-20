@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useReadOnly } from "@/components/RequirePermission";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 
 export const Route = createFileRoute("/_authenticated/producao/acabamento/$modeloId")({
   component: AcabDetailPage,
@@ -45,6 +46,7 @@ function AcabDetailPage() {
   const { modeloId } = Route.useParams();
   const qc = useQueryClient();
   const readOnly = useReadOnly();
+  const tenantId = useActiveTenantId();
 
   const { data: modelo } = useQuery({
     queryKey: ["acab-modelo", modeloId],
@@ -64,8 +66,9 @@ function AcabDetailPage() {
   });
 
   const { data: tenantCfg } = useQuery({
-    queryKey: ["tenant_config", "etapas-oficina"],
-    queryFn: async () => (await supabase.from("tenant_config").select("etapas_acabamento, oficina_posicao, oficina_interna").maybeSingle()).data,
+    queryKey: ["tenant_config", "etapas-oficina", tenantId],
+    enabled: !!tenantId,
+    queryFn: async () => (await supabase.from("tenant_config").select("etapas_acabamento, oficina_posicao, oficina_interna").eq("tenant_id", tenantId).maybeSingle()).data,
   });
   const etapas = useMemo<string[]>(() => {
     const e = (tenantCfg as any)?.etapas_acabamento;

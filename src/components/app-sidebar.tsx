@@ -107,8 +107,9 @@ export function AppSidebar() {
 
   const { data: tenantCfg } = useQuery({
     queryKey: ["tenant_config", "oficina_posicao", activeTenantId],
+    enabled: !!activeTenantId,
     queryFn: async () => {
-      const { data } = await supabase.from("tenant_config").select("oficina_posicao").maybeSingle();
+      const { data } = await supabase.from("tenant_config").select("oficina_posicao").eq("tenant_id", activeTenantId).maybeSingle();
       return data as { oficina_posicao?: "terceirizados" | "acabamento" } | null;
     },
   });

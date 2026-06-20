@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { useReadOnly } from "@/components/RequirePermission";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { VerificarRevisao } from "@/components/producao/RevisaoErro";
 
 export const Route = createFileRoute("/_authenticated/producao/direcionamento/$modeloId")({
@@ -29,6 +30,7 @@ function DirDetailPage() {
 export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; onClose?: () => void }) {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
+  const tenantId = useActiveTenantId();
   // Status do Direcionamento: 'pendente' (default) -> 'separado' ao Confirmar.
   // Confirmado trava as edições; "Editar" reabre e Salvar volta a travar.
   const [status, setStatus] = useState("pendente");
@@ -48,8 +50,9 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
   }, [cad]);
 
   const { data: tenantCfg } = useQuery({
-    queryKey: ["tenant_config", "tamanhos"],
-    queryFn: async () => (await supabase.from("tenant_config").select("tamanhos_grade").maybeSingle()).data,
+    queryKey: ["tenant_config", "tamanhos", tenantId],
+    enabled: !!tenantId,
+    queryFn: async () => (await supabase.from("tenant_config").select("tamanhos_grade").eq("tenant_id", tenantId).maybeSingle()).data,
   });
 
   const { data: cadGrades = [], isFetched: gradesFetched, isFetching: gradesFetching } = useQuery({

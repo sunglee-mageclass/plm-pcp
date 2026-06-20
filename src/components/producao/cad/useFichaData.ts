@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import type { TecidoRow, GradeRow, AviamentoRow, EtiquetaRow } from "./types";
 
 const num = (v: any) => Number(v ?? 0) || 0;
@@ -31,6 +32,7 @@ export type FichaData = {
 
 /** Carrega os dados SALVOS do CAD de um modelo nos formatos da ficha (read-only). */
 export function useFichaData(modeloId: string): FichaData {
+  const tenantId = useActiveTenantId();
   const { data: modelo, isFetched: modeloFetched } = useQuery({
     queryKey: ["ft-modelo", modeloId],
     queryFn: async () => {
@@ -100,10 +102,11 @@ export function useFichaData(modeloId: string): FichaData {
   });
 
   const { data: tamanhosConfig = [] } = useQuery({
-    queryKey: ["ft-tamanhos"],
+    queryKey: ["ft-tamanhos", tenantId],
+    enabled: !!tenantId,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
-      const { data } = await supabase.from("tenant_config").select("tamanhos_grade").maybeSingle();
+      const { data } = await supabase.from("tenant_config").select("tamanhos_grade").eq("tenant_id", tenantId).maybeSingle();
       const raw = (data as any)?.tamanhos_grade;
       return Array.isArray(raw) && raw.length
         ? raw.map((x: any) => (typeof x === "string" ? x : x?.nome ?? x?.label ?? String(x)))

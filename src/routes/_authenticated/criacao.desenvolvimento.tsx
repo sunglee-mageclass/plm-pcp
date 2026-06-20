@@ -5,6 +5,7 @@ import { Hammer, ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -111,6 +112,7 @@ function normalizeStatuses(raw: any): KanbanStatus[] {
 function DesenvolvimentoPage() {
   const qc = useQueryClient();
   const { canEdit } = useAuth();
+  const tenantId = useActiveTenantId();
   const editable = canEdit("criacao_desenvolvimento");
   const [search, setSearch] = useState("");
   const [fEstilista, setFEstilista] = useState("all");
@@ -133,11 +135,13 @@ function DesenvolvimentoPage() {
   const { data: categorias = [] } = useOpts("categorias_produto");
 
   const { data: statusKanban = DEFAULT_STATUSES } = useQuery({
-    queryKey: ["tenant-status-kanban"],
+    queryKey: ["tenant-status-kanban", tenantId],
+    enabled: !!tenantId,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("tenant_config")
         .select("status_kanban")
+        .eq("tenant_id", tenantId)
         .maybeSingle();
       if (error) throw error;
       return normalizeStatuses(data?.status_kanban);

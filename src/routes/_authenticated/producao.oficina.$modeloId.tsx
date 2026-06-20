@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useReadOnly } from "@/components/RequirePermission";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 
 export const Route = createFileRoute("/_authenticated/producao/oficina/$modeloId")({
   component: OficinaDetailPage,
@@ -37,6 +38,7 @@ function OficinaDetailPage() {
   const qc = useQueryClient();
   const fl = useFieldLabels();
   const readOnly = useReadOnly();
+  const tenantId = useActiveTenantId();
 
   const { data: modelo } = useQuery({
     queryKey: ["oficina-modelo", modeloId],
@@ -65,8 +67,9 @@ function OficinaDetailPage() {
   });
 
   const { data: tenantCfg } = useQuery({
-    queryKey: ["tenant-cfg-oficina"],
-    queryFn: async () => (await supabase.from("tenant_config").select("tamanhos_grade, oficina_interna").maybeSingle()).data,
+    queryKey: ["tenant-cfg-oficina", tenantId],
+    enabled: !!tenantId,
+    queryFn: async () => (await supabase.from("tenant_config").select("tamanhos_grade, oficina_interna").eq("tenant_id", tenantId).maybeSingle()).data,
   });
   const tamanhos: string[] = useMemo(() => {
     const raw = (tenantCfg as any)?.tamanhos_grade;

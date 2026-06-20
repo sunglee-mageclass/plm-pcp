@@ -49,8 +49,9 @@ export function useTenantModules() {
   const { data, isLoading } = useQuery({
     // tenantId na key: troca de loja => key nova => refaz o fetch da loja nova.
     queryKey: ["tenant_config", "modules", tenantId],
+    enabled: !!tenantId,
     queryFn: async () => {
-      const { data } = await supabase.from("tenant_config").select("modules").maybeSingle();
+      const { data } = await supabase.from("tenant_config").select("modules").eq("tenant_id", tenantId).maybeSingle();
       return ((data as any)?.modules ?? null) as Partial<Record<ModuleKey, boolean>> | null;
     },
     staleTime: 5 * 60 * 1000,
