@@ -41,6 +41,7 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
   const qc = useQueryClient();
   const [modo, setModo] = useState<"avulso" | "oc">("avulso");
   const [codigo, setCodigo] = useState("");
+  const [codigoManual, setCodigoManual] = useState(false);
   const [rua, setRua] = useState("");
   const [prateleira, setPrateleira] = useState("");
   // avulso
@@ -84,6 +85,19 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
   const selectedOc = ocsRolo.find((o) => o.oc_id === ocId);
   const ocItems = selectedOc?.itens ?? [];
   const selectedItem = ocItems.find((i) => i.oc_tecido_item_id === ocItemId);
+
+  // Código padrão (editável): R{seq}{Categoria}{AAMMDD}, gerado ao escolher o tecido
+  // enquanto o usuário não digitar manualmente — evita duplicatas.
+  const artigoEfetivo = modo === "avulso" ? artigoId : (selectedItem?.artigo_id ?? "");
+  useEffect(() => {
+    if (codigoManual || !artigoEfetivo) return;
+    let cancel = false;
+    (async () => {
+      const { data } = await supabase.rpc("proximo_codigo_rolo" as any, { _artigo_id: artigoEfetivo });
+      if (!cancel && data) setCodigo(String(data));
+    })();
+    return () => { cancel = true; };
+  }, [artigoEfetivo, codigoManual]);
 
   const criar = useMutation({
     mutationFn: async () => {
@@ -141,7 +155,7 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
 
           <div className="space-y-1.5">
             <Label>Código</Label>
-            <Input value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="Ex.: ROLO-001" />
+            <Input value={codigo} onChange={(e) => { setCodigo(e.target.value); setCodigoManual(true); }} placeholder="Ex.: R0001M260622" />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
