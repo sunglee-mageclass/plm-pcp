@@ -27,6 +27,8 @@ import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
+import { useTenantModules } from "@/hooks/useTenantModules";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import {
@@ -91,9 +93,19 @@ const DEFAULTS = {
 
 type ConfigState = typeof DEFAULTS;
 
+const MODULE_LABELS: { key: string; label: string }[] = [
+  { key: "cadastro", label: "Cadastro" },
+  { key: "criacao", label: "Criação" },
+  { key: "entrada_saida", label: "Entrada e Saída" },
+  { key: "producao", label: "Produção" },
+  { key: "financeiro", label: "Financeiro" },
+  { key: "dashboard", label: "Dashboard" },
+];
+
 function ConfiguracoesLojaPage() {
   const { user, isTenantAdmin, isSuperAdmin, loading } = useAuth();
   const qc = useQueryClient();
+  const { modules } = useTenantModules();
   const [cfg, setCfg] = useState<ConfigState>(DEFAULTS);
 
   const { data, isLoading } = useQuery({
@@ -156,10 +168,16 @@ function ConfiguracoesLojaPage() {
     },
     onSuccess: () => {
       toast.success("Configurações salvas");
-      qc.invalidateQueries({ queryKey: ["tenant-config"] });
-      // Reads espalhados pelo app usam a chave ["tenant_config", ...]
-      // (relógio, fuso, oficina_posicao, etc.) — invalida para refletir na hora.
-      qc.invalidateQueries({ queryKey: ["tenant_config"] });
+      // Invalida TODA leitura de config para refletir na hora. As leituras usam
+      // prefixos divergentes (tenant_config, tenant-config-grade, cad-tenant-config-grade,
+      // tenant-config-threshold, tenant-status-kanban, ft-tamanhos…), então casamos
+      // por predicate em vez de prefixo único.
+      qc.invalidateQueries({
+        predicate: (q) => {
+          const k = q.queryKey?.[0];
+          return typeof k === "string" && (k.includes("tenant") || k.includes("tamanhos"));
+        },
+      });
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao salvar"),
   });
@@ -313,6 +331,27 @@ function ConfiguracoesLojaPage() {
               checked={cfg.oficina_interna}
               onCheckedChange={(v) => setCfg({ ...cfg, oficina_interna: v })}
             />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Módulos da loja</CardTitle>
+          <CardDescription>
+            Módulos habilitados para a sua loja. Para contratar ou desabilitar um módulo, fale com o suporte.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap gap-2">
+            {MODULE_LABELS.map((m) => {
+              const on = !!(modules as any)[m.key];
+              return (
+                <Badge key={m.key} variant={on ? "default" : "secondary"} className={on ? "" : "opacity-60"}>
+                  {m.label}: {on ? "Ativo" : "Inativo"}
+                </Badge>
+              );
+            })}
           </div>
         </CardContent>
       </Card>
@@ -558,17 +597,20 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
       Object.entries(tabs).forEach(([k, v]) => { if (v && v.trim()) cleanTabs[k] = v.trim(); });
       const cleanCampos: Record<string, string> = {};
       Object.entries(campos).forEach(([k, v]) => { if (v && v.trim()) cleanCampos[k] = v.trim(); });
+      // upsert (não update): loja sem linha de config não perde a gravação em silêncio.
       const { error } = await supabase
         .from("tenant_config")
-        .update({ tab_labels: cleanTabs, campos_editaveis: cleanCampos } as any)
-        .eq("tenant_id", tenantId);
+        .upsert({ tenant_id: tenantId, tab_labels: cleanTabs, campos_editaveis: cleanCampos } as any, { onConflict: "tenant_id" });
       if (error) throw error;
     },
     onSuccess: () => {
       toast.success("Nomenclaturas salvas");
-      qc.invalidateQueries({ queryKey: ["tenant_config", "tab_labels"] });
-      qc.invalidateQueries({ queryKey: ["tenant_config", "campos_editaveis"] });
-      qc.invalidateQueries({ queryKey: ["tenant_config", "nomenclaturas_edit"] });
+      qc.invalidateQueries({
+        predicate: (q) => {
+          const k = q.queryKey?.[0];
+          return typeof k === "string" && (k.includes("tenant") || k.includes("tamanhos"));
+        },
+      });
       setOpen(false);
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao salvar"),
