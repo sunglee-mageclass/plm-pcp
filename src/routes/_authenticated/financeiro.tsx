@@ -257,7 +257,7 @@ function CalendarioView({ parcelas, loading }: { parcelas: Parcela[]; loading: b
         <Button variant="ghost" size="sm" onClick={() => setCursor(startOfMonth(new Date()))}>Hoje</Button>
       </div>
 
-      <div className="grid grid-cols-7 gap-px bg-border text-xs">
+      <div className="hidden md:grid grid-cols-7 gap-px bg-border text-xs">
         {["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"].map((d) => (
           <div key={d} className="bg-muted text-muted-foreground py-2 text-center font-medium">{d}</div>
         ))}
@@ -301,6 +301,49 @@ function CalendarioView({ parcelas, loading }: { parcelas: Parcela[]; loading: b
             </div>
           );
         })}
+      </div>
+
+      {/* Mobile: agenda (só dias com parcelas, linhas tocáveis) */}
+      <div className="md:hidden space-y-3">
+        {days.filter((day) => isSameMonth(day, cursor) && (byDay.get(format(day, "yyyy-MM-dd"))?.length ?? 0) > 0).map((day) => {
+          const k = format(day, "yyyy-MM-dd");
+          const items = byDay.get(k) ?? [];
+          const isToday = isSameDay(day, today);
+          const diaSemana = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"][day.getDay()];
+          return (
+            <div key={k} className={cn("overflow-hidden rounded-lg border", isToday && "ring-1 ring-primary")}>
+              <div className="border-b bg-muted/40 px-3 py-2 text-sm font-semibold">
+                {diaSemana}, {format(day, "dd/MM")}{isToday && <span className="ml-2 text-xs font-normal text-primary">hoje</span>}
+              </div>
+              <div className="divide-y">
+                {items.map((p) => {
+                  const st = effectiveStatus(p);
+                  const venc = parseLocalDate(p.data_vencimento);
+                  const diff = differenceInCalendarDays(venc, today);
+                  let dot = "bg-muted-foreground";
+                  if (st === "pago") dot = "bg-green-500";
+                  else if (st === "vencido") dot = "bg-destructive";
+                  else if (diff <= 3) dot = "bg-yellow-500";
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setDetalheId(p.id)}
+                      className="flex w-full items-center gap-3 px-3 py-3 text-left active:bg-muted/50"
+                    >
+                      <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full", dot)} />
+                      <span className="min-w-0 flex-1 truncate text-sm">{p.empresas?.nome ?? "—"}</span>
+                      <span className="shrink-0 text-sm font-medium">{brl(Number(p.valor))}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+        {days.filter((day) => isSameMonth(day, cursor) && (byDay.get(format(day, "yyyy-MM-dd"))?.length ?? 0) > 0).length === 0 && (
+          <p className="py-6 text-center text-sm text-muted-foreground">Nenhuma parcela neste mês.</p>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-3 mt-4 text-xs">
