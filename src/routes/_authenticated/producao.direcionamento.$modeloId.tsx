@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Compass, Save, CheckCircle2, RotateCcw, Pencil } from "lucide-react";
+import { ArrowLeft, Compass, Save, CheckCircle2, RotateCcw, Pencil, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -90,6 +90,19 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
     },
   });
 
+  // Divergência: a grade real salva no Direcionamento ≠ a grade real atual do CAD
+  // (CQ reconfirmado depois) → o split loja física/e-commerce ficou defasado.
+  const realDivergente = useMemo(() => {
+    if (!(existing as any[]).length) return false;
+    const realByNum = new Map((cadGrades as any[]).map((g) => [g.variante_numero, g.grades_reais ?? {}]));
+    return (existing as any[]).some((d) => {
+      const cur: any = realByNum.get(d.variante_numero) ?? {};
+      const saved: any = d.real ?? {};
+      const keys = new Set([...Object.keys(cur), ...Object.keys(saved)]);
+      return [...keys].some((k) => Number(cur[k] ?? 0) !== Number(saved[k] ?? 0));
+    });
+  }, [existing, cadGrades]);
+
   const [state, setState] = useState<Record<number, VarState>>({});
   const [hydrated, setHydrated] = useState(false);
 
@@ -141,6 +154,7 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
         });
         const ecTotal = tamanhos.reduce((s, t) => s + Number(v.ecommerce?.[t] ?? 0), 0);
         const lfTotal = tamanhos.reduce((s, t) => s + lojaFisica[t], 0);
+        const realTotal = tamanhos.reduce((s, t) => s + Number(v.real?.[t] ?? 0), 0);
         return {
           cad_id: cad.id,
           variante_numero: v.variante_numero,
@@ -148,6 +162,10 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
           ecommerce_total: ecTotal,
           loja_fisica: lojaFisica,
           loja_fisica_total: lfTotal,
+          // Snapshot da grade real usada no cálculo, p/ o registro ser autocontido
+          // e permitir detectar divergência se a grade real mudar depois.
+          real: v.real,
+          grade_real_total: realTotal,
         };
       });
       if (payload.length) {
@@ -213,6 +231,12 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
   return (
     <div className="container mx-auto p-6 space-y-6">
       <VerificarRevisao modeloId={modeloId} etapa="direcionamento" />
+      {realDivergente && (
+        <div className="no-print flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>A grade real mudou desde o último direcionamento salvo. Confira o split e salve novamente.</span>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-2">
         {onClose ? (
           <button onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
