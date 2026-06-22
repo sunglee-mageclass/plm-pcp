@@ -213,7 +213,7 @@ function EstoqueTab() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="p-4">
-          <h3 className="font-semibold mb-3">Top 10 menor estoque</h3>
+          <h3 className="font-semibold mb-3">Estoque crítico <span className="text-sm font-normal text-muted-foreground">· 10 menores · "falta" = repor até o mínimo</span></h3>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="text-left text-muted-foreground">
@@ -221,20 +221,27 @@ function EstoqueTab() {
                   <th className="py-2 pr-3">Item</th>
                   <th className="py-2 pr-3">Tipo</th>
                   <th className="py-2 pr-3 text-right">Estoque</th>
+                  <th className="py-2 pr-3 text-right">Falta p/ mín.</th>
                 </tr>
               </thead>
               <tbody>
-                {top10.map((r: any) => (
+                {top10.map((r: any) => {
+                  const falta = Math.max(0, threshold - Number(r.estoque ?? 0));
+                  return (
                   <tr key={r.id} className="border-b last:border-0">
                     <td className="py-2 pr-3 truncate max-w-[260px]">{r.nome}</td>
                     <td className="py-2 pr-3">{r.tipo}</td>
                     <td className={"py-2 pr-3 text-right " + (Number(r.estoque) <= threshold ? "text-destructive font-medium" : "")}>
                       {fmtNum(r.estoque)}
                     </td>
+                    <td className={"py-2 pr-3 text-right " + (falta > 0 ? "text-destructive font-medium" : "text-muted-foreground")}>
+                      {falta > 0 ? fmtNum(falta) : "—"}
+                    </td>
                   </tr>
-                ))}
+                  );
+                })}
                 {!isLoading && top10.length === 0 && (
-                  <tr><td colSpan={3} className="py-4 text-center text-muted-foreground">Sem dados.</td></tr>
+                  <tr><td colSpan={4} className="py-4 text-center text-muted-foreground">Sem dados.</td></tr>
                 )}
               </tbody>
             </table>
