@@ -9,7 +9,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Boxes, ArrowLeft, Search } from "lucide-react";
+import { Boxes, ArrowLeft, Search, Printer } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { printWithImages } from "@/lib/print";
+import { RelatorioPrint } from "@/components/shared/RelatorioPrint";
 import { cn } from "@/lib/utils";
 import { fmtNum } from "@/lib/format";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
@@ -293,6 +296,9 @@ function TecidosTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-end gap-2">
+        <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}>
+          <Printer className="h-4 w-4 mr-1" /> Imprimir
+        </Button>
         <SearchToggle value={search} onChange={setSearch} placeholder="Artigo ou variante" />
         <FilterButton
           filters={[
@@ -341,6 +347,26 @@ function TecidosTab() {
       {!isLoading && grouped.length === 0 && (
         <p className="text-sm text-muted-foreground">Nenhuma variante encontrada.</p>
       )}
+
+      <RelatorioPrint
+        titulo="Posição de Estoque — Tecidos"
+        subtitulo={threshold > 0 ? `Itens com estoque ≤ ${fmt(threshold)} em destaque` : undefined}
+        dataStr={new Date().toLocaleDateString("pt-BR")}
+        colunas={[
+          { key: "artigo", label: "Artigo" },
+          { key: "variante", label: "Variante" },
+          { key: "fisico", label: "Físico", align: "right" },
+          { key: "reservado", label: "Reservado", align: "right" },
+          { key: "previsto", label: "Previsto", align: "right" },
+        ]}
+        linhas={grouped.flatMap((g) => g.rows.map((r: any) => ({
+          artigo: g.artigoNome,
+          variante: r.nomeVariante,
+          fisico: `${fmt(r.fisico)} m`,
+          reservado: `${fmt(r.reservado)} m`,
+          previsto: `${fmt(r.previsto)} m`,
+        })))}
+      />
     </div>
   );
 }
@@ -688,6 +714,9 @@ function AviamentosTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-end gap-2">
+        <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}>
+          <Printer className="h-4 w-4 mr-1" /> Imprimir
+        </Button>
         <SearchToggle value={search} onChange={setSearch} placeholder="Aviamento" />
         <FilterButton
           filters={[
@@ -737,6 +766,27 @@ function AviamentosTab() {
           )}
         </div>
       </Card>
+
+      <RelatorioPrint
+        titulo="Posição de Estoque — Aviamentos"
+        dataStr={new Date().toLocaleDateString("pt-BR")}
+        colunas={[
+          { key: "nome", label: "Aviamento" },
+          { key: "fornecedor", label: "Fornecedor" },
+          { key: "categoria", label: "Categoria" },
+          { key: "fisico", label: "Físico", align: "right" },
+          { key: "reservado", label: "Reservado", align: "right" },
+          { key: "previsto", label: "Previsto", align: "right" },
+        ]}
+        linhas={filtered.map((r: any) => ({
+          nome: r.nome,
+          fornecedor: r.fornecedor ?? "—",
+          categoria: r.categoria ?? "—",
+          fisico: fmt(r.fisico),
+          reservado: fmt(r.reservado),
+          previsto: fmt(r.previsto),
+        }))}
+      />
     </div>
   );
 }
