@@ -202,13 +202,13 @@ function OficinaDetailPage() {
   const fotos = ((modelo as any)?.fotos_modelo ?? []) as string[];
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-md:pb-24">
       <VerificarRevisao modeloId={modeloId} etapa="oficina" />
       <div className="no-print flex items-center justify-between">
         <Link to="/producao/oficina" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
           <ArrowLeft className="h-4 w-4" /> Voltar
         </Link>
-        <div className="flex gap-2">
+        <div className="flex gap-2 max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-40 max-md:justify-end max-md:border-t max-md:bg-background max-md:p-3 max-md:shadow-lg">
           <Button variant="outline" className="hidden md:inline-flex" onClick={handlePrint}>
             <Printer className="h-4 w-4 mr-2" /> Imprimir Ficha de Oficina
           </Button>

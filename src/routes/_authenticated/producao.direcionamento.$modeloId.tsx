@@ -227,7 +227,7 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
   const variantes = Object.values(state).sort((a, b) => a.variante_numero - b.variante_numero);
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-md:pb-24">
       <VerificarRevisao modeloId={modeloId} etapa="direcionamento" />
       {realDivergente && (
         <div className="no-print flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
@@ -245,7 +245,7 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
             <ArrowLeft className="h-4 w-4" /> Voltar
           </Link>
         )}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-40 max-md:justify-end max-md:border-t max-md:bg-background max-md:p-3 max-md:shadow-lg">
           <Button variant="outline" className="hidden md:inline-flex" onClick={() => printWithImages()} disabled={variantes.length === 0}>
             <Printer className="h-4 w-4 mr-2" /> Imprimir Romaneio
           </Button>

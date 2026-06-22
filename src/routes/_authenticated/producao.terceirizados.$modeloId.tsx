@@ -451,7 +451,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
   const locked = statusGeral === "finalizado" && !editing;
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-md:pb-24">
       <VerificarRevisao modeloId={modeloId} etapa="terceirizados" />
       <div className="flex items-center justify-between">
         {onClose ? (
@@ -463,7 +463,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
             <ArrowLeft className="h-4 w-4" /> Voltar
           </Link>
         )}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-40 max-md:justify-end max-md:border-t max-md:bg-background max-md:p-3 max-md:shadow-lg">
           <Button variant="outline" className="hidden md:inline-flex" onClick={() => { setPrintTarget("ficha"); printWithImages(); }} disabled={!cad?.id}>
             <FileText className="h-4 w-4 mr-2" /> Ficha Técnica
           </Button>
