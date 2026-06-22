@@ -1,10 +1,13 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Trash2, Pencil, Undo2 } from "lucide-react";
+import { Trash2, Pencil, Undo2, Printer } from "lucide-react";
+import JsBarcode from "jsbarcode";
 
 import { supabase } from "@/integrations/supabase/client";
 import { fmtNum } from "@/lib/format";
+import { PrintArea } from "@/components/shared/PrintArea";
+import { useTenantLogo } from "@/hooks/useTenantLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -263,15 +266,64 @@ type RoloRow = {
     id: string;
     quantidade_recebida: number | null;
     artigos: { nome: string; unidade_medida: string | null; rendimento: number | null } | null;
-    variantes_tecido: { nome_variante: string | null; codigo_variante: string | null } | null;
+    variantes_tecido: { nome_variante: string | null; codigo_variante: string | null; cor: { nome: string | null } | null } | null;
     estoque_tecido_baixas: { quantidade: number | null }[] | null;
   }[];
+  empresas: { nome_fantasia: string | null } | null;
 };
+
+// ───────── Etiqueta A5 do rolo (código de barras) ─────────
+function RoloBarcode({ value }: { value: string }) {
+  const ref = useRef<SVGSVGElement>(null);
+  useEffect(() => {
+    if (ref.current && value) {
+      try {
+        JsBarcode(ref.current, value, { format: "CODE128", displayValue: false, height: 64, width: 2, margin: 0 });
+      } catch { /* valor inválido p/ barcode — ignora */ }
+    }
+  }, [value]);
+  return <svg ref={ref} style={{ width: "100%", maxWidth: "120mm" }} />;
+}
+
+function EtiquetaRolo({ rolo, logo }: { rolo: RoloRow; logo: string | null }) {
+  const itens = rolo.ocs_tecido_itens ?? [];
+  const tecido = itens[0]?.artigos?.nome ?? "—";
+  const variante = itens.map((it) => it.variantes_tecido?.nome_variante || it.variantes_tecido?.codigo_variante).filter(Boolean).join(", ") || "—";
+  const cor = Array.from(new Set(itens.map((it) => it.variantes_tecido?.cor?.nome).filter(Boolean))).join(", ") || "—";
+  const fornecedor = rolo.empresas?.nome_fantasia ?? "—";
+  const codigo = rolo.rolo_codigo || "";
+  const campo = (label: string, valor: string, big?: boolean) => (
+    <div>
+      <div style={{ fontSize: 10, color: "#666", textTransform: "uppercase", letterSpacing: 0.6 }}>{label}</div>
+      <div style={{ fontSize: big ? 20 : 15, fontWeight: 700, lineHeight: 1.2 }}>{valor}</div>
+    </div>
+  );
+  return (
+    <div className="print-section" style={{ height: "133mm", boxSizing: "border-box", border: "1px solid #000", padding: "10mm", display: "flex", flexDirection: "column", justifyContent: "space-between", breakInside: "avoid", fontFamily: "Helvetica, Arial, sans-serif", color: "#000" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+        {campo("Tecido", tecido, true)}
+        {logo && <img src={logo} alt="" style={{ maxHeight: 36, maxWidth: 110, objectFit: "contain" }} />}
+      </div>
+      <div style={{ display: "flex", gap: 48 }}>
+        {campo("Variante", variante)}
+        {campo("Cor", cor)}
+      </div>
+      {campo("Fornecedor", fornecedor)}
+      <div>
+        <div style={{ fontSize: 10, color: "#666", textTransform: "uppercase", letterSpacing: 0.6 }}>Código</div>
+        <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 6 }}>{codigo || "—"}</div>
+        {codigo && <RoloBarcode value={codigo} />}
+      </div>
+    </div>
+  );
+}
 
 export function RolosList() {
   const qc = useQueryClient();
   const [deleting, setDeleting] = useState<RoloRow | null>(null);
   const [editing, setEditing] = useState<RoloRow | null>(null);
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const logo = useTenantLogo();
 
   const { data: rolos = [] } = useQuery({
     queryKey: ["rolos"],
@@ -280,7 +332,7 @@ export function RolosList() {
         .from("ocs_tecido")
         .select(
           // relacionamento explícito (!oc_tecido_id) p/ não depender do schema cache.
-          "id, rolo_codigo, rolo_origem_item_id, rolo_rua, rolo_prateleira, ocs_tecido_itens!oc_tecido_id(id, quantidade_recebida, artigos(nome, unidade_medida, rendimento), variantes_tecido(nome_variante, codigo_variante), estoque_tecido_baixas(quantidade))",
+          "id, rolo_codigo, rolo_origem_item_id, rolo_rua, rolo_prateleira, empresas:empresa_id(nome_fantasia), ocs_tecido_itens!oc_tecido_id(id, quantidade_recebida, artigos(nome, unidade_medida, rendimento), variantes_tecido(nome_variante, codigo_variante, cor:cor_id(nome)), estoque_tecido_baixas(quantidade))",
         )
         .eq("is_rolo", true)
         .order("created_at", { ascending: false });
@@ -305,8 +357,20 @@ export function RolosList() {
     onError: (e: any) => toast.error(e.message ?? "Erro ao excluir rolo"),
   });
 
+  const selecionados = rolos.filter((r) => sel.has(r.id));
+  const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const toggleAll = () => setSel((s) => (s.size === rolos.length ? new Set() : new Set(rolos.map((r) => r.id))));
+
   return (
     <div className="space-y-4">
+      {rolos.length > 0 && (
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-sm text-muted-foreground">{sel.size > 0 ? `${sel.size} rolo(s) selecionado(s)` : "Selecione rolos para imprimir etiquetas"}</span>
+          <Button size="sm" variant="outline" disabled={sel.size === 0} onClick={() => window.print()}>
+            <Printer className="h-4 w-4 mr-1" /> Imprimir etiquetas{sel.size > 0 ? ` (${sel.size})` : ""}
+          </Button>
+        </div>
+      )}
       {rolos.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-12">
           Nenhum rolo. Crie um com <b>+ Rolo</b> (avulso ou separado de uma OC).
@@ -316,6 +380,7 @@ export function RolosList() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10"><Checkbox checked={sel.size === rolos.length && rolos.length > 0} onCheckedChange={toggleAll} aria-label="Selecionar todos" /></TableHead>
                 <TableHead>Código</TableHead>
                 <TableHead>Tecido</TableHead>
                 <TableHead>Variantes</TableHead>
@@ -340,7 +405,8 @@ export function RolosList() {
                   .filter(Boolean)
                   .join(", ");
                 return (
-                  <TableRow key={r.id}>
+                  <TableRow key={r.id} data-state={sel.has(r.id) ? "selected" : undefined}>
+                    <TableCell><Checkbox checked={sel.has(r.id)} onCheckedChange={() => toggle(r.id)} aria-label="Selecionar rolo" /></TableCell>
                     <TableCell className="font-medium">{r.rolo_codigo || "—"}</TableCell>
                     <TableCell>{tecido}</TableCell>
                     <TableCell className="text-muted-foreground">{vars || "—"}</TableCell>
@@ -392,6 +458,13 @@ export function RolosList() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Etiquetas A5 (uma por meia folha A4) dos rolos selecionados — só na impressão. */}
+      {selecionados.length > 0 && (
+        <PrintArea>
+          {selecionados.map((r) => <EtiquetaRolo key={r.id} rolo={r} logo={logo} />)}
+        </PrintArea>
+      )}
     </div>
   );
 }
