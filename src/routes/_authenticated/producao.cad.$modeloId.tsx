@@ -758,7 +758,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
 
   return (
     <>
-      <div className="container mx-auto p-3 sm:p-6 space-y-6 no-print">
+      <div className="container mx-auto p-3 sm:p-6 space-y-6 no-print max-md:pb-24">
         <CadActions
           onPrint={handlePrint}
           onSave={() => (hasDownstreamCad ? setConfirmEditOpen(true) : saveAll.mutate())}
