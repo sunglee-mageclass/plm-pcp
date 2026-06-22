@@ -142,10 +142,7 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
   const saveMut = useMutation({
     mutationFn: async () => {
       if (!cad?.id) throw new Error("CAD não encontrado.");
-      const { error: delErr } = await supabase.from("direcionamento").delete().eq("cad_id", cad.id);
-      if (delErr) throw delErr;
-
-      const payload = Object.values(state).map((v) => {
+      const _rows = Object.values(state).map((v) => {
         const lojaFisica: Record<string, number> = {};
         tamanhos.forEach((t) => {
           const real = Number(v.real?.[t] ?? 0);
@@ -156,7 +153,6 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
         const lfTotal = tamanhos.reduce((s, t) => s + lojaFisica[t], 0);
         const realTotal = tamanhos.reduce((s, t) => s + Number(v.real?.[t] ?? 0), 0);
         return {
-          cad_id: cad.id,
           variante_numero: v.variante_numero,
           ecommerce: v.ecommerce,
           ecommerce_total: ecTotal,
@@ -168,10 +164,10 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
           grade_real_total: realTotal,
         };
       });
-      if (payload.length) {
-        const { error } = await supabase.from("direcionamento").insert(payload);
-        if (error) throw error;
-      }
+      // RPC transacional com diff por (cad_id, variante_numero): preserva as linhas
+      // das variantes mantidas; atômico.
+      const { error } = await supabase.rpc("salvar_direcionamento" as any, { _cad_id: cad.id, _rows });
+      if (error) throw error;
     },
     onSuccess: async () => {
       toast.success("Salvo");
