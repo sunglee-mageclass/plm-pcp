@@ -21,10 +21,11 @@ type Props = {
   ocLinksByKey?: Record<string, string[]>;
 };
 
-// Altura de uma folha (A4 menos margens) e metade dela.
-const PAGE_H = "250mm";
-const pageStyle: React.CSSProperties = { height: PAGE_H, display: "flex", flexDirection: "column" };
-const halfStyle: React.CSSProperties = { flex: "0 0 50%", overflow: "hidden", minHeight: 0 };
+// Quebra NATURAL: cada seção evita ser cortada no meio e pagina quando não cabe.
+// (Antes era flex 0 0 50% + overflow:hidden, que cortava modelos grandes em
+// silêncio e desperdiçava espaço quando havia pouco conteúdo.)
+const pageStyle: React.CSSProperties = {};
+const halfStyle: React.CSSProperties = { breakInside: "avoid", marginBottom: 10 };
 const fmt2 = (n: number | null | undefined) => fmtNum(n);
 
 export function Assinatura({ dataPrevista = false }: { dataPrevista?: boolean }) {
@@ -218,7 +219,7 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
             <thead>
               <tr style={{ background: "#eee" }}>
                 <th style={cellH}>Variante</th>
-                {tamanhosAll.map((t) => <th key={t} style={cellH}>{t}</th>)}
+                {tamanhosAll.map((t) => <th key={t} style={cellH}>{fmtTam(t)}</th>)}
                 <th style={cellH}>Total</th>
               </tr>
             </thead>
