@@ -859,6 +859,11 @@ function ServicosView() {
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-end">
+        <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}>
+          <Printer className="h-4 w-4 mr-1" /> Imprimir
+        </Button>
+      </div>
       <Card className="p-4">
         <div className="overflow-x-auto">
           <table className="w-full text-sm card-table">
@@ -920,6 +925,39 @@ function ServicosView() {
           <p className="mt-3 text-sm text-right text-muted-foreground">Total a pagar (parcelas): <b className="text-foreground">{brl(total)}</b></p>
         )}
       </Card>
+
+      <RelatorioPrint
+        titulo="Serviços a Pagar"
+        subtitulo={`${rows.length} parcela(s) de serviço`}
+        dataStr={new Date().toLocaleDateString("pt-BR")}
+        colunas={[
+          { key: "servico", label: "Serviço" },
+          { key: "responsavel", label: "Responsável" },
+          { key: "parcela", label: "Parcela" },
+          { key: "bruto", label: "Bruto", align: "right" },
+          { key: "desconto", label: "Desconto", align: "right" },
+          { key: "multa", label: "Multa", align: "right" },
+          { key: "liquido", label: "Líquido", align: "right" },
+          { key: "valor", label: "Valor parcela", align: "right" },
+          { key: "entrega", label: "Entrega" },
+          { key: "vencimento", label: "Vencimento" },
+          { key: "status", label: "Status" },
+        ]}
+        linhas={rows.map((r) => ({
+          servico: `${r.servico}${r.ref ? ` · ${r.ref}` : ""}`,
+          responsavel: r.responsavel,
+          parcela: `${r.numero_parcela}/${r.numero_parcelas}`,
+          bruto: brl(Number(r.custo_bruto)),
+          desconto: brl(Number(r.desconto)),
+          multa: brl(Number(r.multa)),
+          liquido: brl(Number(r.custo_liquido)),
+          valor: brl(Number(r.valor_parcela)),
+          entrega: fmtD(r.data_entrega),
+          vencimento: fmtD(r.data_vencimento),
+          status: stOf(r) === "pago" ? "Pago" : stOf(r) === "vencido" ? "Vencido" : "A pagar",
+        }))}
+        rodape={`Total: ${brl(total)}`}
+      />
     </div>
   );
 }
