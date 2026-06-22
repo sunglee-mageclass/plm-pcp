@@ -524,7 +524,13 @@ function ProducaoTab() {
 
       <RelatorioPrint
         titulo="Relatório de Produção — SLA / Qualidade por terceirizado"
+        subtitulo="Prazos e qualidade da produção terceirizada"
         dataStr={new Date().toLocaleDateString("pt-BR")}
+        kpis={[
+          { label: "Entregas no prazo", valor: String(kpiPrazo.noPrazo ?? 0), cor: "#16a34a" },
+          { label: "Atrasadas", valor: String(kpiPrazo.atrasadas ?? 0), cor: Number(kpiPrazo.atrasadas) > 0 ? "#dc2626" : "#1a1a1a" },
+          { label: "% no prazo", valor: `${Math.round(Number(kpiPrazo.pct) || 0)}%` },
+        ]}
         topo={(defeitoMes as any[]).length > 0 ? (
           <div>
             <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Taxa de defeito por mês (%)</div>
@@ -650,8 +656,13 @@ function FinanceiroTab() {
 
       <RelatorioPrint
         titulo="Relatório Financeiro — contas a pagar"
-        subtitulo={`Investido ${brl(investido)} · Pago ${brl(pago)} · Pendente ${brl(pendente)}`}
+        subtitulo={periodo?.from && periodo?.to ? "Contas a pagar — período selecionado" : "Contas a pagar — projeção 6 meses"}
         dataStr={new Date().toLocaleDateString("pt-BR")}
+        kpis={[
+          { label: "Investido em MP", valor: brl(investido) },
+          { label: "Total pago", valor: brl(pago), cor: "#16a34a" },
+          { label: "Pendente", valor: brl(pendente), cor: "#ca8a04" },
+        ]}
         topo={(chartData as any[]).length > 0 ? (
           <div>
             <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>{periodo?.from && periodo?.to ? "Contas a pagar — período" : "Contas a pagar — próximos 6 meses"}</div>
@@ -778,8 +789,14 @@ function CustosTab() {
       </Card>
 
       <RelatorioPrint
-        titulo="Custo Previsto × Real por coleção"
+        titulo="Custo Previsto × Real por modelo"
+        subtitulo="Comparativo de custo unitário previsto e realizado"
         dataStr={new Date().toLocaleDateString("pt-BR")}
+        kpis={[
+          { label: "Modelos analisados", valor: String((rows as any[]).length) },
+          { label: "Variação média", valor: `${Math.round((rows as any[]).reduce((s, r) => s + (Number(r.pct) || 0), 0) / Math.max((rows as any[]).length, 1))}%` },
+          { label: "Acima do previsto", valor: String((rows as any[]).filter((r) => Number(r.pct) > 0).length), cor: "#dc2626" },
+        ]}
         topo={(chartData as any[]).length > 0 ? (
           <div>
             <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Custo médio por peça por coleção</div>
