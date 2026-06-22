@@ -103,7 +103,7 @@ function CqListPage() {
       </div>
 
       <Card className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm card-table">
           <thead className="bg-muted/50 text-left">
             <tr>
               <th className="px-4 py-2">{fl("ref")}</th>
@@ -131,10 +131,10 @@ function CqListPage() {
                   <VersaoBadge versao={r.versao} className="ml-2 text-[10px]" />
                   <span className="ml-2"><RevisaoErroBadge revisao={r.revisao_pendente} etapa="cq" /></span>
                 </td>
-                <td className="px-4 py-2">{r.nome ?? "—"}</td>
-                <td className="px-4 py-2 text-muted-foreground">{r.categoria_nome ?? "—"}</td>
-                <td className="px-4 py-2 text-muted-foreground">{r.colecao ?? "—"}</td>
-                <td className="px-4 py-2"><CqStatusBadge status={r.status} /></td>
+                <td className="px-4 py-2" data-label="Nome">{r.nome ?? "—"}</td>
+                <td className="px-4 py-2 text-muted-foreground" data-label="Categoria">{r.categoria_nome ?? "—"}</td>
+                <td className="px-4 py-2 text-muted-foreground" data-label="Coleção">{r.colecao ?? "—"}</td>
+                <td className="px-4 py-2" data-label="Status"><CqStatusBadge status={r.status} /></td>
               </tr>
             ))}
           </tbody>

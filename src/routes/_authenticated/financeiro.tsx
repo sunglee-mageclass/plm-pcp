@@ -674,7 +674,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
 
       <Card className="p-4">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm card-table">
             <thead className="text-left text-muted-foreground">
               <tr className="border-b">
                 <th className="py-2 pr-3">Fornecedor</th>
@@ -696,7 +696,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
                     className={`border-b last:border-0 transition-colors ${p.id === highlightId ? "bg-primary/10" : ""}`}
                   >
                     <td className="py-2 pr-3">{p.empresas?.nome ?? "—"}</td>
-                    <td className="py-2 pr-3">
+                    <td className="py-2 pr-3" data-label="Nº Pedido">
                       <span className="inline-flex items-center gap-2">
                         {(p.oc_tecido_id || p.oc_aviamento_id) ? (
                           <button
@@ -710,21 +710,21 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
                         {p.ocBadge && <Badge className={p.ocBadge.cls}>{p.ocBadge.label}</Badge>}
                       </span>
                     </td>
-                    <td className="py-2 pr-3">{p.numero_parcela}</td>
-                    <td className="py-2 pr-3 text-right">{brl(Number(p.valor))}</td>
-                    <td className="py-2 pr-3">
+                    <td className="py-2 pr-3" data-label="Parcela">{p.numero_parcela}</td>
+                    <td className="py-2 pr-3 text-right" data-label="Valor">{brl(Number(p.valor))}</td>
+                    <td className="py-2 pr-3" data-label="Vencimento">
                       <VencimentoCell
                         value={p.data_vencimento}
                         onSave={(v) => updateVencimentoMut.mutate({ id: p.id, data: v })}
                       />
                     </td>
-                    <td className="py-2 pr-3">
+                    <td className="py-2 pr-3" data-label="Status">
                       <Badge variant={st === "pago" ? "default" : st === "vencido" ? "destructive" : "secondary"}>
                         {st === "a_pagar" ? "A pagar" : st === "pago" ? "Pago" : "Vencido"}
                       </Badge>
                     </td>
-                    <td className="py-2 pr-3">{p.data_pagamento ? format(parseISO(p.data_pagamento), "dd/MM/yyyy") : "—"}</td>
-                    <td className="py-2 pr-3">
+                    <td className="py-2 pr-3" data-label="Pagamento">{p.data_pagamento ? format(parseISO(p.data_pagamento), "dd/MM/yyyy") : "—"}</td>
+                    <td className="py-2 pr-3" data-label="">
                       {st !== "pago" ? (
                         <Button size="sm" variant="outline" onClick={() => setPagandoId(p.id)}>Marcar pago</Button>
                       ) : (

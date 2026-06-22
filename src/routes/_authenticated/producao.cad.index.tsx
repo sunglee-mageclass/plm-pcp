@@ -134,7 +134,7 @@ function CadListPage() {
       </div>
 
       <Card className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm card-table">
           <thead className="bg-muted/50 text-left">
             <tr>
               <th className="px-4 py-2">{fl("ref")}</th>
@@ -161,14 +161,14 @@ function CadListPage() {
                   <span className="font-mono text-primary">{r.ref ?? "—"}</span>
                   <VersaoBadge versao={r.versao} className="ml-2 text-[10px]" />
                 </td>
-                <td className="px-4 py-2">{r.nome ?? "—"}</td>
-                <td className="px-4 py-2 text-muted-foreground">{r.categoria_nome ?? "—"}</td>
-                <td className="px-4 py-2">
+                <td className="px-4 py-2" data-label="Nome">{r.nome ?? "—"}</td>
+                <td className="px-4 py-2 text-muted-foreground" data-label="Categoria">{r.categoria_nome ?? "—"}</td>
+                <td className="px-4 py-2" data-label="Status CAD">
                   <Badge className={`${STATUS_COLORS[r.status_corte] ?? "bg-muted"} text-white`}>
                     {STATUS_LABELS[r.status_corte] ?? r.status_corte}
                   </Badge>
                 </td>
-                <td className="px-4 py-2 text-center">
+                <td className="px-4 py-2 text-center" data-label="Ficha">
                   <Button
                     variant="ghost"
                     size="icon"

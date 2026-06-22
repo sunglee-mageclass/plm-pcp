@@ -180,3 +180,41 @@
   [data-sidebar="sidebar"], header, nav, aside, button, .sidebar { display: none !important; }
   @page { size: A4; margin: 12mm; }
 }
+
+/* Tabelas de lista responsivas: no mobile cada <tr> vira um card e cada <td>
+   uma linha "rótulo: valor" (rótulo vem de data-label). Só afeta tabelas com a
+   classe .card-table; desktop fica intacto. A 1ª coluna (sem data-label) vira o
+   título do card. */
+@media (max-width: 767px) {
+  table.card-table thead { display: none; }
+  table.card-table, table.card-table > tbody { display: block; width: 100%; }
+  table.card-table > tbody > tr {
+    display: block;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 0.5rem;
+    background: var(--card);
+  }
+  table.card-table > tbody > tr > td {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.2rem 0;
+    border: none;
+    text-align: right;
+    white-space: normal;
+  }
+  table.card-table > tbody > tr > td::before {
+    content: attr(data-label);
+    font-weight: 500;
+    color: var(--muted-foreground);
+    text-align: left;
+    white-space: nowrap;
+  }
+  /* coluna-título (sem data-label) ocupa a linha toda, em destaque, sem rótulo */
+  table.card-table > tbody > tr > td:not([data-label]) { justify-content: flex-start; font-weight: 600; }
+  table.card-table > tbody > tr > td:not([data-label])::before,
+  table.card-table > tbody > tr > td[data-label=""]::before { content: none; }
+}
