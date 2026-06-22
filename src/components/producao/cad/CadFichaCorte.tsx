@@ -30,8 +30,10 @@ type Props = {
 // Quebra NATURAL: cada seção evita ser cortada no meio e pagina quando não cabe.
 // (Antes era flex 0 0 50% + overflow:hidden, que cortava modelos grandes em
 // silêncio e desperdiçava espaço quando havia pouco conteúdo.)
+// A4 útil (297mm − 24mm de margem) ≈ 273mm. Cada "metade" ocupa ~meia folha
+// (minHeight) p/ um tipo por meia folha — antes ficavam grudados no topo.
 const pageStyle: React.CSSProperties = {};
-const halfStyle: React.CSSProperties = { breakInside: "avoid", marginBottom: 10 };
+const halfStyle: React.CSSProperties = { breakInside: "avoid", minHeight: "128mm", marginBottom: 8 };
 const fmt2 = (n: number | null | undefined) => fmtNum(n);
 
 export function Assinatura({ dataPrevista = false }: { dataPrevista?: boolean }) {
