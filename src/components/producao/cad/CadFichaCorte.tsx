@@ -30,10 +30,11 @@ type Props = {
 // Quebra NATURAL: cada seção evita ser cortada no meio e pagina quando não cabe.
 // (Antes era flex 0 0 50% + overflow:hidden, que cortava modelos grandes em
 // silêncio e desperdiçava espaço quando havia pouco conteúdo.)
-// A4 útil (297mm − 24mm de margem) ≈ 273mm. Cada "metade" ocupa ~meia folha
-// (minHeight) p/ um tipo por meia folha — antes ficavam grudados no topo.
-const pageStyle: React.CSSProperties = {};
-const halfStyle: React.CSSProperties = { breakInside: "avoid", minHeight: "128mm", marginBottom: 8 };
+// A4 útil (297mm − 24mm de margem) ≈ 273mm. A página é flex-column com minHeight
+// da folha; cada "metade" cresce p/ preencher ~50% (flex-grow) e tem minHeight de
+// meia folha — assim Tecido | Forro e Aviamentos | Grade ficam um por meia folha.
+const pageStyle: React.CSSProperties = { display: "flex", flexDirection: "column", minHeight: "270mm" };
+const halfStyle: React.CSSProperties = { flex: "1 0 auto", minHeight: "130mm", breakInside: "avoid" };
 const fmt2 = (n: number | null | undefined) => fmtNum(n);
 
 export function Assinatura({ dataPrevista = false }: { dataPrevista?: boolean }) {
