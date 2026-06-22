@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { brl, fmtNum } from "@/lib/format";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -99,25 +99,46 @@ function DashError({ show }: { show?: boolean }) {
 /* ============================ COLEÇÃO ============================ */
 
 // Gráfico de barras de TAMANHO FIXO p/ impressão (ResponsiveContainer mede 0 em
-// display:none; isAnimationActive=false senão sai vazio escondido).
-function PBar({ data, xKey, barKey, fmtY, horizontal, height = 200 }: { data: any[]; xKey: string; barKey: string; fmtY?: (v: any) => string; horizontal?: boolean; height?: number }) {
+// display:none; isAnimationActive=false senão sai vazio escondido). Cor = paleta do
+// dashboard; rótulo de valor no topo; cantos arredondados.
+function PBar({ data, xKey, barKey, fmtL, color = PIE_COLORS[0], horizontal, height = 190, width = 680 }: { data: any[]; xKey: string; barKey: string; fmtL?: (v: any) => string; color?: string; horizontal?: boolean; height?: number; width?: number }) {
+  const lab = { fontSize: 9, fill: "#475569", fontWeight: 600 } as const;
   if (horizontal) {
     return (
-      <BarChart width={680} height={height} data={data} layout="vertical">
-        <CartesianGrid strokeDasharray="3 3" stroke="#ddd" />
-        <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={fmtY} />
-        <YAxis type="category" dataKey={xKey} width={130} tick={{ fontSize: 10 }} />
-        <Bar dataKey={barKey} fill="#6366f1" isAnimationActive={false} />
+      <BarChart width={width} height={height} data={data} layout="vertical" margin={{ left: 2, right: 30, top: 2, bottom: 2 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#eef0f2" horizontal={false} />
+        <XAxis type="number" tick={{ fontSize: 9 }} tickFormatter={fmtL} axisLine={false} tickLine={false} />
+        <YAxis type="category" dataKey={xKey} width={132} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+        <Bar dataKey={barKey} fill={color} isAnimationActive={false} radius={[0, 3, 3, 0]}>
+          <LabelList dataKey={barKey} position="right" style={lab} formatter={fmtL} />
+        </Bar>
       </BarChart>
     );
   }
   return (
-    <BarChart width={680} height={height} data={data}>
-      <CartesianGrid strokeDasharray="3 3" stroke="#ddd" />
-      <XAxis dataKey={xKey} tick={{ fontSize: 10 }} />
-      <YAxis tick={{ fontSize: 10 }} tickFormatter={fmtY} />
-      <Bar dataKey={barKey} fill="#6366f1" isAnimationActive={false} />
+    <BarChart width={width} height={height} data={data} margin={{ top: 16, right: 8, bottom: 2, left: 2 }}>
+      <CartesianGrid strokeDasharray="3 3" stroke="#eef0f2" vertical={false} />
+      <XAxis dataKey={xKey} tick={{ fontSize: 10 }} axisLine={{ stroke: "#ccc" }} tickLine={false} />
+      <YAxis tick={{ fontSize: 9 }} tickFormatter={fmtL} axisLine={false} tickLine={false} width={fmtL ? 42 : 28} />
+      <Bar dataKey={barKey} fill={color} isAnimationActive={false} radius={[3, 3, 0, 0]}>
+        <LabelList dataKey={barKey} position="top" style={lab} formatter={fmtL} />
+      </Bar>
     </BarChart>
+  );
+}
+
+const nfInt = (n: any) => Number(n ?? 0).toLocaleString("pt-BR");
+// Duas mini-barras lado a lado (ex.: Modelos | Grade), p/ caber no A4.
+function PBar2({ a, b }: { a: { titulo: string; node: ReactNode }; b: { titulo: string; node: ReactNode } }) {
+  return (
+    <div style={{ display: "flex", gap: 18 }}>
+      {[a, b].map((c, i) => (
+        <div key={i} style={{ flex: 1 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 2 }}>{c.titulo}</div>
+          {c.node}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -395,7 +416,13 @@ function ProducaoTab() {
     for (const f of (finalizadas as any[])) { const e = m.get(f.mes) ?? { mes: f.mes, cortados: 0, finalizados: 0 }; e.finalizados = Number(f.modelos ?? 0); m.set(f.mes, e); }
     return Array.from(m.values());
   }, [cortes, finalizadas]);
+  const porColecao = data?.porColecao ?? [];
+  const porLinha = data?.porLinha ?? [];
   const defeitoMes = data?.defeitoPorMes ?? [];
+  const defeitoMedio = useMemo(() => {
+    const a = defeitoMes as any[];
+    return a.length ? a.reduce((s, d) => s + Number(d.taxa || 0), 0) / a.length : 0;
+  }, [defeitoMes]);
   const etapas = ["CAD", "Terceirizado", "Oficina", "Controle de Qualidade", "Acabamento", "Direcionamento", "Lançado"];
   // Rótulo da timeline: a etapa "Lançado" (existe registro em lancamentos) é a
   // ETAPA de lançamento — distinta do KPI "Lançados (CQ ok)" (CQ confirmado).
@@ -557,19 +584,20 @@ function ProducaoTab() {
         dataStr={new Date().toLocaleDateString("pt-BR")}
         kpis={[
           { label: "Entregas no prazo", valor: String(kpiPrazo.noPrazo ?? 0), cor: "#16a34a" },
-          { label: "Atrasadas", valor: String(kpiPrazo.atrasadas ?? 0), cor: Number(kpiPrazo.atrasadas) > 0 ? "#dc2626" : "#1a1a1a" },
-          { label: "% no prazo", valor: `${Math.round(Number(kpiPrazo.pct) || 0)}%` },
+          { label: "Atrasadas", valor: String(kpiPrazo.atrasadas ?? 0), cor: Number(kpiPrazo.atrasadas) > 0 ? "#dc2626" : undefined },
+          { label: "Defeito médio", valor: `${defeitoMedio.toFixed(1)}%`, cor: "#ca8a04" },
         ]}
+        donut={{ pct: Math.round(Number(kpiPrazo.pct) || 0), cor: "#16a34a", titulo: "Entregas no prazo", legenda: `${kpiPrazo.noPrazo ?? 0} no prazo · ${kpiPrazo.atrasadas ?? 0} atrasadas` }}
         secoes={[
           {
-            titulo: "Qualidade — taxa de defeito por mês",
+            titulo: "Qualidade — taxa de defeito por mês", icone: "◷",
             descricao: "Defeito ÷ recebido (entregas de Serviços)",
-            grafico: (defeitoMes as any[]).length > 0 ? <PBar data={defeitoMes as any[]} xKey="mes" barKey="taxa" fmtY={(v) => `${v}%`} height={180} /> : undefined,
+            grafico: (defeitoMes as any[]).length > 0 ? <PBar data={defeitoMes as any[]} xKey="mes" barKey="taxa" color={PIE_COLORS[3]} fmtL={(v) => `${v}%`} /> : undefined,
             colunas: [{ key: "mes", label: "Mês" }, { key: "taxa", label: "Taxa de defeito", align: "right" }],
-            linhas: (defeitoMes as any[]).map((d) => ({ mes: d.mes, taxa: `${Number(d.taxa)}%` })),
+            linhas: (defeitoMes as any[]).map((d) => ({ mes: d.mes, taxa: `${Number(d.taxa)}%` })), zebra: true,
           },
           {
-            titulo: "SLA / qualidade por terceirizado",
+            titulo: "SLA / qualidade por terceirizado", icone: "▤",
             colunas: [
               { key: "nome", label: "Terceirizado" },
               { key: "sla", label: "SLA médio (dias)", align: "right" },
@@ -583,19 +611,40 @@ function ProducaoTab() {
               atrasos: String(r.atrasos ?? 0),
               total: String(r.total ?? 0),
               defeito: `${Number(r.taxaDefeito ?? 0)}%`,
-            })),
+            })), zebra: true,
           },
           {
-            titulo: "Produção por mês",
-            descricao: "Modelos cortados (gráfico) e finalizados",
-            grafico: cortesFinalizados.length > 0 ? <PBar data={cortesFinalizados} xKey="mes" barKey="cortados" height={180} /> : undefined,
-            colunas: [{ key: "mes", label: "Mês" }, { key: "cortados", label: "Modelos cortados", align: "right" }, { key: "finalizados", label: "Modelos finalizados", align: "right" }],
-            linhas: cortesFinalizados.map((d) => ({ mes: d.mes, cortados: String(d.cortados), finalizados: String(d.finalizados) })),
+            titulo: "Desempenho por coleção", icone: "▣",
+            colunas: [{ key: "nome", label: "Coleção" }, { key: "modelos", label: "Modelos", align: "right" }, { key: "grade", label: "Grade total", align: "right" }, { key: "defeito", label: "Defeito", align: "right" }],
+            linhas: (porColecao as any[]).map((c) => ({ nome: c.nome ?? "—", modelos: nfInt(c.modelos), grade: nfInt(c.grade), defeito: `${Number(c.defeito ?? 0)}%` })), zebra: true,
           },
           {
-            titulo: "Kanban de desenvolvimento",
+            titulo: "Desempenho por linha", icone: "▦",
+            colunas: [{ key: "nome", label: "Linha" }, { key: "modelos", label: "Modelos", align: "right" }, { key: "grade", label: "Grade total", align: "right" }, { key: "defeito", label: "Defeito", align: "right" }],
+            linhas: (porLinha as any[]).map((c) => ({ nome: c.nome ?? "—", modelos: nfInt(c.modelos), grade: nfInt(c.grade), defeito: `${Number(c.defeito ?? 0)}%` })), zebra: true,
+          },
+          {
+            titulo: "Cortes por mês", icone: "▦",
+            descricao: "Por data de entrega do corte",
+            grafico: (cortes as any[]).length > 0 ? <PBar2
+              a={{ titulo: "Modelos cortados", node: <PBar data={cortes} xKey="mes" barKey="modelos" color={PIE_COLORS[0]} width={320} height={160} fmtL={nfInt} /> }}
+              b={{ titulo: "Grade total cortada", node: <PBar data={cortes} xKey="mes" barKey="grade" color={PIE_COLORS[1]} width={320} height={160} fmtL={nfInt} /> }} /> : undefined,
+            colunas: [{ key: "mes", label: "Mês" }, { key: "modelos", label: "Modelos", align: "right" }, { key: "grade", label: "Grade total", align: "right" }],
+            linhas: (cortes as any[]).map((d) => ({ mes: d.mes, modelos: nfInt(d.modelos), grade: nfInt(d.grade) })), zebra: true,
+          },
+          {
+            titulo: "Produção finalizada por mês", icone: "▦",
+            descricao: "Serviços com status finalizado",
+            grafico: (finalizadas as any[]).length > 0 ? <PBar2
+              a={{ titulo: "Modelos finalizados", node: <PBar data={finalizadas} xKey="mes" barKey="modelos" color={PIE_COLORS[2]} width={320} height={160} fmtL={nfInt} /> }}
+              b={{ titulo: "Grade total finalizada", node: <PBar data={finalizadas} xKey="mes" barKey="grade" color={PIE_COLORS[3]} width={320} height={160} fmtL={nfInt} /> }} /> : undefined,
+            colunas: [{ key: "mes", label: "Mês" }, { key: "modelos", label: "Modelos", align: "right" }, { key: "grade", label: "Grade total", align: "right" }],
+            linhas: (finalizadas as any[]).map((d) => ({ mes: d.mes, modelos: nfInt(d.modelos), grade: nfInt(d.grade) })), zebra: true,
+          },
+          {
+            titulo: "Kanban de desenvolvimento", icone: "◷",
             colunas: [{ key: "etapa", label: "Etapa" }, { key: "modelos", label: "Modelos", align: "right" }, { key: "grade", label: "Grade total", align: "right" }],
-            linhas: (kanbanDev as any[]).map((k) => ({ etapa: k.etapa ?? "—", modelos: String(k.modelos ?? 0), grade: String(k.grade ?? 0) })),
+            linhas: (kanbanDev as any[]).map((k) => ({ etapa: k.label ?? "—", modelos: nfInt(k.modelos), grade: nfInt(k.grade) })), zebra: true,
           },
         ]}
       />
@@ -705,25 +754,26 @@ function FinanceiroTab() {
           { label: "Total pago", valor: brl(pago), cor: "#16a34a" },
           { label: "Total pendente", valor: brl(pendente), cor: "#ca8a04" },
         ]}
+        donut={(pago + pendente) > 0 ? { pct: Math.round((pago / (pago + pendente)) * 100), cor: "#16a34a", titulo: "Pago do total", legenda: `${brl(pago)} pago · ${brl(pendente)} pendente` } : undefined}
         secoes={[
           {
-            titulo: "Contas a pagar — projeção mensal",
-            grafico: (chartData as any[]).length > 0 ? <PBar data={chartData as any[]} xKey="mes" barKey="total" fmtY={(v) => Number(v).toLocaleString("pt-BR")} /> : undefined,
+            titulo: "Contas a pagar — projeção mensal", icone: "▦",
+            grafico: (chartData as any[]).length > 0 ? <PBar data={chartData as any[]} xKey="mes" barKey="total" color={PIE_COLORS[2]} fmtL={(v) => nfInt(v)} /> : undefined,
             colunas: [{ key: "mes", label: "Mês" }, { key: "total", label: "A pagar", align: "right" }],
-            linhas: (chartData as any[]).map((d) => ({ mes: d.mes, total: brl(Number(d.total)) })),
+            linhas: (chartData as any[]).map((d) => ({ mes: d.mes, total: brl(Number(d.total)) })), zebra: true,
             rodape: `Total projetado: ${brl((chartData as any[]).reduce((s, d) => s + Number(d.total || 0), 0))}`,
           },
           {
-            titulo: "Aging — contas em aberto por idade do vencimento",
-            grafico: ((data?.aging ?? []) as any[]).length > 0 ? <PBar data={data?.aging ?? []} xKey="faixa" barKey="total" fmtY={(v) => Number(v).toLocaleString("pt-BR")} height={180} /> : undefined,
+            titulo: "Aging — contas em aberto por idade do vencimento", icone: "◷",
+            grafico: ((data?.aging ?? []) as any[]).length > 0 ? <PBar data={data?.aging ?? []} xKey="faixa" barKey="total" color={PIE_COLORS[3]} fmtL={(v) => nfInt(v)} height={170} /> : undefined,
             colunas: [{ key: "faixa", label: "Faixa" }, { key: "total", label: "Valor em aberto", align: "right" }],
-            linhas: ((data?.aging ?? []) as any[]).map((a) => ({ faixa: a.faixa, total: brl(Number(a.total)) })),
+            linhas: ((data?.aging ?? []) as any[]).map((a) => ({ faixa: a.faixa, total: brl(Number(a.total)) })), zebra: true,
           },
           {
-            titulo: "Top fornecedores no período",
-            grafico: ((data?.topFornecedores ?? []) as any[]).length > 0 ? <PBar data={data?.topFornecedores ?? []} xKey="nome" barKey="total" horizontal height={Math.max(160, ((data?.topFornecedores ?? []) as any[]).length * 26)} fmtY={(v) => Number(v).toLocaleString("pt-BR")} /> : undefined,
+            titulo: "Top fornecedores no período", icone: "▤",
+            grafico: ((data?.topFornecedores ?? []) as any[]).length > 0 ? <PBar data={data?.topFornecedores ?? []} xKey="nome" barKey="total" color={PIE_COLORS[0]} horizontal height={Math.max(150, ((data?.topFornecedores ?? []) as any[]).length * 26)} fmtL={(v) => nfInt(v)} /> : undefined,
             colunas: [{ key: "nome", label: "Fornecedor" }, { key: "total", label: "Total no período", align: "right" }],
-            linhas: ((data?.topFornecedores ?? []) as any[]).map((r) => ({ nome: r.nome ?? "—", total: brl(Number(r.total)) })),
+            linhas: ((data?.topFornecedores ?? []) as any[]).map((r) => ({ nome: r.nome ?? "—", total: brl(Number(r.total)) })), zebra: true,
           },
         ]}
       />
@@ -840,15 +890,16 @@ function CustosTab() {
           { label: "Variação média", valor: `${Math.round((rows as any[]).reduce((s, r) => s + (Number(r.pct) || 0), 0) / Math.max((rows as any[]).length, 1))}%` },
           { label: "Acima do previsto", valor: String((rows as any[]).filter((r) => Number(r.pct) > 0).length), cor: "#dc2626" },
         ]}
+        donut={(rows as any[]).length > 0 ? { pct: Math.round(((rows as any[]).filter((r) => Number(r.pct) <= 0).length / (rows as any[]).length) * 100), cor: "#16a34a", titulo: "Dentro do previsto", legenda: `${(rows as any[]).filter((r) => Number(r.pct) <= 0).length} de ${(rows as any[]).length} modelos no custo previsto ou abaixo` } : undefined}
         secoes={[
           {
-            titulo: "Custo médio por peça por coleção",
-            grafico: (chartData as any[]).length > 0 ? <PBar data={chartData as any[]} xKey="colecao" barKey="medio" fmtY={(v) => Number(v).toLocaleString("pt-BR")} /> : undefined,
+            titulo: "Custo médio por peça por coleção", icone: "▣",
+            grafico: (chartData as any[]).length > 0 ? <PBar data={chartData as any[]} xKey="colecao" barKey="medio" color={PIE_COLORS[1]} fmtL={(v) => nfInt(v)} /> : undefined,
             colunas: [{ key: "colecao", label: "Coleção" }, { key: "medio", label: "Custo médio / peça", align: "right" }],
-            linhas: (chartData as any[]).map((d) => ({ colecao: d.colecao, medio: brl(Number(d.medio)) })),
+            linhas: (chartData as any[]).map((d) => ({ colecao: d.colecao, medio: brl(Number(d.medio)) })), zebra: true,
           },
           {
-            titulo: "Custo previsto × real por modelo",
+            titulo: "Custo previsto × real por modelo", icone: "▤",
             descricao: "Custo unitário; diferença positiva = acima do previsto",
             colunas: [
               { key: "ref", label: "Ref" },
@@ -865,7 +916,7 @@ function CustosTab() {
               real: brl(Number(r.real)),
               diff: brl(Number(r.diff)),
               pct: `${Math.round(Number(r.pct) || 0)}%`,
-            })),
+            })), zebra: true,
           },
         ]}
       />
