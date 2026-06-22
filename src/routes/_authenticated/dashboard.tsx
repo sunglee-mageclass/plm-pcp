@@ -17,7 +17,7 @@ import { RelatorioPrint } from "@/components/shared/RelatorioPrint";
 import { PeriodoPicker, type Periodo } from "@/components/shared/PeriodoPicker";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
-  PieChart, Pie, Cell, FunnelChart, Funnel, LabelList, AreaChart, Area,
+  PieChart, Pie, Cell, FunnelChart, Funnel, LabelList,
 } from "recharts";
 
 import { RequirePermission } from "@/components/RequirePermission";
@@ -670,6 +670,15 @@ function FinanceiroTab() {
     },
   });
 
+  const { data: estoqueParado } = useQuery({
+    queryKey: ["dash-estoque-parado"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("dashboard_estoque_parado" as any);
+      if (error) throw error;
+      return data as any;
+    },
+  });
+
   const investido = Number(data?.investido ?? 0);
   const pago = Number(data?.pago ?? 0);
   const pendente = Number(data?.pendente ?? 0);
@@ -701,16 +710,19 @@ function FinanceiroTab() {
         </div>
       </Card>
       <Card className="p-4">
-        <h3 className="font-semibold mb-3">Caixa acumulado <span className="text-sm font-normal text-muted-foreground">· soma das contas a pagar ao longo do período</span></h3>
-        <div style={{ width: "100%", height: 280 }}>
+        <div className="flex flex-wrap items-end justify-between gap-2 mb-3">
+          <h3 className="font-semibold">Estoque em R$ parado <span className="text-sm font-normal text-muted-foreground">· tecido físico não reservado e não usado</span></h3>
+          <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">{brl(Number(estoqueParado?.total ?? 0))}</div>
+        </div>
+        <div style={{ width: "100%", height: 260 }}>
           <ResponsiveContainer>
-            <AreaChart data={(chartData as any[]).reduce((acc: any[], d: any) => { const prev = acc.length ? acc[acc.length - 1].acumulado : 0; acc.push({ mes: d.mes, acumulado: prev + Number(d.total ?? 0) }); return acc; }, [])}>
-              <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-              <XAxis dataKey="mes" />
-              <YAxis tickFormatter={(v) => v.toLocaleString("pt-BR")} />
+            <BarChart data={estoqueParado?.porArtigo ?? []} layout="vertical" margin={{ left: 8, right: 16 }}>
+              <CartesianGrid strokeDasharray="3 3" className="opacity-30" horizontal={false} />
+              <XAxis type="number" tickFormatter={(v) => Number(v).toLocaleString("pt-BR")} />
+              <YAxis type="category" dataKey="nome" width={140} tick={{ fontSize: 12 }} />
               <Tooltip formatter={(v: any) => brl(Number(v))} />
-              <Area dataKey="acumulado" name="Acumulado a pagar" stroke={PIE_COLORS[0]} fill={PIE_COLORS[0]} fillOpacity={0.2} />
-            </AreaChart>
+              <Bar dataKey="valor" name="R$ parado" fill={PIE_COLORS[2]} />
+            </BarChart>
           </ResponsiveContainer>
         </div>
       </Card>
