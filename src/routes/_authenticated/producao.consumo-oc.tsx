@@ -311,12 +311,12 @@ function ConsumoOcPage() {
         </div>
       </header>
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <div className="flex rounded-md border p-0.5">
           <Button size="sm" variant={!roloView ? "secondary" : "ghost"} onClick={() => setRoloView(false)}>OCs</Button>
           <Button size="sm" variant={roloView ? "secondary" : "ghost"} onClick={() => setRoloView(true)}>Rolos</Button>
         </div>
-        <div className="relative flex-1 max-w-sm">
+        <div className="relative flex-1 min-w-[10rem] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input placeholder="Buscar OC, fornecedor, tecido…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
         </div>
