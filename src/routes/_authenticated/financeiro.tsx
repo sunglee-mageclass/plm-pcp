@@ -784,7 +784,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
       <PagarDialog parcelaId={pagandoId} onClose={() => setPagandoId(null)} />
       <OcViewDialog view={ocView} onClose={() => setOcView(null)} />
 
-      <RelatorioPrint
+      {!ocView && <RelatorioPrint
         titulo="Contas a Pagar"
         subtitulo={`${filtered.length} parcela(s)${dataIni || dataFim ? ` · ${dataIni || "…"} a ${dataFim || "…"}` : ""}`}
         dataStr={new Date().toLocaleDateString("pt-BR")}
@@ -807,7 +807,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
           pagamento: p.data_pagamento ? p.data_pagamento.slice(0, 10).split("-").reverse().join("/") : "—",
         }))}
         rodape={`Total: ${brl(filtered.reduce((s, p) => s + Number(p.valor || 0), 0))}`}
-      />
+      />}
     </div>
   );
 }
@@ -892,7 +892,33 @@ function OcViewDialog({ view, onClose }: { view: { tipo: string; id: string } | 
           </div>
         )}
         {!isLoading && !oc && <p className="text-sm text-muted-foreground">OC não encontrada.</p>}
+
+        {!isLoading && oc && (
+          <RelatorioPrint
+            titulo={`Extrato da OC ${view?.tipo === "tecido" ? "de Tecido" : "de Aviamento"}${oc.numero_pedido ? ` · Nº ${oc.numero_pedido}` : ""}`}
+            subtitulo={`Fornecedor: ${oc.empresas?.nome_fantasia ?? "—"} · Pedido: ${fmtD(oc.data_pedido)} · Entrega: ${fmtD(oc.data_entrega)} · Prazo: ${oc.prazo_pagamento ?? "—"}`}
+            dataStr={new Date().toLocaleDateString("pt-BR")}
+            colunas={[
+              { key: "item", label: "Item" },
+              { key: "pedida", label: "Pedida", align: "right" },
+              { key: "recebida", label: "Recebida", align: "right" },
+            ]}
+            linhas={itens.map((it) => ({
+              item: view?.tipo === "tecido"
+                ? `${it.artigos?.nome ?? "—"}${it.variantes_tecido?.cor?.nome ? ` · ${it.variantes_tecido.cor.nome}` : it.variantes_tecido?.nome_variante ? ` · ${it.variantes_tecido.nome_variante}` : ""}`
+                : (it.aviamentos?.codigo_nome ?? "—"),
+              pedida: String(Number(it.quantidade_pedida ?? 0)),
+              recebida: String(Number(it.quantidade_recebida ?? 0)),
+            }))}
+          />
+        )}
+
         <DialogFooter>
+          {!isLoading && oc && (
+            <Button variant="outline" className="hidden md:inline-flex" onClick={() => printWithImages()}>
+              <Printer className="h-4 w-4 mr-1" /> Imprimir
+            </Button>
+          )}
           <Button variant="ghost" onClick={onClose}>Fechar</Button>
         </DialogFooter>
       </DialogContent>
