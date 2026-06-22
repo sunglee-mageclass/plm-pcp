@@ -121,7 +121,7 @@ export function DownstreamConfirmDialog({
         </AlertDialogHeader>
 
         {impactos.length > 0 && (
-          <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-2.5 text-sm space-y-1.5">
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-2.5 text-sm max-md:text-xs space-y-1.5">
             <p className="font-medium">O que você mudou e por quê afeta:</p>
             {impactos.map((f) => (
               <p key={f.key}>
@@ -132,7 +132,7 @@ export function DownstreamConfirmDialog({
         )}
 
         {corteAfetado && (etapas.baixa_total ?? 0) > 0 && (
-          <div className="rounded-md border border-destructive/40 bg-destructive/5 p-2.5 text-sm">
+          <div className="rounded-md border border-destructive/40 bg-destructive/5 p-2.5 text-sm max-md:text-xs">
             <b>Corte:</b> já foram baixados <b>{fmtNum(Number(etapas.baixa_total ?? 0))}m</b> de tecido no envio ao corte —
             a baixa <b>não se desfaz sozinha</b>. Re-enviar ao corte regrava a baixa com os novos valores.
           </div>

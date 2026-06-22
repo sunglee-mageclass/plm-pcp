@@ -19,7 +19,7 @@ type Props = {
 export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, onToggleAutoFolhas }: Props) {
   const ro = !!autoFolhas;
   return (
-    <Card className="p-5 space-y-4">
+    <Card className="p-5 max-md:p-3 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-semibold">Tecidos / Forros / Entretelas</h2>
         {onToggleAutoFolhas && (
@@ -46,7 +46,7 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
       {tecidos.map((t, i) => {
         const compl = !(t.tipo === "tecido" && t.numero === 1);
         return (
-        <Card key={`${t.tipo}-${t.numero}-${i}`} className="p-4 space-y-3">
+        <Card key={`${t.tipo}-${t.numero}-${i}`} className="p-4 max-md:p-3 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary" className="capitalize">{t.tipo} {t.numero}</Badge>
             <span className="text-sm font-medium">{t.artigo_nome ?? "Sem artigo"}</span>
@@ -83,7 +83,7 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
           </div>
           {t.variantes.length > 0 && (
             <div className="overflow-x-auto">
-              <table className="w-full text-xs border">
+              <table className="w-full text-xs border card-table">
                 <thead className="bg-muted/50">
                   <tr>
                     <th className="px-2 py-1 text-left">Variante</th>
@@ -98,30 +98,30 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
                     <tr key={`${v.variante_tecido_id}-${j}`} className="border-t">
                       <td className="px-2 py-1">{v.variante_nome ?? "—"}</td>
                       {compl && (
-                        <td className="px-2 py-1">
-                          <NumberInput type="number" step="0.01" min={0} className="w-16"
+                        <td className="px-2 py-1" data-label="× grade">
+                          <NumberInput type="number" step="0.01" min={0} className="w-16 max-md:w-24"
                             value={Number(v.multiplicador ?? 1)}
                             onChange={(e) => updateVar(i, j, { multiplicador: Number(e.target.value) || 1 })} />
                         </td>
                       )}
-                      <td className="px-2 py-1">
+                      <td className="px-2 py-1" data-label="Qtd Folhas">
                         {ro ? (
-                          <Input readOnly className="bg-muted" value={fmtNum(v.quantidade_folhas)} />
+                          <Input readOnly className="bg-muted max-md:w-24" value={fmtNum(v.quantidade_folhas)} />
                         ) : (
-                          <NumberInput type="number" value={v.quantidade_folhas}
+                          <NumberInput type="number" className="max-md:w-24" value={v.quantidade_folhas}
                             onChange={(e) => updateVar(i, j, { quantidade_folhas: Number(e.target.value) })} />
                         )}
                       </td>
-                      <td className="px-2 py-1">
+                      <td className="px-2 py-1" data-label="Metr. Planejada">
                         {ro ? (
-                          <Input readOnly className="bg-muted" value={fmtNum(v.metragem_planejada)} />
+                          <Input readOnly className="bg-muted max-md:w-24" value={fmtNum(v.metragem_planejada)} />
                         ) : (
-                          <NumberInput type="number" step="0.01" value={v.metragem_planejada}
+                          <NumberInput type="number" step="0.01" className="max-md:w-24" value={v.metragem_planejada}
                             onChange={(e) => updateVar(i, j, { metragem_planejada: Number(e.target.value) })} />
                         )}
                       </td>
-                      <td className="px-2 py-1">
-                        <NumberInput type="number" step="0.01" value={v.metragem_enviada}
+                      <td className="px-2 py-1" data-label="Metr. a Separar/Enviar">
+                        <NumberInput type="number" step="0.01" className="max-md:w-24" value={v.metragem_enviada}
                           onChange={(e) => updateVar(i, j, { metragem_enviada: Number(e.target.value) })} />
                       </td>
                     </tr>

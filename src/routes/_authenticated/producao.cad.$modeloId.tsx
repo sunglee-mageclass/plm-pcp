@@ -785,7 +785,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
         />
 
         {gradeAlterada && (
-          <Card className="p-3 border-amber-500/60 bg-amber-500/10 text-sm flex items-start gap-2">
+          <Card className="p-3 border-amber-500/60 bg-amber-500/10 text-sm max-md:text-xs flex items-start gap-2">
             <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
             <span>
               <b>A grade foi alterada.</b> Revise as metragens dos Tecidos/Aviamentos e os consumos —
@@ -796,22 +796,22 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
 
         <fieldset disabled={readOnly || (!!cadRow?.enviado_corte && !editing)} className="contents">
         {/* SEÇÃO 1 */}
-        <Card className="p-5 flex gap-5">
-          <div className="h-32 w-32 rounded-md bg-muted overflow-hidden flex items-center justify-center">
+        <Card className="p-5 max-md:p-3 flex gap-5 max-md:flex-col max-md:gap-3">
+          <div className="h-32 w-32 max-md:h-28 max-md:w-28 rounded-md bg-muted overflow-hidden flex items-center justify-center shrink-0">
             {firstPhoto ? (
               <ModeloPhoto path={firstPhoto} />
             ) : (
               <ImageIcon className="h-8 w-8 text-muted-foreground" />
             )}
           </div>
-          <div className="flex-1 space-y-1">
-            <div className="flex items-center gap-3">
-              <Scissors className="h-5 w-5 text-primary" />
-              <h1 className="text-xl font-bold">{modelo?.nome ?? "—"}</h1>
+          <div className="flex-1 min-w-0 space-y-1">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <Scissors className="h-5 w-5 text-primary shrink-0" />
+              <h1 className="text-xl max-md:text-lg font-bold">{modelo?.nome ?? "—"}</h1>
               <Badge variant="outline" className="font-mono">{modelo?.ref ?? "sem REF"}</Badge>
               <VersaoBadge versao={modelo?.versao} />
             </div>
-            <div className="text-sm text-muted-foreground grid grid-cols-2 gap-x-6 gap-y-1 mt-2">
+            <div className="text-sm text-muted-foreground grid grid-cols-2 max-md:grid-cols-1 gap-x-6 gap-y-1 mt-2">
               <span className="col-span-2">Estilista: {modelo?.estilista?.nome ?? "—"}</span>
               <span>Coleção: {modelo?.colecao ?? "—"}</span>
               <span>Linha: {modelo?.linha?.nome ?? "—"}</span>

@@ -29,13 +29,13 @@ export function CadEtiquetasSection({ etiquetas, disponiveis, gradeSumByTamanho,
   const available = disponiveis.filter((d) => !etiquetas.some((e) => e.etiqueta_id === d.id));
 
   return (
-    <Card className="p-5 space-y-3">
-      <div className="flex items-center justify-between gap-2">
+    <Card className="p-5 max-md:p-3 space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-semibold flex items-center gap-2">
           <Tag className="h-4 w-4" /> TAG/Etiquetas
         </h2>
         <Select value="" onValueChange={(v) => v && onAdd(v)}>
-          <SelectTrigger className="h-8 w-56"><SelectValue placeholder="Adicionar etiqueta…" /></SelectTrigger>
+          <SelectTrigger className="h-8 w-56 max-md:w-full"><SelectValue placeholder="Adicionar etiqueta…" /></SelectTrigger>
           <SelectContent>
             {available.length === 0 ? (
               <div className="p-2 text-xs text-muted-foreground">
@@ -56,7 +56,7 @@ export function CadEtiquetasSection({ etiquetas, disponiveis, gradeSumByTamanho,
         <p className="text-sm text-muted-foreground">Nenhuma etiqueta adicionada.</p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-xs border">
+          <table className="w-full text-xs border card-table">
             <thead className="bg-muted/50">
               <tr>
                 <th className="px-2 py-1 text-left">Etiqueta</th>
@@ -78,26 +78,28 @@ export function CadEtiquetasSection({ etiquetas, disponiveis, gradeSumByTamanho,
                 return (
                   <tr key={`${e.etiqueta_id}-${i}`} className="border-t">
                     <td className="px-2 py-1">{e.etiqueta_nome}</td>
-                    <td className="px-2 py-1 text-center">{temTamanho ? fmtTamanho(e.tamanho) : "Geral"}</td>
-                    <td className="px-2 py-1">
+                    <td className="px-2 py-1 text-center" data-label="Tamanho">{temTamanho ? fmtTamanho(e.tamanho) : "Geral"}</td>
+                    <td className="px-2 py-1" data-label="Consumo">
                       <NumberInput
                         type="number"
                         step="0.0001"
+                        className="max-md:w-28"
                         value={e.consumo}
                         onChange={(ev) => onUpdate(i, { consumo: Number(ev.target.value) })}
                       />
                     </td>
-                    <td className="px-2 py-1 text-center font-medium">{base}</td>
-                    <td className="px-2 py-1 text-center font-medium">{fmtNum(planejada)}</td>
-                    <td className="px-2 py-1">
+                    <td className="px-2 py-1 text-center font-medium" data-label="Grade (base)">{base}</td>
+                    <td className="px-2 py-1 text-center font-medium" data-label="Qtd Planejada">{fmtNum(planejada)}</td>
+                    <td className="px-2 py-1" data-label="Qtd a Enviar">
                       <NumberInput
                         type="number"
                         step="0.01"
+                        className="max-md:w-28"
                         value={e.quantidade_enviar}
                         onChange={(ev) => onUpdate(i, { quantidade_enviar: Number(ev.target.value) })}
                       />
                     </td>
-                    <td className="px-2 py-1 text-center">
+                    <td className="px-2 py-1 text-center" data-label="">
                       <Button type="button" size="icon" variant="ghost" onClick={() => onRemove(i)} aria-label="Remover">
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
