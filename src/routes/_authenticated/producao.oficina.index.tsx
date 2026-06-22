@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Wrench, Search } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
+import { RevisaoErroBadge } from "@/components/producao/RevisaoErro";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
@@ -26,7 +27,7 @@ function OficinaListPage() {
       const { data, error } = await supabase
         .from("modelos")
         .select(
-          "id, ref, versao, nome, colecao, mes_id, ano_id, categorias_produto:categoria_principal_id(nome), cad(enviado_corte)",
+          "id, ref, versao, nome, colecao, mes_id, ano_id, revisao_pendente, categorias_produto:categoria_principal_id(nome), cad(enviado_corte)",
         )
         .eq("enviado_cad", true)
         .order("created_at", { ascending: false });
@@ -41,6 +42,7 @@ function OficinaListPage() {
         mes_id: m.mes_id,
         ano_id: m.ano_id,
         categoria_nome: m.categorias_produto?.nome ?? null,
+        revisao_pendente: m.revisao_pendente,
       }));
     },
   });
@@ -129,6 +131,7 @@ function OficinaListPage() {
                     {r.ref ?? "—"}
                   </Link>
                   <VersaoBadge versao={r.versao} className="ml-2 text-[10px]" />
+                  <span className="ml-2"><RevisaoErroBadge revisao={r.revisao_pendente} etapa="oficina" /></span>
                 </td>
                 <td className="px-4 py-2">
                   <Link to="/producao/oficina/$modeloId" params={{ modeloId: r.modelo_id }} className="hover:underline">

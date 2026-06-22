@@ -14,6 +14,7 @@ import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS, useCompactCards } from
 import { LayoutGrid } from "lucide-react";
 
 import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
+import { RevisaoErroBadge, VerificarRevisao } from "@/components/producao/RevisaoErro";
 export const Route = createFileRoute("/_authenticated/producao/lancamentos")({
   component: () => (
     <RequirePermission page="producao_lancamentos">
@@ -43,6 +44,7 @@ type LancCard = {
   cqId: string | null;
   fotoByNum: Record<string, boolean>;
   lancamento?: any;
+  revisao_pendente?: any;
 };
 
 function LancamentosPage() {
@@ -73,7 +75,7 @@ function LancamentosPage() {
       // Produtos cujo Controle de Qualidade foi CONFIRMADO.
       const { data: modelos, error } = await supabase
         .from("modelos")
-        .select("id, ref, nome, colecao, mes_id, ano_id, linha_id, fotos_modelo, linha:linha_id(nome), categorias_produto:categoria_principal_id(nome), cad(id, controle_qualidade(id, status, fotografado_variantes))")
+        .select("id, ref, nome, colecao, mes_id, ano_id, linha_id, revisao_pendente, fotos_modelo, linha:linha_id(nome), categorias_produto:categoria_principal_id(nome), cad(id, controle_qualidade(id, status, fotografado_variantes))")
         .eq("enviado_cad", true);
       if (error) throw error;
 
@@ -147,6 +149,7 @@ function LancamentosPage() {
           cqId: cqRow?.id ?? null,
           fotoByNum,
           lancamento: m.lancamentos?.[0] ?? null,
+          revisao_pendente: m.revisao_pendente,
         };
       });
     },
@@ -335,7 +338,10 @@ function LancamentoCard(props: { card: LancCard; compact: boolean; onUpload: (f:
             <div className="p-3 space-y-1 flex-1 text-xs">
               <div className="flex items-center justify-between gap-2">
                 <p className="font-mono text-primary">{card.ref ?? "—"}</p>
-                {camColor && <Camera className={"h-4 w-4 " + camColor} />}
+                <div className="flex items-center gap-1">
+                  <RevisaoErroBadge revisao={card.revisao_pendente} etapa="lancamentos" />
+                  {camColor && <Camera className={"h-4 w-4 " + camColor} />}
+                </div>
               </div>
               <p className="font-semibold text-sm leading-tight line-clamp-2">{card.nome ?? "—"}</p>
               <p className="text-muted-foreground">
@@ -366,6 +372,7 @@ function LancamentoCard(props: { card: LancCard; compact: boolean; onUpload: (f:
         <DialogHeader>
           <DialogTitle className="text-base">Fotos por variante — {card.ref ?? "—"}</DialogTitle>
         </DialogHeader>
+        <VerificarRevisao modeloId={card.modelo_id} etapa="lancamentos" revisao={card.revisao_pendente} />
         <div className="space-y-1">
           {card.variantes.length === 0 && <p className="text-sm text-muted-foreground">Sem variantes no Tecido Principal.</p>}
           {card.variantes.map((v) => {

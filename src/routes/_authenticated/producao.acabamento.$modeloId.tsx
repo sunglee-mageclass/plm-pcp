@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useReadOnly } from "@/components/RequirePermission";
+import { VerificarRevisao } from "@/components/producao/RevisaoErro";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 
 export const Route = createFileRoute("/_authenticated/producao/acabamento/$modeloId")({
@@ -192,6 +193,7 @@ function AcabDetailPage() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
+      <VerificarRevisao modeloId={modeloId} etapa="acabamento" />
       <div className="flex items-center justify-between">
         <Link to="/producao/acabamento" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
           <ArrowLeft className="h-4 w-4" /> Voltar

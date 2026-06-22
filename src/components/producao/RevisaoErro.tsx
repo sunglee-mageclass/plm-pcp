@@ -14,17 +14,21 @@ export function RevisaoErroBadge({ revisao, etapa }: { revisao: any; etapa: stri
 }
 
 // Banner + botão "Marcar verificado" no detalhe do setor (some o #Erro daquela etapa).
-export function VerificarRevisao({ modeloId, etapa }: { modeloId: string; etapa: string }) {
+export function VerificarRevisao({ modeloId, etapa, revisao }: { modeloId: string; etapa: string; revisao?: any }) {
   const qc = useQueryClient();
-  const { data: pendente } = useQuery({
+  // Se o pai já tem o revisao_pendente (ex.: cards de Lançamentos), usa-o e evita
+  // uma query por item; senão consulta.
+  const hasRevisao = revisao !== undefined;
+  const { data: pendenteQuery } = useQuery({
     queryKey: ["revisao-pendente", modeloId, etapa],
-    enabled: !!modeloId,
+    enabled: !!modeloId && !hasRevisao,
     queryFn: async () => {
       const { data, error } = await supabase.from("modelos").select("revisao_pendente").eq("id", modeloId).maybeSingle();
       if (error) throw error;
       return !!((data?.revisao_pendente as any)?.[etapa]);
     },
   });
+  const pendente = hasRevisao ? !!(revisao as any)?.[etapa] : pendenteQuery;
 
   const verificar = useMutation({
     mutationFn: async () => {
@@ -34,7 +38,8 @@ export function VerificarRevisao({ modeloId, etapa }: { modeloId: string; etapa:
     onSuccess: () => {
       toast.success("Etapa verificada");
       qc.invalidateQueries({ queryKey: ["revisao-pendente", modeloId, etapa] });
-      ["producao-terc-list", "producao-cq-list", "dir-list"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+      ["producao-terc-list", "producao-cq-list", "dir-list", "producao-oficina-list", "producao-acab-list", "lancamentos-cards"]
+        .forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao verificar"),
   });

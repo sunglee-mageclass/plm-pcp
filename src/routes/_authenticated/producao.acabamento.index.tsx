@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Sparkles, Search } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
+import { RevisaoErroBadge } from "@/components/producao/RevisaoErro";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
@@ -23,7 +24,7 @@ function AcabListPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, ref, versao, nome, colecao, categorias_produto:categoria_principal_id(nome), cad(enviado_corte)")
+        .select("id, ref, versao, nome, colecao, revisao_pendente, categorias_produto:categoria_principal_id(nome), cad(enviado_corte)")
         .eq("enviado_cad", true)
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -31,6 +32,7 @@ function AcabListPage() {
       return (data ?? []).filter((m: any) => m.cad?.[0]?.enviado_corte === true).map((m: any) => ({
         modelo_id: m.id, ref: m.ref, versao: m.versao, nome: m.nome, colecao: m.colecao,
         categoria_nome: m.categorias_produto?.nome ?? null,
+        revisao_pendente: m.revisao_pendente,
       }));
     },
   });
@@ -91,6 +93,7 @@ function AcabListPage() {
                     {r.ref ?? "—"}
                   </Link>
                   <VersaoBadge versao={r.versao} className="ml-2 text-[10px]" />
+                  <span className="ml-2"><RevisaoErroBadge revisao={r.revisao_pendente} etapa="acabamento" /></span>
                 </td>
                 <td className="px-4 py-2">
                   <Link to="/producao/acabamento/$modeloId" params={{ modeloId: r.modelo_id }} className="hover:underline">
