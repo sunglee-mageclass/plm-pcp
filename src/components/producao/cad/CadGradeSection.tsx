@@ -49,10 +49,10 @@ export function CadGradeSection({
       {onChangeProporcao && (
         <div className="space-y-1">
           <p className="text-xs font-semibold text-muted-foreground">Proporções por Tamanho</p>
-          <div className="overflow-x-auto">
+          <div>
             <div
               className="grid gap-2 pb-1"
-              style={{ gridTemplateColumns: `repeat(${tamanhosAll.length}, minmax(64px, 1fr))` }}
+              style={{ gridTemplateColumns: `repeat(auto-fill, minmax(64px, 1fr))` }}
             >
               {tamanhosAll.map((t) => (
                 <div key={t} className="grid gap-1">
@@ -85,7 +85,8 @@ export function CadGradeSection({
           <div className="text-sm font-medium">
             {labelByNumero?.[g.variante_numero] ?? `Variante ${g.variante_numero}`}
           </div>
-          <div className="overflow-x-auto">
+          {/* Desktop: tabela larga */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-xs border">
               <thead className="bg-muted/50">
                 <tr>
@@ -110,6 +111,23 @@ export function CadGradeSection({
                 </tr>
               </tbody>
             </table>
+          </div>
+          {/* Mobile: chips por tamanho (some o scroll horizontal) */}
+          <div className="md:hidden">
+            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+              {tamanhosAll.map((t) => (
+                <div key={t} className="overflow-hidden rounded border">
+                  <div className="bg-muted/50 px-1 py-0.5 text-center text-[10px] font-medium">{t}</div>
+                  <NumberInput
+                    type="number"
+                    className="h-9 border-0 text-center"
+                    value={g.grades[t] ?? 0}
+                    onChange={(e) => updateGradeCell(gi, t, Number(e.target.value))}
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="mt-1 text-right text-xs text-muted-foreground">Total: <b className="text-foreground">{g.grade_total}</b></div>
           </div>
         </div>
       ))}
