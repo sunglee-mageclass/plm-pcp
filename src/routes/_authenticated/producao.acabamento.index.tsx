@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FilterButton, SearchToggle } from "@/components/shared/filters";
 
 export const Route = createFileRoute("/_authenticated/producao/acabamento/")({
   component: AcabListPage,
@@ -57,19 +58,14 @@ function AcabListPage() {
         </div>
       </header>
 
-      <Card className="p-4 grid gap-3 md:grid-cols-3">
-        <div className="relative md:col-span-2">
-          <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input className="pl-9" placeholder={`${fl("ref")} ou nome…`} value={q} onChange={(e) => setQ(e.target.value)} />
-        </div>
-        <Select value={fColecao} onValueChange={setFColecao}>
-          <SelectTrigger><SelectValue placeholder="Coleção" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todas coleções</SelectItem>
-            {colecoes.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </Card>
+      <div className="flex items-center justify-end gap-2">
+        <SearchToggle value={q} onChange={setQ} placeholder={`${fl("ref")} ou nome…`} />
+        <FilterButton
+          filters={[
+            { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas coleções" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
+          ]}
+        />
+      </div>
 
       <Card className="overflow-x-auto">
         <table className="w-full text-sm card-table">

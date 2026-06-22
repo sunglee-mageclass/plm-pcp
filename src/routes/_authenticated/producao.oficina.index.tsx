@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FilterButton, SearchToggle } from "@/components/shared/filters";
 
 export const Route = createFileRoute("/_authenticated/producao/oficina/")({
   component: OficinaListPage,
@@ -79,33 +80,16 @@ function OficinaListPage() {
         </div>
       </header>
 
-      <Card className="p-4 grid gap-3 md:grid-cols-5">
-        <div className="relative md:col-span-2">
-          <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input className="pl-9" placeholder={`${fl("ref")} ou nome…`} value={q} onChange={(e) => setQ(e.target.value)} />
-        </div>
-        <Select value={fColecao} onValueChange={setFColecao}>
-          <SelectTrigger><SelectValue placeholder="Coleção" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todas coleções</SelectItem>
-            {colecoes.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Select value={fMes} onValueChange={setFMes}>
-          <SelectTrigger><SelectValue placeholder="Mês" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos meses</SelectItem>
-            {(meses as any[]).map((m) => <SelectItem key={m.id} value={m.id}>{m.nome}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Select value={fAno} onValueChange={setFAno}>
-          <SelectTrigger><SelectValue placeholder="Ano" /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todos anos</SelectItem>
-            {(anos as any[]).map((a) => <SelectItem key={a.id} value={a.id}>{a.nome}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </Card>
+      <div className="flex items-center justify-end gap-2">
+        <SearchToggle value={q} onChange={setQ} placeholder={`${fl("ref")} ou nome…`} />
+        <FilterButton
+          filters={[
+            { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas coleções" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
+            { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos meses" }, ...(meses as any[]).map((m) => ({ id: m.id, nome: m.nome }))] },
+            { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos anos" }, ...(anos as any[]).map((a) => ({ id: a.id, nome: a.nome }))] },
+          ]}
+        />
+      </div>
 
       <Card className="overflow-x-auto">
         <table className="w-full text-sm card-table">
