@@ -122,7 +122,7 @@ function ColecaoTab() {
         <Kpi label="Em Planejamento" value={kpis.planejamento} icon={Palette} />
         <Kpi label="Em Desenvolvimento" value={kpis.desenvolvimento} icon={Sparkles} />
         <Kpi label="Em Produção" value={kpis.producao} icon={BarChart3} />
-        <Kpi label="Lançados" value={kpis.lancados} icon={Package} />
+        <Kpi label="Lançados (CQ ok)" value={kpis.lancados} icon={Package} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -331,6 +331,9 @@ function ProducaoTab() {
   const finalizadas = data?.finalizadasPorMes ?? [];
   const kanbanDev = data?.kanbanDev ?? [];
   const etapas = ["CAD", "Terceirizado", "Oficina", "Controle de Qualidade", "Acabamento", "Direcionamento", "Lançado"];
+  // Rótulo da timeline: a etapa "Lançado" (existe registro em lancamentos) é a
+  // ETAPA de lançamento — distinta do KPI "Lançados (CQ ok)" (CQ confirmado).
+  const etapaLabel: Record<string, string> = { "Lançado": "Em Lançamento" };
 
   const colecoes: string[] = data?.filtros?.colecoes ?? [];
   const linhas: Opt[] = data?.filtros?.linhas ?? [];
@@ -385,7 +388,7 @@ function ProducaoTab() {
               <tr className="border-b">
                 <th className="py-2 pr-3">{fl("ref")}</th>
                 <th className="py-2 pr-3">Nome</th>
-                {etapas.map((e) => <th key={e} className="py-2 px-2 text-center text-xs">{e}</th>)}
+                {etapas.map((e) => <th key={e} className="py-2 px-2 text-center text-xs">{etapaLabel[e] ?? e}</th>)}
               </tr>
             </thead>
             <tbody>
