@@ -98,6 +98,29 @@ function DashError({ show }: { show?: boolean }) {
 
 /* ============================ COLEÇÃO ============================ */
 
+// Gráfico de barras de TAMANHO FIXO p/ impressão (ResponsiveContainer mede 0 em
+// display:none; isAnimationActive=false senão sai vazio escondido).
+function PBar({ data, xKey, barKey, fmtY, horizontal, height = 200 }: { data: any[]; xKey: string; barKey: string; fmtY?: (v: any) => string; horizontal?: boolean; height?: number }) {
+  if (horizontal) {
+    return (
+      <BarChart width={680} height={height} data={data} layout="vertical">
+        <CartesianGrid strokeDasharray="3 3" stroke="#ddd" />
+        <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={fmtY} />
+        <YAxis type="category" dataKey={xKey} width={130} tick={{ fontSize: 10 }} />
+        <Bar dataKey={barKey} fill="#6366f1" isAnimationActive={false} />
+      </BarChart>
+    );
+  }
+  return (
+    <BarChart width={680} height={height} data={data}>
+      <CartesianGrid strokeDasharray="3 3" stroke="#ddd" />
+      <XAxis dataKey={xKey} tick={{ fontSize: 10 }} />
+      <YAxis tick={{ fontSize: 10 }} tickFormatter={fmtY} />
+      <Bar dataKey={barKey} fill="#6366f1" isAnimationActive={false} />
+    </BarChart>
+  );
+}
+
 function ColecaoTab() {
   const [periodo, setPeriodo] = useState<Periodo>(undefined);
   const [colecao, setColecao] = useState("all");
@@ -366,6 +389,12 @@ function ProducaoTab() {
   const cortes = data?.cortesPorMes ?? [];
   const finalizadas = data?.finalizadasPorMes ?? [];
   const kanbanDev = data?.kanbanDev ?? [];
+  const cortesFinalizados = useMemo(() => {
+    const m = new Map<string, { mes: string; cortados: number; finalizados: number }>();
+    for (const c of (cortes as any[])) m.set(c.mes, { mes: c.mes, cortados: Number(c.modelos ?? 0), finalizados: 0 });
+    for (const f of (finalizadas as any[])) { const e = m.get(f.mes) ?? { mes: f.mes, cortados: 0, finalizados: 0 }; e.finalizados = Number(f.modelos ?? 0); m.set(f.mes, e); }
+    return Array.from(m.values());
+  }, [cortes, finalizadas]);
   const defeitoMes = data?.defeitoPorMes ?? [];
   const etapas = ["CAD", "Terceirizado", "Oficina", "Controle de Qualidade", "Acabamento", "Direcionamento", "Lançado"];
   // Rótulo da timeline: a etapa "Lançado" (existe registro em lancamentos) é a
@@ -523,39 +552,52 @@ function ProducaoTab() {
       </Card>
 
       <RelatorioPrint
-        titulo="Relatório de Produção — SLA / Qualidade por terceirizado"
-        subtitulo="Prazos e qualidade da produção terceirizada"
+        titulo="Relatório de Produção — prazos e qualidade"
+        subtitulo="Cortes, finalizações, SLA e defeitos da produção"
         dataStr={new Date().toLocaleDateString("pt-BR")}
         kpis={[
           { label: "Entregas no prazo", valor: String(kpiPrazo.noPrazo ?? 0), cor: "#16a34a" },
           { label: "Atrasadas", valor: String(kpiPrazo.atrasadas ?? 0), cor: Number(kpiPrazo.atrasadas) > 0 ? "#dc2626" : "#1a1a1a" },
           { label: "% no prazo", valor: `${Math.round(Number(kpiPrazo.pct) || 0)}%` },
         ]}
-        topo={(defeitoMes as any[]).length > 0 ? (
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Taxa de defeito por mês (%)</div>
-            <BarChart width={680} height={220} data={defeitoMes as any[]}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#ddd" />
-              <XAxis dataKey="mes" tick={{ fontSize: 10 }} />
-              <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: any) => `${v}%`} />
-              <Bar dataKey="taxa" fill="#6366f1" isAnimationActive={false} />
-            </BarChart>
-          </div>
-        ) : undefined}
-        colunas={[
-          { key: "nome", label: "Terceirizado" },
-          { key: "sla", label: "SLA médio (dias)", align: "right" },
-          { key: "atrasos", label: "Atrasos", align: "right" },
-          { key: "total", label: "Total entregue", align: "right" },
-          { key: "defeito", label: "Taxa de Defeito", align: "right" },
+        secoes={[
+          {
+            titulo: "Qualidade — taxa de defeito por mês",
+            descricao: "Defeito ÷ recebido (entregas de Serviços)",
+            grafico: (defeitoMes as any[]).length > 0 ? <PBar data={defeitoMes as any[]} xKey="mes" barKey="taxa" fmtY={(v) => `${v}%`} height={180} /> : undefined,
+            colunas: [{ key: "mes", label: "Mês" }, { key: "taxa", label: "Taxa de defeito", align: "right" }],
+            linhas: (defeitoMes as any[]).map((d) => ({ mes: d.mes, taxa: `${Number(d.taxa)}%` })),
+          },
+          {
+            titulo: "SLA / qualidade por terceirizado",
+            colunas: [
+              { key: "nome", label: "Terceirizado" },
+              { key: "sla", label: "SLA médio (dias)", align: "right" },
+              { key: "atrasos", label: "Atrasos", align: "right" },
+              { key: "total", label: "Total entregue", align: "right" },
+              { key: "defeito", label: "Taxa de defeito", align: "right" },
+            ],
+            linhas: (slaPorTerc as any[]).map((r) => ({
+              nome: r.nome ?? "—",
+              sla: fmtNum(r.slaMedio),
+              atrasos: String(r.atrasos ?? 0),
+              total: String(r.total ?? 0),
+              defeito: `${Number(r.taxaDefeito ?? 0)}%`,
+            })),
+          },
+          {
+            titulo: "Produção por mês",
+            descricao: "Modelos cortados (gráfico) e finalizados",
+            grafico: cortesFinalizados.length > 0 ? <PBar data={cortesFinalizados} xKey="mes" barKey="cortados" height={180} /> : undefined,
+            colunas: [{ key: "mes", label: "Mês" }, { key: "cortados", label: "Modelos cortados", align: "right" }, { key: "finalizados", label: "Modelos finalizados", align: "right" }],
+            linhas: cortesFinalizados.map((d) => ({ mes: d.mes, cortados: String(d.cortados), finalizados: String(d.finalizados) })),
+          },
+          {
+            titulo: "Kanban de desenvolvimento",
+            colunas: [{ key: "etapa", label: "Etapa" }, { key: "modelos", label: "Modelos", align: "right" }, { key: "grade", label: "Grade total", align: "right" }],
+            linhas: (kanbanDev as any[]).map((k) => ({ etapa: k.etapa ?? "—", modelos: String(k.modelos ?? 0), grade: String(k.grade ?? 0) })),
+          },
         ]}
-        linhas={(slaPorTerc as any[]).map((r) => ({
-          nome: r.nome ?? "—",
-          sla: fmtNum(r.slaMedio),
-          atrasos: String(r.atrasos ?? 0),
-          total: String(r.total ?? 0),
-          defeito: `${Number(r.taxaDefeito ?? 0)}%`,
-        }))}
       />
     </div>
   );
@@ -656,33 +698,34 @@ function FinanceiroTab() {
 
       <RelatorioPrint
         titulo="Relatório Financeiro — contas a pagar"
-        subtitulo={periodo?.from && periodo?.to ? "Contas a pagar — período selecionado" : "Contas a pagar — projeção 6 meses"}
+        subtitulo={periodo?.from && periodo?.to ? "Período selecionado" : "Projeção próximos 6 meses"}
         dataStr={new Date().toLocaleDateString("pt-BR")}
         kpis={[
           { label: "Investido em MP", valor: brl(investido) },
           { label: "Total pago", valor: brl(pago), cor: "#16a34a" },
-          { label: "Pendente", valor: brl(pendente), cor: "#ca8a04" },
+          { label: "Total pendente", valor: brl(pendente), cor: "#ca8a04" },
         ]}
-        topo={(chartData as any[]).length > 0 ? (
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>{periodo?.from && periodo?.to ? "Contas a pagar — período" : "Contas a pagar — próximos 6 meses"}</div>
-            <BarChart width={680} height={220} data={chartData as any[]}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#ddd" />
-              <XAxis dataKey="mes" tick={{ fontSize: 10 }} />
-              <YAxis tick={{ fontSize: 10 }} />
-              <Bar dataKey="total" fill="#6366f1" isAnimationActive={false} />
-            </BarChart>
-          </div>
-        ) : undefined}
-        colunas={[
-          { key: "nome", label: "Fornecedor" },
-          { key: "total", label: "Total", align: "right" },
+        secoes={[
+          {
+            titulo: "Contas a pagar — projeção mensal",
+            grafico: (chartData as any[]).length > 0 ? <PBar data={chartData as any[]} xKey="mes" barKey="total" fmtY={(v) => Number(v).toLocaleString("pt-BR")} /> : undefined,
+            colunas: [{ key: "mes", label: "Mês" }, { key: "total", label: "A pagar", align: "right" }],
+            linhas: (chartData as any[]).map((d) => ({ mes: d.mes, total: brl(Number(d.total)) })),
+            rodape: `Total projetado: ${brl((chartData as any[]).reduce((s, d) => s + Number(d.total || 0), 0))}`,
+          },
+          {
+            titulo: "Aging — contas em aberto por idade do vencimento",
+            grafico: ((data?.aging ?? []) as any[]).length > 0 ? <PBar data={data?.aging ?? []} xKey="faixa" barKey="total" fmtY={(v) => Number(v).toLocaleString("pt-BR")} height={180} /> : undefined,
+            colunas: [{ key: "faixa", label: "Faixa" }, { key: "total", label: "Valor em aberto", align: "right" }],
+            linhas: ((data?.aging ?? []) as any[]).map((a) => ({ faixa: a.faixa, total: brl(Number(a.total)) })),
+          },
+          {
+            titulo: "Top fornecedores no período",
+            grafico: ((data?.topFornecedores ?? []) as any[]).length > 0 ? <PBar data={data?.topFornecedores ?? []} xKey="nome" barKey="total" horizontal height={Math.max(160, ((data?.topFornecedores ?? []) as any[]).length * 26)} fmtY={(v) => Number(v).toLocaleString("pt-BR")} /> : undefined,
+            colunas: [{ key: "nome", label: "Fornecedor" }, { key: "total", label: "Total no período", align: "right" }],
+            linhas: ((data?.topFornecedores ?? []) as any[]).map((r) => ({ nome: r.nome ?? "—", total: brl(Number(r.total)) })),
+          },
         ]}
-        linhas={((data?.topFornecedores ?? []) as any[]).map((r) => ({
-          nome: r.nome ?? "—",
-          total: brl(Number(r.total)),
-        }))}
-        rodape={`Total pendente: ${brl(pendente)}`}
       />
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
       <DashError show={isError} />
@@ -789,41 +832,42 @@ function CustosTab() {
       </Card>
 
       <RelatorioPrint
-        titulo="Custo Previsto × Real por modelo"
-        subtitulo="Comparativo de custo unitário previsto e realizado"
+        titulo="Relatório de Custos — previsto × real"
+        subtitulo="Custo unitário por modelo e custo médio por coleção"
         dataStr={new Date().toLocaleDateString("pt-BR")}
         kpis={[
           { label: "Modelos analisados", valor: String((rows as any[]).length) },
           { label: "Variação média", valor: `${Math.round((rows as any[]).reduce((s, r) => s + (Number(r.pct) || 0), 0) / Math.max((rows as any[]).length, 1))}%` },
           { label: "Acima do previsto", valor: String((rows as any[]).filter((r) => Number(r.pct) > 0).length), cor: "#dc2626" },
         ]}
-        topo={(chartData as any[]).length > 0 ? (
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Custo médio por peça por coleção</div>
-            <BarChart width={680} height={220} data={chartData as any[]}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#ddd" />
-              <XAxis dataKey="colecao" tick={{ fontSize: 10 }} />
-              <YAxis tick={{ fontSize: 10 }} />
-              <Bar dataKey="medio" fill="#6366f1" isAnimationActive={false} />
-            </BarChart>
-          </div>
-        ) : undefined}
-        colunas={[
-          { key: "ref", label: "Ref" },
-          { key: "modelo", label: "Modelo" },
-          { key: "previsto", label: "Previsto (un.)", align: "right" },
-          { key: "real", label: "Real (un.)", align: "right" },
-          { key: "diff", label: "Diferença", align: "right" },
-          { key: "pct", label: "%", align: "right" },
+        secoes={[
+          {
+            titulo: "Custo médio por peça por coleção",
+            grafico: (chartData as any[]).length > 0 ? <PBar data={chartData as any[]} xKey="colecao" barKey="medio" fmtY={(v) => Number(v).toLocaleString("pt-BR")} /> : undefined,
+            colunas: [{ key: "colecao", label: "Coleção" }, { key: "medio", label: "Custo médio / peça", align: "right" }],
+            linhas: (chartData as any[]).map((d) => ({ colecao: d.colecao, medio: brl(Number(d.medio)) })),
+          },
+          {
+            titulo: "Custo previsto × real por modelo",
+            descricao: "Custo unitário; diferença positiva = acima do previsto",
+            colunas: [
+              { key: "ref", label: "Ref" },
+              { key: "modelo", label: "Modelo" },
+              { key: "previsto", label: "Previsto (un.)", align: "right" },
+              { key: "real", label: "Real (un.)", align: "right" },
+              { key: "diff", label: "Diferença", align: "right" },
+              { key: "pct", label: "%", align: "right" },
+            ],
+            linhas: (rows as any[]).map((r) => ({
+              ref: r.ref ?? "—",
+              modelo: r.nome ?? "—",
+              previsto: brl(Number(r.previsto)),
+              real: brl(Number(r.real)),
+              diff: brl(Number(r.diff)),
+              pct: `${Math.round(Number(r.pct) || 0)}%`,
+            })),
+          },
         ]}
-        linhas={(rows as any[]).map((r) => ({
-          ref: r.ref ?? "—",
-          modelo: r.nome ?? "—",
-          previsto: brl(Number(r.previsto)),
-          real: brl(Number(r.real)),
-          diff: brl(Number(r.diff)),
-          pct: `${Math.round(Number(r.pct) || 0)}%`,
-        }))}
       />
     </div>
   );
