@@ -39,6 +39,7 @@ type Bloco = {
   quantidade_defeito: number;
   desconto_total: number;
   multa_total: number;
+  numero_parcelas: number;
   data_enviado: string | null;
   data_prevista: string | null;
   data_entregue: string | null;
@@ -328,6 +329,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
         quantidade_defeito: Number(r.quantidade_defeito ?? 0),
         desconto_total: Number((r as any).desconto_total ?? 0),
         multa_total: Number((r as any).multa_total ?? 0),
+        numero_parcelas: Number((r as any).numero_parcelas ?? 1),
         data_enviado: r.data_enviado,
         data_prevista: r.data_prevista,
         data_entregue: r.data_entregue,
@@ -363,6 +365,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
         quantidade_defeito: 0,
         desconto_total: 0,
         multa_total: 0,
+        numero_parcelas: 1,
         data_enviado: null,
         data_prevista: null,
         data_entregue: null,
@@ -420,6 +423,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
         quantidade_defeito: b.quantidade_defeito,
         desconto_total: b.interno ? 0 : (Number(b.desconto_total) || 0),
         multa_total: b.interno ? 0 : (Number(b.multa_total) || 0),
+        numero_parcelas: Math.max(1, Number(b.numero_parcelas) || 1),
         data_enviado: b.data_enviado,
         data_prevista: b.data_prevista,
         data_entregue: b.data_entregue,
@@ -733,6 +737,17 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
                     step="0.01"
                     value={b.multa_total}
                     onChange={(e) => updateBloco(idx, { multa_total: Number(e.target.value) })}
+                  />
+                </div>
+              )}
+              {!b.interno && (
+                <div>
+                  <Label className="text-xs">Nº de parcelas</Label>
+                  <NumberInput
+                    type="number"
+                    min={1}
+                    value={b.numero_parcelas}
+                    onChange={(e) => updateBloco(idx, { numero_parcelas: Math.max(1, Number(e.target.value) || 1) })}
                   />
                 </div>
               )}
