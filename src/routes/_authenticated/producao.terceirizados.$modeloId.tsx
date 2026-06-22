@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { fmtNum } from "@/lib/format";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Users, Save, Plus, Trash2, FileText, Pencil } from "lucide-react";
+import { ArrowLeft, Users, Save, Plus, Trash2, FileText, Pencil, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
@@ -19,6 +19,7 @@ import { ModeloObservacoes } from "@/components/shared/ModeloObservacoes";
 import { VerificarRevisao } from "@/components/producao/RevisaoErro";
 import { printWithImages } from "@/lib/print";
 import { FichaTecnica } from "@/components/producao/FichaTecnica";
+import { OrdemServicoTerceirizados, type OSItem } from "@/components/producao/OrdemServicoTerceirizados";
 
 export const Route = createFileRoute("/_authenticated/producao/terceirizados/$modeloId")({
   component: TercDetailPage,
@@ -260,6 +261,34 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
   });
 
   const [blocos, setBlocos] = useState<Bloco[]>([]);
+  const [printTarget, setPrintTarget] = useState<"ficha" | "os">("ficha");
+
+  // Itens da Ordem de Serviço: um por bloco COM responsável (terceirizado ou colaborador interno).
+  const osItens = useMemo<OSItem[]>(() => {
+    const aviLabel = (id: string) => aviamentosModelo.find((a: any) => a.id === id)?.nome ?? null;
+    const tecLabel = (id: string) => {
+      for (const t of tecidosModelo as any[]) {
+        const v = (t.variantes ?? []).find((vv: any) => vv.id === id);
+        if (v) return `${t.nome} - ${v.label}`;
+      }
+      return null;
+    };
+    return blocos
+      .filter((b) => (b.interno ? b.colaborador_id : b.terceirizado_id))
+      .map((b) => ({
+        servico: (categorias as any[]).find((c) => c.id === b.categoria_terceirizado_id)?.nome ?? "—",
+        responsavel: b.interno
+          ? (colaboradores.find((c) => c.id === b.colaborador_id)?.nome ?? "—")
+          : ((terceirizados as any[]).find((t) => t.id === b.terceirizado_id)?.nome_responsavel ?? "—"),
+        interno: b.interno,
+        quantidade: Number(b.quantidade_enviada ?? 0),
+        dataEnviado: b.data_enviado,
+        dataPrevista: b.data_prevista,
+        observacao: b.observacao ?? "",
+        aviamentos: (b.aviamentos_enviados ?? []).map(aviLabel).filter(Boolean) as string[],
+        tecidos: (b.tecidos_enviados ?? []).map(tecLabel).filter(Boolean) as string[],
+      }));
+  }, [blocos, categorias, colaboradores, terceirizados, aviamentosModelo, tecidosModelo]);
   const [hydrated, setHydrated] = useState(false);
   // Trava por segurança quando o serviço está Finalizado: só edita ao clicar
   // "Editar", e o Salvar volta a travar.
@@ -428,8 +457,11 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
           </Link>
         )}
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => printWithImages()} disabled={!cad?.id}>
+          <Button variant="outline" onClick={() => { setPrintTarget("ficha"); printWithImages(); }} disabled={!cad?.id}>
             <FileText className="h-4 w-4 mr-2" /> Ficha Técnica
+          </Button>
+          <Button variant="outline" onClick={() => { setPrintTarget("os"); printWithImages(); }} disabled={osItens.length === 0}>
+            <Printer className="h-4 w-4 mr-2" /> Imprimir OS
           </Button>
           {locked ? (
             <Button variant="outline" onClick={() => setEditing(true)} disabled={readOnly}>
@@ -796,8 +828,14 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
       )}
       </fieldset>
 
-      {/* Documento de impressão (oculto na tela; aparece só na impressão). */}
-      <FichaTecnica modeloId={modeloId} />
+      {/* Documento de impressão (oculto na tela; aparece só na impressão). Alterna
+          entre Ficha Técnica e Ordem de Serviço conforme o botão — o CSS de print
+          mostra TODAS as .print-area, então só uma pode estar montada por vez. */}
+      {printTarget === "os" ? (
+        <OrdemServicoTerceirizados modelo={modelo} itens={osItens} dataStr={new Date().toLocaleDateString("pt-BR")} />
+      ) : (
+        <FichaTecnica modeloId={modeloId} />
+      )}
     </div>
   );
 }
