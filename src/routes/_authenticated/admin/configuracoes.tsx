@@ -26,7 +26,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
@@ -64,8 +63,6 @@ const MODULE_FIELD_KEYS: Record<string, string[]> = {
 };
 
 const DEFAULTS = {
-  oficina_interna: false,
-  oficina_posicao: "terceirizados" as "terceirizados" | "acabamento",
   timezone: "America/Sao_Paulo" as string,
   etapas_acabamento: ["Caseado", "Botão", "Passadoria"],
   tamanhos_grade: ["34|PPP", "36|PP", "38|P", "40|M", "42|G", "44|GG"],
@@ -132,8 +129,6 @@ function ConfiguracoesLojaPage() {
     if (!data?.cfg) return;
     const r = data.cfg as any;
     setCfg({
-      oficina_interna: r.oficina_interna ?? DEFAULTS.oficina_interna,
-      oficina_posicao: r.oficina_posicao ?? DEFAULTS.oficina_posicao,
       timezone: r.timezone ?? DEFAULTS.timezone,
       etapas_acabamento: Array.isArray(r.etapas_acabamento)
         ? r.etapas_acabamento
@@ -294,44 +289,6 @@ function ConfiguracoesLojaPage() {
             "Por OC" baixa primeiro das OCs vinculadas no Desenvolvimento e usa FIFO no restante.
             "Automático" ignora os vínculos e consome sempre o lote mais antigo.
           </p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Produção — Oficina</CardTitle>
-          <CardDescription>
-            Onde a Oficina aparece no menu e se a costura é interna (PL).
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label>Posição da Oficina</Label>
-            <Select
-              value={cfg.oficina_posicao}
-              onValueChange={(v) => setCfg({ ...cfg, oficina_posicao: v as ConfigState["oficina_posicao"] })}
-            >
-              <SelectTrigger className="w-full md:w-96">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="terceirizados">Junto de Serviços / Terceirizados</SelectItem>
-                <SelectItem value="acabamento">Depois do CQ (sub-item de Produção)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <Label>Oficina interna (PL)</Label>
-              <p className="text-xs text-muted-foreground">
-                A costura é feita internamente — esconde o seletor de terceirizado e marca o custo como interno.
-              </p>
-            </div>
-            <Switch
-              checked={cfg.oficina_interna}
-              onCheckedChange={(v) => setCfg({ ...cfg, oficina_interna: v })}
-            />
-          </div>
         </CardContent>
       </Card>
 
