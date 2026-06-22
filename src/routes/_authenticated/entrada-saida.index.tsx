@@ -22,7 +22,7 @@ function EntradaSaidaIndex() {
   // OS é a baixa manual do modo só-estoque (no modo completo a baixa vem do CAD).
   const sections = [...ocSections, ...(isStockOnly ? osSections : []), estoqueSection];
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6">
       <header className="flex items-center gap-3">
         <Package className="h-7 w-7 text-primary" />
         <div>

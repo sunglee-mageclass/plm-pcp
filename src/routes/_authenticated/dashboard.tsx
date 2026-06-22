@@ -50,7 +50,7 @@ function Dashboard() {
   const [tab, setTab] = useState<string>(tabs[0]?.value ?? "colecao");
   const active = tabs.some((t) => t.value === tab) ? tab : (tabs[0]?.value ?? "colecao");
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6">
       <header>
         <h1 className="text-2xl font-bold">Dashboard</h1>
         <p className="text-sm text-muted-foreground">Visão geral da coleção e do estoque.</p>

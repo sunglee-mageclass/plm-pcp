@@ -225,7 +225,7 @@ function TecidoDetail() {
     : [];
 
   return (
-    <div className="container mx-auto p-6 space-y-6 max-w-5xl">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-w-5xl">
       <header className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Button asChild variant="ghost" size="icon">

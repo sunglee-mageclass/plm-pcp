@@ -132,7 +132,7 @@ function EditorImpressaoPage() {
   const selected = layout.blocks.find((b) => b.id === selectedId) ?? null;
 
   return (
-    <div className="container mx-auto p-6 space-y-4 max-w-6xl">
+    <div className="container mx-auto p-3 sm:p-6 space-y-4 max-w-6xl">
       <header className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Link to="/admin/configuracoes" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">

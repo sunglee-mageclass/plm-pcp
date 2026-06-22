@@ -227,7 +227,7 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
   const variantes = Object.values(state).sort((a, b) => a.variante_numero - b.variante_numero);
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6">
       <VerificarRevisao modeloId={modeloId} etapa="direcionamento" />
       {realDivergente && (
         <div className="no-print flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">

@@ -181,7 +181,7 @@ function ConfiguracoesLojaPage() {
   if (!isTenantAdmin && !isSuperAdmin) return <Navigate to="/" />;
 
   return (
-    <div className="container mx-auto p-6 space-y-6 max-w-4xl">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-w-4xl">
       <header className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Settings className="h-7 w-7 text-primary" />

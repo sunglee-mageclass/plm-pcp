@@ -106,7 +106,7 @@ function IdentidadePage() {
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-6 max-w-3xl">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-w-3xl">
       <header className="flex items-start gap-4">
         <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
           <Shield className="h-6 w-6" />

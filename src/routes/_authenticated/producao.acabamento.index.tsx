@@ -49,7 +49,7 @@ function AcabListPage() {
   });
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6">
       <header className="flex items-center gap-3">
         <Sparkles className="h-7 w-7 text-primary" />
         <div>

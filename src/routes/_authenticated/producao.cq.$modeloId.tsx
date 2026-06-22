@@ -415,7 +415,7 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
   });
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6">
       <VerificarRevisao modeloId={modeloId} etapa="cq" />
       <div className="flex items-center justify-between gap-2">
         {onClose ? (

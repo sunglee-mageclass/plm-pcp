@@ -53,7 +53,7 @@ function useEstoqueThresholds() {
 function EstoquePage() {
   const [tab, setTab] = useState("tecidos");
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6">
       <Link to="/entrada-saida" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
         <ArrowLeft className="h-4 w-4" /> Voltar
       </Link>
