@@ -63,7 +63,18 @@ const SheetContent = React.forwardRef<
   return (
     <SheetPortal>
       <SheetOverlay />
-      <SheetPrimitive.Content ref={ref} className={cn(sheetVariants({ side }), className)} {...props}>
+      <SheetPrimitive.Content
+        ref={ref}
+        className={cn(sheetVariants({ side }), className)}
+        onFocusCapture={(e) => {
+          // Mobile: ao focar um campo, rola pra que o teclado não o cubra.
+          const el = e.target as HTMLElement;
+          if (el.matches?.("input, textarea, select, [contenteditable=true]") && window.matchMedia("(max-width: 767px)").matches) {
+            setTimeout(() => el.scrollIntoView({ block: "center", behavior: "smooth" }), 50);
+          }
+        }}
+        {...props}
+      >
         <SheetPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background cursor-pointer transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary">
           <X className="h-4 w-4" />
           <span className="sr-only">Close</span>
