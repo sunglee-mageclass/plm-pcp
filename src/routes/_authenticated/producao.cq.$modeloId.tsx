@@ -281,6 +281,17 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
     return m;
   }, [modeloGrades]);
 
+  // Divergência do Recebimento × grade do CAD (p/ banner de alerta). Considera só
+  // variantes que já têm algum recebimento lançado.
+  const recebDivergente = useMemo(() => {
+    return variantList.some(({ num }) => {
+      const receb = grades.recebimento[num]?.grades ?? {};
+      const rowTotal = Object.values(receb).reduce((s: number, x: any) => s + Number(x || 0), 0);
+      if (rowTotal === 0) return false;
+      return tamanhos.some((t) => Number(receb[t] ?? 0) !== Number(cadGradeByNum[num]?.grades?.[t] ?? 0));
+    });
+  }, [grades, variantList, tamanhos, cadGradeByNum]);
+
   // Grade Real = Recebimento − Defeito (por variante, por tamanho; mínimo 0).
   const realByNum = useMemo(() => {
     const out: Record<number, { grades: Record<string, number>; total: number }> = {};
@@ -485,6 +496,12 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
         />
       </Card>
 
+      {recebDivergente && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          ⚠ O recebimento diverge da grade do CAD em alguns tamanhos (células em vermelho abaixo).
+        </div>
+      )}
+
       {/* Seção 1 - Recebimento (datas vêm de Serviços, read-only) */}
       <EtapaSection
         title="1. Recebimento"
@@ -500,7 +517,15 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
         labelByNumero={labelByNumero}
         grades={grades}
         setQtd={setQtd}
-        overFn={(num, t, val) => val > (cadGradeByNum[num]?.grades?.[t] ?? 0)}
+        overFn={(num, t, val) => {
+          // Alerta de divergência: recebido ≠ grade do CAD (mais OU menos).
+          // Só sinaliza depois que a variante já tem algum recebimento lançado,
+          // p/ a matriz não ficar toda vermelha antes de digitar.
+          const g = Number(cadGradeByNum[num]?.grades?.[t] ?? 0);
+          const recebido = grades.recebimento[num]?.grades ?? {};
+          const rowTotal = Object.values(recebido).reduce((s: number, x: any) => s + Number(x || 0), 0);
+          return rowTotal > 0 && Number(val) !== g;
+        }}
       />
 
       {/* Seção 2 - Conserto */}
