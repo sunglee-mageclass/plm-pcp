@@ -1,12 +1,20 @@
 import { createContext, useContext, type ReactNode } from "react";
+import { Navigate } from "@tanstack/react-router";
 import { Lock } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useTenantModules } from "@/hooks/useTenantModules";
+import { PAGES_CATALOG, pageInProfile } from "@/lib/permissions-catalog";
 
 interface Props {
   page?: string;
   anyOf?: string[];
   children: ReactNode;
 }
+
+// Lookup achatado das páginas por chave (p/ o gate de perfil full/só-estoque).
+const PAGE_BY_KEY = new Map(
+  PAGES_CATALOG.flatMap((m) => m.pages.map((p) => [p.key, p] as const)),
+);
 
 // Propagates "read only" mode through the React tree so portaled content
 // (Dialog/Sheet, which render outside the page's DOM subtree) can also
@@ -18,12 +26,21 @@ export function useReadOnly() {
 
 export function RequirePermission({ page, anyOf, children }: Props) {
   const { canView, canEdit, loading } = useAuth();
-  if (loading) {
+  const { isStockOnly, firstActiveModulePath, isLoading: modulesLoading } = useTenantModules();
+  if (loading || modulesLoading) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
         <div className="text-sm text-muted-foreground">Carregando…</div>
       </div>
     );
+  }
+  // Gate de PERFIL (modo da loja): página com modes incompatíveis com o perfil
+  // atual (full × só-estoque) não é acessível nem por URL direta → redireciona.
+  if (page) {
+    const def = PAGE_BY_KEY.get(page);
+    if (def && !pageInProfile(def, isStockOnly ? "stock" : "full")) {
+      return <Navigate to={firstActiveModulePath as any} replace />;
+    }
   }
   const allowed =
     (page ? canView(page) : false) ||
