@@ -135,6 +135,27 @@ function FinanceiroPage() {
     },
   });
 
+  // Serviços (Terceirizados) com vencimento preenchido → também aparecem no calendário.
+  const { data: servicosCal = [] } = useQuery({
+    queryKey: ["servicos-financeiro"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("servicos_financeiro" as any);
+      if (error) throw error;
+      return ((data ?? []) as any[])
+        .filter((r) => r.data_vencimento)
+        .map((r) => ({
+          id: r.parcela_id,
+          data_vencimento: r.data_vencimento,
+          valor: r.valor_parcela,
+          empresas: { nome: `🔧 ${r.servico} · ${r.responsavel}` },
+          status: r.status,
+          data_pagamento: r.data_pagamento,
+          _servico: true,
+        }));
+    },
+  });
+  const parcelasCal = useMemo(() => [...parcelas, ...(servicosCal as any[])] as Parcela[], [parcelas, servicosCal]);
+
   // Pendências de recebimento: OCs com troca pendente / reposição ainda não recebida.
   const { data: pendencias = [] } = useQuery({
     queryKey: ["financeiro-pendencias-receb"],
@@ -188,7 +209,7 @@ function FinanceiroPage() {
           <TabsTrigger value="resumo">Resumo</TabsTrigger>
         </TabsList>
         <TabsContent value="calendario" className="mt-4">
-          <CalendarioView parcelas={parcelas} loading={isLoading} />
+          <CalendarioView parcelas={parcelasCal} loading={isLoading} />
         </TabsContent>
         <TabsContent value="lista" className="mt-4">
           <ListaView parcelas={parcelas} loading={isLoading} />
@@ -293,7 +314,7 @@ function CalendarioView({ parcelas, loading }: { parcelas: Parcela[]; loading: b
                     <button
                       key={p.id}
                       type="button"
-                      onClick={() => setDetalheId(p.id)}
+                      onClick={() => (p as any)._servico ? toast.info("Serviço — pague/edite na aba Serviços") : setDetalheId(p.id)}
                       className={cn("w-full text-left px-1.5 py-0.5 rounded truncate hover:ring-1 hover:ring-primary", color)}
                     >
                       {p.empresas?.nome ?? "—"} · {brl(Number(p.valor))}
@@ -332,7 +353,7 @@ function CalendarioView({ parcelas, loading }: { parcelas: Parcela[]; loading: b
                     <button
                       key={p.id}
                       type="button"
-                      onClick={() => setDetalheId(p.id)}
+                      onClick={() => (p as any)._servico ? toast.info("Serviço — pague/edite na aba Serviços") : setDetalheId(p.id)}
                       className="flex w-full items-center gap-3 px-3 py-3 text-left active:bg-muted/50"
                     >
                       <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full", dot)} />
