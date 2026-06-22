@@ -309,7 +309,7 @@ function TecidosTab() {
       {grouped.map((g) => (
         <Card key={g.artigoId} className="p-4">
           <h3 className="font-semibold mb-3">{g.artigoNome}</h3>
-          <div className="overflow-x-auto">
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="text-left text-muted-foreground">
                 <tr className="border-b">
@@ -329,6 +329,12 @@ function TecidosTab() {
               </tbody>
             </table>
           </div>
+          {/* Mobile: cards por variante (some o scroll horizontal) */}
+          <div className="md:hidden space-y-2">
+            {g.rows.map((r: any) => (
+              <VarianteCard key={r.varId} row={r} threshold={threshold} />
+            ))}
+          </div>
         </Card>
       ))}
 
@@ -339,32 +345,27 @@ function TecidosTab() {
   );
 }
 
-function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
-  const [open, setOpen] = useState(false);
+// Detalhe de estoque por OC de uma variante (compartilhado entre a linha desktop
+// e o card mobile). A RPC traz recebidas (verde) e pendentes/encomendado (amarelo),
+// com a reserva calculada p/ ambas; o físico nunca fica negativo quando zerado.
+function useEstoqueVarianteDetalhe(varId: string, open: boolean, reservadoTotal: number) {
   const { data: detalhe = [], isLoading } = useQuery({
-    queryKey: ["estoque-tecido-detalhe-oc", row.varId],
+    queryKey: ["estoque-tecido-detalhe-oc", varId],
     enabled: open,
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("detalhe_estoque_variante" as any, { _variante_id: row.varId });
+      const { data, error } = await supabase.rpc("detalhe_estoque_variante" as any, { _variante_id: varId });
       if (error) throw error;
       return (data ?? []) as Array<any>;
     },
   });
-  const loadingPend = false;
-  // Parte da reserva total da variante que não está atribuída a nenhuma OC
-  // (modelos sem vínculo de OC no Desenvolvimento). Algumas fábricas não atribuem
-  // a OC — então apenas informamos, sem bloquear.
+  // Parte da reserva total não atribuída a nenhuma OC (modelos sem vínculo). Só informa.
   const reservaSemOc =
-    Number(row.reservado ?? 0) - detalhe.reduce((s: number, d: any) => s + Number(d.reservado_m ?? 0), 0);
-
-  // Estoque por OC com os MESMOS campos da variante. A RPC já traz recebidas
-  // (verde) e pendentes/encomendado (amarelo), com a reserva calculada p/ ambas.
+    Number(reservadoTotal ?? 0) - detalhe.reduce((s: number, d: any) => s + Number(d.reservado_m ?? 0), 0);
   const ocRows = detalhe.map((d: any) => {
     const recebido = Number(d.recebido_m ?? 0);
     const baixa = Number(d.baixado_m ?? 0);
     const reservado = Number(d.reservado_m ?? 0);
     const prevReceb = Number(d.prev_receb_m ?? 0);
-    // Item zerado: físico nunca negativo (mesma regra do resumo).
     const fisico = d.estoque_zerado ? Math.max(0, recebido - baixa) : recebido - baixa;
     return {
       key: d.oc_tecido_item_id,
@@ -374,6 +375,13 @@ function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
       prevReceb, recebido, baixa, fisico, reservado, previsto: fisico + prevReceb - reservado,
     };
   });
+  return { ocRows, reservaSemOc, isLoading };
+}
+
+function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
+  const [open, setOpen] = useState(false);
+  const { ocRows, reservaSemOc, isLoading } = useEstoqueVarianteDetalhe(row.varId, open, row.reservado);
+  const loadingPend = false;
 
   return (
     <>
@@ -471,6 +479,79 @@ function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
         </tr>
       )}
     </>
+  );
+}
+
+// Card mobile da variante (mesma fonte de dados do VarianteRow, via hook).
+function VarianteCard({ row, threshold }: { row: any; threshold: number }) {
+  const [open, setOpen] = useState(false);
+  const { ocRows, reservaSemOc, isLoading } = useEstoqueVarianteDetalhe(row.varId, open, row.reservado);
+  const low = row.fisico <= threshold;
+  return (
+    <div className={cn("rounded-lg border p-3", low && "border-destructive/40 bg-destructive/5")}>
+      <button type="button" className="w-full text-left" onClick={() => setOpen((o) => !o)}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="font-medium truncate">
+              {row.nomeVariante} <span className="text-[10px] text-muted-foreground">[{row.isKg ? "kg→m" : "m"}]</span>
+            </div>
+            {row.enderecos.length > 0 && (
+              <div className="text-[10px] text-muted-foreground truncate">
+                📍 {endCompact(row.enderecos[0])}{row.enderecos.length > 1 ? ` +${row.enderecos.length - 1}` : ""}
+              </div>
+            )}
+          </div>
+          <div className="shrink-0 text-right">
+            <div className={cn("text-lg font-semibold leading-none", low && "text-destructive")}>
+              {fmt(row.fisico)} <span className="text-xs font-normal">m</span>
+            </div>
+            <div className="text-[10px] text-muted-foreground">Físico Real</div>
+          </div>
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+          <div className="flex justify-between"><span className="text-muted-foreground">Prev. Receb.</span><span>{row.isKg ? `${fmt(row.prevRecebKg)} kg` : `${fmt(row.prevRecebM)} m`}</span></div>
+          <div className="flex justify-between"><span className="text-muted-foreground">Recebido</span><span>{row.isKg ? `${fmt(row.recebidoKg)} kg` : `${fmt(row.recebidoM)} m`}</span></div>
+          <div className="flex justify-between"><span className="text-muted-foreground">Reservado</span><span>{fmt(row.reservado)} m</span></div>
+          <div className="flex justify-between"><span className="text-muted-foreground">Previsto</span><span>{fmt(row.previsto)} m</span></div>
+        </div>
+        <div className="mt-1 text-[10px] text-muted-foreground">{open ? "▾ ocultar OCs / endereços" : "▸ ver OCs / endereços"}</div>
+      </button>
+      {open && (
+        <div className="mt-2 space-y-2 border-t pt-2">
+          <div className="text-xs">
+            <span className="font-semibold text-muted-foreground">Endereços: </span>
+            {row.enderecos.length > 0 ? row.enderecos.map((e: any) => fmtEnd(e)).join(" · ") : "—"}
+          </div>
+          <p className="text-xs font-semibold text-muted-foreground">Estoque por OC</p>
+          {isLoading && <p className="text-xs text-muted-foreground">Carregando…</p>}
+          {!isLoading && ocRows.length === 0 && <p className="text-xs text-muted-foreground">Nenhuma OC para esta variante.</p>}
+          {ocRows.map((d) => (
+            <div key={d.key} className={cn("rounded border p-2 text-xs", d.status === "recebida" ? "bg-emerald-50" : "bg-amber-50")}>
+              <div className="flex items-center justify-between">
+                <span className="font-medium">
+                  #{d.oc ?? "—"}{" "}
+                  <span className={cn("text-[9px] uppercase", d.status === "recebida" ? "text-emerald-700" : "text-amber-700")}>{d.status}</span>
+                  {d.zerado && <Badge className="ml-1 h-4 px-1 text-[9px] bg-emerald-500 hover:bg-emerald-500">Zerado</Badge>}
+                </span>
+                <span className="font-semibold">{fmt(d.fisico)} m</span>
+              </div>
+              <div className="text-muted-foreground">{d.fornecedor ?? "—"}{d.entrega ? ` · ${new Date(d.entrega).toLocaleDateString("pt-BR")}` : ""}</div>
+              <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5">
+                <span>Prev: {fmt(d.prevReceb)} m</span>
+                <span>Receb: {fmt(d.recebido)} m</span>
+                <span>Reserv: {fmt(d.reservado)} m</span>
+                <span>Prev.: {fmt(d.previsto)} m</span>
+              </div>
+            </div>
+          ))}
+          {!isLoading && reservaSemOc > 0.01 && (
+            <p className="text-xs italic text-muted-foreground">
+              <span className="font-medium not-italic text-foreground">{fmt(reservaSemOc)}</span> m reservado(s) por modelos sem OC atribuída.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -621,7 +702,7 @@ function AviamentosTab() {
       {error && <p className="text-sm text-destructive">Erro ao carregar estoque: {(error as Error).message}</p>}
 
       <Card className="p-4">
-        <div className="overflow-x-auto">
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="text-left text-muted-foreground">
               <tr className="border-b">
@@ -646,21 +727,31 @@ function AviamentosTab() {
             </tbody>
           </table>
         </div>
+        {/* Mobile: cards por aviamento */}
+        <div className="md:hidden space-y-2">
+          {filtered.map((r: any) => (
+            <AviamentoCard key={r.id} row={r} threshold={threshold} />
+          ))}
+          {!isLoading && filtered.length === 0 && (
+            <p className="py-4 text-center text-sm text-muted-foreground">Nenhum aviamento encontrado.</p>
+          )}
+        </div>
       </Card>
     </div>
   );
 }
 
-function AviamentoRow({ row, threshold }: { row: any; threshold: number }) {
-  const [open, setOpen] = useState(false);
+// Detalhe de OCs de um aviamento (recebidas + pendentes), compartilhado entre a
+// linha desktop e o card mobile.
+function useEstoqueAviamentoDetalhe(aviamentoId: string, open: boolean) {
   const { data: pendentes = [], isLoading: loadingPend } = useQuery({
-    queryKey: ["estoque-aviamento-pendentes-oc", row.id],
+    queryKey: ["estoque-aviamento-pendentes-oc", aviamentoId],
     enabled: open,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("ocs_aviamento_itens")
         .select("id, quantidade_pedida, ocs_aviamento!inner(numero_pedido, data_prevista_entrega, status, empresas(nome_fantasia))")
-        .eq("aviamento_id", row.id)
+        .eq("aviamento_id", aviamentoId)
         .eq("ocs_aviamento.status", "encomendado")
         .eq("cancelado" as any, false);
       if (error) throw error;
@@ -668,18 +759,24 @@ function AviamentoRow({ row, threshold }: { row: any; threshold: number }) {
     },
   });
   const { data: recebidas = [], isLoading: loadingRec } = useQuery({
-    queryKey: ["estoque-aviamento-recebidas-oc", row.id],
+    queryKey: ["estoque-aviamento-recebidas-oc", aviamentoId],
     enabled: open,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("ocs_aviamento_itens")
         .select("id, quantidade_recebida, ocs_aviamento!inner(numero_pedido, data_entrega, status, empresas(nome_fantasia))")
-        .eq("aviamento_id", row.id)
+        .eq("aviamento_id", aviamentoId)
         .eq("ocs_aviamento.status", "recebido");
       if (error) throw error;
       return (data ?? []) as any[];
     },
   });
+  return { pendentes, recebidas, loadingPend, loadingRec };
+}
+
+function AviamentoRow({ row, threshold }: { row: any; threshold: number }) {
+  const [open, setOpen] = useState(false);
+  const { pendentes, recebidas, loadingPend, loadingRec } = useEstoqueAviamentoDetalhe(row.id, open);
   return (
     <>
       <tr className={cn("border-b last:border-0 cursor-pointer", row.fisico <= threshold && "bg-destructive/10")} onClick={() => setOpen((o) => !o)}>
@@ -760,5 +857,61 @@ function AviamentoRow({ row, threshold }: { row: any; threshold: number }) {
         </tr>
       )}
     </>
+  );
+}
+
+// Card mobile do aviamento (mesma fonte de dados do AviamentoRow, via hook).
+function AviamentoCard({ row, threshold }: { row: any; threshold: number }) {
+  const [open, setOpen] = useState(false);
+  const { pendentes, recebidas, loadingPend, loadingRec } = useEstoqueAviamentoDetalhe(row.id, open);
+  const low = row.fisico <= threshold;
+  return (
+    <div className={cn("rounded-lg border p-3", low && "border-destructive/40 bg-destructive/5")}>
+      <button type="button" className="w-full text-left" onClick={() => setOpen((o) => !o)}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="font-medium truncate">{row.nome}</div>
+            <div className="text-[10px] text-muted-foreground truncate">{row.fornecedor ?? "—"}{row.categoria ? ` · ${row.categoria}` : ""}</div>
+          </div>
+          <div className="shrink-0 text-right">
+            <div className={cn("text-lg font-semibold leading-none", low && "text-destructive")}>{fmt(row.fisico)}</div>
+            <div className="text-[10px] text-muted-foreground">Físico Real</div>
+          </div>
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+          <div className="flex justify-between"><span className="text-muted-foreground">Prev. Receb.</span><span>{fmt(row.prevReceb)}</span></div>
+          <div className="flex justify-between"><span className="text-muted-foreground">Recebido</span><span>{fmt(row.recebido)}</span></div>
+          <div className="flex justify-between"><span className="text-muted-foreground">Reservado</span><span>{fmt(row.reservado)}</span></div>
+          <div className="flex justify-between"><span className="text-muted-foreground">Previsto</span><span>{fmt(row.previsto)}</span></div>
+        </div>
+        <div className="mt-1 text-[10px] text-muted-foreground">{open ? "▾ ocultar OCs" : "▸ ver OCs"}</div>
+      </button>
+      {open && (
+        <div className="mt-2 space-y-2 border-t pt-2">
+          <div>
+            <p className="mb-1 text-xs font-semibold text-muted-foreground">OCs Recebidas</p>
+            {loadingRec && <p className="text-xs text-muted-foreground">Carregando…</p>}
+            {!loadingRec && recebidas.length === 0 && <p className="text-xs text-muted-foreground">Nenhuma OC recebida.</p>}
+            {recebidas.map((r: any) => (
+              <div key={r.id} className="flex items-center justify-between gap-2 rounded border bg-emerald-50 px-2 py-1 text-xs">
+                <span className="min-w-0 truncate">#{r.ocs_aviamento?.numero_pedido ?? "—"} · {r.ocs_aviamento?.empresas?.nome_fantasia ?? "—"}{r.ocs_aviamento?.data_entrega ? ` · ${new Date(r.ocs_aviamento.data_entrega).toLocaleDateString("pt-BR")}` : ""}</span>
+                <span className="shrink-0 font-medium">{fmt(Number(r.quantidade_recebida ?? 0))}</span>
+              </div>
+            ))}
+          </div>
+          <div>
+            <p className="mb-1 text-xs font-semibold text-muted-foreground">OCs Pendentes</p>
+            {loadingPend && <p className="text-xs text-muted-foreground">Carregando…</p>}
+            {!loadingPend && pendentes.length === 0 && <p className="text-xs text-muted-foreground">Nenhuma OC pendente.</p>}
+            {pendentes.map((p: any) => (
+              <div key={p.id} className="flex items-center justify-between gap-2 rounded border bg-amber-50 px-2 py-1 text-xs">
+                <span className="min-w-0 truncate">#{p.ocs_aviamento?.numero_pedido ?? "—"} · {p.ocs_aviamento?.empresas?.nome_fantasia ?? "—"}{p.ocs_aviamento?.data_prevista_entrega ? ` · ${new Date(p.ocs_aviamento.data_prevista_entrega).toLocaleDateString("pt-BR")}` : ""}</span>
+                <span className="shrink-0 font-medium">{fmt(Number(p.quantidade_pedida ?? 0))}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
