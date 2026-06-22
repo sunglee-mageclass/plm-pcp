@@ -851,12 +851,26 @@ function ServicosView() {
     },
   });
 
+  const [responsavel, setResponsavel] = useState("all");
+  const [status, setStatus] = useState("all");
+  const [dataIni, setDataIni] = useState("");
+  const [dataFim, setDataFim] = useState("");
+
   const stOf = (r: any) => {
     if (r.status === "pago" || r.data_pagamento) return "pago";
     if (r.data_vencimento && r.data_vencimento < todayLocalISO()) return "vencido";
     return "a_pagar";
   };
   const fmtD = (d: string | null) => (d ? d.slice(0, 10).split("-").reverse().join("/") : "—");
+
+  const responsaveis = useMemo(() => Array.from(new Set(rows.map((r) => r.responsavel).filter(Boolean))) as string[], [rows]);
+  const filtered = useMemo(() => rows.filter((r) => {
+    if (responsavel !== "all" && r.responsavel !== responsavel) return false;
+    if (status !== "all" && stOf(r) !== status) return false;
+    if (dataIni && (r.data_vencimento ?? "") < dataIni) return false;
+    if (dataFim && (r.data_vencimento ?? "") > dataFim) return false;
+    return true;
+  }), [rows, responsavel, status, dataIni, dataFim]);
 
   const updVenc = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: string }) => {
@@ -876,14 +890,51 @@ function ServicosView() {
     onError: (e: any) => toast.error(e.message ?? "Erro"),
   });
 
-  const total = rows.reduce((s, r) => s + Number(r.valor_parcela || 0), 0);
+  const total = filtered.reduce((s, r) => s + Number(r.valor_parcela || 0), 0);
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-end gap-2">
         <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}>
           <Printer className="h-4 w-4 mr-1" /> Imprimir
         </Button>
+        <FilterButton
+          activeCount={[responsavel !== "all", status !== "all", !!dataIni, !!dataFim].filter(Boolean).length}
+          onClear={() => { setResponsavel("all"); setStatus("all"); setDataIni(""); setDataFim(""); }}
+        >
+          <div className="grid gap-3">
+            <div>
+              <Label className="text-xs">Responsável</Label>
+              <Select value={responsavel} onValueChange={setResponsavel}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  {responsaveis.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Status</Label>
+              <Select value={status} onValueChange={setStatus}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="a_pagar">A pagar</SelectItem>
+                  <SelectItem value="pago">Pago</SelectItem>
+                  <SelectItem value="vencido">Vencido</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">De</Label>
+              <Input type="date" value={dataIni} onChange={(e) => setDataIni(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs">Até</Label>
+              <Input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
+            </div>
+          </div>
+        </FilterButton>
       </div>
       <Card className="p-4">
         <div className="overflow-x-auto">
@@ -905,7 +956,7 @@ function ServicosView() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => {
+              {filtered.map((r) => {
                 const st = stOf(r);
                 return (
                   <tr key={r.parcela_id} className="border-b last:border-0">
@@ -936,20 +987,20 @@ function ServicosView() {
                   </tr>
                 );
               })}
-              {!isLoading && rows.length === 0 && (
+              {!isLoading && filtered.length === 0 && (
                 <tr><td colSpan={12} className="py-4 text-center text-muted-foreground">Nenhum serviço a pagar.</td></tr>
               )}
             </tbody>
           </table>
         </div>
-        {rows.length > 0 && (
+        {filtered.length > 0 && (
           <p className="mt-3 text-sm text-right text-muted-foreground">Total a pagar (parcelas): <b className="text-foreground">{brl(total)}</b></p>
         )}
       </Card>
 
       <RelatorioPrint
         titulo="Serviços a Pagar"
-        subtitulo={`${rows.length} parcela(s) de serviço`}
+        subtitulo={`${filtered.length} parcela(s) de serviço`}
         dataStr={new Date().toLocaleDateString("pt-BR")}
         colunas={[
           { key: "servico", label: "Serviço" },
@@ -964,7 +1015,7 @@ function ServicosView() {
           { key: "vencimento", label: "Vencimento" },
           { key: "status", label: "Status" },
         ]}
-        linhas={rows.map((r) => ({
+        linhas={filtered.map((r) => ({
           servico: `${r.servico}${r.ref ? ` · ${r.ref}` : ""}`,
           responsavel: r.responsavel,
           parcela: `${r.numero_parcela}/${r.numero_parcelas}`,

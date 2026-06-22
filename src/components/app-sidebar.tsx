@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
@@ -19,12 +20,6 @@ import {
 } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
 import { TenantSwitcher } from "@/components/admin/TenantSwitcher";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 
 import {
   Sidebar,
@@ -96,9 +91,11 @@ const PAGE_URLS: Record<string, string> = {
 const systemItems: { title: string; url: string; icon: typeof Settings }[] = [];
 
 export function AppSidebar() {
-  const { state } = useSidebar();
+  const { state, setOpenMobile } = useSidebar();
   const collapsed = state === "collapsed";
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  // No mobile, ao navegar (clicar num item), esconde a sidebar automaticamente.
+  useEffect(() => { setOpenMobile(false); }, [pathname, setOpenMobile]);
   const { isAdmin, isSuperAdmin, isTenantAdmin, canView, user, signOut } = useAuth();
   const { isModuleEnabled, isStockOnly } = useTenantModules();
   const profile = isStockOnly ? "stock" : "full";
@@ -332,24 +329,15 @@ function ThemeToggleButton({ collapsed }: { collapsed: boolean }) {
   const isDark = theme === "dark";
   if (collapsed) return null;
   return (
-    <TooltipProvider delayDuration={100}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={toggleTheme}
-            className="h-7 w-7 shrink-0"
-            aria-label={isDark ? "Mudar para tema claro" : "Mudar para tema escuro"}
-          >
-            {isDark ? <Sun className="h-4 w-4" aria-hidden="true" /> : <Moon className="h-4 w-4" aria-hidden="true" />}
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">
-          <p>{isDark ? "Mudar para tema claro" : "Mudar para tema escuro"}</p>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={toggleTheme}
+      className="h-7 w-7 shrink-0"
+      aria-label={isDark ? "Mudar para tema claro" : "Mudar para tema escuro"}
+    >
+      {isDark ? <Sun className="h-4 w-4" aria-hidden="true" /> : <Moon className="h-4 w-4" aria-hidden="true" />}
+    </Button>
   );
 }
 
