@@ -183,6 +183,7 @@ function FinanceiroPage() {
         <TabsList>
           <TabsTrigger value="calendario">Calendário</TabsTrigger>
           <TabsTrigger value="lista">Lista de Parcelas</TabsTrigger>
+          <TabsTrigger value="servicos">Serviços</TabsTrigger>
           <TabsTrigger value="resumo">Resumo</TabsTrigger>
         </TabsList>
         <TabsContent value="calendario" className="mt-4">
@@ -190,6 +191,9 @@ function FinanceiroPage() {
         </TabsContent>
         <TabsContent value="lista" className="mt-4">
           <ListaView parcelas={parcelas} loading={isLoading} />
+        </TabsContent>
+        <TabsContent value="servicos" className="mt-4">
+          <ServicosView />
         </TabsContent>
         <TabsContent value="resumo" className="mt-4">
           <ResumoView parcelas={parcelas} />
@@ -808,6 +812,113 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
         }))}
         rodape={`Total: ${brl(filtered.reduce((s, p) => s + Number(p.valor || 0), 0))}`}
       />}
+    </div>
+  );
+}
+
+/* ===== Aba Serviços: parcelas de serviço (Terceirizados) a pagar ===== */
+
+function ServicosView() {
+  const qc = useQueryClient();
+  const { data: rows = [], isLoading } = useQuery({
+    queryKey: ["servicos-financeiro"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("servicos_financeiro" as any);
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+
+  const stOf = (r: any) => {
+    if (r.status === "pago" || r.data_pagamento) return "pago";
+    if (r.data_vencimento && r.data_vencimento < todayLocalISO()) return "vencido";
+    return "a_pagar";
+  };
+  const fmtD = (d: string | null) => (d ? d.slice(0, 10).split("-").reverse().join("/") : "—");
+
+  const updVenc = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: string }) => {
+      const { error } = await supabase.from("parcelas_servico" as any).update({ data_vencimento: data || null }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["servicos-financeiro"] }),
+    onError: (e: any) => toast.error(e.message ?? "Erro ao salvar vencimento"),
+  });
+  const togglePago = useMutation({
+    mutationFn: async ({ id, pago }: { id: string; pago: boolean }) => {
+      const payload = pago ? { status: "pago", data_pagamento: todayLocalISO() } : { status: "a_pagar", data_pagamento: null };
+      const { error } = await supabase.from("parcelas_servico" as any).update(payload).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["servicos-financeiro"] }); toast.success("Atualizado"); },
+    onError: (e: any) => toast.error(e.message ?? "Erro"),
+  });
+
+  const total = rows.reduce((s, r) => s + Number(r.valor_parcela || 0), 0);
+
+  return (
+    <div className="space-y-4">
+      <Card className="p-4">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm card-table">
+            <thead className="text-left text-muted-foreground">
+              <tr className="border-b">
+                <th className="py-2 pr-3">Serviço</th>
+                <th className="py-2 pr-3">Responsável</th>
+                <th className="py-2 pr-3">Parcela</th>
+                <th className="py-2 pr-3 text-right">Bruto</th>
+                <th className="py-2 pr-3 text-right">Desconto</th>
+                <th className="py-2 pr-3 text-right">Multa</th>
+                <th className="py-2 pr-3 text-right">Líquido</th>
+                <th className="py-2 pr-3 text-right">Valor parcela</th>
+                <th className="py-2 pr-3">Entrega</th>
+                <th className="py-2 pr-3">Vencimento</th>
+                <th className="py-2 pr-3">Status</th>
+                <th className="py-2 pr-3"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const st = stOf(r);
+                return (
+                  <tr key={r.parcela_id} className="border-b last:border-0">
+                    <td className="py-2 pr-3">{r.servico}{r.ref ? ` · ${r.ref}` : ""}</td>
+                    <td className="py-2 pr-3" data-label="Responsável">{r.responsavel}</td>
+                    <td className="py-2 pr-3" data-label="Parcela">{r.numero_parcela}/{r.numero_parcelas}</td>
+                    <td className="py-2 pr-3 text-right" data-label="Bruto">{brl(Number(r.custo_bruto))}</td>
+                    <td className="py-2 pr-3 text-right" data-label="Desconto">{brl(Number(r.desconto))}</td>
+                    <td className="py-2 pr-3 text-right" data-label="Multa">{brl(Number(r.multa))}</td>
+                    <td className="py-2 pr-3 text-right" data-label="Líquido">{brl(Number(r.custo_liquido))}</td>
+                    <td className="py-2 pr-3 text-right font-medium" data-label="Valor parcela">{brl(Number(r.valor_parcela))}</td>
+                    <td className="py-2 pr-3" data-label="Entrega">{fmtD(r.data_entrega)}</td>
+                    <td className="py-2 pr-3" data-label="Vencimento">
+                      <Input type="date" value={r.data_vencimento ?? ""} onChange={(e) => updVenc.mutate({ id: r.parcela_id, data: e.target.value })} className="h-8 w-auto" />
+                    </td>
+                    <td className="py-2 pr-3" data-label="Status">
+                      <Badge variant={st === "pago" ? "default" : st === "vencido" ? "destructive" : "secondary"}>
+                        {st === "a_pagar" ? "A pagar" : st === "pago" ? "Pago" : "Vencido"}
+                      </Badge>
+                    </td>
+                    <td className="py-2 pr-3" data-label="">
+                      {st === "pago" ? (
+                        <Button size="sm" variant="destructive" onClick={() => togglePago.mutate({ id: r.parcela_id, pago: false })} disabled={togglePago.isPending}>Desmarcar</Button>
+                      ) : (
+                        <Button size="sm" onClick={() => togglePago.mutate({ id: r.parcela_id, pago: true })} disabled={togglePago.isPending}>Marcar pago</Button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {!isLoading && rows.length === 0 && (
+                <tr><td colSpan={12} className="py-4 text-center text-muted-foreground">Nenhum serviço a pagar.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        {rows.length > 0 && (
+          <p className="mt-3 text-sm text-right text-muted-foreground">Total a pagar (parcelas): <b className="text-foreground">{brl(total)}</b></p>
+        )}
+      </Card>
     </div>
   );
 }
