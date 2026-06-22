@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { PrintArea } from "@/components/shared/PrintArea";
 
 // Relatório imprimível genérico (tabela). Só aparece na impressão (.print-area).
 // Reutilizado por vários relatórios operacionais (Contas a Pagar, Posição de
@@ -25,7 +26,7 @@ export function RelatorioPrint({
   dataStr: string;
 }) {
   return (
-    <div className="print-area">
+    <PrintArea>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", borderBottom: "2px solid #000", paddingBottom: 6, marginBottom: 12 }}>
         <div>
           <div style={{ fontSize: 18, fontWeight: 700 }}>{titulo}</div>
@@ -46,6 +47,6 @@ export function RelatorioPrint({
         </tbody>
       </table>
       {rodape && <div style={{ marginTop: 10, fontSize: 12, fontWeight: 600 }}>{rodape}</div>}
-    </div>
+    </PrintArea>
   );
 }

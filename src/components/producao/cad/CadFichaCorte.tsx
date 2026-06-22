@@ -10,6 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { FichaCorteHeaderRender } from "@/components/shared/print-blocks";
 import { isHeaderLayout } from "@/lib/print-template";
+import { PrintArea } from "@/components/shared/PrintArea";
 
 type Props = {
   modelo: any;
@@ -146,7 +147,7 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
   );
 
   return (
-    <div className="print-area">
+    <PrintArea>
       {/* ===== Página 1 ===== */}
       <div style={pageStyle}>
         {/* Metade de cima: cabeçalho + Tecido */}
@@ -258,7 +259,7 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
           </p>
         </div>
       </div>
-    </div>
+    </PrintArea>
   );
 }
 

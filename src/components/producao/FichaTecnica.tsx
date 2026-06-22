@@ -5,6 +5,7 @@ import { MaterialTable, Etiquetas, Assinatura } from "@/components/producao/cad/
 import { cell, cellH } from "@/components/producao/cad/types";
 import { fmtNum } from "@/lib/format";
 import { useFichaData } from "@/components/producao/cad/useFichaData";
+import { PrintArea } from "@/components/shared/PrintArea";
 
 const fmt = (n: any) => fmtNum(n);
 const fmtTam = (t: string | null) => {
@@ -25,7 +26,7 @@ export function FichaTecnica({ modeloId }: { modeloId: string }) {
   const gradeSumT = (t: string) => d.grades.reduce((s, g) => s + (Number((g.grades as any)?.[t]) || 0), 0);
 
   return (
-    <div className="print-area">
+    <PrintArea>
       <FichaHeader title="FICHA TÉCNICA" modelo={m} logo={logo} />
 
       {/* Fotos do modelo (todas, lado a lado, respeitando a proporção) + etiqueta(s) */}
@@ -166,6 +167,6 @@ export function FichaTecnica({ modeloId }: { modeloId: string }) {
       </div>
 
       <Assinatura dataPrevista />
-    </div>
+    </PrintArea>
   );
 }

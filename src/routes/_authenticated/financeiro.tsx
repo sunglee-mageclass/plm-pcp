@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { brl } from "@/lib/format";
 import { printWithImages } from "@/lib/print";
 import { RelatorioPrint } from "@/components/shared/RelatorioPrint";
+import { PrintArea } from "@/components/shared/PrintArea";
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, addMonths, isSameMonth, isSameDay, parseISO, differenceInCalendarDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
@@ -502,7 +503,7 @@ function ParcelaDetailDialog({
         </div>
 
         {st === "pago" && (
-          <div className="print-area">
+          <PrintArea>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", borderBottom: "2px solid #000", paddingBottom: 6, marginBottom: 16 }}>
               <div style={{ fontSize: 18, fontWeight: 700 }}>COMPROVANTE DE PAGAMENTO</div>
               <div style={{ fontSize: 11 }}>{new Date().toLocaleDateString("pt-BR")}</div>
@@ -519,7 +520,7 @@ function ParcelaDetailDialog({
               <div><div style={{ borderBottom: "1px solid #000", height: 16 }} /><div style={{ marginTop: 2 }}>Recebido por</div></div>
               <div><div style={{ borderBottom: "1px solid #000", height: 16 }} /><div style={{ marginTop: 2 }}>Data</div></div>
             </div>
-          </div>
+          </PrintArea>
         )}
 
         <DialogFooter className="flex-row flex-wrap justify-end gap-2">

@@ -1,4 +1,5 @@
 import { cell, cellH } from "@/components/producao/cad/types";
+import { PrintArea } from "@/components/shared/PrintArea";
 
 type VarState = {
   variante_numero: number;
@@ -74,7 +75,7 @@ export function RomaneioDirecionamento({
   );
 
   return (
-    <div className="print-area">
+    <PrintArea>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", borderBottom: "2px solid #000", paddingBottom: 6, marginBottom: 12 }}>
         <div>
           <div style={{ fontSize: 18, fontWeight: 700 }}>ROMANEIO DE DIRECIONAMENTO</div>
@@ -103,6 +104,6 @@ export function RomaneioDirecionamento({
           {tabela({ real: gReal, ec: gEc, lf: gLf })}
         </div>
       )}
-    </div>
+    </PrintArea>
   );
 }

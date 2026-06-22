@@ -1,3 +1,5 @@
+import { PrintArea } from "@/components/shared/PrintArea";
+
 export type OSItem = {
   servico: string;
   responsavel: string;
@@ -32,7 +34,7 @@ export function OrdemServicoTerceirizados({
   dataStr: string;
 }) {
   return (
-    <div className="print-area">
+    <PrintArea>
       {itens.map((it, i) => (
         <section
           key={i}
@@ -73,6 +75,6 @@ export function OrdemServicoTerceirizados({
           </div>
         </section>
       ))}
-    </div>
+    </PrintArea>
   );
 }
