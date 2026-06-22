@@ -66,17 +66,17 @@ export function FichaTecnica({ modeloId }: { modeloId: string }) {
       {/* Consumo e metragem de tecido */}
       <div className="print-section" style={{ marginTop: 10 }}>
         <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Tecido</h3>
-        <MaterialTable blocks={tecidoBlocks} colMaterial="Tecido" />
+        <MaterialTable blocks={tecidoBlocks} colMaterial="Tecido" ocLinksByKey={d.ocLinksByKey} />
         {forroBlocks.length > 0 && (
           <>
             <h3 style={{ fontSize: 14, fontWeight: 600, margin: "10px 0 0" }}>Forro</h3>
-            <MaterialTable blocks={forroBlocks} colMaterial="Forro" />
+            <MaterialTable blocks={forroBlocks} colMaterial="Forro" ocLinksByKey={d.ocLinksByKey} />
           </>
         )}
         {entretelaBlocks.length > 0 && (
           <>
             <h3 style={{ fontSize: 14, fontWeight: 600, margin: "10px 0 0" }}>Entretela</h3>
-            <MaterialTable blocks={entretelaBlocks} colMaterial="Entretela" />
+            <MaterialTable blocks={entretelaBlocks} colMaterial="Entretela" ocLinksByKey={d.ocLinksByKey} />
           </>
         )}
       </div>
