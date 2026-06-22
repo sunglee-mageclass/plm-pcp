@@ -370,49 +370,32 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
   const saveMut = useMutation({
     mutationFn: async () => {
       if (!cad?.id) throw new Error("CAD não encontrado para este modelo. Abra o CAD primeiro.");
-      // Insere os novos ANTES de remover os antigos. Se o insert falhar (ex.: uma
-      // coluna ainda não existe no banco), os blocos antigos NÃO são perdidos.
-      const { data: oldRows, error: oldErr } = await supabase
-        .from("producao_terceirizados")
-        .select("id")
-        .eq("cad_id", cad.id);
-      if (oldErr) throw oldErr;
-      const oldIds = (oldRows ?? []).map((r: any) => r.id);
-
-      if (blocos.length > 0) {
-        const payload = blocos.map((b) => ({
-          cad_id: cad.id,
-          categoria_terceirizado_id: b.categoria_terceirizado_id,
-          interno: b.interno,
-          terceirizado_id: b.interno ? null : b.terceirizado_id,
-          colaborador_id: b.interno ? b.colaborador_id : null,
-          ativo: true,
-          preco_metro_unidade: b.interno ? 0 : b.preco_metro_unidade,
-          quantidade_enviada: b.quantidade_enviada,
-          quantidade_recebida: b.quantidade_recebida,
-          quantidade_defeito: b.quantidade_defeito,
-          data_enviado: b.data_enviado,
-          data_prevista: b.data_prevista,
-          data_entregue: b.data_entregue,
-          observacao: b.observacao,
-          aviamentos_enviados: b.aviamentos_enviados,
-          tecidos_enviados: b.tecidos_enviados,
-        }));
-        const { error } = await supabase.from("producao_terceirizados").insert(payload as any);
-        if (error) throw error;
-      }
-      // Só remove os antigos depois que os novos entraram com sucesso.
-      if (oldIds.length > 0) {
-        const { error: delErr } = await supabase.from("producao_terceirizados").delete().in("id", oldIds);
-        if (delErr) throw delErr;
-      }
-
-      // "Observação de Partes do Molde" — fonte única no cad.
-      const { error: cadErr } = await supabase
-        .from("cad")
-        .update({ observacoes_molde: observacoesMolde || null } as any)
-        .eq("id", cad.id);
-      if (cadErr) throw cadErr;
+      // RPC transacional com diff-por-id: preserva ids, atualiza/insere/deleta numa
+      // transação (a lógica de `interno` fica aqui; o resto é genérico no banco).
+      const _blocos = blocos.map((b) => ({
+        id: b.id ?? null,
+        categoria_terceirizado_id: b.categoria_terceirizado_id,
+        interno: b.interno,
+        terceirizado_id: b.interno ? null : b.terceirizado_id,
+        colaborador_id: b.interno ? b.colaborador_id : null,
+        ativo: true,
+        preco_metro_unidade: b.interno ? 0 : b.preco_metro_unidade,
+        quantidade_enviada: b.quantidade_enviada,
+        quantidade_recebida: b.quantidade_recebida,
+        quantidade_defeito: b.quantidade_defeito,
+        data_enviado: b.data_enviado,
+        data_prevista: b.data_prevista,
+        data_entregue: b.data_entregue,
+        observacao: b.observacao,
+        aviamentos_enviados: b.aviamentos_enviados,
+        tecidos_enviados: b.tecidos_enviados,
+      }));
+      const { error } = await supabase.rpc("salvar_terceirizados" as any, {
+        _cad_id: cad.id,
+        _blocos,
+        _observacoes_molde: observacoesMolde || null,
+      });
+      if (error) throw error;
     },
     onSuccess: async () => {
       toast.success("Salvo com sucesso");
