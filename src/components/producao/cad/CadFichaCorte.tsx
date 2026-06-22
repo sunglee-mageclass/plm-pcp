@@ -5,6 +5,11 @@ import { FichaHeader } from "@/components/producao/FichaHeader";
 import { useTenantLogo } from "@/hooks/useTenantLogo";
 import { useFichaData } from "./useFichaData";
 import { fmtNum } from "@/lib/format";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { FichaCorteHeaderRender } from "@/components/shared/print-blocks";
+import { isHeaderLayout } from "@/lib/print-template";
 
 type Props = {
   modelo: any;
@@ -110,6 +115,15 @@ export function Etiquetas({ blocks }: { blocks: TecidoRow[] }) {
 
 export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos, etiquetas, gradeTotalGeral, previsaoEntrega, labelByNumero, ocLinksByKey, observacoesMolde }: Props) {
   const tenantLogo = useTenantLogo();
+  const tenantId = useActiveTenantId();
+  // Cabeçalho personalizado pelo Editor de Impressão (print_templates), se houver.
+  const { data: tplRow } = useQuery({
+    queryKey: ["print-template", "ficha_corte", tenantId],
+    enabled: !!tenantId,
+    queryFn: async () =>
+      (await supabase.from("print_templates" as any).select("layout").eq("doc_type", "ficha_corte").eq("tenant_id", tenantId).maybeSingle()).data,
+  });
+  const headerLayout = isHeaderLayout((tplRow as any)?.layout) ? (tplRow as any).layout : null;
 
   const totalGeral = gradeTotalGeral ?? grades.reduce((s, g) => s + (Number(g.grade_total) || 0), 0);
   const gradeSumT = (t: string) => grades.reduce((s, g) => s + (Number((g.grades as any)?.[t]) || 0), 0);
@@ -123,9 +137,13 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
   const entretelaBlocks = tecidos.filter((t) => t.tipo === "entretela");
   const forroEntretela = [...forroBlocks, ...entretelaBlocks];
 
-  // Cabeçalho EXATAMENTE igual ao da Ficha Técnica (mesmo componente FichaHeader),
-  // mudando apenas o título do documento.
-  const pageHeader = <FichaHeader title="FICHA DE CORTE" modelo={modelo} logo={tenantLogo} />;
+  // Cabeçalho: usa o template do Editor de Impressão se a loja tiver um; senão o
+  // padrão (FichaHeader, igual à Ficha Técnica).
+  const pageHeader = headerLayout ? (
+    <FichaCorteHeaderRender layout={headerLayout} logo={tenantLogo} modelo={modelo} previsaoEntrega={previsaoEntrega} />
+  ) : (
+    <FichaHeader title="FICHA DE CORTE" modelo={modelo} logo={tenantLogo} />
+  );
 
   return (
     <div className="print-area">
