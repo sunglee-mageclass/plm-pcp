@@ -9,6 +9,13 @@ export function fmtNum(n: number | string | null | undefined): string {
 }
 
 /**
+ * Moeda pt-BR (R$ 1.234,50). Fonte única — não duplicar `const brl` por tela.
+ */
+export function brl(n: number | string | null | undefined): string {
+  return Number(n ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+/**
  * Para campos editáveis: pt-BR, mínimo 2 casas mas até 4 (não arredonda valores
  * de alta precisão como consumo de aviamento ao exibir).
  */

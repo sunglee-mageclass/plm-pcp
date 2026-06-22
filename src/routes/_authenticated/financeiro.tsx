@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Badge } from "@/components/ui/badge";
 import { DollarSign, ChevronLeft, ChevronRight, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { brl } from "@/lib/format";
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, addMonths, isSameMonth, isSameDay, parseISO, differenceInCalendarDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
@@ -51,8 +52,6 @@ type Parcela = {
   ocs_aviamento?: { numero_pedido: string | null } | null;
   ocBadge?: { label: string; cls: string } | null;
 };
-
-const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 // Data de hoje no fuso local como "yyyy-MM-dd" (sem hora, sem UTC).
 function todayLocalISO(): string {

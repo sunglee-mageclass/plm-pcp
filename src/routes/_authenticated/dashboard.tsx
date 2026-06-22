@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { fmtNum } from "@/lib/format";
+import { brl, fmtNum } from "@/lib/format";
 import { useMemo, useState } from "react";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useQuery } from "@tanstack/react-query";
@@ -506,8 +506,6 @@ function FinanceiroTab() {
   const pendente = Number(data?.pendente ?? 0);
   const chartData = data?.chartData ?? [];
 
-  const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-end gap-2">
@@ -568,8 +566,6 @@ function CustosTab() {
   const categorias: Opt[] = data?.filtros?.categorias ?? [];
   const linhas: Opt[] = data?.filtros?.linhas ?? [];
   const colecoes: string[] = data?.filtros?.colecoes ?? [];
-
-  const brl = (v: number) => Number(v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
   return (
     <div className="space-y-4">

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { fmtNum } from "@/lib/format";
+import { brl, fmtNum } from "@/lib/format";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Users, Save, Plus, Trash2, FileText, Pencil, Printer } from "lucide-react";
@@ -395,7 +395,6 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
   );
   const servicoPorPeca = gradeTotalGeral > 0 ? servicoTotal / gradeTotalGeral : 0;
   const custoRealPeca = (Number(materiaisPorPeca) || 0) + servicoPorPeca;
-  const brl = (v: number) => Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
   const saveMut = useMutation({
     mutationFn: async () => {
