@@ -276,7 +276,7 @@ function PlanejamentoPage() {
         >
           <Group className="h-4 w-4 mr-1" /> Agrupar por categoria
         </Button>
-        <div className="flex items-center gap-1.5 ml-auto">
+        <div className="hidden lg:flex items-center gap-1.5 ml-auto">
           <LayoutGrid className="h-4 w-4 text-muted-foreground" />
           <Label className="text-xs text-muted-foreground">Colunas</Label>
           <Select value={String(cols)} onValueChange={(v) => setCols(Number(v))}>

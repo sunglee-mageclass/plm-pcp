@@ -242,11 +242,13 @@ function LancamentosPage() {
       </header>
 
       <div className="flex items-center gap-2">
-        <LayoutGrid className="h-4 w-4 text-muted-foreground" />
-        <span className="text-xs text-muted-foreground">Colunas:</span>
-        {GRID_COLS_OPTIONS.map((n) => (
-          <Button key={n} size="sm" variant={cols === n ? "default" : "outline"} onClick={() => setCols(n)} className="h-7 w-9 px-0">{n}</Button>
-        ))}
+        <div className="hidden lg:flex items-center gap-2">
+          <LayoutGrid className="h-4 w-4 text-muted-foreground" />
+          <span className="text-xs text-muted-foreground">Colunas:</span>
+          {GRID_COLS_OPTIONS.map((n) => (
+            <Button key={n} size="sm" variant={cols === n ? "default" : "outline"} onClick={() => setCols(n)} className="h-7 w-9 px-0">{n}</Button>
+          ))}
+        </div>
         <span className="ml-auto text-xs text-muted-foreground"><Badge variant="secondary">{filtered.length}</Badge> produto(s)</span>
       </div>
 
