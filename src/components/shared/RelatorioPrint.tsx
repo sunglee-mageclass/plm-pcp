@@ -17,6 +17,7 @@ export function RelatorioPrint({
   linhas,
   rodape,
   dataStr,
+  topo,
 }: {
   titulo: string;
   subtitulo?: string;
@@ -24,6 +25,8 @@ export function RelatorioPrint({
   linhas: Record<string, ReactNode>[];
   rodape?: ReactNode;
   dataStr: string;
+  /** Conteúdo opcional acima da tabela (ex.: gráfico de tamanho fixo p/ o relatório). */
+  topo?: ReactNode;
 }) {
   return (
     <PrintArea>
@@ -34,6 +37,7 @@ export function RelatorioPrint({
         </div>
         <div style={{ fontSize: 11, textAlign: "right" }}>{dataStr}</div>
       </div>
+      {topo && <div className="print-section" style={{ marginBottom: 14 }}>{topo}</div>}
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
         <thead>
           <tr>{colunas.map((c) => <th key={c.key} style={{ ...cellH, textAlign: c.align ?? "left" }}>{c.label}</th>)}</tr>

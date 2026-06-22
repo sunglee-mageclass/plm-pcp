@@ -525,6 +525,17 @@ function ProducaoTab() {
       <RelatorioPrint
         titulo="Relatório de Produção — SLA / Qualidade por terceirizado"
         dataStr={new Date().toLocaleDateString("pt-BR")}
+        topo={(defeitoMes as any[]).length > 0 ? (
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Taxa de defeito por mês (%)</div>
+            <BarChart width={680} height={220} data={defeitoMes as any[]}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#ddd" />
+              <XAxis dataKey="mes" tick={{ fontSize: 10 }} />
+              <YAxis tick={{ fontSize: 10 }} tickFormatter={(v: any) => `${v}%`} />
+              <Bar dataKey="taxa" fill="#6366f1" isAnimationActive={false} />
+            </BarChart>
+          </div>
+        ) : undefined}
         colunas={[
           { key: "nome", label: "Terceirizado" },
           { key: "sla", label: "SLA médio (dias)", align: "right" },
@@ -571,6 +582,7 @@ function FinanceiroTab() {
     <div className="space-y-4">
       <div className="flex items-center justify-end gap-2">
         <PeriodoPicker value={periodo} onChange={setPeriodo} />
+        <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}><Printer className="h-4 w-4 mr-1" /> Imprimir</Button>
       </div>
       <div className="grid gap-4 sm:grid-cols-3">
         <Card><CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Investido em matéria-prima</CardTitle></CardHeader><CardContent><div className="text-2xl font-semibold">{brl(investido)}</div></CardContent></Card>
@@ -635,6 +647,32 @@ function FinanceiroTab() {
           </div>
         </Card>
       </div>
+
+      <RelatorioPrint
+        titulo="Relatório Financeiro — contas a pagar"
+        subtitulo={`Investido ${brl(investido)} · Pago ${brl(pago)} · Pendente ${brl(pendente)}`}
+        dataStr={new Date().toLocaleDateString("pt-BR")}
+        topo={(chartData as any[]).length > 0 ? (
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>{periodo?.from && periodo?.to ? "Contas a pagar — período" : "Contas a pagar — próximos 6 meses"}</div>
+            <BarChart width={680} height={220} data={chartData as any[]}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#ddd" />
+              <XAxis dataKey="mes" tick={{ fontSize: 10 }} />
+              <YAxis tick={{ fontSize: 10 }} />
+              <Bar dataKey="total" fill="#6366f1" isAnimationActive={false} />
+            </BarChart>
+          </div>
+        ) : undefined}
+        colunas={[
+          { key: "nome", label: "Fornecedor" },
+          { key: "total", label: "Total", align: "right" },
+        ]}
+        linhas={((data?.topFornecedores ?? []) as any[]).map((r) => ({
+          nome: r.nome ?? "—",
+          total: brl(Number(r.total)),
+        }))}
+        rodape={`Total pendente: ${brl(pendente)}`}
+      />
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
       <DashError show={isError} />
     </div>
@@ -742,6 +780,17 @@ function CustosTab() {
       <RelatorioPrint
         titulo="Custo Previsto × Real por coleção"
         dataStr={new Date().toLocaleDateString("pt-BR")}
+        topo={(chartData as any[]).length > 0 ? (
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Custo médio por peça por coleção</div>
+            <BarChart width={680} height={220} data={chartData as any[]}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#ddd" />
+              <XAxis dataKey="colecao" tick={{ fontSize: 10 }} />
+              <YAxis tick={{ fontSize: 10 }} />
+              <Bar dataKey="medio" fill="#6366f1" isAnimationActive={false} />
+            </BarChart>
+          </div>
+        ) : undefined}
         colunas={[
           { key: "ref", label: "Ref" },
           { key: "modelo", label: "Modelo" },
