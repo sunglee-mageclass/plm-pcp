@@ -1,4 +1,6 @@
 import { createFileRoute, Outlet, Navigate, useRouterState } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { StoreClock } from "@/components/shared/StoreClock";
@@ -21,9 +23,19 @@ function useModuleLabel() {
 }
 
 function AuthenticatedLayout() {
-  const { user, loading } = useAuth();
+  const { user, loading, signOut } = useAuth();
   const identity = useApplySystemIdentity();
   const moduleLabel = useModuleLabel();
+  // Loja inativa = suspensão real: a RLS já bloqueia os dados (get_user_tenant_id
+  // retorna NULL); aqui só mostramos a mensagem em vez de telas vazias.
+  const { data: tenantAtivo } = useQuery({
+    queryKey: ["meu-tenant-ativo", user?.id],
+    enabled: !!user,
+    queryFn: async () => {
+      const { data } = await supabase.rpc("meu_tenant_ativo" as any);
+      return data as boolean | null;
+    },
+  });
 
   if (loading) {
     return (
@@ -35,6 +47,23 @@ function AuthenticatedLayout() {
 
   if (!user) {
     return <Navigate to="/auth" replace />;
+  }
+
+  if (tenantAtivo === false) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 px-4 text-center">
+        <h1 className="text-xl font-semibold text-foreground">Loja inativa</h1>
+        <p className="max-w-md text-sm text-muted-foreground">
+          O acesso a esta loja está suspenso. Entre em contato com o suporte para reativar.
+        </p>
+        <button
+          onClick={() => signOut()}
+          className="text-sm underline text-muted-foreground hover:text-foreground"
+        >
+          Sair
+        </button>
+      </div>
+    );
   }
 
   return (
