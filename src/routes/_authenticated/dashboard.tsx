@@ -73,6 +73,15 @@ function Dashboard() {
 
 type Opt = { id: string; nome: string };
 
+function DashError({ show }: { show?: boolean }) {
+  if (!show) return null;
+  return (
+    <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+      Erro ao carregar os dados. Verifique a conexão e recarregue a página.
+    </p>
+  );
+}
+
 /* ============================ COLEÇÃO ============================ */
 
 function ColecaoTab() {
@@ -82,7 +91,7 @@ function ColecaoTab() {
   const [linha, setLinha] = useState("all");
   const ini = isoDate(periodo?.from), fim = isoDate(periodo?.to);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["dash-colecao", ini, fim, colecao, estilista, linha],
     queryFn: async () => {
       const { data, error } = await supabase.rpc("dashboard_colecao", {
@@ -157,6 +166,7 @@ function ColecaoTab() {
       </div>
 
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+      <DashError show={isError} />
     </div>
   );
 }
@@ -177,7 +187,7 @@ function Kpi({ label, value, icon: Icon }: { label: string; value: number; icon:
 /* ============================ ESTOQUE ============================ */
 
 function EstoqueTab() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["dash-estoque"],
     queryFn: async () => {
       const { data, error } = await supabase.rpc("dashboard_estoque");
@@ -248,6 +258,7 @@ function EstoqueTab() {
       </div>
 
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+      <DashError show={isError} />
     </div>
   );
 }
@@ -310,7 +321,7 @@ function ProducaoTab() {
   const [linha, setLinha] = useState("all");
   const ini = isoDate(periodo?.from), fim = isoDate(periodo?.to);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["dash-producao", ini, fim, colecao, linha],
     queryFn: async () => {
       const { data, error } = await supabase.rpc("dashboard_producao", {
@@ -349,6 +360,8 @@ function ProducaoTab() {
           ]}
         />
       </div>
+
+      <DashError show={isError} />
 
       <div className="grid gap-4 sm:grid-cols-3">
         <Kpi label="Entregas no prazo" value={kpiPrazo.noPrazo} icon={BarChart3} />
@@ -476,7 +489,7 @@ function FinanceiroTab() {
   const [periodo, setPeriodo] = useState<Periodo>(undefined);
   const inicio = isoDate(periodo?.from), fim = isoDate(periodo?.to);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["dash-financeiro", inicio, fim],
     queryFn: async () => {
       const { data, error } = await supabase.rpc("dashboard_financeiro", {
@@ -520,6 +533,7 @@ function FinanceiroTab() {
         </div>
       </Card>
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+      <DashError show={isError} />
     </div>
   );
 }
@@ -534,7 +548,7 @@ function CustosTab() {
   const [linha, setLinha] = useState("all");
   const ini = isoDate(periodo?.from), fim = isoDate(periodo?.to);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["dash-custos", ini, fim, colecao, categoria, linha],
     queryFn: async () => {
       const { data, error } = await supabase.rpc("dashboard_custos", {
@@ -569,6 +583,8 @@ function CustosTab() {
           ]}
         />
       </div>
+
+      <DashError show={isError} />
 
       <Card className="p-4">
         <h3 className="font-semibold mb-3">Custo previsto vs real</h3>
