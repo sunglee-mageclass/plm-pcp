@@ -118,7 +118,11 @@ function ColecaoTab() {
   });
 
   const kpis = data?.kpis ?? { total: 0, planejamento: 0, desenvolvimento: 0, producao: 0, lancados: 0 };
-  const funnel = (data?.funnel ?? []).map((f: any, i: number) => ({ ...f, fill: PIE_COLORS[i % PIE_COLORS.length] }));
+  const funnelBase = Number((data?.funnel ?? [])[0]?.value) || 0;
+  const funnel = (data?.funnel ?? []).map((f: any, i: number) => {
+    const pct = funnelBase > 0 ? Math.round((Number(f.value) / funnelBase) * 100) : 0;
+    return { ...f, fill: PIE_COLORS[i % PIE_COLORS.length], rotulo: `${f.value} · ${pct}%` };
+  });
   const pieData = data?.pie ?? [];
   const estilistas: Opt[] = data?.filtros?.estilistas ?? [];
   const linhas: Opt[] = data?.filtros?.linhas ?? [];
@@ -154,7 +158,7 @@ function ColecaoTab() {
                 <Tooltip />
                 <Funnel dataKey="value" data={funnel} isAnimationActive>
                   <LabelList position="right" dataKey="name" stroke="none" />
-                  <LabelList position="center" dataKey="value" stroke="none" fill="#fff" />
+                  <LabelList position="center" dataKey="rotulo" stroke="none" fill="#fff" />
                 </Funnel>
               </FunnelChart>
             </ResponsiveContainer>
@@ -359,6 +363,7 @@ function ProducaoTab() {
   const cortes = data?.cortesPorMes ?? [];
   const finalizadas = data?.finalizadasPorMes ?? [];
   const kanbanDev = data?.kanbanDev ?? [];
+  const defeitoMes = data?.defeitoPorMes ?? [];
   const etapas = ["CAD", "Terceirizado", "Oficina", "Controle de Qualidade", "Acabamento", "Direcionamento", "Lançado"];
   // Rótulo da timeline: a etapa "Lançado" (existe registro em lancamentos) é a
   // ETAPA de lançamento — distinta do KPI "Lançados (CQ ok)" (CQ confirmado).
@@ -445,6 +450,21 @@ function ProducaoTab() {
               {!isLoading && timeline.length === 0 && <tr><td colSpan={etapas.length + 2} className="py-4 text-center text-muted-foreground">Sem dados.</td></tr>}
             </tbody>
           </table>
+        </div>
+      </Card>
+
+      <Card className="p-4">
+        <h3 className="font-semibold mb-3">Taxa de defeito por mês <span className="text-sm font-normal text-muted-foreground">· defeito ÷ recebido (entregas de Serviços)</span></h3>
+        <div style={{ width: "100%", height: 280 }}>
+          <ResponsiveContainer>
+            <BarChart data={defeitoMes}>
+              <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+              <XAxis dataKey="mes" />
+              <YAxis tickFormatter={(v) => `${v}%`} />
+              <Tooltip formatter={(v: any) => `${Number(v)}%`} />
+              <Bar dataKey="taxa" name="Taxa de defeito" fill={PIE_COLORS[3]} />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       </Card>
 
