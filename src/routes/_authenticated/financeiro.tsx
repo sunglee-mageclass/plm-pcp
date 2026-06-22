@@ -10,9 +10,11 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { DollarSign, ChevronLeft, ChevronRight, Upload } from "lucide-react";
+import { DollarSign, ChevronLeft, ChevronRight, Upload, Printer } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { brl } from "@/lib/format";
+import { printWithImages } from "@/lib/print";
+import { RelatorioPrint } from "@/components/shared/RelatorioPrint";
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, addMonths, isSameMonth, isSameDay, parseISO, differenceInCalendarDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
@@ -636,7 +638,10 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-end gap-2">
+        <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}>
+          <Printer className="h-4 w-4 mr-1" /> Imprimir
+        </Button>
         <FilterButton
           activeCount={[fornecedor !== "all", status !== "all", !!dataIni, !!dataFim].filter(Boolean).length}
           onClear={() => { setFornecedor("all"); setStatus("all"); setDataIni(""); setDataFim(""); }}
@@ -751,6 +756,31 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
 
       <PagarDialog parcelaId={pagandoId} onClose={() => setPagandoId(null)} />
       <OcViewDialog view={ocView} onClose={() => setOcView(null)} />
+
+      <RelatorioPrint
+        titulo="Contas a Pagar"
+        subtitulo={`${filtered.length} parcela(s)${dataIni || dataFim ? ` · ${dataIni || "…"} a ${dataFim || "…"}` : ""}`}
+        dataStr={new Date().toLocaleDateString("pt-BR")}
+        colunas={[
+          { key: "fornecedor", label: "Fornecedor" },
+          { key: "oc", label: "Nº Pedido" },
+          { key: "parcela", label: "Parcela" },
+          { key: "valor", label: "Valor", align: "right" },
+          { key: "vencimento", label: "Vencimento" },
+          { key: "status", label: "Status" },
+          { key: "pagamento", label: "Pagamento" },
+        ]}
+        linhas={filtered.map((p) => ({
+          fornecedor: p.empresas?.nome ?? "—",
+          oc: ocNumero(p),
+          parcela: p.numero_parcela,
+          valor: brl(Number(p.valor)),
+          vencimento: p.data_vencimento ? p.data_vencimento.slice(0, 10).split("-").reverse().join("/") : "—",
+          status: effectiveStatus(p) === "pago" ? "Pago" : effectiveStatus(p) === "vencido" ? "Vencido" : "A pagar",
+          pagamento: p.data_pagamento ? p.data_pagamento.slice(0, 10).split("-").reverse().join("/") : "—",
+        }))}
+        rodape={`Total: ${brl(filtered.reduce((s, p) => s + Number(p.valor || 0), 0))}`}
+      />
     </div>
   );
 }
