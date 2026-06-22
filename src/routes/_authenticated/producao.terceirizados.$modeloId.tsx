@@ -37,6 +37,8 @@ type Bloco = {
   quantidade_enviada: number;
   quantidade_recebida: number;
   quantidade_defeito: number;
+  desconto_total: number;
+  multa_total: number;
   data_enviado: string | null;
   data_prevista: string | null;
   data_entregue: string | null;
@@ -324,6 +326,8 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
         quantidade_enviada: Number(r.quantidade_enviada ?? 0),
         quantidade_recebida: Number(r.quantidade_recebida ?? 0),
         quantidade_defeito: Number(r.quantidade_defeito ?? 0),
+        desconto_total: Number((r as any).desconto_total ?? 0),
+        multa_total: Number((r as any).multa_total ?? 0),
         data_enviado: r.data_enviado,
         data_prevista: r.data_prevista,
         data_entregue: r.data_entregue,
@@ -357,6 +361,8 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
         quantidade_enviada: 0,
         quantidade_recebida: 0,
         quantidade_defeito: 0,
+        desconto_total: 0,
+        multa_total: 0,
         data_enviado: null,
         data_prevista: null,
         data_entregue: null,
@@ -390,7 +396,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
 
   // Custo de serviço por peça e custo real (= materiais do CAD + serviço).
   const servicoTotal = useMemo(
-    () => blocos.reduce((s, b) => s + (b.interno ? 0 : (Number(b.preco_metro_unidade) || 0) * (Number(b.quantidade_enviada) || 0)), 0),
+    () => blocos.reduce((s, b) => s + (b.interno ? 0 : (Number(b.preco_metro_unidade) || 0) * (Number(b.quantidade_enviada) || 0) - (Number(b.desconto_total) || 0) + (Number(b.multa_total) || 0)), 0),
     [blocos],
   );
   const servicoPorPeca = gradeTotalGeral > 0 ? servicoTotal / gradeTotalGeral : 0;
@@ -412,6 +418,8 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
         quantidade_enviada: b.quantidade_enviada,
         quantidade_recebida: b.quantidade_recebida,
         quantidade_defeito: b.quantidade_defeito,
+        desconto_total: b.interno ? 0 : (Number(b.desconto_total) || 0),
+        multa_total: b.interno ? 0 : (Number(b.multa_total) || 0),
         data_enviado: b.data_enviado,
         data_prevista: b.data_prevista,
         data_entregue: b.data_entregue,
@@ -708,10 +716,32 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
               </div>
               {!b.interno && (
                 <div>
+                  <Label className="text-xs">Desconto total</Label>
+                  <NumberInput
+                    type="number"
+                    step="0.01"
+                    value={b.desconto_total}
+                    onChange={(e) => updateBloco(idx, { desconto_total: Number(e.target.value) })}
+                  />
+                </div>
+              )}
+              {!b.interno && (
+                <div>
+                  <Label className="text-xs">Multa total</Label>
+                  <NumberInput
+                    type="number"
+                    step="0.01"
+                    value={b.multa_total}
+                    onChange={(e) => updateBloco(idx, { multa_total: Number(e.target.value) })}
+                  />
+                </div>
+              )}
+              {!b.interno && (
+                <div>
                   <Label className="text-xs">Custo Total</Label>
                   <Input
                     readOnly
-                    value={fmtNum(b.preco_metro_unidade * b.quantidade_enviada)}
+                    value={fmtNum((Number(b.preco_metro_unidade) || 0) * (Number(b.quantidade_enviada) || 0) - (Number(b.desconto_total) || 0) + (Number(b.multa_total) || 0))}
                     className="bg-muted"
                   />
                 </div>
