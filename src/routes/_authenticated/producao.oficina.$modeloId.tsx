@@ -18,6 +18,7 @@ import { useReadOnly } from "@/components/RequirePermission";
 import { VerificarRevisao } from "@/components/producao/RevisaoErro";
 import { ModeloPhotoPrint } from "@/components/producao/cad/shared";
 import { printWithImages } from "@/lib/print";
+import { PrintArea } from "@/components/shared/PrintArea";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 
 export const Route = createFileRoute("/_authenticated/producao/oficina/$modeloId")({
@@ -315,7 +316,7 @@ function OficinaDetailPage() {
       </div>
 
       {/* Ficha de Oficina — Impressão */}
-      <div className="print-area">
+      <PrintArea>
         <div style={{ padding: 24, fontFamily: "Arial, sans-serif", color: "#000" }}>
           <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Ficha de Oficina</h1>
           <p style={{ fontSize: 12, marginBottom: 16 }}>
@@ -393,7 +394,7 @@ function OficinaDetailPage() {
             </div>
           </div>
         </div>
-      </div>
+      </PrintArea>
     </div>
   );
 }
