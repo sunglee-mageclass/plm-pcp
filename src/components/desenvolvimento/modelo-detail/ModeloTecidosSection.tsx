@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { artigoLabel } from "@/lib/artigo-label";
 import { Plus, Trash2, AlertTriangle, Check } from "lucide-react";
 import { Field, FieldSelectOpt } from "./shared";
+import { useModoOcRolo } from "@/hooks/useModoOcRolo";
 import { TIPOS, TIPO_LABEL, type TecidoBlock, type GradeRow, type OcAlloc } from "./types";
 import { EtiquetaLavagemArtigoView } from "@/components/shared/EtiquetaLavagemArtigo";
 import { fmtNum } from "@/lib/format";
@@ -374,6 +375,7 @@ function OcLinksField({
       return (data ?? []) as OcDisp[];
     },
   });
+  const modo = useModoOcRolo();
 
   const ocById = new Map(ocs.map((o) => [o.oc_tecido_item_id, o]));
   // Aloca a necessidade pelos saldos das OCs marcadas, na ordem (prioridade).
@@ -395,7 +397,9 @@ function OcLinksField({
 
   // OC com 0m disponível não é selecionável (não aparece) — exceto se já estiver
   // marcada nesta variante, p/ não sumir uma escolha existente.
-  const visibleOcs = ocs.filter((o) => Number(o.disponivel_m) > 0 || selectedIds.includes(o.oc_tecido_item_id));
+  // Filtro OC/Rolo da loja (modo_oc_rolo): só o tipo configurado aparece; vínculos já marcados continuam.
+  const matchModo = (o: OcDisp) => modo === "ambos" || selectedIds.includes(o.oc_tecido_item_id) || (modo === "rolo" ? !!o.is_rolo : !o.is_rolo);
+  const visibleOcs = ocs.filter((o) => (Number(o.disponivel_m) > 0 || selectedIds.includes(o.oc_tecido_item_id)) && matchModo(o));
   // OCs vinculadas que não voltaram na lista (ex.: já zeradas) não somem.
   const extraSelected: OcDisp[] = value
     .filter((v) => !ocById.has(v.oc_tecido_item_id))

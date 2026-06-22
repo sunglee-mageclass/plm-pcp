@@ -86,6 +86,7 @@ const DEFAULTS = {
   estoque_critico_threshold: 0 as number,
   estoque_critico_aviamento: 0 as number,
   modo_baixa_estoque: "por_oc" as "por_oc" | "automatico",
+  modo_oc_rolo: "ambos" as "oc" | "rolo" | "ambos",
 };
 
 type ConfigState = typeof DEFAULTS;
@@ -146,6 +147,7 @@ function ConfiguracoesLojaPage() {
       estoque_critico_threshold: Number(r.estoque_critico_threshold ?? 0) || 0,
       estoque_critico_aviamento: Number(r.estoque_critico_aviamento ?? 0) || 0,
       modo_baixa_estoque: r.modo_baixa_estoque ?? DEFAULTS.modo_baixa_estoque,
+      modo_oc_rolo: (r as any).modo_oc_rolo ?? DEFAULTS.modo_oc_rolo,
     });
   }, [data?.cfg]);
 
@@ -288,6 +290,33 @@ function ConfiguracoesLojaPage() {
           <p className="text-xs text-muted-foreground">
             "Por OC" baixa primeiro das OCs vinculadas no Desenvolvimento e usa FIFO no restante.
             "Automático" ignora os vínculos e consome sempre o lote mais antigo.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>OC e Rolo</CardTitle>
+          <CardDescription>
+            Como a loja trabalha o tecido — define o que aparece para vincular no Desenvolvimento.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <Label>Trabalhar com</Label>
+          <Select
+            value={cfg.modo_oc_rolo}
+            onValueChange={(v) => setCfg({ ...cfg, modo_oc_rolo: v as ConfigState["modo_oc_rolo"] })}
+          >
+            <SelectTrigger className="w-full md:w-96"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ambos">Ambos (OC e Rolo)</SelectItem>
+              <SelectItem value="oc">Somente OC</SelectItem>
+              <SelectItem value="rolo">Somente Rolo</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            No Desenvolvimento, ao vincular tecido por variante: "Somente OC" mostra só OCs;
+            "Somente Rolo" mostra só rolos; "Ambos" mostra os dois. Vínculos já feitos continuam aparecendo.
           </p>
         </CardContent>
       </Card>
