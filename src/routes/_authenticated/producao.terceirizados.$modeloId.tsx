@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useReadOnly } from "@/components/RequirePermission";
 import { ModeloObservacoes } from "@/components/shared/ModeloObservacoes";
 import { VerificarRevisao } from "@/components/producao/RevisaoErro";
+import { printWithImages } from "@/lib/print";
 import { FichaTecnica } from "@/components/producao/FichaTecnica";
 
 export const Route = createFileRoute("/_authenticated/producao/terceirizados/$modeloId")({
@@ -427,7 +428,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
           </Link>
         )}
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => window.print()} disabled={!cad?.id}>
+          <Button variant="outline" onClick={() => printWithImages()} disabled={!cad?.id}>
             <FileText className="h-4 w-4 mr-2" /> Ficha Técnica
           </Button>
           {locked ? (

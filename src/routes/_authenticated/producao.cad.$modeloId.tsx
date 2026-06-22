@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useReadOnly } from "@/components/RequirePermission";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { printWithImages } from "@/lib/print";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 
 export const Route = createFileRoute("/_authenticated/producao/cad/$modeloId")({
@@ -715,7 +716,7 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
   }, [gradeTotalGeral]);
 
   const firstPhoto = (modelo?.fotos_modelo as string[] | null)?.[0] ?? null;
-  const handlePrint = () => window.print();
+  const handlePrint = () => printWithImages();
 
   const [confirmZeroOpen, setConfirmZeroOpen] = useState(false);
   const variantesZeradas = useMemo(() => {

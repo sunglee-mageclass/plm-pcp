@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useReadOnly } from "@/components/RequirePermission";
 import { VerificarRevisao } from "@/components/producao/RevisaoErro";
 import { ModeloPhotoPrint } from "@/components/producao/cad/shared";
+import { printWithImages } from "@/lib/print";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 
 export const Route = createFileRoute("/_authenticated/producao/oficina/$modeloId")({
@@ -196,7 +197,7 @@ function OficinaDetailPage() {
     onError: (e: any) => toast.error(e?.message ?? "Erro"),
   });
 
-  const handlePrint = () => window.print();
+  const handlePrint = () => printWithImages();
 
   const fotos = ((modelo as any)?.fotos_modelo ?? []) as string[];
 
