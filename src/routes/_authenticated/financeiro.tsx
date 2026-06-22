@@ -814,6 +814,11 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
         titulo="Contas a Pagar"
         subtitulo={`${filtered.length} parcela(s)${dataIni || dataFim ? ` · ${dataIni || "…"} a ${dataFim || "…"}` : ""}`}
         dataStr={new Date().toLocaleDateString("pt-BR")}
+        kpis={[
+          { label: "Total", valor: brl(filtered.reduce((s, p) => s + Number(p.valor || 0), 0)) },
+          { label: "Vencido", valor: brl(filtered.filter((p) => effectiveStatus(p) === "vencido").reduce((s, p) => s + Number(p.valor || 0), 0)), cor: "#dc2626" },
+          { label: "Pago", valor: brl(filtered.filter((p) => effectiveStatus(p) === "pago").reduce((s, p) => s + Number(p.valor || 0), 0)), cor: "#16a34a" },
+        ]}
         colunas={[
           { key: "fornecedor", label: "Fornecedor" },
           { key: "oc", label: "Nº Pedido" },
@@ -1002,6 +1007,11 @@ function ServicosView() {
         titulo="Serviços a Pagar"
         subtitulo={`${filtered.length} parcela(s) de serviço`}
         dataStr={new Date().toLocaleDateString("pt-BR")}
+        kpis={[
+          { label: "Total a pagar", valor: brl(total) },
+          { label: "Parcelas", valor: String(filtered.length) },
+          { label: "Pagas", valor: String(filtered.filter((r) => stOf(r) === "pago").length), cor: "#16a34a" },
+        ]}
         colunas={[
           { key: "servico", label: "Serviço" },
           { key: "responsavel", label: "Responsável" },
