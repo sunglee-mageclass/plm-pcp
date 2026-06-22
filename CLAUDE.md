@@ -132,7 +132,27 @@ Auditoria por times + correção dos P0 de integridade. Não regredir:
 **Docs de referência LOCAIS (gitignored, manter atualizados):**
 `docs/mapeamento-campos-calculos.md` (campos×campos, fórmulas, etapas) e
 `docs/plano-de-ataque.md` (auditoria das 7 frentes + plano de Fases; rastreia o que
-já foi feito). Ler/atualizar ao mexer em consumo/grade/estoque/custo/financeiro/CQ.
+já foi feito) e `docs/api-integracao-erp.md` (leitura p/ ERP: o quê + quando o dado
+é final). Ler/atualizar ao mexer em consumo/grade/estoque/custo/financeiro/CQ.
+
+## Fase 1 — segurança (jun/2026, padrões a preservar)
+
+11. **Dashboard por permissão** — front filtra abas por `canView`; cada RPC
+    `dashboard_*` é wrapper que checa **`user_can_view(_pagina)`** antes do `_core`
+    (helper reutilizável; admin/tenant_admin/super_admin bypassam).
+12. **`tenant_config` sempre por `tenant_id`** — toda leitura usa
+    `.eq("tenant_id", useActiveTenantId())` + `enabled: !!tenantId`. NÃO depender da
+    RLS (super_admin vê N linhas → quebra). Toda loja tem 1 `tenant_config` (trigger
+    `trg_criar_tenant_config` na criação + backfill).
+13. **Loja inativa = suspensão real** — `get_user_tenant_id()` retorna **UUID
+    sentinela** (nil) p/ loja inativa (super_admin isento) → RLS bloqueia tudo e as
+    RPCs dão RAISE. `meu_tenant_ativo()` + guard "Loja inativa" no layout. **Não
+    retornar NULL** (vira UNKNOWN nas RPCs `<>` e fura).
+14. **Enforce de módulo** — `tenant_module_enabled(_module)` (super_admin/ausência →
+    true). Tabelas dos módulos desligáveis têm policies RESTRICTIVE de write; RPCs de
+    escrita são wrappers que checam o módulo antes do `_core`. `recalcular_parcelas`
+    fica fora (integridade). Padrão p/ guardar RPC sem reescrever o corpo: `ALTER
+    FUNCTION x RENAME TO _x_core` + wrapper + `REVOKE` do core.
 
 ## O que NÃO fazer
 
