@@ -8,9 +8,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { BarChart3, Package, Palette, Boxes, AlertTriangle, Layers, Sparkles } from "lucide-react";
+import { BarChart3, Package, Palette, Boxes, AlertTriangle, Layers, Sparkles, Printer } from "lucide-react";
 import { format } from "date-fns";
 import { FilterButton } from "@/components/shared/filters";
+import { Button } from "@/components/ui/button";
+import { printWithImages } from "@/lib/print";
+import { RelatorioPrint } from "@/components/shared/RelatorioPrint";
 import { PeriodoPicker, type Periodo } from "@/components/shared/PeriodoPicker";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
@@ -375,6 +378,7 @@ function ProducaoTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-end gap-2">
+        <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}><Printer className="h-4 w-4 mr-1" /> Imprimir</Button>
         <PeriodoPicker value={periodo} onChange={setPeriodo} />
         <FilterButton
           filters={[
@@ -517,6 +521,25 @@ function ProducaoTab() {
         </table>
         </div>
       </Card>
+
+      <RelatorioPrint
+        titulo="Relatório de Produção — SLA / Qualidade por terceirizado"
+        dataStr={new Date().toLocaleDateString("pt-BR")}
+        colunas={[
+          { key: "nome", label: "Terceirizado" },
+          { key: "sla", label: "SLA médio (dias)", align: "right" },
+          { key: "atrasos", label: "Atrasos", align: "right" },
+          { key: "total", label: "Total entregue", align: "right" },
+          { key: "defeito", label: "Taxa de Defeito", align: "right" },
+        ]}
+        linhas={(slaPorTerc as any[]).map((r) => ({
+          nome: r.nome ?? "—",
+          sla: fmtNum(r.slaMedio),
+          atrasos: String(r.atrasos ?? 0),
+          total: String(r.total ?? 0),
+          defeito: `${Number(r.taxaDefeito ?? 0)}%`,
+        }))}
+      />
     </div>
   );
 }
@@ -652,6 +675,7 @@ function CustosTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-end gap-2">
+        <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}><Printer className="h-4 w-4 mr-1" /> Imprimir</Button>
         <PeriodoPicker value={periodo} onChange={setPeriodo} />
         <FilterButton
           filters={[
@@ -714,6 +738,27 @@ function CustosTab() {
           </ResponsiveContainer>
         </div>
       </Card>
+
+      <RelatorioPrint
+        titulo="Custo Previsto × Real por coleção"
+        dataStr={new Date().toLocaleDateString("pt-BR")}
+        colunas={[
+          { key: "ref", label: "Ref" },
+          { key: "modelo", label: "Modelo" },
+          { key: "previsto", label: "Previsto (un.)", align: "right" },
+          { key: "real", label: "Real (un.)", align: "right" },
+          { key: "diff", label: "Diferença", align: "right" },
+          { key: "pct", label: "%", align: "right" },
+        ]}
+        linhas={(rows as any[]).map((r) => ({
+          ref: r.ref ?? "—",
+          modelo: r.nome ?? "—",
+          previsto: brl(Number(r.previsto)),
+          real: brl(Number(r.real)),
+          diff: brl(Number(r.diff)),
+          pct: `${Math.round(Number(r.pct) || 0)}%`,
+        }))}
+      />
     </div>
   );
 }
