@@ -16,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useReadOnly } from "@/components/RequirePermission";
 import { VerificarRevisao } from "@/components/producao/RevisaoErro";
+import { ModeloPhotoPrint } from "@/components/producao/cad/shared";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 
 export const Route = createFileRoute("/_authenticated/producao/oficina/$modeloId")({
@@ -321,9 +322,7 @@ function OficinaDetailPage() {
           </p>
 
           <div style={{ display: "flex", gap: 16, marginBottom: 16 }}>
-            {fotos[0] && (
-              <img src={fotos[0]} alt={`Modelo ${modelo?.ref ?? ""} ${modelo?.nome ?? ""}`.trim() || "Foto do modelo"} style={{ width: 180, height: 240, objectFit: "cover", border: "1px solid #ccc" }} />
-            )}
+            {fotos[0] && <ModeloPhotoPrint path={fotos[0]} maxW={180} maxH={240} />}
             <div style={{ fontSize: 12, lineHeight: 1.6 }}>
               <div><strong>{fl("ref")}:</strong> {modelo?.ref ?? "—"}</div>
               <div><strong>Modelo:</strong> {modelo?.nome ?? "—"}</div>
