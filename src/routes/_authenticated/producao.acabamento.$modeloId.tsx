@@ -153,34 +153,24 @@ function AcabDetailPage() {
   const saveMut = useMutation({
     mutationFn: async () => {
       if (!cad?.id) throw new Error("CAD não encontrado. Abra o CAD desse modelo primeiro.");
-      // Insere os novos ANTES de remover os antigos: se o insert falhar, os
-      // blocos antigos NÃO são perdidos.
-      const { data: oldRows, error: oldErr } = await supabase
-        .from("producao_acabamento").select("id").eq("cad_id", cad.id);
-      if (oldErr) throw oldErr;
-      const oldIds = (oldRows ?? []).map((r: any) => r.id);
-
-      if (blocos.length > 0) {
-        const payload = blocos.map((b) => ({
-          cad_id: cad.id, ativo: true, tipo: b.tipo,
-          terceirizado_id: b.terceirizado_id,
-          preco_por_peca: b.preco_por_peca,
-          quantidade_enviada: b.quantidade_enviada,
-          quantidade_recebida: b.quantidade_recebida,
-          quantidade_defeito: b.quantidade_defeito,
-          data_enviado: b.data_enviado,
-          data_prevista: b.data_prevista,
-          data_entregue: b.data_entregue,
-          observacao: b.observacao,
-          aviamentos_utilizados: b.aviamentos_utilizados,
-        }));
-        const { error } = await supabase.from("producao_acabamento").insert(payload);
-        if (error) throw error;
-      }
-      if (oldIds.length > 0) {
-        const { error: delErr } = await supabase.from("producao_acabamento").delete().in("id", oldIds);
-        if (delErr) throw delErr;
-      }
+      // RPC transacional com diff-por-id (preserva ids, atômico).
+      const _blocos = blocos.map((b) => ({
+        id: (b as any).id ?? null,
+        tipo: b.tipo,
+        ativo: true,
+        terceirizado_id: b.terceirizado_id,
+        preco_por_peca: b.preco_por_peca,
+        quantidade_enviada: b.quantidade_enviada,
+        quantidade_recebida: b.quantidade_recebida,
+        quantidade_defeito: b.quantidade_defeito,
+        data_enviado: b.data_enviado,
+        data_prevista: b.data_prevista,
+        data_entregue: b.data_entregue,
+        observacao: b.observacao,
+        aviamentos_utilizados: b.aviamentos_utilizados,
+      }));
+      const { error } = await supabase.rpc("salvar_acabamento" as any, { _cad_id: cad.id, _blocos });
+      if (error) throw error;
     },
     onSuccess: async () => {
       toast.success("Salvo");
