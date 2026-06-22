@@ -562,6 +562,36 @@ function FinanceiroTab() {
           </ResponsiveContainer>
         </div>
       </Card>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card className="p-4">
+          <h3 className="font-semibold mb-3">Aging de contas a pagar <span className="text-sm font-normal text-muted-foreground">· em aberto, por idade do vencimento</span></h3>
+          <div style={{ width: "100%", height: 280 }}>
+            <ResponsiveContainer>
+              <BarChart data={data?.aging ?? []}>
+                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                <XAxis dataKey="faixa" />
+                <YAxis tickFormatter={(v) => v.toLocaleString("pt-BR")} />
+                <Tooltip formatter={(v: any) => brl(Number(v))} />
+                <Bar dataKey="total" name="A pagar" fill={PIE_COLORS[3]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+        <Card className="p-4">
+          <h3 className="font-semibold mb-3">Top fornecedores <span className="text-sm font-normal text-muted-foreground">· por valor no período</span></h3>
+          <div style={{ width: "100%", height: 280 }}>
+            <ResponsiveContainer>
+              <BarChart data={data?.topFornecedores ?? []} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                <XAxis type="number" tickFormatter={(v) => Number(v).toLocaleString("pt-BR")} />
+                <YAxis type="category" dataKey="nome" width={110} />
+                <Tooltip formatter={(v: any) => brl(Number(v))} />
+                <Bar dataKey="total" name="Total" fill={PIE_COLORS[0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+      </div>
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
       <DashError show={isError} />
     </div>
