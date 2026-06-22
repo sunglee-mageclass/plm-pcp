@@ -155,7 +155,9 @@ function OficinaDetailPage() {
       if (!cad?.id) throw new Error("CAD não encontrado. Abra o CAD desse modelo primeiro.");
       const payload = {
         cad_id: cad.id,
-        terceirizado_id: form.terceirizado_id || null,
+        // Oficina interna: o Select de terceirizado fica escondido — não gravar
+        // um terceirizado_id órfão (do estado anterior).
+        terceirizado_id: oficinaInterna ? null : (form.terceirizado_id || null),
         preco_por_peca: form.preco_por_peca,
         quantidade_enviada: form.quantidade_enviada,
         quantidade_recebida: form.quantidade_recebida,
@@ -347,7 +349,9 @@ function OficinaDetailPage() {
                 <tr><td colSpan={tamanhos.length + 2} style={{ border: "1px solid #999", padding: 8, textAlign: "center" }}>Sem grade definida.</td></tr>
               )}
               {(grades as any[]).map((g) => {
-                const gr = g.grades_planejadas ?? {};
+                // Grade REAL (Recebimento − Defeito) quando o CQ confirmou; antes
+                // do CQ grades_reais == planejada, então cai no mesmo valor.
+                const gr = g.grades_reais ?? g.grades_planejadas ?? {};
                 return (
                   <tr key={g.variante_numero}>
                     <td style={{ border: "1px solid #999", padding: 4 }}>Variante {g.variante_numero}</td>
@@ -357,7 +361,7 @@ function OficinaDetailPage() {
                       </td>
                     ))}
                     <td style={{ border: "1px solid #999", padding: 4, textAlign: "center", fontWeight: 700 }}>
-                      {g.grade_total_planejada ?? 0}
+                      {g.grade_total_real ?? g.grade_total_planejada ?? 0}
                     </td>
                   </tr>
                 );
