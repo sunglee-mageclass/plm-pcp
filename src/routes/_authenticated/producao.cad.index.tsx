@@ -189,7 +189,7 @@ function CadListPage() {
 
       <Sheet open={!!sheetId} onOpenChange={(o) => !o && setSheetId(null)}>
         <SheetContent className="w-full sm:w-[92vw] sm:max-w-[1100px] overflow-y-auto p-0">
-          {sheetId && <CadEditor modeloId={sheetId} onAfterDelete={() => setSheetId(null)} />}
+          {sheetId && <CadEditor modeloId={sheetId} onAfterDelete={() => setSheetId(null)} onClose={() => setSheetId(null)} />}
         </SheetContent>
       </Sheet>
     </div>

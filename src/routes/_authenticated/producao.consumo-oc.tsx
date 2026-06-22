@@ -435,7 +435,7 @@ function ConsumoOcPage() {
 
       <Sheet open={!!cadId} onOpenChange={(o) => !o && closeEditors()}>
         <SheetContent className="w-full sm:w-[92vw] sm:max-w-[1100px] overflow-y-auto p-0">
-          {cadId && <CadEditor modeloId={cadId} onAfterDelete={closeEditors} />}
+          {cadId && <CadEditor modeloId={cadId} onAfterDelete={closeEditors} onClose={closeEditors} />}
         </SheetContent>
       </Sheet>
     </div>

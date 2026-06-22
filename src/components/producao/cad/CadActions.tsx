@@ -17,6 +17,8 @@ type Props = {
   editing?: boolean;
   dataEnviado?: string | null;
   readOnly?: boolean;
+  /** Quando embutido num Sheet/modal, fecha-o (em vez de navegar pra lista). */
+  onBack?: () => void;
 };
 
 function fmtDate(d?: string | null) {
@@ -25,15 +27,22 @@ function fmtDate(d?: string | null) {
   return `${day}/${m}/${y}`;
 }
 
-export function CadActions({ onPrint, onSave, onEnviar, onDesmarcar, onExcluir, onEditar, saving, enviando, enviado, editing, dataEnviado, readOnly }: Props) {
+export function CadActions({ onPrint, onSave, onEnviar, onDesmarcar, onExcluir, onEditar, saving, enviando, enviado, editing, dataEnviado, readOnly, onBack }: Props) {
   // Travado: já enviado ao corte e fora do modo edição. Só destrava no "Editar".
   const locked = enviado && !editing;
+  const backClass = "text-sm text-muted-foreground hover:underline flex items-center gap-1";
   return (
     <div className="flex items-center justify-between gap-3">
       <div className="flex items-center gap-3">
-        <Link to="/producao/cad" className="text-sm text-muted-foreground hover:underline flex items-center gap-1">
-          <ArrowLeft className="h-4 w-4" /> Voltar
-        </Link>
+        {onBack ? (
+          <button type="button" onClick={onBack} className={backClass}>
+            <ArrowLeft className="h-4 w-4" /> Voltar
+          </button>
+        ) : (
+          <Link to="/producao/cad" className={backClass}>
+            <ArrowLeft className="h-4 w-4" /> Voltar
+          </Link>
+        )}
         {onExcluir && !readOnly && !enviado && (
           <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={onExcluir}>
             <Trash2 className="h-4 w-4 mr-1" /> Excluir CAD

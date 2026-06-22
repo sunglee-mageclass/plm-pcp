@@ -54,7 +54,7 @@ function CadDetailPage() {
 // Editor de CAD reutilizável (rota + modal na tela "Consumo por OC").
 // Recebe modeloId por prop; onAfterDelete é chamado após excluir o CAD
 // (na rota navega para a lista; no modal, fecha a janela).
-export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAfterDelete?: () => void }) {
+export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: string; onAfterDelete?: () => void; onClose?: () => void }) {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
   const tenantId = useActiveTenantId();
@@ -772,6 +772,7 @@ export function CadEditor({ modeloId, onAfterDelete }: { modeloId: string; onAft
           readOnly={readOnly}
           editing={editing}
           onEditar={() => setEditing(true)}
+          onBack={onClose}
         />
 
         <DownstreamConfirmDialog
