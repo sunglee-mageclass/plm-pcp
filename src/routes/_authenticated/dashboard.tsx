@@ -14,7 +14,7 @@ import { FilterButton } from "@/components/shared/filters";
 import { PeriodoPicker, type Periodo } from "@/components/shared/PeriodoPicker";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
-  PieChart, Pie, Cell, FunnelChart, Funnel, LabelList,
+  PieChart, Pie, Cell, FunnelChart, Funnel, LabelList, AreaChart, Area,
 } from "recharts";
 
 import { RequirePermission } from "@/components/RequirePermission";
@@ -527,6 +527,20 @@ function FinanceiroTab() {
               <Tooltip formatter={(v: any) => brl(Number(v))} />
               <Bar dataKey="total" name="A pagar" fill={PIE_COLORS[2]} />
             </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </Card>
+      <Card className="p-4">
+        <h3 className="font-semibold mb-3">Caixa acumulado <span className="text-sm font-normal text-muted-foreground">· soma das contas a pagar ao longo do período</span></h3>
+        <div style={{ width: "100%", height: 280 }}>
+          <ResponsiveContainer>
+            <AreaChart data={(chartData as any[]).reduce((acc: any[], d: any) => { const prev = acc.length ? acc[acc.length - 1].acumulado : 0; acc.push({ mes: d.mes, acumulado: prev + Number(d.total ?? 0) }); return acc; }, [])}>
+              <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+              <XAxis dataKey="mes" />
+              <YAxis tickFormatter={(v) => v.toLocaleString("pt-BR")} />
+              <Tooltip formatter={(v: any) => brl(Number(v))} />
+              <Area dataKey="acumulado" name="Acumulado a pagar" stroke={PIE_COLORS[0]} fill={PIE_COLORS[0]} fillOpacity={0.2} />
+            </AreaChart>
           </ResponsiveContainer>
         </div>
       </Card>
