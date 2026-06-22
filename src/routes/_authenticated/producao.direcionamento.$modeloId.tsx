@@ -318,7 +318,7 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
               </div>
             )}
 
-            <div className="overflow-x-auto">
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm border-collapse">
                 <thead className="bg-muted/50">
                   <tr>
@@ -366,6 +366,43 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
                   </tr>
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile: empilhado por tamanho (some o scroll horizontal ilegível) */}
+            <div className="md:hidden grid grid-cols-2 gap-2">
+              {tamanhos.map((t) => {
+                const real = Number(v.real?.[t] ?? 0);
+                const ec = Number(v.ecommerce?.[t] ?? 0);
+                const over = ec > real;
+                const lf = Math.max(0, real - ec);
+                return (
+                  <div key={t} className={`rounded-lg border p-2 ${over ? "border-destructive/50" : ""}`}>
+                    <div className="mb-1 border-b pb-1 text-center text-xs font-semibold">{t}</div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Grade Real</span>
+                      <span className="font-medium">{real}</span>
+                    </div>
+                    <div className="mt-1">
+                      <span className="text-xs text-muted-foreground">E-commerce</span>
+                      <NumberInput
+                        type="number" min={0} max={real}
+                        className={`h-9 text-center ${over ? "border-destructive text-destructive" : ""}`}
+                        value={v.ecommerce?.[t] ?? ""}
+                        onChange={(e) => setEcommerce(v.variante_numero, t, Math.max(0, Number(e.target.value) || 0))}
+                      />
+                    </div>
+                    <div className="mt-1 flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Loja Física</span>
+                      <span className="font-medium">{lf}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="md:hidden flex justify-between border-t pt-2 text-xs text-muted-foreground">
+              <span>Real: <b className="text-foreground">{realTotal}</b></span>
+              <span>E-com: <b className="text-foreground">{ecTotal}</b></span>
+              <span>Loja: <b className="text-foreground">{Math.max(0, realTotal - ecTotal)}</b></span>
             </div>
           </Card>
         );
