@@ -209,7 +209,7 @@ function OficinaDetailPage() {
           <ArrowLeft className="h-4 w-4" /> Voltar
         </Link>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handlePrint}>
+          <Button variant="outline" className="hidden md:inline-flex" onClick={handlePrint}>
             <Printer className="h-4 w-4 mr-2" /> Imprimir Ficha de Oficina
           </Button>
           <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>

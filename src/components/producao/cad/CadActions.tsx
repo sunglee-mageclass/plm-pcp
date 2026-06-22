@@ -47,7 +47,7 @@ export function CadActions({ onPrint, onSave, onEnviar, onDesmarcar, onExcluir, 
             CAD Confirmado{dataEnviado ? ` em ${fmtDate(dataEnviado)}` : ""}
           </Badge>
         )}
-        <Button variant="outline" onClick={onPrint}>
+        <Button variant="outline" className="hidden md:inline-flex" onClick={onPrint}>
           <Printer className="h-4 w-4 mr-1" /> Imprimir Ficha
         </Button>
 

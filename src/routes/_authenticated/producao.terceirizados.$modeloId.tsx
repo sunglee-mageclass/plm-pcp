@@ -464,10 +464,10 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
           </Link>
         )}
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => { setPrintTarget("ficha"); printWithImages(); }} disabled={!cad?.id}>
+          <Button variant="outline" className="hidden md:inline-flex" onClick={() => { setPrintTarget("ficha"); printWithImages(); }} disabled={!cad?.id}>
             <FileText className="h-4 w-4 mr-2" /> Ficha Técnica
           </Button>
-          <Button variant="outline" onClick={() => { setPrintTarget("os"); printWithImages(); }} disabled={osItens.length === 0}>
+          <Button variant="outline" className="hidden md:inline-flex" onClick={() => { setPrintTarget("os"); printWithImages(); }} disabled={osItens.length === 0}>
             <Printer className="h-4 w-4 mr-2" /> Imprimir OS
           </Button>
           {locked ? (

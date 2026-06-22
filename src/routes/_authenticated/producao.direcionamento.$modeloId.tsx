@@ -246,7 +246,7 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
           </Link>
         )}
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => printWithImages()} disabled={variantes.length === 0}>
+          <Button variant="outline" className="hidden md:inline-flex" onClick={() => printWithImages()} disabled={variantes.length === 0}>
             <Printer className="h-4 w-4 mr-2" /> Imprimir Romaneio
           </Button>
           {!confirmado ? (
