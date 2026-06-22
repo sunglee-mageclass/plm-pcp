@@ -62,12 +62,9 @@ const MODULE_FIELD_KEYS: Record<string, string[]> = {
 };
 
 const DEFAULTS = {
-  usa_pl: true,
-  corte_interno: false,
   oficina_interna: false,
   oficina_posicao: "terceirizados" as "terceirizados" | "acabamento",
   timezone: "America/Sao_Paulo" as string,
-  formato_mes: "numeral" as "numeral" | "descrito" | "numeral_descrito",
   etapas_acabamento: ["Caseado", "Botão", "Passadoria"],
   tamanhos_grade: ["34|PPP", "36|PP", "38|P", "40|M", "42|G", "44|GG"],
   status_kanban: [
@@ -123,12 +120,9 @@ function ConfiguracoesLojaPage() {
     if (!data?.cfg) return;
     const r = data.cfg as any;
     setCfg({
-      usa_pl: r.usa_pl ?? DEFAULTS.usa_pl,
-      corte_interno: r.corte_interno ?? DEFAULTS.corte_interno,
       oficina_interna: r.oficina_interna ?? DEFAULTS.oficina_interna,
       oficina_posicao: r.oficina_posicao ?? DEFAULTS.oficina_posicao,
       timezone: r.timezone ?? DEFAULTS.timezone,
-      formato_mes: r.formato_mes ?? DEFAULTS.formato_mes,
       etapas_acabamento: Array.isArray(r.etapas_acabamento)
         ? r.etapas_acabamento
         : DEFAULTS.etapas_acabamento,
@@ -250,31 +244,6 @@ function ConfiguracoesLojaPage() {
               {TIMEZONE_OPTIONS.map((tz) => (
                 <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>
               ))}
-            </SelectContent>
-          </Select>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Exibição</CardTitle>
-          <CardDescription>Como datas e meses aparecem no sistema.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <Label>Formato de mês</Label>
-          <Select
-            value={cfg.formato_mes}
-            onValueChange={(v) =>
-              setCfg({ ...cfg, formato_mes: v as ConfigState["formato_mes"] })
-            }
-          >
-            <SelectTrigger className="w-full md:w-72">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="numeral">Numeral (01, 02, 03…)</SelectItem>
-              <SelectItem value="descrito">Descrito (Janeiro, Fevereiro…)</SelectItem>
-              <SelectItem value="numeral_descrito">Numeral + Descrito (01 - Janeiro)</SelectItem>
             </SelectContent>
           </Select>
         </CardContent>
