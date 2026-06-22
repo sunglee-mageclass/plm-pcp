@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ClipboardCheck, Save, CheckCircle2, RotateCcw, Camera, Pencil } from "lucide-react";
+import { ArrowLeft, ClipboardCheck, Save, CheckCircle2, RotateCcw, Camera, Pencil, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { MatrizGradeResponsiva } from "@/components/shared/MatrizGradeResponsiva";
 import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { useReadOnly } from "@/components/RequirePermission";
@@ -201,6 +202,7 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
   const [fotografado, setFotografado] = useState<Record<number, boolean>>({});
   const [status, setStatus] = useState<string>("pendente");
   const [editing, setEditing] = useState(false);
+  const [oficinaOpen, setOficinaOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
   const confirmado = status === "confirmado";
@@ -417,16 +419,24 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-md:pb-24">
       <VerificarRevisao modeloId={modeloId} etapa="cq" />
+      {cad?.id && <OficinaServicoDialog cadId={cad.id} open={oficinaOpen} onClose={() => setOficinaOpen(false)} />}
       <div className="flex items-center justify-between gap-2">
-        {onClose ? (
-          <button onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
-            <ArrowLeft className="h-4 w-4" /> Voltar
-          </button>
-        ) : (
-          <Link to="/producao/cq" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
-            <ArrowLeft className="h-4 w-4" /> Voltar
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          {onClose ? (
+            <button onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+              <ArrowLeft className="h-4 w-4" /> Voltar
+            </button>
+          ) : (
+            <Link to="/producao/cq" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+              <ArrowLeft className="h-4 w-4" /> Voltar
+            </Link>
+          )}
+          {cad?.id && (
+            <Button size="sm" variant="outline" onClick={() => setOficinaOpen(true)}>
+              <Wrench className="h-3.5 w-3.5 mr-1" /> Oficina
+            </Button>
+          )}
+        </div>
         <div className="flex items-center gap-2 max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-40 max-md:justify-end max-md:border-t max-md:bg-background max-md:p-3 max-md:shadow-lg">
           {!confirmado ? (
             <>
@@ -745,5 +755,69 @@ function GradeMatrix(props: {
       extraHeader={extraCols.length > 0 ? "Ação" : undefined}
       renderExtra={renderExtra}
     />
+  );
+}
+
+// Janela rápida (pequena) p/ lançar desconto/multa do serviço de OFICINA — a oficina
+// só entra no Financeiro após o CQ confirmado, então o ajuste é feito aqui.
+function OficinaServicoDialog({ cadId, open, onClose }: { cadId: string; open: boolean; onClose: () => void }) {
+  const qc = useQueryClient();
+  const { data: serv } = useQuery({
+    queryKey: ["cq-oficina-servico", cadId],
+    enabled: open && !!cadId,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("cq_oficina_servico" as any, { _cad_id: cadId });
+      if (error) throw error;
+      return data as any;
+    },
+  });
+  const [desc, setDesc] = useState(0);
+  const [multa, setMulta] = useState(0);
+  useEffect(() => { if (serv) { setDesc(Number(serv.desconto ?? 0)); setMulta(Number(serv.multa ?? 0)); } }, [serv]);
+  const brl = (v: number) => Number(v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  const bruto = Number(serv?.custo_bruto ?? 0);
+  const liquido = bruto - (Number(desc) || 0) + (Number(multa) || 0);
+  const save = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.rpc("cq_set_oficina_desconto_multa" as any, { _cad_id: cadId, _desconto: Number(desc) || 0, _multa: Number(multa) || 0 });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["cq-oficina-servico", cadId] });
+      qc.invalidateQueries({ queryKey: ["servicos-financeiro"] });
+      toast.success("Oficina atualizada");
+      onClose();
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao salvar"),
+  });
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader><DialogTitle>Oficina — desconto / multa</DialogTitle></DialogHeader>
+        {!serv ? (
+          <p className="text-sm text-muted-foreground">Nenhum serviço de Oficina (externo) neste modelo.</p>
+        ) : (
+          <div className="space-y-3 text-sm">
+            <div><span className="text-muted-foreground">Responsável:</span> <b>{serv.responsavel}</b></div>
+            <div><span className="text-muted-foreground">Custo bruto:</span> {brl(bruto)}</div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Desconto total</Label>
+                <NumberInput type="number" step="0.01" value={desc} onChange={(e) => setDesc(Number(e.target.value))} />
+              </div>
+              <div>
+                <Label className="text-xs">Multa total</Label>
+                <NumberInput type="number" step="0.01" value={multa} onChange={(e) => setMulta(Number(e.target.value))} />
+              </div>
+            </div>
+            <div className="rounded-md bg-muted/40 px-3 py-2"><span className="text-muted-foreground">Custo líquido:</span> <b>{brl(liquido)}</b></div>
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>Fechar</Button>
+          {serv && <Button onClick={() => save.mutate()} disabled={save.isPending}>Salvar</Button>}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
