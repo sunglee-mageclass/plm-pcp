@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
 import {
@@ -306,6 +307,44 @@ function ConfiguracoesLojaPage() {
             "Por OC" baixa primeiro das OCs vinculadas no Desenvolvimento e usa FIFO no restante.
             "Automático" ignora os vínculos e consome sempre o lote mais antigo.
           </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Produção — Oficina</CardTitle>
+          <CardDescription>
+            Onde a Oficina aparece no menu e se a costura é interna (PL).
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Posição da Oficina</Label>
+            <Select
+              value={cfg.oficina_posicao}
+              onValueChange={(v) => setCfg({ ...cfg, oficina_posicao: v as ConfigState["oficina_posicao"] })}
+            >
+              <SelectTrigger className="w-full md:w-96">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="terceirizados">Junto de Serviços / Terceirizados</SelectItem>
+                <SelectItem value="acabamento">Depois do CQ (sub-item de Produção)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <Label>Oficina interna (PL)</Label>
+              <p className="text-xs text-muted-foreground">
+                A costura é feita internamente — esconde o seletor de terceirizado e marca o custo como interno.
+              </p>
+            </div>
+            <Switch
+              checked={cfg.oficina_interna}
+              onCheckedChange={(v) => setCfg({ ...cfg, oficina_interna: v })}
+            />
+          </div>
         </CardContent>
       </Card>
 
