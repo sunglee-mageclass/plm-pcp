@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Compass, Save, CheckCircle2, RotateCcw, Pencil, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Compass, Save, CheckCircle2, RotateCcw, Pencil, AlertTriangle, Printer } from "lucide-react";
+import { printWithImages } from "@/lib/print";
+import { RomaneioDirecionamento } from "@/components/producao/RomaneioDirecionamento";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -244,6 +246,9 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
           </Link>
         )}
         <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => printWithImages()} disabled={variantes.length === 0}>
+            <Printer className="h-4 w-4 mr-2" /> Imprimir Romaneio
+          </Button>
           {!confirmado ? (
             <>
               <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
@@ -366,6 +371,14 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
         );
       })}
       </fieldset>
+
+      <RomaneioDirecionamento
+        modelo={modelo}
+        tamanhos={tamanhos}
+        variantes={variantes}
+        confirmado={confirmado}
+        dataStr={new Date().toLocaleDateString("pt-BR")}
+      />
     </div>
   );
 }
