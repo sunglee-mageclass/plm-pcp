@@ -245,15 +245,13 @@ function CalendarioView({ parcelas, loading }: { parcelas: Parcela[]; loading: b
 
   return (
     <Card className="p-4">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" onClick={() => setCursor(addMonths(cursor, -1))}><ChevronLeft className="h-4 w-4" /></Button>
-          <h2 className="font-semibold text-lg w-44 text-center">
-            {format(cursor, "MMMM 'de' yyyy", { locale: ptBR })}
-          </h2>
-          <Button variant="outline" size="icon" onClick={() => setCursor(addMonths(cursor, 1))}><ChevronRight className="h-4 w-4" /></Button>
-        </div>
-        <Button variant="ghost" size="sm" onClick={() => setCursor(startOfMonth(new Date()))}>Hoje</Button>
+      <div className="mb-4 flex items-center gap-2">
+        <Button variant="outline" size="icon" className="shrink-0" onClick={() => setCursor(addMonths(cursor, -1))}><ChevronLeft className="h-4 w-4" /></Button>
+        <h2 className="flex-1 text-center text-base font-semibold capitalize sm:text-lg">
+          {format(cursor, "MMMM 'de' yyyy", { locale: ptBR })}
+        </h2>
+        <Button variant="outline" size="icon" className="shrink-0" onClick={() => setCursor(addMonths(cursor, 1))}><ChevronRight className="h-4 w-4" /></Button>
+        <Button variant="outline" size="sm" className="shrink-0" onClick={() => setCursor(startOfMonth(new Date()))}>Hoje</Button>
       </div>
 
       <div className="hidden md:grid grid-cols-7 gap-px bg-border text-xs">
@@ -638,38 +636,45 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
 
   return (
     <div className="space-y-4">
-      <Card className="p-4 grid gap-3 sm:grid-cols-4">
-        <div>
-          <Label>Fornecedor</Label>
-          <Select value={fornecedor} onValueChange={setFornecedor}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              {fornecedores.map((f) => <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <Label>Status</Label>
-          <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="a_pagar">A pagar</SelectItem>
-              <SelectItem value="pago">Pago</SelectItem>
-              <SelectItem value="vencido">Vencido</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <Label>De</Label>
-          <Input type="date" value={dataIni} onChange={(e) => setDataIni(e.target.value)} />
-        </div>
-        <div>
-          <Label>Até</Label>
-          <Input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
-        </div>
-      </Card>
+      <div className="flex items-center justify-end">
+        <FilterButton
+          activeCount={[fornecedor !== "all", status !== "all", !!dataIni, !!dataFim].filter(Boolean).length}
+          onClear={() => { setFornecedor("all"); setStatus("all"); setDataIni(""); setDataFim(""); }}
+        >
+          <div className="grid gap-3">
+            <div>
+              <Label className="text-xs">Fornecedor</Label>
+              <Select value={fornecedor} onValueChange={setFornecedor}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  {fornecedores.map((f) => <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Status</Label>
+              <Select value={status} onValueChange={setStatus}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="a_pagar">A pagar</SelectItem>
+                  <SelectItem value="pago">Pago</SelectItem>
+                  <SelectItem value="vencido">Vencido</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">De</Label>
+              <Input type="date" value={dataIni} onChange={(e) => setDataIni(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-xs">Até</Label>
+              <Input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
+            </div>
+          </div>
+        </FilterButton>
+      </div>
 
       <Card className="p-4">
         <div className="overflow-x-auto">

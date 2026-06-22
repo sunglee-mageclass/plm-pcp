@@ -56,11 +56,22 @@ function Dashboard() {
         <p className="text-sm text-muted-foreground">Visão geral da coleção e do estoque.</p>
       </header>
       <Tabs value={active} onValueChange={setTab}>
-        <TabsList>
+        {/* Desktop: abas; Mobile: dropdown (as abas ficavam apertadas no celular) */}
+        <TabsList className="hidden md:inline-flex">
           {tabs.map((t) => (
             <TabsTrigger key={t.value} value={t.value}>{t.label}</TabsTrigger>
           ))}
         </TabsList>
+        <div className="md:hidden">
+          <Select value={active} onValueChange={setTab}>
+            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {tabs.map((t) => (
+                <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         {tabs.map((t) => (
           <TabsContent key={t.value} value={t.value} className="mt-4">
             {active === t.value && <t.Comp />}
