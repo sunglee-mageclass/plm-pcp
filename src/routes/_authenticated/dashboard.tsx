@@ -226,7 +226,7 @@ function EstoqueTab() {
         <Card className="p-4">
           <h3 className="font-semibold mb-3">Estoque crítico <span className="text-sm font-normal text-muted-foreground">· 10 menores · "falta" = repor até o mínimo</span></h3>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm card-table">
               <thead className="text-left text-muted-foreground">
                 <tr className="border-b">
                   <th className="py-2 pr-3">Item</th>
@@ -241,11 +241,11 @@ function EstoqueTab() {
                   return (
                   <tr key={r.id} className="border-b last:border-0">
                     <td className="py-2 pr-3 truncate max-w-[260px]">{r.nome}</td>
-                    <td className="py-2 pr-3">{r.tipo}</td>
-                    <td className={"py-2 pr-3 text-right " + (Number(r.estoque) <= threshold ? "text-destructive font-medium" : "")}>
+                    <td className="py-2 pr-3" data-label="Tipo">{r.tipo}</td>
+                    <td className={"py-2 pr-3 text-right " + (Number(r.estoque) <= threshold ? "text-destructive font-medium" : "")} data-label="Estoque">
                       {fmtNum(r.estoque)}
                     </td>
-                    <td className={"py-2 pr-3 text-right " + (falta > 0 ? "text-destructive font-medium" : "text-muted-foreground")}>
+                    <td className={"py-2 pr-3 text-right " + (falta > 0 ? "text-destructive font-medium" : "text-muted-foreground")} data-label="Falta p/ mín.">
                       {falta > 0 ? fmtNum(falta) : "—"}
                     </td>
                   </tr>
@@ -414,7 +414,7 @@ function ProducaoTab() {
       <Card className="p-4">
         <h3 className="font-semibold mb-3">Timeline por {fl("ref")}</h3>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm card-table">
             <thead className="text-left text-muted-foreground">
               <tr className="border-b">
                 <th className="py-2 pr-3">{fl("ref")}</th>
@@ -433,9 +433,9 @@ function ProducaoTab() {
                         {r.versao != null && <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">v{r.versao}</Badge>}
                       </span>
                     </td>
-                    <td className="py-2 pr-3">{r.nome}</td>
-                    {etapas.map((_, i) => (
-                      <td key={i} className="py-2 px-2 text-center">
+                    <td className="py-2 pr-3" data-label="Nome">{r.nome}</td>
+                    {etapas.map((e, i) => (
+                      <td key={i} className="py-2 px-2 text-center" data-label={etapaLabel[e] ?? e}>
                         <span className={"inline-block h-3 w-3 rounded-full " + (i < idx ? "bg-muted-foreground/30" : i === idx ? "bg-primary" : "bg-muted")}></span>
                       </td>
                     ))}
@@ -451,7 +451,7 @@ function ProducaoTab() {
       <Card className="p-4">
         <h3 className="font-semibold mb-3">SLA por terceirizado</h3>
         <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm card-table">
           <thead className="text-left text-muted-foreground">
             <tr className="border-b">
               <th className="py-2 pr-3">Nome</th>
@@ -474,10 +474,10 @@ function ProducaoTab() {
               return (
                 <tr key={i} className="border-b last:border-0">
                   <td className="py-2 pr-3">{r.nome}</td>
-                  <td className="py-2 pr-3 text-right">{fmtNum(r.slaMedio)}</td>
-                  <td className={"py-2 pr-3 text-right " + (Number(r.atrasos) > 0 ? "text-destructive" : "")}>{r.atrasos}</td>
-                  <td className="py-2 pr-3 text-right">{r.total}</td>
-                  <td className="py-2 pr-3 text-right">
+                  <td className="py-2 pr-3 text-right" data-label="SLA médio (dias)">{fmtNum(r.slaMedio)}</td>
+                  <td className={"py-2 pr-3 text-right " + (Number(r.atrasos) > 0 ? "text-destructive" : "")} data-label="Atrasos">{r.atrasos}</td>
+                  <td className="py-2 pr-3 text-right" data-label="Total entregue">{r.total}</td>
+                  <td className="py-2 pr-3 text-right" data-label="Taxa de Defeito">
                     {produzidas > 0 ? (
                       <span
                         className={"inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium " + badgeCls}
@@ -617,7 +617,7 @@ function CustosTab() {
       <Card className="p-4">
         <h3 className="font-semibold mb-3">Custo previsto vs real</h3>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm card-table">
             <thead className="text-left text-muted-foreground">
               <tr className="border-b">
                 <th className="py-2 pr-3">{fl("ref")}</th>
@@ -637,11 +637,11 @@ function CustosTab() {
                       {r.versao != null && <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">v{r.versao}</Badge>}
                     </span>
                   </td>
-                  <td className="py-2 pr-3">{r.nome}</td>
-                  <td className="py-2 pr-3 text-right">{brl(r.previsto)}</td>
-                  <td className={"py-2 pr-3 text-right " + (r.confirmado ? "" : "text-muted-foreground italic")} title={r.confirmado ? undefined : "Ainda não confirmado em CAD — exibindo o previsto"}>{brl(r.real)}</td>
-                  <td className={"py-2 pr-3 text-right " + (Number(r.diff) > 0 ? "text-destructive" : Number(r.diff) < 0 ? "text-green-600 dark:text-green-400" : "")}>{brl(r.diff)}</td>
-                  <td className={"py-2 pr-3 text-right " + (Number(r.pct) > 0 ? "text-destructive" : Number(r.pct) < 0 ? "text-green-600 dark:text-green-400" : "")}>{fmtNum(r.pct)}%</td>
+                  <td className="py-2 pr-3" data-label="Modelo">{r.nome}</td>
+                  <td className="py-2 pr-3 text-right" data-label="Previsto (un.)">{brl(r.previsto)}</td>
+                  <td className={"py-2 pr-3 text-right " + (r.confirmado ? "" : "text-muted-foreground italic")} title={r.confirmado ? undefined : "Ainda não confirmado em CAD — exibindo o previsto"} data-label="Real (un.)">{brl(r.real)}</td>
+                  <td className={"py-2 pr-3 text-right " + (Number(r.diff) > 0 ? "text-destructive" : Number(r.diff) < 0 ? "text-green-600 dark:text-green-400" : "")} data-label="Diferença">{brl(r.diff)}</td>
+                  <td className={"py-2 pr-3 text-right " + (Number(r.pct) > 0 ? "text-destructive" : Number(r.pct) < 0 ? "text-green-600 dark:text-green-400" : "")} data-label="%">{fmtNum(r.pct)}%</td>
                 </tr>
               ))}
               {!isLoading && rows.length === 0 && <tr><td colSpan={6} className="py-4 text-center text-muted-foreground">Sem dados.</td></tr>}
