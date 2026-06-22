@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/shared/NumberInput";
+import { MatrizGradeResponsiva } from "@/components/shared/MatrizGradeResponsiva";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -473,34 +474,15 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
           <h3 className="font-semibold text-lg">Grade (CAD)</h3>
           <span className="text-xs text-muted-foreground">Grade planejada no CAD · referência</span>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm border-collapse">
-            <thead>
-              <tr className="bg-muted/50">
-                <th className="border px-2 py-1 text-left">Variante</th>
-                {tamanhos.map((t) => <th key={t} className="border px-2 py-1 text-center w-16">{t}</th>)}
-                <th className="border px-2 py-1 text-center w-20">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {variantList.length === 0 && (
-                <tr><td className="border px-2 py-2 text-muted-foreground" colSpan={tamanhos.length + 2}>Sem variantes no Tecido Principal.</td></tr>
-              )}
-              {variantList.map(({ num, label }) => {
-                const g = cadGradeByNum[num] ?? { grades: {}, total: 0 };
-                return (
-                  <tr key={num}>
-                    <td className="border px-2 py-1">{label}</td>
-                    {tamanhos.map((t) => (
-                      <td key={t} className="border px-2 py-1 text-center bg-muted/20">{g.grades[t] ?? 0}</td>
-                    ))}
-                    <td className="border px-2 py-1 text-center font-semibold">{g.total}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <MatrizGradeResponsiva
+          tamanhos={tamanhos}
+          variantes={variantList.map((v) => ({ num: v.num, label: v.label }))}
+          emptyLabel="Sem variantes no Tecido Principal."
+          total={(num) => cadGradeByNum[num]?.total ?? 0}
+          renderCell={(num, t) => (
+            <div className="px-2 py-1 text-center bg-muted/20">{cadGradeByNum[num]?.grades?.[t] ?? 0}</div>
+          )}
+        />
       </Card>
 
       {/* Seção 1 - Recebimento (datas vêm de Serviços, read-only) */}
@@ -593,47 +575,30 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
           <h3 className="font-semibold text-lg">Grade Real</h3>
           <span className="text-xs text-muted-foreground">Recebimento − Defeito · usada no Direcionamento</span>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm border-collapse">
-            <thead>
-              <tr className="bg-muted/50">
-                <th className="border px-2 py-1 text-left">Variante</th>
-                {tamanhos.map((t) => <th key={t} className="border px-2 py-1 text-center w-16">{t}</th>)}
-                <th className="border px-2 py-1 text-center w-20">Total</th>
-                <th className="border px-2 py-1 text-center w-24">Foto</th>
-              </tr>
-            </thead>
-            <tbody>
-              {variantList.length === 0 && (
-                <tr><td className="border px-2 py-2 text-muted-foreground" colSpan={tamanhos.length + 3}>Sem variantes no Tecido Principal.</td></tr>
-              )}
-              {variantList.map(({ num, label }) => {
-                const real = realByNum[num] ?? { grades: {}, total: 0 };
-                const foto = !!fotografado[num];
-                return (
-                  <tr key={num}>
-                    <td className="border px-2 py-1">{label}</td>
-                    {tamanhos.map((t) => (
-                      <td key={t} className="border px-2 py-1 text-center bg-muted/20">{real.grades[t] ?? 0}</td>
-                    ))}
-                    <td className="border px-2 py-1 text-center font-semibold">{real.total}</td>
-                    <td className="border px-2 py-1 text-center">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant={foto ? "default" : "outline"}
-                        className={foto ? "h-7 gap-1 bg-emerald-500 hover:bg-emerald-600" : "h-7 gap-1"}
-                        onClick={() => setFotografado((f) => ({ ...f, [num]: !f[num] }))}
-                      >
-                        <Camera className="h-3.5 w-3.5" /> {foto ? "Sim" : "Não"}
-                      </Button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <MatrizGradeResponsiva
+          tamanhos={tamanhos}
+          variantes={variantList.map((v) => ({ num: v.num, label: v.label }))}
+          emptyLabel="Sem variantes no Tecido Principal."
+          total={(num) => realByNum[num]?.total ?? 0}
+          renderCell={(num, t) => (
+            <div className="px-2 py-1 text-center bg-muted/20">{realByNum[num]?.grades?.[t] ?? 0}</div>
+          )}
+          extraHeader="Foto"
+          renderExtra={(num) => {
+            const foto = !!fotografado[num];
+            return (
+              <Button
+                type="button"
+                size="sm"
+                variant={foto ? "default" : "outline"}
+                className={foto ? "h-7 gap-1 bg-emerald-500 hover:bg-emerald-600" : "h-7 gap-1"}
+                onClick={() => setFotografado((f) => ({ ...f, [num]: !f[num] }))}
+              >
+                <Camera className="h-3.5 w-3.5" /> {foto ? "Sim" : "Não"}
+              </Button>
+            );
+          }}
+        />
       </Card>
 
       {/* Gerais */}
@@ -734,53 +699,26 @@ function GradeMatrix(props: {
   const { etapa, tamanhos, variantList, labelByNumero, grades, setQtd, extraCols = [], renderExtra, overFn } = props;
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm border-collapse">
-        <thead>
-          <tr className="bg-muted/50">
-            <th className="border px-2 py-1 text-left">Variante</th>
-            {tamanhos.map((t) => (
-              <th key={t} className="border px-2 py-1 text-center w-16">{t}</th>
-            ))}
-            <th className="border px-2 py-1 text-center w-20">Total</th>
-            {extraCols.map((c) => (
-              <th key={c} className="border px-2 py-1 text-center">Ação</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {variantList.length === 0 && (
-            <tr><td className="border px-2 py-2 text-muted-foreground" colSpan={tamanhos.length + 2 + extraCols.length}>Sem variantes no Tecido Principal.</td></tr>
-          )}
-          {variantList.map(({ num }) => {
-            const row = grades[etapa][num];
-            return (
-              <tr key={num}>
-                <td className="border px-2 py-1">{labelByNumero[num] ?? `Variante ${num}`}</td>
-                {tamanhos.map((t) => {
-                  const over = overFn?.(num, t, Number(row?.grades?.[t] ?? 0)) ?? false;
-                  return (
-                    <td key={t} className={`border p-0 ${over ? "bg-destructive/15" : ""}`}>
-                      <NumberInput
-                        type="number"
-                        className={`h-8 border-0 text-center ${over ? "text-destructive font-semibold" : ""}`}
-                        value={row?.grades?.[t] ?? ""}
-                        onChange={(e) => setQtd(etapa, num, t, Number(e.target.value) || 0)}
-                      />
-                    </td>
-                  );
-                })}
-                <td className="border px-2 py-1 text-center font-semibold">{row?.grade_total ?? 0}</td>
-                {extraCols.length > 0 && (
-                  <td className="border px-2 py-1">
-                    {renderExtra ? renderExtra(num) : null}
-                  </td>
-                )}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <MatrizGradeResponsiva
+      tamanhos={tamanhos}
+      variantes={variantList.map((v) => ({ num: v.num, label: labelByNumero[v.num] ?? `Variante ${v.num}` }))}
+      emptyLabel="Sem variantes no Tecido Principal."
+      total={(num) => grades[etapa][num]?.grade_total ?? 0}
+      cellClass={(num, t) => (overFn?.(num, t, Number(grades[etapa][num]?.grades?.[t] ?? 0)) ? "bg-destructive/15" : "")}
+      renderCell={(num, t) => {
+        const row = grades[etapa][num];
+        const over = overFn?.(num, t, Number(row?.grades?.[t] ?? 0)) ?? false;
+        return (
+          <NumberInput
+            type="number"
+            className={`h-8 w-full border-0 text-center ${over ? "text-destructive font-semibold" : ""}`}
+            value={row?.grades?.[t] ?? ""}
+            onChange={(e) => setQtd(etapa, num, t, Number(e.target.value) || 0)}
+          />
+        );
+      }}
+      extraHeader={extraCols.length > 0 ? "Ação" : undefined}
+      renderExtra={renderExtra}
+    />
   );
 }
