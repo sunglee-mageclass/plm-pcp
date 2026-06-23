@@ -234,7 +234,7 @@ export function AttributeTab({
             className="pl-9"
           />
         </div>
-        <Button onClick={() => setCreateOpen(true)}>
+        <Button onClick={() => setCreateOpen(true)} disabled={readOnly}>
           <Plus className="h-4 w-4 mr-1" />
           Novo
         </Button>
@@ -328,7 +328,7 @@ export function AttributeTab({
                     <Button size="icon" variant="ghost" onClick={() => startEdit(row)} disabled={readOnly}>
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button size="icon" variant="ghost" onClick={() => startDelete(row)}>
+                    <Button size="icon" variant="ghost" onClick={() => startDelete(row)} disabled={readOnly}>
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </TableCell>

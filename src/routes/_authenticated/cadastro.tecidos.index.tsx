@@ -28,6 +28,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS, useCompactCards } from "@/hooks/useGridCols";
 import { Button } from "@/components/ui/button";
+import { useReadOnly } from "@/components/RequirePermission";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
@@ -77,6 +78,7 @@ const SORT_OPTIONS: Array<{ value: string; label: string }> = [
 
 function TecidosGallery() {
   const qc = useQueryClient();
+  const readOnly = useReadOnly();
   const [cols, setCols] = useGridCols("tecidos");
   const gridRef = useRef<HTMLDivElement>(null);
   const compact = useCompactCards(gridRef, cols);
@@ -303,7 +305,7 @@ function TecidosGallery() {
               { label: "Categoria", value: catFilter, onChange: setCatFilter, options: [{ id: "all", nome: "Todas" }, ...categorias] },
             ]}
           />
-          <Button onClick={() => setCreateOpen(true)}>
+          <Button onClick={() => setCreateOpen(true)} disabled={readOnly}>
             <Plus className="h-4 w-4 mr-1" /> Novo Tecido
           </Button>
         </div>
@@ -350,6 +352,7 @@ function TecidosGallery() {
               fotoPath={firstVarMap.get(a.id) ?? null}
               onDelete={() => startDelete(a)}
               compact={compact}
+              readOnly={readOnly}
             />
           ))}
         </div>
@@ -420,6 +423,7 @@ function TecidoCard({
   fotoPath,
   onDelete,
   compact,
+  readOnly,
 }: {
   artigo: Artigo;
   categorias: string[];
@@ -427,25 +431,28 @@ function TecidoCard({
   fotoPath: string | null;
   onDelete: () => void;
   compact?: boolean;
+  readOnly?: boolean;
 }) {
   const url = useSignedUrl(fotoPath);
   const semCategoria = categorias.length === 0;
   const semFornecedor = !fornecedor;
   return (
     <div className="group relative">
-      <button
-        type="button"
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          onDelete();
-        }}
-        className="absolute top-2 right-2 z-10 h-8 w-8 rounded-md bg-background/80 backdrop-blur-sm border flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive hover:text-destructive-foreground"
-        aria-label="Excluir tecido"
-        title="Excluir tecido"
-      >
-        <Trash2 className="h-4 w-4" />
-      </button>
+      {!readOnly && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onDelete();
+          }}
+          className="absolute top-2 right-2 z-10 h-8 w-8 rounded-md bg-background/80 backdrop-blur-sm border flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive hover:text-destructive-foreground"
+          aria-label="Excluir tecido"
+          title="Excluir tecido"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      )}
       <Link
         to="/cadastro/tecidos/$artigoId"
         params={{ artigoId: artigo.id }}

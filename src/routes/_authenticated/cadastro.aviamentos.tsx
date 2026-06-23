@@ -20,6 +20,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS, useCompactCards } from "@/hooks/useGridCols";
 import { Button } from "@/components/ui/button";
+import { useReadOnly } from "@/components/RequirePermission";
 import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
@@ -99,6 +100,7 @@ const fmtBRL = (n: number | null | undefined) =>
 
 function AviamentosGallery() {
   const qc = useQueryClient();
+  const readOnly = useReadOnly();
   const [cols, setCols] = useGridCols("aviamentos");
   const gridRef = useRef<HTMLDivElement>(null);
   const compact = useCompactCards(gridRef, cols);
@@ -274,7 +276,7 @@ function AviamentosGallery() {
               { label: "Fornecedor", value: fEmp, onChange: setFEmp, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
             ]}
           />
-          <Button onClick={() => setCreateOpen(true)}>
+          <Button onClick={() => setCreateOpen(true)} disabled={readOnly}>
             <Plus className="h-4 w-4 mr-1" /> Novo Aviamento
           </Button>
         </div>
@@ -321,6 +323,7 @@ function AviamentosGallery() {
               onEdit={() => setEditing(a)}
               onDelete={() => setDeleting(a)}
               compact={compact}
+              readOnly={readOnly}
             />
           ))}
         </div>
@@ -377,6 +380,7 @@ function AviamentoCard({
   onEdit,
   onDelete,
   compact,
+  readOnly,
 }: {
   aviamento: Aviamento;
   categoria: string | null;
@@ -384,6 +388,7 @@ function AviamentoCard({
   onEdit: () => void;
   onDelete: () => void;
   compact?: boolean;
+  readOnly?: boolean;
 }) {
   const url = useSignedUrl(aviamento.foto_url, "aviamentos");
   return (
@@ -403,14 +408,16 @@ function AviamentoCard({
             <ImageOff className="h-10 w-10" />
           </div>
         )}
-        <div className="absolute inset-x-0 bottom-0 p-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-t from-black/60 to-transparent">
-          <Button size="sm" variant="secondary" className="h-7 flex-1" onClick={onEdit}>
-            <Pencil className="h-3 w-3 mr-1" /> Editar
-          </Button>
-          <Button size="sm" variant="destructive" className="h-7 w-7 p-0" onClick={onDelete}>
-            <Trash2 className="h-3 w-3" />
-          </Button>
-        </div>
+        {!readOnly && (
+          <div className="absolute inset-x-0 bottom-0 p-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-t from-black/60 to-transparent">
+            <Button size="sm" variant="secondary" className="h-7 flex-1" onClick={onEdit}>
+              <Pencil className="h-3 w-3 mr-1" /> Editar
+            </Button>
+            <Button size="sm" variant="destructive" className="h-7 w-7 p-0" onClick={onDelete}>
+              <Trash2 className="h-3 w-3" />
+            </Button>
+          </div>
+        )}
       </div>
       {!compact && (
       <div className="p-3 space-y-1">
