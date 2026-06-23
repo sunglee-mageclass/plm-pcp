@@ -351,6 +351,39 @@ function ConfiguracoesLojaPage() {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Integração com ERP</CardTitle>
+          <CardDescription>Como um ERP externo lê os dados desta loja, com segurança.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <div className="rounded-md border bg-muted/40 p-3 font-mono text-xs break-all">
+            <div><span className="text-muted-foreground">REST:</span> {(import.meta.env.VITE_SUPABASE_URL ?? "—") + "/rest/v1/<tabela>"}</div>
+            <div><span className="text-muted-foreground">RPC:</span> {(import.meta.env.VITE_SUPABASE_URL ?? "—") + "/rest/v1/rpc/<funcao>"}</div>
+          </div>
+          <ol className="list-decimal pl-5 space-y-1.5 text-muted-foreground">
+            <li><b className="text-foreground">Um usuário de integração por loja (JWT)</b> — a RLS isola o tenant automaticamente. Evite a <code>service_role</code> key (ignora a RLS e vê todas as lojas).</li>
+            <li>Dê a esse usuário as <b className="text-foreground">permissões certas</b> (ex.: <code>dashboard_financeiro</code> para as RPCs de dashboard protegidas).</li>
+            <li><b className="text-foreground">Leia no gate certo</b>: quase tudo em desenvolvimento/CAD é planejado; "produzido" só após o <b className="text-foreground">CQ confirmado</b>. Ler cedo devolve planejamento.</li>
+            <li>Use <b className="text-foreground">chaves naturais</b> (<code>cad_id, variante_numero</code>), nunca o <code>id</code> (várias tabelas são recriadas a cada save).</li>
+            <li>Duas bases de unidade: <b className="text-foreground">financeiro</b> = qtd×preço (bruto); <b className="text-foreground">estoque</b> = qtd×rendimento (metros). Não cruzar.</li>
+            <li>Filtrar <code>cancelado</code>/<code>estoque_zerado</code>/<code>is_rolo</code>; parcelas a pagar ≠ parcelas de recebimento; "vencido" é derivado.</li>
+            <li>Teste a integração contra uma <b className="text-foreground">cópia</b> do banco, nunca em produção.</li>
+          </ol>
+          {isSuperAdmin ? (
+            <p className="text-muted-foreground">
+              Crie um <b className="text-foreground">usuário de integração</b> dedicado para esta loja em{" "}
+              <Link to="/admin/usuarios" className="text-primary underline">Usuários</Link> (papel "Usuário"),
+              e ajuste as permissões dele em Usuários da Loja.
+            </p>
+          ) : (
+            <p className="text-muted-foreground">
+              Para criar o usuário de integração desta loja, peça ao <b className="text-foreground">super_admin</b> (papel "Usuário" dedicado), e ajuste as permissões em Usuários da Loja.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
     </div>
   );
 }
