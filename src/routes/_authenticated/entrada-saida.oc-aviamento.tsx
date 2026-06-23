@@ -421,12 +421,8 @@ function OcDialog({
     setItems((p) => [...p, { tempId: crypto.randomUUID(), aviamento_id: "", quantidade_pedida: 0, quantidade_recebida: null, cancelado: false }]);
   };
   const removeItem = (tempId: string) =>
-    setItems((p) => {
-      const idx = p.findIndex((i) => i.tempId === tempId);
-      if (idx < 0) return p;
-      // Remove o item e todos os subsequentes (cascade)
-      return p.slice(0, idx);
-    });
+    // Remove APENAS o item clicado (não há ordem/cascata entre aviamentos de uma OC).
+    setItems((p) => p.filter((i) => i.tempId !== tempId));
   const updateItem = (tempId: string, patch: Partial<ItemDraft>) =>
     setItems((p) => p.map((i) => i.tempId === tempId ? { ...i, ...patch } : i));
 
@@ -561,10 +557,13 @@ function OcDialog({
           _oc_id: ocIdLocal,
           _tipo: "aviamento",
         });
-        // Best-effort: o status já foi gravado e o trigger já gera as parcelas
-        // no primeiro recebimento. Não bloqueia o save se a RPC falhar (hoje
-        // exige admin — ver prompt Lovable p/ liberar a qualquer membro do tenant).
-        if (recErr) console.warn("recalcular_parcelas (aviamento) falhou:", recErr.message);
+        // Best-effort: o status já foi gravado e o trigger já gera as parcelas no
+        // primeiro recebimento. Não bloqueia o save se a RPC falhar, mas AVISA — uma
+        // falha aqui deixa as parcelas a pagar desatualizadas (não pode passar batido).
+        if (recErr) {
+          console.warn("recalcular_parcelas (aviamento) falhou:", recErr.message);
+          toast.warning("OC salva, mas o recálculo de parcelas falhou — confira as contas a pagar desta OC.");
+        }
       }
     },
     onSuccess: () => {
