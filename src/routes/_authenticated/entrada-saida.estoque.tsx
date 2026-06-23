@@ -76,7 +76,7 @@ function TecidosTab() {
     queryFn: async () => {
       const [variantesRes, ocItensRes, baixasRes, modTecRes, modTecVarRes, modelosRes, modGradesRes, osItensRes] = await Promise.all([
         supabase.from("variantes_tecido").select("id, artigo_id, nome_variante, codigo_variante, rua, prateleira, enderecos, cores(nome), artigos(id, nome, unidade_medida, rendimento, empresa_id, categoria_tecido_id, empresas(nome_fantasia), categorias_tecido(nome))"),
-        supabase.from("ocs_tecido_itens").select("id, artigo_id, variante_tecido_id, quantidade_pedida, quantidade_recebida, cancelado, estoque_zerado, oc_tecido_id, ocs_tecido!oc_tecido_id!inner(status)"),
+        supabase.from("ocs_tecido_itens").select("id, artigo_id, variante_tecido_id, quantidade_pedida, quantidade_recebida, cancelado, estoque_zerado, substitui_item_id, oc_tecido_id, ocs_tecido!oc_tecido_id!inner(status)"),
         // Baixa real = ledger estoque_tecido_baixas (consumo de estoque RECEBIDO no
         // corte, capado no saldo) — fonte única de baixa, por ITEM de OC.
         supabase.from("estoque_tecido_baixas" as any).select("oc_tecido_item_id, variante_tecido_id, quantidade"),
@@ -159,7 +159,9 @@ function TecidosTab() {
           // assim a sobra/negativo some sem afetar itens não-zerados da mesma variante.
           if ((it as any).estoque_zerado) { variantesZeradas.add(it.variante_tecido_id); continue; }
           // quantidade_recebida null = recebeu o pedido cheio (COALESCE(recebida, pedida)).
-          acc.recebido += toMetros(art, num(it.quantidade_recebida ?? it.quantidade_pedida));
+          // EXCEÇÃO: item substituto de troca (substitui_item_id) ainda a receber
+          // (recebida null) conta 0 no físico — não é estoque-fantasma antes de chegar.
+          acc.recebido += toMetros(art, num(it.quantidade_recebida ?? ((it as any).substitui_item_id ? 0 : it.quantidade_pedida)));
           // Baixa do próprio item (ledger), capada no saldo recebido → físico do item ≥ 0.
           acc.baixa += num(baixaByItem.get((it as any).id) ?? 0);
         }
