@@ -1,4 +1,4 @@
-import { useMemo, useState, useRef, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Trash2, Pencil, Undo2, Printer } from "lucide-react";
@@ -285,22 +285,25 @@ type RoloRow = {
 };
 
 // ───────── Etiqueta A5 do rolo (código de barras) ─────────
+// Gera o barcode num CANVAS → <img> PNG (data URL). Imagem estática imprime de
+// forma confiável (o SVG desenhado ao vivo às vezes não saía no print). jsbarcode
+// é UMD → import dinâmico (cliente) p/ não quebrar o SSR.
 function RoloBarcode({ value }: { value: string }) {
-  const ref = useRef<SVGSVGElement>(null);
+  const [src, setSrc] = useState<string | null>(null);
   useEffect(() => {
-    if (!ref.current || !value) return;
+    if (!value) return;
     let cancelled = false;
-    // jsbarcode é UMD e quebra no SSR se importado no topo — carrega dinâmico (cliente).
     import("jsbarcode").then((m) => {
       const JsBarcode = (m as any).default ?? m;
-      if (cancelled || !ref.current) return;
       try {
-        JsBarcode(ref.current, value, { format: "CODE128", displayValue: false, height: 64, width: 2, margin: 0 });
+        const canvas = document.createElement("canvas");
+        JsBarcode(canvas, value, { format: "CODE128", displayValue: false, height: 80, width: 2, margin: 4 });
+        if (!cancelled) setSrc(canvas.toDataURL("image/png"));
       } catch { /* valor inválido p/ barcode — ignora */ }
     });
     return () => { cancelled = true; };
   }, [value]);
-  return <svg ref={ref} style={{ width: "100%", maxWidth: "120mm" }} />;
+  return src ? <img src={src} alt={value} style={{ width: "100%", maxWidth: "120mm" }} /> : null;
 }
 
 function EtiquetaRolo({ rolo, logo }: { rolo: RoloRow; logo: string | null }) {
