@@ -215,6 +215,8 @@ export function EtiquetaLavagemArtigoEditor({
 
   const onRemove = (path: string) => {
     saveMut.mutate(urls.filter((u) => u !== path));
+    // Best-effort: apaga o arquivo do bucket p/ não deixar órfão (não bloqueia o save).
+    supabase.storage.from(BUCKET).remove([path]);
   };
 
   if (!artigoId) {

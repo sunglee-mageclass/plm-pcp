@@ -232,13 +232,17 @@ function AviamentosGallery() {
     mutationFn: async (a: Aviamento) => {
       const { error } = await supabase.from("aviamentos").delete().eq("id", a.id);
       if (error) throw error;
+      // Best-effort: remove a foto do bucket p/ não deixar arquivo órfão por tenant.
+      // (storage.remove não lança em erro de storage, então não bloqueia a exclusão.)
+      if (a.foto_url) await supabase.storage.from("aviamentos").remove([a.foto_url]);
     },
     onSuccess: () => {
       toast.success("Aviamento excluído.");
       setDeleting(null);
       qc.invalidateQueries({ queryKey: ["aviamentos"] });
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao excluir."),
+    onError: (e: any) =>
+      toast.error(e?.code === "23503" ? "Aviamento em uso (OC, CAD ou material). Remova de lá antes." : e.message ?? "Erro ao excluir."),
   });
 
 

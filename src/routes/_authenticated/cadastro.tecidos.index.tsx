@@ -260,10 +260,15 @@ function TecidosGallery() {
 
   const deleteMut = useMutation({
     mutationFn: async (id: string) => {
+      // Coleta as fotos das variantes ANTES de apagar, p/ limpar o bucket depois.
+      const { data: vars } = await supabase.from("variantes_tecido").select("foto_url").eq("artigo_id", id);
       // Apaga variantes (FK sem cascade pode existir)
       await supabase.from("variantes_tecido").delete().eq("artigo_id", id);
       const { error } = await supabase.from("artigos").delete().eq("id", id);
       if (error) throw error;
+      // Best-effort: remove as fotos órfãs do bucket (não bloqueia a exclusão).
+      const paths = ((vars ?? []) as any[]).map((v) => v.foto_url).filter(Boolean) as string[];
+      if (paths.length) await supabase.storage.from("tecido-variantes").remove(paths);
     },
     onSuccess: () => {
       toast.success("Tecido excluído.");
