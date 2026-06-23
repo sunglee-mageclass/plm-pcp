@@ -611,7 +611,10 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
       supabase.rpc("marcar_revisao_por_mudanca" as any, {
         _modelo_id: modeloId, _grade: gradeAlterada, _consumo: consumoAlterado, _aviamentos: aviamentoAlterado,
       }).then(() => {
-        ["producao-terc-list", "producao-cq-list", "dir-list"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+        // Mesmas 6 listas que o RevisaoErro invalida: o banco marca #Erro nas 6 etapas,
+        // então o cache das 6 telas precisa refazer (antes só 3 atualizavam).
+        ["producao-terc-list", "producao-cq-list", "dir-list", "producao-oficina-list", "producao-acab-list", "lancamentos-cards"]
+          .forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
       });
       setGradeAlterada(false);
       setConsumoAlterado(false);

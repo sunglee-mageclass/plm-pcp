@@ -785,6 +785,11 @@ function OficinaServicoDialog({ cadId, open, onClose }: { cadId: string; open: b
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["cq-oficina-servico", cadId] });
       qc.invalidateQueries({ queryKey: ["servicos-financeiro"] });
+      // O desconto/multa grava em producao_terceirizados: invalida os caches de
+      // terceirizados p/ a tela de Serviços não reescrever por cima com valor antigo
+      // (last-write-wins). Over-invalidar aqui só dispara refetch, sem efeito colateral.
+      ["producao-terc", "producao-terc-list", "terceirizados-multi", "terceirizados-all"]
+        .forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
       toast.success("Oficina atualizada");
       onClose();
     },

@@ -129,11 +129,9 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
     },
     onSuccess: () => {
       toast.success("Rolo criado");
-      qc.invalidateQueries({ queryKey: ["rolos"] });
-      qc.invalidateQueries({ queryKey: ["ocs_tecido"] });
-      qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
-      qc.invalidateQueries({ queryKey: ["dash-estoque"] });
-      qc.invalidateQueries({ queryKey: ["consumo-por-oc"] });
+      // Reusa a lista canônica (inclui ocs-para-rolo e ajustes-estoque, que a lista
+      // manual esquecia → saldo de origem ficava stale no RemoverMetragemDialog).
+      ROLO_INVALIDATE.forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
       onSaved();
       onClose();
     },
