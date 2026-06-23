@@ -69,8 +69,8 @@ export function calcCusto(consumo: number, loss: number, preco: number) {
 
 export const cellH: React.CSSProperties = {
   border: "1px solid #999",
-  padding: "4px 6px",
+  padding: "3px 6px",
   textAlign: "left",
   fontWeight: 600,
 };
-export const cell: React.CSSProperties = { border: "1px solid #999", padding: "4px 6px" };
+export const cell: React.CSSProperties = { border: "1px solid #999", padding: "3px 6px" };

@@ -68,7 +68,9 @@ export function MaterialTable({ blocks, colMaterial, ocLinksByKey }: { blocks: T
     (t.variantes ?? []).filter((v) => v.variante_tecido_id).map((v) => ({ t, v })),
   );
   if (rows.length === 0) return null;
-  const cw = ["15%", "15%", "14%", "9%", "11%", "9%", "12%", "15%"];
+  // Texto (Variante/Material/OC) largo; números estreitos — evita quebra feia e
+  // deixa a tabela mais baixa (cabe na meia folha mesmo com vários campos).
+  const cw = ["15%", "21%", "19%", "8%", "9%", "7%", "9%", "12%"];
   const chW: React.CSSProperties = { ...cellH, overflowWrap: "anywhere", wordBreak: "break-word" };
   const cW: React.CSSProperties = { ...cell, overflowWrap: "anywhere", wordBreak: "break-word" };
   return (
@@ -271,7 +273,7 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
           </td>
         </tr>
       </tbody></table>
-      <div style={{ fontSize: 8, color: "#999", textAlign: "right", marginTop: 4 }}>ficha · build 0623d</div>
+      <div style={{ fontSize: 8, color: "#999", textAlign: "right", marginTop: 4 }}>ficha · build 0623e</div>
     </PrintArea>
   );
 }
