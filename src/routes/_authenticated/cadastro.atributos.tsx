@@ -189,17 +189,20 @@ const ATTRIBUTES: AttributeItem[] = [
   },
   {
     value: "cat_terceirizado",
-    label: "Categoria do Terceirizado",
+    label: "Categoria do Serviço",
     group: "TERCEIRIZADO",
     config: {
       table: "categorias_terceirizado",
       nameField: "nome",
-      singular: "Categoria de Terceirizado",
-      plural: "Categorias de Terceirizado",
+      singular: "Categoria do Serviço",
+      plural: "Categorias do Serviço",
       usage: [
         { table: "terceirizado_categorias", column: "categoria_terceirizado_id" },
         { table: "producao_terceirizados", column: "categoria_terceirizado_id" },
       ],
+      // Corte e Oficina são fixos do sistema (semeados por loja); não podem ser
+      // renomeados nem excluídos — "Oficina" alimenta a detecção do fluxo de oficina.
+      protectedNames: ["corte", "oficina"],
     },
   },
 ];

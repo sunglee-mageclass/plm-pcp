@@ -1337,7 +1337,7 @@ function TerceirizadosMultiCatTab() {
           <TableHeader>
             <TableRow>
               <TableHead>Nome do Responsável</TableHead>
-              <TableHead>Categorias do Terceirizado</TableHead>
+              <TableHead>Categorias do Serviço</TableHead>
               <TableHead className="w-32 text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
@@ -1414,7 +1414,7 @@ function TerceirizadosMultiCatTab() {
             </div>
             <div className="space-y-1.5">
               <Label>
-                Categorias do Terceirizado <span className="text-destructive">*</span>
+                Categorias do Serviço <span className="text-destructive">*</span>
               </Label>
               <CategoriasTerceirizadoMultiSelect
                 options={catsTerc}

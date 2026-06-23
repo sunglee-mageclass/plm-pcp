@@ -533,7 +533,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
 
       {/* Categoria buttons */}
       <Card className="p-4">
-        <Label className="text-sm font-semibold mb-3 block">Categorias de Terceirizado (clique para adicionar um bloco)</Label>
+        <Label className="text-sm font-semibold mb-3 block">Categorias do Serviço (clique para adicionar um bloco)</Label>
         <div className="flex flex-wrap gap-2">
           {(categorias as any[]).map((c) => {
             const count = countByCat[c.id] ?? 0;

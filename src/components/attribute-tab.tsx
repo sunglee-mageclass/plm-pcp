@@ -60,6 +60,8 @@ export type AttributeTabConfig = {
   usage: UsageRef[];
   extra?: ExtraSelect;
   fixedFilter?: { field: string; value: string };
+  /** Nomes fixos do sistema (case-insensitive) que NÃO podem ser editados/excluídos. */
+  protectedNames?: string[];
 };
 
 type Row = Record<string, any>;
@@ -84,6 +86,15 @@ export function AttributeTab({
   const [deleteUsage, setDeleteUsage] = useState<number | null>(null);
 
   const listKey = ["attr", config.table, config.fixedFilter?.value ?? ""];
+
+  // Itens fixos do sistema (ex.: Corte/Oficina) — não podem ser renomeados nem
+  // excluídos (renomear "Oficina" quebraria a detecção ILIKE 'oficina', e a loja
+  // ficaria sem o processo). Espelha os tipos fixos do cadastro de colaboradores.
+  const protectedSet = useMemo(
+    () => new Set((config.protectedNames ?? []).map((n) => n.toLowerCase())),
+    [config.protectedNames],
+  );
+  const isProtected = (row: Row) => protectedSet.has(String(row[config.nameField] ?? "").toLowerCase());
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: listKey,
@@ -291,6 +302,11 @@ export function AttributeTab({
                           <X className="h-4 w-4" />
                         </Button>
                       </div>
+                    ) : isProtected(row) ? (
+                      <span className="inline-flex items-center gap-2">
+                        {row[config.nameField]}
+                        <Badge variant="secondary" className="text-[10px]">fixo</Badge>
+                      </span>
                     ) : (
                       <button
                         type="button"
@@ -325,12 +341,16 @@ export function AttributeTab({
                     </TableCell>
                   )}
                   <TableCell className="text-right">
-                    <Button size="icon" variant="ghost" onClick={() => startEdit(row)} disabled={readOnly}>
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button size="icon" variant="ghost" onClick={() => startDelete(row)} disabled={readOnly}>
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
+                    {!isProtected(row) && (
+                      <>
+                        <Button size="icon" variant="ghost" onClick={() => startEdit(row)} disabled={readOnly}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button size="icon" variant="ghost" onClick={() => startDelete(row)} disabled={readOnly}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </>
+                    )}
                   </TableCell>
                 </TableRow>
               ))
