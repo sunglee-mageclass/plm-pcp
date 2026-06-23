@@ -9,7 +9,7 @@ export const Route = createFileRoute("/_authenticated/cadastro/")({
 const sections = [
   { to: "/cadastro/atributos", title: "Atributos", desc: "Cores, anos, meses, categorias e demais listas.", icon: Tags },
   { to: "/cadastro/colaboradores", title: "Colaboradores", desc: "Pessoas envolvidas no processo.", icon: Users },
-  { to: "/cadastro/servico", title: "Serviço", desc: "Tipos de serviço prestados.", icon: Wrench },
+  { to: "/cadastro/servico", title: "Serviços", desc: "Tipos de serviço prestados.", icon: Wrench },
   { to: "/cadastro/tecidos", title: "Tecidos", desc: "Catálogo de tecidos e variantes.", icon: Layers },
   { to: "/cadastro/aviamentos", title: "Aviamentos", desc: "Catálogo de aviamentos.", icon: Boxes },
 ];

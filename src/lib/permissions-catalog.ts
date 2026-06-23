@@ -19,7 +19,7 @@ export const PAGES_CATALOG: ModuleDef[] = [
     pages: [
       { key: "cadastro_atributos", label: "Atributos" },
       { key: "cadastro_colaboradores", label: "Colaboradores", modes: ["full"] },
-      { key: "cadastro_servico", label: "Serviço", modes: ["full"] },
+      { key: "cadastro_servico", label: "Serviços", modes: ["full"] },
       { key: "cadastro_tecidos", label: "Tecidos" },
       { key: "cadastro_aviamentos", label: "Aviamentos" },
       { key: "cadastro_etiquetas", label: "TAG/Etiquetas", modes: ["full"] },

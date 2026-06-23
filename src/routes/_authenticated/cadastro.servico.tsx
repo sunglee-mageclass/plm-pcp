@@ -112,7 +112,7 @@ function ServicoPage() {
           <Wrench className="h-6 w-6" />
         </div>
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Serviço</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Serviços</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Empresas, representantes e terceirizados.
           </p>
