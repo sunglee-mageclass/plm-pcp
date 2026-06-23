@@ -297,15 +297,16 @@ function RoloBarcode({ value }: { value: string }) {
       const JsBarcode = (m as any).default ?? m;
       try {
         const canvas = document.createElement("canvas");
-        // displayValue: o código aparece embaixo das barras (junto com o barcode).
-        JsBarcode(canvas, value, { format: "CODE128", displayValue: true, fontSize: 18, textMargin: 2, height: 55, width: 2, margin: 4 });
+        // displayValue: o código (fonte grande) aparece embaixo das barras — é o
+        // "campo código" agora; por isso fonte maior.
+        JsBarcode(canvas, value, { format: "CODE128", displayValue: true, fontSize: 34, fontOptions: "bold", textMargin: 4, height: 64, width: 2.5, margin: 4 });
         if (!cancelled) setSrc(canvas.toDataURL("image/png"));
       } catch { /* valor inválido p/ barcode — ignora */ }
     });
     return () => { cancelled = true; };
   }, [value]);
-  // Altura PADRONIZADA (~22mm, barras + número); largura proporcional, limitada.
-  return src ? <img src={src} alt={value} style={{ height: "22mm", width: "auto", maxWidth: "100%", display: "block", marginTop: 4 }} /> : null;
+  // Altura PADRONIZADA (~34mm, barras + código grande); largura proporcional.
+  return src ? <img src={src} alt={value} style={{ height: "34mm", width: "auto", maxWidth: "100%", display: "block", marginTop: 6 }} /> : null;
 }
 
 function EtiquetaRolo({ rolo, logo }: { rolo: RoloRow; logo: string | null }) {
@@ -332,12 +333,9 @@ function EtiquetaRolo({ rolo, logo }: { rolo: RoloRow; logo: string | null }) {
         {campo("Cor", cor)}
       </div>
       {campo("Fornecedor", fornecedor)}
-      <div>
-        <div style={{ fontSize: 10, color: "#666", textTransform: "uppercase", letterSpacing: 0.6 }}>Código</div>
-        <div style={{ fontSize: 24, fontWeight: 800 }}>{codigo || "—"}</div>
-        {codigo && <RoloBarcode value={codigo} />}
-      </div>
-      <div style={{ position: "absolute", left: "10mm", bottom: "3mm", fontSize: 7, color: "#bbb" }}>etq · build 0623e</div>
+      {/* Sem campo "Código" separado: o barcode já mostra o código embaixo das barras (fonte maior). */}
+      {codigo && <RoloBarcode value={codigo} />}
+      <div style={{ position: "absolute", left: "10mm", bottom: "3mm", fontSize: 7, color: "#bbb" }}>etq · build 0623f</div>
     </div>
   );
 }

@@ -68,9 +68,9 @@ export function MaterialTable({ blocks, colMaterial, ocLinksByKey }: { blocks: T
     (t.variantes ?? []).filter((v) => v.variante_tecido_id).map((v) => ({ t, v })),
   );
   if (rows.length === 0) return null;
-  // Texto (Variante/Material/OC) largo; números estreitos — evita quebra feia e
-  // deixa a tabela mais baixa (cabe na meia folha mesmo com vários campos).
-  const cw = ["15%", "21%", "19%", "8%", "9%", "7%", "9%", "12%"];
+  // Cabeçalhos abreviados → numerais estreitos e UNIFORMES (7%); texto (Variante/
+  // Material/OC) ganha o espaço. Tabela mais baixa, cabe na meia folha.
+  const cw = ["18%", "24%", "23%", "7%", "7%", "7%", "7%", "7%"];
   const chW: React.CSSProperties = { ...cellH, overflowWrap: "anywhere", wordBreak: "break-word" };
   const cW: React.CSSProperties = { ...cell, overflowWrap: "anywhere", wordBreak: "break-word" };
   return (
@@ -81,11 +81,11 @@ export function MaterialTable({ blocks, colMaterial, ocLinksByKey }: { blocks: T
           <th style={chW}>Variante</th>
           <th style={chW}>{colMaterial}</th>
           <th style={chW}>OC(s)</th>
-          <th style={chW}>Consumo</th>
-          <th style={chW}>Metr. Planejada</th>
+          <th style={chW}>Cons.</th>
+          <th style={chW}>Metr. Plan.</th>
           <th style={chW}>Qtd Folhas</th>
-          <th style={chW}>Tamanho da Folha</th>
-          <th style={chW}>Metr. a Enviar/Separar</th>
+          <th style={chW}>Tam. Folha</th>
+          <th style={chW}>Metr. a Enviar</th>
         </tr>
       </thead>
       <tbody>
@@ -273,7 +273,7 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
           </td>
         </tr>
       </tbody></table>
-      <div style={{ fontSize: 8, color: "#999", textAlign: "right", marginTop: 4 }}>ficha · build 0623e</div>
+      <div style={{ fontSize: 8, color: "#999", textAlign: "right", marginTop: 4 }}>ficha · build 0623f</div>
     </PrintArea>
   );
 }
