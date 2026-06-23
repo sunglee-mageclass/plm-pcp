@@ -716,10 +716,21 @@ function AviamentosTab() {
 
       <Card className="p-4">
         <div className="hidden md:block overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
+            <colgroup>
+              <col style={{ width: "4%" }} />
+              <col style={{ width: "18%" }} />
+              <col style={{ width: "14%" }} />
+              <col style={{ width: "12%" }} />
+              <col style={{ width: "10%" }} />
+              <col style={{ width: "11%" }} />
+              <col style={{ width: "11%" }} />
+              <col style={{ width: "10%" }} />
+              <col style={{ width: "10%" }} />
+            </colgroup>
             <thead className="text-left text-muted-foreground">
               <tr className="border-b">
-                <th className="py-2 pr-3 w-6"></th>
+                <th className="py-2 pr-3"></th>
                 <th className="py-2 pr-3">Aviamento</th>
                 <th className="py-2 pr-3">Fornecedor</th>
                 <th className="py-2 pr-3">Categoria</th>
@@ -735,7 +746,7 @@ function AviamentosTab() {
                 <AviamentoRow key={r.id} row={r} />
               ))}
               {!isLoading && filtered.length === 0 && (
-                <tr><td colSpan={10} className="py-4 text-center text-muted-foreground">Nenhum aviamento encontrado.</td></tr>
+                <tr><td colSpan={9} className="py-4 text-center text-muted-foreground">Nenhum aviamento encontrado.</td></tr>
               )}
             </tbody>
           </table>
