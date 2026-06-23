@@ -229,8 +229,9 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   // Grade automática: ao digitar uma célula, escala as demais pela proporção.
   const [gradeAuto, setGradeAuto] = useState(false);
 
-  // Tecidos planejados (Planejamento) = pool de substitutos do tecido no
-  // Desenvolvimento: as variantes de qualquer um deles podem ser usadas.
+  // Tecidos planejados (Planejamento): preenchem os blocos Tecido 1/2/3 (1 por
+  // artigo) e alimentam o mapa variante→artigo p/ o custo. NÃO são pool comum de
+  // variantes — cada bloco tem pool estrito (artigo + substitutos do bloco).
   const tecidosPlanejados: string[] = useMemo(
     () => (Array.isArray((modelo as any)?.tecidos_planejados) ? ((modelo as any).tecidos_planejados as string[]) : []),
     [modelo],
@@ -305,7 +306,6 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     const planejados: string[] = Array.isArray((modelo as any).tecidos_planejados)
       ? ((modelo as any).tecidos_planejados as string[])
       : [];
-    const planejadosSet = new Set(planejados);
     const linksByKey = new Map<string, OcAlloc[]>();
     (ocLinksData ?? []).forEach((l: any) => {
       const key = `${l.tipo}-${l.numero}-${l.ordem}`;
@@ -338,14 +338,13 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
             if (aid) varArtigos.add(aid);
           });
         // Tecido/forro podem ter substitutos: reconstrói-os a partir dos artigos
-        // das variantes salvas. No tecido, os planejados já entram no pool, então
-        // só viram "extra" os artigos manualmente adicionados (fora dos planejados).
+        // das variantes salvas que não são o artigo principal do bloco. O pool de
+        // variantes é estrito (artigo + substitutos), então TODO artigo extra de
+        // uma variante salva precisa virar substituto p/ continuar visível.
         const artigoIdsExtra =
-          t.tipo === "tecido"
-            ? Array.from(varArtigos).filter((aid) => aid && aid !== t.artigo_id && !planejadosSet.has(aid))
-            : t.tipo === "forro"
-              ? Array.from(varArtigos).filter((aid) => aid && aid !== t.artigo_id)
-              : [];
+          t.tipo === "tecido" || t.tipo === "forro"
+            ? Array.from(varArtigos).filter((aid) => aid && aid !== t.artigo_id)
+            : [];
         empty[idx] = {
           id: t.id, tipo: t.tipo, numero: t.numero,
           artigo_id: t.artigo_id, artigoIdsExtra,
@@ -878,7 +877,6 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 artigos={artigos}
                 artigosForro={artigosForro}
                 artigosEntretela={artigosEntretela}
-                tecidosPlanejados={tecidosPlanejados}
                 grades={grades}
                 onChangeBlock={updateBlock}
                 onChangeVariante={updateBlockVariante}

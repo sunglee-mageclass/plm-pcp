@@ -25,7 +25,6 @@ export function ModeloTecidosSection({
   artigos,
   artigosForro,
   artigosEntretela,
-  tecidosPlanejados,
   grades,
   onChangeBlock,
   onChangeVariante,
@@ -36,7 +35,6 @@ export function ModeloTecidosSection({
   artigos: ArtigoOpt[];
   artigosForro: ArtigoOpt[];
   artigosEntretela: ArtigoOpt[];
-  tecidosPlanejados: string[];
   grades: GradeRow[];
   onChangeBlock: (idx: number, patch: Partial<TecidoBlock>) => void;
   onChangeVariante: (idx: number, vIdx: number, value: string | null) => void;
@@ -110,7 +108,6 @@ export function ModeloTecidosSection({
                     block={b}
                     artigos={artigosOpts}
                     allArtigos={artigos}
-                    tecidosPlanejados={tecidosPlanejados}
                     artigoNomeById={artigoNomeById}
                     gradeTotalByPos={gradeTotalByPos}
                     onChangeBlock={(p) => onChangeBlock(idx, p)}
@@ -149,7 +146,6 @@ function TecidoBlockEditor({
   block,
   artigos,
   allArtigos,
-  tecidosPlanejados,
   artigoNomeById,
   gradeTotalByPos,
   onChangeBlock,
@@ -162,7 +158,6 @@ function TecidoBlockEditor({
   block: TecidoBlock;
   artigos: ArtigoOpt[];
   allArtigos: ArtigoOpt[];
-  tecidosPlanejados: string[];
   artigoNomeById: Map<string, string>;
   gradeTotalByPos: (numero: number) => number;
   onChangeBlock: (p: Partial<TecidoBlock>) => void;
@@ -172,15 +167,15 @@ function TecidoBlockEditor({
   removable: boolean;
 }) {
   // Tecido e forro podem ser feitos de mais de um artigo (substitutos): quando
-  // um acaba, completa-se com outro. O pool de variantes = principal +
-  // substitutos adicionados aqui no bloco. Os tecidos planejados só entram no
-  // Tecido 1 (principal); Tecido 2/3 mostram APENAS as variantes do próprio
-  // artigo (+ substitutos do bloco), nunca as do Tecido 1.
+  // um acaba, completa-se com outro. O pool de variantes de CADA bloco é ESTRITO:
+  // o artigo principal do bloco + os substitutos adicionados manualmente ali.
+  // Nenhum bloco injeta automaticamente variantes de outros tecidos (planejados
+  // ou dos blocos vizinhos) — só aparece o que pertence ao artigo escolhido (+ os
+  // substitutos explícitos). Tecido 2/3 são blocos próprios, não substitutos do 1.
   const canSubstitutos = block.tipo === "tecido" || block.tipo === "forro";
   const poolArtigoIds = (() => {
     const s = new Set<string>();
     if (block.artigo_id) s.add(block.artigo_id);
-    if (block.tipo === "tecido" && block.numero === 1) tecidosPlanejados.forEach((id) => id && s.add(id));
     (block.artigoIdsExtra ?? []).forEach((id) => id && s.add(id));
     return Array.from(s);
   })();
