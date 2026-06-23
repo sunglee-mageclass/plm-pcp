@@ -172,13 +172,15 @@ function TecidoBlockEditor({
   removable: boolean;
 }) {
   // Tecido e forro podem ser feitos de mais de um artigo (substitutos): quando
-  // um acaba, completa-se com outro. O pool de variantes = principal + todos os
-  // tecidos planejados (tecido) + substitutos adicionados aqui no bloco.
+  // um acaba, completa-se com outro. O pool de variantes = principal +
+  // substitutos adicionados aqui no bloco. Os tecidos planejados só entram no
+  // Tecido 1 (principal); Tecido 2/3 mostram APENAS as variantes do próprio
+  // artigo (+ substitutos do bloco), nunca as do Tecido 1.
   const canSubstitutos = block.tipo === "tecido" || block.tipo === "forro";
   const poolArtigoIds = (() => {
     const s = new Set<string>();
     if (block.artigo_id) s.add(block.artigo_id);
-    if (block.tipo === "tecido") tecidosPlanejados.forEach((id) => id && s.add(id));
+    if (block.tipo === "tecido" && block.numero === 1) tecidosPlanejados.forEach((id) => id && s.add(id));
     (block.artigoIdsExtra ?? []).forEach((id) => id && s.add(id));
     return Array.from(s);
   })();

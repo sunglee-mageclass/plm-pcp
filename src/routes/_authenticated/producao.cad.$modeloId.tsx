@@ -104,7 +104,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
     },
   });
 
-  const { data: modeloTecidos = [] } = useQuery({
+  const { data: modeloTecidos = [], isFetched: modeloTecidosFetched } = useQuery({
     queryKey: ["cad-modelo-tecidos", modeloId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -135,7 +135,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
     },
   });
 
-  const { data: modeloGrades = [] } = useQuery({
+  const { data: modeloGrades = [], isFetched: modeloGradesFetched } = useQuery({
     queryKey: ["cad-modelo-grades", modeloId],
     queryFn: async () => {
       const { data } = await supabase.from("modelo_grades").select("*").eq("modelo_id", modeloId);
@@ -178,7 +178,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
     },
   });
 
-  const { data: modeloAviamentos = [] } = useQuery({
+  const { data: modeloAviamentos = [], isFetched: modeloAviamentosFetched } = useQuery({
     queryKey: ["cad-modelo-aviamentos", modeloId],
     queryFn: async () => {
       const { data } = await supabase
@@ -244,9 +244,49 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
     // Se já existe um CAD, espera as queries do CAD terminarem de buscar antes de
     // semear (evita semear do fallback enquanto o cad_* ainda carrega). Quando o
     // CAD existir mas vier vazio, cai no fallback de modelo_tecidos/grades/aviamentos.
-    if (cadRow?.id && !(cadTecidosFetched && cadGradesFetched && cadAviamentosFetched && cadEtiquetasFetched)) {
+    if (
+      cadRow?.id &&
+      !(
+        cadTecidosFetched && cadGradesFetched && cadAviamentosFetched && cadEtiquetasFetched &&
+        // Para MESCLAR materiais novos do Desenvolvimento, espera também o BOM do modelo.
+        modeloTecidosFetched && modeloGradesFetched && modeloAviamentosFetched
+      )
+    ) {
       return;
     }
+
+    // Mapeia bloco/variante do BOM do Desenvolvimento (modelo_tecidos) para o
+    // formato editável do CAD. Usado ao criar o CAD e para MESCLAR materiais que
+    // o Desenvolvimento ganhou depois (vínculo Desenvolvimento → CAD, bug fix).
+    const varFromModelo = (v: any): VarianteRow => ({
+      variante_tecido_id: v.variante_tecido_id,
+      variante_nome: v.variantes_tecido?.nome_variante ?? v.variantes_tecido?.codigo_variante,
+      variante_cor: v.variantes_tecido?.cor?.nome ?? null,
+      multiplicador: Number(v.multiplicador ?? 1) || 1,
+      ordem: v.ordem,
+      quantidade_folhas: 0,
+      metragem_planejada: 0,
+      metragem_enviada: 0,
+    });
+    const tecFromModelo = (mt: any): TecidoRow => {
+      const preco = Number(mt.artigos?.preco_por_metro ?? 0);
+      const consumo = Number(mt.consumo ?? 0);
+      const loss = Number(mt.loss_percent ?? 0);
+      return {
+        numero: mt.numero,
+        tipo: mt.tipo as TipoTec,
+        artigo_id: mt.artigo_id,
+        consumo_cad: consumo,
+        loss_percent_cad: loss,
+        custo_cad: calcCusto(consumo, loss, preco),
+        tamanho_folha: 0,
+        preco,
+        largura: Number(mt.artigos?.largura_estimada ?? 0),
+        artigo_nome: mt.artigos?.nome ? (mt.artigos?.unidade_medida ? `${mt.artigos.nome} [${mt.artigos.unidade_medida}]` : mt.artigos.nome) : null,
+        etiqueta_lavagem_urls: (mt.artigos?.etiqueta_lavagem_urls ?? []) as string[],
+        variantes: (mt.modelo_tecido_variantes ?? []).map(varFromModelo),
+      };
+    };
 
     let initialTec: TecidoRow[];
     if ((cadTecidos as any[]).length > 0) {
@@ -275,35 +315,29 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
           metragem_enviada: Number(v.metragem_enviada ?? 0),
         })),
       }));
-    } else {
-      initialTec = (modeloTecidos as any[]).map((mt) => {
-        const preco = Number(mt.artigos?.preco_por_metro ?? 0);
-        const consumo = Number(mt.consumo ?? 0);
-        const loss = Number(mt.loss_percent ?? 0);
-        return {
-          numero: mt.numero,
-          tipo: mt.tipo as TipoTec,
-          artigo_id: mt.artigo_id,
-          consumo_cad: consumo,
-          loss_percent_cad: loss,
-          custo_cad: calcCusto(consumo, loss, preco),
-          tamanho_folha: 0,
-          preco,
-          largura: Number(mt.artigos?.largura_estimada ?? 0),
-          artigo_nome: mt.artigos?.nome ? (mt.artigos?.unidade_medida ? `${mt.artigos.nome} [${mt.artigos.unidade_medida}]` : mt.artigos.nome) : null,
-          etiqueta_lavagem_urls: (mt.artigos?.etiqueta_lavagem_urls ?? []) as string[],
-          variantes: (mt.modelo_tecido_variantes ?? []).map((v: any) => ({
-            variante_tecido_id: v.variante_tecido_id,
-            variante_nome: v.variantes_tecido?.nome_variante ?? v.variantes_tecido?.codigo_variante,
-            variante_cor: v.variantes_tecido?.cor?.nome ?? null,
-            multiplicador: Number(v.multiplicador ?? 1) || 1,
-            ordem: v.ordem,
-            quantidade_folhas: 0,
-            metragem_planejada: 0,
-            metragem_enviada: 0,
-          })),
-        };
+      // Vínculo Desenvolvimento → CAD: mescla blocos/variantes adicionados no
+      // Desenvolvimento DEPOIS de o CAD existir (antes só apareciam ao criar o
+      // CAD). Preserva o que já foi editado no CAD; só ACRESCENTA o que é novo
+      // (nunca remove, p/ não perder edição feita no CAD).
+      const blockByKey = new Map(initialTec.map((t) => [`${t.tipo}-${t.numero}`, t] as const));
+      (modeloTecidos as any[]).forEach((mt) => {
+        const existing = blockByKey.get(`${mt.tipo}-${mt.numero}`);
+        if (!existing) {
+          initialTec.push(tecFromModelo(mt));
+          return;
+        }
+        const have = new Set(existing.variantes.map((v) => v.variante_tecido_id).filter(Boolean));
+        let added = false;
+        (mt.modelo_tecido_variantes ?? []).forEach((v: any) => {
+          if (v.variante_tecido_id && !have.has(v.variante_tecido_id)) {
+            existing.variantes.push(varFromModelo(v));
+            added = true;
+          }
+        });
+        if (added) existing.variantes.sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0));
       });
+    } else {
+      initialTec = (modeloTecidos as any[]).map(tecFromModelo);
     }
     // Ordena os blocos: Tecido → Forro → Entretela (e por número dentro do tipo).
     const TIPO_ORDER: Record<string, number> = { tecido: 0, forro: 1, entretela: 2 };
@@ -356,6 +390,27 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
           custo_cad: Number((consumo * preco).toFixed(2)),
         };
       });
+      // Vínculo Desenvolvimento → CAD: mescla aviamentos novos do modelo que
+      // ainda não estão no CAD (acrescenta; nunca remove).
+      const haveAvi = new Set((initialAvi.map((a) => a.aviamento_id).filter(Boolean)) as string[]);
+      let nextAviNum = initialAvi.reduce((m, a) => Math.max(m, Number(a.numero) || 0), 0);
+      (modeloAviamentos as any[]).forEach((ma) => {
+        if (!ma.aviamento_id || haveAvi.has(ma.aviamento_id)) return;
+        const consumo = Number(ma.consumo ?? 0);
+        const preco = Number(ma.aviamentos?.preco ?? 0);
+        const qEnviar = Number((consumo * gradeTotalGeral).toFixed(4));
+        initialAvi.push({
+          numero: ++nextAviNum,
+          aviamento_id: ma.aviamento_id,
+          aviamento_nome: ma.aviamentos?.codigo_nome,
+          consumo,
+          grade_total: gradeTotalGeral,
+          quantidade_enviar: qEnviar,
+          quantidade_separar: qEnviar,
+          preco,
+          custo_cad: Number((consumo * preco).toFixed(2)),
+        });
+      });
     } else {
       initialAvi = (modeloAviamentos as any[]).map((ma) => {
         const consumo = Number(ma.consumo ?? 0);
@@ -392,7 +447,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
     setObservacoesMolde((cadRow as any)?.observacoes_molde ?? "");
 
     setSeeded(true);
-  }, [modelo, cadRow, cadTecidos, modeloTecidos, cadGrades, modeloGrades, cadAviamentos, modeloAviamentos, cadEtiquetas, cadTecidosFetched, cadGradesFetched, cadAviamentosFetched, cadEtiquetasFetched, seeded]);
+  }, [modelo, cadRow, cadTecidos, modeloTecidos, cadGrades, modeloGrades, cadAviamentos, modeloAviamentos, cadEtiquetas, cadTecidosFetched, cadGradesFetched, cadAviamentosFetched, cadEtiquetasFetched, modeloTecidosFetched, modeloGradesFetched, modeloAviamentosFetched, seeded]);
 
   // --- helpers ---
   const updateTec = (i: number, patch: Partial<TecidoRow>) => {
