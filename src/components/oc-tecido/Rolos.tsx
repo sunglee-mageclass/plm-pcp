@@ -2,7 +2,6 @@ import { useMemo, useState, useRef, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Trash2, Pencil, Undo2, Printer } from "lucide-react";
-import JsBarcode from "jsbarcode";
 
 import { supabase } from "@/integrations/supabase/client";
 import { fmtNum } from "@/lib/format";
@@ -290,11 +289,17 @@ type RoloRow = {
 function RoloBarcode({ value }: { value: string }) {
   const ref = useRef<SVGSVGElement>(null);
   useEffect(() => {
-    if (ref.current && value) {
+    if (!ref.current || !value) return;
+    let cancelled = false;
+    // jsbarcode é UMD e quebra no SSR se importado no topo — carrega dinâmico (cliente).
+    import("jsbarcode").then((m) => {
+      const JsBarcode = (m as any).default ?? m;
+      if (cancelled || !ref.current) return;
       try {
         JsBarcode(ref.current, value, { format: "CODE128", displayValue: false, height: 64, width: 2, margin: 0 });
       } catch { /* valor inválido p/ barcode — ignora */ }
-    }
+    });
+    return () => { cancelled = true; };
   }, [value]);
   return <svg ref={ref} style={{ width: "100%", maxWidth: "120mm" }} />;
 }

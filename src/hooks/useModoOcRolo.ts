@@ -19,7 +19,7 @@ export function useModoOcRolo(): ModoOcRolo {
       const { data } = await supabase
         .from("tenant_config")
         .select("modo_oc_rolo")
-        .eq("tenant_id", tenantId)
+        .eq("tenant_id", tenantId as string)
         .maybeSingle();
       return ((data as any)?.modo_oc_rolo as ModoOcRolo) ?? "ambos";
     },

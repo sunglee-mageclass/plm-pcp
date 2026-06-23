@@ -160,7 +160,7 @@ function ConfiguracoesLojaPage() {
       const payload = { tenant_id: data.tenantId, ...cfgRest };
       const { error } = await supabase
         .from("tenant_config")
-        .upsert(payload, { onConflict: "tenant_id" });
+        .upsert(payload as any, { onConflict: "tenant_id" });
       if (error) throw error;
     },
     onSuccess: () => {
