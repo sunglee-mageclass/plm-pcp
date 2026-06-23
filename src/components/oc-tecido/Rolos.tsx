@@ -278,11 +278,10 @@ type RoloRow = {
   ocs_tecido_itens: {
     id: string;
     quantidade_recebida: number | null;
-    artigos: { nome: string; unidade_medida: string | null; rendimento: number | null } | null;
+    artigos: { nome: string; unidade_medida: string | null; rendimento: number | null; empresas: { nome_fantasia: string | null } | null } | null;
     variantes_tecido: { nome_variante: string | null; codigo_variante: string | null; cor: { nome: string | null } | null } | null;
     estoque_tecido_baixas: { quantidade: number | null }[] | null;
   }[];
-  empresas: { nome_fantasia: string | null } | null;
 };
 
 // ───────── Etiqueta A5 do rolo (código de barras) ─────────
@@ -309,7 +308,7 @@ function EtiquetaRolo({ rolo, logo }: { rolo: RoloRow; logo: string | null }) {
   const tecido = itens[0]?.artigos?.nome ?? "—";
   const variante = itens.map((it) => it.variantes_tecido?.nome_variante || it.variantes_tecido?.codigo_variante).filter(Boolean).join(", ") || "—";
   const cor = Array.from(new Set(itens.map((it) => it.variantes_tecido?.cor?.nome).filter(Boolean))).join(", ") || "—";
-  const fornecedor = rolo.empresas?.nome_fantasia ?? "—";
+  const fornecedor = itens[0]?.artigos?.empresas?.nome_fantasia ?? "—";
   const codigo = rolo.rolo_codigo || "";
   const campo = (label: string, valor: string, big?: boolean) => (
     <div>
@@ -351,7 +350,7 @@ export function RolosList() {
         .from("ocs_tecido")
         .select(
           // relacionamento explícito (!oc_tecido_id) p/ não depender do schema cache.
-          "id, rolo_codigo, rolo_origem_item_id, rolo_rua, rolo_prateleira, empresas:empresa_id(nome_fantasia), ocs_tecido_itens!oc_tecido_id(id, quantidade_recebida, artigos(nome, unidade_medida, rendimento), variantes_tecido(nome_variante, codigo_variante, cor:cor_id(nome)), estoque_tecido_baixas(quantidade))",
+          "id, rolo_codigo, rolo_origem_item_id, rolo_rua, rolo_prateleira, ocs_tecido_itens!oc_tecido_id(id, quantidade_recebida, artigos(nome, unidade_medida, rendimento, empresas:empresa_id(nome_fantasia)), variantes_tecido(nome_variante, codigo_variante, cor:cor_id(nome)), estoque_tecido_baixas(quantidade))",
         )
         .eq("is_rolo", true)
         .order("created_at", { ascending: false });
@@ -379,13 +378,20 @@ export function RolosList() {
   const selecionados = rolos.filter((r) => sel.has(r.id));
   const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const toggleAll = () => setSel((s) => (s.size === rolos.length ? new Set() : new Set(rolos.map((r) => r.id))));
+  // Garante o jsbarcode carregado + os <svg> desenhados ANTES de imprimir (senão o
+  // barcode não aparece, pois carrega async).
+  const imprimirEtiquetas = async () => {
+    try { await import("jsbarcode"); } catch { /* */ }
+    await new Promise((r) => setTimeout(r, 300));
+    window.print();
+  };
 
   return (
     <div className="space-y-4">
       {rolos.length > 0 && (
         <div className="flex items-center justify-between gap-2">
           <span className="text-sm text-muted-foreground">{sel.size > 0 ? `${sel.size} rolo(s) selecionado(s)` : "Selecione rolos para imprimir etiquetas"}</span>
-          <Button size="sm" variant="outline" disabled={sel.size === 0} onClick={() => window.print()}>
+          <Button size="sm" variant="outline" disabled={sel.size === 0} onClick={imprimirEtiquetas}>
             <Printer className="h-4 w-4 mr-1" /> Imprimir etiquetas{sel.size > 0 ? ` (${sel.size})` : ""}
           </Button>
         </div>
