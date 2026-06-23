@@ -153,6 +153,17 @@
     letter-spacing: -0.01em;
   }
 
+  /* Barra lateral: mantém a rolagem (menu longo ainda rola no scroll), mas esconde
+     a barra de rolagem — não deve aparecer pela própria sidebar. */
+  [data-sidebar="content"] {
+    scrollbar-width: none; /* Firefox */
+  }
+  [data-sidebar="content"]::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none; /* Chromium / WebKit (Comet) */
+  }
+
   /* Inputs numéricos: sem botões de incrementar/decrementar — só digitáveis. */
   input[type="number"]::-webkit-outer-spin-button,
   input[type="number"]::-webkit-inner-spin-button {
