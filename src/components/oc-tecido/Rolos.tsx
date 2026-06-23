@@ -303,8 +303,8 @@ function RoloBarcode({ value }: { value: string }) {
     });
     return () => { cancelled = true; };
   }, [value]);
-  // Altura de barra PADRONIZADA (16mm); largura proporcional ao código (limitada).
-  return src ? <img src={src} alt={value} style={{ height: "16mm", width: "auto", maxWidth: "92mm", display: "block" }} /> : null;
+  // Altura PADRONIZADA (18mm); largura proporcional ao código.
+  return src ? <img src={src} alt={value} style={{ height: "18mm", width: "auto", maxWidth: "100%", display: "block" }} /> : null;
 }
 
 function EtiquetaRolo({ rolo, logo }: { rolo: RoloRow; logo: string | null }) {
@@ -337,11 +337,11 @@ function EtiquetaRolo({ rolo, logo }: { rolo: RoloRow; logo: string | null }) {
           <div style={{ fontSize: 26, fontWeight: 800 }}>{codigo || "—"}</div>
         </div>
       </div>
-      {/* Barcode vertical (rotacionado) na metade direita, altura padronizada */}
-      <div style={{ width: "34%", display: "flex", alignItems: "center", justifyContent: "center", borderLeft: "1px solid #ddd", overflow: "hidden" }}>
-        {codigo && <div style={{ transform: "rotate(90deg)" }}><RoloBarcode value={codigo} /></div>}
+      {/* Barcode horizontal na metade direita, altura padronizada */}
+      <div style={{ width: "44%", display: "flex", alignItems: "center", justifyContent: "center", borderLeft: "1px solid #ddd", padding: "0 4mm" }}>
+        {codigo && <RoloBarcode value={codigo} />}
       </div>
-      <div style={{ position: "absolute", left: "10mm", bottom: "3mm", fontSize: 7, color: "#bbb" }}>etq · build 0623c</div>
+      <div style={{ position: "absolute", left: "10mm", bottom: "3mm", fontSize: 7, color: "#bbb" }}>etq · build 0623d</div>
     </div>
   );
 }

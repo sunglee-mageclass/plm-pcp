@@ -34,11 +34,11 @@ type Props = {
 // tabela é a forma mais confiável de impor altura no print (engines respeitam
 // table-row height onde height de div às vezes falha). vertical-align:top = o
 // conteúdo começa no topo de cada meia folha; a linha cresce se o conteúdo passar.
+// A folha = tabela com 2 linhas de ~meia folha A4 (130mm) → 2 tipos por folha.
+// (Importante imprimir com ESCALA 100%/Padrão, não 50% — senão tudo encolhe.)
 const pageTableStyle: React.CSSProperties = { width: "100%", borderCollapse: "collapse" };
-const meiaRow: React.CSSProperties = { height: "132mm" };
-// paddingBottom empurra a 2ª metade pra ~meio da folha mesmo se o navegador ignora
-// height de linha (caso do Comet). padding é respeitado onde height não é.
-const meiaCell: React.CSSProperties = { verticalAlign: "top", paddingBottom: "56mm" };
+const meiaRow: React.CSSProperties = { height: "130mm" };
+const meiaCell: React.CSSProperties = { verticalAlign: "top", padding: 0 };
 const meiaCellBaixo: React.CSSProperties = { verticalAlign: "top", borderTop: "1px dashed #999", paddingTop: "10px" };
 const fmt2 = (n: number | null | undefined) => fmtNum(n);
 
@@ -271,7 +271,7 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
           </td>
         </tr>
       </tbody></table>
-      <div style={{ fontSize: 8, color: "#999", textAlign: "right", marginTop: 4 }}>ficha · build 0623c (padding)</div>
+      <div style={{ fontSize: 8, color: "#999", textAlign: "right", marginTop: 4 }}>ficha · build 0623d</div>
     </PrintArea>
   );
 }
