@@ -36,7 +36,9 @@ type Props = {
 // conteúdo começa no topo de cada meia folha; a linha cresce se o conteúdo passar.
 const pageTableStyle: React.CSSProperties = { width: "100%", borderCollapse: "collapse" };
 const meiaRow: React.CSSProperties = { height: "132mm" };
-const meiaCell: React.CSSProperties = { verticalAlign: "top", padding: 0 };
+// paddingBottom empurra a 2ª metade pra ~meio da folha mesmo se o navegador ignora
+// height de linha (caso do Comet). padding é respeitado onde height não é.
+const meiaCell: React.CSSProperties = { verticalAlign: "top", paddingBottom: "56mm" };
 const meiaCellBaixo: React.CSSProperties = { verticalAlign: "top", borderTop: "1px dashed #999", paddingTop: "10px" };
 const fmt2 = (n: number | null | undefined) => fmtNum(n);
 
@@ -269,7 +271,7 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
           </td>
         </tr>
       </tbody></table>
-      <div style={{ fontSize: 8, color: "#999", textAlign: "right", marginTop: 4 }}>ficha · build 0623b (tabela)</div>
+      <div style={{ fontSize: 8, color: "#999", textAlign: "right", marginTop: 4 }}>ficha · build 0623c (padding)</div>
     </PrintArea>
   );
 }

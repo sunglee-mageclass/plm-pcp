@@ -297,14 +297,14 @@ function RoloBarcode({ value }: { value: string }) {
       const JsBarcode = (m as any).default ?? m;
       try {
         const canvas = document.createElement("canvas");
-        // width 3 + height 110 = barcode nítido (a imagem é ampliada p/ ~120mm).
-        JsBarcode(canvas, value, { format: "CODE128", displayValue: true, fontSize: 20, textMargin: 2, height: 110, width: 3, margin: 8 });
+        JsBarcode(canvas, value, { format: "CODE128", displayValue: false, height: 60, width: 2, margin: 4 });
         if (!cancelled) setSrc(canvas.toDataURL("image/png"));
       } catch { /* valor inválido p/ barcode — ignora */ }
     });
     return () => { cancelled = true; };
   }, [value]);
-  return src ? <img src={src} alt={value} style={{ width: "100%", maxWidth: "120mm" }} /> : null;
+  // Altura de barra PADRONIZADA (16mm); largura proporcional ao código (limitada).
+  return src ? <img src={src} alt={value} style={{ height: "16mm", width: "auto", maxWidth: "92mm", display: "block" }} /> : null;
 }
 
 function EtiquetaRolo({ rolo, logo }: { rolo: RoloRow; logo: string | null }) {
@@ -321,22 +321,27 @@ function EtiquetaRolo({ rolo, logo }: { rolo: RoloRow; logo: string | null }) {
     </div>
   );
   return (
-    <div className="print-section" style={{ height: "133mm", boxSizing: "border-box", border: "1px solid #000", padding: "10mm", display: "flex", flexDirection: "column", justifyContent: "space-between", breakInside: "avoid", fontFamily: "Helvetica, Arial, sans-serif", color: "#000" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-        {campo("Tecido", tecido, true)}
-        {logo && <img src={logo} alt="" style={{ maxHeight: 36, maxWidth: 110, objectFit: "contain" }} />}
+    <div className="print-section" style={{ height: "133mm", boxSizing: "border-box", border: "1px solid #000", padding: "10mm", display: "flex", flexDirection: "row", gap: 14, breakInside: "avoid", fontFamily: "Helvetica, Arial, sans-serif", color: "#000", position: "relative" }}>
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+          {campo("Tecido", tecido, true)}
+          {logo && <img src={logo} alt="" style={{ maxHeight: 32, maxWidth: 100, objectFit: "contain" }} />}
+        </div>
+        <div style={{ display: "flex", gap: 48 }}>
+          {campo("Variante", variante)}
+          {campo("Cor", cor)}
+        </div>
+        {campo("Fornecedor", fornecedor)}
+        <div>
+          <div style={{ fontSize: 10, color: "#666", textTransform: "uppercase", letterSpacing: 0.6 }}>Código</div>
+          <div style={{ fontSize: 26, fontWeight: 800 }}>{codigo || "—"}</div>
+        </div>
       </div>
-      <div style={{ display: "flex", gap: 48 }}>
-        {campo("Variante", variante)}
-        {campo("Cor", cor)}
+      {/* Barcode vertical (rotacionado) na metade direita, altura padronizada */}
+      <div style={{ width: "34%", display: "flex", alignItems: "center", justifyContent: "center", borderLeft: "1px solid #ddd", overflow: "hidden" }}>
+        {codigo && <div style={{ transform: "rotate(90deg)" }}><RoloBarcode value={codigo} /></div>}
       </div>
-      {campo("Fornecedor", fornecedor)}
-      <div>
-        <div style={{ fontSize: 10, color: "#666", textTransform: "uppercase", letterSpacing: 0.6 }}>Código</div>
-        <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 6 }}>{codigo || "—"}</div>
-        {codigo && <RoloBarcode value={codigo} />}
-        <div style={{ fontSize: 7, color: "#bbb", marginTop: 3 }}>etq · build 0623b</div>
-      </div>
+      <div style={{ position: "absolute", left: "10mm", bottom: "3mm", fontSize: 7, color: "#bbb" }}>etq · build 0623c</div>
     </div>
   );
 }
