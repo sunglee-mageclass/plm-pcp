@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { BarChart3, Package, Palette, Boxes, AlertTriangle, Layers, Sparkles, Printer } from "lucide-react";
+import { BarChart3, Package, Palette, Boxes, AlertTriangle, Layers, Sparkles, Printer, CheckCircle2, Scissors, ClipboardCheck, Factory, DollarSign, Tag } from "lucide-react";
 import { format } from "date-fns";
 import { FilterButton } from "@/components/shared/filters";
 import { Button } from "@/components/ui/button";
@@ -234,15 +234,45 @@ function ColecaoTab() {
 }
 
 
-function Kpi({ label, value, icon: Icon }: { label: string; value: number; icon: any }) {
+function Kpi({ label, value, icon: Icon, cor, sub }: { label: string; value: number | string; icon: any; cor?: string; sub?: string }) {
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">{label}</CardTitle>
-        <Icon className="h-4 w-4 text-muted-foreground" />
-      </CardHeader>
-      <CardContent><div className="text-2xl font-semibold">{value}</div></CardContent>
+    <Card className="p-4">
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-xs font-medium text-muted-foreground">{label}</span>
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white" style={{ background: cor ?? "hsl(217 91% 60%)" }}>
+          <Icon className="h-4 w-4" />
+        </span>
+      </div>
+      <div className="mt-2 text-3xl font-bold leading-none" style={cor ? { color: cor } : undefined}>{value}</div>
+      {sub && <div className="mt-1.5 text-[11px] text-muted-foreground">{sub}</div>}
     </Card>
+  );
+}
+
+// Donut on-screen (SVG) p/ taxas — mesmo visual do relatório.
+function DashDonut({ pct, cor = "hsl(142 71% 45%)", legenda }: { pct: number; cor?: string; legenda?: string }) {
+  const r = 60, c = 2 * Math.PI * r, on = (c * pct) / 100;
+  return (
+    <div className="flex flex-col items-center justify-center">
+      <svg width="160" height="160" viewBox="0 0 170 170">
+        <circle cx="85" cy="85" r={r} fill="none" stroke="hsl(var(--muted))" strokeWidth="22" />
+        <circle cx="85" cy="85" r={r} fill="none" stroke={cor} strokeWidth="22" strokeDasharray={`${on} ${c - on}`} transform="rotate(-90 85 85)" strokeLinecap="butt" />
+        <text x="85" y="98" textAnchor="middle" fontSize="40" fontWeight="800" fill={cor}>{pct}%</text>
+      </svg>
+      {legenda && <div className="mt-1 text-xs text-muted-foreground text-center">{legenda}</div>}
+    </div>
+  );
+}
+
+// Cabeçalho de seção com ícone em círculo escuro (estilo do relatório aprovado).
+function SecHeader({ icon: Icon, children }: { icon: any; children: ReactNode }) {
+  return (
+    <div className="mb-3 flex items-center gap-2.5">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-foreground text-background">
+        <Icon className="h-4 w-4" />
+      </span>
+      <h3 className="font-semibold">{children}</h3>
+    </div>
   );
 }
 
@@ -446,10 +476,16 @@ function ProducaoTab() {
 
       <DashError show={isError} />
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Kpi label="Entregas no prazo" value={kpiPrazo.noPrazo} icon={BarChart3} />
-        <Kpi label="Atrasadas" value={kpiPrazo.atrasadas} icon={AlertTriangle} />
-        <Kpi label="% no prazo" value={Math.round(Number(kpiPrazo.pct) || 0)} icon={Sparkles} />
+      <div className="grid gap-4 lg:grid-cols-[1fr_1fr_1fr_260px]">
+        <Kpi label="Entregas no prazo" value={kpiPrazo.noPrazo} icon={CheckCircle2} cor="hsl(142 71% 45%)" sub="entregas de Serviços" />
+        <Kpi label="Atrasadas" value={kpiPrazo.atrasadas} icon={AlertTriangle} cor={Number(kpiPrazo.atrasadas) > 0 ? "hsl(0 84% 60%)" : undefined} sub={`${Math.round((Number(kpiPrazo.atrasadas) / Math.max(Number(kpiPrazo.noPrazo) + Number(kpiPrazo.atrasadas), 1)) * 100)}% do total`} />
+        <Kpi label="Defeito médio" value={`${defeitoMedio.toFixed(1)}%`} icon={Sparkles} cor="hsl(45 93% 47%)" sub="defeito ÷ recebido" />
+        <Card className="p-4 flex flex-col">
+          <span className="text-xs font-medium text-muted-foreground mb-1">% no prazo</span>
+          <div className="flex-1 flex items-center justify-center">
+            <DashDonut pct={Math.round(Number(kpiPrazo.pct) || 0)} legenda={`${kpiPrazo.noPrazo} no prazo · ${kpiPrazo.atrasadas} atrasadas`} />
+          </div>
+        </Card>
       </div>
 
       <div>
@@ -690,10 +726,16 @@ function FinanceiroTab() {
         <PeriodoPicker value={periodo} onChange={setPeriodo} />
         <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}><Printer className="h-4 w-4 mr-1" /> Imprimir</Button>
       </div>
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Investido em matéria-prima</CardTitle></CardHeader><CardContent><div className="text-2xl font-semibold">{brl(investido)}</div></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Total pago</CardTitle></CardHeader><CardContent><div className="text-2xl font-semibold text-green-600 dark:text-green-400">{brl(pago)}</div></CardContent></Card>
-        <Card><CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Total pendente</CardTitle></CardHeader><CardContent><div className="text-2xl font-semibold text-yellow-600 dark:text-yellow-400">{brl(pendente)}</div></CardContent></Card>
+      <div className="grid gap-4 lg:grid-cols-[1fr_1fr_1fr_260px]">
+        <Kpi label="Investido em MP" value={brl(investido)} icon={DollarSign} cor="hsl(217 91% 60%)" />
+        <Kpi label="Total pago" value={brl(pago)} icon={CheckCircle2} cor="hsl(142 71% 45%)" />
+        <Kpi label="Total pendente" value={brl(pendente)} icon={AlertTriangle} cor="hsl(45 93% 47%)" />
+        <Card className="p-4 flex flex-col">
+          <span className="text-xs font-medium text-muted-foreground mb-1">% pago</span>
+          <div className="flex-1 flex items-center justify-center">
+            <DashDonut pct={(pago + pendente) > 0 ? Math.round((pago / (pago + pendente)) * 100) : 0} legenda="do total a pagar" />
+          </div>
+        </Card>
       </div>
       <Card className="p-4">
         <h3 className="font-semibold mb-3">{periodo?.from && periodo?.to ? "Contas a pagar — período" : "Contas a pagar — próximos 6 meses"}</h3>
