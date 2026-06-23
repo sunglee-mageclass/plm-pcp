@@ -297,7 +297,8 @@ function RoloBarcode({ value }: { value: string }) {
       const JsBarcode = (m as any).default ?? m;
       try {
         const canvas = document.createElement("canvas");
-        JsBarcode(canvas, value, { format: "CODE128", displayValue: false, height: 80, width: 2, margin: 4 });
+        // width 3 + height 110 = barcode nítido (a imagem é ampliada p/ ~120mm).
+        JsBarcode(canvas, value, { format: "CODE128", displayValue: true, fontSize: 20, textMargin: 2, height: 110, width: 3, margin: 8 });
         if (!cancelled) setSrc(canvas.toDataURL("image/png"));
       } catch { /* valor inválido p/ barcode — ignora */ }
     });
@@ -334,7 +335,7 @@ function EtiquetaRolo({ rolo, logo }: { rolo: RoloRow; logo: string | null }) {
         <div style={{ fontSize: 10, color: "#666", textTransform: "uppercase", letterSpacing: 0.6 }}>Código</div>
         <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 6 }}>{codigo || "—"}</div>
         {codigo && <RoloBarcode value={codigo} />}
-        <div style={{ fontSize: 7, color: "#bbb", marginTop: 3 }}>etq · build 0623a</div>
+        <div style={{ fontSize: 7, color: "#bbb", marginTop: 3 }}>etq · build 0623b</div>
       </div>
     </div>
   );

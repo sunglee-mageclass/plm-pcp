@@ -30,12 +30,14 @@ type Props = {
 // Quebra NATURAL: cada seção evita ser cortada no meio e pagina quando não cabe.
 // (Antes era flex 0 0 50% + overflow:hidden, que cortava modelos grandes em
 // silêncio e desperdiçava espaço quando havia pouco conteúdo.)
-// Cada "metade" tem minHeight de ~meia folha A4 → a 2ª começa no meio (Tecido |
-// Forro e Aviamentos | Grade, um por meia folha). min-height PURO (sem flexbox):
-// flex-grow no print é dependente de navegador (Safari/Firefox não distribuem);
-// min-height é universal e não corta conteúdo (cresce se a metade for grande).
-const pageStyle: React.CSSProperties = {};
-const halfStyle: React.CSSProperties = { minHeight: "132mm", breakInside: "avoid" };
+// A folha é uma TABELA com 2 linhas de ~meia folha A4 (132mm). Altura de linha de
+// tabela é a forma mais confiável de impor altura no print (engines respeitam
+// table-row height onde height de div às vezes falha). vertical-align:top = o
+// conteúdo começa no topo de cada meia folha; a linha cresce se o conteúdo passar.
+const pageTableStyle: React.CSSProperties = { width: "100%", borderCollapse: "collapse" };
+const meiaRow: React.CSSProperties = { height: "132mm" };
+const meiaCell: React.CSSProperties = { verticalAlign: "top", padding: 0 };
+const meiaCellBaixo: React.CSSProperties = { verticalAlign: "top", borderTop: "1px dashed #999", paddingTop: "10px" };
 const fmt2 = (n: number | null | undefined) => fmtNum(n);
 
 export function Assinatura({ dataPrevista = false }: { dataPrevista?: boolean }) {
@@ -152,34 +154,35 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
 
   return (
     <PrintArea>
-      {/* ===== Página 1 ===== */}
-      <div style={pageStyle}>
-        {/* Metade de cima: cabeçalho + Tecido */}
-        <div className="print-section" style={halfStyle}>
-          {pageHeader}
-          <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Tecido</h3>
-          <MaterialTable blocks={tecidoBlocks} colMaterial="Tecido" ocLinksByKey={ocLinksByKey} />
-          <Etiquetas blocks={tecidoBlocks} />
-          <Assinatura />
-        </div>
-
-        {/* Metade de baixo: Forro e Entretela (tabelas separadas) */}
-        <div className="print-section" style={{ ...halfStyle, borderTop: "1px dashed #999", paddingTop: 10 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Forro</h3>
-          <MaterialTable blocks={forroBlocks} colMaterial="Forro" ocLinksByKey={ocLinksByKey} />
-          <h3 style={{ fontSize: 14, fontWeight: 600, margin: "10px 0 0" }}>Entretela</h3>
-          <MaterialTable blocks={entretelaBlocks} colMaterial="Entretela" ocLinksByKey={ocLinksByKey} />
-          <Etiquetas blocks={forroEntretela} />
-          <Assinatura />
-        </div>
-      </div>
+      {/* ===== Página 1 ===== (tabela: 2 linhas de meia folha) */}
+      <table style={pageTableStyle}><tbody>
+        <tr style={meiaRow}>
+          <td className="print-section" style={meiaCell}>
+            {pageHeader}
+            <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Tecido</h3>
+            <MaterialTable blocks={tecidoBlocks} colMaterial="Tecido" ocLinksByKey={ocLinksByKey} />
+            <Etiquetas blocks={tecidoBlocks} />
+            <Assinatura />
+          </td>
+        </tr>
+        <tr style={meiaRow}>
+          <td className="print-section" style={meiaCellBaixo}>
+            <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Forro</h3>
+            <MaterialTable blocks={forroBlocks} colMaterial="Forro" ocLinksByKey={ocLinksByKey} />
+            <h3 style={{ fontSize: 14, fontWeight: 600, margin: "10px 0 0" }}>Entretela</h3>
+            <MaterialTable blocks={entretelaBlocks} colMaterial="Entretela" ocLinksByKey={ocLinksByKey} />
+            <Etiquetas blocks={forroEntretela} />
+            <Assinatura />
+          </td>
+        </tr>
+      </tbody></table>
 
       {/* ===== Página 2 ===== */}
-      <div style={{ ...pageStyle, pageBreakBefore: "always", breakBefore: "page" }}>
-        {/* Metade de cima: Explosão de Aviamentos */}
-        <div className="print-section" style={halfStyle}>
-          {pageHeader}
-          <h3 style={{ fontSize: 14, fontWeight: 600, marginTop: 0 }}>Explosão de Aviamentos</h3>
+      <table style={{ ...pageTableStyle, pageBreakBefore: "always", breakBefore: "page" }}><tbody>
+        <tr style={meiaRow}>
+          <td className="print-section" style={meiaCell}>
+            {pageHeader}
+            <h3 style={{ fontSize: 14, fontWeight: 600, marginTop: 0 }}>Explosão de Aviamentos</h3>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, marginTop: 4 }}>
             <thead>
               <tr style={{ background: "#eee" }}>
@@ -232,12 +235,14 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
             </>
           )}
 
-          <Assinatura />
-        </div>
+            <Assinatura />
+          </td>
+        </tr>
 
         {/* Metade de baixo: Grade */}
-        <div className="print-section" style={{ ...halfStyle, borderTop: "1px dashed #999", paddingTop: 10 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Grade</h3>
+        <tr style={meiaRow}>
+          <td className="print-section" style={meiaCellBaixo}>
+            <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Grade</h3>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, marginTop: 4 }}>
             <thead>
               <tr style={{ background: "#eee" }}>
@@ -261,9 +266,10 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
           <p style={{ fontSize: 11, whiteSpace: "pre-wrap", border: "1px solid #ccc", padding: 6, marginTop: 4, minHeight: 28 }}>
             {observacoesMolde?.trim() || ""}
           </p>
-        </div>
-      </div>
-      <div style={{ fontSize: 8, color: "#999", textAlign: "right", marginTop: 4 }}>ficha · build 0623a (metade A4)</div>
+          </td>
+        </tr>
+      </tbody></table>
+      <div style={{ fontSize: 8, color: "#999", textAlign: "right", marginTop: 4 }}>ficha · build 0623b (tabela)</div>
     </PrintArea>
   );
 }
