@@ -723,8 +723,8 @@ function FinanceiroTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-end gap-2">
-        <PeriodoPicker value={periodo} onChange={setPeriodo} />
         <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}><Printer className="h-4 w-4 mr-1" /> Imprimir</Button>
+        <PeriodoPicker value={periodo} onChange={setPeriodo} />
       </div>
       <div className="grid gap-4 lg:grid-cols-[1fr_1fr_1fr_260px]">
         <Kpi label="Investido em MP" value={brl(investido)} icon={DollarSign} cor="hsl(217 91% 60%)" />

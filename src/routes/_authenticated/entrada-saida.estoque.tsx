@@ -31,27 +31,6 @@ const fmt = (v: number) => fmtNum(v);
 const fmtEnd = (e: any) => [e?.rua && `Rua ${e.rua}`, e?.prateleira && `Prat. ${e.prateleira}`].filter(Boolean).join(" ") || "—";
 const endCompact = (e: any) => `${e?.rua || "?"}/${e?.prateleira || "?"}`;
 
-function useEstoqueThresholds() {
-  const tenantId = useActiveTenantId();
-  const { data } = useQuery({
-    queryKey: ["tenant-config-threshold", tenantId],
-    enabled: !!tenantId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("tenant_config")
-        .select("estoque_critico_threshold, estoque_critico_aviamento")
-        .eq("tenant_id", tenantId)
-        .maybeSingle();
-      if (error) throw error;
-      return {
-        tecido: Number((data as any)?.estoque_critico_threshold ?? 0) || 0,
-        aviamento: Number((data as any)?.estoque_critico_aviamento ?? 0) || 0,
-      };
-    },
-    staleTime: 5 * 60 * 1000,
-  });
-  return data ?? { tecido: 0, aviamento: 0 };
-}
 
 function EstoquePage() {
   const [tab, setTab] = useState("tecidos");
@@ -87,7 +66,6 @@ function EstoquePage() {
 /* ============================= TECIDOS ============================= */
 
 function TecidosTab() {
-  const threshold = useEstoqueThresholds().tecido;
   const [search, setSearch] = useState("");
   const [fornecedor, setFornecedor] = useState<string>("all");
   const [categoria, setCategoria] = useState<string>("all");
@@ -316,10 +294,19 @@ function TecidosTab() {
         <Card key={g.artigoId} className="p-4">
           <h3 className="font-semibold mb-3">{g.artigoNome}</h3>
           <div className="hidden md:block overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
+              <colgroup>
+                <col style={{ width: "4%" }} />
+                <col style={{ width: "26%" }} />
+                <col style={{ width: "14%" }} />
+                <col style={{ width: "14%" }} />
+                <col style={{ width: "14%" }} />
+                <col style={{ width: "14%" }} />
+                <col style={{ width: "14%" }} />
+              </colgroup>
               <thead className="text-left text-muted-foreground">
                 <tr className="border-b">
-                  <th className="py-2 pr-3 w-6"></th>
+                  <th className="py-2 pr-3"></th>
                   <th className="py-2 pr-3">Variante</th>
                   <th className="py-2 pr-3 text-right">Prev. Receb.</th>
                   <th className="py-2 pr-3 text-right">Recebido</th>
@@ -330,7 +317,7 @@ function TecidosTab() {
               </thead>
               <tbody>
                 {g.rows.map((r: any) => (
-                  <VarianteRow key={r.varId} row={r} threshold={threshold} />
+                  <VarianteRow key={r.varId} row={r} />
                 ))}
               </tbody>
             </table>
@@ -338,7 +325,7 @@ function TecidosTab() {
           {/* Mobile: cards por variante (some o scroll horizontal) */}
           <div className="md:hidden space-y-2">
             {g.rows.map((r: any) => (
-              <VarianteCard key={r.varId} row={r} threshold={threshold} />
+              <VarianteCard key={r.varId} row={r} />
             ))}
           </div>
         </Card>
@@ -350,7 +337,6 @@ function TecidosTab() {
 
       <RelatorioPrint
         titulo="Posição de Estoque — Tecidos"
-        subtitulo={threshold > 0 ? `Itens com estoque ≤ ${fmt(threshold)} em destaque` : undefined}
         dataStr={new Date().toLocaleDateString("pt-BR")}
         colunas={[
           { key: "artigo", label: "Artigo" },
@@ -404,14 +390,14 @@ function useEstoqueVarianteDetalhe(varId: string, open: boolean, reservadoTotal:
   return { ocRows, reservaSemOc, isLoading };
 }
 
-function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
+function VarianteRow({ row }: { row: any }) {
   const [open, setOpen] = useState(false);
   const { ocRows, reservaSemOc, isLoading } = useEstoqueVarianteDetalhe(row.varId, open, row.reservado);
   const loadingPend = false;
 
   return (
     <>
-      <tr className={cn("border-b last:border-0 cursor-pointer", row.fisico <= threshold && "bg-destructive/10")} onClick={() => setOpen((o) => !o)}>
+      <tr className="border-b last:border-0 cursor-pointer" onClick={() => setOpen((o) => !o)}>
         <td className="py-2 pr-3 text-muted-foreground">{open ? "▾" : "▸"}</td>
         <td className="py-2 pr-3">
           {row.nomeVariante}
@@ -438,7 +424,7 @@ function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
             </div>
           ) : (`${fmt(row.recebidoM)} m`)}
         </td>
-        <td className={cn("py-2 pr-3 text-right font-medium", row.fisico <= threshold && "text-destructive")}>{fmt(row.fisico)} m</td>
+        <td className="py-2 pr-3 text-right font-medium">{fmt(row.fisico)} m</td>
         <td className="py-2 pr-3 text-right">{fmt(row.reservado)} m</td>
         <td className="py-2 pr-3 text-right">{fmt(row.previsto)} m</td>
       </tr>
@@ -509,12 +495,11 @@ function VarianteRow({ row, threshold }: { row: any; threshold: number }) {
 }
 
 // Card mobile da variante (mesma fonte de dados do VarianteRow, via hook).
-function VarianteCard({ row, threshold }: { row: any; threshold: number }) {
+function VarianteCard({ row }: { row: any }) {
   const [open, setOpen] = useState(false);
   const { ocRows, reservaSemOc, isLoading } = useEstoqueVarianteDetalhe(row.varId, open, row.reservado);
-  const low = row.fisico <= threshold;
   return (
-    <div className={cn("rounded-lg border p-3", low && "border-destructive/40 bg-destructive/5")}>
+    <div className="rounded-lg border p-3">
       <button type="button" className="w-full text-left" onClick={() => setOpen((o) => !o)}>
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
@@ -528,7 +513,7 @@ function VarianteCard({ row, threshold }: { row: any; threshold: number }) {
             )}
           </div>
           <div className="shrink-0 text-right">
-            <div className={cn("text-lg font-semibold leading-none", low && "text-destructive")}>
+            <div className="text-lg font-semibold leading-none">
               {fmt(row.fisico)} <span className="text-xs font-normal">m</span>
             </div>
             <div className="text-[10px] text-muted-foreground">Físico Real</div>
@@ -584,7 +569,6 @@ function VarianteCard({ row, threshold }: { row: any; threshold: number }) {
 /* ============================ AVIAMENTOS ============================ */
 
 function AviamentosTab() {
-  const threshold = useEstoqueThresholds().aviamento;
   const [search, setSearch] = useState("");
   const [fornecedor, setFornecedor] = useState<string>("all");
   const [categoria, setCategoria] = useState<string>("all");
@@ -748,7 +732,7 @@ function AviamentosTab() {
             </thead>
             <tbody>
               {filtered.map((r: any) => (
-                <AviamentoRow key={r.id} row={r} threshold={threshold} />
+                <AviamentoRow key={r.id} row={r} />
               ))}
               {!isLoading && filtered.length === 0 && (
                 <tr><td colSpan={10} className="py-4 text-center text-muted-foreground">Nenhum aviamento encontrado.</td></tr>
@@ -759,7 +743,7 @@ function AviamentosTab() {
         {/* Mobile: cards por aviamento */}
         <div className="md:hidden space-y-2">
           {filtered.map((r: any) => (
-            <AviamentoCard key={r.id} row={r} threshold={threshold} />
+            <AviamentoCard key={r.id} row={r} />
           ))}
           {!isLoading && filtered.length === 0 && (
             <p className="py-4 text-center text-sm text-muted-foreground">Nenhum aviamento encontrado.</p>
@@ -824,19 +808,19 @@ function useEstoqueAviamentoDetalhe(aviamentoId: string, open: boolean) {
   return { pendentes, recebidas, loadingPend, loadingRec };
 }
 
-function AviamentoRow({ row, threshold }: { row: any; threshold: number }) {
+function AviamentoRow({ row }: { row: any }) {
   const [open, setOpen] = useState(false);
   const { pendentes, recebidas, loadingPend, loadingRec } = useEstoqueAviamentoDetalhe(row.id, open);
   return (
     <>
-      <tr className={cn("border-b last:border-0 cursor-pointer", row.fisico <= threshold && "bg-destructive/10")} onClick={() => setOpen((o) => !o)}>
+      <tr className="border-b last:border-0 cursor-pointer" onClick={() => setOpen((o) => !o)}>
         <td className="py-2 pr-3 text-muted-foreground">{open ? "▾" : "▸"}</td>
         <td className="py-2 pr-3">{row.nome}</td>
         <td className="py-2 pr-3">{row.fornecedor}</td>
         <td className="py-2 pr-3">{row.categoria}</td>
         <td className="py-2 pr-3 text-right">{fmt(row.prevReceb)}</td>
         <td className="py-2 pr-3 text-right">{fmt(row.recebido)}</td>
-        <td className={cn("py-2 pr-3 text-right font-medium", row.fisico <= threshold && "text-destructive")}>{fmt(row.fisico)}</td>
+        <td className="py-2 pr-3 text-right font-medium">{fmt(row.fisico)}</td>
         <td className="py-2 pr-3 text-right">{fmt(row.reservado)}</td>
         <td className="py-2 pr-3 text-right">{fmt(row.previsto)}</td>
       </tr>
@@ -911,12 +895,11 @@ function AviamentoRow({ row, threshold }: { row: any; threshold: number }) {
 }
 
 // Card mobile do aviamento (mesma fonte de dados do AviamentoRow, via hook).
-function AviamentoCard({ row, threshold }: { row: any; threshold: number }) {
+function AviamentoCard({ row }: { row: any }) {
   const [open, setOpen] = useState(false);
   const { pendentes, recebidas, loadingPend, loadingRec } = useEstoqueAviamentoDetalhe(row.id, open);
-  const low = row.fisico <= threshold;
   return (
-    <div className={cn("rounded-lg border p-3", low && "border-destructive/40 bg-destructive/5")}>
+    <div className="rounded-lg border p-3">
       <button type="button" className="w-full text-left" onClick={() => setOpen((o) => !o)}>
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
@@ -924,7 +907,7 @@ function AviamentoCard({ row, threshold }: { row: any; threshold: number }) {
             <div className="text-[10px] text-muted-foreground truncate">{row.fornecedor ?? "—"}{row.categoria ? ` · ${row.categoria}` : ""}</div>
           </div>
           <div className="shrink-0 text-right">
-            <div className={cn("text-lg font-semibold leading-none", low && "text-destructive")}>{fmt(row.fisico)}</div>
+            <div className="text-lg font-semibold leading-none">{fmt(row.fisico)}</div>
             <div className="text-[10px] text-muted-foreground">Físico Real</div>
           </div>
         </div>
