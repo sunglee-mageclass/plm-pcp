@@ -14,6 +14,7 @@ export function OcTecidoCalculos({
   items, artigoMap, varianteMap, setQtd,
   totalPrevisto, totalReal, dataPrevista, dataEntrega, status, readOnly = false,
   toggleCancelado, canCancel,
+  modoRolo = false, rolos = {}, setRolos,
 }: {
   items: ItemDraft[];
   artigoMap: Record<string, Artigo>;
@@ -27,7 +28,18 @@ export function OcTecidoCalculos({
   readOnly?: boolean;
   toggleCancelado?: (tempId: string, value: boolean) => void;
   canCancel?: boolean;
+  // Modo só-rolo: a Qtd Recebida é destrinchada em rolos (a soma = recebido).
+  modoRolo?: boolean;
+  rolos?: Record<string, string[]>;
+  setRolos?: React.Dispatch<React.SetStateAction<Record<string, string[]>>>;
 }) {
+  // Atualiza os rolos de um item e reflete a SOMA no quantidade_recebida.
+  const aplicarRolos = (tempId: string, novos: string[]) => {
+    setRolos?.((prev) => ({ ...prev, [tempId]: novos }));
+    const soma = novos.reduce((s, v) => s + (Number(String(v).replace(",", ".")) || 0), 0);
+    setQtd(tempId, "quantidade_recebida", soma > 0 ? Math.round(soma * 100) / 100 : null);
+  };
+  const rolosDe = (tempId: string) => rolos[tempId] ?? [""];
   // Rendimento da OC (item) tem prioridade sobre o do cadastro do artigo.
   const rendimentoDe = (it: ItemDraft, a: Artigo) => Number(it.rendimento ?? a.rendimento ?? 0);
   const metragemPedida = (it: ItemDraft) => {
@@ -86,6 +98,24 @@ export function OcTecidoCalculos({
                     <span className="text-sm line-through">
                       {i.quantidade_recebida ?? 0}{sufixo ? ` ${sufixo}` : ""}
                     </span>
+                  ) : modoRolo ? (
+                    <div className="space-y-1 w-44">
+                      {rolosDe(i.tempId).map((rv, ri) => (
+                        <div key={ri} className="flex items-center gap-1">
+                          <span className="text-[10px] text-muted-foreground w-7 shrink-0">#{ri + 1}</span>
+                          <NumberInput type="number" step="0.01" className="h-7 w-20"
+                            value={rv}
+                            onChange={(e) => { const arr = [...rolosDe(i.tempId)]; arr[ri] = e.target.value; aplicarRolos(i.tempId, arr); }} />
+                          {sufixo && <span className="text-[10px] text-muted-foreground">{sufixo}</span>}
+                          {rolosDe(i.tempId).length > 1 && (
+                            <button type="button" aria-label="Remover rolo" className="text-muted-foreground hover:text-destructive leading-none px-1"
+                              onClick={() => { const arr = rolosDe(i.tempId).filter((_, k) => k !== ri); aplicarRolos(i.tempId, arr.length ? arr : [""]); }}>×</button>
+                          )}
+                        </div>
+                      ))}
+                      <button type="button" className="text-xs text-primary hover:underline" onClick={() => aplicarRolos(i.tempId, [...rolosDe(i.tempId), ""])}>+ rolo</button>
+                      <div className="text-[11px] text-muted-foreground">Total: <b className="text-foreground">{fmtNum(i.quantidade_recebida ?? 0)}{sufixo ? ` ${sufixo}` : ""}</b> · {rolosDe(i.tempId).filter((v) => Number(String(v).replace(",", ".")) > 0).length} rolo(s)</div>
+                    </div>
                   ) : (
                     <div className="relative w-24">
                       <NumberInput type="number" step="0.01" className={sufixo ? "pr-10" : ""}

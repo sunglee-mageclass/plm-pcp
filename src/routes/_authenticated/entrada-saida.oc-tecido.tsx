@@ -26,6 +26,7 @@ import { OcNfHistorico } from "@/components/oc-tecido/OcNfHistorico";
 import { FilterButton } from "@/components/shared/filters";
 import { OcTecidoForm } from "@/components/oc-tecido/OcTecidoForm";
 import { OcTecidoRecebimento } from "@/components/oc-tecido/OcTecidoRecebimento";
+import { useModoOcRolo } from "@/hooks/useModoOcRolo";
 import {
   emptyDraft, uploadFile,
   type Artigo, type Colab, type Draft, type Empresa, type ItemDraft,
@@ -292,6 +293,9 @@ function OcDialog({
   const [items, setItems] = useState<ItemDraft[]>([]);
   const [originalItemIds, setOriginalItemIds] = useState<string[]>([]);
   const [status, setStatus] = useState<OCStatus>("encomendado");
+  // Modo só-rolo: o recebimento é destrinchado em rolos (gera os rolos ao receber).
+  const modoOcRolo = useModoOcRolo();
+  const [rolosPorItem, setRolosPorItem] = useState<Record<string, string[]>>({});
   const [respMode, setRespMode] = useState<"select" | "text">("select");
   const [tecido2Aberto, setTecido2Aberto] = useState(false);
   const [confirmUnmark, setConfirmUnmark] = useState(false);
@@ -606,12 +610,49 @@ function OcDialog({
         // exige admin — ver prompt Lovable p/ liberar a qualquer membro do tenant).
         if (recErr) console.warn("recalcular_parcelas (tecido) falhou:", recErr.message);
       }
+
+      // Modo só-rolo: gera os rolos a partir do destrinchamento. criar_rolo separa
+      // da OC recebida (baixa separacao_rolo) e converte kg→metros — sem duplicar
+      // estoque. Best-effort: se falhar, a OC já está recebida (não bloqueia).
+      if (modoOcRolo === "rolo" && finalStatus === "recebido" && ocIdLocal && Object.keys(rolosPorItem).length > 0) {
+        try {
+          const { data: savedItems } = await supabase
+            .from("ocs_tecido_itens").select("id, variante_tecido_id, artigo_id").eq("oc_tecido_id", ocIdLocal);
+          const itemByVar = new Map((savedItems ?? []).map((it: any) => [it.variante_tecido_id, it]));
+          for (const [tempId, rolls] of Object.entries(rolosPorItem)) {
+            const di = items.find((x) => x.tempId === tempId);
+            if (!di?.variante_tecido_id || di.cancelado) continue;
+            const saved = itemByVar.get(di.variante_tecido_id);
+            if (!saved) continue;
+            const a = di.artigo_id ? artigoMap[di.artigo_id] : null;
+            const isKg = a?.unidade_medida === "kg";
+            const rend = Number(di.rendimento ?? a?.rendimento ?? 0);
+            for (const rStr of rolls) {
+              const qtd = Number(String(rStr).replace(",", "."));
+              if (!qtd || qtd <= 0) continue;
+              const metros = isKg && rend > 0 ? qtd * rend : qtd;
+              const { data: codigo } = await supabase.rpc("proximo_codigo_rolo" as any, { _artigo_id: di.artigo_id });
+              const { error: rErr } = await supabase.rpc("criar_rolo" as any, {
+                _codigo: codigo, _artigo_id: di.artigo_id,
+                _variantes: [{ variante_tecido_id: di.variante_tecido_id, metragem: metros }],
+                _origem_item_id: saved.id,
+              });
+              if (rErr) throw rErr;
+            }
+          }
+        } catch (e: any) {
+          console.warn("gerar rolos no recebimento:", e?.message);
+          toast.warning("OC recebida, mas houve erro ao gerar os rolos: " + (e?.message ?? ""));
+        }
+      }
     },
     onSuccess: () => {
       toast.success("OC salva");
       qc.invalidateQueries({ queryKey: ["ocs_tecido"] });
       qc.invalidateQueries({ queryKey: ["ocs_tecido_qtd_recebida"] });
       qc.invalidateQueries({ queryKey: ["parcelas"] });
+      qc.invalidateQueries({ queryKey: ["rolos"] });
+      qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
       onSaved();
       onClose();
     },
@@ -763,6 +804,9 @@ function OcDialog({
               readOnly={isReadOnlyRecebimento}
               toggleCancelado={toggleCancelado}
               canCancel={status === "encomendado"}
+              modoRolo={modoOcRolo === "rolo" && status === "encomendado"}
+              rolos={rolosPorItem}
+              setRolos={setRolosPorItem}
             />
           )}
 

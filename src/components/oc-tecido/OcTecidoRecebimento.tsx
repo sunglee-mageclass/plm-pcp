@@ -14,6 +14,7 @@ export function OcTecidoRecebimento({
   items, artigoMap, varianteMap, setQtd, totalPrevisto, totalReal,
   tecido2Aberto, artigoId1, artigoId2, status, readOnly = false,
   toggleCancelado, canCancel,
+  modoRolo = false, rolos = {}, setRolos,
 }: {
   draft: Draft;
   setDraft: React.Dispatch<React.SetStateAction<Draft>>;
@@ -31,6 +32,9 @@ export function OcTecidoRecebimento({
   readOnly?: boolean;
   toggleCancelado?: (tempId: string, value: boolean) => void;
   canCancel?: boolean;
+  modoRolo?: boolean;
+  rolos?: Record<string, string[]>;
+  setRolos?: React.Dispatch<React.SetStateAction<Record<string, string[]>>>;
 }) {
   return (
     <>
@@ -157,6 +161,9 @@ export function OcTecidoRecebimento({
           readOnly={readOnly}
           toggleCancelado={toggleCancelado}
           canCancel={canCancel}
+          modoRolo={modoRolo}
+          rolos={rolos}
+          setRolos={setRolos}
         />
       </div>
     </>
