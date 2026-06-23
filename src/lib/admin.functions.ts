@@ -39,7 +39,9 @@ export const createTenantUser = createServerFn({ method: "POST" })
     const uid = created.user.id;
     const { error: uErr } = await supabaseAdmin.from("users").insert({
       id: uid,
-      tenant_id: data.tenant_id,
+      // super_admin é global: tenant_id fica null (o TenantSwitcher/setActiveTenant
+      // define qual loja ele "vê"). Gravar um tenant fixo colidia com esse campo.
+      tenant_id: data.role === "super_admin" ? null : data.tenant_id,
       nome: data.nome,
       email: data.email,
       role: data.role,

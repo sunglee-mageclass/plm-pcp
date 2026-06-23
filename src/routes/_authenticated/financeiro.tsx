@@ -977,7 +977,9 @@ function ServicosView() {
                     <td className="py-2 pr-3 text-right font-medium" data-label="Valor parcela">{brl(Number(r.valor_parcela))}</td>
                     <td className="py-2 pr-3" data-label="Entrega">{fmtD(r.data_entrega)}</td>
                     <td className="py-2 pr-3" data-label="Vencimento">
-                      <Input type="date" value={r.data_vencimento ?? ""} onChange={(e) => updVenc.mutate({ id: r.parcela_id, data: e.target.value })} className="h-8 w-auto" />
+                      {/* onBlur (VencimentoCell) em vez de gravar a cada onChange:
+                          cada tecla disparava UPDATE + RPC de sync (loop). */}
+                      <VencimentoCell value={r.data_vencimento ?? ""} onSave={(data) => updVenc.mutate({ id: r.parcela_id, data })} />
                     </td>
                     <td className="py-2 pr-3" data-label="Status">
                       <Badge variant={st === "pago" ? "default" : st === "vencido" ? "destructive" : "secondary"}>

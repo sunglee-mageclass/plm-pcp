@@ -279,7 +279,7 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
 
   // Módulos habilitados desta loja (tenant_config da loja editada; super_admin
   // lê/escreve via policy super_admin_all_tenant_config).
-  const { data: cfgModules } = useQuery({
+  const { data: cfgModules, isFetched: cfgFetched } = useQuery({
     queryKey: ["admin", "tenant-modules", tenant.id],
     queryFn: async () => {
       const { data } = await supabase
@@ -326,13 +326,17 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
       const { error } = await supabase.from("tenants").update(payload).eq("id", tenant.id);
       if (error) throw error;
       // Módulos habilitados → tenant_config da loja (upsert; cadastro forçado on).
-      const { error: cfgErr } = await supabase
-        .from("tenant_config")
-        .upsert(
-          { tenant_id: tenant.id, modules: { ...modules, cadastro: true } } as any,
-          { onConflict: "tenant_id" },
-        );
-      if (cfgErr) throw cfgErr;
+      // Só grava se os módulos JÁ foram carregados — senão o estado ainda está nos
+      // MODULE_DEFAULTS (tudo on) e o save sobrescreveria a config real com defaults.
+      if (cfgFetched) {
+        const { error: cfgErr } = await supabase
+          .from("tenant_config")
+          .upsert(
+            { tenant_id: tenant.id, modules: { ...modules, cadastro: true } } as any,
+            { onConflict: "tenant_id" },
+          );
+        if (cfgErr) throw cfgErr;
+      }
       toast.success("Loja atualizada");
       qc.invalidateQueries({ queryKey: ["admin", "tenants"] });
       qc.invalidateQueries({ queryKey: ["tenant-switcher"] });
