@@ -34,6 +34,7 @@ import { ModeloCustosSection } from "./modelo-detail/ModeloCustosSection";
 import { ModeloAnexosSection } from "./modelo-detail/ModeloAnexosSection";
 import { useEtapasAfetadas, DownstreamConfirmDialog } from "./DownstreamImpactAlert";
 import { ModeloObservacoes } from "@/components/shared/ModeloObservacoes";
+import { VersaoBadge } from "@/components/shared/VersaoBadge";
 
 export function ModeloDetailPanel({ modeloId, onClose }: {
   modeloId: string | null;
@@ -838,7 +839,10 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   return (
     <>
       <SheetHeader>
-        <SheetTitle>{draft.nome || "Modelo"}</SheetTitle>
+        <SheetTitle className="flex flex-wrap items-center gap-2">
+          <span>{draft.nome || "Modelo"}</span>
+          <VersaoBadge versao={(modelo as any)?.versao} />
+        </SheetTitle>
       </SheetHeader>
 
       <DownstreamConfirmDialog
