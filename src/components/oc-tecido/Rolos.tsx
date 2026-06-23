@@ -297,16 +297,16 @@ function RoloBarcode({ value }: { value: string }) {
       const JsBarcode = (m as any).default ?? m;
       try {
         const canvas = document.createElement("canvas");
-        // displayValue: o código (fonte grande) aparece embaixo das barras — é o
-        // "campo código" agora; por isso fonte maior.
-        JsBarcode(canvas, value, { format: "CODE128", displayValue: true, fontSize: 34, fontOptions: "bold", textMargin: 4, height: 64, width: 2.5, margin: 4 });
+        // Canvas em ALTA resolução (height 130, width 3) → escala pra baixo no
+        // print = NÍTIDO (não pixela). displayValue = código grande sob as barras.
+        JsBarcode(canvas, value, { format: "CODE128", displayValue: true, fontSize: 46, fontOptions: "bold", textMargin: 4, height: 130, width: 3, margin: 4 });
         if (!cancelled) setSrc(canvas.toDataURL("image/png"));
       } catch { /* valor inválido p/ barcode — ignora */ }
     });
     return () => { cancelled = true; };
   }, [value]);
-  // Altura PADRONIZADA (~34mm, barras + código grande); largura proporcional.
-  return src ? <img src={src} alt={value} style={{ height: "34mm", width: "auto", maxWidth: "100%", display: "block", marginTop: 6 }} /> : null;
+  // Só HEIGHT (17mm) + width auto = mantém proporção (não distorce); centralizado.
+  return src ? <img src={src} alt={value} style={{ height: "17mm", width: "auto", display: "block", margin: "8px auto 0" }} /> : null;
 }
 
 function EtiquetaRolo({ rolo, logo }: { rolo: RoloRow; logo: string | null }) {
@@ -335,7 +335,7 @@ function EtiquetaRolo({ rolo, logo }: { rolo: RoloRow; logo: string | null }) {
       {campo("Fornecedor", fornecedor)}
       {/* Sem campo "Código" separado: o barcode já mostra o código embaixo das barras (fonte maior). */}
       {codigo && <RoloBarcode value={codigo} />}
-      <div style={{ position: "absolute", left: "10mm", bottom: "3mm", fontSize: 7, color: "#bbb" }}>etq · build 0623f</div>
+      <div style={{ position: "absolute", left: "10mm", bottom: "3mm", fontSize: 7, color: "#bbb" }}>etq · build 0623g</div>
     </div>
   );
 }
