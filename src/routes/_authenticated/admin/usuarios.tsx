@@ -39,10 +39,11 @@ type AppUser = {
 };
 type Tenant = { id: string; nome: string };
 
-const ROLES = ["super_admin", "admin", "user"] as const;
+const ROLES = ["super_admin", "admin", "tenant_admin", "user"] as const;
 const roleBadge = (role: string) => {
   if (role === "super_admin") return <Badge className="bg-amber-500 hover:bg-amber-600">Super Admin</Badge>;
   if (role === "admin") return <Badge className="bg-blue-500 hover:bg-blue-600">Admin</Badge>;
+  if (role === "tenant_admin") return <Badge className="bg-indigo-500 hover:bg-indigo-600">Admin da Loja</Badge>;
   return <Badge variant="secondary">Usuário</Badge>;
 };
 
@@ -281,6 +282,7 @@ function NovoUsuarioModal({
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="user">Usuário</SelectItem>
+                <SelectItem value="tenant_admin">Admin da Loja</SelectItem>
                 <SelectItem value="admin">Admin</SelectItem>
                 <SelectItem value="super_admin">Super Admin</SelectItem>
               </SelectContent>

@@ -21,7 +21,7 @@ export const createTenantUser = createServerFn({ method: "POST" })
       password: z.string().min(6).max(100),
       nome: z.string().min(1).max(255),
       tenant_id: z.string().uuid(),
-      role: z.enum(["admin", "user", "super_admin"]),
+      role: z.enum(["admin", "user", "super_admin", "tenant_admin"]),
     }),
   )
   .handler(async ({ data, context }) => {
