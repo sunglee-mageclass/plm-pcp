@@ -1,7 +1,7 @@
 import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Store, Plus, Search, Upload, Pencil } from "lucide-react";
+import { Store, Plus, Search, Upload, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -16,6 +16,10 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { PAGES_CATALOG } from "@/lib/permissions-catalog";
 
@@ -54,6 +58,9 @@ function LojasPage() {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
+  const [resetTarget, setResetTarget] = useState<Tenant | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Tenant | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
 
   const { data: tenants = [], isLoading } = useQuery({
     queryKey: ["admin", "tenants"],
@@ -82,6 +89,35 @@ function LojasPage() {
       qc.invalidateQueries({ queryKey: ["admin", "tenants"] });
       qc.invalidateQueries({ queryKey: ["tenant-switcher"] });
       toast.success("Loja atualizada");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // Reset = "como loja nova": zera os dados de negócio (RPC reset_loja, super_admin).
+  const resetMut = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.rpc("reset_loja" as any, { _tenant_id: id });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin", "tenants"] });
+      setResetTarget(null);
+      toast.success("Loja resetada — voltou ao estado inicial.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  // Exclusão definitiva da loja + todos os dados (RPC excluir_loja, super_admin).
+  const deleteMut = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.rpc("excluir_loja" as any, { _tenant_id: id });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin", "tenants"] });
+      qc.invalidateQueries({ queryKey: ["tenant-switcher"] });
+      setDeleteTarget(null);
+      setDeleteConfirm("");
+      toast.success("Loja excluída.");
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -164,6 +200,24 @@ function LojasPage() {
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setResetTarget(t)}
+                        aria-label="Resetar loja"
+                        title="Resetar (zerar dados, manter loja)"
+                      >
+                        <RotateCcw className="h-4 w-4 text-amber-600" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => { setDeleteTarget(t); setDeleteConfirm(""); }}
+                        aria-label="Excluir loja"
+                        title="Excluir loja"
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
                       <Switch
                         checked={t.ativo}
                         onCheckedChange={(checked) => toggleAtivo.mutate({ id: t.id, ativo: checked })}
@@ -182,6 +236,60 @@ function LojasPage() {
           <EditarLojaModal tenant={editingTenant} onClose={() => setEditingTenant(null)} />
         )}
       </Dialog>
+
+      {/* Reset: zera os dados de negócio, mantém loja/usuários/config. */}
+      <AlertDialog open={!!resetTarget} onOpenChange={(o) => { if (!o) setResetTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Resetar a loja “{resetTarget?.nome}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Apaga <strong>todos os dados de negócio</strong> (cadastro, desenvolvimento,
+              OCs, CAD, CQ, produção, financeiro e estoque) e devolve a loja ao estado
+              inicial. Mantém a loja, os usuários, as permissões e a configuração, e
+              recria as categorias fixas (Corte/Oficina). <strong>Não pode ser desfeito.</strong>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-amber-600 text-white hover:bg-amber-700"
+              onClick={(e) => { e.preventDefault(); if (resetTarget) resetMut.mutate(resetTarget.id); }}
+              disabled={resetMut.isPending}
+            >
+              {resetMut.isPending ? "Resetando…" : "Resetar loja"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Exclusão: loja + todos os dados; confirma digitando o nome. */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => { if (!o) { setDeleteTarget(null); setDeleteConfirm(""); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir a loja “{deleteTarget?.nome}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Remove a loja e <strong>todos os seus dados e usuários</strong>, de forma
+              permanente. <strong>Irreversível.</strong> Para confirmar, digite o nome da loja:
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Input
+            value={deleteConfirm}
+            onChange={(e) => setDeleteConfirm(e.target.value)}
+            placeholder={deleteTarget?.nome ?? ""}
+            autoFocus
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => { e.preventDefault(); if (deleteTarget) deleteMut.mutate(deleteTarget.id); }}
+              disabled={deleteMut.isPending || deleteConfirm.trim() !== deleteTarget?.nome}
+            >
+              {deleteMut.isPending ? "Excluindo…" : "Excluir loja"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
