@@ -27,7 +27,8 @@ function AuthenticatedLayout() {
   const identity = useApplySystemIdentity();
   const moduleLabel = useModuleLabel();
   // Loja inativa = suspensão real: a RLS já bloqueia os dados (get_user_tenant_id
-  // retorna NULL); aqui só mostramos a mensagem em vez de telas vazias.
+  // retorna o UUID sentinela nil '0000…', NUNCA NULL — invariante 13); aqui só
+  // mostramos a mensagem em vez de telas vazias.
   const { data: tenantAtivo } = useQuery({
     queryKey: ["meu-tenant-ativo", user?.id],
     enabled: !!user,

@@ -706,7 +706,7 @@ function FinanceiroTab() {
     },
   });
 
-  const { data: estoqueParado } = useQuery({
+  const { data: estoqueParado, isError: estoqueParadoErr, isLoading: estoqueParadoLoading } = useQuery({
     queryKey: ["dash-estoque-parado"],
     queryFn: async () => {
       const { data, error } = await supabase.rpc("dashboard_estoque_parado" as any);
@@ -754,8 +754,15 @@ function FinanceiroTab() {
       <Card className="p-4">
         <div className="flex flex-wrap items-end justify-between gap-2 mb-3">
           <h3 className="font-semibold">Estoque em R$ parado <span className="text-sm font-normal text-muted-foreground">· tecido físico não reservado e não usado</span></h3>
-          <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">{brl(Number(estoqueParado?.total ?? 0))}</div>
+          <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">
+            {estoqueParadoErr ? <span className="text-base font-medium text-destructive">erro ao carregar</span>
+              : estoqueParadoLoading ? <span className="text-base font-normal text-muted-foreground">carregando…</span>
+              : brl(Number(estoqueParado?.total ?? 0))}
+          </div>
         </div>
+        {estoqueParadoErr ? (
+          <div className="flex h-[260px] items-center justify-center text-sm text-destructive">Não foi possível carregar o estoque parado.</div>
+        ) : (
         <div style={{ width: "100%", height: 260 }}>
           <ResponsiveContainer>
             <BarChart data={estoqueParado?.porArtigo ?? []} layout="vertical" margin={{ left: 8, right: 16 }}>
@@ -767,6 +774,7 @@ function FinanceiroTab() {
             </BarChart>
           </ResponsiveContainer>
         </div>
+        )}
       </Card>
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="p-4">
