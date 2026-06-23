@@ -319,7 +319,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
       // Desenvolvimento DEPOIS de o CAD existir (antes só apareciam ao criar o
       // CAD). Preserva o que já foi editado no CAD; só ACRESCENTA o que é novo
       // (nunca remove, p/ não perder edição feita no CAD).
-      const blockByKey = new Map(initialTec.map((t) => [`${t.tipo}-${t.numero}`, t] as const));
+      const blockByKey = new Map<string, TecidoRow>(initialTec.map((t) => [`${t.tipo}-${t.numero}`, t]));
       (modeloTecidos as any[]).forEach((mt) => {
         const existing = blockByKey.get(`${mt.tipo}-${mt.numero}`);
         if (!existing) {
