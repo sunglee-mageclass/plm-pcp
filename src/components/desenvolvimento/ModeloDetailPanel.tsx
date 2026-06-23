@@ -625,7 +625,10 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   });
 
   const updateBlock = (idx: number, patch: Partial<TecidoBlock>) => {
-    setConsumoAlterado(true);
+    // Só marca "consumo alterado" (que vira #Erro nas etapas downstream) quando
+    // consumo/%loss REALMENTE mudam — trocar artigo/substituto não altera a metragem,
+    // então não deve disparar revisão pendente nas etapas.
+    if (patch.consumo !== undefined || patch.loss_percent !== undefined) setConsumoAlterado(true);
     const target = blocks[idx];
     const isTecido1 = target?.tipo === "tecido" && target?.numero === 1;
     // Trocar o artigo do Tecido 1 zera suas variantes; a grade é indexada por

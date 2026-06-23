@@ -211,7 +211,14 @@ function ColaboradoresPage() {
       if (!v) throw new Error("Informe o nome do tipo.");
       if (RESERVED.has(v.toLowerCase()) && v.toLowerCase() !== tab.tipo.toLowerCase())
         throw new Error("Esse tipo já existe como tipo fixo.");
-      // Renomeou: propaga para os colaboradores desse tipo (colaboradores.tipo = nome).
+      // Renomeia o TIPO primeiro: se colidir com outro tipo (unique 23505), falha
+      // ANTES de tocar nos colaboradores — assim eles não ficam apontando p/ um nome
+      // de tipo inexistente (e sumindo da aba). Só depois propaga aos colaboradores.
+      const { error } = await supabase
+        .from("tipos_colaborador" as any)
+        .update({ nome: v, categoria_terceirizado_id: categoriaId || null })
+        .eq("id", tab.typeId!);
+      if (error) throw error;
       if (v !== tab.tipo) {
         const { error: cErr } = await supabase
           .from("colaboradores")
@@ -219,11 +226,6 @@ function ColaboradoresPage() {
           .eq("tipo", tab.tipo);
         if (cErr) throw cErr;
       }
-      const { error } = await supabase
-        .from("tipos_colaborador" as any)
-        .update({ nome: v, categoria_terceirizado_id: categoriaId || null })
-        .eq("id", tab.typeId!);
-      if (error) throw error;
     },
     onSuccess: () => {
       setAddOpen(false);
