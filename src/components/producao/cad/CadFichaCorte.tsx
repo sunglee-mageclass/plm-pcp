@@ -263,6 +263,7 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
           </p>
         </div>
       </div>
+      <div style={{ fontSize: 8, color: "#999", textAlign: "right", marginTop: 4 }}>ficha · build 0623a (metade A4)</div>
     </PrintArea>
   );
 }

@@ -334,6 +334,7 @@ function EtiquetaRolo({ rolo, logo }: { rolo: RoloRow; logo: string | null }) {
         <div style={{ fontSize: 10, color: "#666", textTransform: "uppercase", letterSpacing: 0.6 }}>Código</div>
         <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 6 }}>{codigo || "—"}</div>
         {codigo && <RoloBarcode value={codigo} />}
+        <div style={{ fontSize: 7, color: "#bbb", marginTop: 3 }}>etq · build 0623a</div>
       </div>
     </div>
   );
