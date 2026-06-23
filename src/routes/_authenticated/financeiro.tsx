@@ -136,8 +136,10 @@ function FinanceiroPage() {
   });
 
   // Serviços (Terceirizados) com vencimento preenchido → também aparecem no calendário.
+  // Chave distinta da aba Serviços (shape mapeado p/ calendário ≠ shape cru da lista),
+  // mas com o mesmo PREFIXO "servicos-financeiro" → as invalidações por prefixo atingem ambas.
   const { data: servicosCal = [] } = useQuery({
-    queryKey: ["servicos-financeiro"],
+    queryKey: ["servicos-financeiro", "calendario"],
     queryFn: async () => {
       const { data, error } = await supabase.rpc("servicos_financeiro" as any);
       if (error) throw error;
@@ -848,7 +850,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
 function ServicosView() {
   const qc = useQueryClient();
   const { data: rows = [], isLoading } = useQuery({
-    queryKey: ["servicos-financeiro"],
+    queryKey: ["servicos-financeiro", "lista"],
     queryFn: async () => {
       const { data, error } = await supabase.rpc("servicos_financeiro" as any);
       if (error) throw error;
