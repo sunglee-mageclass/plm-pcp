@@ -78,6 +78,7 @@ function effectiveStatus(p: Parcela): "pago" | "vencido" | "a_pagar" {
 }
 
 function FinanceiroPage() {
+  const [tab, setTab] = useState("calendario");
   const { data: parcelas = [], isLoading } = useQuery({
     queryKey: ["parcelas"],
     queryFn: async () => {
@@ -203,7 +204,18 @@ function FinanceiroPage() {
         </Card>
       )}
 
-      <Tabs defaultValue="calendario">
+      <Tabs value={tab} onValueChange={setTab}>
+        <div className="sm:hidden mb-4">
+          <Select value={tab} onValueChange={setTab}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="calendario">Calendário</SelectItem>
+              <SelectItem value="lista">Lista de Parcelas</SelectItem>
+              <SelectItem value="servicos">Serviços</SelectItem>
+              <SelectItem value="resumo">Resumo</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
         <TabsContent value="calendario" className="mt-4">
           <CalendarioView parcelas={parcelasCal} loading={isLoading} />
         </TabsContent>
@@ -270,7 +282,7 @@ function CalendarioView({ parcelas, loading }: { parcelas: Parcela[]; loading: b
   return (
     <Card className="p-4">
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <TabsList className="mr-auto w-full flex-wrap h-auto sm:w-auto sm:inline-flex sm:flex-nowrap">
+        <TabsList className="mr-auto hidden sm:inline-flex sm:flex-nowrap">
           <TabsTrigger value="calendario" className="flex-1 sm:flex-none">Calendário</TabsTrigger>
           <TabsTrigger value="lista" className="flex-1 sm:flex-none"><span className="sm:hidden">Parcelas</span><span className="hidden sm:inline">Lista de Parcelas</span></TabsTrigger>
           <TabsTrigger value="servicos" className="flex-1 sm:flex-none">Serviços</TabsTrigger>
@@ -694,7 +706,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <TabsList className="mr-auto w-full flex-wrap h-auto sm:w-auto sm:inline-flex sm:flex-nowrap">
+        <TabsList className="mr-auto hidden sm:inline-flex sm:flex-nowrap">
           <TabsTrigger value="calendario" className="flex-1 sm:flex-none">Calendário</TabsTrigger>
           <TabsTrigger value="lista" className="flex-1 sm:flex-none"><span className="sm:hidden">Parcelas</span><span className="hidden sm:inline">Lista de Parcelas</span></TabsTrigger>
           <TabsTrigger value="servicos" className="flex-1 sm:flex-none">Serviços</TabsTrigger>
@@ -908,7 +920,7 @@ function ServicosView() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <TabsList className="mr-auto w-full flex-wrap h-auto sm:w-auto sm:inline-flex sm:flex-nowrap">
+        <TabsList className="mr-auto hidden sm:inline-flex sm:flex-nowrap">
           <TabsTrigger value="calendario" className="flex-1 sm:flex-none">Calendário</TabsTrigger>
           <TabsTrigger value="lista" className="flex-1 sm:flex-none"><span className="sm:hidden">Parcelas</span><span className="hidden sm:inline">Lista de Parcelas</span></TabsTrigger>
           <TabsTrigger value="servicos" className="flex-1 sm:flex-none">Serviços</TabsTrigger>
@@ -1285,7 +1297,7 @@ function ResumoView({ parcelas }: { parcelas: Parcela[] }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <TabsList className="mr-auto w-full flex-wrap h-auto sm:w-auto sm:inline-flex sm:flex-nowrap">
+        <TabsList className="mr-auto hidden sm:inline-flex sm:flex-nowrap">
           <TabsTrigger value="calendario" className="flex-1 sm:flex-none">Calendário</TabsTrigger>
           <TabsTrigger value="lista" className="flex-1 sm:flex-none"><span className="sm:hidden">Parcelas</span><span className="hidden sm:inline">Lista de Parcelas</span></TabsTrigger>
           <TabsTrigger value="servicos" className="flex-1 sm:flex-none">Serviços</TabsTrigger>
