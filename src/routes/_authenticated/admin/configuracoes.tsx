@@ -196,6 +196,9 @@ function ConfiguracoesLojaPage() {
         </Button>
       </header>
 
+      {/* Editor de impressão — DESABILITADO temporariamente a pedido do dono (escondido
+          do front, código preservado pra retomar depois). Trocar `false` por `true` p/ voltar. */}
+      {false && (
       <Card>
         <CardHeader>
           <CardTitle>Impressão</CardTitle>
@@ -207,6 +210,7 @@ function ConfiguracoesLojaPage() {
           </Button>
         </CardContent>
       </Card>
+      )}
 
       <ServicosCard tenantId={data?.tenantId ?? null} />
 
