@@ -204,12 +204,6 @@ function FinanceiroPage() {
       )}
 
       <Tabs defaultValue="calendario">
-        <TabsList className="w-full flex-wrap h-auto sm:w-auto sm:inline-flex sm:flex-nowrap">
-          <TabsTrigger value="calendario" className="flex-1 sm:flex-none">Calendário</TabsTrigger>
-          <TabsTrigger value="lista" className="flex-1 sm:flex-none"><span className="sm:hidden">Parcelas</span><span className="hidden sm:inline">Lista de Parcelas</span></TabsTrigger>
-          <TabsTrigger value="servicos" className="flex-1 sm:flex-none">Serviços</TabsTrigger>
-          <TabsTrigger value="resumo" className="flex-1 sm:flex-none">Resumo</TabsTrigger>
-        </TabsList>
         <TabsContent value="calendario" className="mt-4">
           <CalendarioView parcelas={parcelasCal} loading={isLoading} />
         </TabsContent>
@@ -275,7 +269,13 @@ function CalendarioView({ parcelas, loading }: { parcelas: Parcela[]; loading: b
 
   return (
     <Card className="p-4">
-      <div className="mb-4 flex items-center gap-2">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <TabsList className="mr-auto w-full flex-wrap h-auto sm:w-auto sm:inline-flex sm:flex-nowrap">
+          <TabsTrigger value="calendario" className="flex-1 sm:flex-none">Calendário</TabsTrigger>
+          <TabsTrigger value="lista" className="flex-1 sm:flex-none"><span className="sm:hidden">Parcelas</span><span className="hidden sm:inline">Lista de Parcelas</span></TabsTrigger>
+          <TabsTrigger value="servicos" className="flex-1 sm:flex-none">Serviços</TabsTrigger>
+          <TabsTrigger value="resumo" className="flex-1 sm:flex-none">Resumo</TabsTrigger>
+        </TabsList>
         <Button variant="outline" size="icon" className="shrink-0" onClick={() => setCursor(addMonths(cursor, -1))}><ChevronLeft className="h-4 w-4" /></Button>
         <h2 className="flex-1 text-center text-base font-semibold capitalize sm:text-lg">
           {format(cursor, "MMMM 'de' yyyy", { locale: ptBR })}
@@ -693,7 +693,13 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <TabsList className="mr-auto w-full flex-wrap h-auto sm:w-auto sm:inline-flex sm:flex-nowrap">
+          <TabsTrigger value="calendario" className="flex-1 sm:flex-none">Calendário</TabsTrigger>
+          <TabsTrigger value="lista" className="flex-1 sm:flex-none"><span className="sm:hidden">Parcelas</span><span className="hidden sm:inline">Lista de Parcelas</span></TabsTrigger>
+          <TabsTrigger value="servicos" className="flex-1 sm:flex-none">Serviços</TabsTrigger>
+          <TabsTrigger value="resumo" className="flex-1 sm:flex-none">Resumo</TabsTrigger>
+        </TabsList>
         <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}>
           <Printer className="h-4 w-4 mr-1" /> Imprimir
         </Button>
@@ -901,7 +907,13 @@ function ServicosView() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <TabsList className="mr-auto w-full flex-wrap h-auto sm:w-auto sm:inline-flex sm:flex-nowrap">
+          <TabsTrigger value="calendario" className="flex-1 sm:flex-none">Calendário</TabsTrigger>
+          <TabsTrigger value="lista" className="flex-1 sm:flex-none"><span className="sm:hidden">Parcelas</span><span className="hidden sm:inline">Lista de Parcelas</span></TabsTrigger>
+          <TabsTrigger value="servicos" className="flex-1 sm:flex-none">Serviços</TabsTrigger>
+          <TabsTrigger value="resumo" className="flex-1 sm:flex-none">Resumo</TabsTrigger>
+        </TabsList>
         <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}>
           <Printer className="h-4 w-4 mr-1" /> Imprimir
         </Button>
@@ -1272,7 +1284,13 @@ function ResumoView({ parcelas }: { parcelas: Parcela[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center gap-2">
+        <TabsList className="mr-auto w-full flex-wrap h-auto sm:w-auto sm:inline-flex sm:flex-nowrap">
+          <TabsTrigger value="calendario" className="flex-1 sm:flex-none">Calendário</TabsTrigger>
+          <TabsTrigger value="lista" className="flex-1 sm:flex-none"><span className="sm:hidden">Parcelas</span><span className="hidden sm:inline">Lista de Parcelas</span></TabsTrigger>
+          <TabsTrigger value="servicos" className="flex-1 sm:flex-none">Serviços</TabsTrigger>
+          <TabsTrigger value="resumo" className="flex-1 sm:flex-none">Resumo</TabsTrigger>
+        </TabsList>
         <FilterButton activeCount={activeCount} onClear={clearFilters}>
           <div className="grid gap-1">
             <Label className="text-xs">Fornecedor</Label>

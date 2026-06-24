@@ -59,12 +59,8 @@ function Dashboard() {
         <p className="text-sm text-muted-foreground">Visão geral da coleção e do estoque.</p>
       </header>
       <Tabs value={active} onValueChange={setTab}>
-        {/* Desktop: abas; Mobile: dropdown (as abas ficavam apertadas no celular) */}
-        <TabsList className="hidden md:inline-flex">
-          {tabs.map((t) => (
-            <TabsTrigger key={t.value} value={t.value}>{t.label}</TabsTrigger>
-          ))}
-        </TabsList>
+        {/* Mobile: dropdown (as abas ficavam apertadas no celular). Desktop: o
+            TabsList vai DENTRO da toolbar de cada aba (mr-auto), via <DashTabsList />. */}
         <div className="md:hidden">
           <Select value={active} onValueChange={setTab}>
             <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
@@ -82,6 +78,21 @@ function Dashboard() {
         ))}
       </Tabs>
     </div>
+  );
+}
+
+// TabsList do desktop, reaproveitado dentro da toolbar de cada aba (mr-auto empurra
+// os botões de ação pra direita). Mesma lista filtrada por permissão do <Dashboard />.
+// No mobile o seletor de abas é o dropdown no nível da página (hidden md:inline-flex aqui).
+function DashTabsList() {
+  const { canView } = useAuth();
+  const tabs = DASH_TABS.filter((t) => canView(`dashboard_${t.value}`));
+  return (
+    <TabsList className="mr-auto hidden md:inline-flex">
+      {tabs.map((t) => (
+        <TabsTrigger key={t.value} value={t.value}>{t.label}</TabsTrigger>
+      ))}
+    </TabsList>
   );
 }
 
@@ -177,7 +188,8 @@ function ColecaoTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <DashTabsList />
         <PeriodoPicker value={periodo} onChange={setPeriodo} />
         <FilterButton
           filters={[
@@ -297,6 +309,9 @@ function EstoqueTab() {
 
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <DashTabsList />
+      </div>
       <div className="grid gap-4 sm:grid-cols-3">
         <Kpi label="Variantes de Tecido" value={totalVariantes} icon={Boxes} />
         <Kpi label="Aviamentos" value={totalAviamentos} icon={Package} />
@@ -463,7 +478,8 @@ function ProducaoTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <DashTabsList />
         <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}><Printer className="h-4 w-4 mr-1" /> Imprimir</Button>
         <PeriodoPicker value={periodo} onChange={setPeriodo} />
         <FilterButton
@@ -722,7 +738,8 @@ function FinanceiroTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <DashTabsList />
         <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}><Printer className="h-4 w-4 mr-1" /> Imprimir</Button>
         <PeriodoPicker value={periodo} onChange={setPeriodo} />
       </div>
@@ -878,7 +895,8 @@ function CustosTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <DashTabsList />
         <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}><Printer className="h-4 w-4 mr-1" /> Imprimir</Button>
         <PeriodoPicker value={periodo} onChange={setPeriodo} />
         <FilterButton
