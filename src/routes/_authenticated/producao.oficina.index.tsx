@@ -74,24 +74,25 @@ function OficinaListPage() {
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6">
-      <header className="flex items-center gap-3">
-        <Wrench className="h-7 w-7 text-primary" />
-        <div>
-          <h1 className="text-2xl font-bold">Oficina</h1>
-          <p className="text-sm text-muted-foreground">Costura e montagem por REF.</p>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="flex items-center gap-3">
+          <Wrench className="h-7 w-7 text-primary" />
+          <div>
+            <h1 className="text-2xl font-bold">Oficina</h1>
+            <p className="text-sm text-muted-foreground">Costura e montagem por REF.</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <SearchToggle value={q} onChange={setQ} placeholder={`${fl("ref")} ou nome…`} />
+          <FilterButton
+            filters={[
+              { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas coleções" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
+              { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos meses" }, ...(meses as any[]).map((m) => ({ id: m.id, nome: m.nome }))] },
+              { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos anos" }, ...(anos as any[]).map((a) => ({ id: a.id, nome: a.nome }))] },
+            ]}
+          />
         </div>
       </header>
-
-      <div className="flex items-center justify-end gap-2">
-        <SearchToggle value={q} onChange={setQ} placeholder={`${fl("ref")} ou nome…`} />
-        <FilterButton
-          filters={[
-            { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas coleções" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
-            { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos meses" }, ...(meses as any[]).map((m) => ({ id: m.id, nome: m.nome }))] },
-            { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos anos" }, ...(anos as any[]).map((a) => ({ id: a.id, nome: a.nome }))] },
-          ]}
-        />
-      </div>
 
       <Card className="overflow-x-auto">
         <table className="w-full text-sm card-table">

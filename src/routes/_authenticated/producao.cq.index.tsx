@@ -77,32 +77,33 @@ function CqListPage() {
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6">
-      <header className="flex items-center gap-3">
-        <ClipboardCheck className="h-7 w-7 text-primary" />
-        <div>
-          <h1 className="text-2xl font-bold">Controle de Qualidade</h1>
-          <p className="text-sm text-muted-foreground">Recebimento, conserto, lavagem e defeito por REF.</p>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="flex items-center gap-3">
+          <ClipboardCheck className="h-7 w-7 text-primary" />
+          <div>
+            <h1 className="text-2xl font-bold">Controle de Qualidade</h1>
+            <p className="text-sm text-muted-foreground">Recebimento, conserto, lavagem e defeito por REF.</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input className="pl-9" placeholder={`${fl("ref")} ou nome…`} value={q} onChange={(e) => setQ(e.target.value)} />
+          </div>
+          <FilterButton
+            filters={[
+              { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
+              { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...(meses as any[])] },
+              { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...(anos as any[])] },
+              { label: "Status", value: fStatus, onChange: setFStatus, options: [
+                { id: "all", nome: "Todos" },
+                { id: "pendente", nome: "Pendente" },
+                { id: "confirmado", nome: "Confirmado" },
+              ] },
+            ]}
+          />
         </div>
       </header>
-
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input className="pl-9" placeholder={`${fl("ref")} ou nome…`} value={q} onChange={(e) => setQ(e.target.value)} />
-        </div>
-        <FilterButton
-          filters={[
-            { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
-            { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...(meses as any[])] },
-            { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...(anos as any[])] },
-            { label: "Status", value: fStatus, onChange: setFStatus, options: [
-              { id: "all", nome: "Todos" },
-              { id: "pendente", nome: "Pendente" },
-              { id: "confirmado", nome: "Confirmado" },
-            ] },
-          ]}
-        />
-      </div>
 
       <Card className="overflow-x-auto">
         <table className="w-full text-sm card-table">
