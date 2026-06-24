@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
-export function ImagePreview({ src, alt, children }: {
+export function ImagePreview({ src, alt, children, className }: {
   src: string;
   alt: string;
   children: React.ReactNode;
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const abrir = (e: React.SyntheticEvent) => {
@@ -21,7 +23,7 @@ export function ImagePreview({ src, alt, children }: {
         tabIndex={0}
         onClick={abrir}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") abrir(e); }}
-        className="cursor-zoom-in inline-flex"
+        className={cn("cursor-zoom-in inline-flex", className)}
       >
         {children}
       </div>

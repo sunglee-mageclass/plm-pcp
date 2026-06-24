@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ImageIcon } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
+import { ImagePreview } from "@/components/shared/ImagePreview";
 
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -12,7 +13,7 @@ export function Field({ label, children }: { label: string; children: React.Reac
   );
 }
 
-export function ModeloPhoto({ path, alt, fit = "cover" }: { path: string; alt?: string; fit?: "cover" | "contain" }) {
+export function ModeloPhoto({ path, alt, fit = "cover", expandable = false }: { path: string; alt?: string; fit?: "cover" | "contain"; expandable?: boolean }) {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
@@ -23,14 +24,20 @@ export function ModeloPhoto({ path, alt, fit = "cover" }: { path: string; alt?: 
       alive = false;
     };
   }, [path]);
-  return url ? (
+  if (!url) return <ImageIcon className="h-8 w-8 text-muted-foreground" aria-hidden="true" />;
+  const img = (
     <img
       src={url}
       alt={alt ?? "Foto do modelo"}
       className={`h-full w-full ${fit === "contain" ? "object-contain" : "object-cover"}`}
     />
+  );
+  return expandable ? (
+    <ImagePreview src={url} alt={alt ?? "Foto do modelo"} className="h-full w-full">
+      {img}
+    </ImagePreview>
   ) : (
-    <ImageIcon className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
+    img
   );
 }
 

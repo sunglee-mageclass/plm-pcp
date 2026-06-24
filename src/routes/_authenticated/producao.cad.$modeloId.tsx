@@ -857,7 +857,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
         <Card className="p-5 max-md:p-3 flex gap-5 max-md:flex-col max-md:gap-3">
           <div className="h-32 w-32 max-md:h-28 max-md:w-28 rounded-md bg-muted overflow-hidden flex items-center justify-center shrink-0">
             {firstPhoto ? (
-              <ModeloPhoto path={firstPhoto} />
+              <ModeloPhoto path={firstPhoto} expandable />
             ) : (
               <ImageIcon className="h-8 w-8 text-muted-foreground" />
             )}
