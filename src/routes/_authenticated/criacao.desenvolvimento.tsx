@@ -9,7 +9,6 @@ import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { DEFAULT_STATUSES, type KanbanStatus, normalizeKanbanStatuses } from "@/lib/kanban-status";
 
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { ModeloDetailPanel } from "@/components/desenvolvimento/ModeloDetailPanel";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
@@ -303,10 +302,7 @@ function DesenvolvimentoPage() {
                           modelo={m}
                           estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
                           categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
-                          statuses={statusKanban}
                           onOpen={() => setOpenId(m.id)}
-                          onChangeStatus={(status) => updateStatus.mutate({ id: m.id, status })}
-                          editable={editable}
                         />
                       ))}
                     </div>
@@ -323,19 +319,15 @@ function DesenvolvimentoPage() {
   );
 }
 
-function MobileCard({ modelo, estilistaNome, categoriaNome, statuses, onOpen, onChangeStatus, editable }: {
+function MobileCard({ modelo, estilistaNome, categoriaNome, onOpen }: {
   modelo: Modelo;
   estilistaNome: string | null;
   categoriaNome: string | null;
-  statuses: KanbanStatus[];
   onOpen: () => void;
-  onChangeStatus: (status: string) => void;
-  editable: boolean;
 }) {
   const fl = useFieldLabels();
   const photo = modelo.fotos_modelo?.[0] ?? null;
   const url = useSignedUrlBucket(photo);
-  const current = modelo.status_desenvolvimento ?? statuses[0]?.key ?? "";
   return (
     <div className="bg-card border rounded-md p-2">
       <div className="flex gap-2" onClick={onOpen} role="button">
@@ -352,20 +344,6 @@ function MobileCard({ modelo, estilistaNome, categoriaNome, statuses, onOpen, on
           <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
           <p className="text-xs text-muted-foreground truncate">{categoriaNome ?? "—"}</p>
         </div>
-      </div>
-      <div className="mt-2" onClick={(e) => e.stopPropagation()}>
-        <Select value={current} onValueChange={onChangeStatus} disabled={!editable}>
-          <SelectTrigger className="h-8 text-xs">
-            <SelectValue placeholder="Mover para…" />
-          </SelectTrigger>
-          <SelectContent>
-            {statuses.map((s) => (
-              <SelectItem key={s.key} value={s.key} className="text-sm">
-                {s.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
       </div>
     </div>
   );
