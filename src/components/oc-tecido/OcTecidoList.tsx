@@ -41,14 +41,44 @@ export function OcTecidoList({
       </TabsList>
 
       <TabsContent value="encomendado" className="mt-4">
-        <Card>
+        {/* Mobile: lista de cards */}
+        <div className="space-y-2 sm:hidden">
+          {ocs.length === 0 && (
+            <Card className="p-6 text-center text-sm text-muted-foreground">Nenhuma OC encomendada.</Card>
+          )}
+          {ocs.map((o) => (
+            <Card
+              key={o.id}
+              className="p-3 cursor-pointer active:bg-muted/50"
+              onClick={() => onRowClick(o.id)}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium">{o.numero_pedido ?? "—"}</span>
+                    <OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status="encomendado" />
+                  </div>
+                  <div className="text-sm text-muted-foreground truncate mt-0.5">
+                    {o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Prev. {fmtDate(o.data_prevista_entrega)} · {fmtMoney(o.valor_previsto_total ?? 0)}
+                  </div>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+
+        {/* Desktop: tabela */}
+        <Card className="hidden sm:block">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Nº Pedido</TableHead>
                 <TableHead>Fornecedor</TableHead>
-                <TableHead><span className="sm:hidden">Data Prev.</span><span className="hidden sm:inline">Data Prevista</span></TableHead>
-                <TableHead><span className="sm:hidden">Valor Prev.</span><span className="hidden sm:inline">Valor Previsto</span></TableHead>
+                <TableHead>Data Prevista</TableHead>
+                <TableHead>Valor Previsto</TableHead>
                 <TableHead>Mensagem</TableHead>
                 <TableHead></TableHead>
               </TableRow>
@@ -84,7 +114,40 @@ export function OcTecidoList({
       </TabsContent>
 
       <TabsContent value="recebido" className="mt-4">
-        <Card>
+        {/* Mobile: lista de cards */}
+        <div className="space-y-2 sm:hidden">
+          {ocs.length === 0 && (
+            <Card className="p-6 text-center text-sm text-muted-foreground">Nenhuma OC recebida.</Card>
+          )}
+          {ocs.map((o) => {
+            const ab = alertaBadgeByOc?.[o.id];
+            return (
+              <Card
+                key={o.id}
+                className="p-3 cursor-pointer active:bg-muted/50"
+                onClick={() => onRowClick(o.id)}
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium">{o.numero_pedido ?? "—"}</span>
+                    {ab && <Badge className={ab.cls}>{ab.label}</Badge>}
+                    <OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status="recebido" />
+                  </div>
+                  <div className="text-sm text-muted-foreground truncate mt-0.5">
+                    {o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    Entrega {fmtDate(o.data_entrega)} · {fmtMoney(o.valor_real_total)}
+                    {qtdRecebidaByOc?.[o.id] ? ` · ${qtdRecebidaByOc[o.id]}` : ""}
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+
+        {/* Desktop: tabela */}
+        <Card className="hidden sm:block">
           <Table>
             <TableHeader>
               <TableRow>
