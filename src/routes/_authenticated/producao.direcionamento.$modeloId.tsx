@@ -45,7 +45,7 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
 
   const { data: cad } = useQuery({
     queryKey: ["dir-cad", modeloId],
-    queryFn: async () => (await supabase.from("cad").select("id, direcionamento_status, direcionamento_confirmado_at").eq("modelo_id", modeloId).maybeSingle()).data,
+    queryFn: async () => (await (supabase.from("cad") as any).select("id, direcionamento_status, direcionamento_confirmado_at").eq("modelo_id", modeloId).maybeSingle()).data as { id: string; direcionamento_status: string | null; direcionamento_confirmado_at: string | null } | null,
   });
   useEffect(() => {
     if (cad) setStatus((cad as any).direcionamento_status ?? "pendente");

@@ -423,12 +423,12 @@ function ProducaoTab() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ["dash-producao", ini, fim, colecao, linha],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("dashboard_producao", {
+      const { data, error } = await supabase.rpc("dashboard_producao" as never, {
         p_inicio: ini,
         p_fim: fim,
         p_colecao: colecao === "all" ? undefined : colecao,
         p_linha: linha === "all" ? undefined : linha,
-      });
+      } as never);
       if (error) throw error;
       return data as any;
     },
@@ -697,10 +697,10 @@ function FinanceiroTab() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ["dash-financeiro", inicio, fim],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("dashboard_financeiro", {
+      const { data, error } = await supabase.rpc("dashboard_financeiro" as never, {
         p_inicio: inicio,
         p_fim: fim,
-      });
+      } as never);
       if (error) throw error;
       return data as any;
     },

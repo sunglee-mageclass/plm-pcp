@@ -60,7 +60,7 @@ function OcTecidoPage() {
     queryFn: async () => {
       // Recebidos trazem o status de alerta dos itens (p/ badge na lista + filtro).
       const sel = tab === "recebido" ? "*, ocs_tecido_itens!oc_tecido_id(cq_alerta_status)" : "*";
-      let q = supabase.from("ocs_tecido").select(sel).eq("status", tab).eq("is_rolo", false).order("created_at", { ascending: false });
+      let q = supabase.from("ocs_tecido").select(sel).eq("status", tab).eq("is_rolo" as never, false as never).order("created_at", { ascending: false });
       if (filterEmpresa !== "all") q = q.eq("empresa_id", filterEmpresa);
       if (filterResp !== "all") q = q.eq("responsavel_id", filterResp);
       const { data, error } = await q;
@@ -332,7 +332,7 @@ function OcDialog({
         setStatus((oc.status as OCStatus) ?? "encomendado");
         setRespMode(oc.responsavel_id ? "select" : "text");
       }
-      const mapped: ItemDraft[] = (its ?? []).map((i: OCItem) => ({
+      const mapped: ItemDraft[] = ((its ?? []) as unknown as OCItem[]).map((i) => ({
         tempId: i.id,
         id: i.id,
         artigo_numero: (i.artigo_numero === 2 ? 2 : 1) as 1 | 2,

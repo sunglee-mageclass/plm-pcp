@@ -300,7 +300,7 @@ function LancamentoCard(props: { card: LancCard; compact: boolean; onUpload: (f:
     mutationFn: async (next: Record<string, boolean>) => {
       if (!card.cqId) throw new Error("Sem Controle de Qualidade para este modelo.");
       const clean = Object.fromEntries(Object.entries(next).filter(([, v]) => v).map(([k]) => [k, true]));
-      const { error } = await supabase.from("controle_qualidade").update({ fotografado_variantes: clean }).eq("id", card.cqId);
+      const { error } = await supabase.from("controle_qualidade").update({ fotografado_variantes: clean } as never).eq("id", card.cqId);
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["lancamentos-cards"] }),

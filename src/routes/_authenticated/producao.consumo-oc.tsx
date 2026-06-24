@@ -273,7 +273,7 @@ function ConsumoOcPage() {
   // do estoque real). Atualização otimista no cache do consumo.
   const zerarMut = useMutation({
     mutationFn: async ({ id, value }: { id: string; value: boolean }) => {
-      const { error } = await supabase.from("ocs_tecido_itens").update({ estoque_zerado: value }).eq("id", id);
+      const { error } = await supabase.from("ocs_tecido_itens").update({ estoque_zerado: value } as never).eq("id", id);
       if (error) throw error;
     },
     // Sem update otimista: refaz a busca do servidor (fonte da verdade) — garante
