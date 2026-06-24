@@ -7,6 +7,11 @@ export type Json =
   | Json[]
 
 export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.5"
+  }
   public: {
     Tables: {
       anos: {
@@ -283,13 +288,10 @@ export type Database = {
           data_corte_pronto: string | null
           data_enviado_corte: string | null
           data_previsao_corte: string | null
-          direcionamento_confirmado_at: string | null
-          direcionamento_status: string
           enviado_corte: boolean | null
           ficha_medida_url: string | null
           id: string
           modelo_id: string | null
-          observacoes_molde: string | null
           observacoes_tecnicas: string | null
           proporcoes_replanejadas: Json | null
           status_corte: string | null
@@ -300,13 +302,10 @@ export type Database = {
           data_corte_pronto?: string | null
           data_enviado_corte?: string | null
           data_previsao_corte?: string | null
-          direcionamento_confirmado_at?: string | null
-          direcionamento_status?: string
           enviado_corte?: boolean | null
           ficha_medida_url?: string | null
           id?: string
           modelo_id?: string | null
-          observacoes_molde?: string | null
           observacoes_tecnicas?: string | null
           proporcoes_replanejadas?: Json | null
           status_corte?: string | null
@@ -317,13 +316,10 @@ export type Database = {
           data_corte_pronto?: string | null
           data_enviado_corte?: string | null
           data_previsao_corte?: string | null
-          direcionamento_confirmado_at?: string | null
-          direcionamento_status?: string
           enviado_corte?: boolean | null
           ficha_medida_url?: string | null
           id?: string
           modelo_id?: string | null
-          observacoes_molde?: string | null
           observacoes_tecnicas?: string | null
           proporcoes_replanejadas?: Json | null
           status_corte?: string | null
@@ -394,51 +390,6 @@ export type Database = {
           },
         ]
       }
-      cad_etiquetas: {
-        Row: {
-          cad_id: string | null
-          consumo: number | null
-          created_at: string | null
-          etiqueta_id: string | null
-          id: string
-          quantidade_enviar: number | null
-          quantidade_planejada: number | null
-        }
-        Insert: {
-          cad_id?: string | null
-          consumo?: number | null
-          created_at?: string | null
-          etiqueta_id?: string | null
-          id?: string
-          quantidade_enviar?: number | null
-          quantidade_planejada?: number | null
-        }
-        Update: {
-          cad_id?: string | null
-          consumo?: number | null
-          created_at?: string | null
-          etiqueta_id?: string | null
-          id?: string
-          quantidade_enviar?: number | null
-          quantidade_planejada?: number | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "cad_etiquetas_cad_id_fkey"
-            columns: ["cad_id"]
-            isOneToOne: false
-            referencedRelation: "cad"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "cad_etiquetas_etiqueta_id_fkey"
-            columns: ["etiqueta_id"]
-            isOneToOne: false
-            referencedRelation: "etiquetas"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       cad_grades: {
         Row: {
           cad_id: string | null
@@ -487,7 +438,6 @@ export type Database = {
           id: string
           metragem_enviada: number | null
           metragem_planejada: number | null
-          multiplicador: number
           ordem: number
           quantidade_folhas: number | null
           variante_tecido_id: string | null
@@ -498,7 +448,6 @@ export type Database = {
           id?: string
           metragem_enviada?: number | null
           metragem_planejada?: number | null
-          multiplicador?: number
           ordem: number
           quantidade_folhas?: number | null
           variante_tecido_id?: string | null
@@ -509,7 +458,6 @@ export type Database = {
           id?: string
           metragem_enviada?: number | null
           metragem_planejada?: number | null
-          multiplicador?: number
           ordem?: number
           quantidade_folhas?: number | null
           variante_tecido_id?: string | null
@@ -706,21 +654,18 @@ export type Database = {
           created_at: string | null
           id: string
           nome: string
-          ordem: number
           tenant_id: string | null
         }
         Insert: {
           created_at?: string | null
           id?: string
           nome: string
-          ordem?: number
           tenant_id?: string | null
         }
         Update: {
           created_at?: string | null
           id?: string
           nome?: string
-          ordem?: number
           tenant_id?: string | null
         }
         Relationships: [
@@ -768,7 +713,6 @@ export type Database = {
       controle_qualidade: {
         Row: {
           cad_id: string | null
-          confirmado_at: string | null
           created_at: string | null
           data_conserto_entregue: string | null
           data_conserto_enviado: string | null
@@ -778,18 +722,15 @@ export type Database = {
           data_recebimento_entregue: string | null
           data_recebimento_enviado_oficina: string | null
           data_recebimento_prevista: string | null
-          fotografado_variantes: Json
           id: string
           observacoes_cq: string | null
           pecas_faltantes: number | null
           pecas_incompletas: number | null
           pecas_sem_etiqueta: number | null
-          status: string
           tenant_id: string | null
         }
         Insert: {
           cad_id?: string | null
-          confirmado_at?: string | null
           created_at?: string | null
           data_conserto_entregue?: string | null
           data_conserto_enviado?: string | null
@@ -799,18 +740,15 @@ export type Database = {
           data_recebimento_entregue?: string | null
           data_recebimento_enviado_oficina?: string | null
           data_recebimento_prevista?: string | null
-          fotografado_variantes?: Json
           id?: string
           observacoes_cq?: string | null
           pecas_faltantes?: number | null
           pecas_incompletas?: number | null
           pecas_sem_etiqueta?: number | null
-          status?: string
           tenant_id?: string | null
         }
         Update: {
           cad_id?: string | null
-          confirmado_at?: string | null
           created_at?: string | null
           data_conserto_entregue?: string | null
           data_conserto_enviado?: string | null
@@ -820,13 +758,11 @@ export type Database = {
           data_recebimento_entregue?: string | null
           data_recebimento_enviado_oficina?: string | null
           data_recebimento_prevista?: string | null
-          fotografado_variantes?: Json
           id?: string
           observacoes_cq?: string | null
           pecas_faltantes?: number | null
           pecas_incompletas?: number | null
           pecas_sem_etiqueta?: number | null
-          status?: string
           tenant_id?: string | null
         }
         Relationships: [
@@ -912,35 +848,6 @@ export type Database = {
             columns: ["controle_qualidade_id"]
             isOneToOne: false
             referencedRelation: "controle_qualidade"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      destinos_saida: {
-        Row: {
-          created_at: string | null
-          id: string
-          nome: string
-          tenant_id: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          id?: string
-          nome: string
-          tenant_id?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          id?: string
-          nome?: string
-          tenant_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "destinos_saida_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
             referencedColumns: ["id"]
           },
         ]
@@ -1122,38 +1029,6 @@ export type Database = {
             columns: ["variante_tecido_id"]
             isOneToOne: false
             referencedRelation: "variantes_tecido"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      etiquetas: {
-        Row: {
-          created_at: string | null
-          id: string
-          nome: string
-          tamanho: string | null
-          tenant_id: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          id?: string
-          nome: string
-          tamanho?: string | null
-          tenant_id?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          id?: string
-          nome?: string
-          tamanho?: string | null
-          tenant_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "etiquetas_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
             referencedColumns: ["id"]
           },
         ]
@@ -1421,51 +1296,6 @@ export type Database = {
           },
         ]
       }
-      modelo_observacoes: {
-        Row: {
-          created_at: string | null
-          descricao: string | null
-          id: string
-          modelo_id: string
-          observacao: string | null
-          ordem: number | null
-          tenant_id: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          descricao?: string | null
-          id?: string
-          modelo_id: string
-          observacao?: string | null
-          ordem?: number | null
-          tenant_id?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          descricao?: string | null
-          id?: string
-          modelo_id?: string
-          observacao?: string | null
-          ordem?: number | null
-          tenant_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "modelo_observacoes_modelo_id_fkey"
-            columns: ["modelo_id"]
-            isOneToOne: false
-            referencedRelation: "modelos"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "modelo_observacoes_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       modelo_tecido_oc_links: {
         Row: {
           created_at: string
@@ -1538,7 +1368,6 @@ export type Database = {
           created_at: string | null
           id: string
           modelo_tecido_id: string | null
-          multiplicador: number
           ordem: number
           variante_tecido_id: string | null
         }
@@ -1546,7 +1375,6 @@ export type Database = {
           created_at?: string | null
           id?: string
           modelo_tecido_id?: string | null
-          multiplicador?: number
           ordem: number
           variante_tecido_id?: string | null
         }
@@ -1554,7 +1382,6 @@ export type Database = {
           created_at?: string | null
           id?: string
           modelo_tecido_id?: string | null
-          multiplicador?: number
           ordem?: number
           variante_tecido_id?: string | null
         }
@@ -1645,7 +1472,6 @@ export type Database = {
           data_piloto1: string | null
           data_piloto2: string | null
           data_piloto3: string | null
-          desenho_tecnico_url: string | null
           enviado_cad: boolean | null
           estilista_id: string | null
           ficha_medida_url: string | null
@@ -1664,7 +1490,6 @@ export type Database = {
           piloteiro2_id: string | null
           piloteiro3_id: string | null
           proporcoes: Json | null
-          revisao_pendente: Json
           ref: string | null
           semana: string | null
           status_desenvolvimento: string | null
@@ -1691,7 +1516,6 @@ export type Database = {
           data_piloto1?: string | null
           data_piloto2?: string | null
           data_piloto3?: string | null
-          desenho_tecnico_url?: string | null
           enviado_cad?: boolean | null
           estilista_id?: string | null
           ficha_medida_url?: string | null
@@ -1710,7 +1534,6 @@ export type Database = {
           piloteiro2_id?: string | null
           piloteiro3_id?: string | null
           proporcoes?: Json | null
-          revisao_pendente?: Json
           ref?: string | null
           semana?: string | null
           status_desenvolvimento?: string | null
@@ -1737,7 +1560,6 @@ export type Database = {
           data_piloto1?: string | null
           data_piloto2?: string | null
           data_piloto3?: string | null
-          desenho_tecnico_url?: string | null
           enviado_cad?: boolean | null
           estilista_id?: string | null
           ficha_medida_url?: string | null
@@ -1756,7 +1578,6 @@ export type Database = {
           piloteiro2_id?: string | null
           piloteiro3_id?: string | null
           proporcoes?: Json | null
-          revisao_pendente?: Json
           ref?: string | null
           semana?: string | null
           status_desenvolvimento?: string | null
@@ -1861,7 +1682,6 @@ export type Database = {
           empresa_id: string | null
           id: string
           nf_url: string | null
-          nf_historico: Json
           numero_pedido: string | null
           parcelas_recebimento: Json
           prazo_pagamento: string | null
@@ -1878,7 +1698,6 @@ export type Database = {
           empresa_id?: string | null
           id?: string
           nf_url?: string | null
-          nf_historico?: Json
           numero_pedido?: string | null
           parcelas_recebimento?: Json
           prazo_pagamento?: string | null
@@ -1895,7 +1714,6 @@ export type Database = {
           empresa_id?: string | null
           id?: string
           nf_url?: string | null
-          nf_historico?: Json
           numero_pedido?: string | null
           parcelas_recebimento?: Json
           prazo_pagamento?: string | null
@@ -1970,11 +1788,6 @@ export type Database = {
         Row: {
           anexo_pedido_url: string | null
           created_at: string | null
-          is_rolo: boolean
-          rolo_codigo: string | null
-          rolo_origem_item_id: string | null
-          rolo_rua: string | null
-          rolo_prateleira: string | null
           data_entrega: string | null
           data_pedido: string | null
           data_prevista_entrega: string | null
@@ -2001,11 +1814,6 @@ export type Database = {
         Insert: {
           anexo_pedido_url?: string | null
           created_at?: string | null
-          is_rolo?: boolean
-          rolo_codigo?: string | null
-          rolo_origem_item_id?: string | null
-          rolo_rua?: string | null
-          rolo_prateleira?: string | null
           data_entrega?: string | null
           data_pedido?: string | null
           data_prevista_entrega?: string | null
@@ -2032,11 +1840,6 @@ export type Database = {
         Update: {
           anexo_pedido_url?: string | null
           created_at?: string | null
-          is_rolo?: boolean
-          rolo_codigo?: string | null
-          rolo_origem_item_id?: string | null
-          rolo_rua?: string | null
-          rolo_prateleira?: string | null
           data_entrega?: string | null
           data_pedido?: string | null
           data_prevista_entrega?: string | null
@@ -2089,60 +1892,33 @@ export type Database = {
           artigo_id: string | null
           artigo_numero: number | null
           cancelado: boolean
-          cq_alertar_estilo: boolean
-          cq_estilo_ok: boolean
-          cq_alerta_status: string
-          cq_observacao: string | null
-          cq_ok: boolean
-          cq_pendente_troca: boolean
-          substitui_item_id: string | null
           created_at: string | null
-          estoque_zerado: boolean
           id: string
           oc_tecido_id: string | null
           quantidade_pedida: number | null
           quantidade_recebida: number | null
-          rendimento: number | null
           variante_tecido_id: string | null
         }
         Insert: {
           artigo_id?: string | null
           artigo_numero?: number | null
           cancelado?: boolean
-          cq_alertar_estilo?: boolean
-          cq_estilo_ok?: boolean
-          cq_alerta_status?: string
-          cq_observacao?: string | null
-          cq_ok?: boolean
-          cq_pendente_troca?: boolean
-          substitui_item_id?: string | null
           created_at?: string | null
-          estoque_zerado?: boolean
           id?: string
           oc_tecido_id?: string | null
           quantidade_pedida?: number | null
           quantidade_recebida?: number | null
-          rendimento?: number | null
           variante_tecido_id?: string | null
         }
         Update: {
           artigo_id?: string | null
           artigo_numero?: number | null
           cancelado?: boolean
-          cq_alertar_estilo?: boolean
-          cq_estilo_ok?: boolean
-          cq_alerta_status?: string
-          cq_observacao?: string | null
-          cq_ok?: boolean
-          cq_pendente_troca?: boolean
-          substitui_item_id?: string | null
           created_at?: string | null
-          estoque_zerado?: boolean
           id?: string
           oc_tecido_id?: string | null
           quantidade_pedida?: number | null
           quantidade_recebida?: number | null
-          rendimento?: number | null
           variante_tecido_id?: string | null
         }
         Relationships: [
@@ -2162,224 +1938,6 @@ export type Database = {
           },
           {
             foreignKeyName: "ocs_tecido_itens_variante_tecido_id_fkey"
-            columns: ["variante_tecido_id"]
-            isOneToOne: false
-            referencedRelation: "variantes_tecido"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      ordens_saida_aviamento: {
-        Row: {
-          baixado: boolean
-          created_at: string | null
-          created_by: string | null
-          data_corte: string | null
-          data_solicitacao: string | null
-          destino_id: string | null
-          id: string
-          numero: number | null
-          observacao: string | null
-          responsavel: string | null
-          tenant_id: string | null
-        }
-        Insert: {
-          baixado?: boolean
-          created_at?: string | null
-          created_by?: string | null
-          data_corte?: string | null
-          data_solicitacao?: string | null
-          destino_id?: string | null
-          id?: string
-          numero?: number | null
-          observacao?: string | null
-          responsavel?: string | null
-          tenant_id?: string | null
-        }
-        Update: {
-          baixado?: boolean
-          created_at?: string | null
-          created_by?: string | null
-          data_corte?: string | null
-          data_solicitacao?: string | null
-          destino_id?: string | null
-          id?: string
-          numero?: number | null
-          observacao?: string | null
-          responsavel?: string | null
-          tenant_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "ordens_saida_aviamento_destino_id_fkey"
-            columns: ["destino_id"]
-            isOneToOne: false
-            referencedRelation: "destinos_saida"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ordens_saida_aviamento_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      ordens_saida_aviamento_itens: {
-        Row: {
-          aviamento_id: string | null
-          baixa: number | null
-          created_at: string | null
-          id: string
-          ordem_saida_id: string
-          reserva: number | null
-          tenant_id: string | null
-        }
-        Insert: {
-          aviamento_id?: string | null
-          baixa?: number | null
-          created_at?: string | null
-          id?: string
-          ordem_saida_id: string
-          reserva?: number | null
-          tenant_id?: string | null
-        }
-        Update: {
-          aviamento_id?: string | null
-          baixa?: number | null
-          created_at?: string | null
-          id?: string
-          ordem_saida_id?: string
-          reserva?: number | null
-          tenant_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "ordens_saida_aviamento_itens_aviamento_id_fkey"
-            columns: ["aviamento_id"]
-            isOneToOne: false
-            referencedRelation: "aviamentos"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ordens_saida_aviamento_itens_ordem_saida_id_fkey"
-            columns: ["ordem_saida_id"]
-            isOneToOne: false
-            referencedRelation: "ordens_saida_aviamento"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ordens_saida_aviamento_itens_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      ordens_saida_tecido: {
-        Row: {
-          baixado: boolean
-          created_at: string | null
-          created_by: string | null
-          data_corte: string | null
-          data_solicitacao: string | null
-          destino_id: string | null
-          id: string
-          numero: number | null
-          observacao: string | null
-          responsavel: string | null
-          tenant_id: string | null
-        }
-        Insert: {
-          baixado?: boolean
-          created_at?: string | null
-          created_by?: string | null
-          data_corte?: string | null
-          data_solicitacao?: string | null
-          destino_id?: string | null
-          id?: string
-          numero?: number | null
-          observacao?: string | null
-          responsavel?: string | null
-          tenant_id?: string | null
-        }
-        Update: {
-          baixado?: boolean
-          created_at?: string | null
-          created_by?: string | null
-          data_corte?: string | null
-          data_solicitacao?: string | null
-          destino_id?: string | null
-          id?: string
-          numero?: number | null
-          observacao?: string | null
-          responsavel?: string | null
-          tenant_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "ordens_saida_tecido_destino_id_fkey"
-            columns: ["destino_id"]
-            isOneToOne: false
-            referencedRelation: "destinos_saida"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ordens_saida_tecido_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      ordens_saida_tecido_itens: {
-        Row: {
-          baixa: number | null
-          created_at: string | null
-          id: string
-          ordem_saida_id: string
-          reserva: number | null
-          tenant_id: string | null
-          variante_tecido_id: string | null
-        }
-        Insert: {
-          baixa?: number | null
-          created_at?: string | null
-          id?: string
-          ordem_saida_id: string
-          reserva?: number | null
-          tenant_id?: string | null
-          variante_tecido_id?: string | null
-        }
-        Update: {
-          baixa?: number | null
-          created_at?: string | null
-          id?: string
-          ordem_saida_id?: string
-          reserva?: number | null
-          tenant_id?: string | null
-          variante_tecido_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "ordens_saida_tecido_itens_ordem_saida_id_fkey"
-            columns: ["ordem_saida_id"]
-            isOneToOne: false
-            referencedRelation: "ordens_saida_tecido"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ordens_saida_tecido_itens_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ordens_saida_tecido_itens_variante_tecido_id_fkey"
             columns: ["variante_tecido_id"]
             isOneToOne: false
             referencedRelation: "variantes_tecido"
@@ -2457,41 +2015,6 @@ export type Database = {
           },
           {
             foreignKeyName: "parcelas_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      print_templates: {
-        Row: {
-          created_at: string | null
-          doc_type: string
-          id: string
-          layout: Json
-          tenant_id: string | null
-          updated_at: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          doc_type: string
-          id?: string
-          layout?: Json
-          tenant_id?: string | null
-          updated_at?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          doc_type?: string
-          id?: string
-          layout?: Json
-          tenant_id?: string | null
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "print_templates_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -2584,13 +2107,11 @@ export type Database = {
       producao_oficina: {
         Row: {
           cad_id: string | null
-          colaborador_id: string | null
           created_at: string | null
           data_entregue: string | null
           data_enviado: string | null
           data_prevista: string | null
           id: string
-          interno: boolean
           observacao: string | null
           observacoes_molde: string | null
           preco_por_peca: number | null
@@ -2603,13 +2124,11 @@ export type Database = {
         }
         Insert: {
           cad_id?: string | null
-          colaborador_id?: string | null
           created_at?: string | null
           data_entregue?: string | null
           data_enviado?: string | null
           data_prevista?: string | null
           id?: string
-          interno?: boolean
           observacao?: string | null
           observacoes_molde?: string | null
           preco_por_peca?: number | null
@@ -2622,13 +2141,11 @@ export type Database = {
         }
         Update: {
           cad_id?: string | null
-          colaborador_id?: string | null
           created_at?: string | null
           data_entregue?: string | null
           data_enviado?: string | null
           data_prevista?: string | null
           id?: string
-          interno?: boolean
           observacao?: string | null
           observacoes_molde?: string | null
           preco_por_peca?: number | null
@@ -2645,13 +2162,6 @@ export type Database = {
             columns: ["cad_id"]
             isOneToOne: false
             referencedRelation: "cad"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "producao_oficina_colaborador_id_fkey"
-            columns: ["colaborador_id"]
-            isOneToOne: false
-            referencedRelation: "colaboradores"
             referencedColumns: ["id"]
           },
           {
@@ -2676,20 +2186,17 @@ export type Database = {
           aviamentos_enviados: Json | null
           cad_id: string | null
           categoria_terceirizado_id: string | null
-          colaborador_id: string | null
           created_at: string | null
           data_entregue: string | null
           data_enviado: string | null
           data_prevista: string | null
           id: string
-          interno: boolean
           observacao: string | null
           preco_metro_unidade: number | null
           quantidade_defeito: number | null
           quantidade_enviada: number | null
           quantidade_recebida: number | null
           status: string | null
-          tecidos_enviados: Json | null
           tenant_id: string | null
           terceirizado_id: string | null
         }
@@ -2698,20 +2205,17 @@ export type Database = {
           aviamentos_enviados?: Json | null
           cad_id?: string | null
           categoria_terceirizado_id?: string | null
-          colaborador_id?: string | null
           created_at?: string | null
           data_entregue?: string | null
           data_enviado?: string | null
           data_prevista?: string | null
           id?: string
-          interno?: boolean
           observacao?: string | null
           preco_metro_unidade?: number | null
           quantidade_defeito?: number | null
           quantidade_enviada?: number | null
           quantidade_recebida?: number | null
           status?: string | null
-          tecidos_enviados?: Json | null
           tenant_id?: string | null
           terceirizado_id?: string | null
         }
@@ -2720,20 +2224,17 @@ export type Database = {
           aviamentos_enviados?: Json | null
           cad_id?: string | null
           categoria_terceirizado_id?: string | null
-          colaborador_id?: string | null
           created_at?: string | null
           data_entregue?: string | null
           data_enviado?: string | null
           data_prevista?: string | null
           id?: string
-          interno?: boolean
           observacao?: string | null
           preco_metro_unidade?: number | null
           quantidade_defeito?: number | null
           quantidade_enviada?: number | null
           quantidade_recebida?: number | null
           status?: string | null
-          tecidos_enviados?: Json | null
           tenant_id?: string | null
           terceirizado_id?: string | null
         }
@@ -2750,13 +2251,6 @@ export type Database = {
             columns: ["categoria_terceirizado_id"]
             isOneToOne: false
             referencedRelation: "categorias_terceirizado"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "producao_terceirizados_colaborador_id_fkey"
-            columns: ["colaborador_id"]
-            isOneToOne: false
-            referencedRelation: "colaboradores"
             referencedColumns: ["id"]
           },
           {
@@ -2933,60 +2427,45 @@ export type Database = {
           campos_editaveis: Json | null
           corte_interno: boolean | null
           created_at: string | null
-          estoque_critico_aviamento: number | null
           estoque_critico_threshold: number
           etapas_acabamento: Json | null
           formato_mes: string | null
           id: string
-          modo_baixa_estoque: string
-          modules: Json
           oficina_interna: boolean | null
           oficina_posicao: string | null
           status_kanban: Json | null
-          tab_labels: Json
           tamanhos_grade: Json | null
           tenant_id: string | null
-          timezone: string
           usa_pl: boolean | null
         }
         Insert: {
           campos_editaveis?: Json | null
           corte_interno?: boolean | null
           created_at?: string | null
-          estoque_critico_aviamento?: number | null
           estoque_critico_threshold?: number
           etapas_acabamento?: Json | null
           formato_mes?: string | null
           id?: string
-          modo_baixa_estoque?: string
-          modules?: Json
           oficina_interna?: boolean | null
           oficina_posicao?: string | null
           status_kanban?: Json | null
-          tab_labels?: Json
           tamanhos_grade?: Json | null
           tenant_id?: string | null
-          timezone?: string
           usa_pl?: boolean | null
         }
         Update: {
           campos_editaveis?: Json | null
           corte_interno?: boolean | null
           created_at?: string | null
-          estoque_critico_aviamento?: number | null
           estoque_critico_threshold?: number
           etapas_acabamento?: Json | null
           formato_mes?: string | null
           id?: string
-          modo_baixa_estoque?: string
-          modules?: Json
           oficina_interna?: boolean | null
           oficina_posicao?: string | null
           status_kanban?: Json | null
-          tab_labels?: Json
           tamanhos_grade?: Json | null
           tenant_id?: string | null
-          timezone?: string
           usa_pl?: boolean | null
         }
         Relationships: [
@@ -3107,45 +2586,6 @@ export type Database = {
           },
         ]
       }
-      tipos_colaborador: {
-        Row: {
-          categoria_terceirizado_id: string | null
-          created_at: string | null
-          id: string
-          nome: string
-          tenant_id: string | null
-        }
-        Insert: {
-          categoria_terceirizado_id?: string | null
-          created_at?: string | null
-          id?: string
-          nome: string
-          tenant_id?: string | null
-        }
-        Update: {
-          categoria_terceirizado_id?: string | null
-          created_at?: string | null
-          id?: string
-          nome?: string
-          tenant_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "tipos_colaborador_categoria_terceirizado_id_fkey"
-            columns: ["categoria_terceirizado_id"]
-            isOneToOne: false
-            referencedRelation: "categorias_terceirizado"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "tipos_colaborador_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       user_permissions: {
         Row: {
           created_at: string | null
@@ -3256,7 +2696,6 @@ export type Database = {
           codigo_variante: string | null
           cor_id: string | null
           created_at: string | null
-          enderecos: Json
           foto_url: string | null
           id: string
           nome_variante: string | null
@@ -3269,7 +2708,6 @@ export type Database = {
           codigo_variante?: string | null
           cor_id?: string | null
           created_at?: string | null
-          enderecos?: Json
           foto_url?: string | null
           id?: string
           nome_variante?: string | null
@@ -3282,7 +2720,6 @@ export type Database = {
           codigo_variante?: string | null
           cor_id?: string | null
           created_at?: string | null
-          enderecos?: Json
           foto_url?: string | null
           id?: string
           nome_variante?: string | null
@@ -3320,41 +2757,26 @@ export type Database = {
     }
     Functions: {
       baixar_estoque_tecido_corte: { Args: { _cad_id: string }; Returns: Json }
-      consumo_por_oc: { Args: never; Returns: Json }
       dashboard_colecao: {
         Args: {
-          p_inicio?: string
-          p_fim?: string
+          p_ano?: string
           p_colecao?: string
           p_estilista?: string
-          p_linha?: string
+          p_mes?: string
+          p_semana?: number
         }
         Returns: Json
       }
       dashboard_custos: {
-        Args: { p_inicio?: string; p_fim?: string; p_colecao?: string; p_categoria?: string; p_linha?: string }
+        Args: { p_categoria?: string; p_colecao?: string; p_mes?: string }
         Returns: Json
       }
       dashboard_estoque: { Args: never; Returns: Json }
-      dashboard_financeiro: {
-        Args: { p_inicio?: string; p_fim?: string }
-        Returns: Json
-      }
-      dashboard_producao: {
-        Args: { p_inicio?: string; p_fim?: string; p_colecao?: string; p_linha?: string }
-        Returns: Json
-      }
+      dashboard_financeiro: { Args: never; Returns: Json }
+      dashboard_producao: { Args: never; Returns: Json }
       detalhe_estoque_variante: {
         Args: { _variante_id: string }
         Returns: Json
-      }
-      enviar_modelo_para_cad: {
-        Args: {
-          _ficha_medida_url?: string
-          _modelo_id: string
-          _observacoes_tecnicas?: string
-        }
-        Returns: string
       }
       estoque_tecido_por_artigo: { Args: never; Returns: Json }
       get_user_tenant_id: { Args: never; Returns: string }
@@ -3380,19 +2802,6 @@ export type Database = {
         Returns: {
           saldo_m: number
         }[]
-      }
-      salvar_cad_completo: {
-        Args: {
-          _aviamentos: Json
-          _data_previsao_corte: string
-          _etiquetas: Json
-          _grades: Json
-          _modelo_id: string
-          _observacoes_molde: string
-          _proporcoes: Json
-          _tecidos: Json
-        }
-        Returns: string
       }
       salvar_modelo_bom: {
         Args: {
@@ -3537,4 +2946,3 @@ export const Constants = {
     },
   },
 } as const
-
