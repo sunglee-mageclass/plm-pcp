@@ -36,9 +36,6 @@ function EstoquePage() {
   const [tab, setTab] = useState("tecidos");
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6">
-      <Link to="/entrada-saida" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-4 w-4" /> Voltar
-      </Link>
       <header className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-3">
           <Boxes className="h-7 w-7 text-primary mt-0.5 shrink-0" />
@@ -50,12 +47,8 @@ function EstoquePage() {
       </header>
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
-          <TabsTrigger value="tecidos">Tecidos</TabsTrigger>
-          <TabsTrigger value="aviamentos">Aviamentos</TabsTrigger>
-        </TabsList>
-        <TabsContent value="tecidos" className="mt-4"><TecidosTab /></TabsContent>
-        <TabsContent value="aviamentos" className="mt-4"><AviamentosTab /></TabsContent>
+        <TabsContent value="tecidos"><TecidosTab /></TabsContent>
+        <TabsContent value="aviamentos"><AviamentosTab /></TabsContent>
       </Tabs>
     </div>
   );
@@ -273,7 +266,11 @@ function TecidosTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <TabsList className="mr-auto">
+          <TabsTrigger value="tecidos">Tecidos</TabsTrigger>
+          <TabsTrigger value="aviamentos"><span className="sm:hidden">Aviam.</span><span className="hidden sm:inline">Aviamentos</span></TabsTrigger>
+        </TabsList>
         <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}>
           <Printer className="h-4 w-4 mr-1" /> Imprimir
         </Button>
@@ -697,7 +694,11 @@ function AviamentosTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <TabsList className="mr-auto">
+          <TabsTrigger value="tecidos">Tecidos</TabsTrigger>
+          <TabsTrigger value="aviamentos"><span className="sm:hidden">Aviam.</span><span className="hidden sm:inline">Aviamentos</span></TabsTrigger>
+        </TabsList>
         <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}>
           <Printer className="h-4 w-4 mr-1" /> Imprimir
         </Button>
