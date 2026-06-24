@@ -9,7 +9,7 @@ import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { RevisaoErroBadge } from "@/components/producao/RevisaoErro";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge as SharedStatusBadge } from "@/components/shared/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { FilterButton } from "@/components/shared/filters";
 import { PrintFicha } from "@/components/producao/PrintFicha";
@@ -185,8 +185,8 @@ function TercListPage() {
 }
 
 function StatusBadge({ status }: { status: "sem" | "pendente" | "em_andamento" | "finalizado" }) {
-  if (status === "finalizado") return <Badge className="bg-emerald-500 hover:bg-emerald-500 text-white">Finalizado</Badge>;
-  if (status === "em_andamento") return <Badge className="bg-amber-500 hover:bg-amber-500 text-white">Em andamento</Badge>;
-  if (status === "pendente") return <Badge variant="secondary">Pendente</Badge>;
-  return <Badge variant="outline" className="text-muted-foreground">Sem terc.</Badge>;
+  if (status === "finalizado") return <SharedStatusBadge tone="success">Finalizado</SharedStatusBadge>;
+  if (status === "em_andamento") return <SharedStatusBadge tone="warning">Em andamento</SharedStatusBadge>;
+  if (status === "pendente") return <SharedStatusBadge tone="neutral">Pendente</SharedStatusBadge>;
+  return <SharedStatusBadge tone="neutral">Sem terc.</SharedStatusBadge>;
 }

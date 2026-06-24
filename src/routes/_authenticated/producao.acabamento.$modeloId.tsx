@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge, type StatusTone } from "@/components/shared/StatusBadge";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useReadOnly } from "@/components/RequirePermission";
@@ -37,10 +37,10 @@ type Bloco = {
   aviamentos_utilizados: string[];
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  pendente: "bg-amber-500",
-  em_andamento: "bg-blue-500",
-  finalizado: "bg-emerald-500",
+const STATUS_TONE: Record<string, StatusTone> = {
+  pendente: "warning",
+  em_andamento: "info",
+  finalizado: "success",
 };
 
 function AcabDetailPage() {
@@ -233,7 +233,7 @@ function AcabDetailPage() {
         <Card key={b.tipo} className="p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-lg">{b.tipo}</h3>
-            <Badge className={`${STATUS_COLORS[b.status ?? "pendente"] ?? "bg-muted"} text-white`}>{b.status ?? "pendente"}</Badge>
+            <StatusBadge tone={STATUS_TONE[b.status ?? "pendente"] ?? "neutral"}>{b.status ?? "pendente"}</StatusBadge>
           </div>
 
           <div className="grid gap-4 md:grid-cols-3">

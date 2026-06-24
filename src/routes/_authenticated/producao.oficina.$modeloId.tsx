@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge, type StatusTone } from "@/components/shared/StatusBadge";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useReadOnly } from "@/components/RequirePermission";
@@ -25,10 +25,10 @@ export const Route = createFileRoute("/_authenticated/producao/oficina/$modeloId
   component: OficinaDetailPage,
 });
 
-const STATUS_COLORS: Record<string, string> = {
-  pendente: "bg-amber-500",
-  em_andamento: "bg-blue-500",
-  finalizado: "bg-emerald-500",
+const STATUS_TONE: Record<string, StatusTone> = {
+  pendente: "warning",
+  em_andamento: "info",
+  finalizado: "success",
 };
 
 function computeStatus(b: { data_enviado: string | null; data_entregue: string | null }) {
@@ -228,14 +228,14 @@ function OficinaDetailPage() {
               {(modelo as any)?.categorias_produto?.nome ?? "—"} • {modelo?.colecao ?? "—"}
             </p>
           </div>
-          <Badge className={`${STATUS_COLORS[status]} text-white`}>{status}</Badge>
+          <StatusBadge tone={STATUS_TONE[status] ?? "neutral"}>{status}</StatusBadge>
         </header>
 
         <Card className="p-5 space-y-4">
           <fieldset disabled={readOnly} className="contents">
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-lg">Oficina</h3>
-            {oficinaInterna && <Badge className="bg-primary text-primary-foreground">Oficina Interna</Badge>}
+            {oficinaInterna && <StatusBadge tone="info">Oficina Interna</StatusBadge>}
           </div>
 
           <div className="grid gap-4 md:grid-cols-3">

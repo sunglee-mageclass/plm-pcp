@@ -5,7 +5,7 @@ import { Scissors, Search, Printer } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge, type StatusTone } from "@/components/shared/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { FilterButton } from "@/components/shared/filters";
@@ -31,9 +31,9 @@ type Row = {
   status_corte: string | null;
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  pendente: "bg-amber-500",
-  enviado: "bg-emerald-500",
+const STATUS_TONE: Record<string, StatusTone> = {
+  pendente: "warning",
+  enviado: "success",
 };
 const STATUS_LABELS: Record<string, string> = {
   pendente: "Pendente",
@@ -164,9 +164,9 @@ function CadListPage() {
                 <td className="px-4 py-2" data-label="Nome">{r.nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground" data-label="Categoria">{r.categoria_nome ?? "—"}</td>
                 <td className="px-4 py-2" data-label="Status CAD">
-                  <Badge className={`${STATUS_COLORS[r.status_corte] ?? "bg-muted"} text-white`}>
+                  <StatusBadge tone={STATUS_TONE[r.status_corte] ?? "neutral"}>
                     {STATUS_LABELS[r.status_corte] ?? r.status_corte}
-                  </Badge>
+                  </StatusBadge>
                 </td>
                 <td className="px-4 py-2 text-center" data-label="">
                   <Button
