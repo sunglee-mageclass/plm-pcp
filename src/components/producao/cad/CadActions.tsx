@@ -51,7 +51,7 @@ export function CadActions({ onPrint, onSave, onEnviar, onDesmarcar, onExcluir, 
       </div>
       <div className="flex gap-2 items-center max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-40 max-md:justify-end max-md:border-t max-md:bg-background max-md:p-3 max-md:shadow-lg">
         {onExcluir && !readOnly && !enviado && (
-          <Button variant="destructive" size="sm" className="md:hidden mr-auto" onClick={onExcluir}>
+          <Button variant="destructive" className="md:hidden mr-auto" onClick={onExcluir}>
             <Trash2 className="h-4 w-4 mr-1" /> Excluir
           </Button>
         )}
@@ -61,7 +61,7 @@ export function CadActions({ onPrint, onSave, onEnviar, onDesmarcar, onExcluir, 
             CAD Confirmado{dataEnviado ? ` em ${fmtDate(dataEnviado)}` : ""}
           </Badge>
         )}
-        <Button variant="outline" className="hidden md:inline-flex" onClick={onPrint}>
+        <Button variant="outline" className="hidden lg:inline-flex" onClick={onPrint}>
           <Printer className="h-4 w-4 mr-1" /> Imprimir Ficha
         </Button>
 
@@ -70,7 +70,10 @@ export function CadActions({ onPrint, onSave, onEnviar, onDesmarcar, onExcluir, 
             <Button variant="outline" onClick={onSave} disabled={saving || readOnly}>
               <Save className="h-4 w-4 mr-1" /> Salvar
             </Button>
-            <Button onClick={() => { onPrint(); onEnviar(); }} disabled={enviando || readOnly}>
+            <Button className="lg:hidden" onClick={onEnviar} disabled={enviando || readOnly}>
+              <Send className="h-4 w-4 mr-1" /> Enviar
+            </Button>
+            <Button className="hidden lg:inline-flex" onClick={() => { onPrint(); onEnviar(); }} disabled={enviando || readOnly}>
               <Send className="h-4 w-4 mr-1" /> Imprimir e Enviar
             </Button>
           </>
