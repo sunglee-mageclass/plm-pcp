@@ -30,7 +30,7 @@ function fmtDate(d?: string | null) {
 export function CadActions({ onPrint, onSave, onEnviar, onDesmarcar, onExcluir, onEditar, saving, enviando, enviado, editing, dataEnviado, readOnly, onBack }: Props) {
   // Travado: já enviado ao corte e fora do modo edição. Só destrava no "Editar".
   const locked = enviado && !editing;
-  const backClass = "text-sm text-muted-foreground hover:underline flex items-center gap-1";
+  const backClass = "max-md:hidden text-sm text-muted-foreground hover:underline flex items-center gap-1";
   return (
     <div className="flex items-center justify-between gap-3">
       <div className="flex items-center gap-3">
@@ -50,11 +50,22 @@ export function CadActions({ onPrint, onSave, onEnviar, onDesmarcar, onExcluir, 
         )}
       </div>
       <div className="flex gap-2 items-center max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-40 max-md:justify-end max-md:border-t max-md:bg-background max-md:p-3 max-md:shadow-lg">
-        {onExcluir && !readOnly && !enviado && (
-          <Button variant="destructive" className="md:hidden mr-auto" onClick={onExcluir}>
-            <Trash2 className="h-4 w-4 mr-1" /> Excluir
-          </Button>
-        )}
+        <div className="md:hidden flex items-center gap-2 mr-auto">
+          {onBack ? (
+            <Button type="button" variant="outline" size="icon" onClick={onBack} aria-label="Voltar">
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button asChild variant="outline" size="icon" aria-label="Voltar">
+              <Link to="/producao/cad"><ArrowLeft className="h-4 w-4" /></Link>
+            </Button>
+          )}
+          {onExcluir && !readOnly && !enviado && (
+            <Button variant="destructive" onClick={onExcluir}>
+              <Trash2 className="h-4 w-4 mr-1" /> Excluir
+            </Button>
+          )}
+        </div>
         {enviado && (
           <Badge variant="secondary" className="gap-1 px-3 py-1.5">
             <CheckCircle2 className="h-4 w-4 text-emerald-600" />
