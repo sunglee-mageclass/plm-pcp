@@ -13,7 +13,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { FilterButton } from "@/components/shared/filters";
+import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { Boxes, Search, Loader2, Palette, Scissors, ChevronRight } from "lucide-react";
 import { RequirePermission } from "@/components/RequirePermission";
 import { ModeloPhoto } from "@/components/producao/cad/shared";
@@ -301,47 +301,43 @@ function ConsumoOcPage() {
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6">
-      <header className="flex items-start gap-3">
-        <Boxes className="h-7 w-7 text-primary mt-0.5 shrink-0" />
-        <div>
-          <h1 className="text-2xl font-bold">Consumo por OC</h1>
-          <p className="text-sm text-muted-foreground">
-            Por tecido da OC: quanto cada modelo consome e quanto sobra. Consumo = Σ(consumo × grade por variante) + 1 piloto, sem perda. Clique num modelo para ajustar grade/proporção sem sair daqui.
-          </p>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="flex items-start gap-3 min-w-0">
+          <Boxes className="h-7 w-7 text-primary mt-0.5 shrink-0" />
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold">Consumo por OC</h1>
+            <p className="text-sm text-muted-foreground">Clique num modelo para ajustar grade/proporção sem sair daqui.</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-md border p-0.5">
+            <Button size="sm" variant={!roloView ? "secondary" : "ghost"} onClick={() => setRoloView(false)}>OCs</Button>
+            <Button size="sm" variant={roloView ? "secondary" : "ghost"} onClick={() => setRoloView(true)}>Rolos</Button>
+          </div>
+          <SearchToggle value={search} onChange={setSearch} placeholder="Buscar OC, fornecedor, tecido…" />
+          <FilterButton
+            filters={[
+              { label: "Coleção", value: fColecao, onChange: setFColecao, options: colecaoOpts },
+              { label: "Mês", value: fMes, onChange: setFMes, options: mesOpts },
+              { label: "Ano", value: fAno, onChange: setFAno, options: anoOpts },
+            ]}
+          />
+          {/* Categoria do tecido (entretela não entra; forro deselecionado por padrão). */}
+          <div className="flex items-center gap-1">
+            {(["tecido", "forro"] as const).map((c) => (
+              <Button
+                key={c}
+                type="button"
+                size="sm"
+                variant={cats.has(c) ? "default" : "outline"}
+                onClick={() => setCats((prev) => { const n = new Set(prev); n.has(c) ? n.delete(c) : n.add(c); return n; })}
+              >
+                {c === "tecido" ? "Tecido" : "Forro"}
+              </Button>
+            ))}
+          </div>
         </div>
       </header>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex rounded-md border p-0.5">
-          <Button size="sm" variant={!roloView ? "secondary" : "ghost"} onClick={() => setRoloView(false)}>OCs</Button>
-          <Button size="sm" variant={roloView ? "secondary" : "ghost"} onClick={() => setRoloView(true)}>Rolos</Button>
-        </div>
-        <div className="relative flex-1 min-w-[10rem] max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input placeholder="Buscar OC, fornecedor, tecido…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
-        </div>
-        <FilterButton
-          filters={[
-            { label: "Coleção", value: fColecao, onChange: setFColecao, options: colecaoOpts },
-            { label: "Mês", value: fMes, onChange: setFMes, options: mesOpts },
-            { label: "Ano", value: fAno, onChange: setFAno, options: anoOpts },
-          ]}
-        />
-        {/* Categoria do tecido (entretela não entra; forro deselecionado por padrão). */}
-        <div className="flex items-center gap-1">
-          {(["tecido", "forro"] as const).map((c) => (
-            <Button
-              key={c}
-              type="button"
-              size="sm"
-              variant={cats.has(c) ? "default" : "outline"}
-              onClick={() => setCats((prev) => { const n = new Set(prev); n.has(c) ? n.delete(c) : n.add(c); return n; })}
-            >
-              {c === "tecido" ? "Tecido" : "Forro"}
-            </Button>
-          ))}
-        </div>
-      </div>
 
       {isLoading ? (
         <div className="text-center py-12 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin inline mr-2" /> Carregando…</div>

@@ -36,21 +36,28 @@ function EstoquePage() {
   const [tab, setTab] = useState("tecidos");
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6">
-      <header className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-3">
-          <Boxes className="h-7 w-7 text-primary mt-0.5 shrink-0" />
-          <div>
-            <h1 className="text-2xl font-bold">Estoque</h1>
-            <p className="text-sm text-muted-foreground mt-1">Posição de tecidos e aviamentos.</p>
-          </div>
-        </div>
-      </header>
-
       <Tabs value={tab} onValueChange={setTab}>
         <TabsContent value="tecidos"><TecidosTab /></TabsContent>
         <TabsContent value="aviamentos"><AviamentosTab /></TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+// Cabeçalho compartilhado: título à esquerda + abas/ações (children) à direita, na mesma
+// linha do título (desktop). Renderizado dentro de cada aba (que tem o toolbar per-tab).
+function EstoqueHeader({ children }: { children: React.ReactNode }) {
+  return (
+    <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+      <div className="flex items-start gap-3">
+        <Boxes className="h-7 w-7 text-primary mt-0.5 shrink-0" />
+        <div>
+          <h1 className="text-2xl font-bold">Estoque</h1>
+          <p className="text-sm text-muted-foreground mt-1">Posição de tecidos e aviamentos.</p>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">{children}</div>
+    </header>
   );
 }
 
@@ -266,8 +273,8 @@ function TecidosTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <TabsList className="mr-auto">
+      <EstoqueHeader>
+        <TabsList>
           <TabsTrigger value="tecidos">Tecidos</TabsTrigger>
           <TabsTrigger value="aviamentos"><span className="sm:hidden">Aviam.</span><span className="hidden sm:inline">Aviamentos</span></TabsTrigger>
         </TabsList>
@@ -282,7 +289,7 @@ function TecidosTab() {
             { label: "Categoria", value: categoria, onChange: setCategoria, options: [{ id: "all", nome: "Todas" }, ...categorias] },
           ]}
         />
-      </div>
+      </EstoqueHeader>
 
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
       {error && <p className="text-sm text-destructive">Erro ao carregar estoque: {(error as Error).message}</p>}
@@ -694,8 +701,8 @@ function AviamentosTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <TabsList className="mr-auto">
+      <EstoqueHeader>
+        <TabsList>
           <TabsTrigger value="tecidos">Tecidos</TabsTrigger>
           <TabsTrigger value="aviamentos"><span className="sm:hidden">Aviam.</span><span className="hidden sm:inline">Aviamentos</span></TabsTrigger>
         </TabsList>
@@ -710,7 +717,7 @@ function AviamentosTab() {
             { label: "Categoria", value: categoria, onChange: setCategoria, options: [{ id: "all", nome: "Todas" }, ...categorias] },
           ]}
         />
-      </div>
+      </EstoqueHeader>
 
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
       {error && <p className="text-sm text-destructive">Erro ao carregar estoque: {(error as Error).message}</p>}
