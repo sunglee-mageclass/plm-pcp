@@ -185,27 +185,28 @@ function OcAviamentoPage() {
             <p className="text-sm text-muted-foreground mt-1">Ordens de compra de aviamentos.</p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-
-          <FilterButton
-            filters={[
-              { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
-              ...(tab === "encomendado"
-                ? [{ label: "Responsável", value: filterResp, onChange: setFilterResp, options: [{ id: "all", nome: "Todos" }, ...estilistas.map((e) => ({ id: e.nome, nome: e.nome }))] }]
-                : []),
-            ]}
-          />
-          <Button onClick={() => { setEditingId(null); setOpenNew(true); }}>
-            <Plus className="h-4 w-4 mr-1" /> Nova OC
-          </Button>
-        </div>
       </header>
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as OCStatus)}>
-        <TabsList>
-          <TabsTrigger value="encomendado">Encomendados</TabsTrigger>
-          <TabsTrigger value="recebido">Recebidos</TabsTrigger>
-        </TabsList>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <TabsList>
+            <TabsTrigger value="encomendado"><span className="sm:hidden">Encom.</span><span className="hidden sm:inline">Encomendados</span></TabsTrigger>
+            <TabsTrigger value="recebido"><span className="sm:hidden">Receb.</span><span className="hidden sm:inline">Recebidos</span></TabsTrigger>
+          </TabsList>
+          <div className="flex flex-wrap items-center gap-2">
+            <FilterButton
+              filters={[
+                { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
+                ...(tab === "encomendado"
+                  ? [{ label: "Responsável", value: filterResp, onChange: setFilterResp, options: [{ id: "all", nome: "Todos" }, ...estilistas.map((e) => ({ id: e.nome, nome: e.nome }))] }]
+                  : []),
+              ]}
+            />
+            <Button onClick={() => { setEditingId(null); setOpenNew(true); }}>
+              <Plus className="h-4 w-4 mr-1" /> Nova OC
+            </Button>
+          </div>
+        </div>
 
         <TabsContent value="encomendado" className="mt-4">
           {/* Mobile: cards */}
