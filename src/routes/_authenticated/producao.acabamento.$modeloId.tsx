@@ -233,7 +233,7 @@ function AcabDetailPage() {
         <Card key={b.tipo} className="p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-lg">{b.tipo}</h3>
-            <Badge className={`${STATUS_COLORS[b.status ?? "pendente"] ?? "bg-muted"} text-white`}>{b.status ?? "pendente"}</Badge>
+            <StatusBadge tone={STATUS_TONE[b.status ?? "pendente"] ?? "neutral"}>{b.status ?? "pendente"}</StatusBadge>
           </div>
 
           <div className="grid gap-4 md:grid-cols-3">
