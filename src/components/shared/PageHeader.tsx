@@ -10,14 +10,14 @@ type PageHeaderProps = {
 
 export function PageHeader({ icon: Icon, title, description, actions }: PageHeaderProps) {
   return (
-    <header className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-4 sm:flex sm:flex-wrap sm:items-center sm:justify-between">
+    <header className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4">
       <div className="flex min-w-0 items-center gap-3">
         {Icon && (
           <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
             <Icon className="h-5 w-5" />
           </div>
         )}
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h1 className="font-display truncate text-2xl font-semibold leading-tight text-foreground sm:text-3xl">
             {title}
           </h1>
@@ -26,7 +26,11 @@ export function PageHeader({ icon: Icon, title, description, actions }: PageHead
           )}
         </div>
       </div>
-      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+      {actions && (
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end [&>*]:min-w-0 [&>button]:flex-1 sm:[&>button]:flex-none">
+          {actions}
+        </div>
+      )}
     </header>
   );
 }
