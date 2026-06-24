@@ -265,8 +265,8 @@ function PlanejamentoPage() {
               { label: fl("colecao"), value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
             ]}
           />
-          <Button variant="outline" onClick={() => setOpenBatch(true)}><Layers className="h-4 w-4 mr-1" /> Vários Cards</Button>
-          <Button onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /> Novo Modelo</Button>
+          <Button variant="outline" onClick={() => setOpenBatch(true)} aria-label="Vários Cards"><Layers className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Vários Cards</span></Button>
+          <Button onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /><span className="sm:hidden">Novo</span><span className="hidden sm:inline">Novo Modelo</span></Button>
         </div>
       </header>
 
