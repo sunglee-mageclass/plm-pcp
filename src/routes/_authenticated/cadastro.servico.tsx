@@ -431,7 +431,7 @@ function RepresentantesTab() {
       </div>
 
       <div className="rounded-lg border">
-        <Table>
+        <Table className="card-table">
           <TableHeader>
             <TableRow>
               <TableHead>Empresa</TableHead>
@@ -459,7 +459,7 @@ function RepresentantesTab() {
               filtered.map((r) => (
                 <TableRow key={r.id}>
                   <TableCell>{r.empresa_id ? empresasMap.get(r.empresa_id) ?? "—" : "—"}</TableCell>
-                  <TableCell>
+                  <TableCell data-label="Representante">
                     <button
                       className="text-left hover:underline"
                       onClick={() => openEdit(r)}
@@ -467,10 +467,10 @@ function RepresentantesTab() {
                       {r.nome}
                     </button>
                   </TableCell>
-                  <TableCell>{r.contato ?? "—"}</TableCell>
-                  <TableCell>{r.cnpj ? formatCnpj(r.cnpj) : "—"}</TableCell>
-                  <TableCell className="text-right">
-                    <Button size="icon" variant="ghost" onClick={() => openEdit(r)}>
+                  <TableCell data-label="Contato">{r.contato ?? "—"}</TableCell>
+                  <TableCell data-label="CNPJ">{r.cnpj ? formatCnpj(r.cnpj) : "—"}</TableCell>
+                  <TableCell data-label="Ações" className="text-right">
+                    <Button size="icon" variant="ghost" onClick={() => openEdit(r)} aria-label="Editar">
                       <Pencil className="h-4 w-4" />
                     </Button>
                     <Button size="icon" variant="ghost" onClick={() => setDeleteRow(r)}>
@@ -922,7 +922,7 @@ function EmpresasMultiCatTab() {
       </div>
 
       <div className="rounded-lg border">
-        <Table>
+        <Table className="card-table">
           <TableHeader>
             <TableRow>
               <TableHead>Nome Fantasia</TableHead>
@@ -958,7 +958,7 @@ function EmpresasMultiCatTab() {
                         {row.nome_fantasia}
                       </button>
                     </TableCell>
-                    <TableCell>
+                    <TableCell data-label="Categorias do Fornecedor">
                       {ids.length === 0 ? (
                         <span className="text-muted-foreground">—</span>
                       ) : (
@@ -971,8 +971,8 @@ function EmpresasMultiCatTab() {
                         </div>
                       )}
                     </TableCell>
-                    <TableCell className="text-right">
-                      <Button size="icon" variant="ghost" onClick={() => openEdit(row)}>
+                    <TableCell data-label="Ações" className="text-right">
+                      <Button size="icon" variant="ghost" onClick={() => openEdit(row)} aria-label="Editar">
                         <Pencil className="h-4 w-4" />
                       </Button>
                       <Button size="icon" variant="ghost" onClick={() => startDelete(row)}>
@@ -1331,7 +1331,7 @@ function TerceirizadosMultiCatTab() {
       </div>
 
       <div className="rounded-lg border">
-        <Table>
+        <Table className="card-table">
           <TableHeader>
             <TableRow>
               <TableHead>Nome do Responsável</TableHead>
@@ -1367,7 +1367,7 @@ function TerceirizadosMultiCatTab() {
                         {row.nome_responsavel}
                       </button>
                     </TableCell>
-                    <TableCell>
+                    <TableCell data-label="Categorias do Serviço">
                       {ids.length === 0 ? (
                         <span className="text-muted-foreground">—</span>
                       ) : (
@@ -1380,8 +1380,8 @@ function TerceirizadosMultiCatTab() {
                         </div>
                       )}
                     </TableCell>
-                    <TableCell className="text-right">
-                      <Button size="icon" variant="ghost" onClick={() => openEdit(row)}>
+                    <TableCell data-label="Ações" className="text-right">
+                      <Button size="icon" variant="ghost" onClick={() => openEdit(row)} aria-label="Editar">
                         <Pencil className="h-4 w-4" />
                       </Button>
                       <Button size="icon" variant="ghost" onClick={() => startDelete(row)}>

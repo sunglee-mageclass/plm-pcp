@@ -976,8 +976,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           </Button>
         )}
         {locked ? (
-          <Button variant="secondary" onClick={() => setEditing(true)}>
-            <Pencil className="h-4 w-4 mr-2" /> Editar
+          <Button variant="secondary" size="icon" onClick={() => setEditing(true)} aria-label="Editar">
+            <Pencil className="h-4 w-4" />
           </Button>
         ) : (
           <Button onClick={() => (hasDownstream ? setConfirmEditOpen(true) : save.mutate())} disabled={save.isPending}>

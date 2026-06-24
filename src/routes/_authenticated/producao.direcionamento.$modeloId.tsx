@@ -278,8 +278,8 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
             </>
           ) : (
             <>
-              <Button variant="outline" onClick={() => setEditing(true)} disabled={readOnly}>
-                <Pencil className="h-4 w-4 mr-2" /> Editar
+              <Button variant="outline" size="icon" onClick={() => setEditing(true)} disabled={readOnly} aria-label="Editar">
+                <Pencil className="h-4 w-4" />
               </Button>
               <Button variant="ghost" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || readOnly}>
                 <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar

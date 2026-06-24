@@ -185,7 +185,7 @@ function EtiquetasPage() {
                     {e.tamanho ? <Badge variant="secondary">{fmtTamanho(e.tamanho)}</Badge> : <span className="text-muted-foreground">—</span>}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button size="icon" variant="ghost" onClick={() => openEdit(e)}>
+                    <Button size="icon" variant="ghost" onClick={() => openEdit(e)} aria-label="Editar">
                       <Pencil className="h-4 w-4" />
                     </Button>
                     <Button size="icon" variant="ghost" onClick={() => setDeleteRow(e)}>

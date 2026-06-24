@@ -137,7 +137,7 @@ function UsuariosPage() {
       </div>
 
       <div className="border rounded-lg">
-        <Table>
+        <Table className="card-table">
           <TableHeader>
             <TableRow>
               <TableHead>Nome</TableHead>
@@ -157,15 +157,15 @@ function UsuariosPage() {
               filtered.map((u) => (
                 <TableRow key={u.id}>
                   <TableCell className="font-medium">{u.nome}</TableCell>
-                  <TableCell className="text-sm">{u.email}</TableCell>
-                  <TableCell className="text-sm">{u.tenant_id ? tenantMap[u.tenant_id] ?? "—" : "—"}</TableCell>
-                  <TableCell>{roleBadge(u.role)}</TableCell>
-                  <TableCell>
+                  <TableCell data-label="Email" className="text-sm">{u.email}</TableCell>
+                  <TableCell data-label="Loja" className="text-sm">{u.tenant_id ? tenantMap[u.tenant_id] ?? "—" : "—"}</TableCell>
+                  <TableCell data-label="Role">{roleBadge(u.role)}</TableCell>
+                  <TableCell data-label="Status">
                     {u.ativo
                       ? <StatusBadge tone="success">Ativo</StatusBadge>
                       : <StatusBadge tone="danger">Inativo</StatusBadge>}
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell data-label="Ações" className="text-right">
                     <div className="flex items-center justify-end gap-2">
                       {u.tenant_id && u.role !== "super_admin" && (
                         <Button

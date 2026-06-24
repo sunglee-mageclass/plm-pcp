@@ -484,8 +484,8 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
             <Printer className="h-4 w-4 mr-2" /> Imprimir OS
           </Button>
           {locked ? (
-            <Button variant="outline" onClick={() => setEditing(true)} disabled={readOnly}>
-              <Pencil className="h-4 w-4 mr-2" /> Editar
+            <Button variant="outline" size="icon" onClick={() => setEditing(true)} disabled={readOnly} aria-label="Editar">
+              <Pencil className="h-4 w-4" />
             </Button>
           ) : (
             <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>

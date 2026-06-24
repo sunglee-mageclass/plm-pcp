@@ -447,7 +447,7 @@ export function RolosList() {
                     <TableCell data-label="Ações">
                       <div className="flex">
                         <Button variant="ghost" size="icon" className="h-8 w-8"
-                          onClick={() => setEditing(r)}>
+                          onClick={() => setEditing(r)} aria-label="Editar">
                           <Pencil className="h-4 w-4" />
                         </Button>
                         <Button variant="ghost" size="icon" className="h-8 w-8"

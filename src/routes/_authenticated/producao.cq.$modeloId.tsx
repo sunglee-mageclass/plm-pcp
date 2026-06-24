@@ -467,8 +467,8 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
             </>
           ) : (
             <>
-              <Button variant="outline" onClick={() => setEditing(true)} disabled={permReadOnly}>
-                <Pencil className="h-4 w-4 mr-2" /> Editar
+              <Button variant="outline" size="icon" onClick={() => setEditing(true)} disabled={permReadOnly} aria-label="Editar">
+                <Pencil className="h-4 w-4" />
               </Button>
               <Button variant="outline" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || permReadOnly}>
                 <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar confirmação

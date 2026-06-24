@@ -206,10 +206,13 @@ function OficinaDetailPage() {
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-md:pb-24">
       <VerificarRevisao modeloId={modeloId} etapa="oficina" />
       <div className="no-print flex items-center justify-between">
-        <Link to="/producao/oficina" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+        <Link to="/producao/oficina" className="max-md:hidden text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
           <ArrowLeft className="h-4 w-4" /> Voltar
         </Link>
         <div className="flex gap-2 max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-40 max-md:justify-end max-md:border-t max-md:bg-background max-md:p-3 max-md:shadow-lg">
+          <Button asChild variant="outline" size="icon" className="md:hidden mr-auto" aria-label="Voltar">
+            <Link to="/producao/oficina"><ArrowLeft className="h-4 w-4" /></Link>
+          </Button>
           <Button variant="outline" className="hidden md:inline-flex" onClick={handlePrint}>
             <Printer className="h-4 w-4 mr-2" /> Imprimir Ficha de Oficina
           </Button>

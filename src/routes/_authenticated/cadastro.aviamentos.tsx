@@ -418,8 +418,8 @@ function AviamentoCard({
         )}
         {!readOnly && (
           <div className="absolute inset-x-0 bottom-0 p-2 flex gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity bg-gradient-to-t from-black/60 to-transparent">
-            <Button size="sm" variant="secondary" className="h-7 flex-1" onClick={onEdit}>
-              <Pencil className="h-3 w-3 mr-1" /> Editar
+            <Button size="sm" variant="secondary" className="h-7 flex-1" onClick={onEdit} aria-label="Editar">
+              <Pencil className="h-3 w-3" />
             </Button>
             <Button size="sm" variant="destructive" className="h-7 w-7 p-0" onClick={onDelete}>
               <Trash2 className="h-3 w-3" />

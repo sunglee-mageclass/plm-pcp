@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
-import { Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Plus, Pencil, Trash2, Search, Loader2, PackageMinus, ScissorsLineDashed } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Loader2, PackageMinus, ScissorsLineDashed } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { artigoLabel } from "@/lib/artigo-label";
@@ -275,9 +274,6 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6">
-      <Link to="/entrada-saida" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-4 w-4" /> Voltar
-      </Link>
       <header className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-3">
           <PackageMinus className="h-7 w-7 text-primary" />
@@ -295,7 +291,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
       </div>
 
       <div className="rounded-lg border">
-        <Table>
+        <Table className="card-table">
           <TableHeader>
             <TableRow>
               <TableHead className="w-16">Nº</TableHead>
@@ -318,22 +314,22 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
               filtered.map((o) => (
                 <TableRow key={o.id}>
                   <TableCell className="font-medium">{o.numero ?? "—"}</TableCell>
-                  <TableCell>{o.responsavel ?? "—"}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{fmtDate(o.data_solicitacao)}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{fmtDate(o.data_corte)}</TableCell>
-                  <TableCell>{o.destino?.nome ?? "—"}</TableCell>
-                  <TableCell className="text-right tabular-nums">{fmtNum(totReserva(o))}</TableCell>
-                  <TableCell className="text-right tabular-nums">{o.baixado ? fmtNum(totBaixa(o)) : "—"}</TableCell>
-                  <TableCell>
+                  <TableCell data-label="Responsável">{o.responsavel ?? "—"}</TableCell>
+                  <TableCell data-label="Solicitação" className="text-sm text-muted-foreground">{fmtDate(o.data_solicitacao)}</TableCell>
+                  <TableCell data-label="Corte" className="text-sm text-muted-foreground">{fmtDate(o.data_corte)}</TableCell>
+                  <TableCell data-label="Destino">{o.destino?.nome ?? "—"}</TableCell>
+                  <TableCell data-label="Reserva" className="text-right tabular-nums">{fmtNum(totReserva(o))}</TableCell>
+                  <TableCell data-label="Baixa" className="text-right tabular-nums">{o.baixado ? fmtNum(totBaixa(o)) : "—"}</TableCell>
+                  <TableCell data-label="Status">
                     {o.baixado
                       ? <Badge className="bg-emerald-500 hover:bg-emerald-600">Baixado</Badge>
                       : <Badge variant="secondary">Não Baixado</Badge>}
                   </TableCell>
-                  <TableCell className="text-right whitespace-nowrap">
+                  <TableCell data-label="Ações" className="text-right whitespace-nowrap">
                     {!o.baixado && (
                       <>
-                        <Button size="sm" variant="outline" className="mr-1 h-8" onClick={() => openBaixa(o)}>
-                          <ScissorsLineDashed className="h-3.5 w-3.5 mr-1" /> Dar Baixa
+                        <Button size="icon" variant="outline" onClick={() => openBaixa(o)} aria-label="Dar baixa" title="Dar baixa">
+                          <ScissorsLineDashed className="h-4 w-4" />
                         </Button>
                         <Button size="icon" variant="ghost" onClick={() => openEdit(o)} aria-label="Editar">
                           <Pencil className="h-4 w-4" />

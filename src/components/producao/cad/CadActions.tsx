@@ -91,8 +91,8 @@ export function CadActions({ onPrint, onSave, onEnviar, onDesmarcar, onExcluir, 
         )}
 
         {locked && (
-          <Button variant="outline" onClick={onEditar} disabled={readOnly}>
-            <Pencil className="h-4 w-4 mr-1" /> Editar
+          <Button variant="outline" size="icon" onClick={onEditar} disabled={readOnly} aria-label="Editar">
+            <Pencil className="h-4 w-4" />
           </Button>
         )}
 

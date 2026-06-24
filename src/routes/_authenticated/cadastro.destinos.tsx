@@ -150,7 +150,7 @@ function DestinosPage() {
                     </button>
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button size="icon" variant="ghost" onClick={() => openEdit(d)}>
+                    <Button size="icon" variant="ghost" onClick={() => openEdit(d)} aria-label="Editar">
                       <Pencil className="h-4 w-4" />
                     </Button>
                     <Button size="icon" variant="ghost" onClick={() => setDeleteRow(d)}>

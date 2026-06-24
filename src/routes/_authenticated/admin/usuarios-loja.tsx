@@ -74,7 +74,7 @@ function UsuariosLojaPage() {
       </div>
 
       <div className="border rounded-lg">
-        <Table>
+        <Table className="card-table">
           <TableHeader>
             <TableRow>
               <TableHead>Nome</TableHead>
@@ -93,14 +93,14 @@ function UsuariosLojaPage() {
               users.map((u) => (
                 <TableRow key={u.id}>
                   <TableCell className="font-medium">{u.nome}</TableCell>
-                  <TableCell className="text-sm">{u.email}</TableCell>
-                  <TableCell><Badge variant="secondary">{u.role}</Badge></TableCell>
-                  <TableCell>
+                  <TableCell data-label="Email" className="text-sm">{u.email}</TableCell>
+                  <TableCell data-label="Role"><Badge variant="secondary">{u.role}</Badge></TableCell>
+                  <TableCell data-label="Status">
                     {u.ativo
                       ? <Badge className="bg-emerald-500 hover:bg-emerald-600">Ativo</Badge>
                       : <Badge variant="destructive">Inativo</Badge>}
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell data-label="Ações" className="text-right">
                     <Button size="sm" variant="outline" onClick={() => setPermUser(u)}>
                       <ShieldCheck className="h-4 w-4" /> Permissões
                     </Button>

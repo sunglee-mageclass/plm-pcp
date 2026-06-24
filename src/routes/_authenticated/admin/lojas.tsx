@@ -159,7 +159,7 @@ function LojasPage() {
       </div>
 
       <div className="border rounded-lg">
-        <Table>
+        <Table className="card-table">
           <TableHeader>
             <TableRow>
               <TableHead>Logo</TableHead>
@@ -180,16 +180,16 @@ function LojasPage() {
                   <TableCell>
                     <TenantLogo path={t.logo_url} alt={t.nome} />
                   </TableCell>
-                  <TableCell className="font-medium">{t.nome}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{t.cnpj ?? "—"}</TableCell>
-                  <TableCell>
+                  <TableCell data-label="Nome" className="font-medium">{t.nome}</TableCell>
+                  <TableCell data-label="CNPJ" className="text-sm text-muted-foreground">{t.cnpj ?? "—"}</TableCell>
+                  <TableCell data-label="Status">
                     {t.ativo ? (
                       <Badge className="bg-emerald-500 hover:bg-emerald-600">Ativa</Badge>
                     ) : (
                       <Badge variant="destructive">Inativa</Badge>
                     )}
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell data-label="Ações" className="text-right">
                     <div className="inline-flex items-center gap-2">
                       <Button
                         variant="ghost"
