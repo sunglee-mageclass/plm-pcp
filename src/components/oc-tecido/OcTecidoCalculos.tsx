@@ -67,7 +67,7 @@ export function OcTecidoCalculos({
 
   return (
     <Card className="p-3">
-      <Table>
+      <Table className="card-table">
         <TableHeader>
           <TableRow>
             <TableHead>Tecido / Variante</TableHead>
@@ -91,9 +91,9 @@ export function OcTecidoCalculos({
                   <div className={cn("text-sm", i.cancelado && "line-through")}>{artigoLabel(a)}</div>
                   <div className={cn("text-xs text-muted-foreground", i.cancelado && "line-through")}>{v?.nome_variante ?? v?.codigo_variante ?? "—"}</div>
                 </TableCell>
-                <TableCell className={cn(i.cancelado && "line-through")}>{i.quantidade_pedida}{sufixo ? ` ${sufixo}` : ""}</TableCell>
-                {hasKg && <TableCell className={cn(i.cancelado && "line-through")}>{fmtNum(metragemPedida(i))} m</TableCell>}
-                <TableCell>
+                <TableCell data-label="Qtd Pedida" className={cn(i.cancelado && "line-through")}>{i.quantidade_pedida}{sufixo ? ` ${sufixo}` : ""}</TableCell>
+                {hasKg && <TableCell data-label="Metr. Pedida" className={cn(i.cancelado && "line-through")}>{fmtNum(metragemPedida(i))} m</TableCell>}
+                <TableCell data-label="Qtd Recebida">
                   {i.cancelado ? (
                     <span className="text-sm line-through">
                       {i.quantidade_recebida ?? 0}{sufixo ? ` ${sufixo}` : ""}
@@ -132,11 +132,11 @@ export function OcTecidoCalculos({
                     </div>
                   )}
                 </TableCell>
-                {hasKg && <TableCell className={cn(i.cancelado && "line-through")}>{fmtNum(metragemRecebida(i))} m</TableCell>}
-                <TableCell className={cn(i.cancelado && "line-through")}>{fmtMoney(valorPrev(i))}</TableCell>
-                <TableCell className={cn(i.cancelado && "line-through")}>{fmtMoney(valorReal(i))}</TableCell>
+                {hasKg && <TableCell data-label="Metr. Recebida" className={cn(i.cancelado && "line-through")}>{fmtNum(metragemRecebida(i))} m</TableCell>}
+                <TableCell data-label="Valor Prev." className={cn(i.cancelado && "line-through")}>{fmtMoney(valorPrev(i))}</TableCell>
+                <TableCell data-label="Valor Real" className={cn(i.cancelado && "line-through")}>{fmtMoney(valorReal(i))}</TableCell>
                 {canCancel && (
-                  <TableCell>
+                  <TableCell data-label="Cancelar">
                     <label className="inline-flex items-center gap-2 text-sm">
                       <Checkbox
                         checked={i.cancelado}
@@ -152,7 +152,7 @@ export function OcTecidoCalculos({
           })}
         </TableBody>
       </Table>
-      <div className="flex gap-6 justify-end mt-3 text-sm">
+      <div className="flex flex-wrap gap-x-6 gap-y-2 justify-end mt-3 text-sm">
         <div>Total Previsto: <b>{fmtMoney(totalPrevisto)}</b></div>
         <div>Total Real: <b>{fmtMoney(totalReal)}</b></div>
         <OcPrazoBadge dataPrevista={dataPrevista} dataEntrega={dataEntrega} status={status} />

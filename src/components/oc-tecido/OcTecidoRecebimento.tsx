@@ -83,11 +83,12 @@ export function OcTecidoRecebimento({
               {(draft.parcelas_recebimento ?? []).map((p, idx) => (
                 <div
                   key={idx}
-                  className="grid grid-cols-[40px_1fr_auto] items-center gap-3"
+                  className="flex flex-wrap items-center gap-x-3 gap-y-2"
                 >
                   <span className="text-sm text-muted-foreground">#{idx + 1}</span>
                   <Input
                     type="date"
+                    className="w-40"
                     value={p.data}
                     onChange={(e) => {
                       const v = e.target.value;
