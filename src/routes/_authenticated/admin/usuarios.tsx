@@ -163,8 +163,8 @@ function UsuariosPage() {
                   <TableCell>{roleBadge(u.role)}</TableCell>
                   <TableCell>
                     {u.ativo
-                      ? <Badge className="bg-emerald-500 hover:bg-emerald-600">Ativo</Badge>
-                      : <Badge variant="destructive">Inativo</Badge>}
+                      ? <StatusBadge tone="success">Ativo</StatusBadge>
+                      : <StatusBadge tone="danger">Inativo</StatusBadge>}
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2">
