@@ -9,7 +9,7 @@ import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { RevisaoErroBadge } from "@/components/producao/RevisaoErro";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { FilterButton } from "@/components/shared/filters";
 import { PrintFicha } from "@/components/producao/PrintFicha";
