@@ -391,7 +391,7 @@ export function RolosList() {
   return (
     <div className="space-y-4">
       {rolos.length > 0 && (
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-2 max-md:hidden">
           <span className="text-sm text-muted-foreground">{sel.size > 0 ? `${sel.size} rolo(s) selecionado(s)` : "Selecione rolos para imprimir etiquetas"}</span>
           <Button size="sm" variant="outline" disabled={sel.size === 0} onClick={imprimirEtiquetas}>
             <Printer className="h-4 w-4 mr-1" /> Imprimir etiquetas{sel.size > 0 ? ` (${sel.size})` : ""}
@@ -404,7 +404,7 @@ export function RolosList() {
         </p>
       ) : (
         <div className="rounded-lg border">
-          <Table>
+          <Table className="card-table">
             <TableHeader>
               <TableRow>
                 <TableHead className="w-10"><Checkbox checked={sel.size === rolos.length && rolos.length > 0} onCheckedChange={toggleAll} aria-label="Selecionar todos" /></TableHead>
@@ -433,18 +433,18 @@ export function RolosList() {
                   .join(", ");
                 return (
                   <TableRow key={r.id} data-state={sel.has(r.id) ? "selected" : undefined}>
-                    <TableCell><Checkbox checked={sel.has(r.id)} onCheckedChange={() => toggle(r.id)} aria-label="Selecionar rolo" /></TableCell>
+                    <TableCell className="max-md:!hidden"><Checkbox checked={sel.has(r.id)} onCheckedChange={() => toggle(r.id)} aria-label="Selecionar rolo" /></TableCell>
                     <TableCell className="font-medium">{r.rolo_codigo || "—"}</TableCell>
-                    <TableCell>{tecido}</TableCell>
-                    <TableCell className="text-muted-foreground">{vars || "—"}</TableCell>
-                    <TableCell className="text-right">{fmtNum(total)}</TableCell>
-                    <TableCell className="text-muted-foreground">
+                    <TableCell data-label="Tecido">{tecido}</TableCell>
+                    <TableCell data-label="Variantes" className="text-muted-foreground">{vars || "—"}</TableCell>
+                    <TableCell data-label="Metragem (m)" className="text-right">{fmtNum(total)}</TableCell>
+                    <TableCell data-label="Endereço" className="text-muted-foreground">
                       {[r.rolo_rua, r.rolo_prateleira].filter(Boolean).join(" · ") || "—"}
                     </TableCell>
-                    <TableCell className="text-muted-foreground">
+                    <TableCell data-label="Origem" className="text-muted-foreground">
                       {r.rolo_origem_item_id ? "Separado de OC" : "Avulso"}
                     </TableCell>
-                    <TableCell>
+                    <TableCell data-label="Ações">
                       <div className="flex">
                         <Button variant="ghost" size="icon" className="h-8 w-8"
                           onClick={() => setEditing(r)}>
