@@ -8,12 +8,10 @@ export const Route = createFileRoute("/_authenticated/entrada-saida/alertas-teci
   component: () => (
     <RequirePermission page="entrada_alertas_tecido">
       <div className="container mx-auto p-3 sm:p-6 space-y-6">
-        <header className="flex items-start gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <AlertTriangle className="h-6 w-6" />
-          </div>
+        <header className="flex items-start gap-3">
+          <AlertTriangle className="h-7 w-7 text-primary mt-0.5 shrink-0" />
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Alertas de Tecido</h1>
+            <h1 className="text-2xl font-bold">Alertas de Tecido</h1>
             <p className="text-sm text-muted-foreground mt-1">
               Tecidos sinalizados no CQ para revisão do estilo. Resolva com Estilo OK, troca ou cancelamento.
             </p>

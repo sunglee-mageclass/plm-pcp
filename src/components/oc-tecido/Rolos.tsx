@@ -692,7 +692,7 @@ export function AjustesList() {
     <div className="space-y-2">
       <h3 className="text-sm font-semibold">Ajustes de estoque (remoções)</h3>
       <div className="rounded-lg border">
-        <Table>
+        <Table className="card-table">
           <TableHeader>
             <TableRow>
               <TableHead>Origem</TableHead>
@@ -707,11 +707,11 @@ export function AjustesList() {
             {ajustes.map((a) => (
               <TableRow key={a.id}>
                 <TableCell className="font-medium">{a.origem_label}</TableCell>
-                <TableCell className="text-muted-foreground">{a.artigo} · {a.variante}</TableCell>
-                <TableCell className="text-right">{fmtNum(a.quantidade)}</TableCell>
-                <TableCell className="text-muted-foreground">{a.motivo || "—"}</TableCell>
-                <TableCell className="text-muted-foreground">{a.por}</TableCell>
-                <TableCell>
+                <TableCell data-label="Tecido" className="text-muted-foreground">{a.artigo} · {a.variante}</TableCell>
+                <TableCell data-label="Removido (m)" className="text-right">{fmtNum(a.quantidade)}</TableCell>
+                <TableCell data-label="Motivo" className="text-muted-foreground">{a.motivo || "—"}</TableCell>
+                <TableCell data-label="Por" className="text-muted-foreground">{a.por}</TableCell>
+                <TableCell data-label="Ações">
                   <Button variant="ghost" size="icon" className="h-8 w-8" title="Desfazer"
                     onClick={() => reverter.mutate(a.id)}>
                     <Undo2 className="h-4 w-4" />
