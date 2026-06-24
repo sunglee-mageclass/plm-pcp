@@ -1,6 +1,7 @@
-import { createFileRoute, Navigate } from "@tanstack/react-router";
+import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { Shield, Upload, Loader2 } from "lucide-react";
+import { Palette, Upload, Loader2, ArrowLeft } from "lucide-react";
+import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -106,17 +107,21 @@ function IdentidadePage() {
   }
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-w-3xl">
-      <header className="flex items-start gap-4">
-        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-          <Shield className="h-6 w-6" />
+    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-w-3xl max-sm:pb-24">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="flex min-w-0 items-start gap-3">
+          <Palette className="h-7 w-7 shrink-0 text-primary mt-0.5" />
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold">Identidade do Sistema</h1>
+            <p className="text-sm text-muted-foreground">
+              Personalize nome, subtítulo, logo e favicon exibidos em todo o sistema.
+            </p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Identidade do Sistema</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Personalize nome, subtítulo, logo e favicon exibidos em todo o sistema.
-          </p>
-        </div>
+        <Button className="max-sm:hidden shrink-0" onClick={handleSave} disabled={saving}>
+          {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          Salvar
+        </Button>
       </header>
 
       <Card>
@@ -190,12 +195,15 @@ function IdentidadePage() {
         </CardContent>
       </Card>
 
-      <div className="flex justify-end">
-        <Button onClick={handleSave} disabled={saving}>
+      <MobileActionBar>
+        <Button asChild variant="outline" size="icon" aria-label="Voltar">
+          <Link to="/admin"><ArrowLeft className="h-4 w-4" /></Link>
+        </Button>
+        <Button className="ml-auto" onClick={handleSave} disabled={saving}>
           {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Salvar
         </Button>
-      </div>
+      </MobileActionBar>
     </div>
   );
 }

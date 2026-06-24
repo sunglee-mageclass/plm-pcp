@@ -1,7 +1,7 @@
 import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Settings, Plus, GripVertical, Trash2, Save, Loader2 } from "lucide-react";
+import { Settings, Plus, GripVertical, Trash2, Save, Loader2, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import {
   DndContext,
@@ -38,6 +38,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { PAGES_CATALOG } from "@/lib/permissions-catalog";
+import { MobileActionBar } from "@/components/shared/MobileActionBar";
 
 export const Route = createFileRoute("/_authenticated/admin/configuracoes")({
   component: ConfiguracoesLojaPage,
@@ -179,10 +180,10 @@ function ConfiguracoesLojaPage() {
   if (!isTenantAdmin && !isSuperAdmin) return <Navigate to="/" />;
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-w-4xl">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-w-4xl max-sm:pb-24">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <Settings className="h-7 w-7 shrink-0 text-primary" />
+        <div className="flex min-w-0 items-start gap-3">
+          <Settings className="h-7 w-7 shrink-0 text-primary mt-0.5" />
           <div className="min-w-0">
             <h1 className="text-2xl font-bold">Configurações da Loja</h1>
             <p className="text-sm text-muted-foreground">
@@ -190,7 +191,7 @@ function ConfiguracoesLojaPage() {
             </p>
           </div>
         </div>
-        <Button className="max-sm:w-full shrink-0" onClick={() => save.mutate()} disabled={save.isPending || isLoading}>
+        <Button className="max-sm:hidden shrink-0" onClick={() => save.mutate()} disabled={save.isPending || isLoading}>
           <Save className="h-4 w-4 mr-2" />
           {save.isPending ? "Salvando…" : "Salvar alterações"}
         </Button>
@@ -388,6 +389,15 @@ function ConfiguracoesLojaPage() {
         </CardContent>
       </Card>
 
+      <MobileActionBar>
+        <Button asChild variant="outline" size="icon" aria-label="Voltar">
+          <Link to="/admin"><ArrowLeft className="h-4 w-4" /></Link>
+        </Button>
+        <Button className="ml-auto" onClick={() => save.mutate()} disabled={save.isPending || isLoading}>
+          <Save className="h-4 w-4 mr-2" />
+          {save.isPending ? "Salvando…" : "Salvar alterações"}
+        </Button>
+      </MobileActionBar>
     </div>
   );
 }

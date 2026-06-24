@@ -211,8 +211,8 @@ function DesenvolvimentoPage() {
   return (
     <div className="container mx-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-3">
-          <Hammer className="h-7 w-7 shrink-0 text-primary" />
+        <div className="flex min-w-0 items-start gap-3">
+          <Hammer className="h-7 w-7 shrink-0 text-primary mt-0.5" />
           <div className="min-w-0">
             <h1 className="truncate text-xl sm:text-2xl font-bold">Desenvolvimento</h1>
             <p className="text-sm text-muted-foreground">Kanban dos modelos planejados.</p>

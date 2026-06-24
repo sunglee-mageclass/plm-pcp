@@ -38,6 +38,7 @@ import {
 import { RequirePermission } from "@/components/RequirePermission";
 import { FilterButton } from "@/components/shared/filters";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
+import { MobileActionBar } from "@/components/shared/MobileActionBar";
 export const Route = createFileRoute("/_authenticated/entrada-saida/oc-aviamento")({
   component: () => (
     <RequirePermission page="entrada_oc_aviamento">
@@ -176,7 +177,7 @@ function OcAviamentoPage() {
   });
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
       <header className="flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4">
         <div className="flex min-w-0 items-start gap-3">
           <Sparkles className="h-7 w-7 text-primary mt-0.5 shrink-0" />
@@ -194,7 +195,7 @@ function OcAviamentoPage() {
                 : []),
             ]}
           />
-          <Button onClick={() => { setEditingId(null); setOpenNew(true); }}>
+          <Button className="max-sm:hidden" onClick={() => { setEditingId(null); setOpenNew(true); }}>
             <Plus className="h-4 w-4 mr-1" /> Nova OC
           </Button>
         </div>
@@ -364,6 +365,12 @@ function OcAviamentoPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <MobileActionBar>
+        <Button className="ml-auto" onClick={() => { setEditingId(null); setOpenNew(true); }}>
+          <Plus className="h-4 w-4 mr-1" /> Nova OC
+        </Button>
+      </MobileActionBar>
     </div>
   );
 }

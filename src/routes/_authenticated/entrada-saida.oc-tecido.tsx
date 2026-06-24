@@ -26,6 +26,7 @@ import { OcNfHistorico } from "@/components/oc-tecido/OcNfHistorico";
 import { FilterButton } from "@/components/shared/filters";
 import { OcTecidoForm } from "@/components/oc-tecido/OcTecidoForm";
 import { OcTecidoRecebimento } from "@/components/oc-tecido/OcTecidoRecebimento";
+import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { useModoOcRolo } from "@/hooks/useModoOcRolo";
 import {
   emptyDraft, uploadFile,
@@ -161,7 +162,7 @@ function OcTecidoPage() {
   });
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
       <header className="flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4">
         <div className="flex min-w-0 items-start gap-3">
           <Scissors className="h-7 w-7 text-primary mt-0.5 shrink-0" />
@@ -197,19 +198,19 @@ function OcTecidoPage() {
                     : []),
                 ]}
               />
-              <Button onClick={() => { setEditingId(null); setOpenNew(true); }}>
+              <Button className="max-sm:hidden" onClick={() => { setEditingId(null); setOpenNew(true); }}>
                 <Plus className="h-4 w-4 mr-1" /> Nova OC
               </Button>
             </>
           )}
           {view === "rolos" && (
             <>
-              <Button variant="outline" onClick={() => setOpenRemover(true)}>
+              <Button className="max-sm:hidden" variant="outline" onClick={() => setOpenRemover(true)}>
                 <Minus className="h-4 w-4 mr-1" />
                 <span className="sm:hidden">Metr.</span>
                 <span className="hidden sm:inline">Metragem</span>
               </Button>
-              <Button onClick={() => setOpenRolo(true)}>
+              <Button className="max-sm:hidden" onClick={() => setOpenRolo(true)}>
                 <Plus className="h-4 w-4 mr-1" />
                 <span className="sm:hidden">Rolo</span>
                 <span className="hidden sm:inline">Novo Rolo</span>
@@ -281,6 +282,28 @@ function OcTecidoPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <MobileActionBar>
+        {view === "ocs" && (
+          <Button className="ml-auto" onClick={() => { setEditingId(null); setOpenNew(true); }}>
+            <Plus className="h-4 w-4 mr-1" /> Nova OC
+          </Button>
+        )}
+        {view === "rolos" && (
+          <>
+            <Button variant="outline" onClick={() => setOpenRemover(true)}>
+              <Minus className="h-4 w-4 mr-1" />
+              <span className="sm:hidden">Metr.</span>
+              <span className="hidden sm:inline">Metragem</span>
+            </Button>
+            <Button className="ml-auto" onClick={() => setOpenRolo(true)}>
+              <Plus className="h-4 w-4 mr-1" />
+              <span className="sm:hidden">Rolo</span>
+              <span className="hidden sm:inline">Novo Rolo</span>
+            </Button>
+          </>
+        )}
+      </MobileActionBar>
     </div>
   );
 }

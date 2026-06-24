@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { MapPin, Plus, Pencil, Trash2, Search, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -94,9 +95,9 @@ function DestinosPage() {
   });
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6">
-      <header className="flex items-center gap-3">
-        <MapPin className="h-7 w-7 text-primary" />
+    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
+      <header className="flex items-start gap-3">
+        <MapPin className="h-7 w-7 text-primary mt-0.5 shrink-0" />
         <div>
           <h1 className="text-2xl font-bold">Destinos</h1>
           <p className="text-sm text-muted-foreground">
@@ -115,7 +116,7 @@ function DestinosPage() {
             className="pl-9"
           />
         </div>
-        <Button onClick={openCreate}>
+        <Button onClick={openCreate} className="max-sm:hidden">
           <Plus className="h-4 w-4 mr-1" /> Novo
         </Button>
       </div>
@@ -213,6 +214,12 @@ function DestinosPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <MobileActionBar>
+        <Button onClick={openCreate} className="ml-auto">
+          <Plus className="h-4 w-4 mr-1" /> Novo
+        </Button>
+      </MobileActionBar>
     </div>
   );
 }

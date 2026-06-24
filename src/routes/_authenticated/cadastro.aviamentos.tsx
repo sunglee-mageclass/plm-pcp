@@ -53,6 +53,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { ImagePreview } from "@/components/shared/ImagePreview";
+import { MobileActionBar } from "@/components/shared/MobileActionBar";
 
 import { RequirePermission } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/cadastro/aviamentos")({
@@ -247,7 +248,7 @@ function AviamentosGallery() {
 
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Package className="h-7 w-7 text-primary" />
@@ -281,8 +282,8 @@ function AviamentosGallery() {
               { label: "Fornecedor", value: fEmp, onChange: setFEmp, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
             ]}
           />
-          <Button onClick={() => setCreateOpen(true)} disabled={readOnly}>
-            <Plus className="h-4 w-4 mr-1" /> Novo Aviamento
+          <Button onClick={() => setCreateOpen(true)} disabled={readOnly} className="max-sm:hidden">
+            <Plus className="h-4 w-4 mr-1" /> Novo
           </Button>
         </div>
       </header>
@@ -376,6 +377,12 @@ function AviamentosGallery() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <MobileActionBar>
+        <Button onClick={() => setCreateOpen(true)} disabled={readOnly} className="ml-auto">
+          <Plus className="h-4 w-4 mr-1" /> Novo
+        </Button>
+      </MobileActionBar>
     </div>
   );
 }

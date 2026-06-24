@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 
+import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -106,7 +107,7 @@ function ServicoPage() {
   );
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
       <header className="flex items-start gap-3">
         <Wrench className="h-7 w-7 text-primary mt-0.5 shrink-0" />
         <div>
@@ -425,7 +426,7 @@ function RepresentantesTab() {
             className="pl-9"
           />
         </div>
-        <Button onClick={openCreate}>
+        <Button onClick={openCreate} className="max-sm:hidden">
           <Plus className="h-4 w-4 mr-1" /> Novo
         </Button>
       </div>
@@ -647,6 +648,12 @@ function RepresentantesTab() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <MobileActionBar>
+        <Button onClick={openCreate} className="ml-auto">
+          <Plus className="h-4 w-4 mr-1" /> Novo
+        </Button>
+      </MobileActionBar>
     </div>
   );
 }
@@ -916,7 +923,7 @@ function EmpresasMultiCatTab() {
             className="pl-9"
           />
         </div>
-        <Button onClick={openCreate}>
+        <Button onClick={openCreate} className="max-sm:hidden">
           <Plus className="h-4 w-4 mr-1" /> Novo
         </Button>
       </div>
@@ -1072,6 +1079,12 @@ function EmpresasMultiCatTab() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <MobileActionBar>
+        <Button onClick={openCreate} className="ml-auto">
+          <Plus className="h-4 w-4 mr-1" /> Novo
+        </Button>
+      </MobileActionBar>
     </div>
   );
 }
@@ -1325,7 +1338,7 @@ function TerceirizadosMultiCatTab() {
             className="pl-9"
           />
         </div>
-        <Button onClick={openCreate}>
+        <Button onClick={openCreate} className="max-sm:hidden">
           <Plus className="h-4 w-4 mr-1" /> Novo
         </Button>
       </div>
@@ -1477,6 +1490,12 @@ function TerceirizadosMultiCatTab() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <MobileActionBar>
+        <Button onClick={openCreate} className="ml-auto">
+          <Plus className="h-4 w-4 mr-1" /> Novo
+        </Button>
+      </MobileActionBar>
     </div>
   );
 }

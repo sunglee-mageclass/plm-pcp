@@ -248,9 +248,9 @@ function AtributosPage() {
   const { data: count, isLoading: countLoading } = useAttributeCount(selected.config.table);
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6">
-      <header className="flex items-center gap-3">
-        <Tags className="h-7 w-7 text-primary" />
+    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
+      <header className="flex items-start gap-3">
+        <Tags className="h-7 w-7 text-primary mt-0.5 shrink-0" />
         <div>
           <h1 className="text-2xl font-bold">Atributos</h1>
           <p className="text-sm text-muted-foreground">

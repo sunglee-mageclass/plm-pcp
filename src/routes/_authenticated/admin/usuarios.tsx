@@ -1,9 +1,9 @@
 import { SkeletonTableRow } from "@/components/shared/Skeletons";
-import { createFileRoute, Navigate } from "@tanstack/react-router";
+import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Users, Plus, KeyRound, ShieldCheck } from "lucide-react";
+import { Users, Plus, KeyRound, ShieldCheck, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -25,6 +25,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
 } from "@/components/ui/dialog";
+import { MobileActionBar } from "@/components/shared/MobileActionBar";
 
 export const Route = createFileRoute("/_authenticated/admin/usuarios")({
   component: UsuariosPage,
@@ -104,7 +105,7 @@ function UsuariosPage() {
   if (!isSuperAdmin) return <Navigate to="/dashboard" replace />;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-sm:pb-24">
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-4">
           <Users className="h-7 w-7 text-primary mt-0.5 shrink-0" />
@@ -117,7 +118,7 @@ function UsuariosPage() {
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button><Plus className="h-4 w-4" /> Novo Usuário</Button>
+            <Button className="max-sm:hidden"><Plus className="h-4 w-4" /> Novo Usuário</Button>
           </DialogTrigger>
           <NovoUsuarioModal tenants={tenants} onClose={() => setOpen(false)} />
         </Dialog>
@@ -212,6 +213,15 @@ function UsuariosPage() {
           />
         )}
       </Dialog>
+
+      <MobileActionBar>
+        <Button asChild variant="outline" size="icon" aria-label="Voltar">
+          <Link to="/admin"><ArrowLeft className="h-4 w-4" /></Link>
+        </Button>
+        <Button className="ml-auto" onClick={() => setOpen(true)}>
+          <Plus className="h-4 w-4" /> Novo Usuário
+        </Button>
+      </MobileActionBar>
     </div>
   );
 }

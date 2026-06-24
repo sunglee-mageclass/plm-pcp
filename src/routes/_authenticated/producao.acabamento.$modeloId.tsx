@@ -199,8 +199,8 @@ function AcabDetailPage() {
       </div>
       <fieldset disabled={readOnly} className="contents">
 
-      <header className="flex items-center gap-3">
-        <Sparkles className="h-7 w-7 text-primary" />
+      <header className="flex items-start gap-3">
+        <Sparkles className="h-7 w-7 text-primary mt-0.5 shrink-0" />
         <div className="flex-1">
           <h1 className="text-2xl font-bold">{modelo?.ref ?? "…"} — {modelo?.nome ?? ""}</h1>
           <p className="text-sm text-muted-foreground">

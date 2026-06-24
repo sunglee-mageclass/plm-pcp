@@ -23,6 +23,7 @@ import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { fmtNum } from "@/lib/format";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { MobileActionBar } from "@/components/shared/MobileActionBar";
 
 import { RequirePermission } from "@/components/RequirePermission";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
@@ -242,10 +243,10 @@ function PlanejamentoPage() {
   })();
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
       <header className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-3">
-          <Palette className="h-7 w-7 shrink-0 text-primary" />
+        <div className="flex min-w-0 items-start gap-3">
+          <Palette className="h-7 w-7 shrink-0 text-primary mt-0.5" />
           <div className="min-w-0">
             <h1 className="text-2xl font-bold truncate">Planejamento</h1>
             <p className="text-sm text-muted-foreground">Cards de modelos em planejamento.</p>
@@ -265,8 +266,8 @@ function PlanejamentoPage() {
               { label: fl("colecao"), value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
             ]}
           />
-          <Button variant="outline" onClick={() => setOpenBatch(true)} aria-label="Vários Cards"><Layers className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Vários Cards</span></Button>
-          <Button onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /><span className="sm:hidden">Novo</span><span className="hidden sm:inline">Novo Modelo</span></Button>
+          <Button className="max-sm:hidden" variant="outline" onClick={() => setOpenBatch(true)} aria-label="Vários Cards"><Layers className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Vários Cards</span></Button>
+          <Button className="max-sm:hidden" onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /><span className="sm:hidden">Novo</span><span className="hidden sm:inline">Novo Modelo</span></Button>
         </div>
       </header>
 
@@ -333,6 +334,11 @@ function PlanejamentoPage() {
           onSaved={() => qc.invalidateQueries({ queryKey: ["modelos-planejamento"] })}
         />
       )}
+
+      <MobileActionBar>
+        <Button variant="outline" onClick={() => setOpenBatch(true)} aria-label="Vários Cards"><Layers className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Vários Cards</span></Button>
+        <Button className="ml-auto" onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /><span className="sm:hidden">Novo</span><span className="hidden sm:inline">Novo Modelo</span></Button>
+      </MobileActionBar>
     </div>
   );
 }

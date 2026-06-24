@@ -1,8 +1,8 @@
 import { SkeletonTableRow } from "@/components/shared/Skeletons";
-import { createFileRoute, Navigate } from "@tanstack/react-router";
+import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Store, Plus, Search, Upload, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { Store, Plus, Search, Upload, Pencil, RotateCcw, Trash2, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { PAGES_CATALOG } from "@/lib/permissions-catalog";
+import { MobileActionBar } from "@/components/shared/MobileActionBar";
 
 // Toggles de módulo (chaves batem com tenant_config.modules e PAGES_CATALOG).
 const MODULE_TOGGLES = PAGES_CATALOG.map((m) => ({ key: m.module, label: m.label }));
@@ -127,7 +128,7 @@ function LojasPage() {
   if (!isSuperAdmin) return <Navigate to="/dashboard" replace />;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-sm:pb-24">
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-4">
           <Store className="h-7 w-7 text-primary mt-0.5 shrink-0" />
@@ -140,7 +141,7 @@ function LojasPage() {
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button>
+            <Button className="max-sm:hidden">
               <Plus className="h-4 w-4" /> Nova Loja
             </Button>
           </DialogTrigger>
@@ -289,6 +290,15 @@ function LojasPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <MobileActionBar>
+        <Button asChild variant="outline" size="icon" aria-label="Voltar">
+          <Link to="/admin"><ArrowLeft className="h-4 w-4" /></Link>
+        </Button>
+        <Button className="ml-auto" onClick={() => setOpen(true)}>
+          <Plus className="h-4 w-4" /> Nova Loja
+        </Button>
+      </MobileActionBar>
     </div>
   );
 }

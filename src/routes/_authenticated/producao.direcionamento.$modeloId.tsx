@@ -290,8 +290,8 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
       </div>
       <fieldset disabled={readOnly || locked} className="contents">
 
-      <header className="flex items-center gap-3">
-        <Compass className="h-7 w-7 text-primary" />
+      <header className="flex items-start gap-3">
+        <Compass className="h-7 w-7 text-primary mt-0.5 shrink-0" />
         <div className="flex-1">
           <h1 className="text-2xl font-bold">{modelo?.ref ?? "…"} — {modelo?.nome ?? ""}</h1>
           <p className="text-sm text-muted-foreground">{modelo?.colecao ?? "—"}</p>

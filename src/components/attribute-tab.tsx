@@ -40,6 +40,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { useReadOnly } from "@/components/RequirePermission";
 
 export type UsageRef = { table: string; column: string };
@@ -245,7 +246,7 @@ export function AttributeTab({
             className="pl-9"
           />
         </div>
-        <Button onClick={() => setCreateOpen(true)} disabled={readOnly}>
+        <Button className="max-sm:hidden" onClick={() => setCreateOpen(true)} disabled={readOnly}>
           <Plus className="h-4 w-4 mr-1" />
           Novo
         </Button>
@@ -459,6 +460,14 @@ export function AttributeTab({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Mobile: o "+ Novo" desce pra barra fixa, com o nome do atributo selecionado. */}
+      <MobileActionBar>
+        <Button className="ml-auto" onClick={() => setCreateOpen(true)} disabled={readOnly}>
+          <Plus className="h-4 w-4 mr-1" />
+          Novo
+        </Button>
+      </MobileActionBar>
     </div>
   );
 }
