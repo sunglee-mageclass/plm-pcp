@@ -15,6 +15,7 @@ import { LayoutGrid } from "lucide-react";
 
 import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
 import { RevisaoErroBadge, VerificarRevisao } from "@/components/producao/RevisaoErro";
+import { EmptyState } from "@/components/shared/EmptyState";
 export const Route = createFileRoute("/_authenticated/producao/lancamentos")({
   component: () => (
     <RequirePermission page="producao_lancamentos">
@@ -254,7 +255,7 @@ function LancamentosPage() {
 
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
       {!isLoading && filtered.length === 0 && (
-        <Card className="p-8 text-center text-sm text-muted-foreground">Nenhum produto com CQ confirmado.</Card>
+        <EmptyState icon={Rocket} title="Nenhum produto com CQ confirmado" description="Quando o CQ aprovar produtos, eles aparecerão aqui prontos para lançamento." />
       )}
 
       <div ref={gridRef} className={GRID_COLS_CLASS[cols]}>
