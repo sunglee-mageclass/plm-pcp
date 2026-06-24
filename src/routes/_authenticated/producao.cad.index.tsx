@@ -31,9 +31,9 @@ type Row = {
   status_corte: string | null;
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  pendente: "bg-amber-500",
-  enviado: "bg-emerald-500",
+const STATUS_TONE: Record<string, StatusTone> = {
+  pendente: "warning",
+  enviado: "success",
 };
 const STATUS_LABELS: Record<string, string> = {
   pendente: "Pendente",
