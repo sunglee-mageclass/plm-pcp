@@ -13,7 +13,7 @@ import { PermissoesModal } from "@/components/admin/PermissoesModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Switch } from "@/components/ui/switch";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -41,10 +41,10 @@ type Tenant = { id: string; nome: string };
 
 const ROLES = ["super_admin", "admin", "tenant_admin", "user"] as const;
 const roleBadge = (role: string) => {
-  if (role === "super_admin") return <Badge className="bg-amber-500 hover:bg-amber-600">Super Admin</Badge>;
-  if (role === "admin") return <Badge className="bg-blue-500 hover:bg-blue-600">Admin</Badge>;
-  if (role === "tenant_admin") return <Badge className="bg-indigo-500 hover:bg-indigo-600">Admin da Loja</Badge>;
-  return <Badge variant="secondary">Usuário</Badge>;
+  if (role === "super_admin") return <StatusBadge tone="warning">Super Admin</StatusBadge>;
+  if (role === "admin") return <StatusBadge tone="info">Admin</StatusBadge>;
+  if (role === "tenant_admin") return <StatusBadge tone="info">Admin da Loja</StatusBadge>;
+  return <StatusBadge tone="neutral">Usuário</StatusBadge>;
 };
 
 function UsuariosPage() {
@@ -163,8 +163,8 @@ function UsuariosPage() {
                   <TableCell>{roleBadge(u.role)}</TableCell>
                   <TableCell>
                     {u.ativo
-                      ? <Badge className="bg-emerald-500 hover:bg-emerald-600">Ativo</Badge>
-                      : <Badge variant="destructive">Inativo</Badge>}
+                      ? <StatusBadge tone="success">Ativo</StatusBadge>
+                      : <StatusBadge tone="danger">Inativo</StatusBadge>}
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-2">

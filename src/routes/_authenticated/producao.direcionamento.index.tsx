@@ -9,7 +9,7 @@ import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { RevisaoErroBadge } from "@/components/producao/RevisaoErro";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { FilterButton } from "@/components/shared/filters";
 
@@ -133,9 +133,9 @@ function DirListPage() {
                 <td className="px-4 py-2 text-muted-foreground" data-label="Categoria">{r.categoria_nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground" data-label="Coleção">{r.colecao ?? "—"}</td>
                 <td className="px-4 py-2" data-label="Status">
-                  <Badge className={r.dir_status === "separado" ? "bg-emerald-500 hover:bg-emerald-500 text-white" : "bg-amber-500 hover:bg-amber-500 text-white"}>
+                  <StatusBadge tone={r.dir_status === "separado" ? "success" : "warning"}>
                     {r.dir_status === "separado" ? "Separado" : "Pendente"}
-                  </Badge>
+                  </StatusBadge>
                 </td>
               </tr>
             ))}
