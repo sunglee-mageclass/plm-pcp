@@ -37,10 +37,10 @@ type Bloco = {
   aviamentos_utilizados: string[];
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  pendente: "bg-amber-500",
-  em_andamento: "bg-blue-500",
-  finalizado: "bg-emerald-500",
+const STATUS_TONE: Record<string, StatusTone> = {
+  pendente: "warning",
+  em_andamento: "info",
+  finalizado: "success",
 };
 
 function AcabDetailPage() {
