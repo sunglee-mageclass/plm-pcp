@@ -292,7 +292,8 @@ function TecidosGallery() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+
           <SearchToggle value={search} onChange={setSearch} placeholder="Buscar por nome…" />
           <Select value={sort} onValueChange={setSort}>
             <SelectTrigger className="h-8 w-40 text-sm">

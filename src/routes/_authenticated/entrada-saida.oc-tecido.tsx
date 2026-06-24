@@ -162,17 +162,18 @@ function OcTecidoPage() {
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6">
-      <header className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+      <header className="flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4">
+        <div className="flex min-w-0 items-start gap-4">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <Scissors className="h-6 w-6" />
           </div>
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">OC de Tecido</h1>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-semibold tracking-tight truncate">OC de Tecido</h1>
             <p className="text-sm text-muted-foreground mt-1">Ordens de compra de tecidos.</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+
           <div className="flex rounded-md border p-0.5">
             <Button size="sm" variant={view === "ocs" ? "secondary" : "ghost"} onClick={() => setView("ocs")}>OCs</Button>
             <Button size="sm" variant={view === "rolos" ? "secondary" : "ghost"} onClick={() => setView("rolos")}>Rolos</Button>

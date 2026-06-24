@@ -242,15 +242,16 @@ function PlanejamentoPage() {
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6">
-      <header className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Palette className="h-7 w-7 text-primary" />
-          <div>
-            <h1 className="text-2xl font-bold">Planejamento</h1>
+      <header className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <Palette className="h-7 w-7 shrink-0 text-primary" />
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold truncate">Planejamento</h1>
             <p className="text-sm text-muted-foreground">Cards de modelos em planejamento.</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+
           <SearchToggle value={search} onChange={setSearch} placeholder="Pesquisar por nome…" />
           <FilterButton
             filters={[

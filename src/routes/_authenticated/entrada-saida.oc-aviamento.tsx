@@ -177,17 +177,18 @@ function OcAviamentoPage() {
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6">
-      <header className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+      <header className="flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4">
+        <div className="flex min-w-0 items-start gap-4">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <Sparkles className="h-6 w-6" />
           </div>
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">OC de Aviamento</h1>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-semibold tracking-tight truncate">OC de Aviamento</h1>
             <p className="text-sm text-muted-foreground mt-1">Ordens de compra de aviamentos.</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+
           <FilterButton
             filters={[
               { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
