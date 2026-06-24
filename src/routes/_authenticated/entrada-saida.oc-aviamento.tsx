@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Sparkles, Plus, Upload, Trash2 } from "lucide-react";
+import { Sparkles, Plus, Upload, Trash2, ArrowLeft } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 
@@ -344,6 +344,10 @@ function OcAviamentoPage() {
           estilistas={estilistas}
           onClose={() => { setOpenNew(false); setEditingId(null); }}
           onSaved={() => qc.invalidateQueries({ queryKey: ["ocs_aviamento"] })}
+          onDelete={() => {
+            const oc = ocs.find((o) => o.id === editingId);
+            if (oc) { setOpenNew(false); setEditingId(null); setDeleting(oc); }
+          }}
         />
       )}
 
@@ -400,13 +404,14 @@ function emptyDraft(): Draft {
 }
 
 function OcDialog({
-  ocId, empresas, estilistas, onClose, onSaved,
+  ocId, empresas, estilistas, onClose, onSaved, onDelete,
 }: {
   ocId: string | null;
   empresas: Empresa[];
   estilistas: Colab[];
   onClose: () => void;
   onSaved: () => void;
+  onDelete?: () => void;
 }) {
   const isEdit = !!ocId;
   const qc = useQueryClient();
@@ -705,7 +710,7 @@ function OcDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-4xl max-h-[90dvh] overflow-y-auto">
+      <DialogContent className="max-w-4xl max-h-[90dvh] overflow-y-auto max-md:w-screen max-md:max-w-none max-md:h-dvh max-md:max-h-dvh max-md:rounded-none max-md:border-0 max-md:p-4 max-md:pb-0 max-md:[&>button]:hidden">
         <DialogHeader>
           <DialogTitle>{isEdit ? `OC ${draft.numero_pedido || ""}` : "Nova OC de Aviamento"}</DialogTitle>
         </DialogHeader>
@@ -962,24 +967,35 @@ function OcDialog({
           )}
         </div>
 
-        <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={onClose}>Cancelar</Button>
-          {canShowRecebimento && (
-            // Botão único que alterna: marca quando encomendado, desmarca quando recebido.
-            isReadOnlyRecebimento ? (
-              <Button variant="outline" onClick={() => setConfirmUnmark(true)} disabled={unmarkReceivedMut.isPending}>
-                Desmarcar Recebido
-              </Button>
-            ) : (
-              <Button variant="secondary" onClick={handleMarkReceived} disabled={saveMutation.isPending}>
-                Marcar como Recebido
-              </Button>
-            )
-          )}
-          <Button onClick={() => saveMutation.mutate(false)} disabled={saveMutation.isPending}>
-            Salvar
+        <div className="flex items-center gap-2 max-md:sticky max-md:bottom-0 max-md:z-10 max-md:-mx-4 max-md:border-t max-md:bg-background max-md:px-4 max-md:py-3 max-md:shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">
+          <Button variant="outline" onClick={onClose} aria-label="Voltar">
+            <ArrowLeft className="h-4 w-4 md:mr-1" />
+            <span className="max-md:sr-only">Voltar</span>
           </Button>
-        </DialogFooter>
+          {isEdit && onDelete && status === "encomendado" && (
+            <Button variant="destructive" onClick={onDelete} aria-label="Excluir">
+              <Trash2 className="h-4 w-4 md:mr-1" />
+              <span className="max-md:sr-only">Excluir</span>
+            </Button>
+          )}
+          <div className="ml-auto flex gap-2">
+            {canShowRecebimento && (
+              // Botão que alterna: marca quando encomendado, desmarca quando recebido.
+              isReadOnlyRecebimento ? (
+                <Button variant="outline" onClick={() => setConfirmUnmark(true)} disabled={unmarkReceivedMut.isPending}>
+                  Desmarcar Recebido
+                </Button>
+              ) : (
+                <Button variant="secondary" onClick={handleMarkReceived} disabled={saveMutation.isPending}>
+                  Marcar Recebido
+                </Button>
+              )
+            )}
+            <Button onClick={() => saveMutation.mutate(false)} disabled={saveMutation.isPending}>
+              Salvar
+            </Button>
+          </div>
+        </div>
       </DialogContent>
 
       <AlertDialog open={confirmUnmark} onOpenChange={setConfirmUnmark}>
