@@ -5,7 +5,7 @@ import { Scissors, Search, Printer } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge, type StatusTone } from "@/components/shared/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { FilterButton } from "@/components/shared/filters";
