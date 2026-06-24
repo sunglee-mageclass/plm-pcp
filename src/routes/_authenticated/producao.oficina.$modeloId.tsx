@@ -25,10 +25,10 @@ export const Route = createFileRoute("/_authenticated/producao/oficina/$modeloId
   component: OficinaDetailPage,
 });
 
-const STATUS_COLORS: Record<string, string> = {
-  pendente: "bg-amber-500",
-  em_andamento: "bg-blue-500",
-  finalizado: "bg-emerald-500",
+const STATUS_TONE: Record<string, StatusTone> = {
+  pendente: "warning",
+  em_andamento: "info",
+  finalizado: "success",
 };
 
 function computeStatus(b: { data_enviado: string | null; data_entregue: string | null }) {
