@@ -180,17 +180,17 @@ function ConfiguracoesLojaPage() {
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-w-4xl">
-      <header className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Settings className="h-7 w-7 text-primary" />
-          <div>
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <Settings className="h-7 w-7 shrink-0 text-primary" />
+          <div className="min-w-0">
             <h1 className="text-2xl font-bold">Configurações da Loja</h1>
             <p className="text-sm text-muted-foreground">
               Parâmetros usados em todo o fluxo de produção.
             </p>
           </div>
         </div>
-        <Button onClick={() => save.mutate()} disabled={save.isPending || isLoading}>
+        <Button className="max-sm:w-full shrink-0" onClick={() => save.mutate()} disabled={save.isPending || isLoading}>
           <Save className="h-4 w-4 mr-2" />
           {save.isPending ? "Salvando…" : "Salvar alterações"}
         </Button>
