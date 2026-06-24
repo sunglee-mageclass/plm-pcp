@@ -151,6 +151,6 @@ function CqListPage() {
 }
 
 function CqStatusBadge({ status }: { status: string }) {
-  if (status === "confirmado") return <Badge className="bg-emerald-500 hover:bg-emerald-500 text-white">Confirmado</Badge>;
-  return <Badge className="bg-amber-500 hover:bg-amber-500 text-white">Pendente</Badge>;
+  if (status === "confirmado") return <StatusBadge tone="success">Confirmado</StatusBadge>;
+  return <StatusBadge tone="warning">Pendente</StatusBadge>;
 }
