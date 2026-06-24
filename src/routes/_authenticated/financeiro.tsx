@@ -204,11 +204,11 @@ function FinanceiroPage() {
       )}
 
       <Tabs defaultValue="calendario">
-        <TabsList>
-          <TabsTrigger value="calendario">Calendário</TabsTrigger>
-          <TabsTrigger value="lista">Lista de Parcelas</TabsTrigger>
-          <TabsTrigger value="servicos">Serviços</TabsTrigger>
-          <TabsTrigger value="resumo">Resumo</TabsTrigger>
+        <TabsList className="w-full flex-wrap h-auto sm:w-auto sm:inline-flex sm:flex-nowrap">
+          <TabsTrigger value="calendario" className="flex-1 sm:flex-none">Calendário</TabsTrigger>
+          <TabsTrigger value="lista" className="flex-1 sm:flex-none"><span className="sm:hidden">Parcelas</span><span className="hidden sm:inline">Lista de Parcelas</span></TabsTrigger>
+          <TabsTrigger value="servicos" className="flex-1 sm:flex-none">Serviços</TabsTrigger>
+          <TabsTrigger value="resumo" className="flex-1 sm:flex-none">Resumo</TabsTrigger>
         </TabsList>
         <TabsContent value="calendario" className="mt-4">
           <CalendarioView parcelas={parcelasCal} loading={isLoading} />
