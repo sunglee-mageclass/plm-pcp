@@ -10,7 +10,7 @@ import { RevisaoErroBadge } from "@/components/producao/RevisaoErro";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import { FilterButton } from "@/components/shared/filters";
 
 export const Route = createFileRoute("/_authenticated/producao/cq/")({
