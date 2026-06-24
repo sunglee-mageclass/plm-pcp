@@ -207,7 +207,9 @@ function OcTecidoPage() {
           {view === "rolos" && (
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => setOpenRemover(true)}>
-                <Minus className="h-4 w-4 mr-1" /> Metragem
+                <Minus className="h-4 w-4 mr-1" />
+                <span className="sm:hidden">Metr.</span>
+                <span className="hidden sm:inline">Metragem</span>
               </Button>
               <Button onClick={() => setOpenRolo(true)}>
                 <Plus className="h-4 w-4 mr-1" /> Novo Rolo
