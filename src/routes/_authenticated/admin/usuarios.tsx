@@ -107,11 +107,9 @@ function UsuariosPage() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Users className="h-6 w-6" />
-          </div>
+          <Users className="h-7 w-7 text-primary mt-0.5 shrink-0" />
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Gerenciar Usuários</h1>
+            <h1 className="text-2xl font-bold">Gerenciar Usuários</h1>
             <p className="text-sm text-muted-foreground mt-1">
               Crie e administre usuários de todas as lojas.
             </p>
