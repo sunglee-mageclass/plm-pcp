@@ -44,12 +44,17 @@ export function CadActions({ onPrint, onSave, onEnviar, onDesmarcar, onExcluir, 
           </Link>
         )}
         {onExcluir && !readOnly && !enviado && (
-          <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={onExcluir}>
+          <Button variant="ghost" size="sm" className="max-md:hidden text-destructive hover:text-destructive" onClick={onExcluir}>
             <Trash2 className="h-4 w-4 mr-1" /> Excluir CAD
           </Button>
         )}
       </div>
       <div className="flex gap-2 items-center max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-40 max-md:justify-end max-md:border-t max-md:bg-background max-md:p-3 max-md:shadow-lg">
+        {onExcluir && !readOnly && !enviado && (
+          <Button variant="ghost" size="sm" className="md:hidden mr-auto text-destructive hover:text-destructive" onClick={onExcluir}>
+            <Trash2 className="h-4 w-4 mr-1" /> Excluir CAD
+          </Button>
+        )}
         {enviado && (
           <Badge variant="secondary" className="gap-1 px-3 py-1.5">
             <CheckCircle2 className="h-4 w-4 text-emerald-600" />
