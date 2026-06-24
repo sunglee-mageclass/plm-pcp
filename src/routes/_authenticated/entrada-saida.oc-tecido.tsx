@@ -212,7 +212,9 @@ function OcTecidoPage() {
                 <span className="hidden sm:inline">Metragem</span>
               </Button>
               <Button onClick={() => setOpenRolo(true)}>
-                <Plus className="h-4 w-4 mr-1" /> Novo Rolo
+                <Plus className="h-4 w-4 mr-1" />
+                <span className="sm:hidden">Rolo</span>
+                <span className="hidden sm:inline">Novo Rolo</span>
               </Button>
             </>
           )}
