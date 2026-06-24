@@ -459,15 +459,24 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
       <VerificarRevisao modeloId={modeloId} etapa="terceirizados" />
       <div className="flex items-center justify-between">
         {onClose ? (
-          <button onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+          <button onClick={onClose} className="max-md:hidden text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
             <ArrowLeft className="h-4 w-4" /> Voltar
           </button>
         ) : (
-          <Link to="/producao/terceirizados" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+          <Link to="/producao/terceirizados" className="max-md:hidden text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
             <ArrowLeft className="h-4 w-4" /> Voltar
           </Link>
         )}
         <div className="flex items-center gap-2 max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-40 max-md:justify-end max-md:border-t max-md:bg-background max-md:p-3 max-md:shadow-lg">
+          {onClose ? (
+            <Button type="button" variant="outline" size="icon" className="md:hidden mr-auto" onClick={onClose} aria-label="Voltar">
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button asChild variant="outline" size="icon" className="md:hidden mr-auto" aria-label="Voltar">
+              <Link to="/producao/terceirizados"><ArrowLeft className="h-4 w-4" /></Link>
+            </Button>
+          )}
           <Button variant="outline" className="hidden md:inline-flex" onClick={() => { setPrintTarget("ficha"); printWithImages(); }} disabled={!cad?.id}>
             <FileText className="h-4 w-4 mr-2" /> Ficha Técnica
           </Button>

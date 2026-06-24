@@ -423,21 +423,30 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           {onClose ? (
-            <button onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+            <button onClick={onClose} className="max-md:hidden text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
               <ArrowLeft className="h-4 w-4" /> Voltar
             </button>
           ) : (
-            <Link to="/producao/cq" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+            <Link to="/producao/cq" className="max-md:hidden text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
               <ArrowLeft className="h-4 w-4" /> Voltar
             </Link>
           )}
           {cad?.id && (
             <Button size="sm" variant="outline" onClick={() => setOficinaOpen(true)}>
-              <Wrench className="h-3.5 w-3.5 mr-1" /> Oficina
+              <Wrench className="h-3.5 w-3.5 md:mr-1" /> <span className="max-md:sr-only">Oficina</span>
             </Button>
           )}
         </div>
         <div className="flex items-center gap-2 max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-40 max-md:justify-end max-md:border-t max-md:bg-background max-md:p-3 max-md:shadow-lg">
+          {onClose ? (
+            <Button type="button" variant="outline" size="icon" className="md:hidden mr-auto" onClick={onClose} aria-label="Voltar">
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button asChild variant="outline" size="icon" className="md:hidden mr-auto" aria-label="Voltar">
+              <Link to="/producao/cq"><ArrowLeft className="h-4 w-4" /></Link>
+            </Button>
+          )}
           {!confirmado ? (
             <>
               <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly}>
