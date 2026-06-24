@@ -216,8 +216,8 @@ function OcAviamentoPage() {
                 <TableRow>
                   <TableHead>Nº Pedido</TableHead>
                   <TableHead>Fornecedor</TableHead>
-                  <TableHead>Data Prevista</TableHead>
-                  <TableHead>Valor Previsto</TableHead>
+                  <TableHead><span className="sm:hidden">Data Prev.</span><span className="hidden sm:inline">Data Prevista</span></TableHead>
+                  <TableHead><span className="sm:hidden">Valor Prev.</span><span className="hidden sm:inline">Valor Previsto</span></TableHead>
                   <TableHead>Mensagem</TableHead>
                   <TableHead></TableHead>
                 </TableRow>
