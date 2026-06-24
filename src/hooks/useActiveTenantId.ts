@@ -10,15 +10,18 @@ import { useAuth } from "@/hooks/useAuth";
  * sem reaproveitar o cache da loja anterior (era o motivo da sidebar não
  * respeitar as toggles ao trocar de loja).
  */
-export function useActiveTenantId(): string | null {
+export function useActiveTenantId(): string {
   const { user } = useAuth();
   const { data } = useQuery({
     queryKey: ["active-tenant-id", user?.id],
     enabled: !!user?.id,
     queryFn: async () => {
       const { data } = await supabase.from("users").select("tenant_id").eq("id", user!.id).maybeSingle();
-      return data?.tenant_id ?? null;
+      return data?.tenant_id ?? "";
     },
   });
-  return (data as string | null) ?? null;
+  // Sentinela "" quando sem usuário/tenant — todas as queries usam `enabled: !!tenantId`,
+  // então o `.eq("tenant_id", "")` nunca chega a executar. Mantemos tipo `string` para
+  // satisfazer as assinaturas tipadas do Supabase (que não aceitam null em .eq()).
+  return (data as string | undefined) ?? "";
 }
