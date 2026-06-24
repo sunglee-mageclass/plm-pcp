@@ -667,6 +667,7 @@ type AjusteRow = {
 
 export function AjustesList() {
   const qc = useQueryClient();
+  const [confirmar, setConfirmar] = useState<AjusteRow | null>(null);
   const { data: ajustes = [] } = useQuery({
     queryKey: ["ajustes-estoque"],
     queryFn: async () => {
@@ -713,7 +714,7 @@ export function AjustesList() {
                 <TableCell data-label="Por" className="text-muted-foreground">{a.por}</TableCell>
                 <TableCell data-label="Ações">
                   <Button variant="ghost" size="icon" className="h-8 w-8" title="Desfazer"
-                    onClick={() => reverter.mutate(a.id)}>
+                    onClick={() => setConfirmar(a)}>
                     <Undo2 className="h-4 w-4" />
                   </Button>
                 </TableCell>
@@ -722,6 +723,25 @@ export function AjustesList() {
           </TableBody>
         </Table>
       </div>
+
+      <AlertDialog open={!!confirmar} onOpenChange={(o) => !o && setConfirmar(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reverter este ajuste?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmar && (
+                <>A remoção de <b>{fmtNum(confirmar.quantidade)} m</b> ({confirmar.artigo} · {confirmar.variante}) será desfeita e a metragem volta para o estoque.</>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { if (confirmar) reverter.mutate(confirmar.id); setConfirmar(null); }}>
+              Reverter
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
