@@ -190,7 +190,7 @@ function CadListPage() {
       {printReq && <PrintFicha modeloId={printReq.id} kind="corte" token={printReq.token} />}
 
       <Sheet open={!!sheetId} onOpenChange={(o) => !o && setSheetId(null)}>
-        <SheetContent className="w-full sm:w-[92vw] sm:max-w-[1100px] overflow-y-auto p-0">
+        <SheetContent className="w-full sm:w-[92vw] sm:max-w-[1100px] overflow-y-auto p-0 max-md:[&>button]:hidden">
           {sheetId && <CadEditor modeloId={sheetId} onAfterDelete={() => setSheetId(null)} onClose={() => setSheetId(null)} />}
         </SheetContent>
       </Sheet>
