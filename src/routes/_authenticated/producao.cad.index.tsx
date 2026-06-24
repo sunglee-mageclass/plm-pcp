@@ -1,3 +1,4 @@
+import { SkeletonTableRow } from "@/components/shared/Skeletons";
 import { useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
@@ -147,7 +148,7 @@ function CadListPage() {
           </thead>
           <tbody>
             {isLoading && (
-              <tr><td className="px-4 py-6 text-muted-foreground" colSpan={5}>Carregando…</td></tr>
+              <SkeletonTableRow cols={5} />
             )}
             {!isLoading && filtered.length === 0 && (
               <tr><td colSpan={5} className="p-0"><EmptyState icon={Scissors} title="Nenhum modelo enviado ao CAD" description="Os modelos aprovados na criação aparecerão aqui." className="border-0 rounded-none" /></td></tr>

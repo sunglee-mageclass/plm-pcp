@@ -1,3 +1,4 @@
+import { SkeletonTableRow } from "@/components/shared/Skeletons";
 import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
@@ -137,7 +138,7 @@ function TercListPage() {
           </thead>
           <tbody>
             {isLoading && (
-              <tr><td className="px-4 py-6 text-muted-foreground" colSpan={6}>Carregando…</td></tr>
+              <SkeletonTableRow cols={6} />
             )}
             {!isLoading && filtered.length === 0 && (
               <tr><td colSpan={6} className="p-0"><EmptyState icon={Users} title="Nenhum modelo disponível" description="Modelos enviados aos terceirizados aparecerão aqui." className="border-0 rounded-none" /></td></tr>

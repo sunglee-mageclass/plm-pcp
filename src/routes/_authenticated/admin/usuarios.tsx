@@ -1,3 +1,4 @@
+import { SkeletonTableRow } from "@/components/shared/Skeletons";
 import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -151,7 +152,7 @@ function UsuariosPage() {
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={6} className="text-center text-sm text-muted-foreground py-8">Carregando…</TableCell></TableRow>
+              <SkeletonTableRow cols={6} />
             ) : filtered.length === 0 ? (
               <TableRow><TableCell colSpan={6} className="text-center text-sm text-muted-foreground py-8">Nenhum usuário encontrado.</TableCell></TableRow>
             ) : (

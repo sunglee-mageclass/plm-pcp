@@ -1,3 +1,4 @@
+import { SkeletonTableRow } from "@/components/shared/Skeletons";
 import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -87,7 +88,7 @@ function UsuariosLojaPage() {
           </TableHeader>
           <TableBody>
             {isLoading ? (
-              <TableRow><TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-8">Carregando…</TableCell></TableRow>
+              <SkeletonTableRow cols={5} />
             ) : users.length === 0 ? (
               <TableRow><TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-8">Nenhum usuário.</TableCell></TableRow>
             ) : (

@@ -1,3 +1,4 @@
+import { SkeletonTableRow } from "@/components/shared/Skeletons";
 import { useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
@@ -79,7 +80,7 @@ function AcabListPage() {
             </tr>
           </thead>
           <tbody>
-            {isLoading && <tr><td className="px-4 py-6 text-muted-foreground" colSpan={4}>Carregando…</td></tr>}
+            {isLoading && <SkeletonTableRow cols={4} />}
             {!isLoading && filtered.length === 0 && (
               <tr><td colSpan={4} className="p-0"><EmptyState icon={Sparkles} title="Nenhum modelo disponível" description="Modelos em acabamento aparecerão aqui." className="border-0 rounded-none" /></td></tr>
             )}

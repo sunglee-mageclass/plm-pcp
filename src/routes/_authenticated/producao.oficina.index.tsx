@@ -1,3 +1,4 @@
+import { SkeletonTableRow } from "@/components/shared/Skeletons";
 import { useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
@@ -104,7 +105,7 @@ function OficinaListPage() {
           </thead>
           <tbody>
             {isLoading && (
-              <tr><td className="px-4 py-6 text-muted-foreground" colSpan={4}>Carregando…</td></tr>
+              <SkeletonTableRow cols={4} />
             )}
             {!isLoading && filtered.length === 0 && (
               <tr><td colSpan={4} className="p-0"><EmptyState icon={Wrench} title="Nenhum modelo disponível" description="Modelos enviados à oficina aparecerão aqui." className="border-0 rounded-none" /></td></tr>
