@@ -235,7 +235,7 @@ function OficinaDetailPage() {
           <fieldset disabled={readOnly} className="contents">
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-lg">Oficina</h3>
-            {oficinaInterna && <Badge className="bg-primary text-primary-foreground">Oficina Interna</Badge>}
+            {oficinaInterna && <StatusBadge tone="info">Oficina Interna</StatusBadge>}
           </div>
 
           <div className="grid gap-4 md:grid-cols-3">
