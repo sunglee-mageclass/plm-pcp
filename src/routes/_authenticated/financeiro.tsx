@@ -165,7 +165,7 @@ function FinanceiroPage() {
       const { data, error } = await supabase
         .from("ocs_tecido")
         .select("id, numero_pedido, ocs_tecido_itens!oc_tecido_id(cq_alerta_status, substitui_item_id, quantidade_recebida)")
-        .eq("status", "recebido").eq("is_rolo", false);
+        .eq("status", "recebido").eq("is_rolo" as never, false as never);
       if (error) throw error;
       return ((data ?? []) as any[])
         .map((oc) => {

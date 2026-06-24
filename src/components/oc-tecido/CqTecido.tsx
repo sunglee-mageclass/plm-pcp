@@ -79,7 +79,7 @@ function useFlatCqItems() {
         .from("ocs_tecido")
         .select(`id, numero_pedido, ocs_tecido_itens!oc_tecido_id(${SELECT_COLS})`)
         .eq("status", "recebido")
-        .eq("is_rolo", false)
+        .eq("is_rolo" as never, false as never)
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as any[];

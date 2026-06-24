@@ -23,9 +23,9 @@ export function VerificarRevisao({ modeloId, etapa, revisao }: { modeloId: strin
     queryKey: ["revisao-pendente", modeloId, etapa],
     enabled: !!modeloId && !hasRevisao,
     queryFn: async () => {
-      const { data, error } = await supabase.from("modelos").select("revisao_pendente").eq("id", modeloId).maybeSingle();
+      const { data, error } = await supabase.from("modelos").select("revisao_pendente" as never).eq("id", modeloId).maybeSingle();
       if (error) throw error;
-      return !!((data?.revisao_pendente as any)?.[etapa]);
+      return !!(((data as any)?.revisao_pendente)?.[etapa]);
     },
   });
   const pendente = hasRevisao ? !!(revisao as any)?.[etapa] : pendenteQuery;
