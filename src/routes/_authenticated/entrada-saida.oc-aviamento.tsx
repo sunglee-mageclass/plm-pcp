@@ -178,12 +178,10 @@ function OcAviamentoPage() {
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6">
       <header className="flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4">
-        <div className="flex min-w-0 items-start gap-4">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Sparkles className="h-6 w-6" />
-          </div>
+        <div className="flex min-w-0 items-start gap-3">
+          <Sparkles className="h-7 w-7 text-primary mt-0.5 shrink-0" />
           <div className="min-w-0">
-            <h1 className="text-2xl font-semibold tracking-tight truncate">OC de Aviamento</h1>
+            <h1 className="text-2xl font-bold truncate">OC de Aviamento</h1>
             <p className="text-sm text-muted-foreground mt-1">Ordens de compra de aviamentos.</p>
           </div>
         </div>
