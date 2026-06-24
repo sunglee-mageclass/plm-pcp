@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { FilterButton } from "@/components/shared/filters";
 import { PrintFicha } from "@/components/producao/PrintFicha";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
+import { EmptyState } from "@/components/shared/EmptyState";
 
 export const Route = createFileRoute("/_authenticated/producao/terceirizados/")({
   component: TercListPage,
@@ -139,7 +140,7 @@ function TercListPage() {
               <tr><td className="px-4 py-6 text-muted-foreground" colSpan={6}>Carregando…</td></tr>
             )}
             {!isLoading && filtered.length === 0 && (
-              <tr><td className="px-4 py-6 text-muted-foreground" colSpan={6}>Nenhum modelo disponível.</td></tr>
+              <tr><td colSpan={6} className="p-0"><EmptyState icon={Users} title="Nenhum modelo disponível" description="Modelos enviados aos terceirizados aparecerão aqui." className="border-0 rounded-none" /></td></tr>
             )}
             {filtered.map((r: any) => (
               <tr

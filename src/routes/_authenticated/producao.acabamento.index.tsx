@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
+import { EmptyState } from "@/components/shared/EmptyState";
 
 export const Route = createFileRoute("/_authenticated/producao/acabamento/")({
   component: AcabListPage,
@@ -80,7 +81,7 @@ function AcabListPage() {
           <tbody>
             {isLoading && <tr><td className="px-4 py-6 text-muted-foreground" colSpan={4}>Carregando…</td></tr>}
             {!isLoading && filtered.length === 0 && (
-              <tr><td className="px-4 py-6 text-muted-foreground" colSpan={4}>Nenhum modelo disponível.</td></tr>
+              <tr><td colSpan={4} className="p-0"><EmptyState icon={Sparkles} title="Nenhum modelo disponível" description="Modelos em acabamento aparecerão aqui." className="border-0 rounded-none" /></td></tr>
             )}
             {filtered.map((r: any) => (
               <tr key={r.modelo_id} className="border-t hover:bg-muted/30">

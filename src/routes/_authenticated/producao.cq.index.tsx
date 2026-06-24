@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { FilterButton } from "@/components/shared/filters";
+import { EmptyState } from "@/components/shared/EmptyState";
 
 export const Route = createFileRoute("/_authenticated/producao/cq/")({
   component: CqListPage,
@@ -118,7 +119,7 @@ function CqListPage() {
               <tr><td className="px-4 py-6 text-muted-foreground" colSpan={5}>Carregando…</td></tr>
             )}
             {!isLoading && filtered.length === 0 && (
-              <tr><td className="px-4 py-6 text-muted-foreground" colSpan={5}>Nenhum modelo disponível.</td></tr>
+              <tr><td colSpan={5} className="p-0"><EmptyState icon={ClipboardCheck} title="Nenhum modelo disponível" description="Modelos prontos para CQ aparecerão aqui." className="border-0 rounded-none" /></td></tr>
             )}
             {filtered.map((r: any) => (
               <tr

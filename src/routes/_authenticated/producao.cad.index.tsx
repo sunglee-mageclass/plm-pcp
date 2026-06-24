@@ -11,6 +11,7 @@ import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { FilterButton } from "@/components/shared/filters";
 import { PrintFicha } from "@/components/producao/PrintFicha";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
+import { EmptyState } from "@/components/shared/EmptyState";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { CadEditor } from "@/routes/_authenticated/producao.cad.$modeloId";
 
@@ -149,7 +150,7 @@ function CadListPage() {
               <tr><td className="px-4 py-6 text-muted-foreground" colSpan={5}>Carregando…</td></tr>
             )}
             {!isLoading && filtered.length === 0 && (
-              <tr><td className="px-4 py-6 text-muted-foreground" colSpan={5}>Nenhum modelo enviado ao CAD.</td></tr>
+              <tr><td colSpan={5} className="p-0"><EmptyState icon={Scissors} title="Nenhum modelo enviado ao CAD" description="Os modelos aprovados na criação aparecerão aqui." className="border-0 rounded-none" /></td></tr>
             )}
             {filtered.map((r: any) => (
               <tr

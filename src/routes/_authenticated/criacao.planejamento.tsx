@@ -22,6 +22,7 @@ import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS, useCompactCards } from
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { fmtNum } from "@/lib/format";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
+import { EmptyState } from "@/components/shared/EmptyState";
 
 import { RequirePermission } from "@/components/RequirePermission";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
@@ -291,7 +292,7 @@ function PlanejamentoPage() {
 
       <div ref={gridRef}>
       {filtered.length === 0 ? (
-        <Card className="p-12 text-center text-muted-foreground">Nenhum modelo encontrado.</Card>
+        <EmptyState icon={Palette} title="Nenhum modelo encontrado" description="Crie um modelo usando o botão Novo Modelo." />
       ) : groupByCat ? (
         <div className="space-y-8">
           {grouped.map((g) => (

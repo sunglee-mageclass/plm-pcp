@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { FilterButton } from "@/components/shared/filters";
+import { EmptyState } from "@/components/shared/EmptyState";
 
 export const Route = createFileRoute("/_authenticated/producao/direcionamento/")({
   component: DirListPage,
@@ -116,7 +117,7 @@ function DirListPage() {
           <tbody>
             {isLoading && <tr><td className="px-4 py-6 text-muted-foreground" colSpan={5}>Carregando…</td></tr>}
             {!isLoading && filtered.length === 0 && (
-              <tr><td className="px-4 py-6 text-muted-foreground" colSpan={5}>Nenhum modelo disponível.</td></tr>
+              <tr><td colSpan={5} className="p-0"><EmptyState icon={Compass} title="Nenhum modelo disponível" description="Modelos prontos para direcionamento aparecerão aqui." className="border-0 rounded-none" /></td></tr>
             )}
             {filtered.map((r: any) => (
               <tr
