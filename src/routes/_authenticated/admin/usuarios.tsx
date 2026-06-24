@@ -41,10 +41,10 @@ type Tenant = { id: string; nome: string };
 
 const ROLES = ["super_admin", "admin", "tenant_admin", "user"] as const;
 const roleBadge = (role: string) => {
-  if (role === "super_admin") return <Badge className="bg-amber-500 hover:bg-amber-600">Super Admin</Badge>;
-  if (role === "admin") return <Badge className="bg-blue-500 hover:bg-blue-600">Admin</Badge>;
-  if (role === "tenant_admin") return <Badge className="bg-indigo-500 hover:bg-indigo-600">Admin da Loja</Badge>;
-  return <Badge variant="secondary">Usuário</Badge>;
+  if (role === "super_admin") return <StatusBadge tone="warning">Super Admin</StatusBadge>;
+  if (role === "admin") return <StatusBadge tone="info">Admin</StatusBadge>;
+  if (role === "tenant_admin") return <StatusBadge tone="info">Admin da Loja</StatusBadge>;
+  return <StatusBadge tone="neutral">Usuário</StatusBadge>;
 };
 
 function UsuariosPage() {
