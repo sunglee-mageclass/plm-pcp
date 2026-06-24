@@ -761,7 +761,7 @@ function OcDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-4xl max-h-[90dvh] overflow-y-auto max-md:w-screen max-md:max-w-none max-md:h-dvh max-md:max-h-dvh max-md:rounded-none max-md:border-0 max-md:pb-24 max-md:[&>button]:hidden">
+      <DialogContent className="max-w-4xl max-h-[90dvh] overflow-y-auto max-md:w-screen max-md:max-w-none max-md:h-dvh max-md:max-h-dvh max-md:rounded-none max-md:border-0 max-md:p-4 max-md:pb-0 max-md:[&>button]:hidden">
         <DialogHeader>
           <DialogTitle>{isEdit ? `OC ${draft.numero_pedido || ""}` : "Nova OC de Tecido"}</DialogTitle>
         </DialogHeader>
@@ -820,7 +820,7 @@ function OcDialog({
           {isEdit && ocId && <OcNfHistorico ocId={ocId} />}
         </div>
 
-        <div className="flex items-center gap-2 max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-50 max-md:border-t max-md:bg-background max-md:p-3 max-md:shadow-lg">
+        <div className="flex items-center gap-2 max-md:sticky max-md:bottom-0 max-md:z-10 max-md:-mx-4 max-md:border-t max-md:bg-background max-md:px-4 max-md:py-3 max-md:shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">
           <Button variant="outline" onClick={onClose} aria-label="Voltar">
             <ArrowLeft className="h-4 w-4 md:mr-1" />
             <span className="max-md:sr-only">Voltar</span>
