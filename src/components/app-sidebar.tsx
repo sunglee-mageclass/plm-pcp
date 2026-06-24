@@ -183,13 +183,24 @@ export function AppSidebar() {
                 return (
                   <Collapsible key={item.url} defaultOpen={active} className="group/collapsible">
                     <SidebarMenuItem>
-                      <CollapsibleTrigger asChild>
-                        <SidebarMenuButton isActive={active} tooltip={item.title}>
-                          <item.icon className="h-4 w-4" />
-                          <span>{item.title}</span>
-                          <ChevronRight className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90" />
+                      {collapsed ? (
+                        // Sidebar recolhida: o ícone do módulo NAVEGA pra página de cards
+                        // (basePath), em vez de só abrir o submenu (que fica escondido).
+                        <SidebarMenuButton asChild isActive={active} tooltip={item.title}>
+                          <Link to={item.url}>
+                            <item.icon className="h-4 w-4" />
+                            <span>{item.title}</span>
+                          </Link>
                         </SidebarMenuButton>
-                      </CollapsibleTrigger>
+                      ) : (
+                        <CollapsibleTrigger asChild>
+                          <SidebarMenuButton isActive={active} tooltip={item.title}>
+                            <item.icon className="h-4 w-4" />
+                            <span>{item.title}</span>
+                            <ChevronRight className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90" />
+                          </SidebarMenuButton>
+                        </CollapsibleTrigger>
+                      )}
                       <CollapsibleContent>
                         <SidebarMenuSub>
                           {item.subs.map((sub) => (
