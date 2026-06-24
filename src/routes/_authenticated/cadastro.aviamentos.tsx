@@ -414,7 +414,7 @@ function AviamentoCard({
           </div>
         )}
         {!readOnly && (
-          <div className="absolute inset-x-0 bottom-0 p-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-gradient-to-t from-black/60 to-transparent">
+          <div className="absolute inset-x-0 bottom-0 p-2 flex gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity bg-gradient-to-t from-black/60 to-transparent">
             <Button size="sm" variant="secondary" className="h-7 flex-1" onClick={onEdit}>
               <Pencil className="h-3 w-3 mr-1" /> Editar
             </Button>
