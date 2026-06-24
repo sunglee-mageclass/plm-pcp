@@ -812,7 +812,7 @@ function OcDialog({
               </p>
             )}
 
-            <Table>
+            <Table className="card-table">
               <TableHeader>
                 <TableRow>
                   <TableHead>Aviamento</TableHead>
@@ -838,21 +838,21 @@ function OcDialog({
                         </SelectContent>
                       </Select>
                     </TableCell>
-                    <TableCell>
+                    <TableCell data-label="Qtd Pedida">
                       <NumberInput type="number" step="0.01" value={i.quantidade_pedida}
                         disabled={i.cancelado || isReadOnlyRecebimento}
                         onChange={(e) => updateItem(i.tempId, { quantidade_pedida: Number(e.target.value) })} />
                     </TableCell>
                     {canShowRecebimento && (
-                      <TableCell>
+                      <TableCell data-label="Qtd Recebida">
                         <NumberInput type="number" step="0.01" value={i.quantidade_recebida ?? ""}
                           disabled={i.cancelado}
                           onChange={(e) => updateItem(i.tempId, { quantidade_recebida: e.target.value === "" ? null : Number(e.target.value) })} />
                       </TableCell>
                     )}
-                    <TableCell className="text-sm">{fmtMoney(valorPrev(i))}</TableCell>
-                    {canShowRecebimento && <TableCell className="text-sm">{fmtMoney(valorReal(i))}</TableCell>}
-                    <TableCell>
+                    <TableCell data-label="Valor Prev." className="text-sm">{fmtMoney(valorPrev(i))}</TableCell>
+                    {canShowRecebimento && <TableCell data-label="Valor Real" className="text-sm">{fmtMoney(valorReal(i))}</TableCell>}
+                    <TableCell data-label="Ações">
                       <div className="flex items-center gap-1">
                         {status === "encomendado" && (
                           <label className="flex items-center gap-1 text-xs text-muted-foreground" title="Cancelar item">
@@ -875,7 +875,7 @@ function OcDialog({
               </TableBody>
             </Table>
 
-            <div className="flex gap-6 justify-end text-sm">
+            <div className="flex flex-wrap gap-x-6 gap-y-2 justify-end text-sm">
               <div>Total Previsto: <b>{fmtMoney(totalPrev)}</b></div>
               {canShowRecebimento && <div>Total Real: <b>{fmtMoney(totalReal)}</b></div>}
             </div>
