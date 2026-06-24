@@ -860,7 +860,7 @@ function OcDialog({
                               checked={i.cancelado}
                               onCheckedChange={(c) => updateItem(i.tempId, { cancelado: !!c })}
                             />
-                            X
+                            Cancelar
                           </label>
                         )}
                         {!isReadOnlyRecebimento && (
