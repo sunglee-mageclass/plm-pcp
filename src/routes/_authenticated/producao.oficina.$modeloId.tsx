@@ -228,7 +228,7 @@ function OficinaDetailPage() {
               {(modelo as any)?.categorias_produto?.nome ?? "—"} • {modelo?.colecao ?? "—"}
             </p>
           </div>
-          <Badge className={`${STATUS_COLORS[status]} text-white`}>{status}</Badge>
+          <StatusBadge tone={STATUS_TONE[status] ?? "neutral"}>{status}</StatusBadge>
         </header>
 
         <Card className="p-5 space-y-4">
