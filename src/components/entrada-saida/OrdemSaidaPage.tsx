@@ -384,9 +384,14 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
                         <ScissorsLineDashed className="h-4 w-4" />
                       </Button>
                     )}
-                    <Button size="icon" variant="ghost" onClick={() => openEdit(o)} aria-label="Editar">
-                      <Pencil className="h-4 w-4" />
-                    </Button>
+                    {/* Editar só enquanto NÃO baixada: editar uma OS baixada zerava a
+                        baixa mantendo o status "Baixado" e corrompia o estoque. Para
+                        alterar, desmarque a baixa primeiro (botão ao lado). */}
+                    {!o.baixado && (
+                      <Button size="icon" variant="ghost" onClick={() => openEdit(o)} aria-label="Editar">
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    )}
                     <Button size="icon" variant="destructive" onClick={() => setDeleteRow(o)} aria-label="Excluir">
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -478,13 +483,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
             <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={() => setFormOpen(false)}>
               <ArrowLeft className="h-4 w-4" />
             </Button>
-            {editing?.baixado && (
-              <Button variant="outline" className="max-sm:ml-auto" onClick={() => editing && desmarcarMut.mutate(editing)} disabled={desmarcarMut.isPending}>
-                <RotateCcw className="h-4 w-4 sm:mr-1" />
-                <span className="max-sm:sr-only">Desmarcar baixa</span>
-              </Button>
-            )}
-            <Button className={editing?.baixado ? "" : "max-sm:ml-auto"} onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+            <Button className="max-sm:ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
               {saveMut.isPending ? "Salvando…" : "Salvar"}
             </Button>
           </DialogFooter>
