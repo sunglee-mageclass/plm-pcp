@@ -50,6 +50,14 @@ export async function comoUsuario(c: Client, userId: string = USER_TESTE): Promi
   await c.query("SELECT set_config('request.jwt.claims', $1, true)", [
     JSON.stringify({ sub: userId, role: "authenticated" }),
   ]);
+  // Determinístico: fixa o tenant ativo do usuário-dono em TENANT_TESTE DENTRO da
+  // transação (revertida no ROLLBACK). Sem isso, se o super_admin trocar de loja no
+  // app (setActiveTenant muda users.tenant_id), os testes acoplados a TENANT_TESTE
+  // quebrariam — exatamente o que aconteceu quando o dono passou a ver outra loja.
+  // Não toca o estado real (txn revertida).
+  if (userId === USER_TESTE) {
+    await c.query("UPDATE public.users SET tenant_id = $1 WHERE id = $2", [TENANT_TESTE, USER_TESTE]);
+  }
 }
 
 /** Sem usuário autenticado (auth.uid() nulo). */
