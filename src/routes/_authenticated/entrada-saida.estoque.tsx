@@ -74,7 +74,7 @@ function TecidosTab() {
     queryFn: async () => {
       const [variantesRes, ocItensRes, baixasRes, modTecRes, modTecVarRes, modelosRes, modGradesRes, osItensRes] = await Promise.all([
         supabase.from("variantes_tecido").select("id, artigo_id, nome_variante, codigo_variante, rua, prateleira, enderecos, cores(nome), artigos(id, nome, unidade_medida, rendimento, empresa_id, categoria_tecido_id, empresas(nome_fantasia), categorias_tecido(nome))"),
-        (supabase.from("ocs_tecido_itens") as any).select("id, artigo_id, variante_tecido_id, quantidade_pedida, quantidade_recebida, cancelado, estoque_zerado, substitui_item_id, oc_tecido_id, ocs_tecido!oc_tecido_id!inner(status)"),
+        (supabase.from("ocs_tecido_itens") as any).select("id, artigo_id, variante_tecido_id, quantidade_pedida, quantidade_recebida, cancelado, estoque_zerado, substitui_item_id, oc_tecido_id, ocs_tecido!oc_tecido_id!inner(status, is_rolo, rolo_origem_item_id)"),
         // Baixa real = ledger estoque_tecido_baixas (consumo de estoque RECEBIDO no
         // corte, capado no saldo) — fonte única de baixa, por ITEM de OC.
         supabase.from("estoque_tecido_baixas" as any).select("oc_tecido_item_id, variante_tecido_id, quantidade"),
@@ -144,9 +144,19 @@ function TecidosTab() {
       // Variantes com algum item zerado → liberam a reserva (decisão: zerar = resolvido).
       const variantesZeradas = new Set<string>();
 
+      // Itens de OC já DESTRINCHADOS em rolos NÃO contam no estoque — só os rolos contam
+      // (a OC vira só registro do pedido). Evita "duplicar" OC + rolos e independe da
+      // baixa de separação estar exata (órfãos não inflam o físico pela OC).
+      const origemComRolos = new Set<string>();
+      for (const it of ocItens) {
+        const oc = (it as any).ocs_tecido;
+        if (oc?.is_rolo && oc?.rolo_origem_item_id) origemComRolos.add(oc.rolo_origem_item_id);
+      }
+
       for (const it of ocItens) {
         if (!it.variante_tecido_id) continue;
         if ((it as any).cancelado) continue;
+        if (origemComRolos.has((it as any).id)) continue; // origem destrinchada: conta só os rolos
         const art: any = it.artigo_id ? artById.get(it.artigo_id) : undefined;
         const acc = get(it.variante_tecido_id);
         if ((it as any).ocs_tecido?.status === "encomendado") {
