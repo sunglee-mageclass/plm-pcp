@@ -329,8 +329,9 @@ function OcDialog({
   const [respMode, setRespMode] = useState<"select" | "text">("select");
   const [tecido2Aberto, setTecido2Aberto] = useState(false);
   const [confirmUnmark, setConfirmUnmark] = useState(false);
-  // Dispensa a etiqueta de lavagem no recebimento (alguns artigos não têm).
-  const [semEtiquetaLavagem, setSemEtiquetaLavagem] = useState(false);
+  // Dispensa a etiqueta de lavagem POR TECIDO (keyed por artigo_id) no recebimento —
+  // cada artigo da OC pode ter, ou não, etiqueta de lavagem.
+  const [semEtiquetaPorArtigo, setSemEtiquetaPorArtigo] = useState<Record<string, boolean>>({});
 
   useQuery({
     queryKey: ["oc-tecido", ocId],
@@ -753,9 +754,10 @@ function OcDialog({
   const todasParcelasOk =
     parcelas.length > 0 && parcelas.every((p) => !!p.data && p.recebido === true);
   const todasEtiquetasOk =
-    semEtiquetaLavagem ||
-    (artigoIdsForEtiqueta.length > 0 &&
-      artigoIdsForEtiqueta.every((id) => (etiquetasByArtigo[id]?.length ?? 0) > 0));
+    artigoIdsForEtiqueta.length > 0 &&
+    artigoIdsForEtiqueta.every(
+      (id) => semEtiquetaPorArtigo[id] || (etiquetasByArtigo[id]?.length ?? 0) > 0,
+    );
   const algumaQtdRecebida = items.some((i) => (i.quantidade_recebida ?? 0) > 0);
 
   const canMarkReceived =
@@ -849,13 +851,25 @@ function OcDialog({
           )}
 
           {canShowRecebimento && !isReadOnlyRecebimento && (
-            <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
-              <Checkbox
-                checked={semEtiquetaLavagem}
-                onCheckedChange={(v) => setSemEtiquetaLavagem(v === true)}
-              />
-              Esta OC não tem etiqueta de lavagem (dispensa o anexo no recebimento)
-            </label>
+            <div className="space-y-1.5">
+              {([1, 2] as const).map((n) => {
+                const aid = artigoIdFor(n);
+                if (!aid) return null;
+                // Só oferece a dispensa para o tecido que ainda NÃO tem etiqueta anexada.
+                if ((etiquetasByArtigo[aid]?.length ?? 0) > 0) return null;
+                const nome = artigoMap[aid]?.nome;
+                const label = n === 1 ? "Tecido principal" : "Tecido 2";
+                return (
+                  <label key={aid} className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+                    <Checkbox
+                      checked={!!semEtiquetaPorArtigo[aid]}
+                      onCheckedChange={(v) => setSemEtiquetaPorArtigo((m) => ({ ...m, [aid]: v === true }))}
+                    />
+                    {label}{nome ? ` (${nome})` : ""} não tem etiqueta de lavagem
+                  </label>
+                );
+              })}
+            </div>
           )}
 
           {isEdit && ocId && <OcCqSection ocId={ocId} />}
