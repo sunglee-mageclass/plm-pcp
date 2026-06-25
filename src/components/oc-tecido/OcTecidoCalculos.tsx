@@ -15,7 +15,7 @@ export function OcTecidoCalculos({
   items, artigoMap, varianteMap, setQtd,
   totalPrevisto, totalReal, dataPrevista, dataEntrega, status, readOnly = false,
   toggleCancelado, canCancel,
-  modoRolo = false, rolos = {}, setRolos, onRoloCq,
+  modoRolo = false, rolos = {}, setRolos, onRoloCq, onRoloCancelar, onRoloAjuste,
 }: {
   items: ItemDraft[];
   artigoMap: Record<string, Artigo>;
@@ -34,6 +34,8 @@ export function OcTecidoCalculos({
   rolos?: Record<string, RoloEntry[]>;
   setRolos?: React.Dispatch<React.SetStateAction<Record<string, RoloEntry[]>>>;
   onRoloCq?: (roloItemId: string, patch: { cq_ok?: boolean; cq_alerta?: boolean; obs?: string }) => void;
+  onRoloCancelar?: (roloId: string, cancel: boolean) => void;
+  onRoloAjuste?: (roloId: string, novaQtd: number) => void;
 }) {
   // Atualiza os rolos de um item e reflete a SOMA no quantidade_recebida.
   const aplicarRolos = (tempId: string, novos: RoloEntry[]) => {
@@ -124,10 +126,19 @@ export function OcTecidoCalculos({
                             {entry.cqStatus === "alertado" && <Badge className="shrink-0 bg-amber-500 hover:bg-amber-500 text-[10px]">Alerta</Badge>}
                             {entry.cqStatus === "cancelado" && <Badge className="shrink-0 bg-zinc-500 hover:bg-zinc-500 text-[10px]">Cancelado</Badge>}
                             {entry.cqStatus === "trocado" && <Badge className="shrink-0 bg-blue-600 hover:bg-blue-600 text-[10px]">Trocado</Badge>}
-                            <NumberInput type="number" step="0.01" className="h-9 w-24"
-                              value={entry.qtd}
-                              disabled={!!entry.roloId || readOnly}
-                              onChange={(e) => { const arr = [...rolosDe(i.tempId)]; arr[ri] = { ...arr[ri], qtd: e.target.value }; aplicarRolos(i.tempId, arr); }} />
+                            {entry.roloId && onRoloAjuste ? (
+                              // Rolo já criado: quantidade EDITÁVEL — ajusta via RPC no blur (recalcula a OC).
+                              <NumberInput type="number" step="0.01" className="h-9 w-24"
+                                key={`q-${entry.roloId}`}
+                                defaultValue={entry.qtd}
+                                disabled={!!entry.cancelado}
+                                onBlur={(e) => { const nq = Number(String(e.target.value).replace(",", ".")); if (nq > 0 && nq !== Number(String(entry.qtd).replace(",", ".")) && entry.roloId) onRoloAjuste(entry.roloId, nq); }} />
+                            ) : (
+                              <NumberInput type="number" step="0.01" className="h-9 w-24"
+                                value={entry.qtd}
+                                disabled={readOnly}
+                                onChange={(e) => { const arr = [...rolosDe(i.tempId)]; arr[ri] = { ...arr[ri], qtd: e.target.value }; aplicarRolos(i.tempId, arr); }} />
+                            )}
                             {sufixo && <span className="text-xs text-muted-foreground">{sufixo}</span>}
                             {!entry.roloId && !readOnly && rolosDe(i.tempId).length > 1 && (
                               <button type="button" aria-label="Remover rolo" className="ml-auto px-1.5 text-lg leading-none text-muted-foreground hover:text-destructive"
@@ -153,6 +164,12 @@ export function OcTecidoCalculos({
                                 <Switch checked={!!entry.cq_alerta} onCheckedChange={(v) => setEntryCq(i.tempId, ri, { cq_alerta: v })} />
                                 Alertar estilo
                               </label>
+                              {entry.roloId && onRoloCancelar && (
+                                <label className="flex cursor-pointer items-center gap-1.5 text-xs">
+                                  <Checkbox checked={!!entry.cancelado} onCheckedChange={(v) => onRoloCancelar(entry.roloId!, v === true)} />
+                                  Cancelar rolo
+                                </label>
+                              )}
                             </div>
                           </div>
                         </div>

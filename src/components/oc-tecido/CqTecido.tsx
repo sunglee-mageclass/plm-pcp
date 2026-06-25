@@ -282,15 +282,20 @@ export function AlertasList() {
   // Cancelar SÓ aquele rolo: marca o item do rolo como cancelado (sai do estoque),
   // sem recalcular financeiro (rolo não tem parcela).
   const cancelRoloMut = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from("ocs_tecido_itens")
-        .update({ cancelado: true, cq_alerta_status: "cancelado" } as any)
-        .eq("id", id);
+    mutationFn: async (roloId: string) => {
+      const { error } = await supabase.rpc("cancelar_rolo" as any, { _rolo_id: roloId });
       if (error) throw error;
     },
     onSuccess: () => { invalidarRolo(); toast.success("Rolo cancelado."); },
     onError: (e: any) => toast.error(e.message ?? "Erro ao cancelar rolo"),
+  });
+  const reabrirRoloMut = useMutation({
+    mutationFn: async (roloId: string) => {
+      const { error } = await supabase.rpc("reabrir_rolo" as any, { _rolo_id: roloId });
+      if (error) throw error;
+    },
+    onSuccess: () => invalidarRolo(),
+    onError: (e: any) => toast.error(e.message ?? "Erro ao reabrir rolo"),
   });
   // Trocar o rolo defeituoso: reverte a separação, marca 'trocado' e gera a reposição.
   const trocaRoloMut = useMutation({
@@ -346,7 +351,7 @@ export function AlertasList() {
 
               <div className="flex flex-wrap items-center gap-2 pl-6">
                 {resolvido ? (
-                  <Button size="sm" variant="outline" onClick={() => it.is_rolo ? resolRolo.mutate({ id: it.id, status: "alertado" }) : resol.mutate({ item_id: it.id, acao: "reabrir" })}>
+                  <Button size="sm" variant="outline" onClick={() => it.is_rolo ? reabrirRoloMut.mutate(it.oc_id!) : resol.mutate({ item_id: it.id, acao: "reabrir" })}>
                     <RotateCcw className="h-4 w-4 mr-1" /> Reabrir
                   </Button>
                 ) : it.cq_alerta_status === "troca_pendente" ? (
@@ -392,7 +397,7 @@ export function AlertasList() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Voltar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { if (confirmCancel) { confirmCancel.is_rolo ? cancelRoloMut.mutate(confirmCancel.id) : resol.mutate({ item_id: confirmCancel.id, acao: "cancelar" }); } setConfirmCancel(null); }}>
+            <AlertDialogAction onClick={() => { if (confirmCancel) { confirmCancel.is_rolo ? cancelRoloMut.mutate(confirmCancel.oc_id!) : resol.mutate({ item_id: confirmCancel.id, acao: "cancelar" }); } setConfirmCancel(null); }}>
               {confirmCancel?.is_rolo ? "Cancelar rolo" : "Cancelar variante"}
             </AlertDialogAction>
           </AlertDialogFooter>

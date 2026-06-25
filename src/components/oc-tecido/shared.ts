@@ -96,6 +96,7 @@ export type RoloEntry = {
   cq_ok?: boolean;
   cq_alerta?: boolean;     // cq_alerta_status === 'alertado'
   cqStatus?: string;       // cq_alerta_status cru (alertado/trocado/cancelado/…) p/ badge
+  cancelado?: boolean;     // rolo cancelado (fora do estoque)
   obs?: string;            // cq_observacao do rolo
 };
 

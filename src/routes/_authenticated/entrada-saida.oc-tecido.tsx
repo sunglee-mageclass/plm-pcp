@@ -387,7 +387,7 @@ function OcDialog({
         if (itemIds.length > 0) {
           const { data: rolosData } = await supabase
             .from("ocs_tecido")
-            .select("id, rolo_codigo, rolo_origem_item_id, ocs_tecido_itens(id, quantidade_recebida, cq_ok, cq_alerta_status, cq_observacao)")
+            .select("id, rolo_codigo, rolo_origem_item_id, ocs_tecido_itens(id, quantidade_recebida, cancelado, cq_ok, cq_alerta_status, cq_observacao)")
             .eq("is_rolo" as never, true as never)
             .in("rolo_origem_item_id", itemIds)
             .order("rolo_codigo");
@@ -403,6 +403,7 @@ function OcDialog({
               cq_ok: !!it0?.cq_ok,
               cq_alerta: (it0?.cq_alerta_status ?? "sem_alerta") === "alertado",
               cqStatus: it0?.cq_alerta_status ?? "sem_alerta",
+              cancelado: !!it0?.cancelado,
               obs: it0?.cq_observacao ?? "",
             });
           }
@@ -831,6 +832,28 @@ function OcDialog({
     });
   };
 
+  // Recarrega a OC (refaz o destrinchamento + recalcula valores) após uma ação de rolo.
+  const reloadOc = () => {
+    qc.invalidateQueries({ queryKey: ["oc-tecido", ocId] });
+    qc.invalidateQueries({ queryKey: ["ocs_tecido"] });
+    qc.invalidateQueries({ queryKey: ["ocs_tecido_qtd_recebida"] });
+    qc.invalidateQueries({ queryKey: ["rolos"] });
+    qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
+    qc.invalidateQueries({ queryKey: ["cq-tecido"] });
+  };
+  // Cancelar / reabrir um rolo específico (recalcula a OC: recebido + valor real).
+  const onRoloCancelar = async (roloId: string, cancel: boolean) => {
+    const { error } = await supabase.rpc((cancel ? "cancelar_rolo" : "reabrir_rolo") as any, { _rolo_id: roloId });
+    if (error) { toast.error(error.message ?? "Erro ao cancelar/reabrir rolo"); return; }
+    reloadOc();
+  };
+  // Ajustar a quantidade de um rolo já criado (recalcula a OC).
+  const onRoloAjuste = async (roloId: string, novaQtd: number) => {
+    const { error } = await supabase.rpc("ajustar_rolo" as any, { _rolo_id: roloId, _nova_qtd: novaQtd });
+    if (error) { toast.error(error.message ?? "Erro ao ajustar rolo"); return; }
+    reloadOc();
+  };
+
   // Recebimento só ao EDITAR uma OC já existente. Criar uma OC NÃO oferece
   // recebimento: a OC nasce "encomendada" e recebe-se depois, reabrindo-a.
   const canShowRecebimento = isEdit && (status === "encomendado" || status === "recebido");
@@ -974,6 +997,8 @@ function OcDialog({
               rolos={rolosPorItem}
               setRolos={setRolosPorItem}
               onRoloCq={onRoloCq}
+              onRoloCancelar={onRoloCancelar}
+              onRoloAjuste={onRoloAjuste}
               semEtiquetaPorArtigo={semEtiquetaPorArtigo}
               setSemEtiquetaPorArtigo={setSemEtiquetaPorArtigo}
               onSemEtiqueta={onSemEtiqueta}

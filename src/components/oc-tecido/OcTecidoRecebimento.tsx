@@ -14,7 +14,7 @@ export function OcTecidoRecebimento({
   items, artigoMap, varianteMap, setQtd, totalPrevisto, totalReal,
   tecido2Aberto, artigoId1, artigoId2, status, readOnly = false,
   toggleCancelado, canCancel,
-  modoRolo = false, rolos = {}, setRolos, onRoloCq,
+  modoRolo = false, rolos = {}, setRolos, onRoloCq, onRoloCancelar, onRoloAjuste,
   semEtiquetaPorArtigo = {}, setSemEtiquetaPorArtigo, onSemEtiqueta, etiquetasByArtigo = {},
 }: {
   draft: Draft;
@@ -37,6 +37,8 @@ export function OcTecidoRecebimento({
   rolos?: Record<string, RoloEntry[]>;
   setRolos?: React.Dispatch<React.SetStateAction<Record<string, RoloEntry[]>>>;
   onRoloCq?: (roloItemId: string, patch: { cq_ok?: boolean; cq_alerta?: boolean; obs?: string }) => void;
+  onRoloCancelar?: (roloId: string, cancel: boolean) => void;
+  onRoloAjuste?: (roloId: string, novaQtd: number) => void;
   semEtiquetaPorArtigo?: Record<string, boolean>;
   setSemEtiquetaPorArtigo?: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   onSemEtiqueta?: (artigoId: string, value: boolean) => void;
@@ -194,6 +196,8 @@ export function OcTecidoRecebimento({
           rolos={rolos}
           setRolos={setRolos}
           onRoloCq={onRoloCq}
+          onRoloCancelar={onRoloCancelar}
+          onRoloAjuste={onRoloAjuste}
         />
       </div>
     </>
