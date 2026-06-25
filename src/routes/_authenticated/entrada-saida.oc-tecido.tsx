@@ -382,7 +382,7 @@ function OcDialog({
       // Modo Só Rolo + OC recebida: recarrega o destrinchamento por rolo (cada rolo
       // é um ocs_tecido is_rolo vinculado por rolo_origem_item_id), com código e CQ,
       // p/ mostrar destrinchado (não o valor agregado) e permitir editar o CQ por rolo.
-      if (modoOcRolo === "rolo" && oc?.status === "recebido") {
+      if (modoOcRolo !== "oc" && oc?.status === "recebido") {
         const itemIds = mapped.map((m) => m.id).filter((x): x is string => !!x);
         if (itemIds.length > 0) {
           const { data: rolosData } = await supabase
@@ -409,7 +409,7 @@ function OcDialog({
           }
           if (Object.keys(byOrigem).length > 0) setRolosPorItem(byOrigem);
         }
-      } else if (modoOcRolo === "rolo") {
+      } else if (modoOcRolo !== "oc") {
         // Encomendado: reconstrói o destrinchamento PLANEJADO salvo em rolos_planejados
         // (sem isso, salvar e reabrir o encomendado perdia os rolos digitados).
         const planned: Record<string, RoloEntry[]> = {};
@@ -615,7 +615,7 @@ function OcDialog({
         return out.length ? out : null;
       };
       const roloPlanPatch = (tempId: string) =>
-        modoOcRolo === "rolo" ? { rolos_planejados: roloPlan(tempId) } : {};
+        modoOcRolo !== "oc" ? { rolos_planejados: roloPlan(tempId) } : {};
 
       if (isEdit && ocIdLocal) {
         // Diff: UPDATE (com id), INSERT (sem id), DELETE só dos removidos.
@@ -722,7 +722,7 @@ function OcDialog({
       // Modo só-rolo: gera os rolos a partir do destrinchamento. criar_rolo separa
       // da OC recebida (baixa separacao_rolo) e converte kg→metros — sem duplicar
       // estoque. Best-effort: se falhar, a OC já está recebida (não bloqueia).
-      if (modoOcRolo === "rolo" && finalStatus === "recebido" && ocIdLocal && Object.keys(rolosPorItem).length > 0) {
+      if (modoOcRolo !== "oc" && finalStatus === "recebido" && ocIdLocal && Object.keys(rolosPorItem).length > 0) {
         try {
           const { data: savedItems } = await supabase
             .from("ocs_tecido_itens").select("id, variante_tecido_id, artigo_id").eq("oc_tecido_id", ocIdLocal);
@@ -783,7 +783,7 @@ function OcDialog({
       // Modo Só Rolo: reverte os rolos criados no recebimento ANTES de mudar o status,
       // numa transação (RPC) — senão ficam órfãos e re-receber duplica. Bloqueia se
       // algum rolo já estiver em uso (a OC fica recebida, sem efeito colateral).
-      if (modoOcRolo === "rolo") {
+      if (modoOcRolo !== "oc") {
         const { error: eRolo } = await supabase.rpc("reverter_rolos_oc" as any, { _oc_id: ocId });
         if (eRolo) throw eRolo;
       }
@@ -904,7 +904,7 @@ function OcDialog({
     );
   // No modo rolo a quantidade recebida = soma dos rolos digitados (não depende do
   // quantidade_recebida do item estar sincronizado — ex.: ao reabrir o encomendado).
-  const algumaQtdRecebida = modoOcRolo === "rolo"
+  const algumaQtdRecebida = modoOcRolo !== "oc"
     ? Object.values(rolosPorItem).some((arr) => arr.some((e) => Number(String(e.qtd).replace(",", ".")) > 0))
     : items.some((i) => (i.quantidade_recebida ?? 0) > 0);
 
@@ -992,8 +992,8 @@ function OcDialog({
               status={status}
               readOnly={isReadOnlyRecebimento}
               toggleCancelado={toggleCancelado}
-              canCancel={status === "encomendado" && modoOcRolo !== "rolo"}
-              modoRolo={modoOcRolo === "rolo" && (status === "encomendado" || status === "recebido")}
+              canCancel={status === "encomendado" && modoOcRolo === "oc"}
+              modoRolo={modoOcRolo !== "oc" && (status === "encomendado" || status === "recebido")}
               rolos={rolosPorItem}
               setRolos={setRolosPorItem}
               onRoloCq={onRoloCq}
@@ -1008,7 +1008,7 @@ function OcDialog({
 
           {/* No modo Só Rolo o CQ é feito POR ROLO no destrinchamento acima — a seção
               de CQ por item da OC fica redundante. */}
-          {isEdit && ocId && modoOcRolo !== "rolo" && <OcCqSection ocId={ocId} />}
+          {isEdit && ocId && modoOcRolo === "oc" && <OcCqSection ocId={ocId} />}
           {isEdit && ocId && <OcNfHistorico ocId={ocId} />}
         </div>
 
