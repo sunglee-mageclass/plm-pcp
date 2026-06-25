@@ -7,7 +7,6 @@ import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -847,29 +846,10 @@ function OcDialog({
               modoRolo={modoOcRolo === "rolo" && status === "encomendado"}
               rolos={rolosPorItem}
               setRolos={setRolosPorItem}
+              semEtiquetaPorArtigo={semEtiquetaPorArtigo}
+              setSemEtiquetaPorArtigo={setSemEtiquetaPorArtigo}
+              etiquetasByArtigo={etiquetasByArtigo}
             />
-          )}
-
-          {canShowRecebimento && !isReadOnlyRecebimento && (
-            <div className="space-y-1.5">
-              {([1, 2] as const).map((n) => {
-                const aid = artigoIdFor(n);
-                if (!aid) return null;
-                // Só oferece a dispensa para o tecido que ainda NÃO tem etiqueta anexada.
-                if ((etiquetasByArtigo[aid]?.length ?? 0) > 0) return null;
-                const nome = artigoMap[aid]?.nome;
-                const label = n === 1 ? "Tecido principal" : "Tecido 2";
-                return (
-                  <label key={aid} className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
-                    <Checkbox
-                      checked={!!semEtiquetaPorArtigo[aid]}
-                      onCheckedChange={(v) => setSemEtiquetaPorArtigo((m) => ({ ...m, [aid]: v === true }))}
-                    />
-                    {label}{nome ? ` (${nome})` : ""} não tem etiqueta de lavagem
-                  </label>
-                );
-              })}
-            </div>
           )}
 
           {isEdit && ocId && <OcCqSection ocId={ocId} />}
