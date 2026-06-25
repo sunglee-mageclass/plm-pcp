@@ -58,6 +58,7 @@ import {
 } from "@/components/ui/table";
 
 import { RequirePermission } from "@/components/RequirePermission";
+import { useTenantModules } from "@/hooks/useTenantModules";
 export const Route = createFileRoute("/_authenticated/cadastro/servico")({
   component: () => (
     <RequirePermission page="cadastro_servico">
@@ -98,9 +99,14 @@ function useItemCount(table: string) {
 }
 
 function ServicoPage() {
+  const { isStockOnly } = useTenantModules();
+  // No modo só-estoque, Terceirizado (produção) não faz sentido — some da lista.
+  const visibleSections = isStockOnly
+    ? SECTIONS.filter((s) => s.value !== "terceirizado")
+    : SECTIONS;
   const [selected, setSelected] = useState<SectionKey>("empresa");
   const selectedSection =
-    SECTIONS.find((s) => s.value === selected) ?? SECTIONS[0];
+    visibleSections.find((s) => s.value === selected) ?? visibleSections[0];
 
   const { data: count, isLoading: countLoading } = useItemCount(
     selectedSection.table
@@ -113,7 +119,7 @@ function ServicoPage() {
         <div>
           <h1 className="text-2xl font-bold">Serviços</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Empresas, representantes e terceirizados.
+            {isStockOnly ? "Empresas e representantes." : "Empresas, representantes e terceirizados."}
           </p>
         </div>
       </header>
@@ -125,7 +131,7 @@ function ServicoPage() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {SECTIONS.map((s) => (
+            {visibleSections.map((s) => (
               <SelectItem key={s.value} value={s.value}>
                 {s.label}
               </SelectItem>
@@ -138,7 +144,7 @@ function ServicoPage() {
         {/* Sidebar */}
         <aside className="hidden md:block w-60 shrink-0 border-r py-4">
           <nav className="space-y-0.5">
-            {SECTIONS.map((s) => {
+            {visibleSections.map((s) => {
               const active = s.value === selected;
               return (
                 <button
@@ -176,7 +182,7 @@ function ServicoPage() {
 
           {selected === "empresa" && <EmpresasMultiCatTab />}
           {selected === "representante" && <RepresentantesTab />}
-          {selected === "terceirizado" && <TerceirizadosMultiCatTab />}
+          {selected === "terceirizado" && !isStockOnly && <TerceirizadosMultiCatTab />}
         </div>
       </div>
     </div>
