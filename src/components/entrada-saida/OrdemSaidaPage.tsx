@@ -146,6 +146,12 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
     return m;
   }, [itemOptions]);
 
+  // Unidade da quantidade da OS. Tecido: o estoque é CANÔNICO em METROS — mesmo
+  // para artigo vendido em kg, reserva/baixa entram em metros (o motor de estoque
+  // subtrai do físico em metros). Aviamento: unidades. Mostrar evita o operador
+  // digitar kg num campo que é lido como metros.
+  const unidadeQtd = tipo === "tecido" ? "m" : "un";
+
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
     if (!s) return ordens;
@@ -435,7 +441,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
             </div>
 
             <div className="space-y-2">
-              <Label>Itens (reserva)</Label>
+              <Label>Itens — reserva ({tipo === "tecido" ? "metros" : "unidades"})</Label>
               {fItens.map((it, idx) => (
                 <div key={it._key} className="flex items-center gap-2">
                   <Select value={it.itemId} onValueChange={(v) => setFItens((prev) => prev.map((x, i) => i === idx ? { ...x, itemId: v } : x))}>
@@ -445,12 +451,13 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
                     </SelectContent>
                   </Select>
                   <Input
-                    className="w-24 shrink-0"
+                    className="w-20 shrink-0"
                     inputMode="decimal"
                     placeholder="Reserva"
                     value={it.reserva}
                     onChange={(e) => setFItens((prev) => prev.map((x, i) => i === idx ? { ...x, reserva: e.target.value } : x))}
                   />
+                  <span className="w-5 shrink-0 text-xs text-muted-foreground">{unidadeQtd}</span>
                   <Button size="icon" variant="ghost" className="shrink-0" onClick={() => setFItens((prev) => prev.filter((_, i) => i !== idx))} aria-label="Remover item">
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
@@ -499,15 +506,18 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
                 <div key={it.id} className="flex items-center justify-between gap-3 p-2">
                   <div className="min-w-0 flex-1">
                     <div className="text-sm truncate">{itemLabelById.get(it[cfg.itemFk]) ?? "—"}</div>
-                    <div className="text-xs text-muted-foreground">Reserva: {fmtNum(num(it.reserva))}</div>
+                    <div className="text-xs text-muted-foreground">Reserva: {fmtNum(num(it.reserva))} {unidadeQtd}</div>
                   </div>
-                  <Input
-                    className="w-28"
-                    inputMode="decimal"
-                    placeholder="Utilizado"
-                    value={utilizado[it.id] ?? ""}
-                    onChange={(e) => setUtilizado((prev) => ({ ...prev, [it.id]: e.target.value }))}
-                  />
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Input
+                      className="w-24"
+                      inputMode="decimal"
+                      placeholder="Utilizado"
+                      value={utilizado[it.id] ?? ""}
+                      onChange={(e) => setUtilizado((prev) => ({ ...prev, [it.id]: e.target.value }))}
+                    />
+                    <span className="w-5 text-xs text-muted-foreground">{unidadeQtd}</span>
+                  </div>
                 </div>
               ))}
             </div>

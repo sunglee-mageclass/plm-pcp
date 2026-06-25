@@ -75,13 +75,6 @@ function OficinaDetailPage() {
     enabled: !!tenantId,
     queryFn: async () => (await supabase.from("tenant_config").select("tamanhos_grade, oficina_interna").eq("tenant_id", tenantId).maybeSingle()).data,
   });
-  const tamanhos: string[] = useMemo(() => {
-    const raw = (tenantCfg as any)?.tamanhos_grade;
-    if (Array.isArray(raw) && raw.length > 0) {
-      return raw.map((x: any) => typeof x === "string" ? x : (x?.nome ?? x?.label ?? String(x)));
-    }
-    return ["PP", "P", "M", "G", "GG"];
-  }, [tenantCfg]);
   const oficinaInterna = Boolean((tenantCfg as any)?.oficina_interna);
 
   const { data: grades = [] } = useQuery({
@@ -96,6 +89,25 @@ function OficinaDetailPage() {
       return data ?? [];
     },
   });
+
+  // Apenas os tamanhos presentes na grade (real, senão planejada), na ordem do
+  // tenant_config. Sem isso, o default ["PP",…] não casa com as chaves token
+  // "34|PPP" e a grade saía em branco no print (lojas sem tamanhos_grade salvo).
+  // Espelha a lógica do Direcionamento, que se auto-corrige.
+  const tamanhos = useMemo<string[]>(() => {
+    const cfg = (tenantCfg as any)?.tamanhos_grade;
+    const order: string[] = Array.isArray(cfg) && cfg.length
+      ? cfg.map((x: any) => (typeof x === "string" ? x : (x?.nome ?? x?.label ?? String(x))))
+      : ["PP", "P", "M", "G", "GG"];
+    const present = new Set<string>();
+    (grades as any[]).forEach((g) => {
+      Object.keys(g.grades_reais ?? g.grades_planejadas ?? {}).forEach((k) => present.add(k));
+    });
+    if (present.size === 0) return order;
+    const ordered = order.filter((t) => present.has(t));
+    const extras = [...present].filter((t) => !ordered.includes(t)).sort();
+    return [...ordered, ...extras];
+  }, [tenantCfg, grades]);
 
   const { data: existing, refetch } = useQuery({
     queryKey: ["producao-oficina", cad?.id],
@@ -203,7 +215,7 @@ function OficinaDetailPage() {
   const fotos = ((modelo as any)?.fotos_modelo ?? []) as string[];
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-md:pb-24">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
       <VerificarRevisao modeloId={modeloId} etapa="oficina" />
       <div className="no-print flex items-center justify-between">
         <Link to="/producao/oficina" className="max-sm:hidden text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">

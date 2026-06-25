@@ -9,19 +9,8 @@ import {
   LayoutGrid,
   ImageOff,
   Loader2,
-  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
@@ -238,49 +227,7 @@ function TecidosGallery() {
     onError: (e: any) => toast.error(e.message ?? "Erro ao criar."),
   });
 
-  const [deleteRow, setDeleteRow] = useState<Artigo | null>(null);
-  const [deleteUsage, setDeleteUsage] = useState<number | null>(null);
-
-  const startDelete = async (a: Artigo) => {
-    setDeleteRow(a);
-    setDeleteUsage(null);
-    let total = 0;
-    const refs: { table: string; column: string }[] = [
-      { table: "ocs_tecido_itens", column: "artigo_id" },
-      { table: "modelo_tecidos", column: "artigo_id" },
-      { table: "cad_tecidos", column: "artigo_id" },
-    ];
-    for (const r of refs) {
-      const { count } = await supabase
-        .from(r.table as any)
-        .select("*", { count: "exact", head: true })
-        .eq(r.column, a.id);
-      total += count ?? 0;
-    }
-    setDeleteUsage(total);
-  };
-
-  const deleteMut = useMutation({
-    mutationFn: async (id: string) => {
-      // Coleta as fotos das variantes ANTES de apagar, p/ limpar o bucket depois.
-      const { data: vars } = await supabase.from("variantes_tecido").select("foto_url").eq("artigo_id", id);
-      // Apaga variantes (FK sem cascade pode existir)
-      await supabase.from("variantes_tecido").delete().eq("artigo_id", id);
-      const { error } = await supabase.from("artigos").delete().eq("id", id);
-      if (error) throw error;
-      // Best-effort: remove as fotos órfãs do bucket (não bloqueia a exclusão).
-      const paths = ((vars ?? []) as any[]).map((v) => v.foto_url).filter(Boolean) as string[];
-      if (paths.length) await supabase.storage.from("tecido-variantes").remove(paths);
-    },
-    onSuccess: () => {
-      toast.success("Tecido excluído.");
-      setDeleteRow(null);
-      setDeleteUsage(null);
-      qc.invalidateQueries({ queryKey: ["artigos"] });
-      qc.invalidateQueries({ queryKey: ["variantes-thumb"] });
-    },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao excluir."),
-  });
+  // (A exclusão de tecido vive na tela de detalhe — cadastro.tecidos.$artigoId.)
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
@@ -358,7 +305,6 @@ function TecidosGallery() {
               categorias={categoriaNomesByArtigo.get(a.id) ?? []}
               fornecedor={a.empresa_id ? empresasMap.get(a.empresa_id) ?? null : null}
               fotoPath={firstVarMap.get(a.id) ?? null}
-              onDelete={() => startDelete(a)}
               compact={compact}
               readOnly={readOnly}
             />
@@ -372,54 +318,6 @@ function TecidosGallery() {
         onSubmit={(f) => createMut.mutate(f)}
         loading={createMut.isPending}
       />
-
-      <AlertDialog
-        open={!!deleteRow}
-        onOpenChange={(o) => {
-          if (!o) {
-            setDeleteRow(null);
-            setDeleteUsage(null);
-          }
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Excluir tecido?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {deleteUsage === null ? (
-                <span className="flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Verificando uso…
-                </span>
-              ) : deleteUsage > 0 ? (
-                <>
-                  Este tecido está em uso em <strong>{deleteUsage}</strong> registro(s)
-                  (OCs, modelos ou CADs). A exclusão pode falhar se houver vínculos
-                  protegidos.
-                </>
-              ) : (
-                <>
-                  Tem certeza que deseja excluir <strong>{deleteRow?.nome}</strong>?
-                  Todas as variantes serão removidas.
-                </>
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                e.preventDefault();
-                if (deleteRow) deleteMut.mutate(deleteRow.id);
-              }}
-              disabled={deleteUsage === null || deleteMut.isPending}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Excluir
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       <MobileActionBar>
         <Button onClick={() => setCreateOpen(true)} disabled={readOnly} className="ml-auto">
@@ -435,7 +333,6 @@ function TecidoCard({
   categorias,
   fornecedor,
   fotoPath,
-  onDelete,
   compact,
   readOnly,
 }: {
@@ -443,7 +340,6 @@ function TecidoCard({
   categorias: string[];
   fornecedor: string | null;
   fotoPath: string | null;
-  onDelete: () => void;
   compact?: boolean;
   readOnly?: boolean;
 }) {

@@ -182,7 +182,7 @@ function AcabDetailPage() {
   });
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-md:pb-24">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
       <VerificarRevisao modeloId={modeloId} etapa="acabamento" />
       <div className="flex items-center justify-between">
         <Link to="/producao/acabamento" className="max-sm:hidden text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">

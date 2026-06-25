@@ -455,7 +455,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
   const locked = statusGeral === "finalizado" && !editing;
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-md:pb-24">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
       <VerificarRevisao modeloId={modeloId} etapa="terceirizados" />
       <div className="flex items-center justify-between">
         {onClose ? (
