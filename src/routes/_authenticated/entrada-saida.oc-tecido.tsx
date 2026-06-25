@@ -723,10 +723,9 @@ function OcDialog({
     onError: (e: any) => toast.error(e.message ?? "Erro ao desmarcar recebido."),
   });
 
-  // Recebimento disponível mesmo em OC nova (não exige salvar antes): "Marcar
-  // Recebido" chama saveMutation(true), que CRIA a OC + itens e marca recebido numa
-  // só ação (o else do saveMutation já trata o caso de inserção).
-  const canShowRecebimento = status === "encomendado" || status === "recebido";
+  // Recebimento só ao EDITAR uma OC já existente. Criar uma OC NÃO oferece
+  // recebimento: a OC nasce "encomendada" e recebe-se depois, reabrindo-a.
+  const canShowRecebimento = isEdit && (status === "encomendado" || status === "recebido");
   const isReadOnlyRecebimento = isEdit && status === "recebido";
   const artigoIdsForEtiqueta = useMemo(
     () => [artigoIdFor(1), artigoIdFor(2)].filter((x): x is string => !!x),
@@ -761,6 +760,7 @@ function OcDialog({
   const algumaQtdRecebida = items.some((i) => (i.quantidade_recebida ?? 0) > 0);
 
   const canMarkReceived =
+    isEdit &&
     status === "encomendado" &&
     algumaQtdRecebida &&
     todasParcelasOk &&
