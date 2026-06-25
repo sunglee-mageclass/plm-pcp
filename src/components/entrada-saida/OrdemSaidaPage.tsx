@@ -394,11 +394,11 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
 
       {/* Criar / editar OS */}
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent className="max-w-2xl max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:pb-24">
-          <DialogHeader>
+        <DialogContent className="max-w-2xl max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!flex max-sm:!flex-col max-sm:!overflow-hidden">
+          <DialogHeader className="max-sm:shrink-0">
             <DialogTitle>{editing ? `Editar OS #${editing.numero ?? ""}` : "Nova Ordem de Saída"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2 max-h-[70vh] overflow-y-auto pr-1 max-sm:max-h-none max-sm:overflow-visible">
+          <div className="space-y-4 py-2 max-h-[70vh] overflow-y-auto pr-1 max-sm:flex-1 max-sm:min-h-0 max-sm:overflow-y-auto">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Número</Label>
@@ -466,7 +466,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
               <Input value={fObs} onChange={(e) => setFObs(e.target.value)} placeholder="Opcional" />
             </div>
           </div>
-          <DialogFooter className="max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-50 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:px-4 max-sm:py-3">
+          <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
             <Button variant="outline" className="max-sm:hidden" onClick={() => setFormOpen(false)}>Cancelar</Button>
             <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={() => setFormOpen(false)}>
               <ArrowLeft className="h-4 w-4" />
@@ -486,11 +486,11 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
 
       {/* Dar baixa */}
       <Dialog open={!!baixaOS} onOpenChange={(o) => { if (!o) { setBaixaOS(null); setUtilizado({}); } }}>
-        <DialogContent className="max-w-lg max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:pb-24">
-          <DialogHeader>
+        <DialogContent className="max-w-lg max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!flex max-sm:!flex-col max-sm:!overflow-hidden">
+          <DialogHeader className="max-sm:shrink-0">
             <DialogTitle>Dar baixa — OS #{baixaOS?.numero ?? ""}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3 py-2">
+          <div className="space-y-3 py-2 max-sm:flex-1 max-sm:min-h-0 max-sm:overflow-y-auto">
             <p className="text-sm text-muted-foreground">
               Confirme o <strong>utilizado</strong> de cada item. Ao baixar, a reserva sai e o estoque físico diminui pelo utilizado.
             </p>
@@ -512,7 +512,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
               ))}
             </div>
           </div>
-          <DialogFooter className="max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-50 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:px-4 max-sm:py-3">
+          <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
             <Button variant="outline" className="max-sm:hidden" onClick={() => { setBaixaOS(null); setUtilizado({}); }}>Cancelar</Button>
             <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={() => { setBaixaOS(null); setUtilizado({}); }}>
               <ArrowLeft className="h-4 w-4" />

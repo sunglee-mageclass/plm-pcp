@@ -659,12 +659,12 @@ function AviamentoModal({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:pb-24">
-        <DialogHeader>
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!flex max-sm:!flex-col max-sm:!overflow-hidden">
+        <DialogHeader className="max-sm:shrink-0">
           <DialogTitle>{initial ? "Editar Aviamento" : "Novo Aviamento"}</DialogTitle>
         </DialogHeader>
 
-        <div className="grid gap-4 md:grid-cols-3 py-2">
+        <div className="grid gap-4 md:grid-cols-3 py-2 max-sm:flex-1 max-sm:min-h-0 max-sm:overflow-y-auto">
           <div className="md:col-span-1 space-y-2">
             <Label>Foto</Label>
             <div className="aspect-square bg-muted rounded-md overflow-hidden relative">
@@ -809,7 +809,7 @@ function AviamentoModal({
           </div>
         </div>
 
-        <DialogFooter className="max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-50 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:px-4 max-sm:py-3">
+        <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
           {/* Desktop: Cancelar em texto. Mobile: ícone de voltar (igual às outras barras). */}
           <Button variant="outline" className="max-sm:hidden" onClick={() => handleOpenChange(false)}>
             Cancelar

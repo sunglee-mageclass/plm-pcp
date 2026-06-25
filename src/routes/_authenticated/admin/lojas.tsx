@@ -345,12 +345,12 @@ function NovaLojaModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <DialogContent className="max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:pb-24">
-      <form onSubmit={onSubmit}>
-        <DialogHeader>
+    <DialogContent className="max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!flex max-sm:!flex-col max-sm:!overflow-hidden">
+      <form onSubmit={onSubmit} className="max-sm:flex max-sm:flex-1 max-sm:flex-col max-sm:min-h-0 max-sm:overflow-hidden">
+        <DialogHeader className="max-sm:shrink-0">
           <DialogTitle>Nova Loja</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 py-4">
+        <div className="space-y-4 py-4 max-sm:flex-1 max-sm:min-h-0 max-sm:overflow-y-auto">
           <div>
             <Label htmlFor="nome">Nome *</Label>
             <Input id="nome" value={nome} onChange={(e) => setNome(e.target.value)} required maxLength={255} />
@@ -376,7 +376,7 @@ function NovaLojaModal({ onClose }: { onClose: () => void }) {
             </div>
           </div>
         </div>
-        <DialogFooter className="max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-50 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:px-4 max-sm:py-3">
+        <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
           <Button type="button" variant="outline" className="max-sm:hidden" onClick={onClose}>Cancelar</Button>
           <Button type="button" variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={onClose}>
             <ArrowLeft className="h-4 w-4" />
@@ -471,12 +471,12 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
   };
 
   return (
-    <DialogContent className="max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:pb-24">
-      <form onSubmit={onSubmit}>
-        <DialogHeader>
+    <DialogContent className="max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!flex max-sm:!flex-col max-sm:!overflow-hidden">
+      <form onSubmit={onSubmit} className="max-sm:flex max-sm:flex-1 max-sm:flex-col max-sm:min-h-0 max-sm:overflow-hidden">
+        <DialogHeader className="max-sm:shrink-0">
           <DialogTitle>Editar Loja</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 py-4">
+        <div className="space-y-4 py-4 max-sm:flex-1 max-sm:min-h-0 max-sm:overflow-y-auto">
           <div>
             <Label htmlFor="edit-nome">Nome *</Label>
             <Input id="edit-nome" value={nome} onChange={(e) => setNome(e.target.value)} required maxLength={255} />
@@ -528,7 +528,7 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
             </p>
           </div>
         </div>
-        <DialogFooter className="max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-50 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:px-4 max-sm:py-3">
+        <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
           <Button type="button" variant="outline" className="max-sm:hidden" onClick={onClose}>Cancelar</Button>
           <Button type="button" variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={onClose}>
             <ArrowLeft className="h-4 w-4" />

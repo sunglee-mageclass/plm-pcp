@@ -258,10 +258,10 @@ function NovoUsuarioModal({
   };
 
   return (
-    <DialogContent className="max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:pb-24">
-      <form onSubmit={onSubmit}>
-        <DialogHeader><DialogTitle>Novo Usuário</DialogTitle></DialogHeader>
-        <div className="space-y-4 py-4">
+    <DialogContent className="max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!flex max-sm:!flex-col max-sm:!overflow-hidden">
+      <form onSubmit={onSubmit} className="max-sm:flex max-sm:flex-1 max-sm:flex-col max-sm:min-h-0 max-sm:overflow-hidden">
+        <DialogHeader className="max-sm:shrink-0"><DialogTitle>Novo Usuário</DialogTitle></DialogHeader>
+        <div className="space-y-4 py-4 max-sm:flex-1 max-sm:min-h-0 max-sm:overflow-y-auto">
           <div>
             <Label htmlFor="nome">Nome *</Label>
             <Input id="nome" value={nome} onChange={(e) => setNome(e.target.value)} required maxLength={255} />
@@ -298,7 +298,7 @@ function NovoUsuarioModal({
             </Select>
           </div>
         </div>
-        <DialogFooter className="max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-50 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:px-4 max-sm:py-3">
+        <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
           <Button type="button" variant="outline" className="max-sm:hidden" onClick={onClose}>Cancelar</Button>
           <Button type="button" variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={onClose}>
             <ArrowLeft className="h-4 w-4" />
@@ -335,16 +335,16 @@ function ResetSenhaModal({
   };
 
   return (
-    <DialogContent className="max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:pb-24">
-      <form onSubmit={onSubmit}>
-        <DialogHeader>
+    <DialogContent className="max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!flex max-sm:!flex-col max-sm:!overflow-hidden">
+      <form onSubmit={onSubmit} className="max-sm:flex max-sm:flex-1 max-sm:flex-col max-sm:min-h-0 max-sm:overflow-hidden">
+        <DialogHeader className="max-sm:shrink-0">
           <DialogTitle>Redefinir senha — {user.nome}</DialogTitle>
         </DialogHeader>
-        <div className="py-4 space-y-2">
+        <div className="py-4 space-y-2 max-sm:flex-1 max-sm:min-h-0 max-sm:overflow-y-auto">
           <Label htmlFor="pwd">Nova senha (mín. 6)</Label>
           <Input id="pwd" type="password" minLength={6} maxLength={100} required value={pwd} onChange={(e) => setPwd(e.target.value)} />
         </div>
-        <DialogFooter className="max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-50 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:px-4 max-sm:py-3">
+        <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
           <Button type="button" variant="outline" className="max-sm:hidden" onClick={onClose}>Cancelar</Button>
           <Button type="button" variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={onClose}>
             <ArrowLeft className="h-4 w-4" />
