@@ -345,12 +345,12 @@ function NovaLojaModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <DialogContent className="max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!flex max-sm:!flex-col max-sm:!overflow-hidden">
-      <form onSubmit={onSubmit} className="max-sm:flex max-sm:flex-1 max-sm:flex-col max-sm:min-h-0 max-sm:overflow-hidden">
+    <DialogContent className="max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[1fr] max-sm:!overflow-hidden">
+      <form onSubmit={onSubmit} className="max-sm:grid max-sm:grid-rows-[auto_minmax(0,1fr)_auto] max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-hidden">
         <DialogHeader className="max-sm:shrink-0">
           <DialogTitle>Nova Loja</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 py-4 max-sm:flex-1 max-sm:min-h-0 max-sm:overflow-y-auto">
+        <div className="space-y-4 py-4 max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-y-auto">
           <div>
             <Label htmlFor="nome">Nome *</Label>
             <Input id="nome" value={nome} onChange={(e) => setNome(e.target.value)} required maxLength={255} />
@@ -471,12 +471,12 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
   };
 
   return (
-    <DialogContent className="max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!flex max-sm:!flex-col max-sm:!overflow-hidden">
-      <form onSubmit={onSubmit} className="max-sm:flex max-sm:flex-1 max-sm:flex-col max-sm:min-h-0 max-sm:overflow-hidden">
+    <DialogContent className="max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[1fr] max-sm:!overflow-hidden">
+      <form onSubmit={onSubmit} className="max-sm:grid max-sm:grid-rows-[auto_minmax(0,1fr)_auto] max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-hidden">
         <DialogHeader className="max-sm:shrink-0">
           <DialogTitle>Editar Loja</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 py-4 max-sm:flex-1 max-sm:min-h-0 max-sm:overflow-y-auto">
+        <div className="space-y-4 py-4 max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-y-auto">
           <div>
             <Label htmlFor="edit-nome">Nome *</Label>
             <Input id="edit-nome" value={nome} onChange={(e) => setNome(e.target.value)} required maxLength={255} />

@@ -99,11 +99,11 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
   };
 
   return (
-    <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!flex max-sm:!flex-col max-sm:!overflow-hidden">
+    <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
       <DialogHeader className="max-sm:shrink-0">
         <DialogTitle>Permissões — {user.nome}</DialogTitle>
       </DialogHeader>
-      <div className="max-sm:flex-1 max-sm:min-h-0 max-sm:overflow-y-auto">
+      <div className="max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-y-auto">
       <p className="text-xs text-muted-foreground -mt-2">
         <strong>Leitor:</strong> pode acessar e visualizar a página, sem alterar dados.{" "}
         <strong>Editor:</strong> pode visualizar e também criar, editar ou excluir

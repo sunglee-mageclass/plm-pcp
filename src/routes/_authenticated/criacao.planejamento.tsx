@@ -563,12 +563,12 @@ function ModeloDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!flex max-sm:!flex-col max-sm:!overflow-hidden">
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
         <DialogHeader className="max-sm:shrink-0">
           <DialogTitle>{isEdit ? draft.nome || "Modelo" : "Novo Modelo"}</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4 max-sm:flex-1 max-sm:min-h-0 max-sm:overflow-y-auto">
+        <div className="space-y-4 max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-y-auto">
           <div className="grid sm:grid-cols-2 gap-3">
             <FieldText label="Nome do Modelo" value={draft.nome} onChange={(v) => setDraft((d) => ({ ...d, nome: v }))} />
             {draft.versao > 1 && (
@@ -807,12 +807,12 @@ function BatchCardsDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!flex max-sm:!flex-col max-sm:!overflow-hidden">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
         <DialogHeader className="max-sm:shrink-0">
           <DialogTitle>Criar vários cards</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-5 max-sm:flex-1 max-sm:min-h-0 max-sm:overflow-y-auto">
+        <div className="space-y-5 max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-y-auto">
           <div>
             <p className="text-sm font-medium mb-2">Campos compartilhados</p>
             <p className="text-xs text-muted-foreground mb-3">Aplicados a todos os cards criados.</p>

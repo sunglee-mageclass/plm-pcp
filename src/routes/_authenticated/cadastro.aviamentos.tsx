@@ -641,12 +641,12 @@ function AviamentoModal({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!flex max-sm:!flex-col max-sm:!overflow-hidden">
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
         <DialogHeader className="max-sm:shrink-0">
           <DialogTitle>{initial ? "Editar Aviamento" : "Novo Aviamento"}</DialogTitle>
         </DialogHeader>
 
-        <div className="grid gap-4 md:grid-cols-3 py-2 max-sm:flex-1 max-sm:min-h-0 max-sm:overflow-y-auto">
+        <div className="grid gap-4 md:grid-cols-3 py-2 max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-y-auto">
           <div className="md:col-span-1 space-y-2">
             <Label>Foto</Label>
             <div className="aspect-square bg-muted rounded-md overflow-hidden relative">
