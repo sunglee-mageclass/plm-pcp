@@ -102,7 +102,7 @@ const MODULE_LABELS: { key: string; label: string }[] = [
 function ConfiguracoesLojaPage() {
   const { user, isTenantAdmin, isSuperAdmin, loading } = useAuth();
   const qc = useQueryClient();
-  const { modules } = useTenantModules();
+  const { modules, isStockOnly } = useTenantModules();
   const [cfg, setCfg] = useState<ConfigState>(DEFAULTS);
 
   const { data, isLoading } = useQuery({
@@ -213,6 +213,9 @@ function ConfiguracoesLojaPage() {
       </Card>
       )}
 
+      {/* Modo só-estoque: só Nomenclaturas + Módulos da loja. O restante (produção,
+          fuso, baixa, OC/rolo, ERP) fica escondido. */}
+      {!isStockOnly && (<>
       <ServicosCard tenantId={data?.tenantId ?? null} />
 
       <SortableListCard
@@ -321,6 +324,7 @@ function ConfiguracoesLojaPage() {
           </p>
         </CardContent>
       </Card>
+      </>)}
 
       <Card>
         <CardHeader>
@@ -356,6 +360,7 @@ function ConfiguracoesLojaPage() {
         </CardContent>
       </Card>
 
+      {!isStockOnly && (
       <Card>
         <CardHeader>
           <CardTitle>Integração com ERP</CardTitle>
@@ -388,6 +393,7 @@ function ConfiguracoesLojaPage() {
           )}
         </CardContent>
       </Card>
+      )}
 
       <MobileActionBar>
         <Button asChild variant="outline" size="icon" aria-label="Voltar">
