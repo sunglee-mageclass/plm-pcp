@@ -57,7 +57,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-import { RequirePermission } from "@/components/RequirePermission";
+import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
 import { useTenantModules } from "@/hooks/useTenantModules";
 export const Route = createFileRoute("/_authenticated/cadastro/servico")({
   component: () => (
@@ -233,6 +233,7 @@ function formatCnpj(v: string) {
 
 function RepresentantesTab() {
   const qc = useQueryClient();
+  const readOnly = useReadOnly();
   const [search, setSearch] = useState("");
   const [form, setForm] = useState<typeof emptyForm>(emptyForm);
   const [open, setOpen] = useState(false);
@@ -432,7 +433,7 @@ function RepresentantesTab() {
             className="pl-9"
           />
         </div>
-        <Button onClick={openCreate} className="max-sm:hidden">
+        <Button onClick={openCreate} disabled={readOnly} className="max-sm:hidden">
           <Plus className="h-4 w-4 mr-1" /> Novo
         </Button>
       </div>
@@ -480,7 +481,7 @@ function RepresentantesTab() {
                     <Button size="icon" variant="ghost" onClick={() => openEdit(r)} aria-label="Editar">
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button size="icon" variant="ghost" onClick={() => setDeleteRow(r)}>
+                    <Button size="icon" variant="ghost" onClick={() => setDeleteRow(r)} disabled={readOnly}>
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </TableCell>
@@ -625,9 +626,11 @@ function RepresentantesTab() {
             <Button variant="outline" onClick={() => setOpen(false)}>
               Cancelar
             </Button>
-            <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
-              {saveMut.isPending ? "Salvando…" : "Salvar"}
-            </Button>
+            {!readOnly && (
+              <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+                {saveMut.isPending ? "Salvando…" : "Salvar"}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -656,7 +659,7 @@ function RepresentantesTab() {
       </AlertDialog>
 
       <MobileActionBar>
-        <Button onClick={openCreate} className="ml-auto">
+        <Button onClick={openCreate} disabled={readOnly} className="ml-auto">
           <Plus className="h-4 w-4 mr-1" /> Novo
         </Button>
       </MobileActionBar>
@@ -742,6 +745,7 @@ type EmpresaRow = {
 
 function EmpresasMultiCatTab() {
   const qc = useQueryClient();
+  const readOnly = useReadOnly();
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -929,7 +933,7 @@ function EmpresasMultiCatTab() {
             className="pl-9"
           />
         </div>
-        <Button onClick={openCreate} className="max-sm:hidden">
+        <Button onClick={openCreate} disabled={readOnly} className="max-sm:hidden">
           <Plus className="h-4 w-4 mr-1" /> Novo
         </Button>
       </div>
@@ -988,7 +992,7 @@ function EmpresasMultiCatTab() {
                       <Button size="icon" variant="ghost" onClick={() => openEdit(row)} aria-label="Editar">
                         <Pencil className="h-4 w-4" />
                       </Button>
-                      <Button size="icon" variant="ghost" onClick={() => startDelete(row)}>
+                      <Button size="icon" variant="ghost" onClick={() => startDelete(row)} disabled={readOnly}>
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </TableCell>
@@ -1033,9 +1037,11 @@ function EmpresasMultiCatTab() {
             <Button variant="outline" onClick={() => setOpen(false)}>
               Cancelar
             </Button>
-            <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
-              {saveMut.isPending ? "Salvando…" : "Salvar"}
-            </Button>
+            {!readOnly && (
+              <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+                {saveMut.isPending ? "Salvando…" : "Salvar"}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1087,7 +1093,7 @@ function EmpresasMultiCatTab() {
       </AlertDialog>
 
       <MobileActionBar>
-        <Button onClick={openCreate} className="ml-auto">
+        <Button onClick={openCreate} disabled={readOnly} className="ml-auto">
           <Plus className="h-4 w-4 mr-1" /> Novo
         </Button>
       </MobileActionBar>
@@ -1159,6 +1165,7 @@ function CategoriasTerceirizadoMultiSelect({
 
 function TerceirizadosMultiCatTab() {
   const qc = useQueryClient();
+  const readOnly = useReadOnly();
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1344,7 +1351,7 @@ function TerceirizadosMultiCatTab() {
             className="pl-9"
           />
         </div>
-        <Button onClick={openCreate} className="max-sm:hidden">
+        <Button onClick={openCreate} disabled={readOnly} className="max-sm:hidden">
           <Plus className="h-4 w-4 mr-1" /> Novo
         </Button>
       </div>
@@ -1403,7 +1410,7 @@ function TerceirizadosMultiCatTab() {
                       <Button size="icon" variant="ghost" onClick={() => openEdit(row)} aria-label="Editar">
                         <Pencil className="h-4 w-4" />
                       </Button>
-                      <Button size="icon" variant="ghost" onClick={() => startDelete(row)}>
+                      <Button size="icon" variant="ghost" onClick={() => startDelete(row)} disabled={readOnly}>
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </TableCell>
@@ -1444,9 +1451,11 @@ function TerceirizadosMultiCatTab() {
             <Button variant="outline" onClick={() => setOpen(false)}>
               Cancelar
             </Button>
-            <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
-              {saveMut.isPending ? "Salvando…" : "Salvar"}
-            </Button>
+            {!readOnly && (
+              <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+                {saveMut.isPending ? "Salvando…" : "Salvar"}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1498,7 +1507,7 @@ function TerceirizadosMultiCatTab() {
       </AlertDialog>
 
       <MobileActionBar>
-        <Button onClick={openCreate} className="ml-auto">
+        <Button onClick={openCreate} disabled={readOnly} className="ml-auto">
           <Plus className="h-4 w-4 mr-1" /> Novo
         </Button>
       </MobileActionBar>

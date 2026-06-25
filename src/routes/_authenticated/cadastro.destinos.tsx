@@ -19,7 +19,7 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { RequirePermission } from "@/components/RequirePermission";
+import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
 
 export const Route = createFileRoute("/_authenticated/cadastro/destinos")({
   component: () => (
@@ -33,6 +33,7 @@ type Destino = { id: string; nome: string };
 
 function DestinosPage() {
   const qc = useQueryClient();
+  const readOnly = useReadOnly();
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Destino | null>(null);
@@ -116,7 +117,7 @@ function DestinosPage() {
             className="pl-9"
           />
         </div>
-        <Button onClick={openCreate} className="max-sm:hidden">
+        <Button onClick={openCreate} className="max-sm:hidden" disabled={readOnly}>
           <Plus className="h-4 w-4 mr-1" /> Novo
         </Button>
       </div>
@@ -154,7 +155,7 @@ function DestinosPage() {
                     <Button size="icon" variant="ghost" onClick={() => openEdit(d)} aria-label="Editar">
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button size="icon" variant="ghost" onClick={() => setDeleteRow(d)}>
+                    <Button size="icon" variant="ghost" onClick={() => setDeleteRow(d)} disabled={readOnly} aria-label="Excluir">
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </TableCell>
@@ -183,14 +184,17 @@ function DestinosPage() {
                 onChange={(e) => setFormNome(e.target.value)}
                 placeholder="Ex: Novidade"
                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); saveMut.mutate(); } }}
+                disabled={readOnly}
               />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-            <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
-              {saveMut.isPending ? "Salvando…" : "Salvar"}
-            </Button>
+            {!readOnly && (
+              <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+                {saveMut.isPending ? "Salvando…" : "Salvar"}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -216,7 +220,7 @@ function DestinosPage() {
       </AlertDialog>
 
       <MobileActionBar>
-        <Button onClick={openCreate} className="ml-auto">
+        <Button onClick={openCreate} className="ml-auto" disabled={readOnly}>
           <Plus className="h-4 w-4 mr-1" /> Novo
         </Button>
       </MobileActionBar>

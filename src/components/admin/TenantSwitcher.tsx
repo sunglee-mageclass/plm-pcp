@@ -4,6 +4,7 @@ import { Store } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { setActiveTenant } from "@/lib/admin.functions";
+import { clearTenantPrefixCache } from "@/lib/storage-tenant";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 /**
@@ -54,6 +55,10 @@ export function TenantSwitcher() {
       // DEPOIS que o servidor trocou o tenant: relê o tenant ATIVO (muda a chave
       // das queries de identidade -> módulos/abas/fuso/logo/nomenclatura da loja
       // nova) e então invalida o resto dos dados.
+      // Limpa o cache de tenantPrefix() (módulo-level): sem isso, os uploads da loja
+      // nova seguiriam montando o caminho com o tenant ANTIGO e a RLS de storage
+      // rejeitaria até dar F5.
+      clearTenantPrefixCache();
       await qc.refetchQueries({ queryKey: ["active-tenant-id"] });
       qc.invalidateQueries();
     },

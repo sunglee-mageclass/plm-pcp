@@ -358,6 +358,7 @@ function AviamentosGallery() {
             setEditing(null);
           }}
           onDelete={() => editing && setDeleting(editing)}
+          readOnly={readOnly}
         />
       )}
 
@@ -494,6 +495,7 @@ function AviamentoModal({
   intervalos,
   onSaved,
   onDelete,
+  readOnly,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -505,6 +507,7 @@ function AviamentoModal({
   intervalos: Option[];
   onSaved: () => void;
   onDelete?: () => void;
+  readOnly?: boolean;
 }) {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [uploading, setUploading] = useState(false);
@@ -646,6 +649,7 @@ function AviamentoModal({
           <DialogTitle>{initial ? "Editar Aviamento" : "Novo Aviamento"}</DialogTitle>
         </DialogHeader>
 
+        <fieldset disabled={readOnly} className="contents">
         <div className="grid gap-4 md:grid-cols-3 py-2 max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-y-auto">
           <div className="md:col-span-1 space-y-2">
             <Label>Foto</Label>
@@ -790,6 +794,7 @@ function AviamentoModal({
             </Field>
           </div>
         </div>
+        </fieldset>
 
         <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
           {/* Desktop: Cancelar em texto. Mobile: ícone de voltar (igual às outras barras). */}
@@ -799,15 +804,17 @@ function AviamentoModal({
           <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={() => handleOpenChange(false)}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          {initial && onDelete && (
+          {!readOnly && initial && onDelete && (
             <Button variant="destructive" className="shrink-0 max-sm:aspect-square max-sm:px-0" onClick={() => onDelete()} aria-label="Excluir aviamento">
               <Trash2 className="h-4 w-4 sm:mr-1" />
               <span className="max-sm:sr-only">Excluir</span>
             </Button>
           )}
-          <Button className="max-sm:ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
-            {saveMut.isPending ? "Salvando…" : "Salvar"}
-          </Button>
+          {!readOnly && (
+            <Button className="max-sm:ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+              {saveMut.isPending ? "Salvando…" : "Salvar"}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

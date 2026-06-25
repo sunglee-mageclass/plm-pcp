@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { clearTenantPrefixCache } from "@/lib/storage-tenant";
 
 export type UserPermission = { pagina: string; pode_ver: boolean; pode_editar: boolean };
 
@@ -58,6 +59,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      // Qualquer mudança de sessão (login/logout/refresh) pode significar outro
+      // usuário/loja: invalida o cache módulo-level de tenantPrefix() p/ não vazar
+      // o tenant anterior nos uploads.
+      clearTenantPrefixCache();
       setSession(newSession);
       setUser(newSession?.user ?? null);
       if (newSession?.user) {

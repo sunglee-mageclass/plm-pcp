@@ -35,7 +35,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 
-import { RequirePermission } from "@/components/RequirePermission";
+import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/cadastro/colaboradores")({
   component: () => (
     <RequirePermission page="cadastro_colaboradores">
@@ -95,6 +95,7 @@ function useColabCount(tipo: string) {
 
 function ColaboradoresPage() {
   const qc = useQueryClient();
+  const readOnly = useReadOnly();
   const [selectedKey, setSelectedKey] = useState<string>(BUILTINS[0].key);
   const [addOpen, setAddOpen] = useState(false);
   const [editTab, setEditTab] = useState<Tab | null>(null); // null = criando
@@ -286,7 +287,7 @@ function ColaboradoresPage() {
             ))}
           </SelectContent>
         </Select>
-        <Button type="button" variant="outline" size="icon" onClick={openCreate} aria-label="Novo tipo">
+        <Button type="button" variant="outline" size="icon" onClick={openCreate} aria-label="Novo tipo" disabled={readOnly}>
           <Plus className="h-4 w-4" />
         </Button>
       </div>
@@ -298,14 +299,16 @@ function ColaboradoresPage() {
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Tipos de Colaborador
             </span>
-            <button
-              type="button"
-              onClick={openCreate}
-              className="text-muted-foreground hover:text-foreground"
-              aria-label="Novo tipo"
-            >
-              <Plus className="h-4 w-4" />
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={openCreate}
+                className="text-muted-foreground hover:text-foreground"
+                aria-label="Novo tipo"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            )}
           </div>
           <nav>
             <ul className="space-y-0.5">
@@ -325,7 +328,7 @@ function ColaboradoresPage() {
                     >
                       {t.label}
                     </button>
-                    {t.custom && (
+                    {t.custom && !readOnly && (
                       <>
                         <button
                           type="button"
@@ -423,11 +426,13 @@ function ColaboradoresPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAddOpen(false)}>Cancelar</Button>
-            <Button onClick={submitType} disabled={addType.isPending || editType.isPending}>
-              {editTab
-                ? (editType.isPending ? "Salvando…" : "Salvar")
-                : (addType.isPending ? "Criando…" : "Criar")}
-            </Button>
+            {!readOnly && (
+              <Button onClick={submitType} disabled={addType.isPending || editType.isPending}>
+                {editTab
+                  ? (editType.isPending ? "Salvando…" : "Salvar")
+                  : (addType.isPending ? "Criando…" : "Criar")}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
