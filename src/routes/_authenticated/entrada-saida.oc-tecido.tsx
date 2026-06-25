@@ -728,6 +728,13 @@ function OcDialog({
   const unmarkReceivedMut = useMutation({
     mutationFn: async () => {
       if (!ocId) return;
+      // Modo Só Rolo: reverte os rolos criados no recebimento ANTES de mudar o status,
+      // numa transação (RPC) — senão ficam órfãos e re-receber duplica. Bloqueia se
+      // algum rolo já estiver em uso (a OC fica recebida, sem efeito colateral).
+      if (modoOcRolo === "rolo") {
+        const { error: eRolo } = await supabase.rpc("reverter_rolos_oc" as any, { _oc_id: ocId });
+        if (eRolo) throw eRolo;
+      }
       const { error: e1 } = await supabase
         .from("ocs_tecido")
         .update({ status: "encomendado" })
@@ -747,6 +754,8 @@ function OcDialog({
       qc.invalidateQueries({ queryKey: ["ocs_tecido"] });
       qc.invalidateQueries({ queryKey: ["ocs_tecido_qtd_recebida"] });
       qc.invalidateQueries({ queryKey: ["parcelas"] });
+      qc.invalidateQueries({ queryKey: ["rolos"] });
+      qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
       onSaved();
       onClose();
     },
