@@ -661,13 +661,11 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
   const desmarcarEnvio = useMutation({
     mutationFn: async () => {
       if (!cadRow?.id) return;
-      // Reverte a baixa de estoque e devolve o CAD ao estado editável.
-      const { error: eDel } = await supabase.from("estoque_tecido_baixas").delete().eq("cad_id", cadRow.id);
-      if (eDel) throw eDel;
-      const { error } = await supabase
-        .from("cad")
-        .update({ enviado_corte: false, data_enviado_corte: null, status_corte: "pendente" })
-        .eq("id", cadRow.id);
+      // Reverte a baixa de estoque + devolve o CAD ao editável numa ÚNICA transação
+      // (RPC reverter_corte_tecido). Antes eram 2 chamadas separadas no cliente: se a
+      // 2ª falhasse após a 1ª, a baixa sumia mas enviado_corte ficava true (estoque
+      // inflado, CAD travado). Simétrico ao baixar_estoque_tecido_corte (atômico).
+      const { error } = await supabase.rpc("reverter_corte_tecido" as any, { _cad_id: cadRow.id });
       if (error) throw error;
     },
     onSuccess: () => {

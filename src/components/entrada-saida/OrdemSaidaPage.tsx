@@ -252,7 +252,10 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
       setFormOpen(false);
       invalidate();
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao salvar."),
+    onError: (e: any) =>
+      toast.error(e?.code === "23505"
+        ? "Já existe uma OS com esse número nesta loja. Escolha outro número."
+        : (e.message ?? "Erro ao salvar.")),
   });
 
   const baixaMut = useMutation({
