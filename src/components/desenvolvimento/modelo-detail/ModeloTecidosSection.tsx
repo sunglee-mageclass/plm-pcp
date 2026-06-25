@@ -339,6 +339,9 @@ type OcDisp = {
   numero_pedido: string;
   is_rolo?: boolean;
   rolo_codigo?: string | null;
+  rolo_origem_item_id?: string | null;
+  oc_origem_id?: string | null;       // OC de onde o rolo foi separado (híbrido)
+  oc_origem_numero?: string | null;
   data_entrega: string | null;
   recebida: boolean;
   disponivel_m: number;
@@ -403,6 +406,48 @@ function OcLinksField({
     .map((v) => ({ oc_tecido_item_id: v.oc_tecido_item_id, numero_pedido: "(vínculo)", data_entrega: null, recebida: true, disponivel_m: 0 }));
   const rows = [...visibleOcs, ...extraSelected];
 
+  const renderRow = (o: OcDisp) => {
+    const alloc = value.find((v) => v.oc_tecido_item_id === o.oc_tecido_item_id);
+    const checked = !!alloc;
+    const entrega = o.data_entrega ? new Date(o.data_entrega).toLocaleDateString("pt-BR") : "—";
+    const semSaldo = Number(o.disponivel_m) <= 0;
+    return (
+      <label key={o.oc_tecido_item_id} className="flex items-center gap-1.5 text-[11px] cursor-pointer">
+        <input type="checkbox" className="h-3 w-3 shrink-0" checked={checked} onChange={() => toggle(o.oc_tecido_item_id)} />
+        <span className="font-mono">{o.is_rolo ? `Rolo ${o.rolo_codigo ?? o.numero_pedido}` : `OC ${o.numero_pedido}`}</span>
+        {!o.recebida && (
+          <Badge variant="outline" className="h-4 px-1 text-[9px] border-amber-500 text-amber-600">prevista · {entrega}</Badge>
+        )}
+        <span className={semSaldo ? "text-destructive" : "text-muted-foreground"}>
+          {o.recebida ? "saldo" : "prev."} {fmtM(o.disponivel_m)}m
+        </span>
+        {checked && alloc && alloc.quantidade_m > 0 && (
+          <span className="ml-auto text-foreground whitespace-nowrap">usa {fmtM(alloc.quantidade_m)}m</span>
+        )}
+      </label>
+    );
+  };
+
+  // Híbrido: agrupa os rolos pela OC de ORIGEM; OC total (não-rolo) vira seu próprio
+  // grupo; rolos avulsos (sem OC) ficam num grupo separado no fim.
+  const grupos = (() => {
+    if (modo !== "ambos") return [] as { key: string; label: string; ord: number; items: OcDisp[] }[];
+    const map = new Map<string, { key: string; label: string; ord: number; items: OcDisp[] }>();
+    const add = (key: string, label: string, ord: number, o: OcDisp) => {
+      const g = map.get(key) ?? { key, label, ord, items: [] };
+      g.items.push(o); map.set(key, g);
+    };
+    for (const o of rows) {
+      if (o.is_rolo) {
+        if (o.oc_origem_id) add(`oc:${o.oc_origem_id}`, `OC ${o.oc_origem_numero ?? "—"}`, 1, o);
+        else add("avulsos", "Avulsos (sem OC)", 3, o);
+      } else {
+        add(`total:${o.oc_tecido_item_id}`, `OC ${o.numero_pedido}`, 0, o);
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => a.ord - b.ord || a.label.localeCompare(b.label));
+  })();
+
   if (rows.length === 0) {
     return <p className="text-[11px] text-muted-foreground">Sem OC desta variante — corte usa FIFO.</p>;
   }
@@ -431,29 +476,19 @@ function OcLinksField({
       {!suficiente && need > 0 && (
         <p className="text-[11px] text-destructive">Faltam {fmtM(need - coberto)}m — marque mais OCs ou ajuste consumo/grade.</p>
       )}
-      <div className="space-y-0.5">
-        {rows.map((o) => {
-          const alloc = value.find((v) => v.oc_tecido_item_id === o.oc_tecido_item_id);
-          const checked = !!alloc;
-          const entrega = o.data_entrega ? new Date(o.data_entrega).toLocaleDateString("pt-BR") : "—";
-          const semSaldo = Number(o.disponivel_m) <= 0;
-          return (
-            <label key={o.oc_tecido_item_id} className="flex items-center gap-1.5 text-[11px] cursor-pointer">
-              <input type="checkbox" className="h-3 w-3 shrink-0" checked={checked} onChange={() => toggle(o.oc_tecido_item_id)} />
-              <span className="font-mono">{o.is_rolo ? `Rolo ${o.rolo_codigo ?? o.numero_pedido}` : `OC ${o.numero_pedido}`}</span>
-              {!o.recebida && (
-                <Badge variant="outline" className="h-4 px-1 text-[9px] border-amber-500 text-amber-600">prevista · {entrega}</Badge>
-              )}
-              <span className={semSaldo ? "text-destructive" : "text-muted-foreground"}>
-                {o.recebida ? "saldo" : "prev."} {fmtM(o.disponivel_m)}m
-              </span>
-              {checked && alloc && alloc.quantidade_m > 0 && (
-                <span className="ml-auto text-foreground whitespace-nowrap">usa {fmtM(alloc.quantidade_m)}m</span>
-              )}
-            </label>
-          );
-        })}
-      </div>
+      {modo === "ambos" ? (
+        // Híbrido: escolher pela OC (grupo) e marcar os rolos dela; avulsos à parte.
+        <div className="space-y-1.5">
+          {grupos.map((g) => (
+            <div key={g.key} className="space-y-0.5">
+              <div className="text-[11px] font-semibold text-foreground">{g.label}</div>
+              <div className="space-y-0.5 pl-3">{g.items.map(renderRow)}</div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-0.5">{rows.map(renderRow)}</div>
+      )}
     </div>
   );
 }
