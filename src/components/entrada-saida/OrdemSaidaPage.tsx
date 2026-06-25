@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Pencil, Trash2, Search, Loader2, PackageMinus, ScissorsLineDashed } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Loader2, PackageMinus, ScissorsLineDashed, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { artigoLabel } from "@/lib/artigo-label";
@@ -16,6 +16,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -273,17 +274,22 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
   const totBaixa = (o: OSRow) => (o.itens ?? []).reduce((s, it) => s + num(it.baixa), 0);
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6">
-      <header className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-3">
-          <PackageMinus className="h-7 w-7 text-primary" />
-          <div>
+    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div className="flex min-w-0 items-start gap-3">
+          <PackageMinus className="h-7 w-7 text-primary mt-0.5 shrink-0" />
+          <div className="min-w-0">
             <h1 className="text-2xl font-bold">{cfg.title}</h1>
             <p className="text-sm text-muted-foreground">{cfg.desc}</p>
           </div>
         </div>
-        <Button onClick={openCreate}><Plus className="h-4 w-4 mr-1" /> Nova OS</Button>
+        <Button className="max-sm:hidden shrink-0" onClick={openCreate}><Plus className="h-4 w-4 mr-1" /> Nova OS</Button>
       </header>
+
+      {/* Mobile: ação primária na barra fixa do rodapé. */}
+      <MobileActionBar>
+        <Button className="ml-auto" onClick={openCreate}><Plus className="h-4 w-4 mr-1" /> Nova OS</Button>
+      </MobileActionBar>
 
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -349,11 +355,11 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
 
       {/* Criar / editar OS */}
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0">
           <DialogHeader>
             <DialogTitle>{editing ? `Editar OS #${editing.numero ?? ""}` : "Nova Ordem de Saída"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2 max-h-[70vh] overflow-y-auto pr-1">
+          <div className="space-y-4 py-2 max-h-[70vh] overflow-y-auto pr-1 max-sm:max-h-none max-sm:overflow-visible">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Responsável</Label>
@@ -411,9 +417,12 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
               <Input value={fObs} onChange={(e) => setFObs(e.target.value)} placeholder="Opcional" />
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setFormOpen(false)}>Cancelar</Button>
-            <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+          <DialogFooter className="max-sm:sticky max-sm:bottom-0 max-sm:z-10 max-sm:-mx-4 max-sm:-mb-4 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:px-4 max-sm:py-3">
+            <Button variant="outline" className="max-sm:hidden" onClick={() => setFormOpen(false)}>Cancelar</Button>
+            <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={() => setFormOpen(false)}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <Button className="max-sm:ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
               {saveMut.isPending ? "Salvando…" : "Salvar"}
             </Button>
           </DialogFooter>
@@ -422,7 +431,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
 
       {/* Dar baixa */}
       <Dialog open={!!baixaOS} onOpenChange={(o) => { if (!o) { setBaixaOS(null); setUtilizado({}); } }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0">
           <DialogHeader>
             <DialogTitle>Dar baixa — OS #{baixaOS?.numero ?? ""}</DialogTitle>
           </DialogHeader>
@@ -448,9 +457,12 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
               ))}
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setBaixaOS(null); setUtilizado({}); }}>Cancelar</Button>
-            <Button onClick={() => baixaMut.mutate()} disabled={baixaMut.isPending}>
+          <DialogFooter className="max-sm:sticky max-sm:bottom-0 max-sm:z-10 max-sm:-mx-4 max-sm:-mb-4 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:px-4 max-sm:py-3">
+            <Button variant="outline" className="max-sm:hidden" onClick={() => { setBaixaOS(null); setUtilizado({}); }}>Cancelar</Button>
+            <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={() => { setBaixaOS(null); setUtilizado({}); }}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <Button className="max-sm:ml-auto" onClick={() => baixaMut.mutate()} disabled={baixaMut.isPending}>
               {baixaMut.isPending ? "Baixando…" : "Confirmar baixa"}
             </Button>
           </DialogFooter>
