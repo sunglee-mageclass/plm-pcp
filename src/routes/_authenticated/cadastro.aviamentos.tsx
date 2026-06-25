@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS, useCompactCards } from "@/hooks/useGridCols";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { useReadOnly } from "@/components/RequirePermission";
 import { Input } from "@/components/ui/input";
@@ -102,7 +103,9 @@ function AviamentosGallery() {
   const readOnly = useReadOnly();
   const [cols, setCols] = useGridCols("aviamentos");
   const gridRef = useRef<HTMLDivElement>(null);
-  const compact = useCompactCards(gridRef, cols);
+  // No mobile, sempre mostra as informações do card (não compacta).
+  const isMobile = useIsMobile();
+  const compact = useCompactCards(gridRef, cols) && !isMobile;
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("nome");
   const [fCat, setFCat] = useState("all");
@@ -797,7 +800,7 @@ function AviamentoModal({
             <ArrowLeft className="h-4 w-4" />
           </Button>
           {initial && onDelete && (
-            <Button variant="outline" className="shrink-0 text-destructive hover:text-destructive max-sm:w-9 max-sm:px-0" onClick={() => onDelete()} aria-label="Excluir aviamento">
+            <Button variant="destructive" className="shrink-0 max-sm:w-9 max-sm:px-0" onClick={() => onDelete()} aria-label="Excluir aviamento">
               <Trash2 className="h-4 w-4 sm:mr-1" />
               <span className="max-sm:sr-only">Excluir</span>
             </Button>

@@ -261,7 +261,7 @@ function TecidoDetail() {
         </div>
         <div className="flex items-center gap-2 max-sm:hidden">
           {!readOnly && (
-            <Button variant="outline" className="text-destructive hover:text-destructive" onClick={() => setConfirmDel(true)} disabled={excluirMut.isPending}>
+            <Button variant="destructive" onClick={() => setConfirmDel(true)} disabled={excluirMut.isPending}>
               <Trash2 className="h-4 w-4 mr-1" /> Excluir
             </Button>
           )}
@@ -278,7 +278,7 @@ function TecidoDetail() {
           <Link to="/cadastro/tecidos"><ArrowLeft className="h-4 w-4" /></Link>
         </Button>
         {!readOnly && (
-          <Button variant="outline" size="icon" className="text-destructive" onClick={() => setConfirmDel(true)} disabled={excluirMut.isPending} aria-label="Excluir tecido">
+          <Button variant="destructive" size="icon" onClick={() => setConfirmDel(true)} disabled={excluirMut.isPending} aria-label="Excluir tecido">
             <Trash2 className="h-4 w-4" />
           </Button>
         )}

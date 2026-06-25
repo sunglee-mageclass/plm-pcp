@@ -381,8 +381,8 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
                     <Button size="icon" variant="ghost" onClick={() => openEdit(o)} aria-label="Editar">
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button size="icon" variant="ghost" onClick={() => setDeleteRow(o)} aria-label="Excluir">
-                      <Trash2 className="h-4 w-4 text-destructive" />
+                    <Button size="icon" variant="destructive" onClick={() => setDeleteRow(o)} aria-label="Excluir">
+                      <Trash2 className="h-4 w-4" />
                     </Button>
                   </TableCell>
                 </TableRow>

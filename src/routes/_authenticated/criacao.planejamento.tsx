@@ -807,12 +807,12 @@ function BatchCardsDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!flex max-sm:!flex-col max-sm:!overflow-hidden">
+        <DialogHeader className="max-sm:shrink-0">
           <DialogTitle>Criar vários cards</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-5">
+        <div className="space-y-5 max-sm:flex-1 max-sm:min-h-0 max-sm:overflow-y-auto">
           <div>
             <p className="text-sm font-medium mb-2">Campos compartilhados</p>
             <p className="text-xs text-muted-foreground mb-3">Aplicados a todos os cards criados.</p>
@@ -931,9 +931,12 @@ function BatchCardsDialog({
           </p>
         </div>
 
-        <DialogFooter className="gap-2">
-          <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-          <Button onClick={() => create.mutate()} disabled={create.isPending || total === 0}>
+        <DialogFooter className="gap-2 max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
+          <Button variant="outline" onClick={onClose} aria-label="Voltar" className="shrink-0 max-sm:w-9 max-sm:px-0">
+            <ArrowLeft className="h-4 w-4 sm:hidden" />
+            <span className="max-sm:sr-only">Cancelar</span>
+          </Button>
+          <Button className="max-sm:ml-auto" onClick={() => create.mutate()} disabled={create.isPending || total === 0}>
             {create.isPending ? "Criando…" : `Criar ${total} ${total === 1 ? "card" : "cards"}`}
           </Button>
         </DialogFooter>

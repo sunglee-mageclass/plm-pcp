@@ -26,6 +26,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS, useCompactCards } from "@/hooks/useGridCols";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { useReadOnly } from "@/components/RequirePermission";
 import { Input } from "@/components/ui/input";
@@ -80,7 +81,9 @@ function TecidosGallery() {
   const readOnly = useReadOnly();
   const [cols, setCols] = useGridCols("tecidos");
   const gridRef = useRef<HTMLDivElement>(null);
-  const compact = useCompactCards(gridRef, cols);
+  // No mobile, sempre mostra as informações do card (não compacta).
+  const isMobile = useIsMobile();
+  const compact = useCompactCards(gridRef, cols) && !isMobile;
   const [search, setSearch] = useState("");
   const [empresaFilter, setEmpresaFilter] = useState<string>("all");
   const [catFilter, setCatFilter] = useState<string>("all");

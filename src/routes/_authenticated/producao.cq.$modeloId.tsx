@@ -828,7 +828,10 @@ function OficinaServicoDialog({ cadId, open, onClose }: { cadId: string; open: b
           </div>
         )}
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>Fechar</Button>
+          <Button variant="outline" onClick={onClose} aria-label="Voltar" className="max-sm:w-9 max-sm:px-0">
+            <ArrowLeft className="h-4 w-4 sm:hidden" />
+            <span className="max-sm:sr-only">Fechar</span>
+          </Button>
           {serv && <Button onClick={() => save.mutate()} disabled={save.isPending}>Salvar</Button>}
         </DialogFooter>
       </DialogContent>
