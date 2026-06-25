@@ -96,8 +96,8 @@ function TercListPage() {
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-        <div className="flex items-center gap-3">
-          <Users className="h-7 w-7 text-primary" />
+        <div className="flex items-start gap-3">
+          <Users className="h-7 w-7 text-primary mt-0.5 shrink-0" />
           <div>
             <h1 className="text-2xl font-bold">Serviços</h1>
             <p className="text-sm text-muted-foreground">Acompanhamento de serviços por REF.</p>

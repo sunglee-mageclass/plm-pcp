@@ -10,7 +10,6 @@ import {
   ImageOff,
   Loader2,
   Trash2,
-  ZoomIn,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -33,7 +32,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ImagePreview } from "@/components/shared/ImagePreview";
 import {
   Select,
   SelectTrigger,
@@ -284,8 +282,8 @@ function TecidosGallery() {
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Layers className="h-7 w-7 text-primary" />
+        <div className="flex items-start gap-3">
+          <Layers className="h-7 w-7 text-primary mt-0.5 shrink-0" />
           <div>
             <h1 className="text-2xl font-bold">Tecidos</h1>
             <p className="text-sm text-muted-foreground">
@@ -459,7 +457,7 @@ function TecidoCard({
             e.stopPropagation();
             onDelete();
           }}
-          className="absolute top-2 right-2 z-10 h-8 w-8 rounded-md bg-background/80 backdrop-blur-sm border flex items-center justify-center opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity hover:bg-destructive hover:text-destructive-foreground"
+          className="absolute top-2 right-2 z-10 h-8 w-8 rounded-md bg-background/80 backdrop-blur-sm border flex items-center justify-center opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-destructive hover:bg-destructive hover:text-destructive-foreground"
           aria-label="Excluir tecido"
           title="Excluir tecido"
         >
@@ -474,19 +472,12 @@ function TecidoCard({
         <Card className="overflow-hidden h-full transition-shadow group-hover:shadow-md">
           <div className="aspect-square bg-muted relative">
             {url ? (
-              <>
-                <img
-                  src={url}
-                  alt={artigo.nome}
-                  className="w-full h-full object-cover"
-                  loading="lazy"
-                />
-                <ImagePreview src={url} alt={artigo.nome}>
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/20 transition-colors">
-                    <ZoomIn className="h-8 w-8 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" />
-                  </div>
-                </ImagePreview>
-              </>
+              <img
+                src={url}
+                alt={artigo.nome}
+                className="w-full h-full object-cover"
+                loading="lazy"
+              />
             ) : (
               <div className="w-full h-full flex items-center justify-center text-muted-foreground">
                 <ImageOff className="h-10 w-10" />

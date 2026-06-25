@@ -28,6 +28,7 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { ImagePreview } from "@/components/shared/ImagePreview";
 import { EtiquetaLavagemArtigoEditor } from "@/components/shared/EtiquetaLavagemArtigo";
+import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import {
   Select,
   SelectTrigger,
@@ -225,10 +226,10 @@ function TecidoDetail() {
     : [];
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-w-5xl">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-w-5xl max-sm:pb-24">
       <header className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Button asChild variant="ghost" size="icon">
+          <Button asChild variant="ghost" size="icon" className="max-sm:hidden">
             <Link to="/cadastro/tecidos">
               <ArrowLeft className="h-4 w-4" />
             </Link>
@@ -238,11 +239,22 @@ function TecidoDetail() {
             <p className="text-sm text-muted-foreground">Detalhes do tecido</p>
           </div>
         </div>
-        <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
+        <Button className="max-sm:hidden" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
           <Save className="h-4 w-4 mr-1" />
           {saveMut.isPending ? "Salvando…" : "Salvar"}
         </Button>
       </header>
+
+      {/* Mobile: voltar + salvar na barra fixa do rodapé. */}
+      <MobileActionBar>
+        <Button asChild variant="outline" size="icon" aria-label="Voltar">
+          <Link to="/cadastro/tecidos"><ArrowLeft className="h-4 w-4" /></Link>
+        </Button>
+        <Button className="ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
+          <Save className="h-4 w-4 mr-1" />
+          {saveMut.isPending ? "Salvando…" : "Salvar"}
+        </Button>
+      </MobileActionBar>
 
       <Card>
         <CardHeader>

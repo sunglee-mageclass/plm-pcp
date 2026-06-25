@@ -10,9 +10,7 @@ import {
   ImageOff,
   Loader2,
   Upload,
-  Pencil,
   Trash2,
-  ZoomIn,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -52,7 +50,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
-import { ImagePreview } from "@/components/shared/ImagePreview";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 
 import { RequirePermission } from "@/components/RequirePermission";
@@ -250,8 +247,8 @@ function AviamentosGallery() {
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Package className="h-7 w-7 text-primary" />
+        <div className="flex items-start gap-3">
+          <Package className="h-7 w-7 text-primary mt-0.5 shrink-0" />
           <div>
             <h1 className="text-2xl font-bold">Aviamentos</h1>
             <p className="text-sm text-muted-foreground">
@@ -409,29 +406,30 @@ function AviamentoCard({
   return (
     <Card className="overflow-hidden h-full group">
       <div className="aspect-square bg-muted relative">
-        {url ? (
-          <>
+        <button
+          type="button"
+          onClick={onEdit}
+          className="block w-full h-full"
+          aria-label={`Abrir ${aviamento.codigo_nome}`}
+        >
+          {url ? (
             <img src={url} alt={aviamento.codigo_nome} className="w-full h-full object-cover" loading="lazy" />
-            <ImagePreview src={url} alt={aviamento.codigo_nome}>
-              <div className="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/20 transition-colors">
-                <ZoomIn className="h-8 w-8 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" />
-              </div>
-            </ImagePreview>
-          </>
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-            <ImageOff className="h-10 w-10" />
-          </div>
-        )}
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+              <ImageOff className="h-10 w-10" />
+            </div>
+          )}
+        </button>
         {!readOnly && (
-          <div className="absolute inset-x-0 bottom-0 p-2 flex gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity bg-gradient-to-t from-black/60 to-transparent">
-            <Button size="sm" variant="secondary" className="h-7 flex-1" onClick={onEdit} aria-label="Editar">
-              <Pencil className="h-3 w-3" />
-            </Button>
-            <Button size="sm" variant="destructive" className="h-7 w-7 p-0" onClick={onDelete}>
-              <Trash2 className="h-3 w-3" />
-            </Button>
-          </div>
+          <button
+            type="button"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(); }}
+            className="absolute top-2 right-2 z-10 h-8 w-8 rounded-md bg-background/80 backdrop-blur-sm border flex items-center justify-center opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-destructive hover:bg-destructive hover:text-destructive-foreground"
+            aria-label="Excluir aviamento"
+            title="Excluir aviamento"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
         )}
       </div>
       {!compact && (
@@ -646,7 +644,7 @@ function AviamentoModal({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0">
         <DialogHeader>
           <DialogTitle>{initial ? "Editar Aviamento" : "Novo Aviamento"}</DialogTitle>
         </DialogHeader>
@@ -796,11 +794,11 @@ function AviamentoModal({
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => handleOpenChange(false)}>
-            Cancelar
+        <DialogFooter className="max-sm:sticky max-sm:bottom-0 max-sm:z-10 max-sm:-mx-4 max-sm:-mb-4 max-sm:flex-row max-sm:border-t max-sm:bg-background max-sm:px-4 max-sm:py-3">
+          <Button variant="outline" className="max-sm:flex-1" onClick={() => handleOpenChange(false)}>
+            Voltar
           </Button>
-          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+          <Button className="max-sm:flex-1" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
             {saveMut.isPending ? "Salvando…" : "Salvar"}
           </Button>
         </DialogFooter>

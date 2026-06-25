@@ -54,9 +54,12 @@ function Dashboard() {
   const active = tabs.some((t) => t.value === tab) ? tab : (tabs[0]?.value ?? "colecao");
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6">
-      <header>
-        <h1 className="text-2xl font-bold">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">Visão geral da coleção e do estoque.</p>
+      <header className="flex items-start gap-3">
+        <BarChart3 className="h-7 w-7 text-primary mt-0.5 shrink-0" />
+        <div>
+          <h1 className="text-2xl font-bold">Dashboard</h1>
+          <p className="text-sm text-muted-foreground">Visão geral da coleção e do estoque.</p>
+        </div>
       </header>
       <Tabs value={active} onValueChange={setTab}>
         {/* Mobile: dropdown (as abas ficavam apertadas no celular). Desktop: o
