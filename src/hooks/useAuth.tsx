@@ -31,22 +31,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const loadProfile = (uid: string) => {
       setTimeout(async () => {
-        const [{ data: rolesData }, { data: permsData }] = await Promise.all([
-          supabase.from("user_roles").select("role").eq("user_id", uid),
-          supabase
-            .from("user_permissions")
-            .select("pagina,pode_ver,pode_editar")
-            .eq("user_id", uid),
-        ]);
-        const roles = (rolesData ?? []).map((r) => r.role);
-        setIsSuperAdmin(roles.includes("super_admin"));
-        setIsTenantAdmin(roles.includes("tenant_admin"));
-        setIsAdmin(
-          roles.includes("admin") ||
-            roles.includes("super_admin") ||
-            roles.includes("tenant_admin"),
-        );
-        setPermissions((permsData ?? []) as UserPermission[]);
+        try {
+          const [{ data: rolesData }, { data: permsData }] = await Promise.all([
+            supabase.from("user_roles").select("role").eq("user_id", uid),
+            supabase
+              .from("user_permissions")
+              .select("pagina,pode_ver,pode_editar")
+              .eq("user_id", uid),
+          ]);
+          const roles = (rolesData ?? []).map((r) => r.role);
+          setIsSuperAdmin(roles.includes("super_admin"));
+          setIsTenantAdmin(roles.includes("tenant_admin"));
+          setIsAdmin(
+            roles.includes("admin") ||
+              roles.includes("super_admin") ||
+              roles.includes("tenant_admin"),
+          );
+          setPermissions((permsData ?? []) as UserPermission[]);
+        } finally {
+          // Só liberamos o gate DEPOIS que roles/permissões chegaram. Setar
+          // loading=false antes (como era) deixava um tick com permissions=[] →
+          // telas gateadas (Financeiro, abas do Dashboard) piscavam "Acesso negado".
+          setLoading(false);
+        }
       }, 0);
     };
 
@@ -60,14 +67,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsSuperAdmin(false);
         setIsTenantAdmin(false);
         setPermissions([]);
+        setLoading(false);
       }
     });
 
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s);
       setUser(s?.user ?? null);
+      // loading só vira false dentro do loadProfile (após perms) ou aqui quando
+      // não há usuário — senão pisca "Acesso negado" antes das permissões.
       if (s?.user) loadProfile(s.user.id);
-      setLoading(false);
+      else setLoading(false);
     });
 
     return () => subscription.unsubscribe();

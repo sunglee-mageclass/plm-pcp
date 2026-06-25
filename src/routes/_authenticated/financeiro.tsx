@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -77,7 +77,19 @@ function effectiveStatus(p: Parcela): "pago" | "vencido" | "a_pagar" {
   return "a_pagar";
 }
 
+// Permissão de ESCRITA do Financeiro (parcelas a pagar/calendário). Propagada por
+// contexto para alcançar os diálogos PORTALIZADOS (ParcelaDetailDialog/PagarDialog,
+// que renderizam fora do subtree da página) e as células/botões das tabelas.
+// Default false = fail-closed. Corrige: (a) view-only conseguia gravar parcelas e
+// (b) editor só de `financeiro_resumo` (aba sem mutação) liberava escrita em Parcelas.
+const FinanceiroEditContext = createContext(false);
+const usePodeEditarFinanceiro = () => useContext(FinanceiroEditContext);
+
 function FinanceiroPage() {
+  const { canEdit } = useAuth();
+  // Escrita só com edição na aba que de fato muta (parcelas a pagar / calendário).
+  // `financeiro_resumo` é relatório, não concede escrita.
+  const podeEditar = canEdit("financeiro_parcelas") || canEdit("financeiro_calendario");
   const [tab, setTab] = useState("calendario");
   const { data: parcelas = [], isLoading } = useQuery({
     queryKey: ["parcelas"],
@@ -180,6 +192,7 @@ function FinanceiroPage() {
   });
 
   return (
+    <FinanceiroEditContext.Provider value={podeEditar}>
     <div className="container mx-auto p-3 sm:p-6 space-y-6">
       <header className="flex items-start gap-3">
         <DollarSign className="h-7 w-7 text-primary mt-0.5 shrink-0" />
@@ -230,6 +243,7 @@ function FinanceiroPage() {
         </TabsContent>
       </Tabs>
     </div>
+    </FinanceiroEditContext.Provider>
   );
 }
 
@@ -419,6 +433,7 @@ function ParcelaDetailDialog({
   const qc = useQueryClient();
   const { isAdmin, isSuperAdmin, isTenantAdmin } = useAuth();
   const canRecalc = isAdmin || isSuperAdmin || isTenantAdmin;
+  const podeEditar = usePodeEditarFinanceiro();
 
   const desmarcarPagoMut = useMutation({
     mutationFn: async () => {
@@ -511,8 +526,9 @@ function ParcelaDetailDialog({
               value={vencimento}
               onChange={(e) => setVencimento(e.target.value)}
               className="h-7 w-auto"
+              disabled={!podeEditar}
             />
-            {vencimento !== parcela.data_vencimento && (
+            {podeEditar && vencimento !== parcela.data_vencimento && (
               <Button
                 size="sm"
                 variant="outline"
@@ -591,13 +607,13 @@ function ParcelaDetailDialog({
               Recalcular
             </Button>
           )}
-          {st === "pago" ? (
+          {podeEditar && (st === "pago" ? (
             <Button size="sm" variant="destructive" onClick={() => desmarcarPagoMut.mutate()} disabled={desmarcarPagoMut.isPending}>
               Desmarcar pago
             </Button>
           ) : (
             <Button size="sm" onClick={() => onMarkPaid(parcela.id)}>Marcar pago</Button>
-          )}
+          ))}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -622,6 +638,7 @@ function Legend2({ color, label }: { color: string; label: string }) {
 // Célula de vencimento com estado local: salva no BLUR (não a cada tecla) e mostra
 // o que o usuário escolheu enquanto edita.
 function VencimentoCell({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+  const podeEditar = usePodeEditarFinanceiro();
   const [v, setV] = useState(value);
   useEffect(() => { setV(value); }, [value]);
   return (
@@ -631,12 +648,14 @@ function VencimentoCell({ value, onSave }: { value: string; onSave: (v: string) 
       onChange={(e) => setV(e.target.value)}
       onBlur={() => { if (v && v !== value) onSave(v); }}
       className="h-7 w-auto"
+      disabled={!podeEditar}
     />
   );
 }
 
 function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolean }) {
   const qc = useQueryClient();
+  const podeEditar = usePodeEditarFinanceiro();
   const [fornecedor, setFornecedor] = useState("all");
   const [status, setStatus] = useState("all");
   const [dataIni, setDataIni] = useState("");
@@ -810,11 +829,11 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
                     </td>
                     <td className="py-2 pr-3" data-label="Pagamento">{p.data_pagamento ? format(parseISO(p.data_pagamento), "dd/MM/yyyy") : "—"}</td>
                     <td className="py-2 pr-3" data-label="">
-                      {st !== "pago" ? (
+                      {podeEditar && (st !== "pago" ? (
                         <Button size="sm" variant="outline" onClick={() => setPagandoId(p.id)}>Marcar pago</Button>
                       ) : (
                         <Button size="sm" variant="destructive" onClick={() => desmarcarMut.mutate(p.id)} disabled={desmarcarMut.isPending}>Desmarcar</Button>
-                      )}
+                      ))}
                       {p.comprovante_url && (
                         <ComprovanteLink value={p.comprovante_url} label="comprovante" className="text-xs text-primary ml-2" />
                       )}
@@ -870,6 +889,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
 
 function ServicosView() {
   const qc = useQueryClient();
+  const podeEditar = usePodeEditarFinanceiro();
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["servicos-financeiro", "lista"],
     queryFn: async () => {
@@ -1014,11 +1034,11 @@ function ServicosView() {
                       </Badge>
                     </td>
                     <td className="py-2 pr-3" data-label="">
-                      {st === "pago" ? (
+                      {podeEditar && (st === "pago" ? (
                         <Button size="sm" variant="destructive" onClick={() => togglePago.mutate({ id: r.parcela_id, pago: false })} disabled={togglePago.isPending}>Desmarcar</Button>
                       ) : (
                         <Button size="sm" onClick={() => togglePago.mutate({ id: r.parcela_id, pago: true })} disabled={togglePago.isPending}>Marcar pago</Button>
-                      )}
+                      ))}
                     </td>
                   </tr>
                 );
@@ -1194,6 +1214,7 @@ function OcViewDialog({ view, onClose }: { view: { tipo: string; id: string } | 
 
 function PagarDialog({ parcelaId, onClose }: { parcelaId: string | null; onClose: () => void }) {
   const qc = useQueryClient();
+  const podeEditar = usePodeEditarFinanceiro();
   const [dataPag, setDataPag] = useState(format(new Date(), "yyyy-MM-dd"));
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -1244,7 +1265,7 @@ function PagarDialog({ parcelaId, onClose }: { parcelaId: string | null; onClose
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-          <Button onClick={() => mut.mutate()} disabled={uploading || mut.isPending}>Confirmar</Button>
+          <Button onClick={() => mut.mutate()} disabled={uploading || mut.isPending || !podeEditar}>Confirmar</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -17,7 +17,8 @@ antigo "PLM+PCP" já foi feita (0 ocorrências em `src/`).
 - **Vite** + **React** + **TypeScript**
 - **TanStack Router** (file-based em `src/routes/`) + **TanStack Query**
 - **Supabase próprio** (Postgres + RLS + Storage + Auth) — ref `ruinwcuabilumcspeyjk`
-  (o app NÃO usa mais o banco do Lovable; só o login Google ainda passa pelo Lovable)
+  (o app NÃO usa mais nem o banco nem a auth do Lovable; login Google via OAuth do
+  próprio Supabase — ver regra 2)
 - **Tailwind** + **Radix UI** (componentes shadcn em `src/components/ui/`)
 - **react-hook-form** + **zod** · **date-fns** · **recharts** · **lucide-react**
 
@@ -41,10 +42,19 @@ unit + integração transacional de RPC — ver `tests/README.md`)
    Ao alterar função existente, **diff-validar**: `pg_get_functiondef` antes/depois.
    Não é mais necessário entregar SQL pro Lovable. Frontend flui via `git push`.
 
-2. **Auth acoplado ao Lovable.** O login usa `src/integrations/lovable/` e o
-   endpoint `/~oauth/initiate`, que só existe no ambiente do Lovable. **OAuth
-   Google NÃO funciona em `localhost`.** Para validar, usar o preview do Lovable
-   (após push) ou login por e-mail/senha local. Não tente "consertar" o OAuth local.
+2. **Auth é do próprio Supabase (NÃO mais do Lovable).** Verificado 25/06/2026:
+   NÃO existe `src/integrations/lovable/` nem referência a `/~oauth/initiate` no
+   código (grep = 0). O login Google é OAuth padrão do GoTrue do banco próprio —
+   `supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo:
+   ${origin}/dashboard } })` em `src/routes/auth.tsx`; há também e-mail/senha. O
+   `redirectTo` é dinâmico (`window.location.origin`), então NÃO está preso ao
+   Lovable. Para o OAuth completar é preciso o provider Google habilitado no
+   dashboard do Supabase `ruinwcuabilumcspeyjk` **e** a origem na allowlist de
+   Redirect URLs (+ Authorized origins no Google) — isso vive no painel, não no
+   repo. Se falhar em `localhost`, a causa é a allowlist de redirect, **não**
+   acoplamento ao Lovable. Resíduos do Lovable são só cosméticos: hosting/SEO em
+   `sistrama.lovable.app`, telemetria opcional no-op (`lovable-error-reporting.ts`),
+   strings de erro herdadas e `config.toml` com ref antigo (usado só pela CLI; regra 1).
 
 3. **Um piloto por vez.** Não editar no Lovable e no VS Code ao mesmo tempo.
    Sempre `git pull` antes; `git push origin main` ao terminar.
@@ -130,7 +140,8 @@ ao mexer em consumo/grade/estoque/custo/financeiro/CQ.
 ## O que NÃO fazer
 
 - Não esquecer de aplicar a migration com `psql -f`/`db push --db-url` no banco novo (regra 1).
-- Não mexer no fluxo de OAuth para "fazer funcionar local" (regra 2).
+- O OAuth Google é do próprio Supabase; se falhar local é allowlist de Redirect URL
+  no dashboard, não código (regra 2) — não inventar rota de callback p/ "consertar".
 - Não atualizar recharts para v3 agora (breaking changes).
 - Não editar `src/components/ui/` (shadcn gerado) sem necessidade.
 - Não commitar `.env` (já no `.gitignore`); os 3 docs em `docs/` são gitignored (locais).
