@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { PAGES_CATALOG, ALL_PAGE_KEYS } from "@/lib/permissions-catalog";
 import { savePermissions } from "@/lib/tenant-admin.functions";
 import { savePermissionsAsSuperAdmin } from "@/lib/admin.functions";
+import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -98,7 +99,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
   };
 
   return (
-    <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+    <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:overflow-y-auto max-sm:pb-24">
       <DialogHeader>
         <DialogTitle>Permissões — {user.nome}</DialogTitle>
       </DialogHeader>
@@ -161,9 +162,12 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
           })
         )}
       </div>
-      <DialogFooter>
-        <Button variant="outline" onClick={onClose}>Cancelar</Button>
-        <Button onClick={onSave} disabled={submitting}>{submitting ? "Salvando…" : "Salvar"}</Button>
+      <DialogFooter className="max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-50 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:px-4 max-sm:py-3">
+        <Button variant="outline" className="max-sm:hidden" onClick={onClose}>Cancelar</Button>
+        <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={onClose}>
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+        <Button className="max-sm:ml-auto" onClick={onSave} disabled={submitting}>{submitting ? "Salvando…" : "Salvar"}</Button>
       </DialogFooter>
     </DialogContent>
   );

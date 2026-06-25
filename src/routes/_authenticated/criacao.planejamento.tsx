@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, Group, LayoutGrid, FileText } from "lucide-react";
+import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, Group, LayoutGrid, FileText, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -563,7 +563,7 @@ function ModeloDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:pb-24">
         <DialogHeader>
           <DialogTitle>{isEdit ? draft.nome || "Modelo" : "Novo Modelo"}</DialogTitle>
         </DialogHeader>
@@ -654,19 +654,26 @@ function ModeloDialog({
           </div>
         </div>
 
-        <DialogFooter className="gap-2">
+        <DialogFooter className="gap-2 max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-50 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:px-4 max-sm:py-3">
+          {/* Voltar: desktop "Cancelar" texto, mobile ícone de voltar. */}
+          <Button variant="ghost" onClick={onClose} aria-label="Voltar" className="shrink-0 max-sm:w-9 max-sm:px-0">
+            <ArrowLeft className="h-4 w-4 sm:hidden" />
+            <span className="max-sm:sr-only">Cancelar</span>
+          </Button>
           {isEdit && (
             <>
-              <Button variant="outline" onClick={() => duplicate.mutate()} disabled={duplicate.isPending}>
-                <Copy className="h-4 w-4 mr-1" /> Duplicar
+              {/* Duplicar/Excluir: só-ícone no mobile, texto no desktop. */}
+              <Button variant="outline" onClick={() => duplicate.mutate()} disabled={duplicate.isPending} aria-label="Duplicar" className="shrink-0 max-sm:w-9 max-sm:px-0">
+                <Copy className="h-4 w-4 sm:mr-1" />
+                <span className="max-sm:sr-only">Duplicar</span>
               </Button>
-              <Button variant="destructive" onClick={() => setConfirmDel(true)}>
-                <Trash2 className="h-4 w-4 mr-1" /> Excluir
+              <Button variant="destructive" onClick={() => setConfirmDel(true)} aria-label="Excluir" className="shrink-0 max-sm:w-9 max-sm:px-0">
+                <Trash2 className="h-4 w-4 sm:mr-1" />
+                <span className="max-sm:sr-only">Excluir</span>
               </Button>
             </>
           )}
-          <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-          <Button onClick={() => save.mutate()} disabled={save.isPending}>Salvar</Button>
+          <Button className="max-sm:ml-auto" onClick={() => save.mutate()} disabled={save.isPending}>Salvar</Button>
         </DialogFooter>
 
         <AlertDialog open={confirmDel} onOpenChange={setConfirmDel}>
