@@ -616,6 +616,18 @@ function OcDialog({
       };
       const roloPlanPatch = (tempId: string) =>
         modoOcRolo !== "oc" ? { rolos_planejados: roloPlan(tempId) } : {};
+      // Soma dos rolos digitados (na unidade do artigo).
+      const roloSoma = (tempId: string): number | null => {
+        const arr = rolosPorItem[tempId];
+        if (!arr) return null;
+        const s = arr.reduce((acc, e) => acc + (Number(String(e.qtd).replace(",", ".")) || 0), 0);
+        return s > 0 ? Math.round(s * 100) / 100 : null;
+      };
+      // Ao RECEBER no modo rolo/híbrido, a quantidade recebida do item = soma dos rolos.
+      // Precisa ser gravada ANTES de criar_rolo (senão o saldo de origem é 0 e a
+      // separação falha com "0 m disponíveis").
+      const recebidaDe = (tempId: string, fallback: number | null) =>
+        (modoOcRolo !== "oc" && markReceived) ? (roloSoma(tempId) ?? fallback) : fallback;
 
       if (isEdit && ocIdLocal) {
         // Diff: UPDATE (com id), INSERT (sem id), DELETE só dos removidos.
@@ -639,7 +651,7 @@ function OcDialog({
               artigo_numero: it.artigo_numero,
               variante_tecido_id: it.variante_tecido_id,
               quantidade_pedida: it.quantidade_pedida,
-              quantidade_recebida: it.quantidade_recebida,
+              quantidade_recebida: recebidaDe(it.tempId, it.quantidade_recebida),
               rendimento: it.rendimento,
               cancelado: it.cancelado,
               ...roloPlanPatch(it.tempId),
@@ -656,7 +668,7 @@ function OcDialog({
               artigo_numero: i.artigo_numero,
               variante_tecido_id: i.variante_tecido_id,
               quantidade_pedida: i.quantidade_pedida,
-              quantidade_recebida: i.quantidade_recebida,
+              quantidade_recebida: recebidaDe(i.tempId, i.quantidade_recebida),
               rendimento: i.rendimento,
               cancelado: i.cancelado,
               ...roloPlanPatch(i.tempId),
@@ -684,7 +696,7 @@ function OcDialog({
               artigo_numero: i.artigo_numero,
               variante_tecido_id: i.variante_tecido_id,
               quantidade_pedida: i.quantidade_pedida,
-              quantidade_recebida: i.quantidade_recebida,
+              quantidade_recebida: recebidaDe(i.tempId, i.quantidade_recebida),
               rendimento: i.rendimento,
               cancelado: i.cancelado,
               ...roloPlanPatch(i.tempId),
