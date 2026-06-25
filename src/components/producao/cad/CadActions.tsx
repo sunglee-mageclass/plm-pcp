@@ -30,7 +30,7 @@ function fmtDate(d?: string | null) {
 export function CadActions({ onPrint, onSave, onEnviar, onDesmarcar, onExcluir, onEditar, saving, enviando, enviado, editing, dataEnviado, readOnly, onBack }: Props) {
   // Travado: já enviado ao corte e fora do modo edição. Só destrava no "Editar".
   const locked = enviado && !editing;
-  const backClass = "max-md:hidden text-sm text-muted-foreground hover:underline flex items-center gap-1";
+  const backClass = "max-sm:hidden text-sm text-muted-foreground hover:underline flex items-center gap-1";
   return (
     <div className="flex items-center justify-between gap-3">
       <div className="flex items-center gap-3">
@@ -44,13 +44,13 @@ export function CadActions({ onPrint, onSave, onEnviar, onDesmarcar, onExcluir, 
           </Link>
         )}
         {onExcluir && !readOnly && !enviado && (
-          <Button variant="ghost" size="sm" className="max-md:hidden text-destructive hover:text-destructive" onClick={onExcluir}>
+          <Button variant="ghost" size="sm" className="max-sm:hidden text-destructive hover:text-destructive" onClick={onExcluir}>
             <Trash2 className="h-4 w-4 mr-1" /> Excluir
           </Button>
         )}
       </div>
-      <div className="flex gap-2 items-center max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-40 max-md:justify-end max-md:border-t max-md:bg-background max-md:p-3 max-md:shadow-lg">
-        <div className="md:hidden flex items-center gap-2 mr-auto">
+      <div className="flex gap-2 items-center max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-40 max-sm:justify-end max-sm:border-t max-sm:bg-background max-sm:p-3 max-sm:shadow-lg">
+        <div className="sm:hidden flex items-center gap-2 mr-auto">
           {onBack ? (
             <Button type="button" variant="outline" size="icon" onClick={onBack} aria-label="Voltar">
               <ArrowLeft className="h-4 w-4" />

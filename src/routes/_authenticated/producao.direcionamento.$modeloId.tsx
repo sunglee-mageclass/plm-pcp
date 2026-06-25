@@ -237,21 +237,21 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
       )}
       <div className="flex items-center justify-between gap-2">
         {onClose ? (
-          <button onClick={onClose} className="max-md:hidden text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+          <button onClick={onClose} className="max-sm:hidden text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
             <ArrowLeft className="h-4 w-4" /> Voltar
           </button>
         ) : (
-          <Link to="/producao/direcionamento" className="max-md:hidden text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+          <Link to="/producao/direcionamento" className="max-sm:hidden text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
             <ArrowLeft className="h-4 w-4" /> Voltar
           </Link>
         )}
-        <div className="flex items-center gap-2 max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-40 max-md:justify-end max-md:border-t max-md:bg-background max-md:p-3 max-md:shadow-lg">
+        <div className="flex items-center gap-2 max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-40 max-sm:justify-end max-sm:border-t max-sm:bg-background max-sm:p-3 max-sm:shadow-lg">
           {onClose ? (
-            <Button type="button" variant="outline" size="icon" className="md:hidden mr-auto" onClick={onClose} aria-label="Voltar">
+            <Button type="button" variant="outline" size="icon" className="sm:hidden mr-auto" onClick={onClose} aria-label="Voltar">
               <ArrowLeft className="h-4 w-4" />
             </Button>
           ) : (
-            <Button asChild variant="outline" size="icon" className="md:hidden mr-auto" aria-label="Voltar">
+            <Button asChild variant="outline" size="icon" className="sm:hidden mr-auto" aria-label="Voltar">
               <Link to="/producao/direcionamento"><ArrowLeft className="h-4 w-4" /></Link>
             </Button>
           )}
