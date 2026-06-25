@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { fmtNum } from "@/lib/format";
 import { Card } from "@/components/ui/card";
@@ -10,6 +11,25 @@ import { artigoLabel, unidadeSufixo } from "@/lib/artigo-label";
 import { cn } from "@/lib/utils";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
 import { fmtMoney, type Artigo, type ItemDraft, type RoloEntry, type Variante } from "./shared";
+
+// Quantidade EDITÁVEL de um rolo já criado: controlado (mostra o valor salvo) e só
+// dispara o ajuste (RPC) no blur se mudou.
+function RoloQtyInput({ value, disabled, onCommit }: { value: string; disabled?: boolean; onCommit: (nq: number) => void }) {
+  const [v, setV] = useState(value);
+  useEffect(() => { setV(value); }, [value]);
+  return (
+    <NumberInput type="number" step="0.01" className="h-9 w-24"
+      value={v}
+      disabled={disabled}
+      onChange={(e) => setV(e.target.value)}
+      onBlur={() => {
+        const nq = Number(String(v).replace(",", "."));
+        const orig = Number(String(value).replace(",", "."));
+        if (nq > 0 && nq !== orig) onCommit(nq);
+        else setV(value);
+      }} />
+  );
+}
 
 export function OcTecidoCalculos({
   items, artigoMap, varianteMap, setQtd,
@@ -128,11 +148,11 @@ export function OcTecidoCalculos({
                             {entry.cqStatus === "trocado" && <Badge className="shrink-0 bg-blue-600 hover:bg-blue-600 text-[10px]">Trocado</Badge>}
                             {entry.roloId && onRoloAjuste ? (
                               // Rolo já criado: quantidade EDITÁVEL — ajusta via RPC no blur (recalcula a OC).
-                              <NumberInput type="number" step="0.01" className="h-9 w-24"
+                              <RoloQtyInput
                                 key={`q-${entry.roloId}`}
-                                defaultValue={entry.qtd}
+                                value={entry.qtd}
                                 disabled={!!entry.cancelado}
-                                onBlur={(e) => { const nq = Number(String(e.target.value).replace(",", ".")); if (nq > 0 && nq !== Number(String(entry.qtd).replace(",", ".")) && entry.roloId) onRoloAjuste(entry.roloId, nq); }} />
+                                onCommit={(nq) => onRoloAjuste(entry.roloId!, nq)} />
                             ) : (
                               <NumberInput type="number" step="0.01" className="h-9 w-24"
                                 value={entry.qtd}
