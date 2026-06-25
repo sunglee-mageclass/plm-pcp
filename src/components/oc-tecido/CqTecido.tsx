@@ -276,10 +276,39 @@ export function AlertasList() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["cq-tecido"] }),
     onError: (e: any) => toast.error(e.message ?? "Erro ao resolver alerta do rolo"),
   });
+  const invalidarRolo = () => {
+    qc.invalidateQueries({ queryKey: ["cq-tecido"] });
+    qc.invalidateQueries({ queryKey: ["rolos"] });
+    qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
+  };
+  // Cancelar SÓ aquele rolo: marca o item do rolo como cancelado (sai do estoque),
+  // sem recalcular financeiro (rolo não tem parcela).
+  const cancelRoloMut = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("ocs_tecido_itens")
+        .update({ cancelado: true, cq_alerta_status: "cancelado" } as any)
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => { invalidarRolo(); toast.success("Rolo cancelado."); },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao cancelar rolo"),
+  });
+  // Trocar o rolo defeituoso: reverte a separação, marca 'trocado' e gera a reposição.
+  const trocaRoloMut = useMutation({
+    mutationFn: async ({ rolo_id, metragem }: { rolo_id: string; metragem: number | null }) => {
+      const { error } = await supabase.rpc("trocar_rolo" as any, { _rolo_id: rolo_id, _nova_metragem: metragem });
+      if (error) throw error;
+    },
+    onSuccess: () => { invalidarRolo(); toast.success("Rolo trocado — reposição gerada."); setTrocaRolo(null); setTrocaMetragem(""); },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao trocar rolo"),
+  });
   const [aba, setAba] = useState<"pendentes" | "resolvidos">("pendentes");
   const [confirmCancel, setConfirmCancel] = useState<CqItem | null>(null);
   const [troca, setTroca] = useState<CqItem | null>(null);
   const [receber, setReceber] = useState<CqItem | null>(null);
+  const [trocaRolo, setTrocaRolo] = useState<CqItem | null>(null);
+  const [trocaMetragem, setTrocaMetragem] = useState("");
 
   const lista = items.filter((i) =>
     aba === "pendentes" ? PENDENTES.includes(i.cq_alerta_status) : RESOLVIDOS.includes(i.cq_alerta_status),
@@ -336,19 +365,15 @@ export function AlertasList() {
                     <Button size="sm" variant="outline" onClick={() => it.is_rolo ? resolRolo.mutate({ id: it.id, status: "estilo_ok" }) : resol.mutate({ item_id: it.id, acao: "estilo_ok" })}>
                       <Check className="h-4 w-4 mr-1" /> Estilo OK
                     </Button>
-                    {/* Troca/Cancelar recalculam valor+parcelas da OC — não se aplicam a rolo. */}
-                    {!it.is_rolo && (
-                      <>
-                        <Button size="sm" variant="outline" onClick={() => setTroca(it)}>
-                          <Repeat className="h-4 w-4 mr-1" /> Troca
-                        </Button>
-                        <Button size="sm" variant="outline"
-                          className="text-destructive border-destructive/40 hover:bg-destructive/10"
-                          onClick={() => setConfirmCancel(it)}>
-                          <Ban className="h-4 w-4 mr-1" /> Cancelar variante
-                        </Button>
-                      </>
-                    )}
+                    {/* Rolo: troca/cancelar próprios (sem financeiro). OC: fluxo normal. */}
+                    <Button size="sm" variant="outline" onClick={() => it.is_rolo ? setTrocaRolo(it) : setTroca(it)}>
+                      <Repeat className="h-4 w-4 mr-1" /> Troca
+                    </Button>
+                    <Button size="sm" variant="outline"
+                      className="text-destructive border-destructive/40 hover:bg-destructive/10"
+                      onClick={() => setConfirmCancel(it)}>
+                      <Ban className="h-4 w-4 mr-1" /> {it.is_rolo ? "Cancelar rolo" : "Cancelar variante"}
+                    </Button>
                   </>
                 )}
               </div>
@@ -360,17 +385,17 @@ export function AlertasList() {
       <AlertDialog open={!!confirmCancel} onOpenChange={(o) => !o && setConfirmCancel(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Cancelar esta variante?</AlertDialogTitle>
+            <AlertDialogTitle>{confirmCancel?.is_rolo ? "Cancelar este rolo?" : "Cancelar esta variante?"}</AlertDialogTitle>
             <AlertDialogDescription>
-              A variante "{confirmCancel?.variante}" da OC {confirmCancel?.oc_numero ?? "—"} sai do estoque,
-              consumo e prévia, e o valor/parcelas da OC são recalculados. Pode ser revertida em Resolvidos
-              (Reabrir).
+              {confirmCancel?.is_rolo
+                ? <>O rolo <strong>{confirmCancel?.oc_numero ?? "—"}</strong> ({confirmCancel?.variante}) sai do estoque e do consumo. Pode ser revertido em Resolvidos (Reabrir).</>
+                : <>A variante "{confirmCancel?.variante}" da OC {confirmCancel?.oc_numero ?? "—"} sai do estoque, consumo e prévia, e o valor/parcelas da OC são recalculados. Pode ser revertida em Resolvidos (Reabrir).</>}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Voltar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { if (confirmCancel) resol.mutate({ item_id: confirmCancel.id, acao: "cancelar" }); setConfirmCancel(null); }}>
-              Cancelar variante
+            <AlertDialogAction onClick={() => { if (confirmCancel) { confirmCancel.is_rolo ? cancelRoloMut.mutate(confirmCancel.id) : resol.mutate({ item_id: confirmCancel.id, acao: "cancelar" }); } setConfirmCancel(null); }}>
+              {confirmCancel?.is_rolo ? "Cancelar rolo" : "Cancelar variante"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -378,6 +403,44 @@ export function AlertasList() {
 
       {troca && <TrocaDialog original={troca} resol={resol} onClose={() => setTroca(null)} />}
       {receber && <ReceberReposicaoDialog original={receber} reposicao={reposicao} onClose={() => setReceber(null)} />}
+
+      {trocaRolo && (
+        <Dialog open onOpenChange={(o) => { if (!o) { setTrocaRolo(null); setTrocaMetragem(""); } }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Trocar rolo {trocaRolo.oc_numero ?? ""}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 text-sm">
+              <p className="text-muted-foreground">
+                O rolo defeituoso volta para a OC de origem e é marcado como <b>Trocado</b>; um rolo de
+                reposição é gerado (novo código) com a metragem abaixo. (Rolo não mexe em financeiro.)
+              </p>
+              <div className="space-y-1.5">
+                <Label>Metragem da reposição (m)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={trocaMetragem}
+                  onChange={(e) => setTrocaMetragem(e.target.value)}
+                  placeholder="Vazio = mesma metragem do rolo trocado"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => { setTrocaRolo(null); setTrocaMetragem(""); }}>Cancelar</Button>
+              <Button
+                onClick={() => trocaRoloMut.mutate({
+                  rolo_id: trocaRolo.oc_id!,
+                  metragem: trocaMetragem.trim() ? Number(trocaMetragem.replace(",", ".")) : null,
+                })}
+                disabled={trocaRoloMut.isPending}
+              >
+                Trocar rolo
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
