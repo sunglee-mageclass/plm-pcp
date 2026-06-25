@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useModoOcRolo } from "@/hooks/useModoOcRolo";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -118,7 +119,11 @@ function agruparPorTecido(oc: OC, keep: (id: string) => boolean, anyFilter: bool
 function ConsumoOcPage() {
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
+  const modoOcRolo = useModoOcRolo();
+  const soRolo = modoOcRolo === "rolo"; // loja só-rolo: a página é "Consumo por Rolo"
   const [roloView, setRoloView] = useState(false); // false = OCs, true = Rolos
+  // No modo Só Rolo, OCs não importam — força a visão de Rolos.
+  useEffect(() => { if (soRolo) setRoloView(true); }, [soRolo]);
   const [devId, setDevId] = useState<string | null>(null);
   const [cadId, setCadId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -305,15 +310,17 @@ function ConsumoOcPage() {
         <div className="flex items-start gap-3 min-w-0">
           <Boxes className="h-7 w-7 text-primary mt-0.5 shrink-0" />
           <div className="min-w-0">
-            <h1 className="text-2xl font-bold">Consumo por OC</h1>
+            <h1 className="text-2xl font-bold">{soRolo ? "Consumo por Rolo" : "Consumo por OC"}</h1>
             <p className="text-sm text-muted-foreground">Clique num modelo para ajustar grade/proporção sem sair daqui.</p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex rounded-md border p-0.5">
-            <Button size="sm" variant={!roloView ? "secondary" : "ghost"} onClick={() => setRoloView(false)}>OCs</Button>
-            <Button size="sm" variant={roloView ? "secondary" : "ghost"} onClick={() => setRoloView(true)}>Rolos</Button>
-          </div>
+          {!soRolo && (
+            <div className="flex rounded-md border p-0.5">
+              <Button size="sm" variant={!roloView ? "secondary" : "ghost"} onClick={() => setRoloView(false)}>OCs</Button>
+              <Button size="sm" variant={roloView ? "secondary" : "ghost"} onClick={() => setRoloView(true)}>Rolos</Button>
+            </div>
+          )}
           <SearchToggle value={search} onChange={setSearch} placeholder="Buscar OC, fornecedor, tecido…" />
           <FilterButton
             filters={[
