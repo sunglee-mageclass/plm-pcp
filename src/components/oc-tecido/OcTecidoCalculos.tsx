@@ -42,6 +42,19 @@ export function OcTecidoCalculos({
     setQtd(tempId, "quantidade_recebida", soma > 0 ? Math.round(soma * 100) / 100 : null);
   };
   const rolosDe = (tempId: string): RoloEntry[] => rolos[tempId] ?? [{ qtd: "" }];
+  // Observação/CQ por rolo: se o rolo JÁ existe (recebido, tem roloItemId), grava no
+  // item do rolo via onRoloCq; se é PLANEJADO (encomendado), só atualiza o estado local
+  // (vai pro rolos_planejados ao salvar e é aplicado ao rolo quando recebido).
+  const setEntryCq = (tempId: string, ri: number, patch: { obs?: string; cq_ok?: boolean; cq_alerta?: boolean }) => {
+    const entry = rolosDe(tempId)[ri];
+    if (entry?.roloItemId && onRoloCq) {
+      onRoloCq(entry.roloItemId, patch);
+    } else {
+      const arr = [...rolosDe(tempId)];
+      arr[ri] = { ...arr[ri], ...patch };
+      setRolos?.((prev) => ({ ...prev, [tempId]: arr }));
+    }
+  };
   // Rendimento da OC (item) tem prioridade sobre o do cadastro do artigo.
   const rendimentoDe = (it: ItemDraft, a: Artigo) => Number(it.rendimento ?? a.rendimento ?? 0);
   const metragemPedida = (it: ItemDraft) => {
@@ -118,27 +131,27 @@ export function OcTecidoCalculos({
                                 onClick={() => { const arr = rolosDe(i.tempId).filter((_, k) => k !== ri); aplicarRolos(i.tempId, arr.length ? arr : [{ qtd: "" }]); }}>×</button>
                             )}
                           </div>
-                          {/* CQ por rolo — só depois do rolo existir (recebido). */}
-                          {entry.roloItemId && onRoloCq && (
-                            <div className="space-y-2">
-                              <Input
-                                defaultValue={entry.obs ?? ""}
-                                placeholder="Observação do rolo (defeito, tonalidade…)"
-                                className="h-8 text-xs"
-                                onBlur={(e) => { if ((e.target.value || "") !== (entry.obs ?? "")) onRoloCq(entry.roloItemId!, { obs: e.target.value }); }}
-                              />
-                              <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
-                                <label className="flex cursor-pointer items-center gap-1.5 text-xs">
-                                  <Switch checked={!!entry.cq_ok} onCheckedChange={(v) => onRoloCq(entry.roloItemId!, { cq_ok: v })} />
-                                  CQ ok
-                                </label>
-                                <label className="flex cursor-pointer items-center gap-1.5 text-xs">
-                                  <Switch checked={!!entry.cq_alerta} onCheckedChange={(v) => onRoloCq(entry.roloItemId!, { cq_alerta: v })} />
-                                  Alertar estilo
-                                </label>
-                              </div>
+                          {/* Observação + CQ por rolo: PLANEJADO no encomendado (vai p/ o
+                              rolos_planejados e é aplicado ao receber), REAL no recebido. */}
+                          <div className="space-y-2">
+                            <Input
+                              key={entry.roloItemId ?? `plan-${ri}`}
+                              defaultValue={entry.obs ?? ""}
+                              placeholder="Observação do rolo (defeito, tonalidade…)"
+                              className="h-8 text-xs"
+                              onBlur={(e) => { if ((e.target.value || "") !== (entry.obs ?? "")) setEntryCq(i.tempId, ri, { obs: e.target.value }); }}
+                            />
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+                              <label className="flex cursor-pointer items-center gap-1.5 text-xs">
+                                <Switch checked={!!entry.cq_ok} onCheckedChange={(v) => setEntryCq(i.tempId, ri, { cq_ok: v })} />
+                                CQ ok
+                              </label>
+                              <label className="flex cursor-pointer items-center gap-1.5 text-xs">
+                                <Switch checked={!!entry.cq_alerta} onCheckedChange={(v) => setEntryCq(i.tempId, ri, { cq_alerta: v })} />
+                                Alertar estilo
+                              </label>
                             </div>
-                          )}
+                          </div>
                         </div>
                       ))}
                       {!readOnly && (

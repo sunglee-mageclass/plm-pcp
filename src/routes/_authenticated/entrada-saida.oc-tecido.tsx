@@ -416,6 +416,9 @@ function OcDialog({
           if (Array.isArray(rp) && rp.length > 0) {
             planned[it.id] = rp.map((r: any) => ({
               qtd: r?.qtd != null ? String(r.qtd) : (typeof r === "number" ? String(r) : ""),
+              obs: r?.obs ?? "",
+              cq_ok: !!r?.cq_ok,
+              cq_alerta: !!r?.cq_alerta,
             }));
           }
         }
@@ -592,11 +595,14 @@ function OcDialog({
 
       // Modo Só Rolo: persiste o destrinchamento PLANEJADO por item (sobrevive a
       // salvar/reabrir o encomendado). Ao receber, os rolos reais saem daqui.
-      const roloPlan = (tempId: string): { qtd: number }[] | null => {
+      const roloPlan = (tempId: string) => {
         const arr = rolosPorItem[tempId];
         if (!arr) return null;
-        const vals = arr.map((e) => Number(String(e.qtd).replace(",", "."))).filter((q) => q > 0);
-        return vals.length ? vals.map((qtd) => ({ qtd })) : null;
+        const out = arr
+          .map((e) => ({ q: Number(String(e.qtd).replace(",", ".")), e }))
+          .filter((x) => x.q > 0)
+          .map((x) => ({ qtd: x.q, obs: x.e.obs || null, cq_ok: !!x.e.cq_ok, cq_alerta: !!x.e.cq_alerta }));
+        return out.length ? out : null;
       };
       const roloPlanPatch = (tempId: string) =>
         modoOcRolo === "rolo" ? { rolos_planejados: roloPlan(tempId) } : {};
@@ -725,12 +731,21 @@ function OcDialog({
               if (!qtd || qtd <= 0) continue;
               const metros = isKg && rend > 0 ? qtd * rend : qtd;
               const { data: codigo } = await supabase.rpc("proximo_codigo_rolo" as any, { _artigo_id: di.artigo_id });
-              const { error: rErr } = await supabase.rpc("criar_rolo" as any, {
+              const { data: novoRoloId, error: rErr } = await supabase.rpc("criar_rolo" as any, {
                 _codigo: codigo, _artigo_id: di.artigo_id,
                 _variantes: [{ variante_tecido_id: di.variante_tecido_id, metragem: metros }],
                 _origem_item_id: saved.id,
               });
               if (rErr) throw rErr;
+              // Aplica observação/CQ PLANEJADOS (entrados no encomendado) ao item do
+              // rolo recém-criado.
+              if (novoRoloId && (entry.obs || entry.cq_ok || entry.cq_alerta)) {
+                await supabase.from("ocs_tecido_itens").update({
+                  cq_observacao: entry.obs || null,
+                  cq_ok: !!entry.cq_ok,
+                  cq_alerta_status: entry.cq_alerta ? "alertado" : "sem_alerta",
+                } as any).eq("oc_tecido_id", novoRoloId as any);
+              }
             }
           }
         } catch (e: any) {
@@ -938,7 +953,9 @@ function OcDialog({
             />
           )}
 
-          {isEdit && ocId && <OcCqSection ocId={ocId} />}
+          {/* No modo Só Rolo o CQ é feito POR ROLO no destrinchamento acima — a seção
+              de CQ por item da OC fica redundante. */}
+          {isEdit && ocId && modoOcRolo !== "rolo" && <OcCqSection ocId={ocId} />}
           {isEdit && ocId && <OcNfHistorico ocId={ocId} />}
         </div>
 
