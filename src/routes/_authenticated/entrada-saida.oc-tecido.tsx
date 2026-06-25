@@ -401,7 +401,8 @@ function OcDialog({
               roloId: r.id,
               roloItemId: it0?.id,
               cq_ok: !!it0?.cq_ok,
-              cq_alerta: (it0?.cq_alerta_status ?? "sem_alerta") !== "sem_alerta",
+              cq_alerta: (it0?.cq_alerta_status ?? "sem_alerta") === "alertado",
+              cqStatus: it0?.cq_alerta_status ?? "sem_alerta",
               obs: it0?.cq_observacao ?? "",
             });
           }
@@ -968,7 +969,7 @@ function OcDialog({
               status={status}
               readOnly={isReadOnlyRecebimento}
               toggleCancelado={toggleCancelado}
-              canCancel={status === "encomendado"}
+              canCancel={status === "encomendado" && modoOcRolo !== "rolo"}
               modoRolo={modoOcRolo === "rolo" && (status === "encomendado" || status === "recebido")}
               rolos={rolosPorItem}
               setRolos={setRolosPorItem}

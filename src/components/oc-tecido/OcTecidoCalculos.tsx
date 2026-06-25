@@ -121,6 +121,9 @@ export function OcTecidoCalculos({
                             {entry.codigo
                               ? <Badge variant="outline" className="shrink-0 font-mono text-[11px]">{entry.codigo}</Badge>
                               : <span className="w-8 shrink-0 text-xs text-muted-foreground">#{ri + 1}</span>}
+                            {entry.cqStatus === "alertado" && <Badge className="shrink-0 bg-amber-500 hover:bg-amber-500 text-[10px]">Alerta</Badge>}
+                            {entry.cqStatus === "cancelado" && <Badge className="shrink-0 bg-zinc-500 hover:bg-zinc-500 text-[10px]">Cancelado</Badge>}
+                            {entry.cqStatus === "trocado" && <Badge className="shrink-0 bg-blue-600 hover:bg-blue-600 text-[10px]">Trocado</Badge>}
                             <NumberInput type="number" step="0.01" className="h-9 w-24"
                               value={entry.qtd}
                               disabled={!!entry.roloId || readOnly}

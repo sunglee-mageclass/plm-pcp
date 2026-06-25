@@ -95,6 +95,7 @@ export type RoloEntry = {
   roloItemId?: string;     // ocs_tecido_itens.id do rolo (onde vivem os cq_*)
   cq_ok?: boolean;
   cq_alerta?: boolean;     // cq_alerta_status === 'alertado'
+  cqStatus?: string;       // cq_alerta_status cru (alertado/trocado/cancelado/…) p/ badge
   obs?: string;            // cq_observacao do rolo
 };
 

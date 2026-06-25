@@ -276,11 +276,9 @@ export function AlertasList() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["cq-tecido"] }),
     onError: (e: any) => toast.error(e.message ?? "Erro ao resolver alerta do rolo"),
   });
-  const invalidarRolo = () => {
-    qc.invalidateQueries({ queryKey: ["cq-tecido"] });
-    qc.invalidateQueries({ queryKey: ["rolos"] });
-    qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
-  };
+  // Troca/cancela de rolo afeta estoque, consumo, listas de OC/rolo e os alertas —
+  // invalida tudo para os valores atualizarem em todas as telas.
+  const invalidarRolo = () => qc.invalidateQueries();
   // Cancelar SÓ aquele rolo: marca o item do rolo como cancelado (sai do estoque),
   // sem recalcular financeiro (rolo não tem parcela).
   const cancelRoloMut = useMutation({
@@ -412,8 +410,9 @@ export function AlertasList() {
             </DialogHeader>
             <div className="space-y-3 text-sm">
               <p className="text-muted-foreground">
-                O rolo defeituoso volta para a OC de origem e é marcado como <b>Trocado</b>; um rolo de
-                reposição é gerado (novo código) com a metragem abaixo. (Rolo não mexe em financeiro.)
+                O rolo defeituoso é <b>substituído</b> (removido) e um rolo de reposição é gerado
+                (novo código) com a metragem abaixo — pode ser <b>maior ou menor</b>. (Rolo não mexe
+                em financeiro.)
               </p>
               <div className="space-y-1.5">
                 <Label>Metragem da reposição (m)</Label>
