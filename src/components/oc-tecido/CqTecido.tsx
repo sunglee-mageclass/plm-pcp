@@ -29,6 +29,7 @@ type CqItem = {
   cq_observacao: string | null;
   cq_ok: boolean;
   cq_alerta_status: CqStatus;
+  is_rolo?: boolean; // alerta vindo de um rolo: oc_numero = rolo_codigo
 };
 
 const PENDENTES: CqStatus[] = ["alertado", "troca_pendente"];
@@ -60,7 +61,7 @@ export function alertaBadge(statuses: string[]): { label: string; cls: string } 
 const vName = (v?: { nome_variante: string | null; codigo_variante: string | null } | null) =>
   v ? v.nome_variante || v.codigo_variante || "—" : "—";
 
-const toCqItem = (it: any, ocId: string | null, ocNumero: string | null): CqItem => ({
+const toCqItem = (it: any, ocId: string | null, ocNumero: string | null, isRolo = false): CqItem => ({
   id: it.id,
   oc_id: ocId,
   oc_numero: ocNumero,
@@ -69,32 +70,48 @@ const toCqItem = (it: any, ocId: string | null, ocNumero: string | null): CqItem
   cq_observacao: it.cq_observacao,
   cq_ok: !!it.cq_ok,
   cq_alerta_status: (it.cq_alerta_status ?? "sem_alerta") as CqStatus,
+  is_rolo: isRolo,
 });
 
 function useFlatCqItems() {
-  const { data: ocs = [], isLoading } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ["cq-tecido"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("ocs_tecido")
-        .select(`id, numero_pedido, ocs_tecido_itens!oc_tecido_id(${SELECT_COLS})`)
-        .eq("status", "recebido")
-        .eq("is_rolo" as never, false as never)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as any[];
+      const [ocsRes, rolosRes] = await Promise.all([
+        supabase
+          .from("ocs_tecido")
+          .select(`id, numero_pedido, ocs_tecido_itens!oc_tecido_id(${SELECT_COLS})`)
+          .eq("status", "recebido")
+          .eq("is_rolo" as never, false as never)
+          .order("created_at", { ascending: false }),
+        // Rolos: o item do rolo carrega o CQ do rolo (oc_numero = rolo_codigo).
+        supabase
+          .from("ocs_tecido")
+          .select(`id, rolo_codigo, ocs_tecido_itens!oc_tecido_id(${SELECT_COLS})`)
+          .eq("is_rolo" as never, true as never)
+          .order("created_at", { ascending: false }),
+      ]);
+      if (ocsRes.error) throw ocsRes.error;
+      if (rolosRes.error) throw rolosRes.error;
+      return { ocs: (ocsRes.data ?? []) as any[], rolos: (rolosRes.data ?? []) as any[] };
     },
   });
   const items = useMemo<CqItem[]>(() => {
     const out: CqItem[] = [];
-    for (const oc of ocs) {
+    for (const oc of data?.ocs ?? []) {
       for (const it of oc.ocs_tecido_itens ?? []) {
         if (it.cancelado && it.cq_alerta_status === "sem_alerta") continue; // cancelado de pedido (não-CQ)
-        out.push(toCqItem(it, oc.id, oc.numero_pedido));
+        out.push(toCqItem(it, oc.id, oc.numero_pedido, false));
+      }
+    }
+    for (const r of data?.rolos ?? []) {
+      for (const it of r.ocs_tecido_itens ?? []) {
+        if (it.cancelado && it.cq_alerta_status === "sem_alerta") continue;
+        out.push(toCqItem(it, r.id, r.rolo_codigo, true));
       }
     }
     return out;
-  }, [ocs]);
+  }, [data]);
   return { items, isLoading };
 }
 
@@ -241,10 +258,24 @@ export function OcCqSection({ ocId }: { ocId: string }) {
 
 // ───────────────────────── Alertas (página do estilo) ─────────────────────────
 export function AlertasList() {
+  const qc = useQueryClient();
   const { items, isLoading } = useFlatCqItems();
   const update = useCqUpdate();   // observação
-  const resol = useResolucao();   // ações (recalculam valor + parcelas)
+  const resol = useResolucao();   // ações (recalculam valor + parcelas) — só p/ OC
   const reposicao = useReceberReposicao();
+  // Resolução de ROLO: update direto do status, SEM recalcular valor/parcelas (rolo
+  // não tem financeiro — usar a RPC criaria parcelas espúrias).
+  const resolRolo = useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: "estilo_ok" | "alertado" }) => {
+      const { error } = await supabase
+        .from("ocs_tecido_itens")
+        .update({ cq_alerta_status: status, cancelado: false } as any)
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["cq-tecido"] }),
+    onError: (e: any) => toast.error(e.message ?? "Erro ao resolver alerta do rolo"),
+  });
   const [aba, setAba] = useState<"pendentes" | "resolvidos">("pendentes");
   const [confirmCancel, setConfirmCancel] = useState<CqItem | null>(null);
   const [troca, setTroca] = useState<CqItem | null>(null);
@@ -279,7 +310,7 @@ export function AlertasList() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium">{it.artigo}</span>
                     <span className="text-muted-foreground">· {it.variante}</span>
-                    <Badge variant="outline">OC {it.oc_numero ?? "—"}</Badge>
+                    <Badge variant="outline">{it.is_rolo ? "Rolo" : "OC"} {it.oc_numero ?? "—"}</Badge>
                     {badge && <Badge className={badge.cls}>{badge.label}</Badge>}
                   </div>
                   <ObsField item={it} update={update} />
@@ -288,7 +319,7 @@ export function AlertasList() {
 
               <div className="flex flex-wrap items-center gap-2 pl-6">
                 {resolvido ? (
-                  <Button size="sm" variant="outline" onClick={() => resol.mutate({ item_id: it.id, acao: "reabrir" })}>
+                  <Button size="sm" variant="outline" onClick={() => it.is_rolo ? resolRolo.mutate({ id: it.id, status: "alertado" }) : resol.mutate({ item_id: it.id, acao: "reabrir" })}>
                     <RotateCcw className="h-4 w-4 mr-1" /> Reabrir
                   </Button>
                 ) : it.cq_alerta_status === "troca_pendente" ? (
@@ -302,17 +333,22 @@ export function AlertasList() {
                   </>
                 ) : (
                   <>
-                    <Button size="sm" variant="outline" onClick={() => resol.mutate({ item_id: it.id, acao: "estilo_ok" })}>
+                    <Button size="sm" variant="outline" onClick={() => it.is_rolo ? resolRolo.mutate({ id: it.id, status: "estilo_ok" }) : resol.mutate({ item_id: it.id, acao: "estilo_ok" })}>
                       <Check className="h-4 w-4 mr-1" /> Estilo OK
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => setTroca(it)}>
-                      <Repeat className="h-4 w-4 mr-1" /> Troca
-                    </Button>
-                    <Button size="sm" variant="outline"
-                      className="text-destructive border-destructive/40 hover:bg-destructive/10"
-                      onClick={() => setConfirmCancel(it)}>
-                      <Ban className="h-4 w-4 mr-1" /> Cancelar variante
-                    </Button>
+                    {/* Troca/Cancelar recalculam valor+parcelas da OC — não se aplicam a rolo. */}
+                    {!it.is_rolo && (
+                      <>
+                        <Button size="sm" variant="outline" onClick={() => setTroca(it)}>
+                          <Repeat className="h-4 w-4 mr-1" /> Troca
+                        </Button>
+                        <Button size="sm" variant="outline"
+                          className="text-destructive border-destructive/40 hover:bg-destructive/10"
+                          onClick={() => setConfirmCancel(it)}>
+                          <Ban className="h-4 w-4 mr-1" /> Cancelar variante
+                        </Button>
+                      </>
+                    )}
                   </>
                 )}
               </div>
