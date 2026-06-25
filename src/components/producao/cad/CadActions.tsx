@@ -61,8 +61,8 @@ export function CadActions({ onPrint, onSave, onEnviar, onDesmarcar, onExcluir, 
             </Button>
           )}
           {onExcluir && !readOnly && !enviado && (
-            <Button variant="destructive" onClick={onExcluir}>
-              <Trash2 className="h-4 w-4 mr-1" /> Excluir
+            <Button variant="destructive" size="icon" onClick={onExcluir} aria-label="Excluir">
+              <Trash2 className="h-4 w-4" />
             </Button>
           )}
         </div>

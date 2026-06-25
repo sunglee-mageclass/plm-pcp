@@ -5,7 +5,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Loader2, Pencil, Send } from "lucide-react";
+import { Loader2, Pencil, Send, ArrowLeft } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -43,7 +43,7 @@ export function ModeloDetailPanel({ modeloId, onClose }: {
   const open = !!modeloId;
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] overflow-y-auto">
+      <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] overflow-y-auto max-sm:pb-24 max-sm:[&>button]:hidden">
         {modeloId && <PanelContent modeloId={modeloId} onClose={onClose} />}
       </SheetContent>
     </Sheet>
@@ -959,16 +959,19 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       </div>
       </fieldset>
 
-      <div className="sticky bottom-0 bg-background border-t mt-4 pt-3 flex flex-wrap gap-2 justify-end items-center">
+      <div className="bg-background border-t pt-3 flex flex-wrap gap-2 justify-end items-center sm:sticky sm:bottom-0 sm:mt-4 max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-50 max-sm:flex-nowrap max-sm:px-4 max-sm:py-3 max-sm:mt-0">
         {draft.enviado_cad && (
-          <span className="text-xs text-muted-foreground mr-auto">✓ Já enviado para o CAD</span>
+          <span className="text-xs text-muted-foreground mr-auto max-sm:hidden">✓ Já enviado para o CAD</span>
         )}
         {isAprovado && !draft.enviado_cad && cadMissing.length > 0 && (
-          <span className="text-xs text-muted-foreground mr-auto">
+          <span className="text-xs text-muted-foreground mr-auto max-sm:hidden">
             Para enviar ao CAD, falta: {cadMissing.join(", ")}
           </span>
         )}
-        <Button variant="ghost" onClick={onClose}>Fechar</Button>
+        <Button variant="ghost" onClick={onClose} aria-label="Voltar" className="shrink-0 max-sm:order-first max-sm:mr-auto max-sm:w-9 max-sm:px-0">
+          <ArrowLeft className="h-4 w-4 sm:hidden" />
+          <span className="max-sm:sr-only">Fechar</span>
+        </Button>
         {canEnviarCad && (
           <Button variant="secondary" onClick={() => setConfirmEnviarCad(true)} disabled={enviarCad.isPending}>
             {enviarCad.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
