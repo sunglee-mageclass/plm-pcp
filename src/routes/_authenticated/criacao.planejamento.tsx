@@ -563,12 +563,12 @@ function ModeloDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:pb-24">
-        <DialogHeader>
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!flex max-sm:!flex-col max-sm:!overflow-hidden">
+        <DialogHeader className="max-sm:shrink-0">
           <DialogTitle>{isEdit ? draft.nome || "Modelo" : "Novo Modelo"}</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="space-y-4 max-sm:flex-1 max-sm:min-h-0 max-sm:overflow-y-auto">
           <div className="grid sm:grid-cols-2 gap-3">
             <FieldText label="Nome do Modelo" value={draft.nome} onChange={(v) => setDraft((d) => ({ ...d, nome: v }))} />
             {draft.versao > 1 && (
@@ -654,9 +654,9 @@ function ModeloDialog({
           </div>
         </div>
 
-        <DialogFooter className="gap-2 max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-50 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:px-4 max-sm:py-3">
+        <DialogFooter className="gap-2 max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
           {/* Voltar: desktop "Cancelar" texto, mobile ícone de voltar. */}
-          <Button variant="ghost" onClick={onClose} aria-label="Voltar" className="shrink-0 max-sm:w-9 max-sm:px-0">
+          <Button variant="outline" onClick={onClose} aria-label="Voltar" className="shrink-0 max-sm:w-9 max-sm:px-0">
             <ArrowLeft className="h-4 w-4 sm:hidden" />
             <span className="max-sm:sr-only">Cancelar</span>
           </Button>
