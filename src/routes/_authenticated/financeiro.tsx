@@ -559,7 +559,7 @@ function ParcelaDetailDialog({
         )}
 
         <DialogFooter className="flex-row flex-wrap justify-end gap-2">
-          <Button size="sm" variant="outline" onClick={onClose} aria-label="Voltar" className="max-sm:w-9 max-sm:px-0">
+          <Button size="sm" variant="outline" onClick={onClose} aria-label="Voltar" className="max-sm:aspect-square max-sm:px-0">
             <ArrowLeft className="h-4 w-4 sm:hidden" />
             <span className="max-sm:sr-only">Fechar</span>
           </Button>
@@ -1182,7 +1182,7 @@ function OcViewDialog({ view, onClose }: { view: { tipo: string; id: string } | 
               <Printer className="h-4 w-4 mr-1" /> Imprimir
             </Button>
           )}
-          <Button variant="outline" onClick={onClose} aria-label="Voltar" className="max-sm:w-9 max-sm:px-0">
+          <Button variant="outline" onClick={onClose} aria-label="Voltar" className="max-sm:aspect-square max-sm:px-0">
             <ArrowLeft className="h-4 w-4 sm:hidden" />
             <span className="max-sm:sr-only">Fechar</span>
           </Button>

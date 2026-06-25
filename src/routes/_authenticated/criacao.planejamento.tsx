@@ -656,18 +656,18 @@ function ModeloDialog({
 
         <DialogFooter className="gap-2 max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
           {/* Voltar: desktop "Cancelar" texto, mobile ícone de voltar. */}
-          <Button variant="outline" onClick={onClose} aria-label="Voltar" className="shrink-0 max-sm:w-9 max-sm:px-0">
+          <Button variant="outline" onClick={onClose} aria-label="Voltar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
             <ArrowLeft className="h-4 w-4 sm:hidden" />
             <span className="max-sm:sr-only">Cancelar</span>
           </Button>
           {isEdit && (
             <>
               {/* Duplicar/Excluir: só-ícone no mobile, texto no desktop. */}
-              <Button variant="outline" onClick={() => duplicate.mutate()} disabled={duplicate.isPending} aria-label="Duplicar" className="shrink-0 max-sm:w-9 max-sm:px-0">
+              <Button variant="outline" onClick={() => duplicate.mutate()} disabled={duplicate.isPending} aria-label="Duplicar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
                 <Copy className="h-4 w-4 sm:mr-1" />
                 <span className="max-sm:sr-only">Duplicar</span>
               </Button>
-              <Button variant="destructive" onClick={() => setConfirmDel(true)} aria-label="Excluir" className="shrink-0 max-sm:w-9 max-sm:px-0">
+              <Button variant="destructive" onClick={() => setConfirmDel(true)} aria-label="Excluir" className="shrink-0 max-sm:aspect-square max-sm:px-0">
                 <Trash2 className="h-4 w-4 sm:mr-1" />
                 <span className="max-sm:sr-only">Excluir</span>
               </Button>
@@ -932,7 +932,7 @@ function BatchCardsDialog({
         </div>
 
         <DialogFooter className="gap-2 max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
-          <Button variant="outline" onClick={onClose} aria-label="Voltar" className="shrink-0 max-sm:w-9 max-sm:px-0">
+          <Button variant="outline" onClick={onClose} aria-label="Voltar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
             <ArrowLeft className="h-4 w-4 sm:hidden" />
             <span className="max-sm:sr-only">Cancelar</span>
           </Button>

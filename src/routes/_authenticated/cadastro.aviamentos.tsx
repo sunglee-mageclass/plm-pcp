@@ -800,7 +800,7 @@ function AviamentoModal({
             <ArrowLeft className="h-4 w-4" />
           </Button>
           {initial && onDelete && (
-            <Button variant="destructive" className="shrink-0 max-sm:w-9 max-sm:px-0" onClick={() => onDelete()} aria-label="Excluir aviamento">
+            <Button variant="destructive" className="shrink-0 max-sm:aspect-square max-sm:px-0" onClick={() => onDelete()} aria-label="Excluir aviamento">
               <Trash2 className="h-4 w-4 sm:mr-1" />
               <span className="max-sm:sr-only">Excluir</span>
             </Button>

@@ -182,7 +182,7 @@ function ColecaoTab() {
   const funnelBase = Number((data?.funnel ?? [])[0]?.value) || 0;
   const funnel = (data?.funnel ?? []).map((f: any, i: number) => {
     const pct = funnelBase > 0 ? Math.round((Number(f.value) / funnelBase) * 100) : 0;
-    return { ...f, fill: PIE_COLORS[i % PIE_COLORS.length], rotulo: `${f.value} · ${pct}%` };
+    return { ...f, fill: PIE_COLORS[i % PIE_COLORS.length], labelDir: `${f.name} · ${f.value} · ${pct}%` };
   });
   const pieData = data?.pie ?? [];
   const estilistas: Opt[] = data?.filtros?.estilistas ?? [];
@@ -219,8 +219,8 @@ function ColecaoTab() {
               <FunnelChart>
                 <Tooltip />
                 <Funnel dataKey="value" data={funnel} isAnimationActive>
-                  <LabelList position="right" dataKey="name" stroke="none" />
-                  <LabelList position="center" dataKey="rotulo" stroke="none" fill="#fff" />
+                  {/* Nome + valor fora do funil (à direita): legível mesmo quando o segmento é fino. */}
+                  <LabelList position="right" dataKey="labelDir" stroke="none" fill="var(--foreground)" />
                 </Funnel>
               </FunnelChart>
             </ResponsiveContainer>
