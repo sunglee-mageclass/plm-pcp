@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Pencil, Trash2, Search, Loader2, PackageMinus, ScissorsLineDashed, ArrowLeft } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Loader2, PackageMinus, ScissorsLineDashed, ArrowLeft, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { artigoLabel } from "@/lib/artigo-label";
@@ -76,6 +76,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
 
   // form state (criar/editar)
   const [editing, setEditing] = useState<OSRow | null>(null);
+  const [fNumero, setFNumero] = useState("");
   const [fResponsavel, setFResponsavel] = useState("");
   const [fSolicitacao, setFSolicitacao] = useState("");
   const [fCorte, setFCorte] = useState("");
@@ -104,6 +105,16 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
     queryKey: ["destinos-saida"],
     queryFn: async () => {
       const { data, error } = await supabase.from("destinos_saida" as any).select("id, nome").order("nome");
+      if (error) throw error;
+      return ((data ?? []) as unknown) as { id: string; nome: string }[];
+    },
+  });
+
+  // Responsável da OS é atrelado aos estilistas (colaboradores tipo estilista).
+  const { data: estilistas = [] } = useQuery({
+    queryKey: ["colab-estilistas"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("colaboradores").select("id, nome").eq("tipo", "estilista").order("nome");
       if (error) throw error;
       return ((data ?? []) as unknown) as { id: string; nome: string }[];
     },
@@ -154,6 +165,9 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
 
   const openCreate = () => {
     setEditing(null);
+    // sugere o próximo número (editável no formulário).
+    const proximo = ordens.reduce((m, o) => Math.max(m, o.numero ?? 0), 0) + 1;
+    setFNumero(String(proximo));
     setFResponsavel(""); setFSolicitacao(""); setFCorte(""); setFDestino("none"); setFObs("");
     setFItens([{ _key: newKey(), itemId: "", reserva: "" }]);
     setFormOpen(true);
@@ -161,6 +175,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
 
   const openEdit = (o: OSRow) => {
     setEditing(o);
+    setFNumero(o.numero != null ? String(o.numero) : "");
     setFResponsavel(o.responsavel ?? "");
     setFSolicitacao(o.data_solicitacao ?? "");
     setFCorte(o.data_corte ?? "");
@@ -181,6 +196,8 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
       const itens = fItens.filter((i) => i.itemId);
       if (itens.length === 0) throw new Error(`Adicione ao menos um ${cfg.itemLabel.toLowerCase()}.`);
 
+      // número é editável no formulário; vazio = auto-incrementa na criação.
+      const numeroVal = fNumero.trim() ? Math.trunc(Number(fNumero)) : null;
       const headerPayload: any = {
         responsavel: fResponsavel.trim() || null,
         data_solicitacao: fSolicitacao || null,
@@ -188,6 +205,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
         destino_id: fDestino === "none" ? null : fDestino,
         observacao: fObs.trim() || null,
       };
+      if (numeroVal != null && Number.isFinite(numeroVal)) headerPayload.numero = numeroVal;
 
       let osId: string;
       if (editing) {
@@ -198,14 +216,16 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
         const { error: delErr } = await supabase.from(cfg.itensTable as any).delete().eq("ordem_saida_id", osId);
         if (delErr) throw delErr;
       } else {
-        // numero sequencial por loja.
-        const { data: last } = await supabase
-          .from(cfg.headerTable as any)
-          .select("numero")
-          .order("numero", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        headerPayload.numero = (Number((last as any)?.numero) || 0) + 1;
+        if (headerPayload.numero == null) {
+          // numero sequencial por loja (fallback quando deixado em branco).
+          const { data: last } = await supabase
+            .from(cfg.headerTable as any)
+            .select("numero")
+            .order("numero", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          headerPayload.numero = (Number((last as any)?.numero) || 0) + 1;
+        }
         const { data: ins, error } = await supabase.from(cfg.headerTable as any).insert(headerPayload).select("id").single();
         if (error) throw error;
         osId = (ins as any).id;
@@ -248,6 +268,23 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
       invalidate();
     },
     onError: (e: any) => toast.error(e.message ?? "Erro ao dar baixa."),
+  });
+
+  // Desmarcar baixa: reverte (zera baixa dos itens e volta a OS a "não baixada"),
+  // o que devolve o estoque físico e reativa a reserva. Simétrico à baixaMut.
+  const desmarcarMut = useMutation({
+    mutationFn: async (os: OSRow) => {
+      const { error: e1 } = await supabase.from(cfg.itensTable as any).update({ baixa: 0 }).eq("ordem_saida_id", os.id);
+      if (e1) throw e1;
+      const { error: e2 } = await supabase.from(cfg.headerTable as any).update({ baixado: false }).eq("id", os.id);
+      if (e2) throw e2;
+    },
+    onSuccess: () => {
+      toast.success("Baixa desmarcada. Estoque restaurado.");
+      setFormOpen(false);
+      invalidate();
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao desmarcar baixa."),
   });
 
   const delMut = useMutation({
@@ -332,16 +369,18 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
                       : <Badge variant="secondary">Não Baixado</Badge>}
                   </TableCell>
                   <TableCell data-label="Ações" className="text-right whitespace-nowrap">
-                    {!o.baixado && (
-                      <>
-                        <Button size="icon" variant="outline" onClick={() => openBaixa(o)} aria-label="Dar baixa" title="Dar baixa">
-                          <ScissorsLineDashed className="h-4 w-4" />
-                        </Button>
-                        <Button size="icon" variant="ghost" onClick={() => openEdit(o)} aria-label="Editar">
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                      </>
+                    {o.baixado ? (
+                      <Button size="icon" variant="outline" onClick={() => desmarcarMut.mutate(o)} disabled={desmarcarMut.isPending} aria-label="Desmarcar baixa" title="Desmarcar baixa">
+                        <RotateCcw className="h-4 w-4" />
+                      </Button>
+                    ) : (
+                      <Button size="icon" variant="outline" onClick={() => openBaixa(o)} aria-label="Dar baixa" title="Dar baixa">
+                        <ScissorsLineDashed className="h-4 w-4" />
+                      </Button>
                     )}
+                    <Button size="icon" variant="ghost" onClick={() => openEdit(o)} aria-label="Editar">
+                      <Pencil className="h-4 w-4" />
+                    </Button>
                     <Button size="icon" variant="ghost" onClick={() => setDeleteRow(o)} aria-label="Excluir">
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
@@ -362,16 +401,16 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
           <div className="space-y-4 py-2 max-h-[70vh] overflow-y-auto pr-1 max-sm:max-h-none max-sm:overflow-visible">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Responsável</Label>
-                <Input value={fResponsavel} onChange={(e) => setFResponsavel(e.target.value)} placeholder="Nome" />
+                <Label>Número</Label>
+                <Input type="number" inputMode="numeric" value={fNumero} onChange={(e) => setFNumero(e.target.value)} placeholder="Nº" />
               </div>
               <div className="space-y-1.5">
-                <Label>Destino</Label>
-                <Select value={fDestino} onValueChange={setFDestino}>
-                  <SelectTrigger><SelectValue placeholder="Sem destino" /></SelectTrigger>
+                <Label>Responsável</Label>
+                <Select value={fResponsavel || "none"} onValueChange={(v) => setFResponsavel(v === "none" ? "" : v)}>
+                  <SelectTrigger><SelectValue placeholder="Estilista" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">Sem destino</SelectItem>
-                    {destinos.map((d) => <SelectItem key={d.id} value={d.id}>{d.nome}</SelectItem>)}
+                    <SelectItem value="none">—</SelectItem>
+                    {estilistas.map((e) => <SelectItem key={e.id} value={e.nome}>{e.nome}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -382,6 +421,16 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
               <div className="space-y-1.5">
                 <Label>Data do Corte</Label>
                 <Input type="date" value={fCorte} onChange={(e) => setFCorte(e.target.value)} />
+              </div>
+              <div className="space-y-1.5 col-span-2">
+                <Label>Destino</Label>
+                <Select value={fDestino} onValueChange={setFDestino}>
+                  <SelectTrigger><SelectValue placeholder="Sem destino" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Sem destino</SelectItem>
+                    {destinos.map((d) => <SelectItem key={d.id} value={d.id}>{d.nome}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
@@ -422,7 +471,13 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
             <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={() => setFormOpen(false)}>
               <ArrowLeft className="h-4 w-4" />
             </Button>
-            <Button className="max-sm:ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+            {editing?.baixado && (
+              <Button variant="outline" className="max-sm:ml-auto" onClick={() => editing && desmarcarMut.mutate(editing)} disabled={desmarcarMut.isPending}>
+                <RotateCcw className="h-4 w-4 sm:mr-1" />
+                <span className="max-sm:sr-only">Desmarcar baixa</span>
+              </Button>
+            )}
+            <Button className={editing?.baixado ? "" : "max-sm:ml-auto"} onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
               {saveMut.isPending ? "Salvando…" : "Salvar"}
             </Button>
           </DialogFooter>
