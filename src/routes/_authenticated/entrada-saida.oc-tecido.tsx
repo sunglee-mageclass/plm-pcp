@@ -762,6 +762,24 @@ function OcDialog({
     onError: (e: any) => toast.error(e.message ?? "Erro ao desmarcar recebido."),
   });
 
+  // CQ por rolo: grava direto no item do rolo (ocs_tecido_itens.cq_*) e reflete no
+  // estado local. Usado pelos toggles/observação de cada rolo recebido.
+  const onRoloCq = async (roloItemId: string, patch: { cq_ok?: boolean; cq_alerta?: boolean; obs?: string }) => {
+    const dbPatch: Record<string, any> = {};
+    if (patch.cq_ok !== undefined) dbPatch.cq_ok = patch.cq_ok;
+    if (patch.cq_alerta !== undefined) dbPatch.cq_alerta_status = patch.cq_alerta ? "alertado" : "sem_alerta";
+    if (patch.obs !== undefined) dbPatch.cq_observacao = patch.obs || null;
+    const { error } = await supabase.from("ocs_tecido_itens").update(dbPatch as any).eq("id", roloItemId);
+    if (error) { toast.error(error.message ?? "Erro ao salvar CQ do rolo"); return; }
+    setRolosPorItem((prev) => {
+      const next: Record<string, RoloEntry[]> = {};
+      for (const [k, arr] of Object.entries(prev)) {
+        next[k] = arr.map((e) => (e.roloItemId === roloItemId ? { ...e, ...patch } : e));
+      }
+      return next;
+    });
+  };
+
   // Recebimento só ao EDITAR uma OC já existente. Criar uma OC NÃO oferece
   // recebimento: a OC nasce "encomendada" e recebe-se depois, reabrindo-a.
   const canShowRecebimento = isEdit && (status === "encomendado" || status === "recebido");
@@ -886,6 +904,7 @@ function OcDialog({
               modoRolo={modoOcRolo === "rolo" && (status === "encomendado" || status === "recebido")}
               rolos={rolosPorItem}
               setRolos={setRolosPorItem}
+              onRoloCq={onRoloCq}
               semEtiquetaPorArtigo={semEtiquetaPorArtigo}
               setSemEtiquetaPorArtigo={setSemEtiquetaPorArtigo}
               etiquetasByArtigo={etiquetasByArtigo}

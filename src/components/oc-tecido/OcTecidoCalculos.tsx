@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { fmtNum } from "@/lib/format";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -14,7 +15,7 @@ export function OcTecidoCalculos({
   items, artigoMap, varianteMap, setQtd,
   totalPrevisto, totalReal, dataPrevista, dataEntrega, status, readOnly = false,
   toggleCancelado, canCancel,
-  modoRolo = false, rolos = {}, setRolos,
+  modoRolo = false, rolos = {}, setRolos, onRoloCq,
 }: {
   items: ItemDraft[];
   artigoMap: Record<string, Artigo>;
@@ -32,6 +33,7 @@ export function OcTecidoCalculos({
   modoRolo?: boolean;
   rolos?: Record<string, RoloEntry[]>;
   setRolos?: React.Dispatch<React.SetStateAction<Record<string, RoloEntry[]>>>;
+  onRoloCq?: (roloItemId: string, patch: { cq_ok?: boolean; cq_alerta?: boolean; obs?: string }) => void;
 }) {
   // Atualiza os rolos de um item e reflete a SOMA no quantidade_recebida.
   const aplicarRolos = (tempId: string, novos: RoloEntry[]) => {
@@ -99,23 +101,43 @@ export function OcTecidoCalculos({
                       {i.quantidade_recebida ?? 0}{sufixo ? ` ${sufixo}` : ""}
                     </span>
                   ) : modoRolo ? (
-                    <div className="space-y-1.5 min-w-[11rem]">
+                    <div className="space-y-2 min-w-[12rem] max-w-[22rem]">
                       {rolosDe(i.tempId).map((entry, ri) => (
-                        <div key={entry.roloId ?? ri} className="flex items-center gap-1.5">
-                          <span
-                            className="w-16 shrink-0 truncate text-[11px] font-medium text-muted-foreground"
-                            title={entry.codigo ?? undefined}
-                          >
-                            {entry.codigo ?? `#${ri + 1}`}
-                          </span>
-                          <NumberInput type="number" step="0.01" className="h-9 w-24"
-                            value={entry.qtd}
-                            disabled={!!entry.roloId || readOnly}
-                            onChange={(e) => { const arr = [...rolosDe(i.tempId)]; arr[ri] = { ...arr[ri], qtd: e.target.value }; aplicarRolos(i.tempId, arr); }} />
-                          {sufixo && <span className="text-[10px] text-muted-foreground">{sufixo}</span>}
-                          {!entry.roloId && !readOnly && rolosDe(i.tempId).length > 1 && (
-                            <button type="button" aria-label="Remover rolo" className="text-muted-foreground hover:text-destructive leading-none px-1.5 text-lg"
-                              onClick={() => { const arr = rolosDe(i.tempId).filter((_, k) => k !== ri); aplicarRolos(i.tempId, arr.length ? arr : [{ qtd: "" }]); }}>×</button>
+                        <div key={entry.roloId ?? ri} className="rounded-md border p-2 space-y-2">
+                          <div className="flex items-center gap-2">
+                            {entry.codigo
+                              ? <Badge variant="outline" className="shrink-0 font-mono text-[11px]">{entry.codigo}</Badge>
+                              : <span className="w-8 shrink-0 text-xs text-muted-foreground">#{ri + 1}</span>}
+                            <NumberInput type="number" step="0.01" className="h-9 w-24"
+                              value={entry.qtd}
+                              disabled={!!entry.roloId || readOnly}
+                              onChange={(e) => { const arr = [...rolosDe(i.tempId)]; arr[ri] = { ...arr[ri], qtd: e.target.value }; aplicarRolos(i.tempId, arr); }} />
+                            {sufixo && <span className="text-xs text-muted-foreground">{sufixo}</span>}
+                            {!entry.roloId && !readOnly && rolosDe(i.tempId).length > 1 && (
+                              <button type="button" aria-label="Remover rolo" className="ml-auto px-1.5 text-lg leading-none text-muted-foreground hover:text-destructive"
+                                onClick={() => { const arr = rolosDe(i.tempId).filter((_, k) => k !== ri); aplicarRolos(i.tempId, arr.length ? arr : [{ qtd: "" }]); }}>×</button>
+                            )}
+                          </div>
+                          {/* CQ por rolo — só depois do rolo existir (recebido). */}
+                          {entry.roloItemId && onRoloCq && (
+                            <div className="space-y-2">
+                              <Input
+                                defaultValue={entry.obs ?? ""}
+                                placeholder="Observação do rolo (defeito, tonalidade…)"
+                                className="h-8 text-xs"
+                                onBlur={(e) => { if ((e.target.value || "") !== (entry.obs ?? "")) onRoloCq(entry.roloItemId!, { obs: e.target.value }); }}
+                              />
+                              <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+                                <label className="flex cursor-pointer items-center gap-1.5 text-xs">
+                                  <Switch checked={!!entry.cq_ok} onCheckedChange={(v) => onRoloCq(entry.roloItemId!, { cq_ok: v })} />
+                                  CQ ok
+                                </label>
+                                <label className="flex cursor-pointer items-center gap-1.5 text-xs">
+                                  <Switch checked={!!entry.cq_alerta} onCheckedChange={(v) => onRoloCq(entry.roloItemId!, { cq_alerta: v })} />
+                                  Alertar estilo
+                                </label>
+                              </div>
+                            </div>
                           )}
                         </div>
                       ))}
