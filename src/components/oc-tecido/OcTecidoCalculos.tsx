@@ -8,7 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { artigoLabel, unidadeSufixo } from "@/lib/artigo-label";
 import { cn } from "@/lib/utils";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
-import { fmtMoney, type Artigo, type ItemDraft, type Variante } from "./shared";
+import { fmtMoney, type Artigo, type ItemDraft, type RoloEntry, type Variante } from "./shared";
 
 export function OcTecidoCalculos({
   items, artigoMap, varianteMap, setQtd,
@@ -30,16 +30,16 @@ export function OcTecidoCalculos({
   canCancel?: boolean;
   // Modo só-rolo: a Qtd Recebida é destrinchada em rolos (a soma = recebido).
   modoRolo?: boolean;
-  rolos?: Record<string, string[]>;
-  setRolos?: React.Dispatch<React.SetStateAction<Record<string, string[]>>>;
+  rolos?: Record<string, RoloEntry[]>;
+  setRolos?: React.Dispatch<React.SetStateAction<Record<string, RoloEntry[]>>>;
 }) {
   // Atualiza os rolos de um item e reflete a SOMA no quantidade_recebida.
-  const aplicarRolos = (tempId: string, novos: string[]) => {
+  const aplicarRolos = (tempId: string, novos: RoloEntry[]) => {
     setRolos?.((prev) => ({ ...prev, [tempId]: novos }));
-    const soma = novos.reduce((s, v) => s + (Number(String(v).replace(",", ".")) || 0), 0);
+    const soma = novos.reduce((s, e) => s + (Number(String(e.qtd).replace(",", ".")) || 0), 0);
     setQtd(tempId, "quantidade_recebida", soma > 0 ? Math.round(soma * 100) / 100 : null);
   };
-  const rolosDe = (tempId: string) => rolos[tempId] ?? [""];
+  const rolosDe = (tempId: string): RoloEntry[] => rolos[tempId] ?? [{ qtd: "" }];
   // Rendimento da OC (item) tem prioridade sobre o do cadastro do artigo.
   const rendimentoDe = (it: ItemDraft, a: Artigo) => Number(it.rendimento ?? a.rendimento ?? 0);
   const metragemPedida = (it: ItemDraft) => {
@@ -99,22 +99,30 @@ export function OcTecidoCalculos({
                       {i.quantidade_recebida ?? 0}{sufixo ? ` ${sufixo}` : ""}
                     </span>
                   ) : modoRolo ? (
-                    <div className="space-y-1 w-44">
-                      {rolosDe(i.tempId).map((rv, ri) => (
-                        <div key={ri} className="flex items-center gap-1">
-                          <span className="text-[10px] text-muted-foreground w-7 shrink-0">#{ri + 1}</span>
-                          <NumberInput type="number" step="0.01" className="h-7 w-20"
-                            value={rv}
-                            onChange={(e) => { const arr = [...rolosDe(i.tempId)]; arr[ri] = e.target.value; aplicarRolos(i.tempId, arr); }} />
+                    <div className="space-y-1.5 min-w-[11rem]">
+                      {rolosDe(i.tempId).map((entry, ri) => (
+                        <div key={entry.roloId ?? ri} className="flex items-center gap-1.5">
+                          <span
+                            className="w-16 shrink-0 truncate text-[11px] font-medium text-muted-foreground"
+                            title={entry.codigo ?? undefined}
+                          >
+                            {entry.codigo ?? `#${ri + 1}`}
+                          </span>
+                          <NumberInput type="number" step="0.01" className="h-9 w-24"
+                            value={entry.qtd}
+                            disabled={!!entry.roloId || readOnly}
+                            onChange={(e) => { const arr = [...rolosDe(i.tempId)]; arr[ri] = { ...arr[ri], qtd: e.target.value }; aplicarRolos(i.tempId, arr); }} />
                           {sufixo && <span className="text-[10px] text-muted-foreground">{sufixo}</span>}
-                          {rolosDe(i.tempId).length > 1 && (
-                            <button type="button" aria-label="Remover rolo" className="text-muted-foreground hover:text-destructive leading-none px-1"
-                              onClick={() => { const arr = rolosDe(i.tempId).filter((_, k) => k !== ri); aplicarRolos(i.tempId, arr.length ? arr : [""]); }}>×</button>
+                          {!entry.roloId && !readOnly && rolosDe(i.tempId).length > 1 && (
+                            <button type="button" aria-label="Remover rolo" className="text-muted-foreground hover:text-destructive leading-none px-1.5 text-lg"
+                              onClick={() => { const arr = rolosDe(i.tempId).filter((_, k) => k !== ri); aplicarRolos(i.tempId, arr.length ? arr : [{ qtd: "" }]); }}>×</button>
                           )}
                         </div>
                       ))}
-                      <button type="button" className="text-xs text-primary hover:underline" onClick={() => aplicarRolos(i.tempId, [...rolosDe(i.tempId), ""])}>+ rolo</button>
-                      <div className="text-[11px] text-muted-foreground">Total: <b className="text-foreground">{fmtNum(i.quantidade_recebida ?? 0)}{sufixo ? ` ${sufixo}` : ""}</b> · {rolosDe(i.tempId).filter((v) => Number(String(v).replace(",", ".")) > 0).length} rolo(s)</div>
+                      {!readOnly && (
+                        <button type="button" className="text-sm text-primary hover:underline" onClick={() => aplicarRolos(i.tempId, [...rolosDe(i.tempId), { qtd: "" }])}>+ rolo</button>
+                      )}
+                      <div className="text-[11px] text-muted-foreground">Total: <b className="text-foreground">{fmtNum(i.quantidade_recebida ?? 0)}{sufixo ? ` ${sufixo}` : ""}</b> · {rolosDe(i.tempId).filter((e) => Number(String(e.qtd).replace(",", ".")) > 0).length} rolo(s)</div>
                     </div>
                   ) : (
                     <div className="relative w-24">

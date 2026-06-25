@@ -31,7 +31,7 @@ import { useModoOcRolo } from "@/hooks/useModoOcRolo";
 import {
   emptyDraft, uploadFile,
   type Artigo, type Colab, type Draft, type Empresa, type ItemDraft,
-  type OC, type OCItem, type OCStatus, type Variante,
+  type OC, type OCItem, type OCStatus, type RoloEntry, type Variante,
 } from "@/components/oc-tecido/shared";
 
 import { RequirePermission } from "@/components/RequirePermission";
@@ -324,7 +324,7 @@ function OcDialog({
   const [status, setStatus] = useState<OCStatus>("encomendado");
   // Modo só-rolo: o recebimento é destrinchado em rolos (gera os rolos ao receber).
   const modoOcRolo = useModoOcRolo();
-  const [rolosPorItem, setRolosPorItem] = useState<Record<string, string[]>>({});
+  const [rolosPorItem, setRolosPorItem] = useState<Record<string, RoloEntry[]>>({});
   const [respMode, setRespMode] = useState<"select" | "text">("select");
   const [tecido2Aberto, setTecido2Aberto] = useState(false);
   const [confirmUnmark, setConfirmUnmark] = useState(false);
@@ -378,6 +378,36 @@ function OcDialog({
       setItems(mapped);
       setOriginalItemIds(mapped.map((m) => m.id).filter((x): x is string => !!x));
       if (mapped.some((m) => m.artigo_numero === 2)) setTecido2Aberto(true);
+
+      // Modo Só Rolo + OC recebida: recarrega o destrinchamento por rolo (cada rolo
+      // é um ocs_tecido is_rolo vinculado por rolo_origem_item_id), com código e CQ,
+      // p/ mostrar destrinchado (não o valor agregado) e permitir editar o CQ por rolo.
+      if (modoOcRolo === "rolo" && oc?.status === "recebido") {
+        const itemIds = mapped.map((m) => m.id).filter((x): x is string => !!x);
+        if (itemIds.length > 0) {
+          const { data: rolosData } = await supabase
+            .from("ocs_tecido")
+            .select("id, rolo_codigo, rolo_origem_item_id, ocs_tecido_itens(id, quantidade_recebida, cq_ok, cq_alerta_status, cq_observacao)")
+            .eq("is_rolo" as never, true as never)
+            .in("rolo_origem_item_id", itemIds)
+            .order("rolo_codigo");
+          const byOrigem: Record<string, RoloEntry[]> = {};
+          for (const r of (rolosData ?? []) as any[]) {
+            const it0 = (r.ocs_tecido_itens ?? [])[0];
+            const key = r.rolo_origem_item_id as string;
+            (byOrigem[key] = byOrigem[key] ?? []).push({
+              qtd: it0?.quantidade_recebida != null ? String(it0.quantidade_recebida) : "",
+              codigo: r.rolo_codigo,
+              roloId: r.id,
+              roloItemId: it0?.id,
+              cq_ok: !!it0?.cq_ok,
+              cq_alerta: (it0?.cq_alerta_status ?? "sem_alerta") !== "sem_alerta",
+              obs: it0?.cq_observacao ?? "",
+            });
+          }
+          if (Object.keys(byOrigem).length > 0) setRolosPorItem(byOrigem);
+        }
+      }
       return oc;
     },
   });
@@ -662,8 +692,9 @@ function OcDialog({
             const a = di.artigo_id ? artigoMap[di.artigo_id] : null;
             const isKg = a?.unidade_medida === "kg";
             const rend = Number(di.rendimento ?? a?.rendimento ?? 0);
-            for (const rStr of rolls) {
-              const qtd = Number(String(rStr).replace(",", "."));
+            for (const entry of rolls) {
+              if (entry.roloId) continue; // já existe (recarregado) — não recriar p/ não duplicar
+              const qtd = Number(String(entry.qtd).replace(",", "."));
               if (!qtd || qtd <= 0) continue;
               const metros = isKg && rend > 0 ? qtd * rend : qtd;
               const { data: codigo } = await supabase.rpc("proximo_codigo_rolo" as any, { _artigo_id: di.artigo_id });
@@ -843,7 +874,7 @@ function OcDialog({
               readOnly={isReadOnlyRecebimento}
               toggleCancelado={toggleCancelado}
               canCancel={status === "encomendado"}
-              modoRolo={modoOcRolo === "rolo" && status === "encomendado"}
+              modoRolo={modoOcRolo === "rolo" && (status === "encomendado" || status === "recebido")}
               rolos={rolosPorItem}
               setRolos={setRolosPorItem}
               semEtiquetaPorArtigo={semEtiquetaPorArtigo}

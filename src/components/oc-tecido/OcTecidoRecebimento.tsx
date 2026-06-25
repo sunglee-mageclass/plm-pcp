@@ -7,7 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { FileField } from "./FileField";
 import { OcTecidoCalculos } from "./OcTecidoCalculos";
 import { EtiquetaLavagemArtigoEditor } from "@/components/shared/EtiquetaLavagemArtigo";
-import type { Artigo, Draft, ItemDraft, ParcelaRecebimento, Variante } from "./shared";
+import type { Artigo, Draft, ItemDraft, ParcelaRecebimento, RoloEntry, Variante } from "./shared";
 
 export function OcTecidoRecebimento({
   draft, setDraft, handleSingleUpload,
@@ -34,8 +34,8 @@ export function OcTecidoRecebimento({
   toggleCancelado?: (tempId: string, value: boolean) => void;
   canCancel?: boolean;
   modoRolo?: boolean;
-  rolos?: Record<string, string[]>;
-  setRolos?: React.Dispatch<React.SetStateAction<Record<string, string[]>>>;
+  rolos?: Record<string, RoloEntry[]>;
+  setRolos?: React.Dispatch<React.SetStateAction<Record<string, RoloEntry[]>>>;
   semEtiquetaPorArtigo?: Record<string, boolean>;
   setSemEtiquetaPorArtigo?: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   etiquetasByArtigo?: Record<string, string[]>;

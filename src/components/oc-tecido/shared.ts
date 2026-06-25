@@ -85,6 +85,19 @@ export type ItemDraft = {
   cancelado: boolean;
 };
 
+// Um rolo destrinchado no recebimento (modo Só Rolo). Antes era só a quantidade
+// (string); agora guarda código + ids + CQ + observação para recarregar a OC
+// recebida destrinchada e editar o CQ por rolo.
+export type RoloEntry = {
+  qtd: string;             // quantidade na unidade do artigo
+  codigo?: string | null;  // rolo_codigo (nomenclatura automática, após criado)
+  roloId?: string;         // ocs_tecido.id do rolo
+  roloItemId?: string;     // ocs_tecido_itens.id do rolo (onde vivem os cq_*)
+  cq_ok?: boolean;
+  cq_alerta?: boolean;     // cq_alerta_status === 'alertado'
+  obs?: string;            // cq_observacao do rolo
+};
+
 export function emptyDraft(): Draft {
   return {
     numero_pedido: "",
