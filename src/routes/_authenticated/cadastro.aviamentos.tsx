@@ -421,21 +421,35 @@ function AviamentoCard({
             </div>
           )}
         </button>
-        {!readOnly && (
+        {/* Modo compacto não tem corpo: excluir fica no canto inferior do card. */}
+        {compact && !readOnly && (
           <button
             type="button"
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(); }}
-            className="absolute top-2 right-2 z-10 h-8 w-8 rounded-md bg-background/80 backdrop-blur-sm border flex items-center justify-center opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-destructive hover:bg-destructive hover:text-destructive-foreground"
+            className="absolute bottom-1 right-1 z-10 h-7 w-7 rounded-md bg-background/80 backdrop-blur-sm border flex items-center justify-center text-destructive hover:bg-destructive hover:text-destructive-foreground"
             aria-label="Excluir aviamento"
             title="Excluir aviamento"
           >
-            <Trash2 className="h-4 w-4" />
+            <Trash2 className="h-3.5 w-3.5" />
           </button>
         )}
       </div>
       {!compact && (
       <div className="p-3 space-y-1">
-        <h3 className="font-medium leading-tight line-clamp-1">{aviamento.codigo_nome}</h3>
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="font-medium leading-tight line-clamp-1">{aviamento.codigo_nome}</h3>
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(); }}
+              className="shrink-0 -mr-1 rounded p-1 text-destructive hover:bg-destructive hover:text-destructive-foreground"
+              aria-label="Excluir aviamento"
+              title="Excluir aviamento"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
+        </div>
         {(!categoria || !fornecedor) && (
           <div className="flex items-center gap-1 rounded bg-destructive px-2 py-1 text-[10px] font-medium text-destructive-foreground">
             <AlertTriangle className="h-3 w-3 shrink-0" />
