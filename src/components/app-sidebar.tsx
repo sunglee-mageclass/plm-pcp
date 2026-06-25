@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/collapsible";
 import { useAuth } from "@/hooks/useAuth";
 import { useTenantModules } from "@/hooks/useTenantModules";
+import { useModoOcRolo } from "@/hooks/useModoOcRolo";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { useTabLabels } from "@/hooks/useTabLabels";
 import { Button } from "@/components/ui/button";
@@ -100,6 +101,10 @@ export function AppSidebar() {
   const { isModuleEnabled, isStockOnly } = useTenantModules();
   const profile = isStockOnly ? "stock" : "full";
   const tabLabels = useTabLabels();
+  const modoOcRolo = useModoOcRolo();
+  // No modo Só Rolo a página "Consumo por OC" passa a se chamar "Consumo por Rolo".
+  const labelFor = (key: string, fallback: string) =>
+    tabLabels[key] || (key === "producao_consumo_oc" && modoOcRolo === "rolo" ? "Consumo por Rolo" : fallback);
   const activeTenantId = useActiveTenantId();
 
   const { data: tenantCfg } = useQuery({
@@ -135,7 +140,7 @@ export function AppSidebar() {
       const subs = pages
         .filter((p) => pageInProfile(p, profile))
         .filter((p) => PAGE_URLS[p.key] && (isAdmin || isSuperAdmin || isTenantAdmin || canView(p.key)))
-        .map((p) => ({ key: p.key, label: tabLabels[p.key] || p.label, url: PAGE_URLS[p.key] }));
+        .map((p) => ({ key: p.key, label: labelFor(p.key, p.label), url: PAGE_URLS[p.key] }));
       return {
         url: m.basePath,
         title: tabLabels[m.module] || MODULE_META[m.module]?.title || m.label,
