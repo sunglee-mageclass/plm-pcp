@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { fmtNum } from "@/lib/format";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -411,6 +411,7 @@ function OcDialog({
         // Encomendado: reconstrói o destrinchamento PLANEJADO salvo em rolos_planejados
         // (sem isso, salvar e reabrir o encomendado perdia os rolos digitados).
         const planned: Record<string, RoloEntry[]> = {};
+        const recebidaByItem: Record<string, number> = {};
         for (const it of (its ?? []) as any[]) {
           const rp = (it as any).rolos_planejados;
           if (Array.isArray(rp) && rp.length > 0) {
@@ -420,9 +421,16 @@ function OcDialog({
               cq_ok: !!r?.cq_ok,
               cq_alerta: !!r?.cq_alerta,
             }));
+            const soma = rp.reduce((s: number, r: any) => s + (Number(r?.qtd) || 0), 0);
+            if (soma > 0) recebidaByItem[it.id] = Math.round(soma * 100) / 100;
           }
         }
-        if (Object.keys(planned).length > 0) setRolosPorItem(planned);
+        if (Object.keys(planned).length > 0) {
+          setRolosPorItem(planned);
+          // Recomputa a quantidade recebida do item a partir do planejamento (mantém
+          // a validação de "marcar recebido" coerente ao reabrir).
+          setItems((prev) => prev.map((i) => (i.id && recebidaByItem[i.id] != null) ? { ...i, quantidade_recebida: recebidaByItem[i.id] } : i));
+        }
       }
       return oc;
     },
@@ -831,22 +839,36 @@ function OcDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [items],
   );
-  const { data: etiquetasByArtigo = {} } = useQuery({
+  const { data: etiquetaData } = useQuery({
     queryKey: ["artigos-etiquetas", artigoIdsForEtiqueta],
     enabled: artigoIdsForEtiqueta.length > 0,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("artigos")
-        .select("id, etiqueta_lavagem_urls")
+        .select("id, etiqueta_lavagem_urls, sem_etiqueta_lavagem")
         .in("id", artigoIdsForEtiqueta);
       if (error) throw error;
-      const m: Record<string, string[]> = {};
-      for (const r of (data ?? []) as Array<{ id: string; etiqueta_lavagem_urls: string[] | null }>) {
-        m[r.id] = r.etiqueta_lavagem_urls ?? [];
+      const urls: Record<string, string[]> = {};
+      const sem: Record<string, boolean> = {};
+      for (const r of (data ?? []) as any[]) {
+        urls[r.id] = r.etiqueta_lavagem_urls ?? [];
+        sem[r.id] = !!r.sem_etiqueta_lavagem;
       }
-      return m;
+      return { urls, sem };
     },
   });
+  const etiquetasByArtigo = etiquetaData?.urls ?? {};
+  // Inicializa o flag "sem etiqueta" a partir do PERSISTIDO no artigo (edições locais
+  // prevalecem, pois a persistência é imediata no toggle).
+  useEffect(() => {
+    if (etiquetaData?.sem) setSemEtiquetaPorArtigo((prev) => ({ ...etiquetaData.sem, ...prev }));
+  }, [etiquetaData]);
+  // Persiste o flag no artigo (a etiqueta é propriedade do tecido) + estado local.
+  const onSemEtiqueta = async (artigoId: string, value: boolean) => {
+    setSemEtiquetaPorArtigo((m) => ({ ...m, [artigoId]: value }));
+    const { error } = await supabase.from("artigos").update({ sem_etiqueta_lavagem: value } as any).eq("id", artigoId);
+    if (error) toast.error(error.message ?? "Erro ao salvar etiqueta");
+  };
 
   const parcelas = draft.parcelas_recebimento ?? [];
   const todasParcelasOk =
@@ -856,7 +878,11 @@ function OcDialog({
     artigoIdsForEtiqueta.every(
       (id) => semEtiquetaPorArtigo[id] || (etiquetasByArtigo[id]?.length ?? 0) > 0,
     );
-  const algumaQtdRecebida = items.some((i) => (i.quantidade_recebida ?? 0) > 0);
+  // No modo rolo a quantidade recebida = soma dos rolos digitados (não depende do
+  // quantidade_recebida do item estar sincronizado — ex.: ao reabrir o encomendado).
+  const algumaQtdRecebida = modoOcRolo === "rolo"
+    ? Object.values(rolosPorItem).some((arr) => arr.some((e) => Number(String(e.qtd).replace(",", ".")) > 0))
+    : items.some((i) => (i.quantidade_recebida ?? 0) > 0);
 
   const canMarkReceived =
     isEdit &&
@@ -949,6 +975,7 @@ function OcDialog({
               onRoloCq={onRoloCq}
               semEtiquetaPorArtigo={semEtiquetaPorArtigo}
               setSemEtiquetaPorArtigo={setSemEtiquetaPorArtigo}
+              onSemEtiqueta={onSemEtiqueta}
               etiquetasByArtigo={etiquetasByArtigo}
             />
           )}

@@ -15,7 +15,7 @@ export function OcTecidoRecebimento({
   tecido2Aberto, artigoId1, artigoId2, status, readOnly = false,
   toggleCancelado, canCancel,
   modoRolo = false, rolos = {}, setRolos, onRoloCq,
-  semEtiquetaPorArtigo = {}, setSemEtiquetaPorArtigo, etiquetasByArtigo = {},
+  semEtiquetaPorArtigo = {}, setSemEtiquetaPorArtigo, onSemEtiqueta, etiquetasByArtigo = {},
 }: {
   draft: Draft;
   setDraft: React.Dispatch<React.SetStateAction<Draft>>;
@@ -39,6 +39,7 @@ export function OcTecidoRecebimento({
   onRoloCq?: (roloItemId: string, patch: { cq_ok?: boolean; cq_alerta?: boolean; obs?: string }) => void;
   semEtiquetaPorArtigo?: Record<string, boolean>;
   setSemEtiquetaPorArtigo?: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
+  onSemEtiqueta?: (artigoId: string, value: boolean) => void;
   etiquetasByArtigo?: Record<string, string[]>;
 }) {
   return (
@@ -137,11 +138,11 @@ export function OcTecidoRecebimento({
                 artigoId={artigoId1}
                 label="Etiqueta de Lavagem — Tecido 1"
               />
-              {!readOnly && artigoId1 && (etiquetasByArtigo[artigoId1]?.length ?? 0) === 0 && setSemEtiquetaPorArtigo && (
+              {!readOnly && artigoId1 && (etiquetasByArtigo[artigoId1]?.length ?? 0) === 0 && onSemEtiqueta && (
                 <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
                   <Checkbox
                     checked={!!semEtiquetaPorArtigo[artigoId1]}
-                    onCheckedChange={(v) => setSemEtiquetaPorArtigo((m) => ({ ...m, [artigoId1]: v === true }))}
+                    onCheckedChange={(v) => onSemEtiqueta(artigoId1, v === true)}
                   />
                   Este tecido não tem etiqueta de lavagem
                 </label>
@@ -153,11 +154,11 @@ export function OcTecidoRecebimento({
                   artigoId={artigoId2}
                   label="Etiqueta de Lavagem — Tecido 2"
                 />
-                {!readOnly && artigoId2 && (etiquetasByArtigo[artigoId2]?.length ?? 0) === 0 && setSemEtiquetaPorArtigo && (
+                {!readOnly && artigoId2 && (etiquetasByArtigo[artigoId2]?.length ?? 0) === 0 && onSemEtiqueta && (
                   <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
                     <Checkbox
                       checked={!!semEtiquetaPorArtigo[artigoId2]}
-                      onCheckedChange={(v) => setSemEtiquetaPorArtigo((m) => ({ ...m, [artigoId2]: v === true }))}
+                      onCheckedChange={(v) => onSemEtiqueta(artigoId2, v === true)}
                     />
                     Este tecido não tem etiqueta de lavagem
                   </label>
