@@ -3,6 +3,7 @@ import { useMemo, useRef, useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  ArrowLeft,
   Package,
   Plus,
   Search,
@@ -644,7 +645,7 @@ function AviamentoModal({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0">
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto [&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0">
         <DialogHeader>
           <DialogTitle>{initial ? "Editar Aviamento" : "Novo Aviamento"}</DialogTitle>
         </DialogHeader>
@@ -794,11 +795,11 @@ function AviamentoModal({
           </div>
         </div>
 
-        <DialogFooter className="max-sm:sticky max-sm:bottom-0 max-sm:z-10 max-sm:-mx-4 max-sm:-mb-4 max-sm:flex-row max-sm:border-t max-sm:bg-background max-sm:px-4 max-sm:py-3">
-          <Button variant="outline" className="max-sm:flex-1" onClick={() => handleOpenChange(false)}>
-            Voltar
+        <DialogFooter className="max-sm:sticky max-sm:bottom-0 max-sm:z-10 max-sm:-mx-4 max-sm:-mb-4 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:px-4 max-sm:py-3">
+          <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0" onClick={() => handleOpenChange(false)}>
+            <ArrowLeft className="h-4 w-4" />
           </Button>
-          <Button className="max-sm:flex-1" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+          <Button className="max-sm:ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
             {saveMut.isPending ? "Salvando…" : "Salvar"}
           </Button>
         </DialogFooter>
