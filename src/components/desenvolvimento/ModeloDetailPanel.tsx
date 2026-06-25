@@ -968,7 +968,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
             Para enviar ao CAD, falta: {cadMissing.join(", ")}
           </span>
         )}
-        <Button variant="ghost" onClick={onClose} aria-label="Voltar" className="shrink-0 max-sm:order-first max-sm:mr-auto max-sm:w-9 max-sm:px-0">
+        <Button variant="outline" onClick={onClose} aria-label="Voltar" className="shrink-0 max-sm:order-first max-sm:mr-auto max-sm:w-9 max-sm:px-0">
           <ArrowLeft className="h-4 w-4 sm:hidden" />
           <span className="max-sm:sr-only">Fechar</span>
         </Button>

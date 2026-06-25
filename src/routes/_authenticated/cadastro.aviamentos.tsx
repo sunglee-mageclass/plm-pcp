@@ -238,6 +238,7 @@ function AviamentosGallery() {
     onSuccess: () => {
       toast.success("Aviamento excluído.");
       setDeleting(null);
+      setEditing(null); // fecha o diálogo de edição (de onde a exclusão é disparada)
       qc.invalidateQueries({ queryKey: ["aviamentos"] });
     },
     onError: (e: any) =>
@@ -353,6 +354,7 @@ function AviamentosGallery() {
             setCreateOpen(false);
             setEditing(null);
           }}
+          onDelete={() => editing && setDeleting(editing)}
         />
       )}
 
@@ -421,35 +423,10 @@ function AviamentoCard({
             </div>
           )}
         </button>
-        {/* Modo compacto não tem corpo: excluir fica no canto inferior do card. */}
-        {compact && !readOnly && (
-          <button
-            type="button"
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(); }}
-            className="absolute bottom-1 right-1 z-10 h-7 w-7 rounded-md bg-background/80 backdrop-blur-sm border flex items-center justify-center text-destructive hover:bg-destructive hover:text-destructive-foreground"
-            aria-label="Excluir aviamento"
-            title="Excluir aviamento"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
-        )}
       </div>
       {!compact && (
       <div className="p-3 space-y-1">
-        <div className="flex items-start justify-between gap-2">
-          <h3 className="font-medium leading-tight line-clamp-1">{aviamento.codigo_nome}</h3>
-          {!readOnly && (
-            <button
-              type="button"
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(); }}
-              className="shrink-0 -mr-1 rounded p-1 text-destructive hover:bg-destructive hover:text-destructive-foreground"
-              aria-label="Excluir aviamento"
-              title="Excluir aviamento"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
-          )}
-        </div>
+        <h3 className="font-medium leading-tight line-clamp-1">{aviamento.codigo_nome}</h3>
         {(!categoria || !fornecedor) && (
           <div className="flex items-center gap-1 rounded bg-destructive px-2 py-1 text-[10px] font-medium text-destructive-foreground">
             <AlertTriangle className="h-3 w-3 shrink-0" />
@@ -513,6 +490,7 @@ function AviamentoModal({
   materiais,
   intervalos,
   onSaved,
+  onDelete,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -523,6 +501,7 @@ function AviamentoModal({
   materiais: Option[];
   intervalos: Option[];
   onSaved: () => void;
+  onDelete?: () => void;
 }) {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [uploading, setUploading] = useState(false);
@@ -817,6 +796,12 @@ function AviamentoModal({
           <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={() => handleOpenChange(false)}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
+          {initial && onDelete && (
+            <Button variant="outline" className="shrink-0 text-destructive hover:text-destructive max-sm:w-9 max-sm:px-0" onClick={() => onDelete()} aria-label="Excluir aviamento">
+              <Trash2 className="h-4 w-4 sm:mr-1" />
+              <span className="max-sm:sr-only">Excluir</span>
+            </Button>
+          )}
           <Button className="max-sm:ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
             {saveMut.isPending ? "Salvando…" : "Salvar"}
           </Button>

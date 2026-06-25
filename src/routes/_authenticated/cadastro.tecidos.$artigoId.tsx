@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -203,6 +203,26 @@ function TecidoDetail() {
     onError: (e: any) => toast.error(e.message ?? "Erro ao salvar."),
   });
 
+  const navigate = useNavigate();
+  const [confirmDel, setConfirmDel] = useState(false);
+  const excluirMut = useMutation({
+    mutationFn: async () => {
+      const { data: vars } = await supabase.from("variantes_tecido").select("foto_url").eq("artigo_id", artigoId);
+      await supabase.from("variantes_tecido").delete().eq("artigo_id", artigoId);
+      const { error } = await supabase.from("artigos").delete().eq("id", artigoId);
+      if (error) throw error;
+      const paths = ((vars ?? []) as any[]).map((v) => v.foto_url).filter(Boolean) as string[];
+      if (paths.length) await supabase.storage.from("tecido-variantes").remove(paths);
+    },
+    onSuccess: () => {
+      toast.success("Tecido excluído.");
+      qc.invalidateQueries({ queryKey: ["artigos"] });
+      qc.invalidateQueries({ queryKey: ["variantes-thumb"] });
+      navigate({ to: "/cadastro/tecidos" });
+    },
+    onError: (e: any) => toast.error(e.message ?? "Erro ao excluir."),
+  });
+
   if (isLoading || !form) {
     return (
       <div className="p-6 text-muted-foreground">
@@ -229,7 +249,7 @@ function TecidoDetail() {
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-w-5xl max-sm:pb-24">
       <header className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Button asChild variant="ghost" size="icon" className="max-sm:hidden">
+          <Button asChild variant="outline" size="icon" className="max-sm:hidden">
             <Link to="/cadastro/tecidos">
               <ArrowLeft className="h-4 w-4" />
             </Link>
@@ -239,22 +259,54 @@ function TecidoDetail() {
             <p className="text-sm text-muted-foreground">Detalhes do tecido</p>
           </div>
         </div>
-        <Button className="max-sm:hidden" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
-          <Save className="h-4 w-4 mr-1" />
-          {saveMut.isPending ? "Salvando…" : "Salvar"}
-        </Button>
+        <div className="flex items-center gap-2 max-sm:hidden">
+          {!readOnly && (
+            <Button variant="outline" className="text-destructive hover:text-destructive" onClick={() => setConfirmDel(true)} disabled={excluirMut.isPending}>
+              <Trash2 className="h-4 w-4 mr-1" /> Excluir
+            </Button>
+          )}
+          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
+            <Save className="h-4 w-4 mr-1" />
+            {saveMut.isPending ? "Salvando…" : "Salvar"}
+          </Button>
+        </div>
       </header>
 
-      {/* Mobile: voltar + salvar na barra fixa do rodapé. */}
+      {/* Mobile: voltar + excluir + salvar na barra fixa do rodapé. */}
       <MobileActionBar>
         <Button asChild variant="outline" size="icon" aria-label="Voltar">
           <Link to="/cadastro/tecidos"><ArrowLeft className="h-4 w-4" /></Link>
         </Button>
+        {!readOnly && (
+          <Button variant="outline" size="icon" className="text-destructive" onClick={() => setConfirmDel(true)} disabled={excluirMut.isPending} aria-label="Excluir tecido">
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        )}
         <Button className="ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
           <Save className="h-4 w-4 mr-1" />
           {saveMut.isPending ? "Salvando…" : "Salvar"}
         </Button>
       </MobileActionBar>
+
+      <AlertDialog open={confirmDel} onOpenChange={setConfirmDel}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir tecido?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Isso remove o tecido "{form.nome}" e todas as variantes. Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => excluirMut.mutate()}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Card>
         <CardHeader>
