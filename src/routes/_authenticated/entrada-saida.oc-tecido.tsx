@@ -407,6 +407,19 @@ function OcDialog({
           }
           if (Object.keys(byOrigem).length > 0) setRolosPorItem(byOrigem);
         }
+      } else if (modoOcRolo === "rolo") {
+        // Encomendado: reconstrói o destrinchamento PLANEJADO salvo em rolos_planejados
+        // (sem isso, salvar e reabrir o encomendado perdia os rolos digitados).
+        const planned: Record<string, RoloEntry[]> = {};
+        for (const it of (its ?? []) as any[]) {
+          const rp = (it as any).rolos_planejados;
+          if (Array.isArray(rp) && rp.length > 0) {
+            planned[it.id] = rp.map((r: any) => ({
+              qtd: r?.qtd != null ? String(r.qtd) : (typeof r === "number" ? String(r) : ""),
+            }));
+          }
+        }
+        if (Object.keys(planned).length > 0) setRolosPorItem(planned);
       }
       return oc;
     },
@@ -577,6 +590,17 @@ function OcDialog({
       const finalStatus: OCStatus = markReceived ? "recebido" : status;
       const validItems = items.filter((i) => i.variante_tecido_id && i.artigo_id);
 
+      // Modo Só Rolo: persiste o destrinchamento PLANEJADO por item (sobrevive a
+      // salvar/reabrir o encomendado). Ao receber, os rolos reais saem daqui.
+      const roloPlan = (tempId: string): { qtd: number }[] | null => {
+        const arr = rolosPorItem[tempId];
+        if (!arr) return null;
+        const vals = arr.map((e) => Number(String(e.qtd).replace(",", "."))).filter((q) => q > 0);
+        return vals.length ? vals.map((qtd) => ({ qtd })) : null;
+      };
+      const roloPlanPatch = (tempId: string) =>
+        modoOcRolo === "rolo" ? { rolos_planejados: roloPlan(tempId) } : {};
+
       if (isEdit && ocIdLocal) {
         // Diff: UPDATE (com id), INSERT (sem id), DELETE só dos removidos.
         const currentIds = new Set(
@@ -602,6 +626,7 @@ function OcDialog({
               quantidade_recebida: it.quantidade_recebida,
               rendimento: it.rendimento,
               cancelado: it.cancelado,
+              ...roloPlanPatch(it.tempId),
             } as any)
             .eq("id", it.id!);
           if (error) throw error;
@@ -618,6 +643,7 @@ function OcDialog({
               quantidade_recebida: i.quantidade_recebida,
               rendimento: i.rendimento,
               cancelado: i.cancelado,
+              ...roloPlanPatch(i.tempId),
             })) as any);
           if (error) throw error;
         }
@@ -645,6 +671,7 @@ function OcDialog({
               quantidade_recebida: i.quantidade_recebida,
               rendimento: i.rendimento,
               cancelado: i.cancelado,
+              ...roloPlanPatch(i.tempId),
             })) as any);
           if (itErr) throw itErr;
         }
