@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -328,6 +329,8 @@ function OcDialog({
   const [respMode, setRespMode] = useState<"select" | "text">("select");
   const [tecido2Aberto, setTecido2Aberto] = useState(false);
   const [confirmUnmark, setConfirmUnmark] = useState(false);
+  // Dispensa a etiqueta de lavagem no recebimento (alguns artigos não têm).
+  const [semEtiquetaLavagem, setSemEtiquetaLavagem] = useState(false);
 
   useQuery({
     queryKey: ["oc-tecido", ocId],
@@ -719,7 +722,10 @@ function OcDialog({
     onError: (e: any) => toast.error(e.message ?? "Erro ao desmarcar recebido."),
   });
 
-  const canShowRecebimento = isEdit && (status === "encomendado" || status === "recebido");
+  // Recebimento disponível mesmo em OC nova (não exige salvar antes): "Marcar
+  // Recebido" chama saveMutation(true), que CRIA a OC + itens e marca recebido numa
+  // só ação (o else do saveMutation já trata o caso de inserção).
+  const canShowRecebimento = status === "encomendado" || status === "recebido";
   const isReadOnlyRecebimento = isEdit && status === "recebido";
   const artigoIdsForEtiqueta = useMemo(
     () => [artigoIdFor(1), artigoIdFor(2)].filter((x): x is string => !!x),
@@ -747,12 +753,12 @@ function OcDialog({
   const todasParcelasOk =
     parcelas.length > 0 && parcelas.every((p) => !!p.data && p.recebido === true);
   const todasEtiquetasOk =
-    artigoIdsForEtiqueta.length > 0 &&
-    artigoIdsForEtiqueta.every((id) => (etiquetasByArtigo[id]?.length ?? 0) > 0);
+    semEtiquetaLavagem ||
+    (artigoIdsForEtiqueta.length > 0 &&
+      artigoIdsForEtiqueta.every((id) => (etiquetasByArtigo[id]?.length ?? 0) > 0));
   const algumaQtdRecebida = items.some((i) => (i.quantidade_recebida ?? 0) > 0);
 
   const canMarkReceived =
-    isEdit &&
     status === "encomendado" &&
     algumaQtdRecebida &&
     todasParcelasOk &&
@@ -840,6 +846,16 @@ function OcDialog({
               rolos={rolosPorItem}
               setRolos={setRolosPorItem}
             />
+          )}
+
+          {canShowRecebimento && !isReadOnlyRecebimento && (
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
+              <Checkbox
+                checked={semEtiquetaLavagem}
+                onCheckedChange={(v) => setSemEtiquetaLavagem(v === true)}
+              />
+              Esta OC não tem etiqueta de lavagem (dispensa o anexo no recebimento)
+            </label>
           )}
 
           {isEdit && ocId && <OcCqSection ocId={ocId} />}

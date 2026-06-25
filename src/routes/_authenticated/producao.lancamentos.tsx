@@ -88,8 +88,8 @@ function LancamentosPage() {
 
       // Grades cadastradas (por variante) + variantes do Tecido Principal.
       const [gradesRes, tecRes] = await Promise.all([
-        modeloIds.length
-          ? supabase.from("modelo_grades").select("modelo_id, variante_numero, grade_total").in("modelo_id", modeloIds)
+        cadIds.length
+          ? supabase.from("cad_grades").select("cad_id, variante_numero, grade_total_real").in("cad_id", cadIds)
           : Promise.resolve({ data: [] as any[] }),
         cadIds.length
           ? supabase
@@ -101,11 +101,14 @@ function LancamentosPage() {
           : Promise.resolve({ data: [] as any[] }),
       ]);
 
-      const gradeByModelo = new Map<string, { num: number; total: number }[]>();
+      // Grade REAL do CQ (cad_grades.grade_total_real). Como os cards já são CQ
+      // CONFIRMADO, a grade real reflete o que será de fato usado (desconta defeitos),
+      // não a planejada — que era o errado.
+      const gradeByCad = new Map<string, { num: number; total: number }[]>();
       (gradesRes.data ?? []).forEach((g: any) => {
-        const arr = gradeByModelo.get(g.modelo_id) ?? [];
-        arr.push({ num: Number(g.variante_numero), total: Number(g.grade_total ?? 0) });
-        gradeByModelo.set(g.modelo_id, arr);
+        const arr = gradeByCad.get(g.cad_id) ?? [];
+        arr.push({ num: Number(g.variante_numero), total: Number(g.grade_total_real ?? 0) });
+        gradeByCad.set(g.cad_id, arr);
       });
       const tecByCad = new Map<string, any>();
       (tecRes.data ?? []).forEach((t: any) => tecByCad.set(t.cad_id, t));
@@ -116,7 +119,7 @@ function LancamentosPage() {
       return list.map((m: any): LancCard => {
         const cadId = m.cad[0].id;
         const tec = tecByCad.get(cadId);
-        const gradeRows = gradeByModelo.get(m.id) ?? [];
+        const gradeRows = gradeByCad.get(cadId) ?? [];
         const gradeByNum = new Map(gradeRows.map((g) => [g.num, g.total]));
         const variantes: VarInfo[] = ((tec?.cad_tecido_variantes ?? []) as any[])
           .filter((v) => v.ordem != null)
