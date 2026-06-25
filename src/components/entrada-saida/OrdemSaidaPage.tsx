@@ -390,19 +390,19 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
               {fItens.map((it, idx) => (
                 <div key={it._key} className="flex items-center gap-2">
                   <Select value={it.itemId} onValueChange={(v) => setFItens((prev) => prev.map((x, i) => i === idx ? { ...x, itemId: v } : x))}>
-                    <SelectTrigger className="flex-1"><SelectValue placeholder={`Selecione ${cfg.itemLabel.toLowerCase()}`} /></SelectTrigger>
+                    <SelectTrigger className="flex-1 min-w-0"><SelectValue placeholder={`Selecione ${cfg.itemLabel.toLowerCase()}`} /></SelectTrigger>
                     <SelectContent>
                       {itemOptions.map((o) => <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>)}
                     </SelectContent>
                   </Select>
                   <Input
-                    className="w-28"
+                    className="w-24 shrink-0"
                     inputMode="decimal"
                     placeholder="Reserva"
                     value={it.reserva}
                     onChange={(e) => setFItens((prev) => prev.map((x, i) => i === idx ? { ...x, reserva: e.target.value } : x))}
                   />
-                  <Button size="icon" variant="ghost" onClick={() => setFItens((prev) => prev.filter((_, i) => i !== idx))} aria-label="Remover item">
+                  <Button size="icon" variant="ghost" className="shrink-0" onClick={() => setFItens((prev) => prev.filter((_, i) => i !== idx))} aria-label="Remover item">
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 </div>
