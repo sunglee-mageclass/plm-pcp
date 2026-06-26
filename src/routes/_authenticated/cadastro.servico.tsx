@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { formatCNPJ } from "@/lib/format";
 
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
@@ -221,15 +222,6 @@ const emptyForm = {
 
 function cleanCnpj(v: string) {
   return v.replace(/\D/g, "");
-}
-
-function formatCnpj(v: string) {
-  const c = cleanCnpj(v).slice(0, 14);
-  return c
-    .replace(/^(\d{2})(\d)/, "$1.$2")
-    .replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3")
-    .replace(/\.(\d{3})(\d)/, ".$1/$2")
-    .replace(/(\d{4})(\d)/, "$1-$2");
 }
 
 function RepresentantesTab() {
@@ -477,7 +469,7 @@ function RepresentantesTab() {
                     </button>
                   </TableCell>
                   <TableCell data-label="Contato">{r.contato ?? "—"}</TableCell>
-                  <TableCell data-label="CNPJ">{r.cnpj ? formatCnpj(r.cnpj) : "—"}</TableCell>
+                  <TableCell data-label="CNPJ">{r.cnpj ? formatCNPJ(r.cnpj) : "—"}</TableCell>
                   <TableCell data-label="Ações" className="text-right">
                     <Button size="icon" variant="ghost" onClick={() => openEdit(r)} aria-label="Editar">
                       <Pencil className="h-4 w-4" />
@@ -565,7 +557,7 @@ function RepresentantesTab() {
                 <Label>CNPJ</Label>
                 <div className="flex gap-2">
                   <Input
-                    value={formatCnpj(form.cnpj)}
+                    value={formatCNPJ(form.cnpj)}
                     onChange={(e) => setForm({ ...form, cnpj: cleanCnpj(e.target.value) })}
                     placeholder="00.000.000/0000-00"
                   />
