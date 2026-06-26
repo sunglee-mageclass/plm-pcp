@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Rocket, Upload, CheckCircle2, Camera } from "lucide-react";
+import { Rocket, Upload, CheckCircle2, Camera, ArrowUp, ArrowDown } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -10,6 +10,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
+import { useSort } from "@/components/shared/sort";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS, useCompactCards } from "@/hooks/useGridCols";
 import { LayoutGrid } from "lucide-react";
@@ -189,6 +192,26 @@ function LancamentosPage() {
     return true;
   });
 
+  // Ordenação dos cards. ref/nome/colecao/linha/categoria_nome/gradeTotal já são
+  // valores CRUS no card (não formatados), então não precisam de accessors.
+  // `sorted` substitui `filtered` na renderização.
+  const s = useSort(filtered, undefined);
+  const sorted = s.sorted;
+
+  // Sentinela "__none__" = ordem padrão. (Radix Select v2 PROÍBE SelectItem com
+  // value "" — daí o sentinela.) Sem accessor "__none__" nem campo homônimo no card,
+  // useSort lê undefined p/ todos → comparador estável → mantém a ordem original.
+  const SORT_NONE = "__none__";
+  const SORT_COLS: { key: string; label: string }[] = [
+    { key: SORT_NONE, label: "Padrão" },
+    { key: "ref", label: fl("ref") },
+    { key: "nome", label: "Nome" },
+    { key: "colecao", label: "Coleção" },
+    { key: "linha", label: "Linha" },
+    { key: "categoria_nome", label: "Categoria" },
+    { key: "gradeTotal", label: "Grade total" },
+  ];
+
   const uploadMut = useMutation({
     mutationFn: async (args: { card: LancCard; file: File }) => {
       const { card, file } = args;
@@ -246,13 +269,40 @@ function LancamentosPage() {
         </div>
       </header>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <div className="hidden lg:flex items-center gap-2">
           <LayoutGrid className="h-4 w-4 text-muted-foreground" />
           <span className="text-xs text-muted-foreground">Colunas:</span>
           {GRID_COLS_OPTIONS.map((n) => (
             <Button key={n} size="sm" variant={cols === n ? "default" : "outline"} onClick={() => setCols(n)} className="h-7 w-9 px-0">{n}</Button>
           ))}
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Label className="text-xs text-muted-foreground">Ordenar por</Label>
+          <Select
+            value={s.sortKey ?? SORT_NONE}
+            // `toggle(v)` define a chave em ASC ao trocar de coluna; "Padrão"
+            // (SORT_NONE) volta à ordem original. A direção é invertida pelo botão
+            // ao lado (Radix não re-dispara onValueChange p/ a mesma opção).
+            onValueChange={(v) => { if (v !== (s.sortKey ?? SORT_NONE)) s.toggle(v); }}
+          >
+            <SelectTrigger className="h-8 w-[140px]"><SelectValue placeholder="Padrão" /></SelectTrigger>
+            <SelectContent>
+              {SORT_COLS.map((c) => <SelectItem key={c.key} value={c.key}>{c.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          {s.sortKey && s.sortKey !== SORT_NONE && (
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={() => s.toggle(s.sortKey!)}
+              aria-label={s.sortDir === "asc" ? "Ordenar decrescente" : "Ordenar crescente"}
+              title={s.sortDir === "asc" ? "Crescente" : "Decrescente"}
+            >
+              {s.sortDir === "asc" ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
+            </Button>
+          )}
         </div>
         <span className="ml-auto text-xs text-muted-foreground"><Badge variant="secondary">{filtered.length}</Badge> produto(s)</span>
       </div>
@@ -263,7 +313,7 @@ function LancamentosPage() {
       )}
 
       <div ref={gridRef} className={GRID_COLS_CLASS[cols]}>
-        {filtered.map((c) => (
+        {sorted.map((c) => (
           <LancamentoCard
             key={c.modelo_id}
             card={{ ...c, lancamento: (lancByCad as any)[c.cad_id] ?? null }}
