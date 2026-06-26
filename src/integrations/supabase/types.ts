@@ -2804,40 +2804,58 @@ export type Database = {
       }
       representantes: {
         Row: {
+          cep: string | null
           cnpj: string | null
           contato: string | null
           created_at: string | null
+          email: string | null
           empresa_id: string | null
           id: string
           logradouro: string | null
+          municipio: string | null
           nome: string | null
           observacoes: string | null
           razao_social: string | null
+          situacao_cadastral: string | null
+          telefone: string | null
           tenant_id: string | null
+          uf: string | null
         }
         Insert: {
+          cep?: string | null
           cnpj?: string | null
           contato?: string | null
           created_at?: string | null
+          email?: string | null
           empresa_id?: string | null
           id?: string
           logradouro?: string | null
+          municipio?: string | null
           nome?: string | null
           observacoes?: string | null
           razao_social?: string | null
+          situacao_cadastral?: string | null
+          telefone?: string | null
           tenant_id?: string | null
+          uf?: string | null
         }
         Update: {
+          cep?: string | null
           cnpj?: string | null
           contato?: string | null
           created_at?: string | null
+          email?: string | null
           empresa_id?: string | null
           id?: string
           logradouro?: string | null
+          municipio?: string | null
           nome?: string | null
           observacoes?: string | null
           razao_social?: string | null
+          situacao_cadastral?: string | null
+          telefone?: string | null
           tenant_id?: string | null
+          uf?: string | null
         }
         Relationships: [
           {

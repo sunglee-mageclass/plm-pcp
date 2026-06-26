@@ -200,6 +200,12 @@ type Representante = {
   cnpj: string | null;
   razao_social: string | null;
   logradouro: string | null;
+  cep: string | null;
+  municipio: string | null;
+  uf: string | null;
+  telefone: string | null;
+  email: string | null;
+  situacao_cadastral: string | null;
   contato: string | null;
   observacoes: string | null;
 };
@@ -213,6 +219,12 @@ const emptyForm = {
   cnpj: "",
   razao_social: "",
   logradouro: "",
+  cep: "",
+  municipio: "",
+  uf: "",
+  telefone: "",
+  email: "",
+  situacao_cadastral: "",
   contato: "",
   observacoes: "",
   novaEmpresa: "",
@@ -222,6 +234,12 @@ const emptyForm = {
 
 function cleanCnpj(v: string) {
   return v.replace(/\D/g, "");
+}
+
+// Situação cadastral "saudável" = ATIVA (Receita). Qualquer outra (BAIXADA, INAPTA,
+// SUSPENSA, NULA) merece alerta antes de operar com o fornecedor.
+function isSituacaoAtiva(s: string | null | undefined) {
+  return (s ?? "").toUpperCase().includes("ATIV");
 }
 
 function RepresentantesTab() {
@@ -296,18 +314,23 @@ function RepresentantesTab() {
       const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
       if (!res.ok) throw new Error("CNPJ não encontrado.");
       const data = await res.json();
-      const logradouroParts = [
-        data.logradouro,
-        data.numero,
-        data.bairro,
-        data.municipio,
-        data.uf,
-        data.cep,
-      ].filter(Boolean);
+      // Rua/número/bairro vão no "logradouro"; CEP/município/UF em campos próprios.
+      const ruaParts = [data.logradouro, data.numero, data.complemento, data.bairro].filter(Boolean);
+      // Telefone da empresa: ddd_telefone_1 vem como dígitos (ex.: "1140044828").
+      const telBruto = String(data.ddd_telefone_1 ?? "").replace(/\D/g, "");
+      const telFmt = telBruto.length >= 10
+        ? `(${telBruto.slice(0, 2)}) ${telBruto.slice(2, telBruto.length - 4)}-${telBruto.slice(-4)}`
+        : telBruto;
       setForm((f) => ({
         ...f,
         razao_social: data.razao_social ?? data.nome ?? f.razao_social,
-        logradouro: logradouroParts.join(", ") || f.logradouro,
+        logradouro: ruaParts.join(", ") || f.logradouro,
+        cep: (data.cep ? String(data.cep).replace(/\D/g, "").replace(/^(\d{5})(\d)/, "$1-$2") : "") || f.cep,
+        municipio: data.municipio ?? f.municipio,
+        uf: data.uf ?? f.uf,
+        telefone: telFmt || f.telefone,
+        email: (data.email ?? "").toLowerCase() || f.email,
+        situacao_cadastral: data.descricao_situacao_cadastral ?? data.situacao_cadastral ?? f.situacao_cadastral,
       }));
       toast.success("Dados preenchidos.");
     } catch (e: any) {
@@ -330,6 +353,12 @@ function RepresentantesTab() {
       cnpj: r.cnpj ?? "",
       razao_social: r.razao_social ?? "",
       logradouro: r.logradouro ?? "",
+      cep: r.cep ?? "",
+      municipio: r.municipio ?? "",
+      uf: r.uf ?? "",
+      telefone: r.telefone ?? "",
+      email: r.email ?? "",
+      situacao_cadastral: r.situacao_cadastral ?? "",
       contato: r.contato ?? "",
       observacoes: r.observacoes ?? "",
       novaEmpresa: "",
@@ -374,6 +403,12 @@ function RepresentantesTab() {
         cnpj: form.cnpj ? cleanCnpj(form.cnpj) : null,
         razao_social: form.razao_social || null,
         logradouro: form.logradouro || null,
+        cep: form.cep || null,
+        municipio: form.municipio || null,
+        uf: form.uf || null,
+        telefone: form.telefone || null,
+        email: form.email || null,
+        situacao_cadastral: form.situacao_cadastral || null,
         contato: form.contato || null,
         observacoes: form.observacoes || null,
       };
@@ -589,19 +624,65 @@ function RepresentantesTab() {
                   onChange={(e) => setForm({ ...form, razao_social: e.target.value })}
                 />
               </div>
+              {form.situacao_cadastral && (
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label>Situação cadastral</Label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className={isSituacaoAtiva(form.situacao_cadastral)
+                      ? "bg-emerald-500 hover:bg-emerald-500"
+                      : "bg-red-500 hover:bg-red-500"}>
+                      {form.situacao_cadastral}
+                    </Badge>
+                    {!isSituacaoAtiva(form.situacao_cadastral) && (
+                      <span className="text-xs text-red-600">
+                        Empresa não está ATIVA na Receita — confira antes de operar.
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
               <div className="space-y-1.5 sm:col-span-2">
                 <Label>Logradouro</Label>
                 <Input
                   value={form.logradouro}
                   onChange={(e) => setForm({ ...form, logradouro: e.target.value })}
+                  placeholder="Rua, número, bairro"
                 />
               </div>
               <div className="space-y-1.5 sm:col-span-2">
-                <Label>Contato</Label>
+                <div className="grid grid-cols-[1.2fr_2fr_0.8fr] gap-2">
+                  <div className="space-y-1.5">
+                    <Label>CEP</Label>
+                    <Input value={form.cep} onChange={(e) => setForm({ ...form, cep: e.target.value })} placeholder="00000-000" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Município</Label>
+                    <Input value={form.municipio} onChange={(e) => setForm({ ...form, municipio: e.target.value })} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>UF</Label>
+                    <Input value={form.uf} onChange={(e) => setForm({ ...form, uf: e.target.value.toUpperCase().slice(0, 2) })} maxLength={2} />
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label>Telefone da empresa</Label>
+                    <Input value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} placeholder="(00) 0000-0000" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>E-mail da empresa</Label>
+                    <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="empresa@dominio.com" />
+                  </div>
+                </div>
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>Contato do representante</Label>
                 <Input
                   value={form.contato}
                   onChange={(e) => setForm({ ...form, contato: e.target.value })}
-                  placeholder="Telefone, email…"
+                  placeholder="Pessoa de contato, telefone, e-mail…"
                 />
               </div>
               <div className="space-y-1.5 sm:col-span-2">
