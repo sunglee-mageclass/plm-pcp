@@ -20,6 +20,7 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import { useSort, SortHead } from "@/components/shared/sort";
 import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
 
 export const Route = createFileRoute("/_authenticated/cadastro/destinos")({
@@ -55,6 +56,9 @@ function DestinosPage() {
     if (!s) return destinos;
     return destinos.filter((d) => d.nome.toLowerCase().includes(s));
   }, [destinos, search]);
+
+  const { sorted, sortKey, sortDir, toggle } = useSort(filtered, { key: "nome" });
+  const sortState = { sortKey, sortDir, toggle };
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["destinos-saida"] });
 
@@ -127,7 +131,7 @@ function DestinosPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Nome</TableHead>
+              <SortHead label="Nome" sortKey="nome" sortState={sortState} />
               <TableHead className="w-32 text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
@@ -145,7 +149,7 @@ function DestinosPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map((d) => (
+              sorted.map((d) => (
                 <TableRow key={d.id}>
                   <TableCell>
                     <button type="button" className="text-left hover:underline" onClick={() => openEdit(d)}>
