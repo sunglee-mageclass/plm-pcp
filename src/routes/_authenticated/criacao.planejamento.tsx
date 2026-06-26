@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, Group, LayoutGrid, FileText, ArrowLeft } from "lucide-react";
+import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, Group, LayoutGrid, FileText, ArrowLeft, ArrowUp, ArrowDown } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -23,6 +23,7 @@ import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS, useCompactCards } from
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { fmtNum } from "@/lib/format";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
+import { useSort } from "@/components/shared/sort";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 
@@ -213,6 +214,41 @@ function PlanejamentoPage() {
   const catMap = Object.fromEntries(categorias.map((c) => [c.id, c.nome]));
   const linhaMap = Object.fromEntries(linhas.map((l) => [l.id, l.nome]));
 
+  // Ordenação dos cards. Como nome/estilista/categoria/coleção/linha/status são
+  // exibidos formatados (ou via mapa de id→nome), ordenamos pelo VALOR CRU usando
+  // accessors. `sorted` substitui o array `filtered` na renderização e no agrupamento.
+  // estMap/catMap/linhaMap são recriados a cada render (Object.fromEntries), logo
+  // dependemos das listas estáveis (estilistas/categorias/linhas) p/ não recriar o
+  // objeto de accessors — e assim o useMemo do useSort não recomputa em todo render.
+  const sortAccessors = useMemo(() => ({
+    estilista: (m: Modelo) => (m.estilista_id ? estMap[m.estilista_id] : null),
+    categoria: (m: Modelo) => (m.categoria_principal_id ? catMap[m.categoria_principal_id] : null),
+    linha: (m: Modelo) => (m.linha_id ? linhaMap[m.linha_id] : null),
+    status: (m: Modelo) => statusMeta(m.status_planejamento).label,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [estilistas, categorias, linhas]);
+  // `opts` precisa ser estável (referência) — senão o useMemo interno do useSort,
+  // que tem `opts` nas deps, recomputa a ordenação a cada render.
+  const sortOpts = useMemo(() => ({ accessors: sortAccessors }), [sortAccessors]);
+  const s = useSort(filtered, sortOpts);
+  const sorted = s.sorted;
+
+  // Sentinela "__none__" = ordem padrão. (Radix Select v2 PROÍBE SelectItem com
+  // value "" — daí o sentinela.) Como não existe accessor "__none__" nem campo
+  // homônimo no Modelo, useSort lê undefined p/ todos → comparador estável →
+  // devolve a ordem original (created_at desc da query). Tratamos como "sem ordenação".
+  const SORT_NONE = "__none__";
+  const SORT_COLS: { key: string; label: string }[] = [
+    { key: SORT_NONE, label: "Padrão" },
+    { key: "nome", label: "Nome" },
+    { key: "estilista", label: fl("estilista") },
+    { key: "colecao", label: fl("colecao") },
+    { key: "categoria", label: "Categoria" },
+    { key: "linha", label: "Linha" },
+    { key: "semana", label: "Semana" },
+    { key: "status", label: "Status" },
+  ];
+
   const renderCard = (m: Modelo) => (
     <ModeloCard
       key={m.id}
@@ -228,7 +264,7 @@ function PlanejamentoPage() {
   // Agrupa por categoria principal (cards sem categoria caem em "Sem categoria").
   const grouped = (() => {
     const map = new Map<string, Modelo[]>();
-    filtered.forEach((m) => {
+    sorted.forEach((m) => {
       const key = m.categoria_principal_id ?? "__none__";
       const arr = map.get(key);
       if (arr) arr.push(m);
@@ -280,7 +316,38 @@ function PlanejamentoPage() {
         >
           <Group className="h-4 w-4 mr-1" /> Agrupar por categoria
         </Button>
-        <div className="hidden lg:flex items-center gap-1.5 ml-auto">
+        <div className="flex items-center gap-1.5 ml-auto">
+          <Label className="text-xs text-muted-foreground">Ordenar por</Label>
+          <Select
+            value={s.sortKey ?? SORT_NONE}
+            // `toggle(v)` define a chave em ASC ao trocar de coluna; "Padrão"
+            // (SORT_NONE) volta à ordem original. A direção (ASC/DESC) é invertida
+            // pelo botão ao lado, não aqui (Radix não re-dispara onValueChange p/ a
+            // mesma opção, então o toggle de direção precisa de um controle próprio).
+            onValueChange={(v) => { if (v !== (s.sortKey ?? SORT_NONE)) s.toggle(v); }}
+          >
+            <SelectTrigger className="h-8 w-[140px]"><SelectValue placeholder="Padrão" /></SelectTrigger>
+            <SelectContent>
+              {SORT_COLS.map((c) => <SelectItem key={c.key} value={c.key}>{c.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          {/* Botão de direção: só aparece com uma coluna real escolhida. Inverte
+              ASC↔DESC re-chamando toggle na MESMA chave (ramo que a UI de Select
+              sozinha nunca alcançava). */}
+          {s.sortKey && s.sortKey !== SORT_NONE && (
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={() => s.toggle(s.sortKey!)}
+              aria-label={s.sortDir === "asc" ? "Ordenar decrescente" : "Ordenar crescente"}
+              title={s.sortDir === "asc" ? "Crescente" : "Decrescente"}
+            >
+              {s.sortDir === "asc" ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
+            </Button>
+          )}
+        </div>
+        <div className="hidden lg:flex items-center gap-1.5">
           <LayoutGrid className="h-4 w-4 text-muted-foreground" />
           <Label className="text-xs text-muted-foreground">Colunas</Label>
           <Select value={String(cols)} onValueChange={(v) => setCols(Number(v))}>
@@ -308,7 +375,7 @@ function PlanejamentoPage() {
           ))}
         </div>
       ) : (
-        <div className={GRID_COLS_CLASS[cols]}>{filtered.map(renderCard)}</div>
+        <div className={GRID_COLS_CLASS[cols]}>{sorted.map(renderCard)}</div>
       )}
       </div>
 
