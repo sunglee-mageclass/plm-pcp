@@ -6,6 +6,7 @@ import { Trash2, Pencil, Undo2, Printer } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { fmtNum } from "@/lib/format";
+import { SortHead, useSort } from "@/components/shared/sort";
 import { PrintArea } from "@/components/shared/PrintArea";
 import { useTenantLogo } from "@/hooks/useTenantLogo";
 import { Button } from "@/components/ui/button";
@@ -308,6 +309,23 @@ function RoloBarcode({ value }: { value: string }) {
   return src ? <img src={src} alt={value} style={{ height: "17mm", width: "auto", display: "block", margin: "8px auto 0" }} /> : null;
 }
 
+// Valores derivados de um rolo (compartilhados entre a célula renderizada e o sort).
+const roloTecido = (r: RoloRow) => r.ocs_tecido_itens?.[0]?.artigos?.nome ?? "";
+// Físico = recebido − baixas (separação/ajuste). Baixa já está em metros.
+const roloMetragem = (r: RoloRow) =>
+  (r.ocs_tecido_itens ?? []).reduce((s, it) => {
+    const recebidoM = toMetros(it.quantidade_recebida ?? 0, it.artigos?.unidade_medida ?? null, it.artigos?.rendimento ?? null);
+    const baixaM = (it.estoque_tecido_baixas ?? []).reduce((b, x) => b + (x.quantidade ?? 0), 0);
+    return s + Math.max(0, recebidoM - baixaM);
+  }, 0);
+const roloVariantes = (r: RoloRow) =>
+  (r.ocs_tecido_itens ?? [])
+    .map((it) => it.variantes_tecido?.nome_variante || it.variantes_tecido?.codigo_variante)
+    .filter(Boolean)
+    .join(", ");
+const roloEndereco = (r: RoloRow) => [r.rolo_rua, r.rolo_prateleira].filter(Boolean).join(" · ");
+const roloOrigem = (r: RoloRow) => (r.rolo_origem_item_id ? "Separado de OC" : "Avulso");
+
 function EtiquetaRolo({ rolo, logo }: { rolo: RoloRow; logo: string | null }) {
   const itens = rolo.ocs_tecido_itens ?? [];
   const tecido = itens[0]?.artigos?.nome ?? "—";
@@ -381,6 +399,18 @@ export function RolosList() {
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir rolo")),
   });
 
+  const s = useSort(rolos, {
+    accessors: {
+      rolo_codigo: (r: RoloRow) => r.rolo_codigo,
+      tecido: roloTecido,
+      variantes: roloVariantes,
+      metragem: roloMetragem,
+      endereco: roloEndereco,
+      origem: roloOrigem,
+    },
+  });
+  const sorted = s.sorted;
+
   const selecionados = rolos.filter((r) => sel.has(r.id));
   const toggle = (id: string) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const toggleAll = () => setSel((s) => (s.size === rolos.length ? new Set() : new Set(rolos.map((r) => r.id))));
@@ -412,29 +442,21 @@ export function RolosList() {
             <TableHeader>
               <TableRow>
                 <TableHead className="w-10"><Checkbox checked={sel.size === rolos.length && rolos.length > 0} onCheckedChange={toggleAll} aria-label="Selecionar todos" /></TableHead>
-                <TableHead>Código</TableHead>
-                <TableHead>Tecido</TableHead>
-                <TableHead>Variantes</TableHead>
-                <TableHead className="text-right">Metragem (m)</TableHead>
-                <TableHead>Endereço</TableHead>
-                <TableHead>Origem</TableHead>
+                <SortHead label="Código" sortKey="rolo_codigo" sortState={s} />
+                <SortHead label="Tecido" sortKey="tecido" sortState={s} />
+                <SortHead label="Variantes" sortKey="variantes" sortState={s} />
+                <SortHead label="Metragem (m)" sortKey="metragem" sortState={s} align="right" className="text-right" />
+                <SortHead label="Endereço" sortKey="endereco" sortState={s} />
+                <SortHead label="Origem" sortKey="origem" sortState={s} />
                 <TableHead className="w-20" />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rolos.map((r) => {
-                const itens = r.ocs_tecido_itens ?? [];
-                const tecido = itens[0]?.artigos?.nome ?? "—";
-                // Físico = recebido − baixas (separação/ajuste). Baixa já está em metros.
-                const total = itens.reduce((s, it) => {
-                  const recebidoM = toMetros(it.quantidade_recebida ?? 0, it.artigos?.unidade_medida ?? null, it.artigos?.rendimento ?? null);
-                  const baixaM = (it.estoque_tecido_baixas ?? []).reduce((b, x) => b + (x.quantidade ?? 0), 0);
-                  return s + Math.max(0, recebidoM - baixaM);
-                }, 0);
-                const vars = itens
-                  .map((it) => it.variantes_tecido?.nome_variante || it.variantes_tecido?.codigo_variante)
-                  .filter(Boolean)
-                  .join(", ");
+              {sorted.map((r) => {
+                const tecido = roloTecido(r) || "—";
+                const total = roloMetragem(r);
+                const vars = roloVariantes(r);
+                const endereco = roloEndereco(r);
                 return (
                   <TableRow key={r.id} data-state={sel.has(r.id) ? "selected" : undefined}>
                     <TableCell className="max-md:!hidden"><Checkbox checked={sel.has(r.id)} onCheckedChange={() => toggle(r.id)} aria-label="Selecionar rolo" /></TableCell>
@@ -443,7 +465,7 @@ export function RolosList() {
                     <TableCell data-label="Variantes" className="text-muted-foreground">{vars || "—"}</TableCell>
                     <TableCell data-label="Metragem (m)" className="text-right">{fmtNum(total)}</TableCell>
                     <TableCell data-label="Endereço" className="text-muted-foreground">
-                      {[r.rolo_rua, r.rolo_prateleira].filter(Boolean).join(" · ") || "—"}
+                      {endereco || "—"}
                     </TableCell>
                     <TableCell data-label="Origem" className="text-muted-foreground">
                       {r.rolo_origem_item_id ? "Separado de OC" : "Avulso"}
