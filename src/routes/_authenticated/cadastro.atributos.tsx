@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Tags } from "lucide-react";
 import { AttributeTab, type AttributeTabConfig } from "@/components/attribute-tab";
+import { useTenantModules } from "@/hooks/useTenantModules";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -231,11 +232,18 @@ function useAttributeCount(table: string) {
 }
 
 function AtributosPage() {
+  const { isStockOnly } = useTenantModules();
   const [selectedValue, setSelectedValue] = useState<string>(ATTRIBUTES[0].value);
   const selected = useMemo(
     () => ATTRIBUTES.find((a) => a.value === selectedValue) ?? ATTRIBUTES[0],
     [selectedValue],
   );
+  // Categoria do Produto ganha o SLA médio de oficina (dias) — exceto no modo
+  // controle-de-estoque (não há produção/oficina lá).
+  const activeConfig: AttributeTabConfig =
+    selected.config.table === "categorias_produto" && !isStockOnly
+      ? { ...selected.config, extraNumber: { field: "sla_oficina", label: "SLA Oficina (dias)", placeholder: "dias" } }
+      : selected.config;
 
   const grouped = useMemo(() => {
     const map = new Map<GroupKey, AttributeItem[]>();
@@ -331,7 +339,7 @@ function AtributosPage() {
 
           <AttributeTab
             key={selected.value}
-            config={selected.config}
+            config={activeConfig}
             onChanged={() =>
               qc.invalidateQueries({ queryKey: ["attribute-count", selected.config.table] })
             }

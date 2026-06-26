@@ -61,6 +61,8 @@ export type AttributeTabConfig = {
   plural: string; // for headers
   usage: UsageRef[];
   extra?: ExtraSelect;
+  /** Campo numérico opcional, editável inline (ex.: SLA de oficina em dias). */
+  extraNumber?: { field: string; label: string; placeholder?: string };
   fixedFilter?: { field: string; value: string };
   /** Nomes fixos do sistema (case-insensitive) que NÃO podem ser editados/excluídos. */
   protectedNames?: string[];
@@ -82,6 +84,8 @@ export function AttributeTab({
   const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [newExtra, setNewExtra] = useState<string>("");
+  const [newExtraNum, setNewExtraNum] = useState<string>("");
+  const colCount = 2 + (config.extra ? 1 : 0) + (config.extraNumber ? 1 : 0);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [deleteRow, setDeleteRow] = useState<Row | null>(null);
@@ -149,6 +153,10 @@ export function AttributeTab({
         }
         payload[config.extra.field] = newExtra || null;
       }
+      if (config.extraNumber) {
+        const n = newExtraNum.trim().replace(",", ".");
+        payload[config.extraNumber.field] = n === "" ? null : Number(n);
+      }
       if (config.fixedFilter) {
         payload[config.fixedFilter.field] = config.fixedFilter.value;
       }
@@ -160,6 +168,7 @@ export function AttributeTab({
       setCreateOpen(false);
       setNewName("");
       setNewExtra("");
+      setNewExtraNum("");
       qc.invalidateQueries({ queryKey: listKey });
       onChanged?.();
     },
@@ -191,6 +200,24 @@ export function AttributeTab({
       const { error } = await supabase
         .from(config.table as any)
         .update({ [config.extra.field]: value || null })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: listKey });
+      onChanged?.();
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao atualizar.")),
+  });
+
+  const updateExtraNumMut = useMutation({
+    mutationFn: async ({ id, value }: { id: string; value: string }) => {
+      if (!config.extraNumber) return;
+      const n = value.trim().replace(",", ".");
+      const num = n === "" ? null : Number(n);
+      const { error } = await supabase
+        .from(config.table as any)
+        .update({ [config.extraNumber.field]: num })
         .eq("id", id);
       if (error) throw error;
     },
@@ -259,20 +286,21 @@ export function AttributeTab({
             <TableRow>
               <TableHead>Nome</TableHead>
               {config.extra && <TableHead>{config.extra.label}</TableHead>}
+              {config.extraNumber && <TableHead className="w-40">{config.extraNumber.label}</TableHead>}
               <TableHead className="w-32 text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={config.extra ? 3 : 2} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={colCount} className="text-center py-8 text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
                   Carregando…
                 </TableCell>
               </TableRow>
             ) : filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={config.extra ? 3 : 2} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={colCount} className="text-center py-8 text-muted-foreground">
                   Nenhum {config.singular.toLowerCase()} encontrado.
                 </TableCell>
               </TableRow>
@@ -342,6 +370,26 @@ export function AttributeTab({
                       </Select>
                     </TableCell>
                   )}
+                  {config.extraNumber && (
+                    <TableCell>
+                      <Input
+                        type="number"
+                        inputMode="decimal"
+                        min={0}
+                        step="0.5"
+                        defaultValue={row[config.extraNumber.field] ?? ""}
+                        placeholder={config.extraNumber.placeholder ?? "—"}
+                        disabled={readOnly}
+                        className="h-8 w-28"
+                        onBlur={(e) => {
+                          const cur = row[config.extraNumber!.field];
+                          const nv = e.target.value.trim();
+                          const same = (nv === "" && (cur === null || cur === undefined)) || String(cur ?? "") === nv;
+                          if (!same) updateExtraNumMut.mutate({ id: row.id, value: nv });
+                        }}
+                      />
+                    </TableCell>
+                  )}
                   <TableCell className="text-right">
                     {!isProtected(row) && (
                       <>
@@ -401,6 +449,20 @@ export function AttributeTab({
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+            )}
+            {config.extraNumber && (
+              <div className="space-y-1.5">
+                <Label>{config.extraNumber.label}</Label>
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  step="0.5"
+                  value={newExtraNum}
+                  onChange={(e) => setNewExtraNum(e.target.value)}
+                  placeholder={config.extraNumber.placeholder}
+                />
               </div>
             )}
           </div>
