@@ -96,7 +96,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
 
   const { data: categoriasTecido = [] } = useQuery({
     queryKey: ["cat-tecido-options"],
-    staleTime: 5 * 60 * 1000, // referência: muda raramente
+    // sem staleTime: o cadastro de categorias não invalida esta chave (fresh-on-mount).
     queryFn: async () => {
       const { data, error } = await supabase.from("categorias_tecido").select("id, nome").order("nome");
       if (error) throw error;
@@ -137,7 +137,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
 
   const { data: aviamentos = [] } = useQuery({
     queryKey: ["aviamentos-all"],
-    staleTime: 5 * 60 * 1000,
+    // sem staleTime: o cadastro de aviamentos invalida ["aviamentos"], não esta chave.
     queryFn: async () => {
       const { data, error } = await supabase
         .from("aviamentos").select("id, codigo_nome, preco").order("codigo_nome");

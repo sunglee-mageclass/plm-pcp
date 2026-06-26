@@ -106,7 +106,8 @@ function OcTecidoPage() {
 
   const { data: estilistas = [] } = useQuery({
     queryKey: ["colab-estilistas"],
-    staleTime: 5 * 60 * 1000,
+    // sem staleTime: a tela de colaboradores não invalida esta chave; manter fresh-on-mount
+    // p/ um estilista recém-criado aparecer aqui na hora.
     queryFn: async () => {
       const { data, error } = await supabase.from("colaboradores").select("id, nome, tipo").eq("tipo", "estilista").order("nome");
       if (error) throw error;
