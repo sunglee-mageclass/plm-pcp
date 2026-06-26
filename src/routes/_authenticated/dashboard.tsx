@@ -306,73 +306,79 @@ function EstoqueTab() {
 
   const totalVariantes = data?.totalVariantes ?? 0;
   const totalAviamentos = data?.totalAviamentos ?? 0;
-  const zerados = data?.zerados ?? 0;
-  const threshold = Number(data?.threshold ?? 0) || 0;
-  const top10 = data?.top10 ?? [];
-  const barData = data?.barData ?? [];
+  const estoqueTecido = data?.estoqueTecido ?? [];
+  const estoqueAviamento = data?.estoqueAviamento ?? [];
+  const barTecido = data?.barTecido ?? [];
+  const barAviamento = data?.barAviamento ?? [];
+  const tecSort = useSort<any>(estoqueTecido, { key: "estoque", dir: "desc" });
+  const aviSort = useSort<any>(estoqueAviamento, { key: "estoque", dir: "desc" });
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <DashTabsList />
       </div>
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2">
         <Kpi label="Variantes de Tecido" value={totalVariantes} icon={Boxes} />
         <Kpi label="Aviamentos" value={totalAviamentos} icon={Package} />
-        <Kpi label={threshold > 0 ? `Itens com estoque ≤ ${fmtNum(threshold)}` : "Itens com estoque ≤ 0"} value={zerados} icon={AlertTriangle} />
       </div>
 
+      {/* Estoque (maior → menor), separado Tecido e Aviamento. */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="p-4">
-          <h3 className="font-semibold mb-3">Estoque crítico <span className="text-sm font-normal text-muted-foreground">· 10 menores · "falta" = repor até o mínimo</span></h3>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm card-table">
-              <thead className="text-left text-muted-foreground">
-                <tr className="border-b">
-                  <th className="py-2 pr-3">Item</th>
-                  <th className="py-2 pr-3">Tipo</th>
-                  <th className="py-2 pr-3 text-right">Estoque</th>
-                  <th className="py-2 pr-3 text-right">Falta p/ mín.</th>
-                </tr>
-              </thead>
-              <tbody>
-                {top10.map((r: any) => {
-                  const falta = Math.max(0, threshold - Number(r.estoque ?? 0));
-                  return (
-                  <tr key={r.id} className="border-b last:border-0">
-                    <td className="py-2 pr-3 truncate max-w-[260px]">{r.nome}</td>
-                    <td className="py-2 pr-3" data-label="Tipo">{r.tipo}</td>
-                    <td className={"py-2 pr-3 text-right " + (Number(r.estoque) <= threshold ? "text-destructive font-medium" : "")} data-label="Estoque">
-                      {fmtNum(r.estoque)}
-                    </td>
-                    <td className={"py-2 pr-3 text-right " + (falta > 0 ? "text-destructive font-medium" : "text-muted-foreground")} data-label="Falta p/ mín.">
-                      {falta > 0 ? fmtNum(falta) : "—"}
-                    </td>
+        {[
+          { titulo: "Estoque de Tecido", s: tecSort },
+          { titulo: "Estoque de Aviamento", s: aviSort },
+        ].map(({ titulo, s }) => (
+          <Card key={titulo} className="p-4">
+            <h3 className="font-semibold mb-3">{titulo} <span className="text-sm font-normal text-muted-foreground">· maior → menor</span></h3>
+            <div className="overflow-auto max-h-[360px]">
+              <table className="w-full text-sm card-table">
+                <thead className="text-left text-muted-foreground sticky top-0 bg-card">
+                  <tr className="border-b">
+                    <SortTh label="Item" sortKey="nome" sortState={s} className="py-2 pr-3" />
+                    <SortTh label="Categoria" sortKey="categoria" sortState={s} className="py-2 pr-3" />
+                    <SortTh label="Estoque" sortKey="estoque" sortState={s} className="py-2 pr-3 text-right" />
                   </tr>
-                  );
-                })}
-                {!isLoading && top10.length === 0 && (
-                  <tr><td colSpan={4} className="py-4 text-center text-muted-foreground">Sem dados.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+                </thead>
+                <tbody>
+                  {s.sorted.map((r: any) => (
+                    <tr key={r.id} className="border-b last:border-0">
+                      <td className="py-2 pr-3 truncate max-w-[240px]" data-label="Item">{r.nome}</td>
+                      <td className="py-2 pr-3" data-label="Categoria">{r.categoria}</td>
+                      <td className="py-2 pr-3 text-right" data-label="Estoque">{fmtNum(r.estoque)}</td>
+                    </tr>
+                  ))}
+                  {!isLoading && s.sorted.length === 0 && (
+                    <tr><td colSpan={3} className="py-4 text-center text-muted-foreground">Sem itens.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        ))}
+      </div>
 
-        <Card className="p-4">
-          <h3 className="font-semibold mb-3">Estoque por categoria de tecido</h3>
-          <div style={{ width: "100%", height: 320 }}>
-            <ResponsiveContainer>
-              <BarChart data={barData}>
-                <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                <XAxis dataKey="categoria" />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="total" fill={PIE_COLORS[0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
+      {/* Estoque por categoria — tecido e aviamento. */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        {[
+          { titulo: "Estoque por categoria de tecido", data: barTecido, cor: PIE_COLORS[0] },
+          { titulo: "Estoque por categoria de aviamento", data: barAviamento, cor: PIE_COLORS[1] },
+        ].map((g) => (
+          <Card key={g.titulo} className="p-4">
+            <h3 className="font-semibold mb-3">{g.titulo}</h3>
+            <div style={{ width: "100%", height: 320 }}>
+              <ResponsiveContainer>
+                <BarChart data={g.data}>
+                  <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+                  <XAxis dataKey="categoria" />
+                  <YAxis />
+                  <Tooltip />
+                  <Bar dataKey="total" fill={g.cor} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </Card>
+        ))}
       </div>
 
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
