@@ -11,9 +11,11 @@ import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { DEFAULT_STATUSES, type KanbanStatus, normalizeKanbanStatuses } from "@/lib/kanban-status";
 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ModeloDetailPanel } from "@/components/desenvolvimento/ModeloDetailPanel";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
+import { useSort } from "@/components/shared/sort";
 
 
 import { RequirePermission } from "@/components/RequirePermission";
@@ -47,7 +49,15 @@ type Modelo = {
   status_desenvolvimento: string | null;
   fotos_modelo: string[] | null;
   enviado_cad: boolean | null;
+  created_at: string | null;
 };
+
+const SORT_FIELDS = [
+  { key: "nome", label: "Nome" },
+  { key: "ref", label: "REF" },
+  { key: "versao", label: "Versão" },
+  { key: "created_at", label: "Data" },
+] as const;
 
 function useOpts(table: string, key = "nome") {
   return useQuery({
@@ -119,7 +129,7 @@ function DesenvolvimentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, ref, versao, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, semana, mes_id, ano_id, categoria_principal_id, status_desenvolvimento, fotos_modelo, enviado_cad")
+        .select("id, nome, ref, versao, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, semana, mes_id, ano_id, categoria_principal_id, status_desenvolvimento, fotos_modelo, enviado_cad, created_at")
         .eq("status_planejamento", "planejado")
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -163,18 +173,21 @@ function DesenvolvimentoPage() {
   const estMap = Object.fromEntries(estilistas.map((e) => [e.id, e.nome]));
   const catMap = Object.fromEntries(categorias.map((c) => [c.id, c.nome]));
 
+  // Ordena os cards DENTRO de cada coluna pelo campo escolhido (valor cru).
+  const s = useSort(filtered, { key: "created_at", dir: "desc" });
+
   const byStatus = useMemo(() => {
     const map = new Map<string, Modelo[]>();
     statusKanban.forEach((s) => map.set(s.key, []));
     const firstKey = statusKanban[0]?.key;
-    filtered.forEach((m) => {
+    s.sorted.forEach((m) => {
       const k = m.status_desenvolvimento && map.has(m.status_desenvolvimento)
         ? m.status_desenvolvimento
         : firstKey;
       if (k) map.get(k)!.push(m);
     });
     return map;
-  }, [filtered, statusKanban]);
+  }, [s.sorted, statusKanban]);
 
   const updateStatus = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
@@ -220,6 +233,16 @@ function DesenvolvimentoPage() {
           </div>
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+          <Select value={s.sortKey ?? ""} onValueChange={(v) => s.toggle(v)}>
+            <SelectTrigger className="h-9 w-auto gap-1 text-xs sm:text-sm">
+              <SelectValue placeholder="Ordenar por" />
+            </SelectTrigger>
+            <SelectContent>
+              {SORT_FIELDS.map((f) => (
+                <SelectItem key={f.key} value={f.key}>{f.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <SearchToggle value={search} onChange={setSearch} placeholder="Pesquisar por nome…" />
           <FilterButton
             filters={[
