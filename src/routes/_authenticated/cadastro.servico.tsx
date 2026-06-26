@@ -61,6 +61,7 @@ import {
 
 import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
 import { useTenantModules } from "@/hooks/useTenantModules";
+import { useSort, SortHead } from "@/components/shared/sort";
 export const Route = createFileRoute("/_authenticated/cadastro/servico")({
   component: () => (
     <RequirePermission page="cadastro_servico">
@@ -303,6 +304,14 @@ function RepresentantesTab() {
     );
   }, [rows, search, empresasMap]);
 
+  const sort = useSort(filtered, {
+    key: "nome",
+    accessors: {
+      empresa: (r: Representante) =>
+        r.empresa_id ? empresasMap.get(r.empresa_id) ?? "" : "",
+    },
+  });
+
   const lookupCnpj = async () => {
     const cnpj = cleanCnpj(form.cnpj);
     if (cnpj.length !== 14) {
@@ -470,10 +479,10 @@ function RepresentantesTab() {
         <Table className="card-table">
           <TableHeader>
             <TableRow>
-              <TableHead>Empresa</TableHead>
-              <TableHead>Representante</TableHead>
-              <TableHead>Contato</TableHead>
-              <TableHead>CNPJ</TableHead>
+              <SortHead label="Empresa" sortKey="empresa" sortState={sort} />
+              <SortHead label="Representante" sortKey="nome" sortState={sort} />
+              <SortHead label="Contato" sortKey="contato" sortState={sort} />
+              <SortHead label="CNPJ" sortKey="cnpj" sortState={sort} />
               <TableHead className="w-28 text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
@@ -492,7 +501,7 @@ function RepresentantesTab() {
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map((r) => (
+              sort.sorted.map((r) => (
                 <TableRow key={r.id}>
                   <TableCell>{r.empresa_id ? empresasMap.get(r.empresa_id) ?? "—" : "—"}</TableCell>
                   <TableCell data-label="Representante">
@@ -887,6 +896,8 @@ function EmpresasMultiCatTab() {
     );
   }, [empresas, search]);
 
+  const sort = useSort(filtered, { key: "nome_fantasia" });
+
   const resetForm = () => {
     setEditingId(null);
     setNome("");
@@ -1016,7 +1027,7 @@ function EmpresasMultiCatTab() {
         <Table className="card-table">
           <TableHeader>
             <TableRow>
-              <TableHead>Nome Fantasia</TableHead>
+              <SortHead label="Nome Fantasia" sortKey="nome_fantasia" sortState={sort} />
               <TableHead>Categorias do Fornecedor</TableHead>
               <TableHead className="w-32 text-right">Ações</TableHead>
             </TableRow>
@@ -1036,7 +1047,7 @@ function EmpresasMultiCatTab() {
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map((row) => {
+              sort.sorted.map((row) => {
                 const ids = linksByEmpresa.get(row.id) ?? [];
                 return (
                   <TableRow key={row.id}>
@@ -1305,6 +1316,8 @@ function TerceirizadosMultiCatTab() {
     return terceirizados.filter((t) => t.nome_responsavel.toLowerCase().includes(s));
   }, [terceirizados, search]);
 
+  const sort = useSort(filtered, { key: "nome_responsavel" });
+
   const resetForm = () => {
     setEditingId(null);
     setNome("");
@@ -1434,7 +1447,7 @@ function TerceirizadosMultiCatTab() {
         <Table className="card-table">
           <TableHeader>
             <TableRow>
-              <TableHead>Nome do Responsável</TableHead>
+              <SortHead label="Nome do Responsável" sortKey="nome_responsavel" sortState={sort} />
               <TableHead>Categorias do Serviço</TableHead>
               <TableHead className="w-32 text-right">Ações</TableHead>
             </TableRow>
@@ -1454,7 +1467,7 @@ function TerceirizadosMultiCatTab() {
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map((row) => {
+              sort.sorted.map((row) => {
                 const ids = linksByTerc.get(row.id) ?? [];
                 return (
                   <TableRow key={row.id}>
