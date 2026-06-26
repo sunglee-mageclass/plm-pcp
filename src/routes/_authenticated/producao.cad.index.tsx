@@ -14,6 +14,7 @@ import { PrintFicha } from "@/components/producao/PrintFicha";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { useSort, SortTh } from "@/components/shared/sort";
 import { CadEditor } from "@/routes/_authenticated/producao.cad.$modeloId";
 
 export const Route = createFileRoute("/_authenticated/producao/cad/")({
@@ -110,6 +111,14 @@ function CadListPage() {
     return true;
   });
 
+  const s = useSort(filtered, {
+    key: "ref",
+    accessors: {
+      status_corte: (r: any) => STATUS_LABELS[r.status_corte] ?? r.status_corte,
+    },
+  });
+  const { sorted } = s;
+
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
@@ -140,10 +149,10 @@ function CadListPage() {
         <table className="w-full text-sm card-table">
           <thead className="bg-muted/50 text-left">
             <tr>
-              <th className="px-4 py-2">{fl("ref")}</th>
-              <th className="px-4 py-2">Nome</th>
-              <th className="px-4 py-2">Categoria</th>
-              <th className="px-4 py-2">Status CAD</th>
+              <SortTh label={fl("ref")} sortKey="ref" sortState={s} className="px-4 py-2" />
+              <SortTh label="Nome" sortKey="nome" sortState={s} className="px-4 py-2" />
+              <SortTh label="Categoria" sortKey="categoria_nome" sortState={s} className="px-4 py-2" />
+              <SortTh label="Status CAD" sortKey="status_corte" sortState={s} className="px-4 py-2" />
               <th className="px-4 py-2 w-12 text-center">Ficha</th>
             </tr>
           </thead>
@@ -151,10 +160,10 @@ function CadListPage() {
             {isLoading && (
               <SkeletonTableRow cols={5} />
             )}
-            {!isLoading && filtered.length === 0 && (
+            {!isLoading && sorted.length === 0 && (
               <tr><td colSpan={5} className="p-0"><EmptyState icon={Scissors} title="Nenhum modelo enviado ao CAD" description="Os modelos aprovados na criação aparecerão aqui." className="border-0 rounded-none" /></td></tr>
             )}
-            {filtered.map((r: any) => (
+            {sorted.map((r: any) => (
               <tr
                 key={r.modelo_id}
                 className="border-t hover:bg-muted/30 cursor-pointer"
