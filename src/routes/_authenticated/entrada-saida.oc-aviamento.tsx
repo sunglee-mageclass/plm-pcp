@@ -40,6 +40,7 @@ import { RequirePermission } from "@/components/RequirePermission";
 import { FilterButton } from "@/components/shared/filters";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
+import { useSort, SortHead } from "@/components/shared/sort";
 export const Route = createFileRoute("/_authenticated/entrada-saida/oc-aviamento")({
   component: () => (
     <RequirePermission page="entrada_oc_aviamento">
@@ -177,6 +178,21 @@ function OcAviamentoPage() {
     },
   });
 
+  // Ordenação clicável. Empresa e valores são derivados (a célula exibe valor
+  // formatado), então ordenamos pelo valor CRU via accessors.
+  const sortEncomendado = useSort(ocs, {
+    accessors: {
+      empresa: (o: OC) => (o.empresa_id ? empresaMap[o.empresa_id] ?? "" : ""),
+      valor_previsto: (o: OC) => itemsByOC[o.id]?.previsto ?? 0,
+    },
+  });
+  const sortRecebido = useSort(ocs, {
+    accessors: {
+      empresa: (o: OC) => (o.empresa_id ? empresaMap[o.empresa_id] ?? "" : ""),
+      valor_real: (o: OC) => itemsByOC[o.id]?.real ?? 0,
+    },
+  });
+
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
       <header className="flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4">
@@ -211,10 +227,25 @@ function OcAviamentoPage() {
         <TabsContent value="encomendado" className="mt-4">
           {/* Mobile: cards */}
           <div className="space-y-2 sm:hidden">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Ordenar por</span>
+              <Select
+                value={sortEncomendado.sortKey ?? ""}
+                onValueChange={(v) => sortEncomendado.toggle(v)}
+              >
+                <SelectTrigger className="h-8 flex-1 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="numero_pedido">Nº Pedido</SelectItem>
+                  <SelectItem value="empresa">Fornecedor</SelectItem>
+                  <SelectItem value="data_prevista_entrega">Data Prevista</SelectItem>
+                  <SelectItem value="valor_previsto">Valor Previsto</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             {ocs.length === 0 && (
               <Card className="p-6 text-center text-sm text-muted-foreground">Nenhuma OC encomendada.</Card>
             )}
-            {ocs.map((o) => (
+            {sortEncomendado.sorted.map((o) => (
               <Card
                 key={o.id}
                 className="p-3 cursor-pointer active:bg-muted/50"
@@ -241,10 +272,10 @@ function OcAviamentoPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Nº Pedido</TableHead>
-                  <TableHead>Fornecedor</TableHead>
-                  <TableHead>Data Prevista</TableHead>
-                  <TableHead>Valor Previsto</TableHead>
+                  <SortHead label="Nº Pedido" sortKey="numero_pedido" sortState={sortEncomendado} />
+                  <SortHead label="Fornecedor" sortKey="empresa" sortState={sortEncomendado} />
+                  <SortHead label="Data Prevista" sortKey="data_prevista_entrega" sortState={sortEncomendado} />
+                  <SortHead label="Valor Previsto" sortKey="valor_previsto" sortState={sortEncomendado} />
                   <TableHead>Mensagem</TableHead>
                   <TableHead></TableHead>
                 </TableRow>
@@ -253,7 +284,7 @@ function OcAviamentoPage() {
                 {ocs.length === 0 && (
                   <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">Nenhuma OC encomendada.</TableCell></TableRow>
                 )}
-                {ocs.map((o) => (
+                {sortEncomendado.sorted.map((o) => (
                   <TableRow key={o.id} className="cursor-pointer" onClick={() => { setEditingId(o.id); setOpenNew(true); }}>
                     <TableCell className="font-medium">{o.numero_pedido ?? "—"}</TableCell>
                     <TableCell>{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</TableCell>
@@ -280,10 +311,25 @@ function OcAviamentoPage() {
         <TabsContent value="recebido" className="mt-4">
           {/* Mobile: cards */}
           <div className="space-y-2 sm:hidden">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Ordenar por</span>
+              <Select
+                value={sortRecebido.sortKey ?? ""}
+                onValueChange={(v) => sortRecebido.toggle(v)}
+              >
+                <SelectTrigger className="h-8 flex-1 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="numero_pedido">Nº Pedido</SelectItem>
+                  <SelectItem value="empresa">Fornecedor</SelectItem>
+                  <SelectItem value="data_entrega">Data Entrega</SelectItem>
+                  <SelectItem value="valor_real">Valor Real</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             {ocs.length === 0 && (
               <Card className="p-6 text-center text-sm text-muted-foreground">Nenhuma OC recebida.</Card>
             )}
-            {ocs.map((o) => (
+            {sortRecebido.sorted.map((o) => (
               <Card
                 key={o.id}
                 className="p-3 cursor-pointer active:bg-muted/50"
@@ -310,18 +356,18 @@ function OcAviamentoPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Nº Pedido</TableHead>
-                  <TableHead>Fornecedor</TableHead>
-                  <TableHead>Data Entrega</TableHead>
+                  <SortHead label="Nº Pedido" sortKey="numero_pedido" sortState={sortRecebido} />
+                  <SortHead label="Fornecedor" sortKey="empresa" sortState={sortRecebido} />
+                  <SortHead label="Data Entrega" sortKey="data_entrega" sortState={sortRecebido} />
                   <TableHead>Mensagem</TableHead>
-                  <TableHead>Valor Real</TableHead>
+                  <SortHead label="Valor Real" sortKey="valor_real" sortState={sortRecebido} />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {ocs.length === 0 && (
                   <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">Nenhuma OC recebida.</TableCell></TableRow>
                 )}
-                {ocs.map((o) => (
+                {sortRecebido.sorted.map((o) => (
                   <TableRow key={o.id} className="cursor-pointer" onClick={() => { setEditingId(o.id); setOpenNew(true); }}>
                     <TableCell className="font-medium">{o.numero_pedido ?? "—"}</TableCell>
                     <TableCell>{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</TableCell>
