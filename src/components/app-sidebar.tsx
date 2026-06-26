@@ -10,6 +10,7 @@ import {
   Factory,
   DollarSign,
   BarChart3,
+  Home,
   LogOut,
   Crown,
   Store,
@@ -171,6 +172,14 @@ export function AppSidebar() {
           <SidebarGroupLabel>Operação</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={isActive("/home")} tooltip="Início">
+                  <Link to="/home">
+                    <Home className="h-4 w-4" />
+                    <span>Início</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
               {visibleMainItems.map((item) => {
                 const active = isActive(item.url);
                 if (item.subs.length === 0) {

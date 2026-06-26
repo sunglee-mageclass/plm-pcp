@@ -14,6 +14,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedProducaoRouteImport } from './routes/_authenticated/producao'
+import { Route as AuthenticatedHomeRouteImport } from './routes/_authenticated/home'
 import { Route as AuthenticatedFinanceiroRouteImport } from './routes/_authenticated/financeiro'
 import { Route as AuthenticatedEntradaSaidaRouteImport } from './routes/_authenticated/entrada-saida'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
@@ -92,6 +93,11 @@ const IndexRoute = IndexRouteImport.update({
 const AuthenticatedProducaoRoute = AuthenticatedProducaoRouteImport.update({
   id: '/producao',
   path: '/producao',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedHomeRoute = AuthenticatedHomeRouteImport.update({
+  id: '/home',
+  path: '/home',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedFinanceiroRoute = AuthenticatedFinanceiroRouteImport.update({
@@ -428,6 +434,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/entrada-saida': typeof AuthenticatedEntradaSaidaRouteWithChildren
   '/financeiro': typeof AuthenticatedFinanceiroRoute
+  '/home': typeof AuthenticatedHomeRoute
   '/producao': typeof AuthenticatedProducaoRouteWithChildren
   '/admin/configuracoes': typeof AuthenticatedAdminConfiguracoesRoute
   '/admin/editor-impressao': typeof AuthenticatedAdminEditorImpressaoRoute
@@ -485,6 +492,7 @@ export interface FileRoutesByTo {
   '/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/financeiro': typeof AuthenticatedFinanceiroRoute
+  '/home': typeof AuthenticatedHomeRoute
   '/admin/configuracoes': typeof AuthenticatedAdminConfiguracoesRoute
   '/admin/editor-impressao': typeof AuthenticatedAdminEditorImpressaoRoute
   '/admin/identidade': typeof AuthenticatedAdminIdentidadeRoute
@@ -540,6 +548,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/entrada-saida': typeof AuthenticatedEntradaSaidaRouteWithChildren
   '/_authenticated/financeiro': typeof AuthenticatedFinanceiroRoute
+  '/_authenticated/home': typeof AuthenticatedHomeRoute
   '/_authenticated/producao': typeof AuthenticatedProducaoRouteWithChildren
   '/_authenticated/admin/configuracoes': typeof AuthenticatedAdminConfiguracoesRoute
   '/_authenticated/admin/editor-impressao': typeof AuthenticatedAdminEditorImpressaoRoute
@@ -603,6 +612,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/entrada-saida'
     | '/financeiro'
+    | '/home'
     | '/producao'
     | '/admin/configuracoes'
     | '/admin/editor-impressao'
@@ -660,6 +670,7 @@ export interface FileRouteTypes {
     | '/configuracoes'
     | '/dashboard'
     | '/financeiro'
+    | '/home'
     | '/admin/configuracoes'
     | '/admin/editor-impressao'
     | '/admin/identidade'
@@ -714,6 +725,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard'
     | '/_authenticated/entrada-saida'
     | '/_authenticated/financeiro'
+    | '/_authenticated/home'
     | '/_authenticated/producao'
     | '/_authenticated/admin/configuracoes'
     | '/_authenticated/admin/editor-impressao'
@@ -807,6 +819,13 @@ declare module '@tanstack/react-router' {
       path: '/producao'
       fullPath: '/producao'
       preLoaderRoute: typeof AuthenticatedProducaoRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/home': {
+      id: '/_authenticated/home'
+      path: '/home'
+      fullPath: '/home'
+      preLoaderRoute: typeof AuthenticatedHomeRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/financeiro': {
@@ -1465,6 +1484,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedEntradaSaidaRoute: typeof AuthenticatedEntradaSaidaRouteWithChildren
   AuthenticatedFinanceiroRoute: typeof AuthenticatedFinanceiroRoute
+  AuthenticatedHomeRoute: typeof AuthenticatedHomeRoute
   AuthenticatedProducaoRoute: typeof AuthenticatedProducaoRouteWithChildren
 }
 
@@ -1476,6 +1496,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedEntradaSaidaRoute: AuthenticatedEntradaSaidaRouteWithChildren,
   AuthenticatedFinanceiroRoute: AuthenticatedFinanceiroRoute,
+  AuthenticatedHomeRoute: AuthenticatedHomeRoute,
   AuthenticatedProducaoRoute: AuthenticatedProducaoRouteWithChildren,
 }
 
