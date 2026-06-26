@@ -26,6 +26,7 @@ import {
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { PAGES_CATALOG } from "@/lib/permissions-catalog";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
+import { useSort, SortHead } from "@/components/shared/sort";
 
 // Toggles de módulo (chaves batem com tenant_config.modules e PAGES_CATALOG).
 const MODULE_TOGGLES = PAGES_CATALOG.map((m) => ({ key: m.module, label: m.label }));
@@ -85,6 +86,13 @@ function LojasPage() {
     () => tenants.filter((t) => t.nome.toLowerCase().includes(search.toLowerCase())),
     [tenants, search],
   );
+
+  // Ordenação clicável: nome/CNPJ por texto, status pelo booleano cru (ativo).
+  const { sorted, sortKey, sortDir, toggle } = useSort(filtered, {
+    key: "nome",
+    accessors: { status: (t) => t.ativo },
+  });
+  const sortState = { sortKey, sortDir, toggle };
 
   const toggleAtivo = useMutation({
     mutationFn: async ({ id, ativo }: { id: string; ativo: boolean }) => {
@@ -168,19 +176,19 @@ function LojasPage() {
           <TableHeader>
             <TableRow>
               <TableHead>Logo</TableHead>
-              <TableHead>Nome</TableHead>
-              <TableHead>CNPJ</TableHead>
-              <TableHead>Status</TableHead>
+              <SortHead label="Nome" sortKey="nome" sortState={sortState} />
+              <SortHead label="CNPJ" sortKey="cnpj" sortState={sortState} />
+              <SortHead label="Status" sortKey="status" sortState={sortState} />
               <TableHead className="text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
               <SkeletonTableRow cols={5} />
-            ) : filtered.length === 0 ? (
+            ) : sorted.length === 0 ? (
               <TableRow><TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-8">Nenhuma loja encontrada.</TableCell></TableRow>
             ) : (
-              filtered.map((t) => (
+              sorted.map((t) => (
                 <TableRow key={t.id}>
                   <TableCell>
                     <TenantLogo path={t.logo_url} alt={t.nome} />
