@@ -27,6 +27,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
 } from "@/components/ui/dialog";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
+import { useSort, SortHead } from "@/components/shared/sort";
 
 export const Route = createFileRoute("/_authenticated/admin/usuarios")({
   component: UsuariosPage,
@@ -92,6 +93,15 @@ function UsuariosPage() {
     () => users.filter((u) => tenantFilter === "all" || u.tenant_id === tenantFilter),
     [users, tenantFilter],
   );
+  const sortAccessors = useMemo(
+    () => ({ loja: (u: AppUser) => (u.tenant_id ? tenantMap[u.tenant_id] ?? "" : "") }),
+    [tenantMap],
+  );
+  const { sorted, sortKey, sortDir, toggle: sortToggle } = useSort(filtered, {
+    key: "nome",
+    accessors: sortAccessors,
+  });
+  const sortState = { sortKey, sortDir, toggle: sortToggle };
 
   const toggle = useMutation({
     mutationFn: (v: { user_id: string; ativo: boolean }) => callToggle({ data: v }),
@@ -142,21 +152,21 @@ function UsuariosPage() {
         <Table className="card-table">
           <TableHeader>
             <TableRow>
-              <TableHead>Nome</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Loja</TableHead>
-              <TableHead>Role</TableHead>
-              <TableHead>Status</TableHead>
+              <SortHead label="Nome" sortKey="nome" sortState={sortState} />
+              <SortHead label="Email" sortKey="email" sortState={sortState} />
+              <SortHead label="Loja" sortKey="loja" sortState={sortState} />
+              <SortHead label="Role" sortKey="role" sortState={sortState} />
+              <SortHead label="Status" sortKey="ativo" sortState={sortState} />
               <TableHead className="text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
               <SkeletonTableRow cols={6} />
-            ) : filtered.length === 0 ? (
+            ) : sorted.length === 0 ? (
               <TableRow><TableCell colSpan={6} className="text-center text-sm text-muted-foreground py-8">Nenhum usuário encontrado.</TableCell></TableRow>
             ) : (
-              filtered.map((u) => (
+              sorted.map((u) => (
                 <TableRow key={u.id}>
                   <TableCell className="font-medium">{u.nome}</TableCell>
                   <TableCell data-label="Email" className="text-sm">{u.email}</TableCell>
