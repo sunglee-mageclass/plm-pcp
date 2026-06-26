@@ -170,6 +170,48 @@ export type Database = {
           },
         ]
       }
+      audit_log: {
+        Row: {
+          acao: string
+          created_at: string
+          dados: Json | null
+          descricao: string | null
+          entidade: string
+          id: string
+          registro_id: string | null
+          tabela: string
+          tenant_id: string | null
+          user_id: string | null
+          user_nome: string | null
+        }
+        Insert: {
+          acao: string
+          created_at?: string
+          dados?: Json | null
+          descricao?: string | null
+          entidade: string
+          id?: string
+          registro_id?: string | null
+          tabela: string
+          tenant_id?: string | null
+          user_id?: string | null
+          user_nome?: string | null
+        }
+        Update: {
+          acao?: string
+          created_at?: string
+          dados?: Json | null
+          descricao?: string | null
+          entidade?: string
+          id?: string
+          registro_id?: string | null
+          tabela?: string
+          tenant_id?: string | null
+          user_id?: string | null
+          user_nome?: string | null
+        }
+        Relationships: []
+      }
       aviamentos: {
         Row: {
           categoria_aviamento_id: string | null

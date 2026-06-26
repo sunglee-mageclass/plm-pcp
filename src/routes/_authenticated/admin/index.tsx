@@ -1,5 +1,5 @@
 import { createFileRoute, Link, Navigate } from "@tanstack/react-router";
-import { Shield, Building2, Users, UserCog, Settings, Palette } from "lucide-react";
+import { Shield, Building2, Users, UserCog, Settings, Palette, ScrollText } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/useAuth";
@@ -21,11 +21,13 @@ function AdminPage() {
         { to: "/admin/usuarios", icon: Users, title: "Gerenciar Usuários", description: "Visão global de usuários e papéis de todas as lojas." },
         { to: "/admin/configuracoes", icon: Settings, title: "Configurações da Loja", description: "Fuso horário, parâmetros de produção, grade, kanban e nomes de campos da loja em visualização." },
         { to: "/admin/identidade", icon: Palette, title: "Identidade do Sistema", description: "Nome, subtítulo, logo e favicon exibidos no sistema." },
+        { to: "/admin/auditoria", icon: ScrollText, title: "Auditoria", description: "Log de todos os eventos: o que foi criado, editado ou excluído, por quem e quando." },
       ]
     : isTenantAdmin
       ? [
           { to: "/admin/usuarios-loja", icon: UserCog, title: "Usuários da Minha Loja", description: "Convidar, editar e definir permissões dos usuários." },
           { to: "/admin/configuracoes", icon: Settings, title: "Configurações da Loja", description: "Parâmetros de produção, grade, kanban e nomes de campos." },
+          { to: "/admin/auditoria", icon: ScrollText, title: "Auditoria", description: "Log dos eventos da sua loja: criado, editado ou excluído, por quem e quando." },
         ]
       : [];
 

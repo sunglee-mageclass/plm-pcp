@@ -56,6 +56,7 @@ import { Route as AuthenticatedAdminLojasRouteImport } from './routes/_authentic
 import { Route as AuthenticatedAdminIdentidadeRouteImport } from './routes/_authenticated/admin/identidade'
 import { Route as AuthenticatedAdminEditorImpressaoRouteImport } from './routes/_authenticated/admin/editor-impressao'
 import { Route as AuthenticatedAdminConfiguracoesRouteImport } from './routes/_authenticated/admin/configuracoes'
+import { Route as AuthenticatedAdminAuditoriaRouteImport } from './routes/_authenticated/admin/auditoria'
 import { Route as AuthenticatedProducaoTerceirizadosIndexRouteImport } from './routes/_authenticated/producao.terceirizados.index'
 import { Route as AuthenticatedProducaoOficinaIndexRouteImport } from './routes/_authenticated/producao.oficina.index'
 import { Route as AuthenticatedProducaoDirecionamentoIndexRouteImport } from './routes/_authenticated/producao.direcionamento.index'
@@ -338,6 +339,12 @@ const AuthenticatedAdminConfiguracoesRoute =
     path: '/configuracoes',
     getParentRoute: () => AuthenticatedAdminRouteRoute,
   } as any)
+const AuthenticatedAdminAuditoriaRoute =
+  AuthenticatedAdminAuditoriaRouteImport.update({
+    id: '/auditoria',
+    path: '/auditoria',
+    getParentRoute: () => AuthenticatedAdminRouteRoute,
+  } as any)
 const AuthenticatedProducaoTerceirizadosIndexRoute =
   AuthenticatedProducaoTerceirizadosIndexRouteImport.update({
     id: '/',
@@ -436,6 +443,7 @@ export interface FileRoutesByFullPath {
   '/financeiro': typeof AuthenticatedFinanceiroRoute
   '/home': typeof AuthenticatedHomeRoute
   '/producao': typeof AuthenticatedProducaoRouteWithChildren
+  '/admin/auditoria': typeof AuthenticatedAdminAuditoriaRoute
   '/admin/configuracoes': typeof AuthenticatedAdminConfiguracoesRoute
   '/admin/editor-impressao': typeof AuthenticatedAdminEditorImpressaoRoute
   '/admin/identidade': typeof AuthenticatedAdminIdentidadeRoute
@@ -493,6 +501,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/financeiro': typeof AuthenticatedFinanceiroRoute
   '/home': typeof AuthenticatedHomeRoute
+  '/admin/auditoria': typeof AuthenticatedAdminAuditoriaRoute
   '/admin/configuracoes': typeof AuthenticatedAdminConfiguracoesRoute
   '/admin/editor-impressao': typeof AuthenticatedAdminEditorImpressaoRoute
   '/admin/identidade': typeof AuthenticatedAdminIdentidadeRoute
@@ -550,6 +559,7 @@ export interface FileRoutesById {
   '/_authenticated/financeiro': typeof AuthenticatedFinanceiroRoute
   '/_authenticated/home': typeof AuthenticatedHomeRoute
   '/_authenticated/producao': typeof AuthenticatedProducaoRouteWithChildren
+  '/_authenticated/admin/auditoria': typeof AuthenticatedAdminAuditoriaRoute
   '/_authenticated/admin/configuracoes': typeof AuthenticatedAdminConfiguracoesRoute
   '/_authenticated/admin/editor-impressao': typeof AuthenticatedAdminEditorImpressaoRoute
   '/_authenticated/admin/identidade': typeof AuthenticatedAdminIdentidadeRoute
@@ -614,6 +624,7 @@ export interface FileRouteTypes {
     | '/financeiro'
     | '/home'
     | '/producao'
+    | '/admin/auditoria'
     | '/admin/configuracoes'
     | '/admin/editor-impressao'
     | '/admin/identidade'
@@ -671,6 +682,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/financeiro'
     | '/home'
+    | '/admin/auditoria'
     | '/admin/configuracoes'
     | '/admin/editor-impressao'
     | '/admin/identidade'
@@ -727,6 +739,7 @@ export interface FileRouteTypes {
     | '/_authenticated/financeiro'
     | '/_authenticated/home'
     | '/_authenticated/producao'
+    | '/_authenticated/admin/auditoria'
     | '/_authenticated/admin/configuracoes'
     | '/_authenticated/admin/editor-impressao'
     | '/_authenticated/admin/identidade'
@@ -1115,6 +1128,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminConfiguracoesRouteImport
       parentRoute: typeof AuthenticatedAdminRouteRoute
     }
+    '/_authenticated/admin/auditoria': {
+      id: '/_authenticated/admin/auditoria'
+      path: '/auditoria'
+      fullPath: '/admin/auditoria'
+      preLoaderRoute: typeof AuthenticatedAdminAuditoriaRouteImport
+      parentRoute: typeof AuthenticatedAdminRouteRoute
+    }
     '/_authenticated/producao/terceirizados/': {
       id: '/_authenticated/producao/terceirizados/'
       path: '/'
@@ -1217,6 +1237,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedAdminRouteRouteChildren {
+  AuthenticatedAdminAuditoriaRoute: typeof AuthenticatedAdminAuditoriaRoute
   AuthenticatedAdminConfiguracoesRoute: typeof AuthenticatedAdminConfiguracoesRoute
   AuthenticatedAdminEditorImpressaoRoute: typeof AuthenticatedAdminEditorImpressaoRoute
   AuthenticatedAdminIdentidadeRoute: typeof AuthenticatedAdminIdentidadeRoute
@@ -1228,6 +1249,7 @@ interface AuthenticatedAdminRouteRouteChildren {
 
 const AuthenticatedAdminRouteRouteChildren: AuthenticatedAdminRouteRouteChildren =
   {
+    AuthenticatedAdminAuditoriaRoute: AuthenticatedAdminAuditoriaRoute,
     AuthenticatedAdminConfiguracoesRoute: AuthenticatedAdminConfiguracoesRoute,
     AuthenticatedAdminEditorImpressaoRoute:
       AuthenticatedAdminEditorImpressaoRoute,
