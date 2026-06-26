@@ -30,6 +30,7 @@ type CqItem = {
   cq_ok: boolean;
   cq_alerta_status: CqStatus;
   is_rolo?: boolean; // alerta vindo de um rolo: oc_numero = rolo_codigo
+  usado?: boolean;   // rolo já consumido (corte) OU selecionado em Desenvolvimento → não troca/cancela
 };
 
 const PENDENTES: CqStatus[] = ["alertado", "troca_pendente"];
@@ -47,6 +48,8 @@ const STATUS_BADGE: Record<CqStatus, { label: string; cls: string } | null> = {
 
 const SELECT_COLS =
   "id, cancelado, variante_tecido_id, cq_observacao, cq_ok, cq_alerta_status, artigos(nome), variantes_tecido(nome_variante, codigo_variante)";
+// Para rolos, também trazemos consumo (baixa) e vínculo de Dev p/ saber se está "em uso".
+const ROLO_SELECT_COLS = `${SELECT_COLS}, estoque_tecido_baixas(id), modelo_tecido_oc_links(id)`;
 
 // Badge-resumo do alerta de uma OC (prioridade: pendente > troca > trocado > cancelado > ok).
 export function alertaBadge(statuses: string[]): { label: string; cls: string } | null {
@@ -87,7 +90,7 @@ function useFlatCqItems() {
         // Rolos: o item do rolo carrega o CQ do rolo (oc_numero = rolo_codigo).
         supabase
           .from("ocs_tecido")
-          .select(`id, rolo_codigo, ocs_tecido_itens!oc_tecido_id(${SELECT_COLS})`)
+          .select(`id, rolo_codigo, ocs_tecido_itens!oc_tecido_id(${ROLO_SELECT_COLS})`)
           .eq("is_rolo" as never, true as never)
           .order("created_at", { ascending: false }),
       ]);
@@ -107,7 +110,10 @@ function useFlatCqItems() {
     for (const r of data?.rolos ?? []) {
       for (const it of r.ocs_tecido_itens ?? []) {
         if (it.cancelado && it.cq_alerta_status === "sem_alerta") continue;
-        out.push(toCqItem(it, r.id, r.rolo_codigo, true));
+        const usado =
+          (it.estoque_tecido_baixas ?? []).length > 0 ||
+          (it.modelo_tecido_oc_links ?? []).length > 0;
+        out.push({ ...toCqItem(it, r.id, r.rolo_codigo, true), usado });
       }
     }
     return out;
@@ -368,15 +374,24 @@ export function AlertasList() {
                     <Button size="sm" variant="outline" onClick={() => it.is_rolo ? resolRolo.mutate({ id: it.id, status: "estilo_ok" }) : resol.mutate({ item_id: it.id, acao: "estilo_ok" })}>
                       <Check className="h-4 w-4 mr-1" /> Estilo OK
                     </Button>
-                    {/* Rolo: troca/cancelar próprios (sem financeiro). OC: fluxo normal. */}
-                    <Button size="sm" variant="outline" onClick={() => it.is_rolo ? setTrocaRolo(it) : setTroca(it)}>
+                    {/* Rolo: troca/cancelar próprios (sem financeiro). OC: fluxo normal.
+                        Rolo já em uso (consumido ou selecionado no Dev) não troca/cancela. */}
+                    <Button size="sm" variant="outline"
+                      disabled={!!it.is_rolo && !!it.usado}
+                      title={it.is_rolo && it.usado ? "Rolo em uso (consumido ou selecionado em Desenvolvimento) — não pode ser trocado." : undefined}
+                      onClick={() => it.is_rolo ? setTrocaRolo(it) : setTroca(it)}>
                       <Repeat className="h-4 w-4 mr-1" /> Troca
                     </Button>
                     <Button size="sm" variant="outline"
                       className="text-destructive border-destructive/40 hover:bg-destructive/10"
+                      disabled={!!it.is_rolo && !!it.usado}
+                      title={it.is_rolo && it.usado ? "Rolo em uso (consumido ou selecionado em Desenvolvimento) — não pode ser cancelado." : undefined}
                       onClick={() => setConfirmCancel(it)}>
                       <Ban className="h-4 w-4 mr-1" /> {it.is_rolo ? "Cancelar rolo" : "Cancelar variante"}
                     </Button>
+                    {it.is_rolo && it.usado && (
+                      <span className="text-xs text-muted-foreground">Rolo em uso — bloqueado.</span>
+                    )}
                   </>
                 )}
               </div>
