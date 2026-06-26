@@ -387,7 +387,7 @@ function OcDialog({
         if (itemIds.length > 0) {
           const { data: rolosData } = await supabase
             .from("ocs_tecido")
-            .select("id, rolo_codigo, rolo_origem_item_id, ocs_tecido_itens(id, quantidade_recebida, cancelado, cq_ok, cq_alerta_status, cq_observacao)")
+            .select("id, rolo_codigo, rolo_origem_item_id, ocs_tecido_itens(id, quantidade_recebida, cancelado, cq_ok, cq_alerta_status, cq_observacao, estoque_tecido_baixas(quantidade))")
             .eq("is_rolo" as never, true as never)
             .in("rolo_origem_item_id", itemIds)
             .order("rolo_codigo");
@@ -404,6 +404,7 @@ function OcDialog({
               cq_alerta: (it0?.cq_alerta_status ?? "sem_alerta") === "alertado",
               cqStatus: it0?.cq_alerta_status ?? "sem_alerta",
               cancelado: !!it0?.cancelado,
+              usado: ((it0?.estoque_tecido_baixas ?? []) as any[]).length > 0,
               obs: it0?.cq_observacao ?? "",
             });
           }

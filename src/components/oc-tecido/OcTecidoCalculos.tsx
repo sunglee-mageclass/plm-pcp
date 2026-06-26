@@ -146,12 +146,14 @@ export function OcTecidoCalculos({
                             {entry.cqStatus === "alertado" && <Badge className="shrink-0 bg-amber-500 hover:bg-amber-500 text-[10px]">Alerta</Badge>}
                             {entry.cqStatus === "cancelado" && <Badge className="shrink-0 bg-zinc-500 hover:bg-zinc-500 text-[10px]">Cancelado</Badge>}
                             {entry.cqStatus === "trocado" && <Badge className="shrink-0 bg-blue-600 hover:bg-blue-600 text-[10px]">Trocado</Badge>}
+                            {entry.usado && <Badge className="shrink-0 bg-slate-600 hover:bg-slate-600 text-[10px]" title="Rolo já consumido — não pode editar/cancelar/trocar">Em uso</Badge>}
                             {entry.roloId && onRoloAjuste ? (
                               // Rolo já criado: quantidade EDITÁVEL — ajusta via RPC no blur (recalcula a OC).
+                              // Rolo USADO (consumido) trava: não pode mudar/cancelar/trocar.
                               <RoloQtyInput
                                 key={`q-${entry.roloId}`}
                                 value={entry.qtd}
-                                disabled={!!entry.cancelado}
+                                disabled={!!entry.cancelado || !!entry.usado}
                                 onCommit={(nq) => onRoloAjuste(entry.roloId!, nq)} />
                             ) : (
                               <NumberInput type="number" step="0.01" className="h-9 w-24"
@@ -173,20 +175,21 @@ export function OcTecidoCalculos({
                               defaultValue={entry.obs ?? ""}
                               placeholder="Observação do rolo (defeito, tonalidade…)"
                               className="h-8 text-xs"
+                              disabled={!!entry.usado}
                               onBlur={(e) => { if ((e.target.value || "") !== (entry.obs ?? "")) setEntryCq(i.tempId, ri, { obs: e.target.value }); }}
                             />
                             <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
                               <label className="flex cursor-pointer items-center gap-1.5 text-xs">
-                                <Switch checked={!!entry.cq_ok} onCheckedChange={(v) => setEntryCq(i.tempId, ri, { cq_ok: v })} />
+                                <Switch checked={!!entry.cq_ok} disabled={!!entry.usado} onCheckedChange={(v) => setEntryCq(i.tempId, ri, { cq_ok: v })} />
                                 CQ ok
                               </label>
                               <label className="flex cursor-pointer items-center gap-1.5 text-xs">
-                                <Switch checked={!!entry.cq_alerta} onCheckedChange={(v) => setEntryCq(i.tempId, ri, { cq_alerta: v })} />
+                                <Switch checked={!!entry.cq_alerta} disabled={!!entry.usado} onCheckedChange={(v) => setEntryCq(i.tempId, ri, { cq_alerta: v })} />
                                 Alertar estilo
                               </label>
                               {entry.roloId && onRoloCancelar && (
                                 <label className="flex cursor-pointer items-center gap-1.5 text-xs">
-                                  <Checkbox checked={!!entry.cancelado} onCheckedChange={(v) => onRoloCancelar(entry.roloId!, v === true)} />
+                                  <Checkbox checked={!!entry.cancelado} disabled={!!entry.usado} onCheckedChange={(v) => onRoloCancelar(entry.roloId!, v === true)} />
                                   Cancelar rolo
                                 </label>
                               )}
