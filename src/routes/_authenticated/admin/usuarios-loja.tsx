@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import { useSort, SortHead } from "@/components/shared/sort";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
 } from "@/components/ui/dialog";
@@ -51,6 +52,9 @@ function UsuariosLojaPage() {
     enabled: isTenantAdmin || isSuperAdmin,
   });
 
+  const { sorted, sortKey, sortDir, toggle } = useSort(users, { key: "nome" });
+  const s = { sortKey, sortDir, toggle };
+
   if (loading) return null;
   if (!isTenantAdmin && !isSuperAdmin) return <Navigate to="/dashboard" replace />;
 
@@ -78,20 +82,20 @@ function UsuariosLojaPage() {
         <Table className="card-table">
           <TableHeader>
             <TableRow>
-              <TableHead>Nome</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Role</TableHead>
-              <TableHead>Status</TableHead>
+              <SortHead label="Nome" sortKey="nome" sortState={s} />
+              <SortHead label="Email" sortKey="email" sortState={s} />
+              <SortHead label="Role" sortKey="role" sortState={s} />
+              <SortHead label="Status" sortKey="ativo" sortState={s} />
               <TableHead className="text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
               <SkeletonTableRow cols={5} />
-            ) : users.length === 0 ? (
+            ) : sorted.length === 0 ? (
               <TableRow><TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-8">Nenhum usuário.</TableCell></TableRow>
             ) : (
-              users.map((u) => (
+              sorted.map((u) => (
                 <TableRow key={u.id}>
                   <TableCell className="font-medium">{u.nome}</TableCell>
                   <TableCell data-label="Email" className="text-sm">{u.email}</TableCell>
