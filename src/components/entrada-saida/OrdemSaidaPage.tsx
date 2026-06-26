@@ -18,6 +18,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
+import { useSort, SortHead } from "@/components/shared/sort";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -162,6 +163,22 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
       (o.destino?.nome ?? "").toLowerCase().includes(s),
     );
   }, [ordens, search]);
+
+  const totReserva = (o: OSRow) => (o.itens ?? []).reduce((s, it) => s + num(it.reserva), 0);
+  const totBaixa = (o: OSRow) => (o.itens ?? []).reduce((s, it) => s + num(it.baixa), 0);
+
+  // Ordenação clicável por valor cru (datas em ISO ordenam como texto; números/totais
+  // via accessors; destino via embed). Default = nº desc, espelhando o .order do fetch.
+  const s = useSort(filtered, {
+    key: "numero",
+    dir: "desc",
+    accessors: {
+      destino: (o) => o.destino?.nome ?? "",
+      reserva: (o) => totReserva(o),
+      baixa: (o) => totBaixa(o),
+    },
+  });
+  const sortedOrdens = s.sorted;
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: listKey });
@@ -317,9 +334,6 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
     setUtilizado(init);
   };
 
-  const totReserva = (o: OSRow) => (o.itens ?? []).reduce((s, it) => s + num(it.reserva), 0);
-  const totBaixa = (o: OSRow) => (o.itens ?? []).reduce((s, it) => s + num(it.baixa), 0);
-
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
@@ -347,13 +361,13 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
         <Table className="card-table">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-16">Nº</TableHead>
-              <TableHead>Responsável</TableHead>
-              <TableHead>Solicitação</TableHead>
-              <TableHead>Corte</TableHead>
-              <TableHead>Destino</TableHead>
-              <TableHead className="text-right">Reserva</TableHead>
-              <TableHead className="text-right">Baixa</TableHead>
+              <SortHead label="Nº" sortKey="numero" sortState={s} className="w-16" />
+              <SortHead label="Responsável" sortKey="responsavel" sortState={s} />
+              <SortHead label="Solicitação" sortKey="data_solicitacao" sortState={s} />
+              <SortHead label="Corte" sortKey="data_corte" sortState={s} />
+              <SortHead label="Destino" sortKey="destino" sortState={s} />
+              <SortHead label="Reserva" sortKey="reserva" sortState={s} className="text-right" align="right" />
+              <SortHead label="Baixa" sortKey="baixa" sortState={s} className="text-right" align="right" />
               <TableHead>Status</TableHead>
               <TableHead className="w-40 text-right">Ações</TableHead>
             </TableRow>
@@ -361,10 +375,10 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
           <TableBody>
             {isLoading ? (
               <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin inline mr-2" /> Carregando…</TableCell></TableRow>
-            ) : filtered.length === 0 ? (
+            ) : sortedOrdens.length === 0 ? (
               <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Nenhuma OS encontrada.</TableCell></TableRow>
             ) : (
-              filtered.map((o) => (
+              sortedOrdens.map((o) => (
                 <TableRow key={o.id}>
                   <TableCell className="font-medium">{o.numero ?? "—"}</TableCell>
                   <TableCell data-label="Responsável">{o.responsavel ?? "—"}</TableCell>
