@@ -12,8 +12,10 @@ export type TenantBranding = {
 
 /**
  * Identidade da loja p/ cabeçalho de relatórios imprimíveis (nome, CNPJ, contato
- * e logo assinada — bucket "tenant-logos"). Mesma fonte do cadastro da loja
+ * e logo pública — bucket "tenant-logos"). Mesma fonte do cadastro da loja
  * (tabela `tenants`). Cacheado; várias RelatorioPrint compartilham a query.
+ * Bucket público: guardamos só o path e montamos a URL pública (getPublicUrl,
+ * síncrona, sem expirar) — evita o bug latente "a logo não fica salva".
  */
 export function useTenantBranding(): TenantBranding {
   const { user } = useAuth();
@@ -39,8 +41,7 @@ export function useTenantBranding(): TenantBranding {
       let logoUrl: string | null = null;
       const path = (t as any).logo_url as string | null | undefined;
       if (path) {
-        const { data: signed } = await supabase.storage.from("tenant-logos").createSignedUrl(path, 3600);
-        logoUrl = signed?.signedUrl ?? null;
+        logoUrl = supabase.storage.from("tenant-logos").getPublicUrl(path).data.publicUrl ?? null;
       }
       return {
         nome: (t as any).nome ?? null,

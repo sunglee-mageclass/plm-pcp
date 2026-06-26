@@ -4,8 +4,9 @@ import { useAuth } from "@/hooks/useAuth";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 
 /**
- * URL assinada da logo da loja (tenants.logo_url, bucket "tenant-logos"),
+ * URL pública da logo da loja (tenants.logo_url, bucket "tenant-logos"),
  * a mesma enviada no cadastro da loja. Retorna null se não houver.
+ * Bucket público => getPublicUrl (síncrona, URL estável que não expira).
  */
 export function useTenantLogo(): string | null {
   const { user } = useAuth();
@@ -28,8 +29,7 @@ export function useTenantLogo(): string | null {
         .maybeSingle();
       const path = (t as any)?.logo_url as string | null | undefined;
       if (!path) return null;
-      const { data: signed } = await supabase.storage.from("tenant-logos").createSignedUrl(path, 3600);
-      return signed?.signedUrl ?? null;
+      return supabase.storage.from("tenant-logos").getPublicUrl(path).data.publicUrl ?? null;
     },
     staleTime: 5 * 60 * 1000,
   });
