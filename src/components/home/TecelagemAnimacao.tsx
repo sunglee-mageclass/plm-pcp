@@ -1,12 +1,29 @@
 import { useEffect, useRef } from "react";
 
+export type VarianteTecelagem = "minimal" | "rica";
+
 type Props = {
   className?: string;
   /** Opacidade geral do tecido (0..1). Home cheia ~1; fundo de login mais sutil ~0.5. */
   opacity?: number;
-  /** Espaçamento-alvo entre fios do urdume (px). Maior = mais minimalista/arejado. */
-  espacamento?: number;
+  /** Densidade/estilo: "minimal" (arejado) ou "rica" (mais fios, textura densa). */
+  variante?: VarianteTecelagem;
 };
+
+// Presets de cada vibe. "rica" = mais fios (espaçamento menor), trama mais junta e
+// presente; "minimal" = arejado, traço fino, muito respiro.
+const PRESETS: Record<VarianteTecelagem, {
+  espacamento: number; aUrdume: number; aUrdumeStatic: number; aTecido: number;
+  lwTecido: number; lwTrama: number; vel: number; rowFactor: number;
+}> = {
+  minimal: { espacamento: 46, aUrdume: 0.10, aUrdumeStatic: 0.16, aTecido: 0.22, lwTecido: 1.3, lwTrama: 1.7, vel: 0.022, rowFactor: 0.46 },
+  rica:    { espacamento: 26, aUrdume: 0.16, aUrdumeStatic: 0.22, aTecido: 0.36, lwTecido: 1.5, lwTrama: 2.0, vel: 0.024, rowFactor: 0.55 },
+};
+
+// Estado da tecelagem persistido em ESCOPO DE MÓDULO: ao navegar home→/auth o componente
+// remonta, mas a animação continua de onde parou (frente/progresso/sentido), em vez de
+// começar do zero. Guardado em fração (independe de altura/espaçamento de cada tela).
+const persist = { frenteFrac: 0, prog: 0, dir: 1, iniciado: false };
 
 /**
  * Animação da identidade do sisTrama: os fios do URDUME (verticais, sob tensão) sendo
@@ -15,10 +32,9 @@ type Props = {
  * pronto atrás e reinicia no topo.
  *
  * Sem dependência nova (canvas 2D + requestAnimationFrame). Lê as cores do tema via
- * sondagem (funciona com `oklch` sem precisar parsear). Respeita prefers-reduced-motion
- * (mostra o tecido já pronto, estático).
+ * sondagem (funciona com `oklch` sem parsear). Respeita prefers-reduced-motion.
  */
-export function TecelagemAnimacao({ className, opacity = 1, espacamento = 46 }: Props) {
+export function TecelagemAnimacao({ className, opacity = 1, variante = "minimal" }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -26,6 +42,8 @@ export function TecelagemAnimacao({ className, opacity = 1, espacamento = 46 }: 
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+
+    const P = PRESETS[variante];
 
     // Cor do tema sem parsear oklch: cria um elemento com a classe, lê a cor computada
     // (serializada, sempre aceita pelo canvas) e usa globalAlpha para as variações.
@@ -45,7 +63,7 @@ export function TecelagemAnimacao({ className, opacity = 1, espacamento = 46 }: 
 
     let W = 1, H = 1, dpr = 1;
     let cols = 0;
-    const rowH = Math.max(12, Math.round(espacamento * 0.46)); // trama mais junta que o urdume
+    const rowH = Math.max(10, Math.round(P.espacamento * P.rowFactor)); // trama mais junta que o urdume
 
     const resize = () => {
       const r = canvas.getBoundingClientRect();
@@ -55,16 +73,15 @@ export function TecelagemAnimacao({ className, opacity = 1, espacamento = 46 }: 
       canvas.width = Math.round(W * dpr);
       canvas.height = Math.round(H * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      cols = Math.max(6, Math.floor(W / espacamento) + 1);
-      // re-sonda (tema pode ter mudado entre montagens)
+      cols = Math.max(6, Math.floor(W / P.espacamento) + 1);
       corFio = probe("text-foreground", corFio);
       corTrama = probe("text-primary", corTrama);
     };
     resize();
 
-    const span = () => (cols - 1) * espacamento;
+    const span = () => (cols - 1) * P.espacamento;
     const x0 = () => (W - span()) / 2;
-    const colX = (i: number) => x0() + i * espacamento;
+    const colX = (i: number) => x0() + i * P.espacamento;
     const xL = () => colX(0);
     const xR = () => colX(cols - 1);
 
@@ -86,8 +103,8 @@ export function TecelagemAnimacao({ className, opacity = 1, espacamento = 46 }: 
     // Tecido pronto até `frente`: trama por CIMA nas células de paridade par (basket-weave).
     const drawTecido = (frente: number) => {
       ctx.strokeStyle = corFio;
-      ctx.lineWidth = 1.3;
-      ctx.globalAlpha = 0.22 * opacity;
+      ctx.lineWidth = P.lwTecido;
+      ctx.globalAlpha = P.aTecido * opacity;
       ctx.beginPath();
       for (let row = 0; ; row++) {
         const y = rowH * (row + 1);
@@ -105,65 +122,69 @@ export function TecelagemAnimacao({ className, opacity = 1, espacamento = 46 }: 
 
     // Estático (reduced-motion): urdume + tecido inteiro.
     if (reduzir) {
-      ctx.clearRect(0, 0, W, H);
-      drawUrdume(0.16);
-      drawTecido(H + rowH);
-      const ro = new ResizeObserver(() => {
-        resize();
+      const paint = () => {
         ctx.clearRect(0, 0, W, H);
-        drawUrdume(0.16);
+        drawUrdume(P.aUrdumeStatic);
         drawTecido(H + rowH);
-      });
+      };
+      paint();
+      const ro = new ResizeObserver(() => { resize(); paint(); });
       ro.observe(canvas);
       return () => ro.disconnect();
     }
 
-    let frente = -rowH; // posição vertical da frente de tecelagem
-    let prog = 0;       // 0..1 progresso da lançadeira na linha atual
-    let dir = 1;        // 1 = esquerda→direita, -1 = direita→esquerda
+    // Restaura o ponto onde a animação parou (continuidade home↔login), snap na linha.
+    let frente = persist.iniciado
+      ? Math.round((persist.frenteFrac * H) / rowH) * rowH
+      : -rowH;
+    let prog = persist.iniciado ? persist.prog : 0;
+    let dir = persist.iniciado ? persist.dir : 1;
     let raf = 0;
-    const VEL = 0.022;  // progresso por frame
 
     const frame = () => {
       ctx.clearRect(0, 0, W, H);
 
-      // Urdume solto (mais fraco) + tecido pronto atrás da frente.
-      drawUrdume(0.1);
+      drawUrdume(P.aUrdume);
       drawTecido(frente);
 
-      // Linha ativa: a trama já tecida nesta passada (do lado de partida até a lançadeira).
+      // Linha ativa: a trama já tecida nesta passada (do lado de partida à lançadeira).
       const yA = frente;
       if (yA > 0 && yA < H) {
         const ini = dir === 1 ? xL() : xR();
         const sx = ini + (dir === 1 ? span() : -span()) * prog;
         ctx.strokeStyle = corTrama;
         ctx.globalAlpha = 0.9 * opacity;
-        ctx.lineWidth = 1.7;
+        ctx.lineWidth = P.lwTrama;
         ctx.beginPath();
         ctx.moveTo(ini, yA);
         ctx.lineTo(sx, yA);
         ctx.stroke();
 
-        // Lançadeira (ponto com brilho) na ponta.
         ctx.globalAlpha = opacity;
         ctx.fillStyle = corTrama;
         ctx.shadowColor = corTrama;
         ctx.shadowBlur = 14;
         ctx.beginPath();
-        ctx.arc(sx, yA, 2.8, 0, Math.PI * 2);
+        ctx.arc(sx, yA, variante === "rica" ? 3.2 : 2.8, 0, Math.PI * 2);
         ctx.fill();
         ctx.shadowBlur = 0;
         ctx.globalAlpha = 1;
       }
 
-      // Avança a lançadeira; ao completar a passada, desce uma linha e inverte o sentido.
-      prog += VEL;
+      prog += P.vel;
       if (prog >= 1) {
         prog = 0;
         dir *= -1;
         frente += rowH;
         if (frente > H + rowH) frente = -rowH; // loop infinito
       }
+
+      // Persiste para a próxima montagem continuar daqui.
+      persist.frenteFrac = frente / H;
+      persist.prog = prog;
+      persist.dir = dir;
+      persist.iniciado = true;
+
       raf = requestAnimationFrame(frame);
     };
 
@@ -175,7 +196,7 @@ export function TecelagemAnimacao({ className, opacity = 1, espacamento = 46 }: 
       cancelAnimationFrame(raf);
       ro.disconnect();
     };
-  }, [opacity, espacamento]);
+  }, [opacity, variante]);
 
   return <canvas ref={canvasRef} className={className} aria-hidden="true" />;
 }

@@ -60,7 +60,7 @@ function AuthPage() {
   return (
     <div className="relative min-h-screen flex items-center justify-center overflow-hidden bg-background px-4">
       {/* Mesma tecelagem da home, mais sutil, como pano de fundo do login. */}
-      <TecelagemAnimacao className="absolute inset-0 h-full w-full" opacity={0.5} espacamento={56} />
+      <TecelagemAnimacao className="absolute inset-0 h-full w-full" opacity={0.5} variante="minimal" />
       <div
         className="pointer-events-none absolute inset-0"
         style={{
