@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
+import { SortHead, useSort } from "@/components/shared/sort";
 import { fmtDate, fmtMoney, type Colab, type Empresa, type OC, type OCStatus } from "./shared";
 
 export function OcTecidoList({
@@ -33,6 +34,42 @@ export function OcTecidoList({
 }) {
   // Filters now live in the page header via FilterButton; this component renders just tabs + table.
   void filterEmpresa; void setFilterEmpresa; void filterResp; void setFilterResp; void empresas; void estilistas;
+
+  // Accessors p/ ordenar por valor CRU mesmo quando a célula exibe valor formatado.
+  const fornecedorAcc = (o: OC) => (o.empresa_id ? empresaMap[o.empresa_id] ?? "" : "");
+  const qtdRecAcc = (o: OC) => {
+    // fmtNum() formata pt-BR ("1.500,00 m"): tira tudo que não é dígito/separador,
+    // remove TODOS os pontos de milhar e troca a vírgula decimal por ponto.
+    const n = parseFloat(
+      String(qtdRecebidaByOc?.[o.id] ?? "")
+        .replace(/[^\d.,-]/g, "")
+        .replace(/\./g, "")
+        .replace(",", "."),
+    );
+    return Number.isNaN(n) ? null : n;
+  };
+
+  // Encomendados: nº pedido, fornecedor, data prevista, valor previsto.
+  const enc = useSort(ocs, {
+    accessors: {
+      numero_pedido: (o: OC) => o.numero_pedido,
+      fornecedor: fornecedorAcc,
+      data_prevista_entrega: (o: OC) => o.data_prevista_entrega,
+      valor_previsto_total: (o: OC) => o.valor_previsto_total ?? 0,
+    },
+  });
+
+  // Recebidos: nº pedido, fornecedor, data entrega, qtd recebida, valor real.
+  const rec = useSort(ocs, {
+    accessors: {
+      numero_pedido: (o: OC) => o.numero_pedido,
+      fornecedor: fornecedorAcc,
+      data_entrega: (o: OC) => o.data_entrega,
+      qtd_recebida: qtdRecAcc,
+      valor_real_total: (o: OC) => o.valor_real_total ?? 0,
+    },
+  });
+
   return (
     <Tabs value={tab} onValueChange={(v) => setTab(v as OCStatus)}>
       <TabsList>
@@ -43,10 +80,24 @@ export function OcTecidoList({
       <TabsContent value="encomendado" className="mt-4">
         {/* Mobile: lista de cards */}
         <div className="space-y-2 sm:hidden">
+          {ocs.length > 0 && (
+            <div className="flex items-center gap-2">
+              <Label className="text-xs text-muted-foreground whitespace-nowrap">Ordenar por</Label>
+              <Select value={enc.sortKey ?? ""} onValueChange={(v) => enc.toggle(v)}>
+                <SelectTrigger className="h-8 w-44 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="numero_pedido">Nº Pedido</SelectItem>
+                  <SelectItem value="fornecedor">Fornecedor</SelectItem>
+                  <SelectItem value="data_prevista_entrega">Data Prevista</SelectItem>
+                  <SelectItem value="valor_previsto_total">Valor Previsto</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           {ocs.length === 0 && (
             <Card className="p-6 text-center text-sm text-muted-foreground">Nenhuma OC encomendada.</Card>
           )}
-          {ocs.map((o) => (
+          {enc.sorted.map((o) => (
             <Card
               key={o.id}
               className="p-3 cursor-pointer active:bg-muted/50"
@@ -75,10 +126,10 @@ export function OcTecidoList({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Nº Pedido</TableHead>
-                <TableHead>Fornecedor</TableHead>
-                <TableHead>Data Prevista</TableHead>
-                <TableHead>Valor Previsto</TableHead>
+                <SortHead label="Nº Pedido" sortKey="numero_pedido" sortState={enc} />
+                <SortHead label="Fornecedor" sortKey="fornecedor" sortState={enc} />
+                <SortHead label="Data Prevista" sortKey="data_prevista_entrega" sortState={enc} />
+                <SortHead label="Valor Previsto" sortKey="valor_previsto_total" sortState={enc} />
                 <TableHead>Mensagem</TableHead>
                 <TableHead></TableHead>
               </TableRow>
@@ -87,7 +138,7 @@ export function OcTecidoList({
               {ocs.length === 0 && (
                 <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">Nenhuma OC encomendada.</TableCell></TableRow>
               )}
-              {ocs.map((o) => (
+              {enc.sorted.map((o) => (
                 <TableRow key={o.id} className="cursor-pointer" onClick={() => onRowClick(o.id)}>
                   <TableCell className="font-medium">{o.numero_pedido ?? "—"}</TableCell>
                   <TableCell>{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</TableCell>
@@ -116,10 +167,25 @@ export function OcTecidoList({
       <TabsContent value="recebido" className="mt-4">
         {/* Mobile: lista de cards */}
         <div className="space-y-2 sm:hidden">
+          {ocs.length > 0 && (
+            <div className="flex items-center gap-2">
+              <Label className="text-xs text-muted-foreground whitespace-nowrap">Ordenar por</Label>
+              <Select value={rec.sortKey ?? ""} onValueChange={(v) => rec.toggle(v)}>
+                <SelectTrigger className="h-8 w-44 text-xs"><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="numero_pedido">Nº Pedido</SelectItem>
+                  <SelectItem value="fornecedor">Fornecedor</SelectItem>
+                  <SelectItem value="data_entrega">Data Entrega</SelectItem>
+                  <SelectItem value="qtd_recebida">Qtd Recebida</SelectItem>
+                  <SelectItem value="valor_real_total">Valor Real</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           {ocs.length === 0 && (
             <Card className="p-6 text-center text-sm text-muted-foreground">Nenhuma OC recebida.</Card>
           )}
-          {ocs.map((o) => {
+          {rec.sorted.map((o) => {
             const ab = alertaBadgeByOc?.[o.id];
             return (
               <Card
@@ -151,19 +217,19 @@ export function OcTecidoList({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Nº Pedido</TableHead>
-                <TableHead>Fornecedor</TableHead>
-                <TableHead>Data Entrega</TableHead>
+                <SortHead label="Nº Pedido" sortKey="numero_pedido" sortState={rec} />
+                <SortHead label="Fornecedor" sortKey="fornecedor" sortState={rec} />
+                <SortHead label="Data Entrega" sortKey="data_entrega" sortState={rec} />
                 <TableHead>Mensagem</TableHead>
-                <TableHead>Qtd Recebida</TableHead>
-                <TableHead>Valor Real</TableHead>
+                <SortHead label="Qtd Recebida" sortKey="qtd_recebida" sortState={rec} />
+                <SortHead label="Valor Real" sortKey="valor_real_total" sortState={rec} />
               </TableRow>
             </TableHeader>
             <TableBody>
               {ocs.length === 0 && (
                 <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">Nenhuma OC recebida.</TableCell></TableRow>
               )}
-              {ocs.map((o) => {
+              {rec.sorted.map((o) => {
                 const ab = alertaBadgeByOc?.[o.id];
                 return (
                 <TableRow key={o.id} className="cursor-pointer" onClick={() => onRowClick(o.id)}>
