@@ -18,13 +18,11 @@ const DEFAULTS: SystemIdentity = {
   favicon_url: null,
 };
 
-async function fetchSignedUrl(path: string | null): Promise<string | null> {
+// Branding é público (bucket system-identity público): URL estável, sem expirar e sem
+// round-trip de assinatura. Guardamos só o path; a URL pública é montada na hora.
+function publicUrl(path: string | null): string | null {
   if (!path) return null;
-  // Stored as raw object path inside the bucket
-  const { data } = await supabase.storage
-    .from("system-identity")
-    .createSignedUrl(path, 60 * 60);
-  return data?.signedUrl ?? null;
+  return supabase.storage.from("system-identity").getPublicUrl(path).data.publicUrl ?? null;
 }
 
 export function useSystemIdentity() {
@@ -36,16 +34,12 @@ export function useSystemIdentity() {
         .select("id, nome_sistema, subtitulo, logo_url, favicon_url")
         .maybeSingle();
       const row = (data ?? DEFAULTS) as SystemIdentity;
-      const [logoSigned, faviconSigned] = await Promise.all([
-        fetchSignedUrl(row.logo_url),
-        fetchSignedUrl(row.favicon_url),
-      ]);
       return {
         ...row,
         nome_sistema: row.nome_sistema || DEFAULTS.nome_sistema,
         subtitulo: row.subtitulo || DEFAULTS.subtitulo,
-        logoSignedUrl: logoSigned,
-        faviconSignedUrl: faviconSigned,
+        logoSignedUrl: publicUrl(row.logo_url),
+        faviconSignedUrl: publicUrl(row.favicon_url),
       };
     },
     staleTime: 5 * 60 * 1000,

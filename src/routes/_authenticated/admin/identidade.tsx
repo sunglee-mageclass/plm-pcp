@@ -53,10 +53,9 @@ function IdentidadePage() {
       .from("system-identity")
       .upload(path, file, { upsert: true, contentType: file.type });
     if (error) throw error;
-    const { data: signed } = await supabase.storage
-      .from("system-identity")
-      .createSignedUrl(path, 60 * 60);
-    return { path, signedUrl: signed?.signedUrl ?? null };
+    // Bucket público: URL estável (não expira), também serve de preview imediato.
+    const publicUrl = supabase.storage.from("system-identity").getPublicUrl(path).data.publicUrl;
+    return { path, signedUrl: publicUrl };
   }
 
   async function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
