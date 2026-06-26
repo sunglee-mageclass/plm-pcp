@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
 
+import { cn } from "@/lib/utils";
 import { useSystemIdentity, useApplySystemIdentity } from "@/hooks/useSystemIdentity";
 import { Button } from "@/components/ui/button";
 import { TecelagemAnimacao } from "./TecelagemAnimacao";
@@ -28,7 +29,10 @@ export function HomePage() {
       />
 
       <main className="relative z-10 flex min-h-screen flex-col items-center justify-center px-6 text-center">
-        <div className="mb-6 flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-primary text-primary-foreground shadow-lg">
+        <div className={cn(
+          "mb-6 flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl shadow-lg",
+          identity.logoSignedUrl ? "border bg-background p-1.5" : "bg-primary text-primary-foreground",
+        )}>
           {identity.logoSignedUrl ? (
             <img src={identity.logoSignedUrl} alt={identity.nome_sistema} className="h-full w-full object-contain" />
           ) : (

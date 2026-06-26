@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { TecelagemAnimacao } from "@/components/home/TecelagemAnimacao";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/auth")({
   component: AuthPage,
@@ -40,7 +41,7 @@ function AuthPage() {
   const [busy, setBusy] = useState(false);
 
   if (!loading && user) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to="/home" replace />;
   }
 
   const handleLogin = async (e: FormEvent) => {
@@ -54,7 +55,7 @@ function AuthPage() {
       return;
     }
     toast.success("Bem-vindo de volta!");
-    navigate({ to: "/dashboard" });
+    navigate({ to: "/home" });
   };
 
   return (
@@ -70,7 +71,10 @@ function AuthPage() {
       />
       <div className="relative z-10 w-full max-w-md">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold overflow-hidden">
+          <div className={cn(
+            "mx-auto mb-3 flex h-12 w-12 items-center justify-center overflow-hidden rounded-lg font-bold",
+            identity.logoSignedUrl ? "border bg-background p-1" : "bg-primary text-primary-foreground",
+          )}>
             {identity.logoSignedUrl ? (
               <img src={identity.logoSignedUrl} alt={identity.nome_sistema} className="h-full w-full object-contain" />
             ) : (

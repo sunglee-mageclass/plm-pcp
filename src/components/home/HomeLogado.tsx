@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { format, addDays } from "date-fns";
 import {
-  AlertTriangle, Wallet, Clock, ArrowRight,
+  AlertTriangle, Wallet, Clock, CalendarX, ArrowRight,
   BarChart3, ClipboardList, Package, Palette, Factory, DollarSign,
 } from "lucide-react";
 
@@ -73,34 +73,55 @@ export function HomeLogado() {
     },
   });
 
+  // A pagar nos PRÓXIMOS 7 dias (sem incluir as já vencidas — essas têm card próprio).
   const pagar = useQuery({
-    queryKey: ["home", "pagar7", em7],
+    queryKey: ["home", "pagar7", hoje, em7],
     enabled: !!modules.financeiro,
     queryFn: async () => {
       const { data } = await supabase
         .from("parcelas")
         .select("valor")
         .is("data_pagamento", null)
+        .gte("data_vencimento", hoje)
         .lte("data_vencimento", em7);
       const rows = (data ?? []) as { valor: number | null }[];
       return { n: rows.length, total: rows.reduce((s, r) => s + Number(r.valor ?? 0), 0) };
     },
   });
 
+  // Contas a pagar ATRASADAS (vencidas e não pagas).
+  const atrasadas = useQuery({
+    queryKey: ["home", "atrasadas", hoje],
+    enabled: !!modules.financeiro,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("parcelas")
+        .select("valor")
+        .is("data_pagamento", null)
+        .lt("data_vencimento", hoje);
+      const rows = (data ?? []) as { valor: number | null }[];
+      return { n: rows.length, total: rows.reduce((s, r) => s + Number(r.valor ?? 0), 0) };
+    },
+  });
+
   const atencao = [
-    modules.entrada_saida && {
-      key: "cq", to: "/entrada-saida/alertas-tecido", icon: AlertTriangle,
-      valor: cq.data ?? 0, label: "Alertas de CQ (tecido)", sub: "pendentes",
+    modules.financeiro && {
+      key: "atrasadas", to: "/financeiro", icon: CalendarX, tone: "red" as const,
+      valor: atrasadas.data?.n ?? 0, label: "Contas atrasadas", sub: atrasadas.data ? fmtMoney(atrasadas.data.total) : "—",
     },
     modules.financeiro && {
-      key: "pagar", to: "/financeiro", icon: Wallet,
-      valor: pagar.data?.n ?? 0, label: "A pagar (até 7 dias)", sub: pagar.data ? fmtMoney(pagar.data.total) : "—",
+      key: "pagar", to: "/financeiro", icon: Wallet, tone: "amber" as const,
+      valor: pagar.data?.n ?? 0, label: "A pagar (próx. 7 dias)", sub: pagar.data ? fmtMoney(pagar.data.total) : "—",
     },
     modules.entrada_saida && {
-      key: "oc", to: "/entrada-saida/oc-tecido", icon: Clock,
+      key: "cq", to: "/entrada-saida/alertas-tecido", icon: AlertTriangle, tone: "amber" as const,
+      valor: cq.data ?? 0, label: "Alertas de CQ (tecido)", sub: "pendentes",
+    },
+    modules.entrada_saida && {
+      key: "oc", to: "/entrada-saida/oc-tecido", icon: Clock, tone: "red" as const,
       valor: ocAtrasada.data ?? 0, label: "OCs de tecido atrasadas", sub: "em aberto",
     },
-  ].filter(Boolean) as { key: string; to: string; icon: typeof BarChart3; valor: number; label: string; sub: string }[];
+  ].filter(Boolean) as { key: string; to: string; icon: typeof BarChart3; tone: "red" | "amber"; valor: number; label: string; sub: string }[];
 
   const atalhos = MODULOS.filter((m) => (modules as Record<string, boolean>)[m.key]);
 
@@ -114,7 +135,12 @@ export function HomeLogado() {
           style={{ background: "linear-gradient(90deg, var(--card) 30%, color-mix(in oklab, var(--card) 55%, transparent) 100%)" }}
         />
         <div className="relative z-10 flex items-center gap-4 p-5 sm:p-7">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-primary text-primary-foreground shadow">
+          {/* Logo da loja: só usa o fundo azul (primary) no fallback de iniciais.
+              Com logo enviada, fundo neutro p/ não estragar logo de fundo transparente. */}
+          <div className={cn(
+            "flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl shadow",
+            branding.logoUrl ? "border bg-background p-1" : "bg-primary text-primary-foreground",
+          )}>
             {branding.logoUrl ? (
               <img src={branding.logoUrl} alt={branding.nome ?? "Loja"} className="h-full w-full object-contain" />
             ) : (
@@ -134,16 +160,18 @@ export function HomeLogado() {
       {atencao.length > 0 && (
         <section className="space-y-2">
           <h2 className="text-sm font-semibold text-muted-foreground">Precisa da sua atenção</h2>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {atencao.map((a) => (
               <Link key={a.key} to={a.to as any} className="block">
                 <Card className={cn(
                   "flex items-center gap-3 p-4 transition-colors hover:bg-accent",
-                  a.valor > 0 && "border-amber-500/50",
+                  a.valor > 0 && (a.tone === "red" ? "border-red-500/50" : "border-amber-500/50"),
                 )}>
                   <div className={cn(
                     "rounded-lg p-2",
-                    a.valor > 0 ? "bg-amber-500/15 text-amber-600" : "bg-muted text-muted-foreground",
+                    a.valor > 0
+                      ? (a.tone === "red" ? "bg-red-500/15 text-red-600" : "bg-amber-500/15 text-amber-600")
+                      : "bg-muted text-muted-foreground",
                   )}>
                     <a.icon className="h-5 w-5" />
                   </div>
