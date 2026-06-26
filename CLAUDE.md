@@ -34,9 +34,11 @@ unit + integração transacional de RPC — ver `tests/README.md`)
    Lovable Cloud (migração feita em 06/2026). Mudança de schema/RPC/policy:
    **eu escrevo a migration em `supabase/migrations/` e aplico DIRETO** com
    `supabase db push --db-url "..."` ou, mais simples, `psql "$(cat /tmp/dburl.txt)" -f <migration>`.
-   ⚠️ `supabase/config.toml` aponta pro ref **ANTIGO** (`wccapbvbbejjzpvlvyuf`),
-   então **sempre** passar `--db-url` pro banco novo (Session pooler/IPv4; senha
-   dentro da URL — `/tmp/dburl.txt`, senha em `/tmp/dbpass.txt`).
+   `supabase/config.toml` já aponta pro ref **CORRETO** (`ruinwcuabilumcspeyjk`,
+   corrigido em 26/06/2026 — antes apontava pro antigo `wccapbvbbejjzpvlvyuf`).
+   Mesmo assim, aplique migration por `psql "$(cat /tmp/dburl.txt)" -f <arq>` (Session
+   pooler/IPv4; senha dentro da URL — `/tmp/dburl.txt`, senha em `/tmp/dbpass.txt`):
+   é o caminho usado/testado aqui. Não há projeto `supabase link`ado nem CLI em CI.
    `psql "$(cat /tmp/dburl.txt)"` serve p/ inspeção e p/ **teste transacional revertido**
    de RPC (`BEGIN; SELECT set_config('request.jwt.claims', json_build_object('sub','…')::text, true); …; ROLLBACK;`).
    Ao alterar função existente, **diff-validar**: `pg_get_functiondef` antes/depois.
@@ -49,8 +51,7 @@ unit + integração transacional de RPC — ver `tests/README.md`)
    em `/admin/usuarios`). Removido em 26/06/2026: o tab "Criar conta" (`signUp`) e o
    **login via Google** (`signInWithOAuth`) — não há mais auto-criação de conta.
    Resíduos do Lovable são só cosméticos: hosting/SEO em `sistrama.lovable.app`,
-   telemetria opcional no-op (`lovable-error-reporting.ts`), strings de erro herdadas
-   e `config.toml` com ref antigo (usado só pela CLI; regra 1).
+   telemetria opcional no-op (`lovable-error-reporting.ts`) e strings de erro herdadas.
 
 3. **Um piloto por vez.** Não editar no Lovable e no VS Code ao mesmo tempo.
    Sempre `git pull` antes; `git push origin main` ao terminar.
