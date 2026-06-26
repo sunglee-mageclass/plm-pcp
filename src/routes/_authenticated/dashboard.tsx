@@ -438,6 +438,80 @@ function EtapaBarCard({ title, data, dataKey, name, color }: {
 
 /* ============================ PRODUÇÃO ============================ */
 
+function RankingOficinas() {
+  const [cat, setCat] = useState("all");
+  const { data } = useQuery({
+    queryKey: ["dash-ranking-oficinas", cat],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("ranking_oficinas" as never, {
+        p_categoria_produto: cat === "all" ? undefined : cat,
+      } as never);
+      if (error) throw error;
+      return data as any;
+    },
+  });
+  const ranking: any[] = data?.ranking ?? [];
+  const categorias: any[] = data?.categorias ?? [];
+  // Posição do ranking = ordem da RPC (por desvio), estável mesmo se reordenar a tabela.
+  const rankMap = useMemo(() => new Map(ranking.map((r, i) => [r.oficina, i + 1])), [ranking]);
+  const sort = useSort<any>(ranking, { key: "desvio", dir: "asc" });
+
+  return (
+    <Card className="p-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-semibold">Ranking de oficinas <span className="text-sm font-normal text-muted-foreground">· SLA entregue vs cadastrado (menor desvio = melhor)</span></h3>
+        <Select value={cat} onValueChange={setCat}>
+          <SelectTrigger className="h-8 w-56"><SelectValue placeholder="Categoria do produto" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Geral (todas as categorias)</SelectItem>
+            {categorias.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm card-table">
+          <thead className="text-left text-muted-foreground">
+            <tr className="border-b">
+              <th className="py-2 pr-3 w-10 text-center">#</th>
+              <SortTh label="Oficina" sortKey="oficina" sortState={sort} className="py-2 pr-3" />
+              <SortTh label="Entregas" sortKey="entregas" sortState={sort} className="py-2 pr-3 text-right" />
+              <SortTh label="SLA real (dias)" sortKey="slaReal" sortState={sort} className="py-2 pr-3 text-right" />
+              <SortTh label="SLA esperado" sortKey="slaEsperado" sortState={sort} className="py-2 pr-3 text-right" />
+              <SortTh label="Desvio" sortKey="desvio" sortState={sort} className="py-2 pr-3 text-right" />
+              <SortTh label="% dentro" sortKey="pctDentro" sortState={sort} className="py-2 pr-3 text-right" />
+            </tr>
+          </thead>
+          <tbody>
+            {sort.sorted.map((r: any) => {
+              const pos = rankMap.get(r.oficina) ?? 0;
+              const medal = pos === 1 ? "🥇" : pos === 2 ? "🥈" : pos === 3 ? "🥉" : String(pos);
+              const dentro = Number(r.desvio) <= 0;
+              return (
+                <tr key={r.oficina} className="border-b last:border-0">
+                  <td className="py-2 pr-3 text-center">{medal}</td>
+                  <td className="py-2 pr-3 font-medium" data-label="Oficina">{r.oficina}</td>
+                  <td className="py-2 pr-3 text-right" data-label="Entregas">{r.entregas}</td>
+                  <td className="py-2 pr-3 text-right" data-label="SLA real (dias)">{fmtNum(r.slaReal)}</td>
+                  <td className="py-2 pr-3 text-right" data-label="SLA esperado">{fmtNum(r.slaEsperado)}</td>
+                  <td className={"py-2 pr-3 text-right font-medium " + (dentro ? "text-green-600 dark:text-green-400" : "text-destructive")} data-label="Desvio">
+                    {Number(r.desvio) > 0 ? "+" : ""}{fmtNum(r.desvio)}
+                  </td>
+                  <td className="py-2 pr-3 text-right" data-label="% dentro">{r.pctDentro}%</td>
+                </tr>
+              );
+            })}
+            {ranking.length === 0 && (
+              <tr><td colSpan={7} className="py-4 text-center text-muted-foreground">
+                Sem entregas de oficina com SLA cadastrado. Defina o "SLA Oficina" nas categorias de produto (Cadastro → Categoria do Produto).
+              </td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
 function ProducaoTab() {
   const fl = useFieldLabels();
   const [periodo, setPeriodo] = useState<Periodo>(undefined);
@@ -664,6 +738,8 @@ function ProducaoTab() {
         </table>
         </div>
       </Card>
+
+      <RankingOficinas />
 
       <RelatorioPrint
         titulo="Relatório de Produção — prazos e qualidade"
