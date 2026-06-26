@@ -256,7 +256,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
     onError: (e: any) =>
       toast.error(e?.code === "23505"
         ? "Já existe uma OS com esse número nesta loja. Escolha outro número."
-        : (e.message ?? "Erro ao salvar.")),
+        : mensagemErro(e, "Erro ao salvar.")),
   });
 
   const baixaMut = useMutation({

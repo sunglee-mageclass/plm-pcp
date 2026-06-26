@@ -799,7 +799,7 @@ function ServicosCard({ tenantId }: { tenantId: string | null }) {
       toast.error(
         e?.code === "23503"
           ? "Categoria em uso por terceirizados. Remova os vínculos antes."
-          : e.message ?? "Erro ao excluir.",
+          : mensagemErro(e, "Erro ao excluir."),
       ),
   });
 

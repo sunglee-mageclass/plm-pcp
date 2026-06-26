@@ -67,7 +67,7 @@ function IdentidadePage() {
       setLogoPreview(signedUrl);
       toast.success("Logo carregada. Clique em Salvar para aplicar.");
     } catch (err) {
-      toast.error("Falha ao enviar logo: " + mensagemErro(err));
+      toast.error("Falha ao enviar logo: " + mensagemErro(err, "erro ao enviar o arquivo."));
     }
   }
 
@@ -80,7 +80,7 @@ function IdentidadePage() {
       setFaviconPreview(signedUrl);
       toast.success("Favicon carregado. Clique em Salvar para aplicar.");
     } catch (err) {
-      toast.error("Falha ao enviar favicon: " + mensagemErro(err));
+      toast.error("Falha ao enviar favicon: " + mensagemErro(err, "erro ao enviar o arquivo."));
     }
   }
 
@@ -100,7 +100,7 @@ function IdentidadePage() {
       await qc.invalidateQueries({ queryKey: ["system_identity"] });
       toast.success("Identidade atualizada.");
     } catch (err) {
-      toast.error("Falha ao salvar: " + mensagemErro(err));
+      toast.error("Falha ao salvar: " + mensagemErro(err, "erro ao salvar a identidade."));
     } finally {
       setSaving(false);
     }
