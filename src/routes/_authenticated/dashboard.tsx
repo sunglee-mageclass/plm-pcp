@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { BarChart3, Package, Palette, Boxes, AlertTriangle, Layers, Sparkles, Printer, CheckCircle2, Scissors, ClipboardCheck, Factory, DollarSign, Tag } from "lucide-react";
 import { format } from "date-fns";
 import { FilterButton } from "@/components/shared/filters";
+import { useSort, SortTh } from "@/components/shared/sort";
 import { Button } from "@/components/ui/button";
 import { printWithImages } from "@/lib/print";
 import { RelatorioPrint } from "@/components/shared/RelatorioPrint";
@@ -436,6 +437,7 @@ function ProducaoTab() {
   const [periodo, setPeriodo] = useState<Periodo>(undefined);
   const [colecao, setColecao] = useState("all");
   const [linha, setLinha] = useState("all");
+  const [servico, setServico] = useState("all");
   const ini = isoDate(periodo?.from), fim = isoDate(periodo?.to);
 
   const { data, isLoading, isError } = useQuery({
@@ -454,6 +456,16 @@ function ProducaoTab() {
 
   const timeline = data?.timeline ?? [];
   const slaPorTerc = data?.slaPorTerc ?? [];
+  // SLA por serviço: tipos disponíveis (p/ filtro), filtra e ordena.
+  const slaTipos = useMemo<string[]>(
+    () => Array.from(new Set((slaPorTerc as any[]).map((r) => r.tipo).filter(Boolean))).sort(),
+    [slaPorTerc],
+  );
+  const slaFiltrado = useMemo(
+    () => (servico === "all" ? slaPorTerc : (slaPorTerc as any[]).filter((r) => r.tipo === servico)),
+    [slaPorTerc, servico],
+  );
+  const slaSort = useSort<any>(slaFiltrado, { key: "nome" });
   const kpiPrazo = data?.kpiPrazo ?? { noPrazo: 0, atrasadas: 0, pct: 0 };
   const cortes = data?.cortesPorMes ?? [];
   const finalizadas = data?.finalizadasPorMes ?? [];
@@ -584,20 +596,30 @@ function ProducaoTab() {
       </Card>
 
       <Card className="p-4">
-        <h3 className="font-semibold mb-3">SLA por terceirizado</h3>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h3 className="font-semibold">SLA por serviço</h3>
+          <Select value={servico} onValueChange={setServico}>
+            <SelectTrigger className="h-8 w-48"><SelectValue placeholder="Serviço" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos os serviços</SelectItem>
+              {slaTipos.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
         <div className="overflow-x-auto">
         <table className="w-full text-sm card-table">
           <thead className="text-left text-muted-foreground">
             <tr className="border-b">
-              <th className="py-2 pr-3">Nome</th>
-              <th className="py-2 pr-3 text-right">SLA médio (dias)</th>
-              <th className="py-2 pr-3 text-right">Atrasos</th>
-              <th className="py-2 pr-3 text-right">Total entregue</th>
-              <th className="py-2 pr-3 text-right">Taxa de Defeito</th>
+              <SortTh label="Nome" sortKey="nome" sortState={slaSort} className="py-2 pr-3" />
+              <SortTh label="Tipo de serviço" sortKey="tipo" sortState={slaSort} className="py-2 pr-3" />
+              <SortTh label="SLA médio (dias)" sortKey="slaMedio" sortState={slaSort} className="py-2 pr-3 text-right" />
+              <SortTh label="Atrasos" sortKey="atrasos" sortState={slaSort} className="py-2 pr-3 text-right" />
+              <SortTh label="Total entregue" sortKey="total" sortState={slaSort} className="py-2 pr-3 text-right" />
+              <SortTh label="Taxa de Defeito" sortKey="taxaDefeito" sortState={slaSort} className="py-2 pr-3 text-right" />
             </tr>
           </thead>
           <tbody>
-            {slaPorTerc.map((r: any, i: number) => {
+            {slaSort.sorted.map((r: any, i: number) => {
               const taxa = Number(r.taxaDefeito ?? 0);
               const produzidas = Number(r.pecasProduzidas ?? 0);
               const defeito = Number(r.pecasDefeito ?? 0);
@@ -609,6 +631,7 @@ function ProducaoTab() {
               return (
                 <tr key={i} className="border-b last:border-0">
                   <td className="py-2 pr-3">{r.nome}</td>
+                  <td className="py-2 pr-3" data-label="Tipo de serviço">{r.tipo ?? "—"}</td>
                   <td className="py-2 pr-3 text-right" data-label="SLA médio (dias)">{fmtNum(r.slaMedio)}</td>
                   <td className={"py-2 pr-3 text-right " + (Number(r.atrasos) > 0 ? "text-destructive" : "")} data-label="Atrasos">{r.atrasos}</td>
                   <td className="py-2 pr-3 text-right" data-label="Total entregue">{r.total}</td>
@@ -627,7 +650,7 @@ function ProducaoTab() {
                 </tr>
               );
             })}
-            {!isLoading && slaPorTerc.length === 0 && <tr><td colSpan={5} className="py-4 text-center text-muted-foreground">Sem entregas registradas.</td></tr>}
+            {!isLoading && slaSort.sorted.length === 0 && <tr><td colSpan={6} className="py-4 text-center text-muted-foreground">Sem entregas registradas.</td></tr>}
           </tbody>
         </table>
         </div>
@@ -652,9 +675,10 @@ function ProducaoTab() {
             linhas: (defeitoMes as any[]).map((d) => ({ mes: d.mes, taxa: `${Number(d.taxa)}%` })), zebra: true,
           },
           {
-            titulo: "SLA / qualidade por terceirizado", icone: "▤",
+            titulo: "SLA / qualidade por serviço", icone: "▤",
             colunas: [
-              { key: "nome", label: "Terceirizado" },
+              { key: "nome", label: "Prestador" },
+              { key: "tipo", label: "Tipo de serviço" },
               { key: "sla", label: "SLA médio (dias)", align: "right" },
               { key: "atrasos", label: "Atrasos", align: "right" },
               { key: "total", label: "Total entregue", align: "right" },
@@ -662,6 +686,7 @@ function ProducaoTab() {
             ],
             linhas: (slaPorTerc as any[]).map((r) => ({
               nome: r.nome ?? "—",
+              tipo: r.tipo ?? "—",
               sla: fmtNum(r.slaMedio),
               atrasos: String(r.atrasos ?? 0),
               total: String(r.total ?? 0),
