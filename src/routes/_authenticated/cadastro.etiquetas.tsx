@@ -23,6 +23,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
+import { useSort, SortHead } from "@/components/shared/sort";
 
 export const Route = createFileRoute("/_authenticated/cadastro/etiquetas")({
   component: () => (
@@ -82,6 +83,9 @@ function EtiquetasPage() {
     if (!s) return etiquetas;
     return etiquetas.filter((e) => e.nome.toLowerCase().includes(s));
   }, [etiquetas, search]);
+
+  const { sorted, sortKey, sortDir, toggle } = useSort(filtered, { key: "nome" });
+  const sortState = { sortKey, sortDir, toggle };
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["etiquetas-cadastro"] });
@@ -158,8 +162,8 @@ function EtiquetasPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Nome</TableHead>
-              <TableHead>Tamanho</TableHead>
+              <SortHead label="Nome" sortKey="nome" sortState={sortState} />
+              <SortHead label="Tamanho" sortKey="tamanho" sortState={sortState} />
               <TableHead className="w-32 text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
@@ -170,14 +174,14 @@ function EtiquetasPage() {
                   <Loader2 className="h-4 w-4 animate-spin inline mr-2" /> Carregando…
                 </TableCell>
               </TableRow>
-            ) : filtered.length === 0 ? (
+            ) : sorted.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
                   Nenhuma etiqueta encontrada.
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map((e) => (
+              sorted.map((e) => (
                 <TableRow key={e.id}>
                   <TableCell>
                     <button type="button" className="text-left hover:underline" onClick={() => openEdit(e)}>
