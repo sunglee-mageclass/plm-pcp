@@ -43,6 +43,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { useReadOnly } from "@/components/RequirePermission";
+import { useSort, SortHead } from "@/components/shared/sort";
 
 export type UsageRef = { table: string; column: string };
 
@@ -141,6 +142,20 @@ export function AttributeTab({
       String(r[config.nameField] ?? "").toLowerCase().includes(s),
     );
   }, [rows, search, config.nameField]);
+
+  // Ordenação clicável: por Nome e pelos campos extra/extraNumber quando existirem.
+  // A coluna "extra" exibe o rótulo mapeado (extraMap), então ordena por esse valor cru.
+  const sortAccessors = useMemo(() => {
+    const acc: Record<string, (row: Row) => unknown> = {};
+    if (config.extra) {
+      const field = config.extra.field;
+      acc[field] = (row) => (row[field] ? extraMap.get(row[field]) ?? "" : "");
+    }
+    return acc;
+  }, [config.extra, extraMap]);
+
+  const sortState = useSort(filtered, { key: config.nameField, accessors: sortAccessors });
+  const sorted = sortState.sorted;
 
   const createMut = useMutation({
     mutationFn: async () => {
@@ -284,9 +299,13 @@ export function AttributeTab({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Nome</TableHead>
-              {config.extra && <TableHead>{config.extra.label}</TableHead>}
-              {config.extraNumber && <TableHead className="w-40">{config.extraNumber.label}</TableHead>}
+              <SortHead label="Nome" sortKey={config.nameField} sortState={sortState} />
+              {config.extra && (
+                <SortHead label={config.extra.label} sortKey={config.extra.field} sortState={sortState} />
+              )}
+              {config.extraNumber && (
+                <SortHead label={config.extraNumber.label} sortKey={config.extraNumber.field} sortState={sortState} className="w-40" />
+              )}
               <TableHead className="w-32 text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
@@ -305,7 +324,7 @@ export function AttributeTab({
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map((row) => (
+              sorted.map((row) => (
                 <TableRow key={row.id}>
                   <TableCell>
                     {editingId === row.id ? (
