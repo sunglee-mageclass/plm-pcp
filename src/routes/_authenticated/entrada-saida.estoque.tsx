@@ -16,6 +16,7 @@ import { RelatorioPrint } from "@/components/shared/RelatorioPrint";
 import { cn } from "@/lib/utils";
 import { fmtNum } from "@/lib/format";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
+import { useSort, SortTh } from "@/components/shared/sort";
 
 import { RequirePermission } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/entrada-saida/estoque")({
@@ -269,17 +270,23 @@ function TecidosTab() {
     );
   }, [data, search, fornecedor, categoria, estoqueFilter]);
 
+  // Ordenação clicável (valores crus por variante; cabeçalho da tabela desktop +
+  // <Select> "Ordenar por" nos cards mobile). Aplicada ANTES de agrupar por artigo,
+  // pra ordenar as variantes dentro de cada grupo.
+  const { sorted, sortKey, sortDir, toggle } = useSort<any>(filtered, { key: "nomeVariante" });
+  const sortState = { sortKey, sortDir, toggle };
+
   // Group by artigo (key = artigoId, fallback para variantes sem artigo)
   const grouped = useMemo(() => {
     const map = new Map<string, { artigoId: string; artigoNome: string; rows: any[] }>();
-    for (const r of filtered) {
+    for (const r of sorted) {
       const key = r.artigoId ?? `sem-artigo-${r.varId}`;
       const g = map.get(key) ?? { artigoId: key, artigoNome: r.artigoNome, rows: [] as any[] };
       g.rows.push(r);
       map.set(key, g);
     }
     return Array.from(map.values());
-  }, [filtered]);
+  }, [sorted]);
 
   return (
     <div className="space-y-4">
@@ -304,6 +311,22 @@ function TecidosTab() {
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
       {error && <p className="text-sm text-destructive">Erro ao carregar estoque: {(error as Error).message}</p>}
 
+      {/* Mobile: ordenação por <Select> (cards não têm cabeçalho clicável) */}
+      <div className="md:hidden flex items-center gap-2">
+        <Label className="text-xs text-muted-foreground shrink-0">Ordenar por</Label>
+        <Select value={sortKey ?? "nomeVariante"} onValueChange={(v) => toggle(v)}>
+          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="nomeVariante">Variante</SelectItem>
+            <SelectItem value="prevRecebM">Prev. Receb.</SelectItem>
+            <SelectItem value="recebidoM">Recebido</SelectItem>
+            <SelectItem value="fisico">Físico Real</SelectItem>
+            <SelectItem value="reservado">Reservado</SelectItem>
+            <SelectItem value="previsto">Previsto</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
       {grouped.map((g) => (
         <Card key={g.artigoId} className="p-4">
           <h3 className="font-semibold mb-3">{g.artigoNome}</h3>
@@ -321,12 +344,12 @@ function TecidosTab() {
               <thead className="text-left text-muted-foreground">
                 <tr className="border-b">
                   <th className="py-2 pr-3"></th>
-                  <th className="py-2 pr-3">Variante</th>
-                  <th className="py-2 pr-3 text-right">Prev. Receb.</th>
-                  <th className="py-2 pr-3 text-right">Recebido</th>
-                  <th className="py-2 pr-3 text-right">Físico Real</th>
-                  <th className="py-2 pr-3 text-right">Reservado</th>
-                  <th className="py-2 pr-3 text-right">Previsto</th>
+                  <SortTh label="Variante" sortKey="nomeVariante" sortState={sortState} className="py-2 pr-3" />
+                  <SortTh label="Prev. Receb." sortKey="prevRecebM" sortState={sortState} className="py-2 pr-3" align="right" />
+                  <SortTh label="Recebido" sortKey="recebidoM" sortState={sortState} className="py-2 pr-3" align="right" />
+                  <SortTh label="Físico Real" sortKey="fisico" sortState={sortState} className="py-2 pr-3" align="right" />
+                  <SortTh label="Reservado" sortKey="reservado" sortState={sortState} className="py-2 pr-3" align="right" />
+                  <SortTh label="Previsto" sortKey="previsto" sortState={sortState} className="py-2 pr-3" align="right" />
                 </tr>
               </thead>
               <tbody>
@@ -709,6 +732,10 @@ function AviamentosTab() {
     );
   }, [data, search, fornecedor, categoria, estoqueFilter]);
 
+  // Ordenação clicável (cabeçalho desktop + <Select> "Ordenar por" nos cards mobile).
+  const { sorted, sortKey, sortDir, toggle } = useSort<any>(filtered, { key: "nome" });
+  const sortState = { sortKey, sortDir, toggle };
+
   return (
     <div className="space-y-4">
       <EstoqueHeader>
@@ -749,21 +776,21 @@ function AviamentosTab() {
             <thead className="text-left text-muted-foreground">
               <tr className="border-b">
                 <th className="py-2 pr-3"></th>
-                <th className="py-2 pr-3">Aviamento</th>
-                <th className="py-2 pr-3">Fornecedor</th>
-                <th className="py-2 pr-3">Categoria</th>
-                <th className="py-2 pr-3 text-right">Prev. Receb.</th>
-                <th className="py-2 pr-3 text-right">Recebido</th>
-                <th className="py-2 pr-3 text-right">Físico Real</th>
-                <th className="py-2 pr-3 text-right">Reservado</th>
-                <th className="py-2 pr-3 text-right">Previsto</th>
+                <SortTh label="Aviamento" sortKey="nome" sortState={sortState} className="py-2 pr-3" />
+                <SortTh label="Fornecedor" sortKey="fornecedor" sortState={sortState} className="py-2 pr-3" />
+                <SortTh label="Categoria" sortKey="categoria" sortState={sortState} className="py-2 pr-3" />
+                <SortTh label="Prev. Receb." sortKey="prevReceb" sortState={sortState} className="py-2 pr-3" align="right" />
+                <SortTh label="Recebido" sortKey="recebido" sortState={sortState} className="py-2 pr-3" align="right" />
+                <SortTh label="Físico Real" sortKey="fisico" sortState={sortState} className="py-2 pr-3" align="right" />
+                <SortTh label="Reservado" sortKey="reservado" sortState={sortState} className="py-2 pr-3" align="right" />
+                <SortTh label="Previsto" sortKey="previsto" sortState={sortState} className="py-2 pr-3" align="right" />
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r: any) => (
+              {sorted.map((r: any) => (
                 <AviamentoRow key={r.id} row={r} />
               ))}
-              {!isLoading && filtered.length === 0 && (
+              {!isLoading && sorted.length === 0 && (
                 <tr><td colSpan={9} className="py-4 text-center text-muted-foreground">Nenhum aviamento encontrado.</td></tr>
               )}
             </tbody>
@@ -771,10 +798,27 @@ function AviamentosTab() {
         </div>
         {/* Mobile: cards por aviamento */}
         <div className="md:hidden space-y-2">
-          {filtered.map((r: any) => (
+          {/* Mobile: ordenação por <Select> (cards não têm cabeçalho clicável) */}
+          <div className="flex items-center gap-2">
+            <Label className="text-xs text-muted-foreground shrink-0">Ordenar por</Label>
+            <Select value={sortKey ?? "nome"} onValueChange={(v) => toggle(v)}>
+              <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="nome">Aviamento</SelectItem>
+                <SelectItem value="fornecedor">Fornecedor</SelectItem>
+                <SelectItem value="categoria">Categoria</SelectItem>
+                <SelectItem value="prevReceb">Prev. Receb.</SelectItem>
+                <SelectItem value="recebido">Recebido</SelectItem>
+                <SelectItem value="fisico">Físico Real</SelectItem>
+                <SelectItem value="reservado">Reservado</SelectItem>
+                <SelectItem value="previsto">Previsto</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {sorted.map((r: any) => (
             <AviamentoCard key={r.id} row={r} />
           ))}
-          {!isLoading && filtered.length === 0 && (
+          {!isLoading && sorted.length === 0 && (
             <p className="py-4 text-center text-sm text-muted-foreground">Nenhum aviamento encontrado.</p>
           )}
         </div>
