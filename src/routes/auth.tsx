@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { TecelagemAnimacao } from "@/components/home/TecelagemAnimacao";
 
 export const Route = createFileRoute("/auth")({
   component: AuthPage,
@@ -57,8 +58,17 @@ function AuthPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4">
-      <div className="w-full max-w-md">
+    <div className="relative min-h-screen flex items-center justify-center overflow-hidden bg-background px-4">
+      {/* Mesma tecelagem da home, mais sutil, como pano de fundo do login. */}
+      <TecelagemAnimacao className="absolute inset-0 h-full w-full" opacity={0.5} espacamento={56} />
+      <div
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "radial-gradient(ellipse at center, var(--background) 0%, color-mix(in oklab, var(--background) 70%, transparent) 55%, color-mix(in oklab, var(--background) 40%, transparent) 100%)",
+        }}
+      />
+      <div className="relative z-10 w-full max-w-md">
         <div className="mb-8 text-center">
           <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold overflow-hidden">
             {identity.logoSignedUrl ? (
