@@ -12,6 +12,7 @@ import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { useSort, SortTh } from "@/components/shared/sort";
 
 export const Route = createFileRoute("/_authenticated/producao/acabamento/")({
   component: AcabListPage,
@@ -49,6 +50,8 @@ function AcabListPage() {
     if (fColecao !== "all" && r.colecao !== fColecao) return false;
     return true;
   });
+  const { sorted, sortKey, sortDir, toggle } = useSort(filtered, { key: "ref" });
+  const s = { sortKey, sortDir, toggle };
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6">
@@ -74,18 +77,18 @@ function AcabListPage() {
         <table className="w-full text-sm card-table">
           <thead className="bg-muted/50 text-left">
             <tr>
-              <th className="px-4 py-2">{fl("ref")}</th>
-              <th className="px-4 py-2">Nome</th>
-              <th className="px-4 py-2">Categoria</th>
-              <th className="px-4 py-2">Coleção</th>
+              <SortTh label={fl("ref")} sortKey="ref" sortState={s} className="px-4 py-2" />
+              <SortTh label="Nome" sortKey="nome" sortState={s} className="px-4 py-2" />
+              <SortTh label="Categoria" sortKey="categoria_nome" sortState={s} className="px-4 py-2" />
+              <SortTh label="Coleção" sortKey="colecao" sortState={s} className="px-4 py-2" />
             </tr>
           </thead>
           <tbody>
             {isLoading && <SkeletonTableRow cols={4} />}
-            {!isLoading && filtered.length === 0 && (
+            {!isLoading && sorted.length === 0 && (
               <tr><td colSpan={4} className="p-0"><EmptyState icon={Sparkles} title="Nenhum modelo disponível" description="Modelos em acabamento aparecerão aqui." className="border-0 rounded-none" /></td></tr>
             )}
-            {filtered.map((r: any) => (
+            {sorted.map((r: any) => (
               <tr key={r.modelo_id} className="border-t hover:bg-muted/30">
                 <td className="px-4 py-2">
                   <Link to="/producao/acabamento/$modeloId" params={{ modeloId: r.modelo_id }} className="font-mono text-primary hover:underline">
