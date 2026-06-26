@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Store, Plus, Search, Upload, Pencil, RotateCcw, Trash2, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -63,6 +64,8 @@ function LojasPage() {
   const [resetTarget, setResetTarget] = useState<Tenant | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Tenant | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState("");
+  // Ativar/inativar a loja suspende/libera o acesso de todos os usuários dela.
+  const [ativoTarget, setAtivoTarget] = useState<Tenant | null>(null);
 
   const { data: tenants = [], isLoading } = useQuery({
     queryKey: ["admin", "tenants"],
@@ -92,7 +95,7 @@ function LojasPage() {
       qc.invalidateQueries({ queryKey: ["tenant-switcher"] });
       toast.success("Loja atualizada");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(mensagemErro(e)),
   });
 
   // Reset = "como loja nova": zera os dados de negócio (RPC reset_loja, super_admin).
@@ -106,7 +109,7 @@ function LojasPage() {
       setResetTarget(null);
       toast.success("Loja resetada — voltou ao estado inicial.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(mensagemErro(e)),
   });
   // Exclusão definitiva da loja + todos os dados (RPC excluir_loja, super_admin).
   const deleteMut = useMutation({
@@ -121,7 +124,7 @@ function LojasPage() {
       setDeleteConfirm("");
       toast.success("Loja excluída.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(mensagemErro(e)),
   });
 
   if (loading) return null;
@@ -220,7 +223,7 @@ function LojasPage() {
                       </Button>
                       <Switch
                         checked={t.ativo}
-                        onCheckedChange={(checked) => toggleAtivo.mutate({ id: t.id, ativo: checked })}
+                        onCheckedChange={() => setAtivoTarget(t)}
                       />
                     </div>
                   </TableCell>
@@ -236,6 +239,40 @@ function LojasPage() {
           <EditarLojaModal tenant={editingTenant} onClose={() => setEditingTenant(null)} />
         )}
       </Dialog>
+
+      {/* Ativar/inativar loja: inativar suspende o acesso (RLS bloqueia tudo). */}
+      <AlertDialog open={!!ativoTarget} onOpenChange={(o) => { if (!o) setAtivoTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {ativoTarget?.ativo ? "Inativar" : "Ativar"} a loja “{ativoTarget?.nome}”?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {ativoTarget?.ativo ? (
+                <>Inativar <strong>suspende o acesso</strong> de todos os usuários desta loja —
+                ninguém consegue ver ou alterar os dados dela enquanto estiver inativa. Os dados
+                são preservados e voltam ao reativar.</>
+              ) : (
+                <>Ativar <strong>libera o acesso</strong> dos usuários desta loja novamente.</>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className={ativoTarget?.ativo ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : undefined}
+              onClick={(e) => {
+                e.preventDefault();
+                if (ativoTarget) toggleAtivo.mutate({ id: ativoTarget.id, ativo: !ativoTarget.ativo });
+                setAtivoTarget(null);
+              }}
+              disabled={toggleAtivo.isPending}
+            >
+              {ativoTarget?.ativo ? "Inativar loja" : "Ativar loja"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Reset: zera os dados de negócio, mantém loja/usuários/config. */}
       <AlertDialog open={!!resetTarget} onOpenChange={(o) => { if (!o) setResetTarget(null); }}>
@@ -338,7 +375,7 @@ function NovaLojaModal({ onClose }: { onClose: () => void }) {
       qc.invalidateQueries({ queryKey: ["tenant-switcher"] });
       onClose();
     } catch (err) {
-      toast.error((err as Error).message);
+      toast.error(mensagemErro(err));
     } finally {
       setSubmitting(false);
     }
@@ -396,6 +433,7 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [modules, setModules] = useState<Record<string, boolean>>(MODULE_DEFAULTS);
+  const [confirmModules, setConfirmModules] = useState(false);
 
   // Módulos habilitados desta loja (tenant_config da loja editada; super_admin
   // lê/escreve via policy super_admin_all_tenant_config).
@@ -423,9 +461,21 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
     setModules({ ...MODULE_DEFAULTS, ...(cfgModules ?? {}), cadastro: true });
   }, [cfgModules, tenant.id]);
 
-  const onSubmit = async (e: React.FormEvent) => {
+  // Mudou algum módulo em relação ao que está salvo? (desligar módulo esconde dados)
+  const modulesChanged = (() => {
+    const base: Record<string, boolean> = { ...MODULE_DEFAULTS, ...(cfgModules ?? {}), cadastro: true };
+    return MODULE_TOGGLES.some((m) => !!base[m.key] !== !!modules[m.key]);
+  })();
+
+  const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!nome.trim()) { toast.error("Nome obrigatório"); return; }
+    // Trocar módulos afeta o que a loja inteira vê — confirma antes.
+    if (modulesChanged) { setConfirmModules(true); return; }
+    doSave();
+  };
+
+  const doSave = async () => {
     setSubmitting(true);
     try {
       let logo_url: string | null | undefined = undefined;
@@ -464,7 +514,7 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
       qc.invalidateQueries({ queryKey: ["tenant_config", "modules"] });
       onClose();
     } catch (err) {
-      toast.error((err as Error).message);
+      toast.error(mensagemErro(err));
     } finally {
       setSubmitting(false);
     }
@@ -536,6 +586,29 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
           <Button type="submit" className="max-sm:ml-auto" disabled={submitting}>{submitting ? "Salvando…" : "Salvar"}</Button>
         </DialogFooter>
       </form>
+
+      {/* Confirmação: trocar módulos habilitados afeta o que a loja inteira enxerga. */}
+      <AlertDialog open={confirmModules} onOpenChange={setConfirmModules}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Alterar os módulos da loja “{tenant.nome}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Você mudou os <strong>módulos habilitados</strong>. Desligar um módulo
+              <strong> esconde seções inteiras</strong> para todos os usuários da loja. Os
+              dados não são apagados, mas ficam inacessíveis até religar. Deseja continuar?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); setConfirmModules(false); doSave(); }}
+              disabled={submitting}
+            >
+              Salvar mesmo assim
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DialogContent>
   );
 }

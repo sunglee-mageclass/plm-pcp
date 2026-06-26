@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { AlertTriangle, Check, Ban, RotateCcw, Repeat } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -132,7 +133,7 @@ function useCqUpdate() {
       ["cq-tecido", "cq-oc", "alertas-tecido", "estoque-tecidos", "dash-estoque", "consumo-por-oc", "ocs_tecido"]
         .forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao salvar CQ"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar CQ")),
   });
 }
 
@@ -157,7 +158,7 @@ function useResolucao() {
         "consumo-por-oc", "ocs_tecido", "parcelas", "dash-financeiro"]
         .forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao aplicar resolução"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao aplicar resolução")),
   });
 }
 
@@ -176,7 +177,7 @@ function useReceberReposicao() {
         "consumo-por-oc", "ocs_tecido", "parcelas", "dash-financeiro"]
         .forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao receber reposição"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao receber reposição")),
   });
 }
 
@@ -280,7 +281,7 @@ export function AlertasList() {
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["cq-tecido"] }),
-    onError: (e: any) => toast.error(e.message ?? "Erro ao resolver alerta do rolo"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao resolver alerta do rolo")),
   });
   // Troca/cancela de rolo afeta estoque, consumo, listas de OC/rolo e os alertas —
   // invalida tudo para os valores atualizarem em todas as telas.
@@ -293,7 +294,7 @@ export function AlertasList() {
       if (error) throw error;
     },
     onSuccess: () => { invalidarRolo(); toast.success("Rolo cancelado."); },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao cancelar rolo"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao cancelar rolo")),
   });
   const reabrirRoloMut = useMutation({
     mutationFn: async (roloId: string) => {
@@ -301,7 +302,7 @@ export function AlertasList() {
       if (error) throw error;
     },
     onSuccess: () => invalidarRolo(),
-    onError: (e: any) => toast.error(e.message ?? "Erro ao reabrir rolo"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao reabrir rolo")),
   });
   // Trocar o rolo defeituoso: reverte a separação, marca 'trocado' e gera a reposição.
   const trocaRoloMut = useMutation({
@@ -310,7 +311,7 @@ export function AlertasList() {
       if (error) throw error;
     },
     onSuccess: () => { invalidarRolo(); toast.success("Rolo trocado — reposição gerada."); setTrocaRolo(null); setTrocaMetragem(""); },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao trocar rolo"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao trocar rolo")),
   });
   const [aba, setAba] = useState<"pendentes" | "resolvidos">("pendentes");
   const [confirmCancel, setConfirmCancel] = useState<CqItem | null>(null);

@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Hammer, ImageIcon } from "lucide-react";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
@@ -193,7 +194,7 @@ function DesenvolvimentoPage() {
     },
     onError: (e: any, _v, ctx) => {
       if (ctx?.prev) qc.setQueryData(["modelos-desenvolvimento"], ctx.prev);
-      toast.error(e.message ?? "Erro ao atualizar status");
+      toast.error(mensagemErro(e, "Erro ao atualizar status"));
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] }),
   });

@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { Trash2, Pencil, Undo2, Printer } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -135,7 +136,7 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
       onSaved();
       onClose();
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao criar rolo"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao criar rolo")),
   });
 
   return (
@@ -377,7 +378,7 @@ export function RolosList() {
       qc.invalidateQueries({ queryKey: ["consumo-por-oc"] });
       setDeleting(null);
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao excluir rolo"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir rolo")),
   });
 
   const selecionados = rolos.filter((r) => sel.has(r.id));
@@ -525,7 +526,7 @@ function RoloEditDialog({ rolo, onClose }: { rolo: RoloRow; onClose: () => void 
       qc.invalidateQueries({ queryKey: ["consumo-por-oc"] });
       onClose();
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao atualizar rolo"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao atualizar rolo")),
   });
 
   return (
@@ -599,7 +600,7 @@ export function RemoverMetragemDialog({ onClose }: { onClose: () => void }) {
       ROLO_INVALIDATE.forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
       onClose();
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao remover metragem"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao remover metragem")),
   });
 
   return (
@@ -688,7 +689,7 @@ export function AjustesList() {
       toast.success("Ajuste revertido");
       ROLO_INVALIDATE.forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao reverter ajuste"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao reverter ajuste")),
   });
 
   if (ajustes.length === 0) return null;

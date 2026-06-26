@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Users, Plus, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { AttributeTab, type AttributeTabConfig } from "@/components/attribute-tab";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -203,7 +204,7 @@ function ColaboradoresPage() {
       toast.success("Tipo criado.");
     },
     onError: (e: any) =>
-      toast.error(e?.code === "23505" ? "Tipo já existe." : e.message ?? "Erro ao criar tipo."),
+      toast.error(e?.code === "23505" ? "Tipo já existe." : mensagemErro(e, "Erro ao criar tipo.")),
   });
 
   const editType = useMutation({
@@ -238,7 +239,7 @@ function ColaboradoresPage() {
       toast.success("Tipo atualizado.");
     },
     onError: (e: any) =>
-      toast.error(e?.code === "23505" ? "Tipo já existe." : e.message ?? "Erro ao editar tipo."),
+      toast.error(e?.code === "23505" ? "Tipo já existe." : mensagemErro(e, "Erro ao editar tipo.")),
   });
 
   const delType = useMutation({
@@ -258,7 +259,7 @@ function ColaboradoresPage() {
       qc.invalidateQueries({ queryKey: ["tipos-colaborador"] });
       toast.success("Tipo excluído.");
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao excluir tipo."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir tipo.")),
   });
 
   return (

@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { MapPin, Plus, Pencil, Trash2, Search, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { Button } from "@/components/ui/button";
@@ -78,7 +79,7 @@ function DestinosPage() {
       invalidate();
     },
     onError: (e: any) =>
-      toast.error(e?.code === "23505" ? "Destino já existe." : e.message ?? "Erro ao salvar."),
+      toast.error(e?.code === "23505" ? "Destino já existe." : mensagemErro(e, "Erro ao salvar.")),
   });
 
   const delMut = useMutation({
@@ -92,7 +93,7 @@ function DestinosPage() {
       invalidate();
     },
     onError: (e: any) =>
-      toast.error(e?.code === "23503" ? "Destino em uso em alguma Ordem de Saída. Remova de lá antes." : e.message ?? "Erro ao excluir."),
+      toast.error(e?.code === "23503" ? "Destino em uso em alguma Ordem de Saída. Remova de lá antes." : mensagemErro(e, "Erro ao excluir.")),
   });
 
   return (

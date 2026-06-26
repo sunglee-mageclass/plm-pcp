@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles, Plus, Upload, Trash2, ArrowLeft } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -150,7 +151,7 @@ function OcAviamentoPage() {
       setDeleting(null);
       qc.invalidateQueries({ queryKey: ["ocs_aviamento"] });
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao excluir."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir.")),
   });
 
   // Compute valores per OC via separate query
@@ -503,7 +504,7 @@ function OcDialog({
       const path = await uploadFile(file, "nf");
       setDraft((d) => ({ ...d, nf_url: path }));
       toast.success("NF enviada");
-    } catch (e: any) { toast.error(e.message); }
+    } catch (e: any) { toast.error(mensagemErro(e)); }
   };
 
   const saveMutation = useMutation({
@@ -640,7 +641,7 @@ function OcDialog({
       onSaved();
       onClose();
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao salvar"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
   });
 
   const unmarkReceivedMut = useMutation({
@@ -668,7 +669,7 @@ function OcDialog({
       onSaved();
       onClose();
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao desmarcar recebido."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desmarcar recebido.")),
   });
 
   const canShowRecebimento = isEdit && (status === "encomendado" || status === "recebido");

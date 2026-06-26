@@ -4,6 +4,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Scissors, Plus, Minus, ArrowLeft, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -123,7 +124,7 @@ function OcTecidoPage() {
       setDeleting(null);
       qc.invalidateQueries({ queryKey: ["ocs_tecido"] });
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao excluir."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir.")),
   });
 
   const ocIds = useMemo(() => ocs.map((o) => o.id), [ocs]);
@@ -566,7 +567,7 @@ function OcDialog({
       const path = await uploadFile(file, key as string);
       setDraft((d) => ({ ...d, [key]: path }));
       toast.success("Arquivo enviado");
-    } catch (e: any) { toast.error(e.message); }
+    } catch (e: any) { toast.error(mensagemErro(e)); }
   };
 
   const saveMutation = useMutation({
@@ -791,7 +792,7 @@ function OcDialog({
       onSaved();
       onClose();
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao salvar"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
   });
 
   const unmarkReceivedMut = useMutation({
@@ -828,7 +829,7 @@ function OcDialog({
       onSaved();
       onClose();
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao desmarcar recebido."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desmarcar recebido.")),
   });
 
   // CQ por rolo: grava direto no item do rolo (ocs_tecido_itens.cq_*) e reflete no
@@ -839,7 +840,7 @@ function OcDialog({
     if (patch.cq_alerta !== undefined) dbPatch.cq_alerta_status = patch.cq_alerta ? "alertado" : "sem_alerta";
     if (patch.obs !== undefined) dbPatch.cq_observacao = patch.obs || null;
     const { error } = await supabase.from("ocs_tecido_itens").update(dbPatch as any).eq("id", roloItemId);
-    if (error) { toast.error(error.message ?? "Erro ao salvar CQ do rolo"); return; }
+    if (error) { toast.error(mensagemErro(error, "Erro ao salvar CQ do rolo")); return; }
     setRolosPorItem((prev) => {
       const next: Record<string, RoloEntry[]> = {};
       for (const [k, arr] of Object.entries(prev)) {
@@ -861,13 +862,13 @@ function OcDialog({
   // Cancelar / reabrir um rolo específico (recalcula a OC: recebido + valor real).
   const onRoloCancelar = async (roloId: string, cancel: boolean) => {
     const { error } = await supabase.rpc((cancel ? "cancelar_rolo" : "reabrir_rolo") as any, { _rolo_id: roloId });
-    if (error) { toast.error(error.message ?? "Erro ao cancelar/reabrir rolo"); return; }
+    if (error) { toast.error(mensagemErro(error, "Erro ao cancelar/reabrir rolo")); return; }
     reloadOc();
   };
   // Ajustar a quantidade de um rolo já criado (recalcula a OC).
   const onRoloAjuste = async (roloId: string, novaQtd: number) => {
     const { error } = await supabase.rpc("ajustar_rolo" as any, { _rolo_id: roloId, _nova_qtd: novaQtd });
-    if (error) { toast.error(error.message ?? "Erro ao ajustar rolo"); return; }
+    if (error) { toast.error(mensagemErro(error, "Erro ao ajustar rolo")); return; }
     reloadOc();
   };
 
@@ -908,7 +909,7 @@ function OcDialog({
   const onSemEtiqueta = async (artigoId: string, value: boolean) => {
     setSemEtiquetaPorArtigo((m) => ({ ...m, [artigoId]: value }));
     const { error } = await supabase.from("artigos").update({ sem_etiqueta_lavagem: value } as any).eq("id", artigoId);
-    if (error) toast.error(error.message ?? "Erro ao salvar etiqueta");
+    if (error) toast.error(mensagemErro(error, "Erro ao salvar etiqueta"));
   };
 
   const parcelas = draft.parcelas_recebimento ?? [];

@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { PAGES_CATALOG, ALL_PAGE_KEYS } from "@/lib/permissions-catalog";
 import { savePermissions } from "@/lib/tenant-admin.functions";
@@ -92,7 +93,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
       qc.invalidateQueries({ queryKey: ["perms", user.id] });
       onClose();
     } catch (err) {
-      toast.error((err as Error).message);
+      toast.error(mensagemErro(err));
     } finally {
       setSubmitting(false);
     }

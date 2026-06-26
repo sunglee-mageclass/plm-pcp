@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Rocket, Upload, CheckCircle2, Camera } from "lucide-react";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -219,7 +220,7 @@ function LancamentosPage() {
       toast.success("Foto enviada");
       await qc.invalidateQueries({ queryKey: ["lancamentos-rows"] });
     },
-    onError: (e: any) => toast.error(e?.message ?? "Erro ao enviar foto"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao enviar foto")),
   });
 
   return (
@@ -308,7 +309,7 @@ function LancamentoCard(props: { card: LancCard; compact: boolean; onUpload: (f:
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["lancamentos-cards"] }),
-    onError: (e: any) => toast.error(e?.message ?? "Erro ao salvar foto"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar foto")),
   });
 
   const toggle = (num: number) => {

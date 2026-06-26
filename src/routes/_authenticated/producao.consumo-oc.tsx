@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { useModoOcRolo } from "@/hooks/useModoOcRolo";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -289,7 +290,7 @@ function ConsumoOcPage() {
       qc.invalidateQueries({ queryKey: ["estoque-tecido-detalhe-oc"] });
       qc.invalidateQueries({ queryKey: ["dash-estoque"] });
     },
-    onError: (e: any) => toast.error(e?.message ?? "Erro ao zerar estoque"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao zerar estoque")),
   });
   // Zerar exige confirmação; desmarcar (voltar ao número) é direto.
   const [confirmZerarId, setConfirmZerarId] = useState<string | null>(null);

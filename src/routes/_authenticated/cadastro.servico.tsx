@@ -11,6 +11,7 @@ import {
   Download,
 } from "lucide-react";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
@@ -318,7 +319,7 @@ function RepresentantesTab() {
       }));
       toast.success("Dados preenchidos.");
     } catch (e: any) {
-      toast.error(e.message ?? "Erro ao buscar CNPJ.");
+      toast.error(mensagemErro(e, "Erro ao buscar CNPJ."));
     } finally {
       setLookupLoading(false);
     }
@@ -404,7 +405,7 @@ function RepresentantesTab() {
       qc.invalidateQueries({ queryKey: ["attr", "empresas", ""] });
       qc.invalidateQueries({ queryKey: ["servico-count", "representantes"] });
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao salvar."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar.")),
   });
 
   const deleteMut = useMutation({
@@ -418,7 +419,7 @@ function RepresentantesTab() {
       qc.invalidateQueries({ queryKey: ["representantes"] });
       qc.invalidateQueries({ queryKey: ["servico-count", "representantes"] });
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao excluir."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir.")),
   });
 
   return (
@@ -881,7 +882,7 @@ function EmpresasMultiCatTab() {
       qc.invalidateQueries({ queryKey: ["empresas-options"] });
       qc.invalidateQueries({ queryKey: ["servico-count", "empresas"] });
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao salvar."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar.")),
   });
 
   const startDelete = async (row: EmpresaRow) => {
@@ -918,7 +919,7 @@ function EmpresasMultiCatTab() {
       qc.invalidateQueries({ queryKey: ["empresas-multi"] });
       qc.invalidateQueries({ queryKey: ["servico-count", "empresas"] });
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao excluir."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir.")),
   });
 
   return (
@@ -1302,7 +1303,7 @@ function TerceirizadosMultiCatTab() {
       qc.invalidateQueries({ queryKey: ["terceirizados-all"] });
       qc.invalidateQueries({ queryKey: ["servico-count", "terceirizados"] });
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao salvar."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar.")),
   });
 
   const startDelete = async (row: TerceirizadoRow) => {
@@ -1336,7 +1337,7 @@ function TerceirizadosMultiCatTab() {
       qc.invalidateQueries({ queryKey: ["terceirizados-multi"] });
       qc.invalidateQueries({ queryKey: ["servico-count", "terceirizados"] });
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao excluir."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir.")),
   });
 
   return (

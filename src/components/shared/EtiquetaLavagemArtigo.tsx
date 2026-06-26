@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Upload, Trash2, ImageIcon } from "lucide-react";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -200,7 +201,7 @@ export function EtiquetaLavagemArtigoEditor({
       return next;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["artigo-etiqueta", artigoId] }),
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(mensagemErro(e)),
   });
 
   const onAdd = async (file: File) => {
@@ -209,7 +210,7 @@ export function EtiquetaLavagemArtigoEditor({
       saveMut.mutate([...urls, path]);
       toast.success("Etiqueta salva no artigo");
     } catch (e) {
-      toast.error((e as Error).message);
+      toast.error(mensagemErro(e));
     }
   };
 

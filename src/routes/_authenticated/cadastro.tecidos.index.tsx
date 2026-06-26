@@ -11,6 +11,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
@@ -224,7 +225,7 @@ function TecidosGallery() {
       // Redirect to detail
       window.location.href = `/cadastro/tecidos/${id}`;
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao criar."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao criar.")),
   });
 
   // (A exclusão de tecido vive na tela de detalhe — cadastro.tecidos.$artigoId.)

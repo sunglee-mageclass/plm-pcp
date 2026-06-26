@@ -5,6 +5,7 @@ import { ArrowLeft, Compass, Save, CheckCircle2, RotateCcw, Pencil, AlertTriangl
 import { printWithImages } from "@/lib/print";
 import { RomaneioDirecionamento } from "@/components/producao/RomaneioDirecionamento";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -180,7 +181,7 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
       await refetch();
       setHydrated(false);
     },
-    onError: (e: any) => toast.error(e?.message ?? "Erro"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro")),
   });
 
   const confirmMut = useMutation({
@@ -200,7 +201,7 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
       await qc.invalidateQueries({ queryKey: ["dir-cad", modeloId] });
       await qc.invalidateQueries({ queryKey: ["dir-list"] });
     },
-    onError: (e: any) => toast.error(e?.message ?? "Erro ao confirmar"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao confirmar")),
   });
 
   const desmarcarMut = useMutation({
@@ -219,7 +220,7 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
       await qc.invalidateQueries({ queryKey: ["dir-cad", modeloId] });
       await qc.invalidateQueries({ queryKey: ["dir-list"] });
     },
-    onError: (e: any) => toast.error(e?.message ?? "Erro ao desmarcar"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desmarcar")),
   });
 
   const confirmado = status === "separado";

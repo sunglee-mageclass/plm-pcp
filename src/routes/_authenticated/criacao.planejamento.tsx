@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, Group, LayoutGrid, FileText, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 
 
@@ -492,13 +493,13 @@ function ModeloDialog({
       return { path, key };
     },
     onSuccess: ({ path, key }) => setDraft((d) => ({ ...d, [key]: [...d[key], path] })),
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => toast.error(mensagemErro(e)),
   });
 
   const uploadDesenho = useMutation({
     mutationFn: async (file: File) => uploadFile(file, "desenho_tecnico"),
     onSuccess: (path) => setDraft((d) => ({ ...d, desenho_tecnico_url: path })),
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => toast.error(mensagemErro(e)),
   });
 
   const save = useMutation({
@@ -521,7 +522,7 @@ function ModeloDialog({
       onSaved();
       onClose();
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro")),
   });
 
   const duplicate = useMutation({
@@ -548,7 +549,7 @@ function ModeloDialog({
       if (error) throw error;
     },
     onSuccess: () => { toast.success("Card duplicado"); onSaved(); onClose(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => toast.error(mensagemErro(e)),
   });
 
   const del = useMutation({
@@ -558,7 +559,7 @@ function ModeloDialog({
       if (error) throw error;
     },
     onSuccess: () => { toast.success("Modelo excluído"); onSaved(); onClose(); },
-    onError: (e: any) => toast.error(e.message),
+    onError: (e: any) => toast.error(mensagemErro(e)),
   });
 
   return (
@@ -802,7 +803,7 @@ function BatchCardsDialog({
       onSaved();
       onClose();
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao criar cards"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao criar cards")),
   });
 
   return (

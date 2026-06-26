@@ -16,6 +16,7 @@ import {
   MapPin,
 } from "lucide-react";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useSignedUrl, VARIANT_BUCKET } from "@/hooks/useSignedUrl";
@@ -200,7 +201,7 @@ function TecidoDetail() {
       qc.invalidateQueries({ queryKey: ["artigo-cats", artigoId] });
       qc.invalidateQueries({ queryKey: ["artigo-cats-all"] });
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao salvar."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar.")),
   });
 
   const navigate = useNavigate();
@@ -220,7 +221,7 @@ function TecidoDetail() {
       qc.invalidateQueries({ queryKey: ["variantes-thumb"] });
       navigate({ to: "/cadastro/tecidos" });
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao excluir."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir.")),
   });
 
   if (isLoading || !form) {
@@ -589,7 +590,7 @@ function VariantesSection({ artigoId, readOnly }: { artigoId: string; readOnly: 
       qc.invalidateQueries({ queryKey: ["variantes", artigoId] });
       qc.invalidateQueries({ queryKey: ["variantes-thumb"] });
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao adicionar."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao adicionar.")),
   });
 
   const removeVarMut = useMutation({
@@ -605,7 +606,7 @@ function VariantesSection({ artigoId, readOnly }: { artigoId: string; readOnly: 
       qc.invalidateQueries({ queryKey: ["variantes", artigoId] });
       qc.invalidateQueries({ queryKey: ["variantes-thumb"] });
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao remover."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao remover.")),
   });
 
   const toggleCor = (corId: string, checked: boolean) => {
@@ -739,7 +740,7 @@ function VariantRow({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["variantes", variante.artigo_id] });
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao salvar."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar.")),
   });
 
   const onUpload = async (file: File) => {
@@ -759,7 +760,7 @@ function VariantRow({
       saveMut.mutate({ foto_url: path });
       toast.success("Foto atualizada.");
     } catch (e: any) {
-      toast.error(e.message ?? "Erro ao enviar foto.");
+      toast.error(mensagemErro(e, "Erro ao enviar foto."));
     } finally {
       setUploading(false);
     }

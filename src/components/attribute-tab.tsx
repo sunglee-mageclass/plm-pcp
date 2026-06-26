@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Search, Plus, Pencil, Trash2, Check, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 
 import { Button } from "@/components/ui/button";
@@ -162,7 +163,7 @@ export function AttributeTab({
       qc.invalidateQueries({ queryKey: listKey });
       onChanged?.();
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao criar."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao criar.")),
   });
 
   const updateMut = useMutation({
@@ -181,7 +182,7 @@ export function AttributeTab({
       qc.invalidateQueries({ queryKey: listKey });
       onChanged?.();
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao atualizar."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao atualizar.")),
   });
 
   const updateExtraMut = useMutation({
@@ -197,7 +198,7 @@ export function AttributeTab({
       qc.invalidateQueries({ queryKey: listKey });
       onChanged?.();
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao atualizar."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao atualizar.")),
   });
 
   const deleteMut = useMutation({
@@ -212,7 +213,7 @@ export function AttributeTab({
       qc.invalidateQueries({ queryKey: listKey });
       onChanged?.();
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao excluir."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir.")),
   });
 
   const startDelete = async (row: Row) => {

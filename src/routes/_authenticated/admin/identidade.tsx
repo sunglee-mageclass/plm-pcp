@@ -11,6 +11,7 @@ import { useSystemIdentity } from "@/hooks/useSystemIdentity";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 
 export const Route = createFileRoute("/_authenticated/admin/identidade")({
   component: IdentidadePage,
@@ -67,7 +68,7 @@ function IdentidadePage() {
       setLogoPreview(signedUrl);
       toast.success("Logo carregada. Clique em Salvar para aplicar.");
     } catch (err) {
-      toast.error("Falha ao enviar logo: " + (err as Error).message);
+      toast.error("Falha ao enviar logo: " + mensagemErro(err));
     }
   }
 
@@ -80,7 +81,7 @@ function IdentidadePage() {
       setFaviconPreview(signedUrl);
       toast.success("Favicon carregado. Clique em Salvar para aplicar.");
     } catch (err) {
-      toast.error("Falha ao enviar favicon: " + (err as Error).message);
+      toast.error("Falha ao enviar favicon: " + mensagemErro(err));
     }
   }
 
@@ -100,7 +101,7 @@ function IdentidadePage() {
       await qc.invalidateQueries({ queryKey: ["system_identity"] });
       toast.success("Identidade atualizada.");
     } catch (err) {
-      toast.error("Falha ao salvar: " + (err as Error).message);
+      toast.error("Falha ao salvar: " + mensagemErro(err));
     } finally {
       setSaving(false);
     }

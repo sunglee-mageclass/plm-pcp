@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Pencil, Trash2, Search, Loader2, PackageMinus, ScissorsLineDashed, ArrowLeft, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { artigoLabel } from "@/lib/artigo-label";
 import { Button } from "@/components/ui/button";
@@ -276,7 +277,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
       setUtilizado({});
       invalidate();
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao dar baixa."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao dar baixa.")),
   });
 
   // Desmarcar baixa: reverte (zera baixa dos itens e volta a OS a "não baixada"),
@@ -293,7 +294,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
       setFormOpen(false);
       invalidate();
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao desmarcar baixa."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desmarcar baixa.")),
   });
 
   const delMut = useMutation({
@@ -306,7 +307,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
       setDeleteRow(null);
       invalidate();
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao excluir."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir.")),
   });
 
   const openBaixa = (o: OSRow) => {

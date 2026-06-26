@@ -4,6 +4,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Sparkles, Save, Plus, Trash2, Wrench } from "lucide-react";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -178,7 +179,7 @@ function AcabDetailPage() {
       await refetch();
       setHydrated(false);
     },
-    onError: (e: any) => toast.error(e?.message ?? "Erro"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro")),
   });
 
   return (

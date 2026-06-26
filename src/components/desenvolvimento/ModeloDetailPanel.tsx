@@ -5,6 +5,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { Loader2, Pencil, Send, ArrowLeft } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -599,7 +600,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       // A reserva de estoque é recalculada a partir do BOM salvo (1ª reserva).
       qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao salvar"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
   });
 
   const enviarCad = useMutation({
@@ -621,7 +622,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       setDraft((d: any) => ({ ...d, enviado_cad: true }));
       qc.invalidateQueries({ queryKey: ["modelo-detail", modeloId] });
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao enviar para CAD"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao enviar para CAD")),
   });
 
   const updateBlock = (idx: number, patch: Partial<TecidoBlock>) => {
@@ -807,7 +808,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       setDraft((d: any) => ({ ...d, ficha_medida_url: path }));
       toast.success("Ficha enviada");
     } catch (e: any) {
-      toast.error(e.message);
+      toast.error(mensagemErro(e));
     } finally {
       setUploading(false);
     }
@@ -824,7 +825,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       setDraft((d: any) => ({ ...d, desenho_tecnico_url: path }));
       toast.success("Desenho técnico enviado");
     } catch (e: any) {
-      toast.error(e.message);
+      toast.error(mensagemErro(e));
     } finally {
       setUploading(false);
     }

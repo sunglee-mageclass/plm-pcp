@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Users, Plus, KeyRound, ShieldCheck, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -98,7 +99,7 @@ function UsuariosPage() {
       qc.invalidateQueries({ queryKey: ["admin", "users"] });
       toast.success("Status atualizado");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(mensagemErro(e)),
   });
 
   if (loading) return null;
@@ -251,7 +252,7 @@ function NovoUsuarioModal({
       qc.invalidateQueries({ queryKey: ["admin", "users"] });
       onClose();
     } catch (err) {
-      toast.error((err as Error).message);
+      toast.error(mensagemErro(err));
     } finally {
       setSubmitting(false);
     }
@@ -328,7 +329,7 @@ function ResetSenhaModal({
       toast.success("Senha redefinida");
       onClose();
     } catch (err) {
-      toast.error((err as Error).message);
+      toast.error(mensagemErro(err));
     } finally {
       setSubmitting(false);
     }

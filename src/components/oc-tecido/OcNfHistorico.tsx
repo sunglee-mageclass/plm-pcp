@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 
 import { supabase } from "@/integrations/supabase/client";
 import { FileField } from "./FileField";
@@ -42,7 +43,7 @@ export function OcNfHistorico({ ocId }: { ocId: string }) {
       qc.invalidateQueries({ queryKey: ["oc-nf", ocId] });
       qc.invalidateQueries({ queryKey: ["oc-tecido", ocId] });
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao atualizar NF"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao atualizar NF")),
   });
 
   const onUpload = async (file: File) => {
@@ -50,7 +51,7 @@ export function OcNfHistorico({ ocId }: { ocId: string }) {
       const path = await uploadFile(file, "nf_url");
       setNf.mutate(path);
     } catch (e: any) {
-      toast.error(e.message ?? "Erro no upload");
+      toast.error(mensagemErro(e, "Erro no upload"));
     }
   };
 

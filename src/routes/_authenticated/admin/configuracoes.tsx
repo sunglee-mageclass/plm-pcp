@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Settings, Plus, GripVertical, Trash2, Save, Loader2, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import {
   DndContext,
   closestCenter,
@@ -30,6 +31,10 @@ import { Badge } from "@/components/ui/badge";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Select,
   SelectTrigger,
@@ -104,6 +109,9 @@ function ConfiguracoesLojaPage() {
   const qc = useQueryClient();
   const { modules, isStockOnly } = useTenantModules();
   const [cfg, setCfg] = useState<ConfigState>(DEFAULTS);
+  // Salvar configurações afeta dados de toda a loja (modo OC/Rolo, grade, kanban,
+  // acabamento, baixa) — confirma antes de gravar.
+  const [confirmSalvar, setConfirmSalvar] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["tenant-config", user?.id],
@@ -173,7 +181,7 @@ function ConfiguracoesLojaPage() {
         },
       });
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao salvar"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
   });
 
   if (loading) return <div className="p-6 text-muted-foreground">Carregando…</div>;
@@ -191,7 +199,7 @@ function ConfiguracoesLojaPage() {
             </p>
           </div>
         </div>
-        <Button className="max-sm:hidden shrink-0" onClick={() => save.mutate()} disabled={save.isPending || isLoading}>
+        <Button className="max-sm:hidden shrink-0" onClick={() => setConfirmSalvar(true)} disabled={save.isPending || isLoading}>
           <Save className="h-4 w-4 mr-2" />
           {save.isPending ? "Salvando…" : "Salvar alterações"}
         </Button>
@@ -399,11 +407,36 @@ function ConfiguracoesLojaPage() {
         <Button asChild variant="outline" size="icon" aria-label="Voltar">
           <Link to="/admin"><ArrowLeft className="h-4 w-4" /></Link>
         </Button>
-        <Button className="ml-auto" onClick={() => save.mutate()} disabled={save.isPending || isLoading}>
+        <Button className="ml-auto" onClick={() => setConfirmSalvar(true)} disabled={save.isPending || isLoading}>
           <Save className="h-4 w-4 mr-2" />
           {save.isPending ? "Salvando…" : "Salvar alterações"}
         </Button>
       </MobileActionBar>
+
+      {/* Confirmação: salvar config afeta dados de toda a loja. */}
+      <AlertDialog open={confirmSalvar} onOpenChange={setConfirmSalvar}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Salvar as configurações da loja?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Estas configurações afetam dados de <strong>toda a loja</strong> — modo
+              OC/Rolo, grade de tamanhos, status do kanban, acabamento e baixa de estoque.
+              Alterar algo que já está em uso pode deixar registros existentes
+              inconsistentes e, em casos extremos, exigir reiniciar a loja por completo.
+              Deseja continuar?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); setConfirmSalvar(false); save.mutate(); }}
+              disabled={save.isPending}
+            >
+              Salvar mesmo assim
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -608,7 +641,7 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
       });
       setOpen(false);
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao salvar"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
   });
 
   return (
@@ -685,6 +718,7 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
 function ServicosCard({ tenantId }: { tenantId: string | null }) {
   const qc = useQueryClient();
   const [draft, setDraft] = useState("");
+  const [removeTarget, setRemoveTarget] = useState<{ id: string; nome: string } | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const { data: categorias = [], isLoading } = useQuery({
@@ -714,7 +748,7 @@ function ServicosCard({ tenantId }: { tenantId: string | null }) {
       );
     },
     onSuccess: invalidate,
-    onError: (e: any) => toast.error(e.message ?? "Erro ao reordenar."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao reordenar.")),
   });
 
   const handleDragEnd = (e: DragEndEvent) => {
@@ -739,7 +773,7 @@ function ServicosCard({ tenantId }: { tenantId: string | null }) {
       invalidate();
     },
     onError: (e: any) =>
-      toast.error(e?.code === "23505" ? "Categoria já existe." : e.message ?? "Erro ao adicionar."),
+      toast.error(e?.code === "23505" ? "Categoria já existe." : mensagemErro(e, "Erro ao adicionar.")),
   });
 
   const renameMut = useMutation({
@@ -752,7 +786,7 @@ function ServicosCard({ tenantId }: { tenantId: string | null }) {
     },
     onSuccess: invalidate,
     onError: (e: any) =>
-      toast.error(e?.code === "23505" ? "Categoria já existe." : e.message ?? "Erro ao renomear."),
+      toast.error(e?.code === "23505" ? "Categoria já existe." : mensagemErro(e, "Erro ao renomear.")),
   });
 
   const removeMut = useMutation({
@@ -780,6 +814,7 @@ function ServicosCard({ tenantId }: { tenantId: string | null }) {
   };
 
   return (
+    <>
     <Card>
       <CardHeader>
         <CardTitle>Serviços</CardTitle>
@@ -823,7 +858,7 @@ function ServicosCard({ tenantId }: { tenantId: string | null }) {
                     id={c.id}
                     nome={c.nome}
                     onRename={(nome) => renameMut.mutate({ id: c.id, nome })}
-                    onRemove={() => removeMut.mutate(c.id)}
+                    onRemove={() => setRemoveTarget(c)}
                   />
                 ))}
                 {categorias.length === 0 && (
@@ -835,6 +870,28 @@ function ServicosCard({ tenantId }: { tenantId: string | null }) {
         )}
       </CardContent>
     </Card>
+
+    <AlertDialog open={!!removeTarget} onOpenChange={(o) => { if (!o) setRemoveTarget(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Excluir o serviço “{removeTarget?.nome}”?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Esta categoria de serviço sai da loja. Se já estiver em uso por algum
+            terceirizado, a exclusão será bloqueada. Esta ação não pode ser desfeita.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={(e) => { e.preventDefault(); if (removeTarget) removeMut.mutate(removeTarget.id); setRemoveTarget(null); }}
+          >
+            Excluir
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }
 

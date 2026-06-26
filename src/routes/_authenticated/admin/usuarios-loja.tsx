@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Users, Plus, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { createStoreUser } from "@/lib/tenant-admin.functions";
@@ -136,7 +137,7 @@ function NovoUsuarioModal({ onClose }: { onClose: () => void }) {
       qc.invalidateQueries({ queryKey: ["loja", "users"] });
       onClose();
     } catch (err) {
-      toast.error((err as Error).message);
+      toast.error(mensagemErro(err));
     } finally {
       setSubmitting(false);
     }

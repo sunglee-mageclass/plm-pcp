@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ClipboardCheck, Save, CheckCircle2, RotateCcw, Camera, Pencil, Wrench } from "lucide-react";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -381,7 +382,7 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
       await refetchVars();
       setHydrated(false);
     },
-    onError: (e: any) => toast.error(e?.message ?? "Erro"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro")),
   });
 
   const confirmMut = useMutation({
@@ -396,7 +397,7 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
       await refetchVars();
       setHydrated(false);
     },
-    onError: (e: any) => toast.error(e?.message ?? "Erro ao confirmar"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao confirmar")),
   });
 
   const desmarcarMut = useMutation({
@@ -413,7 +414,7 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
       await qc.invalidateQueries({ queryKey: ["dir-list"] });
       await refetchCq();
     },
-    onError: (e: any) => toast.error(e?.message ?? "Erro ao desmarcar"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desmarcar")),
   });
 
   return (
@@ -802,7 +803,7 @@ function OficinaServicoDialog({ cadId, open, onClose }: { cadId: string; open: b
       toast.success("Oficina atualizada");
       onClose();
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao salvar"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
   });
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>

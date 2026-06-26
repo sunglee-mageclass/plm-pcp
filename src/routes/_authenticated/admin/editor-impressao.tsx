@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Save, Plus, Trash2, Type, ImageIcon, RotateCcw, Printer } from "lucide-react";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useTenantLogo } from "@/hooks/useTenantLogo";
@@ -123,7 +124,7 @@ function EditorImpressaoPage() {
       // Prefixo: atualiza tanto a query do editor quanto a da impressão (chaves distintas).
       qc.invalidateQueries({ queryKey: ["print-template"] });
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao salvar"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
   });
 
   if (loading) return <div className="p-6 text-muted-foreground">Carregando…</div>;

@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Tag, Plus, Pencil, Trash2, Search, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
@@ -109,7 +110,7 @@ function EtiquetasPage() {
       invalidate();
     },
     onError: (e: any) =>
-      toast.error(e?.code === "23505" ? "Etiqueta já existe." : e.message ?? "Erro ao salvar."),
+      toast.error(e?.code === "23505" ? "Etiqueta já existe." : mensagemErro(e, "Erro ao salvar.")),
   });
 
   const delMut = useMutation({
@@ -123,7 +124,7 @@ function EtiquetasPage() {
       invalidate();
     },
     onError: (e: any) =>
-      toast.error(e?.code === "23503" ? "Etiqueta em uso em algum CAD. Remova de lá antes." : e.message ?? "Erro ao excluir."),
+      toast.error(e?.code === "23503" ? "Etiqueta em uso em algum CAD. Remova de lá antes." : mensagemErro(e, "Erro ao excluir.")),
   });
 
   return (

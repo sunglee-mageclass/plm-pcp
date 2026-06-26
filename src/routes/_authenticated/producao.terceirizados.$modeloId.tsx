@@ -4,6 +4,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Users, Save, Plus, Trash2, FileText, Pencil, Printer } from "lucide-react";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
@@ -449,7 +450,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
       setHydrated(false);
       setMoldeHydrated(false);
     },
-    onError: (e: any) => toast.error(e?.message ?? "Erro ao salvar"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
   });
 
   const locked = statusGeral === "finalizado" && !editing;

@@ -14,6 +14,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
@@ -245,7 +246,7 @@ function AviamentosGallery() {
       qc.invalidateQueries({ queryKey: ["aviamentos"] });
     },
     onError: (e: any) =>
-      toast.error(e?.code === "23503" ? "Aviamento em uso (OC, CAD ou material). Remova de lá antes." : e.message ?? "Erro ao excluir."),
+      toast.error(e?.code === "23503" ? "Aviamento em uso (OC, CAD ou material). Remova de lá antes." : mensagemErro(e, "Erro ao excluir.")),
   });
 
 
@@ -589,7 +590,7 @@ function AviamentoModal({
       set("foto_url", path);
       toast.success("Foto enviada.");
     } catch (e: any) {
-      toast.error(e.message ?? "Falha no upload.");
+      toast.error(mensagemErro(e, "Falha no upload."));
     } finally {
       setUploading(false);
     }
@@ -629,7 +630,7 @@ function AviamentoModal({
       toast.success(initial ? "Aviamento atualizado." : "Aviamento criado.");
       onSaved();
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao salvar."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar.")),
   });
 
   const handleOpenChange = (o: boolean) => {

@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -71,7 +72,7 @@ export function ModeloObservacoes({ modeloId, readOnly = false }: { modeloId: st
       if (error) throw error;
     },
     onSuccess: invalidate,
-    onError: (e: any) => toast.error(e.message ?? "Erro ao adicionar."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao adicionar.")),
   });
 
   const updMut = useMutation({
@@ -79,7 +80,7 @@ export function ModeloObservacoes({ modeloId, readOnly = false }: { modeloId: st
       const { error } = await supabase.from("modelo_observacoes" as any).update(patch).eq("id", id);
       if (error) throw error;
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao salvar."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar.")),
   });
 
   const delMut = useMutation({
@@ -88,7 +89,7 @@ export function ModeloObservacoes({ modeloId, readOnly = false }: { modeloId: st
       if (error) throw error;
     },
     onSuccess: invalidate,
-    onError: (e: any) => toast.error(e.message ?? "Erro ao remover."),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao remover.")),
   });
 
   const composicaoText = useMemo(() => composicao || "—", [composicao]);

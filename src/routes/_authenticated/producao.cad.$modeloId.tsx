@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ImageIcon, Scissors, AlertTriangle } from "lucide-react";
 import { useEtapasAfetadas, DownstreamConfirmDialog } from "@/components/desenvolvimento/DownstreamImpactAlert";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -629,7 +630,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
       qc.invalidateQueries({ queryKey: ["modelo-grades", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-detail", modeloId] });
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao salvar"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
   });
 
   const enviarCorte = useMutation({
@@ -655,7 +656,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
       qc.invalidateQueries({ queryKey: ["cad-row", modeloId] });
       qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro")),
   });
 
   const desmarcarEnvio = useMutation({
@@ -674,7 +675,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
       qc.invalidateQueries({ queryKey: ["cad-row", modeloId] });
       qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao desmarcar"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desmarcar")),
   });
   const handleDesmarcar = () => {
     if (window.confirm("Desmarcar o envio ao corte? A baixa de estoque será revertida e o CAD volta a ficar editável.")) {
@@ -809,7 +810,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
       qc.invalidateQueries({ queryKey: ["producao-cad-list"] });
       onAfterDelete?.();
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao excluir CAD"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir CAD")),
   });
 
   return (

@@ -19,6 +19,7 @@ import { PrintArea } from "@/components/shared/PrintArea";
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, addDays, addMonths, isSameMonth, isSameDay, parseISO, differenceInCalendarDays } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { useAuth } from "@/hooks/useAuth";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } from "recharts";
@@ -449,7 +450,7 @@ function ParcelaDetailDialog({
       qc.invalidateQueries({ queryKey: ["parcelas"] });
       onClose();
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao desmarcar"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desmarcar")),
   });
 
   const [vencimento, setVencimento] = useState(parcela?.data_vencimento ?? "");
@@ -473,7 +474,7 @@ function ParcelaDetailDialog({
     },
     onError: (e: any, _vars, ctx: any) => {
       if (ctx?.prev) qc.setQueryData(["parcelas"], ctx.prev);
-      toast.error(e.message ?? "Erro ao atualizar vencimento");
+      toast.error(mensagemErro(e, "Erro ao atualizar vencimento"));
     },
     onSuccess: () => {
       toast.success("Vencimento atualizado");
@@ -504,7 +505,7 @@ function ParcelaDetailDialog({
       qc.invalidateQueries({ queryKey: ["parcelas"] });
       onClose();
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao recalcular"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao recalcular")),
   });
 
   if (!parcela) return null;
@@ -679,7 +680,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
       toast.success("Pagamento desmarcado");
       qc.invalidateQueries({ queryKey: ["parcelas"] });
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao desmarcar"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desmarcar")),
   });
 
   const updateVencimentoMut = useMutation({
@@ -699,7 +700,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
     },
     onError: (e: any, _vars, ctx: any) => {
       if (ctx?.prev) qc.setQueryData(["parcelas"], ctx.prev);
-      toast.error(e.message ?? "Erro ao atualizar vencimento");
+      toast.error(mensagemErro(e, "Erro ao atualizar vencimento"));
     },
     onSuccess: (_data, vars) => {
       toast.success("Vencimento atualizado");
@@ -922,7 +923,7 @@ function ServicosView() {
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["servicos-financeiro"] }),
-    onError: (e: any) => toast.error(e.message ?? "Erro ao salvar vencimento"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar vencimento")),
   });
   const togglePago = useMutation({
     mutationFn: async ({ id, pago }: { id: string; pago: boolean }) => {
@@ -931,7 +932,7 @@ function ServicosView() {
       if (error) throw error;
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["servicos-financeiro"] }); toast.success("Atualizado"); },
-    onError: (e: any) => toast.error(e.message ?? "Erro"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro")),
   });
 
   const total = filtered.reduce((s, r) => s + Number(r.valor_parcela || 0), 0);
@@ -1234,7 +1235,7 @@ function PagarDialog({ parcelaId, onClose }: { parcelaId: string | null; onClose
       setFile(null);
       onClose();
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao salvar"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
     onSettled: () => setUploading(false),
   });
 

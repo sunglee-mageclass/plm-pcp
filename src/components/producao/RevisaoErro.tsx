@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -41,7 +42,7 @@ export function VerificarRevisao({ modeloId, etapa, revisao }: { modeloId: strin
       ["producao-terc-list", "producao-cq-list", "dir-list", "producao-oficina-list", "producao-acab-list", "lancamentos-cards"]
         .forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
     },
-    onError: (e: any) => toast.error(e.message ?? "Erro ao verificar"),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao verificar")),
   });
 
   if (!pendente) return null;
