@@ -16,6 +16,7 @@ import { FilterButton } from "@/components/shared/filters";
 import { PrintFicha } from "@/components/producao/PrintFicha";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { useSort, SortTh } from "@/components/shared/sort";
 
 export const Route = createFileRoute("/_authenticated/producao/terceirizados/")({
   component: TercListPage,
@@ -93,6 +94,9 @@ function TercListPage() {
     return true;
   });
 
+  const { sorted, sortKey, sortDir, toggle } = useSort(filtered, { key: "ref" });
+  const sortState = { sortKey, sortDir, toggle };
+
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
@@ -129,11 +133,11 @@ function TercListPage() {
         <table className="w-full text-sm card-table">
           <thead className="bg-muted/50 text-left">
             <tr>
-              <th className="px-4 py-2">{fl("ref")}</th>
-              <th className="px-4 py-2">Nome</th>
-              <th className="px-4 py-2">Categoria</th>
-              <th className="px-4 py-2">Coleção</th>
-              <th className="px-4 py-2">Status</th>
+              <SortTh label={fl("ref")} sortKey="ref" sortState={sortState} className="px-4 py-2" />
+              <SortTh label="Nome" sortKey="nome" sortState={sortState} className="px-4 py-2" />
+              <SortTh label="Categoria" sortKey="categoria_nome" sortState={sortState} className="px-4 py-2" />
+              <SortTh label="Coleção" sortKey="colecao" sortState={sortState} className="px-4 py-2" />
+              <SortTh label="Status" sortKey="statusGeral" sortState={sortState} className="px-4 py-2" />
               <th className="px-4 py-2 w-12 text-center">Ficha</th>
             </tr>
           </thead>
@@ -141,10 +145,10 @@ function TercListPage() {
             {isLoading && (
               <SkeletonTableRow cols={6} />
             )}
-            {!isLoading && filtered.length === 0 && (
+            {!isLoading && sorted.length === 0 && (
               <tr><td colSpan={6} className="p-0"><EmptyState icon={Users} title="Nenhum modelo disponível" description="Modelos enviados aos terceirizados aparecerão aqui." className="border-0 rounded-none" /></td></tr>
             )}
-            {filtered.map((r: any) => (
+            {sorted.map((r: any) => (
               <tr
                 key={r.modelo_id}
                 className="border-t hover:bg-muted/30 cursor-pointer"
