@@ -287,11 +287,13 @@ function LancamentoCard(props: { card: LancCard; compact: boolean; onUpload: (f:
   const { data: amostraUrl } = useQuery({
     queryKey: ["lanc-amostra", card.lancamento?.foto_peca_amostra],
     enabled: !!card.lancamento?.foto_peca_amostra,
+    staleTime: 55 * 60 * 1000, // signed URL vale 1h — não revalidar a cada filtro/remontagem
     queryFn: async () => (await supabase.storage.from("lancamentos").createSignedUrl(card.lancamento.foto_peca_amostra, 3600)).data?.signedUrl ?? null,
   });
   const { data: modeloFoto } = useQuery({
     queryKey: ["modelo-foto", card.fotos_modelo?.[0]],
     enabled: !!card.fotos_modelo?.[0],
+    staleTime: 55 * 60 * 1000,
     queryFn: async () => (await supabase.storage.from("modelos").createSignedUrl(card.fotos_modelo[0], 3600)).data?.signedUrl ?? null,
   });
   const img = amostraUrl ?? modeloFoto ?? null;
@@ -325,7 +327,7 @@ function LancamentoCard(props: { card: LancCard; compact: boolean; onUpload: (f:
         <Card className="overflow-hidden flex flex-col cursor-pointer transition hover:ring-1 hover:ring-primary/40">
           <div className="aspect-square bg-muted relative">
             {img ? (
-              <img src={img} alt={card.ref ?? ""} className="w-full h-full object-cover" />
+              <img src={img} alt={card.ref ?? ""} loading="lazy" className="w-full h-full object-cover" />
             ) : (
               <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">Sem foto</div>
             )}

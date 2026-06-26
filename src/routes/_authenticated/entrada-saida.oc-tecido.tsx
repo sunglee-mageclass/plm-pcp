@@ -85,6 +85,7 @@ function OcTecidoPage() {
 
   const { data: empresas = [] } = useQuery({
     queryKey: ["empresas-options", "tecido-forro-entretela"],
+    staleTime: 5 * 60 * 1000, // dados de referência: não revalidar a cada abertura
     queryFn: async () => {
       const { data, error } = await supabase
         .from("empresas")
@@ -105,6 +106,7 @@ function OcTecidoPage() {
 
   const { data: estilistas = [] } = useQuery({
     queryKey: ["colab-estilistas"],
+    staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const { data, error } = await supabase.from("colaboradores").select("id, nome, tipo").eq("tipo", "estilista").order("nome");
       if (error) throw error;

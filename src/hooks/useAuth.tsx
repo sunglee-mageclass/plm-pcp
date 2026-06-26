@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useMemo, useCallback, type ReactNode } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { clearTenantPrefixCache } from "@/lib/storage-tenant";
@@ -89,28 +89,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Admin/super_admin/tenant_admin always bypass page restrictions.
-  const canView = (pagina: string) => {
+  // Memoizados p/ não recriar o value do contexto a cada render (evita re-render de
+  // toda a árvore autenticada que consome useAuth).
+  const canView = useCallback((pagina: string) => {
     if (isSuperAdmin || isAdmin || isTenantAdmin) return true;
     return permissions.some((p) => p.pagina === pagina && p.pode_ver);
-  };
-  const canEdit = (pagina: string) => {
+  }, [isSuperAdmin, isAdmin, isTenantAdmin, permissions]);
+  const canEdit = useCallback((pagina: string) => {
     if (isSuperAdmin || isAdmin || isTenantAdmin) return true;
     return permissions.some((p) => p.pagina === pagina && p.pode_editar);
-  };
+  }, [isSuperAdmin, isAdmin, isTenantAdmin, permissions]);
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     await supabase.auth.signOut();
-  };
+  }, []);
+
+  const value = useMemo(() => ({
+    user, session,
+    isAdmin, isSuperAdmin, isTenantAdmin,
+    permissions, canView, canEdit,
+    loading, signOut,
+  }), [user, session, isAdmin, isSuperAdmin, isTenantAdmin, permissions, canView, canEdit, loading, signOut]);
 
   return (
-    <AuthContext.Provider
-      value={{
-        user, session,
-        isAdmin, isSuperAdmin, isTenantAdmin,
-        permissions, canView, canEdit,
-        loading, signOut,
-      }}
-    >
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

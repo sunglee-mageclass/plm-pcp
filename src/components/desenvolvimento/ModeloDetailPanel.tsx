@@ -96,6 +96,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
 
   const { data: categoriasTecido = [] } = useQuery({
     queryKey: ["cat-tecido-options"],
+    staleTime: 5 * 60 * 1000, // referência: muda raramente
     queryFn: async () => {
       const { data, error } = await supabase.from("categorias_tecido").select("id, nome").order("nome");
       if (error) throw error;
@@ -136,6 +137,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
 
   const { data: aviamentos = [] } = useQuery({
     queryKey: ["aviamentos-all"],
+    staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("aviamentos").select("id, codigo_nome, preco").order("codigo_nome");

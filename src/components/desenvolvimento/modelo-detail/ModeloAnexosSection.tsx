@@ -125,14 +125,8 @@ function PhotoList({
 }
 
 function PhotoThumb({ path, onRemove }: { path: string; onRemove: () => void }) {
-  const [url, setUrl] = useState<string | null>(null);
-  useEffect(() => {
-    let alive = true;
-    supabase.storage.from(BUCKET).createSignedUrl(path, 3600).then(({ data }) => {
-      if (alive) setUrl(data?.signedUrl ?? null);
-    });
-    return () => { alive = false; };
-  }, [path]);
+  // Usa o hook com cache (Map + TTL) em vez de recriar a signed URL a cada montagem.
+  const url = useSignedUrl(path, BUCKET);
   return (
     <div className="relative h-20 w-20 rounded border overflow-hidden bg-muted group">
       {url ? (
