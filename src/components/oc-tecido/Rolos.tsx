@@ -352,12 +352,15 @@ export function RolosList() {
         .from("ocs_tecido")
         .select(
           // relacionamento explícito (!oc_tecido_id) p/ não depender do schema cache.
-          "id, rolo_codigo, rolo_origem_item_id, rolo_rua, rolo_prateleira, ocs_tecido_itens!oc_tecido_id(id, quantidade_recebida, artigos(nome, unidade_medida, rendimento, empresas:empresa_id(nome_fantasia)), variantes_tecido(nome_variante, codigo_variante, cor:cor_id(nome)), estoque_tecido_baixas(quantidade))",
+          "id, rolo_codigo, rolo_origem_item_id, rolo_rua, rolo_prateleira, ocs_tecido_itens!oc_tecido_id(id, quantidade_recebida, cancelado, artigos(nome, unidade_medida, rendimento, empresas:empresa_id(nome_fantasia)), variantes_tecido(nome_variante, codigo_variante, cor:cor_id(nome)), estoque_tecido_baixas(quantidade))",
         )
         .eq("is_rolo" as never, true as never)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as unknown as RoloRow[];
+      // Rolo CANCELADO sai da listagem (fora do estoque). Reabrir é via Alertas.
+      return ((data ?? []) as unknown as RoloRow[]).filter(
+        (r: any) => !(r.ocs_tecido_itens ?? []).some((it: any) => it?.cancelado),
+      );
     },
   });
 
