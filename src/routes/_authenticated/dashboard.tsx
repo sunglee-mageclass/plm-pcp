@@ -483,7 +483,8 @@ function ProducaoTab() {
     const a = defeitoMes as any[];
     return a.length ? a.reduce((s, d) => s + Number(d.taxa || 0), 0) / a.length : 0;
   }, [defeitoMes]);
-  const etapas = ["CAD", "Terceirizado", "Oficina", "Controle de Qualidade", "Acabamento", "Direcionamento", "Lançado"];
+  // Oficina e Acabamento são subtipos de Terceirizado (serviços) — não etapas próprias.
+  const etapas = ["CAD", "Terceirizado", "Controle de Qualidade", "Direcionamento", "Lançado"];
   // Rótulo da timeline: a etapa "Lançado" (existe registro em lancamentos) é a
   // ETAPA de lançamento — distinta do KPI "Lançados (CQ ok)" (CQ confirmado).
   const etapaLabel: Record<string, string> = { "Lançado": "Em Lançamento" };
@@ -556,7 +557,9 @@ function ProducaoTab() {
             </thead>
             <tbody>
               {timeline.map((r: any) => {
-                const idx = etapas.indexOf(r.etapa);
+                // Oficina/Acabamento caem sob Terceirizado na timeline.
+                const etapaAtual = (r.etapa === "Oficina" || r.etapa === "Acabamento") ? "Terceirizado" : r.etapa;
+                const idx = etapas.indexOf(etapaAtual);
                 return (
                   <tr key={r.id} className="border-b last:border-0">
                     <td className="py-2 pr-3 font-medium">
@@ -948,8 +951,6 @@ function CustosTab() {
                 <th className="py-2 pr-3">Modelo</th>
                 <th className="py-2 pr-3 text-right">Previsto (un.)</th>
                 <th className="py-2 pr-3 text-right">Real (un.)</th>
-                <th className="py-2 pr-3 text-right">Diferença</th>
-                <th className="py-2 pr-3 text-right">%</th>
               </tr>
             </thead>
             <tbody>
@@ -964,11 +965,9 @@ function CustosTab() {
                   <td className="py-2 pr-3" data-label="Modelo">{r.nome}</td>
                   <td className="py-2 pr-3 text-right" data-label="Previsto (un.)">{brl(r.previsto)}</td>
                   <td className={"py-2 pr-3 text-right " + (r.confirmado ? "" : "text-muted-foreground italic")} title={r.confirmado ? undefined : "Ainda não confirmado em CAD — exibindo o previsto"} data-label="Real (un.)">{brl(r.real)}</td>
-                  <td className={"py-2 pr-3 text-right " + (Number(r.diff) > 0 ? "text-destructive" : Number(r.diff) < 0 ? "text-green-600 dark:text-green-400" : "")} data-label="Diferença">{brl(r.diff)}</td>
-                  <td className={"py-2 pr-3 text-right " + (Number(r.pct) > 0 ? "text-destructive" : Number(r.pct) < 0 ? "text-green-600 dark:text-green-400" : "")} data-label="%">{fmtNum(r.pct)}%</td>
                 </tr>
               ))}
-              {!isLoading && rows.length === 0 && <tr><td colSpan={6} className="py-4 text-center text-muted-foreground">Sem dados.</td></tr>}
+              {!isLoading && rows.length === 0 && <tr><td colSpan={4} className="py-4 text-center text-muted-foreground">Sem dados.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -1014,16 +1013,12 @@ function CustosTab() {
               { key: "modelo", label: "Modelo" },
               { key: "previsto", label: "Previsto (un.)", align: "right" },
               { key: "real", label: "Real (un.)", align: "right" },
-              { key: "diff", label: "Diferença", align: "right" },
-              { key: "pct", label: "%", align: "right" },
             ],
             linhas: (rows as any[]).map((r) => ({
               ref: r.ref ?? "—",
               modelo: r.nome ?? "—",
               previsto: brl(Number(r.previsto)),
               real: brl(Number(r.real)),
-              diff: brl(Number(r.diff)),
-              pct: `${Math.round(Number(r.pct) || 0)}%`,
             })), zebra: true,
           },
         ]}
