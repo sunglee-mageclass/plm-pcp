@@ -14,6 +14,7 @@ import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { FilterButton } from "@/components/shared/filters";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { useSort, SortTh } from "@/components/shared/sort";
 
 export const Route = createFileRoute("/_authenticated/producao/cq/")({
   component: CqListPage,
@@ -75,6 +76,9 @@ function CqListPage() {
     return true;
   });
 
+  const { sorted, sortKey, sortDir, toggle } = useSort(filtered, { key: "ref" });
+  const sortState = { sortKey, sortDir, toggle };
+
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
@@ -109,21 +113,21 @@ function CqListPage() {
         <table className="w-full text-sm card-table">
           <thead className="bg-muted/50 text-left">
             <tr>
-              <th className="px-4 py-2">{fl("ref")}</th>
-              <th className="px-4 py-2">Nome</th>
-              <th className="px-4 py-2">Categoria</th>
-              <th className="px-4 py-2">Coleção</th>
-              <th className="px-4 py-2">Status</th>
+              <SortTh label={fl("ref")} sortKey="ref" sortState={sortState} className="px-4 py-2" />
+              <SortTh label="Nome" sortKey="nome" sortState={sortState} className="px-4 py-2" />
+              <SortTh label="Categoria" sortKey="categoria_nome" sortState={sortState} className="px-4 py-2" />
+              <SortTh label="Coleção" sortKey="colecao" sortState={sortState} className="px-4 py-2" />
+              <SortTh label="Status" sortKey="status" sortState={sortState} className="px-4 py-2" />
             </tr>
           </thead>
           <tbody>
             {isLoading && (
               <SkeletonTableRow cols={5} />
             )}
-            {!isLoading && filtered.length === 0 && (
+            {!isLoading && sorted.length === 0 && (
               <tr><td colSpan={5} className="p-0"><EmptyState icon={ClipboardCheck} title="Nenhum modelo disponível" description="Modelos prontos para CQ aparecerão aqui." className="border-0 rounded-none" /></td></tr>
             )}
-            {filtered.map((r: any) => (
+            {sorted.map((r: any) => (
               <tr
                 key={r.modelo_id}
                 className="border-t hover:bg-muted/30 cursor-pointer"
