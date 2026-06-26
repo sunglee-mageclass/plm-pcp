@@ -7,6 +7,31 @@ export type Json =
   | Json[]
 
 export type Database = {
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       anos: {
@@ -93,6 +118,7 @@ export type Database = {
           preco: number | null
           preco_por_metro: number | null
           rendimento: number | null
+          sem_etiqueta_lavagem: boolean
           tenant_id: string | null
           unidade_medida: string
         }
@@ -111,6 +137,7 @@ export type Database = {
           preco?: number | null
           preco_por_metro?: number | null
           rendimento?: number | null
+          sem_etiqueta_lavagem?: boolean
           tenant_id?: string | null
           unidade_medida?: string
         }
@@ -129,6 +156,7 @@ export type Database = {
           preco?: number | null
           preco_por_metro?: number | null
           rendimento?: number | null
+          sem_etiqueta_lavagem?: boolean
           tenant_id?: string | null
           unidade_medida?: string
         }
@@ -993,9 +1021,11 @@ export type Database = {
           created_at: string | null
           ecommerce: Json | null
           ecommerce_total: number | null
+          grade_real_total: number | null
           id: string
           loja_fisica: Json | null
           loja_fisica_total: number | null
+          real: Json | null
           tenant_id: string | null
           variante_numero: number
         }
@@ -1004,9 +1034,11 @@ export type Database = {
           created_at?: string | null
           ecommerce?: Json | null
           ecommerce_total?: number | null
+          grade_real_total?: number | null
           id?: string
           loja_fisica?: Json | null
           loja_fisica_total?: number | null
+          real?: Json | null
           tenant_id?: string | null
           variante_numero: number
         }
@@ -1015,9 +1047,11 @@ export type Database = {
           created_at?: string | null
           ecommerce?: Json | null
           ecommerce_total?: number | null
+          grade_real_total?: number | null
           id?: string
           loja_fisica?: Json | null
           loja_fisica_total?: number | null
+          real?: Json | null
           tenant_id?: string | null
           variante_numero?: number
         }
@@ -1115,32 +1149,41 @@ export type Database = {
       }
       estoque_tecido_baixas: {
         Row: {
-          cad_id: string
+          cad_id: string | null
           created_at: string
+          created_by: string | null
           id: string
+          motivo: string | null
           oc_tecido_item_id: string
           origem: string
           quantidade: number
+          rolo_id: string | null
           tenant_id: string
           variante_tecido_id: string
         }
         Insert: {
-          cad_id: string
+          cad_id?: string | null
           created_at?: string
+          created_by?: string | null
           id?: string
+          motivo?: string | null
           oc_tecido_item_id: string
           origem: string
           quantidade: number
+          rolo_id?: string | null
           tenant_id: string
           variante_tecido_id: string
         }
         Update: {
-          cad_id?: string
+          cad_id?: string | null
           created_at?: string
+          created_by?: string | null
           id?: string
+          motivo?: string | null
           oc_tecido_item_id?: string
           origem?: string
           quantidade?: number
+          rolo_id?: string | null
           tenant_id?: string
           variante_tecido_id?: string
         }
@@ -1157,6 +1200,13 @@ export type Database = {
             columns: ["oc_tecido_item_id"]
             isOneToOne: false
             referencedRelation: "ocs_tecido_itens"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "estoque_tecido_baixas_rolo_id_fkey"
+            columns: ["rolo_id"]
+            isOneToOne: false
+            referencedRelation: "ocs_tecido"
             referencedColumns: ["id"]
           },
           {
@@ -1706,8 +1756,8 @@ export type Database = {
           piloteiro2_id: string | null
           piloteiro3_id: string | null
           proporcoes: Json | null
-          revisao_pendente: Json
           ref: string | null
+          revisao_pendente: Json
           semana: string | null
           status_desenvolvimento: string | null
           status_planejamento: string | null
@@ -1752,8 +1802,8 @@ export type Database = {
           piloteiro2_id?: string | null
           piloteiro3_id?: string | null
           proporcoes?: Json | null
-          revisao_pendente?: Json
           ref?: string | null
+          revisao_pendente?: Json
           semana?: string | null
           status_desenvolvimento?: string | null
           status_planejamento?: string | null
@@ -1798,8 +1848,8 @@ export type Database = {
           piloteiro2_id?: string | null
           piloteiro3_id?: string | null
           proporcoes?: Json | null
-          revisao_pendente?: Json
           ref?: string | null
+          revisao_pendente?: Json
           semana?: string | null
           status_desenvolvimento?: string | null
           status_planejamento?: string | null
@@ -1903,7 +1953,6 @@ export type Database = {
           empresa_id: string | null
           id: string
           nf_url: string | null
-          nf_historico: Json
           numero_pedido: string | null
           parcelas_recebimento: Json
           prazo_pagamento: string | null
@@ -1920,7 +1969,6 @@ export type Database = {
           empresa_id?: string | null
           id?: string
           nf_url?: string | null
-          nf_historico?: Json
           numero_pedido?: string | null
           parcelas_recebimento?: Json
           prazo_pagamento?: string | null
@@ -1937,7 +1985,6 @@ export type Database = {
           empresa_id?: string | null
           id?: string
           nf_url?: string | null
-          nf_historico?: Json
           numero_pedido?: string | null
           parcelas_recebimento?: Json
           prazo_pagamento?: string | null
@@ -2012,11 +2059,6 @@ export type Database = {
         Row: {
           anexo_pedido_url: string | null
           created_at: string | null
-          is_rolo: boolean
-          rolo_codigo: string | null
-          rolo_origem_item_id: string | null
-          rolo_rua: string | null
-          rolo_prateleira: string | null
           data_entrega: string | null
           data_pedido: string | null
           data_prevista_entrega: string | null
@@ -2025,7 +2067,9 @@ export type Database = {
           etiqueta_lavagem_url_2: string | null
           etiqueta_lavagem_urls: string[] | null
           id: string
+          is_rolo: boolean
           modelo_sugerido_url: string | null
+          nf_historico: Json
           nf_url: string | null
           numero_pedido: string | null
           observacoes_defeitos: string | null
@@ -2035,6 +2079,10 @@ export type Database = {
           quantidade_prazos: number | null
           responsavel_id: string | null
           responsavel_nome: string | null
+          rolo_codigo: string | null
+          rolo_origem_item_id: string | null
+          rolo_prateleira: string | null
+          rolo_rua: string | null
           status: string | null
           tenant_id: string | null
           valor_previsto_total: number | null
@@ -2043,11 +2091,6 @@ export type Database = {
         Insert: {
           anexo_pedido_url?: string | null
           created_at?: string | null
-          is_rolo?: boolean
-          rolo_codigo?: string | null
-          rolo_origem_item_id?: string | null
-          rolo_rua?: string | null
-          rolo_prateleira?: string | null
           data_entrega?: string | null
           data_pedido?: string | null
           data_prevista_entrega?: string | null
@@ -2056,7 +2099,9 @@ export type Database = {
           etiqueta_lavagem_url_2?: string | null
           etiqueta_lavagem_urls?: string[] | null
           id?: string
+          is_rolo?: boolean
           modelo_sugerido_url?: string | null
+          nf_historico?: Json
           nf_url?: string | null
           numero_pedido?: string | null
           observacoes_defeitos?: string | null
@@ -2066,6 +2111,10 @@ export type Database = {
           quantidade_prazos?: number | null
           responsavel_id?: string | null
           responsavel_nome?: string | null
+          rolo_codigo?: string | null
+          rolo_origem_item_id?: string | null
+          rolo_prateleira?: string | null
+          rolo_rua?: string | null
           status?: string | null
           tenant_id?: string | null
           valor_previsto_total?: number | null
@@ -2074,11 +2123,6 @@ export type Database = {
         Update: {
           anexo_pedido_url?: string | null
           created_at?: string | null
-          is_rolo?: boolean
-          rolo_codigo?: string | null
-          rolo_origem_item_id?: string | null
-          rolo_rua?: string | null
-          rolo_prateleira?: string | null
           data_entrega?: string | null
           data_pedido?: string | null
           data_prevista_entrega?: string | null
@@ -2087,7 +2131,9 @@ export type Database = {
           etiqueta_lavagem_url_2?: string | null
           etiqueta_lavagem_urls?: string[] | null
           id?: string
+          is_rolo?: boolean
           modelo_sugerido_url?: string | null
+          nf_historico?: Json
           nf_url?: string | null
           numero_pedido?: string | null
           observacoes_defeitos?: string | null
@@ -2097,6 +2143,10 @@ export type Database = {
           quantidade_prazos?: number | null
           responsavel_id?: string | null
           responsavel_nome?: string | null
+          rolo_codigo?: string | null
+          rolo_origem_item_id?: string | null
+          rolo_prateleira?: string | null
+          rolo_rua?: string | null
           status?: string | null
           tenant_id?: string | null
           valor_previsto_total?: number | null
@@ -2131,13 +2181,12 @@ export type Database = {
           artigo_id: string | null
           artigo_numero: number | null
           cancelado: boolean
+          cq_alerta_status: Database["public"]["Enums"]["cq_alerta_status"]
           cq_alertar_estilo: boolean
           cq_estilo_ok: boolean
-          cq_alerta_status: string
           cq_observacao: string | null
           cq_ok: boolean
           cq_pendente_troca: boolean
-          substitui_item_id: string | null
           created_at: string | null
           estoque_zerado: boolean
           id: string
@@ -2145,19 +2194,20 @@ export type Database = {
           quantidade_pedida: number | null
           quantidade_recebida: number | null
           rendimento: number | null
+          rolos_planejados: Json | null
+          substitui_item_id: string | null
           variante_tecido_id: string | null
         }
         Insert: {
           artigo_id?: string | null
           artigo_numero?: number | null
           cancelado?: boolean
+          cq_alerta_status?: Database["public"]["Enums"]["cq_alerta_status"]
           cq_alertar_estilo?: boolean
           cq_estilo_ok?: boolean
-          cq_alerta_status?: string
           cq_observacao?: string | null
           cq_ok?: boolean
           cq_pendente_troca?: boolean
-          substitui_item_id?: string | null
           created_at?: string | null
           estoque_zerado?: boolean
           id?: string
@@ -2165,19 +2215,20 @@ export type Database = {
           quantidade_pedida?: number | null
           quantidade_recebida?: number | null
           rendimento?: number | null
+          rolos_planejados?: Json | null
+          substitui_item_id?: string | null
           variante_tecido_id?: string | null
         }
         Update: {
           artigo_id?: string | null
           artigo_numero?: number | null
           cancelado?: boolean
+          cq_alerta_status?: Database["public"]["Enums"]["cq_alerta_status"]
           cq_alertar_estilo?: boolean
           cq_estilo_ok?: boolean
-          cq_alerta_status?: string
           cq_observacao?: string | null
           cq_ok?: boolean
           cq_pendente_troca?: boolean
-          substitui_item_id?: string | null
           created_at?: string | null
           estoque_zerado?: boolean
           id?: string
@@ -2185,6 +2236,8 @@ export type Database = {
           quantidade_pedida?: number | null
           quantidade_recebida?: number | null
           rendimento?: number | null
+          rolos_planejados?: Json | null
+          substitui_item_id?: string | null
           variante_tecido_id?: string | null
         }
         Relationships: [
@@ -2506,6 +2559,47 @@ export type Database = {
           },
         ]
       }
+      parcelas_servico: {
+        Row: {
+          created_at: string | null
+          data_pagamento: string | null
+          data_vencimento: string | null
+          id: string
+          numero_parcela: number
+          producao_terceirizado_id: string
+          status: string
+          tenant_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          data_pagamento?: string | null
+          data_vencimento?: string | null
+          id?: string
+          numero_parcela: number
+          producao_terceirizado_id: string
+          status?: string
+          tenant_id: string
+        }
+        Update: {
+          created_at?: string | null
+          data_pagamento?: string | null
+          data_vencimento?: string | null
+          id?: string
+          numero_parcela?: number
+          producao_terceirizado_id?: string
+          status?: string
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "parcelas_servico_producao_terceirizado_id_fkey"
+            columns: ["producao_terceirizado_id"]
+            isOneToOne: false
+            referencedRelation: "producao_terceirizados"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       print_templates: {
         Row: {
           created_at: string | null
@@ -2723,8 +2817,11 @@ export type Database = {
           data_entregue: string | null
           data_enviado: string | null
           data_prevista: string | null
+          desconto_total: number
           id: string
           interno: boolean
+          multa_total: number
+          numero_parcelas: number
           observacao: string | null
           preco_metro_unidade: number | null
           quantidade_defeito: number | null
@@ -2745,8 +2842,11 @@ export type Database = {
           data_entregue?: string | null
           data_enviado?: string | null
           data_prevista?: string | null
+          desconto_total?: number
           id?: string
           interno?: boolean
+          multa_total?: number
+          numero_parcelas?: number
           observacao?: string | null
           preco_metro_unidade?: number | null
           quantidade_defeito?: number | null
@@ -2767,8 +2867,11 @@ export type Database = {
           data_entregue?: string | null
           data_enviado?: string | null
           data_prevista?: string | null
+          desconto_total?: number
           id?: string
           interno?: boolean
+          multa_total?: number
+          numero_parcelas?: number
           observacao?: string | null
           preco_metro_unidade?: number | null
           quantidade_defeito?: number | null
@@ -2916,6 +3019,21 @@ export type Database = {
           },
         ]
       }
+      rolo_counters: {
+        Row: {
+          seq: number
+          tenant_id: string
+        }
+        Insert: {
+          seq?: number
+          tenant_id: string
+        }
+        Update: {
+          seq?: number
+          tenant_id?: string
+        }
+        Relationships: []
+      }
       subcategorias_aviamento: {
         Row: {
           categoria_aviamento_id: string | null
@@ -2999,6 +3117,7 @@ export type Database = {
           formato_mes: string | null
           id: string
           modo_baixa_estoque: string
+          modo_oc_rolo: string
           modules: Json
           oficina_interna: boolean | null
           oficina_posicao: string | null
@@ -3019,6 +3138,7 @@ export type Database = {
           formato_mes?: string | null
           id?: string
           modo_baixa_estoque?: string
+          modo_oc_rolo?: string
           modules?: Json
           oficina_interna?: boolean | null
           oficina_posicao?: string | null
@@ -3039,6 +3159,7 @@ export type Database = {
           formato_mes?: string | null
           id?: string
           modo_baixa_estoque?: string
+          modo_oc_rolo?: string
           modules?: Json
           oficina_interna?: boolean | null
           oficina_posicao?: string | null
@@ -3379,31 +3500,230 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      baixar_estoque_tecido_corte: { Args: { _cad_id: string }; Returns: Json }
-      consumo_por_oc: { Args: never; Returns: Json }
-      dashboard_colecao: {
+      _ajustar_rolo_core: {
+        Args: { _nova_qtd: number; _rolo_id: string }
+        Returns: undefined
+      }
+      _aplicar_resolucao_alerta_tecido_core: {
         Args: {
-          p_inicio?: string
-          p_fim?: string
+          _acao: string
+          _item_id: string
+          _rep_artigo_id?: string
+          _rep_metragem?: number
+          _rep_variante_id?: string
+        }
+        Returns: undefined
+      }
+      _baixar_estoque_tecido_corte_core: {
+        Args: { _cad_id: string }
+        Returns: Json
+      }
+      _cancelar_rolo_core: { Args: { _rolo_id: string }; Returns: undefined }
+      _criar_rolo_core: {
+        Args: {
+          _artigo_id: string
+          _codigo: string
+          _origem_item_id?: string
+          _prateleira?: string
+          _rua?: string
+          _variantes: Json
+        }
+        Returns: string
+      }
+      _dashboard_colecao_core: {
+        Args: {
           p_colecao?: string
           p_estilista?: string
+          p_fim?: string
+          p_inicio?: string
+          p_linha?: string
+        }
+        Returns: Json
+      }
+      _dashboard_custos_core: {
+        Args: {
+          p_categoria?: string
+          p_colecao?: string
+          p_fim?: string
+          p_inicio?: string
+          p_linha?: string
+        }
+        Returns: Json
+      }
+      _dashboard_estoque_core: { Args: never; Returns: Json }
+      _dashboard_estoque_parado_core: { Args: never; Returns: Json }
+      _dashboard_financeiro_core: {
+        Args: { p_fim?: string; p_inicio?: string }
+        Returns: Json
+      }
+      _dashboard_producao_core: {
+        Args: {
+          p_colecao?: string
+          p_fim?: string
+          p_inicio?: string
+          p_linha?: string
+        }
+        Returns: Json
+      }
+      _desmarcar_cq_core: { Args: { _cad_id: string }; Returns: Json }
+      _enviar_modelo_para_cad_core: {
+        Args: {
+          _ficha_medida_url?: string
+          _modelo_id: string
+          _observacoes_tecnicas?: string
+        }
+        Returns: string
+      }
+      _modelo_no_periodo: {
+        Args: {
+          p_ano_id: string
+          p_fim: string
+          p_inicio: string
+          p_mes_id: string
+        }
+        Returns: boolean
+      }
+      _reabrir_rolo_core: { Args: { _rolo_id: string }; Returns: undefined }
+      _recalcular_parcelas_core: {
+        Args: { _oc_id: string; _tipo: string }
+        Returns: Json
+      }
+      _receber_reposicao_troca_core: {
+        Args: { _data: string; _metragem: number; _original_item_id: string }
+        Returns: undefined
+      }
+      _recompute_oc_from_rolos: {
+        Args: { _origem_item_id: string }
+        Returns: undefined
+      }
+      _remover_metragem_oc_core: {
+        Args: {
+          _metragem: number
+          _motivo?: string
+          _oc_tecido_item_id: string
+        }
+        Returns: string
+      }
+      _reverter_ajuste_estoque_core: {
+        Args: { _baixa_id: string }
+        Returns: undefined
+      }
+      _reverter_corte_tecido_core: {
+        Args: { _cad_id: string }
+        Returns: undefined
+      }
+      _reverter_rolos_oc_core: { Args: { _oc_id: string }; Returns: number }
+      _rolo_em_uso: { Args: { _rolo_id: string }; Returns: boolean }
+      _salvar_cad_completo_core: {
+        Args: {
+          _aviamentos: Json
+          _data_previsao_corte: string
+          _etiquetas: Json
+          _grades: Json
+          _modelo_id: string
+          _observacoes_molde: string
+          _proporcoes: Json
+          _tecidos: Json
+        }
+        Returns: string
+      }
+      _salvar_cq_core: {
+        Args: {
+          _cad_id: string
+          _confirmar?: boolean
+          _cq: Json
+          _reais: Json
+          _variantes: Json
+        }
+        Returns: Json
+      }
+      _salvar_modelo_bom_core: {
+        Args: {
+          _aviamentos: Json
+          _grades: Json
+          _modelo_id: string
+          _tecidos: Json
+        }
+        Returns: undefined
+      }
+      _trocar_rolo_core: {
+        Args: { _nova_metragem?: number; _rolo_id: string }
+        Returns: string
+      }
+      _wipe_tenant_core: {
+        Args: { _full: boolean; _tid: string }
+        Returns: undefined
+      }
+      ajustar_rolo: {
+        Args: { _nova_qtd: number; _rolo_id: string }
+        Returns: undefined
+      }
+      ajustes_estoque_lista: { Args: never; Returns: Json }
+      aplicar_resolucao_alerta_tecido: {
+        Args: {
+          _acao: string
+          _item_id: string
+          _rep_artigo_id?: string
+          _rep_metragem?: number
+          _rep_variante_id?: string
+        }
+        Returns: undefined
+      }
+      baixar_estoque_tecido_corte: { Args: { _cad_id: string }; Returns: Json }
+      cancelar_rolo: { Args: { _rolo_id: string }; Returns: undefined }
+      consumo_por_oc: { Args: never; Returns: Json }
+      cq_oficina_servico: { Args: { _cad_id: string }; Returns: Json }
+      cq_set_oficina_desconto_multa: {
+        Args: { _cad_id: string; _desconto: number; _multa: number }
+        Returns: undefined
+      }
+      criar_rolo: {
+        Args: {
+          _artigo_id: string
+          _codigo: string
+          _origem_item_id?: string
+          _prateleira?: string
+          _rua?: string
+          _variantes: Json
+        }
+        Returns: string
+      }
+      dashboard_colecao: {
+        Args: {
+          p_colecao?: string
+          p_estilista?: string
+          p_fim?: string
+          p_inicio?: string
           p_linha?: string
         }
         Returns: Json
       }
       dashboard_custos: {
-        Args: { p_inicio?: string; p_fim?: string; p_colecao?: string; p_categoria?: string; p_linha?: string }
+        Args: {
+          p_categoria?: string
+          p_colecao?: string
+          p_fim?: string
+          p_inicio?: string
+          p_linha?: string
+        }
         Returns: Json
       }
       dashboard_estoque: { Args: never; Returns: Json }
+      dashboard_estoque_parado: { Args: never; Returns: Json }
       dashboard_financeiro: {
-        Args: { p_inicio?: string; p_fim?: string }
+        Args: { p_fim?: string; p_inicio?: string }
         Returns: Json
       }
       dashboard_producao: {
-        Args: { p_inicio?: string; p_fim?: string; p_colecao?: string; p_linha?: string }
+        Args: {
+          p_colecao?: string
+          p_fim?: string
+          p_inicio?: string
+          p_linha?: string
+        }
         Returns: Json
       }
+      desmarcar_cq: { Args: { _cad_id: string }; Returns: Json }
       detalhe_estoque_variante: {
         Args: { _variante_id: string }
         Returns: Json
@@ -3417,6 +3737,7 @@ export type Database = {
         Returns: string
       }
       estoque_tecido_por_artigo: { Args: never; Returns: Json }
+      excluir_loja: { Args: { _tenant_id: string }; Returns: undefined }
       get_user_tenant_id: { Args: never; Returns: string }
       has_role: {
         Args: {
@@ -3427,19 +3748,64 @@ export type Database = {
       }
       is_super_admin: { Args: never; Returns: boolean }
       is_tenant_admin: { Args: never; Returns: boolean }
+      marcar_etapa_verificada: {
+        Args: { _etapa: string; _modelo_id: string }
+        Returns: undefined
+      }
+      marcar_revisao_pendente: {
+        Args: { _etapas: string[]; _modelo_id: string }
+        Returns: undefined
+      }
+      marcar_revisao_por_mudanca: {
+        Args: {
+          _aviamentos: boolean
+          _consumo: boolean
+          _grade: boolean
+          _modelo_id: string
+        }
+        Returns: Json
+      }
+      meu_tenant_ativo: { Args: never; Returns: boolean }
+      modelo_etapas_afetadas: { Args: { _modelo_id: string }; Returns: Json }
       ocs_disponiveis_variante: {
         Args: { _modelo_id?: string; _variante_id: string }
         Returns: Json
       }
+      ocs_para_rolo: { Args: never; Returns: Json }
+      proximo_codigo_rolo: { Args: { _artigo_id?: string }; Returns: string }
+      reabrir_rolo: { Args: { _rolo_id: string }; Returns: undefined }
       recalcular_parcelas: {
         Args: { _oc_id: string; _tipo: string }
         Returns: Json
       }
+      receber_reposicao_troca: {
+        Args: { _data: string; _metragem: number; _original_item_id: string }
+        Returns: undefined
+      }
+      remover_metragem_oc: {
+        Args: {
+          _metragem: number
+          _motivo?: string
+          _oc_tecido_item_id: string
+        }
+        Returns: string
+      }
+      reset_loja: { Args: { _tenant_id: string }; Returns: undefined }
+      reverter_ajuste_estoque: {
+        Args: { _baixa_id: string }
+        Returns: undefined
+      }
+      reverter_corte_tecido: { Args: { _cad_id: string }; Returns: undefined }
+      reverter_rolos_oc: { Args: { _oc_id: string }; Returns: number }
       saldo_oc_item_m: {
         Args: { _item_id: string }
         Returns: {
           saldo_m: number
         }[]
+      }
+      salvar_acabamento: {
+        Args: { _blocos: Json; _cad_id: string }
+        Returns: undefined
       }
       salvar_cad_completo: {
         Args: {
@@ -3454,6 +3820,20 @@ export type Database = {
         }
         Returns: string
       }
+      salvar_cq: {
+        Args: {
+          _cad_id: string
+          _confirmar?: boolean
+          _cq: Json
+          _reais: Json
+          _variantes: Json
+        }
+        Returns: Json
+      }
+      salvar_direcionamento: {
+        Args: { _cad_id: string; _rows: Json }
+        Returns: undefined
+      }
       salvar_modelo_bom: {
         Args: {
           _aviamentos: Json
@@ -3463,9 +3843,28 @@ export type Database = {
         }
         Returns: undefined
       }
+      salvar_terceirizados: {
+        Args: { _blocos: Json; _cad_id: string; _observacoes_molde?: string }
+        Returns: undefined
+      }
+      servicos_financeiro: { Args: never; Returns: Json }
+      tenant_module_enabled: { Args: { _module: string }; Returns: boolean }
+      trocar_rolo: {
+        Args: { _nova_metragem?: number; _rolo_id: string }
+        Returns: string
+      }
+      user_can_view: { Args: { _pagina: string }; Returns: boolean }
     }
     Enums: {
       app_role: "admin" | "user" | "super_admin" | "tenant_admin"
+      cq_alerta_status:
+        | "sem_alerta"
+        | "alertado"
+        | "troca_pendente"
+        | "trocado"
+        | "estilo_ok"
+        | "cancelado"
+        | "devolucao"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -3591,9 +3990,21 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       app_role: ["admin", "user", "super_admin", "tenant_admin"],
+      cq_alerta_status: [
+        "sem_alerta",
+        "alertado",
+        "troca_pendente",
+        "trocado",
+        "estilo_ok",
+        "cancelado",
+        "devolucao",
+      ],
     },
   },
 } as const
