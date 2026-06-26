@@ -56,20 +56,6 @@ function AuthPage() {
     navigate({ to: "/dashboard" });
   };
 
-  const handleGoogle = async () => {
-    setBusy(true);
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: `${window.location.origin}/dashboard` },
-    });
-    if (error) {
-      setBusy(false);
-      toast.error("Não foi possível entrar com Google.");
-      return;
-    }
-    // Browser redireciona para o Google; ao voltar, onAuthStateChange leva ao dashboard.
-  };
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-md">
@@ -112,22 +98,6 @@ function AuthPage() {
                 {busy ? "Entrando…" : "Entrar"}
               </Button>
             </form>
-
-            <div className="relative my-6">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-card px-2 text-muted-foreground">ou</span>
-              </div>
-            </div>
-
-            <Button
-              type="button" variant="outline" className="w-full"
-              onClick={handleGoogle} disabled={busy}
-            >
-              Continuar com Google
-            </Button>
           </CardContent>
         </Card>
       </div>
