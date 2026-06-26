@@ -160,26 +160,29 @@ export function HomeLogado() {
       {atencao.length > 0 && (
         <section className="space-y-2">
           <h2 className="text-sm font-semibold text-muted-foreground">Precisa da sua atenção</h2>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {atencao.map((a) => (
               <Link key={a.key} to={a.to as any} className="block">
                 <Card className={cn(
-                  "flex items-center gap-3 p-4 transition-colors hover:bg-accent",
+                  "flex aspect-square flex-col p-4 transition-colors hover:bg-accent",
                   a.valor > 0 && (a.tone === "red" ? "border-red-500/50" : "border-amber-500/50"),
                 )}>
-                  <div className={cn(
-                    "rounded-lg p-2",
-                    a.valor > 0
-                      ? (a.tone === "red" ? "bg-red-500/15 text-red-600" : "bg-amber-500/15 text-amber-600")
-                      : "bg-muted text-muted-foreground",
-                  )}>
-                    <a.icon className="h-5 w-5" />
+                  <div className="flex items-start justify-between">
+                    <div className={cn(
+                      "rounded-lg p-2",
+                      a.valor > 0
+                        ? (a.tone === "red" ? "bg-red-500/15 text-red-600" : "bg-amber-500/15 text-amber-600")
+                        : "bg-muted text-muted-foreground",
+                    )}>
+                      <a.icon className="h-5 w-5" />
+                    </div>
+                    <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
                   </div>
-                  <div className="min-w-0">
-                    <div className="text-2xl font-semibold leading-none">{a.valor}</div>
-                    <div className="mt-1 truncate text-xs text-muted-foreground">{a.label} · {a.sub}</div>
+                  <div className="mt-auto">
+                    <div className="text-3xl font-semibold leading-none">{a.valor}</div>
+                    <div className="mt-2 text-sm font-medium leading-snug">{a.label}</div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">{a.sub}</div>
                   </div>
-                  <ArrowRight className="ml-auto h-4 w-4 shrink-0 text-muted-foreground" />
                 </Card>
               </Link>
             ))}
