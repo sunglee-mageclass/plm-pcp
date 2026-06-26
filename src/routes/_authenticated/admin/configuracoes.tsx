@@ -742,13 +742,27 @@ function ServicosCard({ tenantId }: { tenantId: string | null }) {
   };
 
   const reorderMut = useMutation({
-    mutationFn: async (ordered: { id: string }[]) => {
-      await Promise.all(
-        ordered.map((c, i) => supabase.from("categorias_terceirizado").update({ ordem: i } as any).eq("id", c.id)),
-      );
+    // `prev` é o snapshot do cache antes do update otimista, para rollback no erro.
+    mutationFn: async ({ ordered }: { ordered: { id: string }[]; prev: typeof categorias }) => {
+      // UPDATE por id tocando SÓ em `ordem`. Não usar `.upsert`: o PostgREST gera
+      // INSERT ... ON CONFLICT, e o Postgres valida o NOT NULL de `nome` (e demais
+      // colunas) na linha de INSERT proposta ANTES de resolver o conflito, então o
+      // upsert sem `nome` falha com not-null violation e a branch de UPDATE nunca roda.
+      for (const [i, c] of ordered.entries()) {
+        const { error } = await supabase
+          .from("categorias_terceirizado")
+          .update({ ordem: i })
+          .eq("id", c.id);
+        if (error) throw error;
+      }
     },
     onSuccess: invalidate,
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao reordenar.")),
+    onError: (e: any, vars) => {
+      // Reverte o update otimista do cache; senão a tela mostra a nova ordem (mentira)
+      // enquanto o banco mantém a antiga até o próximo refetch.
+      qc.setQueryData(["categorias_terceirizado", "config"], vars.prev);
+      toast.error(mensagemErro(e, "Erro ao reordenar."));
+    },
   });
 
   const handleDragEnd = (e: DragEndEvent) => {
@@ -757,9 +771,10 @@ function ServicosCard({ tenantId }: { tenantId: string | null }) {
     const oldIndex = categorias.findIndex((c) => c.id === active.id);
     const newIndex = categorias.findIndex((c) => c.id === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
+    const prev = categorias;
     const next = arrayMove(categorias, oldIndex, newIndex);
     qc.setQueryData(["categorias_terceirizado", "config"], next); // otimista
-    reorderMut.mutate(next);
+    reorderMut.mutate({ ordered: next, prev });
   };
 
   const addMut = useMutation({
