@@ -27,6 +27,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, Cart
 import { RequirePermission } from "@/components/RequirePermission";
 import { ModuleGuard } from "@/components/ModuleGuard";
 import { FilterButton } from "@/components/shared/filters";
+import { useSort, SortTh } from "@/components/shared/sort";
 import { alertaBadge } from "@/components/oc-tecido/CqTecido";
 import { AlertTriangle } from "lucide-react";
 export const Route = createFileRoute("/_authenticated/financeiro")({
@@ -728,6 +729,19 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
 
   const ocNumero = (p: Parcela) => p.ocs_tecido?.numero_pedido ?? p.ocs_aviamento?.numero_pedido ?? "—";
 
+  // Ordena pelo valor CRU (nº do pedido, valor numérico, data ISO de vencimento, etc.),
+  // não pelo texto formatado exibido nas células.
+  const sortState = useSort(filtered, {
+    accessors: {
+      fornecedor: (p: Parcela) => p.empresas?.nome ?? "",
+      oc: (p: Parcela) => ocNumero(p),
+      parcela: (p: Parcela) => p.numero_parcela,
+      valor: (p: Parcela) => Number(p.valor),
+      vencimento: (p: Parcela) => p.data_vencimento,
+    },
+  });
+  const sorted = sortState.sorted;
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-end gap-2">
@@ -778,18 +792,18 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
           <table className="w-full text-sm card-table">
             <thead className="text-left text-muted-foreground">
               <tr className="border-b">
-                <th className="py-2 pr-3">Fornecedor</th>
-                <th className="py-2 pr-3">Nº Pedido</th>
-                <th className="py-2 pr-3">Parcela</th>
-                <th className="py-2 pr-3 text-right">Valor</th>
-                <th className="py-2 pr-3">Vencimento</th>
+                <SortTh label="Fornecedor" sortKey="fornecedor" sortState={sortState} className="py-2 pr-3" />
+                <SortTh label="Nº Pedido" sortKey="oc" sortState={sortState} className="py-2 pr-3" />
+                <SortTh label="Parcela" sortKey="parcela" sortState={sortState} className="py-2 pr-3" />
+                <SortTh label="Valor" sortKey="valor" sortState={sortState} className="py-2 pr-3 text-right" align="right" />
+                <SortTh label="Vencimento" sortKey="vencimento" sortState={sortState} className="py-2 pr-3" />
                 <th className="py-2 pr-3">Status</th>
                 <th className="py-2 pr-3">Pagamento</th>
                 <th className="py-2 pr-3"></th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((p) => {
+              {sorted.map((p) => {
                 const st = effectiveStatus(p);
                 return (
                   <tr
