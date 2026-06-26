@@ -16,6 +16,20 @@ export function brl(n: number | string | null | undefined): string {
 }
 
 /**
+ * Máscara de CNPJ — padroniza com pontos/barra/traço (00.000.000/0000-00),
+ * independente de como o usuário digita (aceita só os dígitos e formata).
+ * Formata parcial enquanto digita; ignora não-dígitos e limita a 14 dígitos.
+ */
+export function formatCNPJ(value: string | null | undefined): string {
+  const d = (value ?? "").replace(/\D/g, "").slice(0, 14);
+  if (d.length <= 2) return d;
+  if (d.length <= 5) return `${d.slice(0, 2)}.${d.slice(2)}`;
+  if (d.length <= 8) return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5)}`;
+  if (d.length <= 12) return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8)}`;
+  return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
+}
+
+/**
  * Para campos editáveis: pt-BR, mínimo 2 casas mas até 4 (não arredonda valores
  * de alta precisão como consumo de aviamento ao exibir).
  */

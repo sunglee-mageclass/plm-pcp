@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Store, Plus, Search, Upload, Pencil, RotateCcw, Trash2, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { formatCNPJ } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -394,7 +395,7 @@ function NovaLojaModal({ onClose }: { onClose: () => void }) {
           </div>
           <div>
             <Label htmlFor="cnpj">CNPJ</Label>
-            <Input id="cnpj" value={cnpj} onChange={(e) => setCnpj(e.target.value)} maxLength={18} />
+            <Input id="cnpj" value={cnpj} onChange={(e) => setCnpj(formatCNPJ(e.target.value))} inputMode="numeric" placeholder="00.000.000/0000-00" maxLength={18} />
           </div>
           <div>
             <Label htmlFor="contato">Contato</Label>
@@ -428,7 +429,7 @@ function NovaLojaModal({ onClose }: { onClose: () => void }) {
 function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => void }) {
   const qc = useQueryClient();
   const [nome, setNome] = useState(tenant.nome);
-  const [cnpj, setCnpj] = useState(tenant.cnpj ?? "");
+  const [cnpj, setCnpj] = useState(formatCNPJ(tenant.cnpj ?? ""));
   const [contato, setContato] = useState(tenant.contato ?? "");
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -451,7 +452,7 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
 
   useEffect(() => {
     setNome(tenant.nome);
-    setCnpj(tenant.cnpj ?? "");
+    setCnpj(formatCNPJ(tenant.cnpj ?? ""));
     setContato(tenant.contato ?? "");
     setLogoFile(null);
   }, [tenant]);
@@ -533,7 +534,7 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
           </div>
           <div>
             <Label htmlFor="edit-cnpj">CNPJ</Label>
-            <Input id="edit-cnpj" value={cnpj} onChange={(e) => setCnpj(e.target.value)} maxLength={18} />
+            <Input id="edit-cnpj" value={cnpj} onChange={(e) => setCnpj(formatCNPJ(e.target.value))} inputMode="numeric" placeholder="00.000.000/0000-00" maxLength={18} />
           </div>
           <div>
             <Label htmlFor="edit-contato">Contato</Label>
