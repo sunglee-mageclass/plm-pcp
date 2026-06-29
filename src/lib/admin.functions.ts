@@ -16,7 +16,7 @@ async function assertSuperAdmin(supabase: any, userId: string) {
 
 export const createTenantUser = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator(
+  .validator(
     z.object({
       email: emailSchema,
       password: z.string().min(6).max(100),
@@ -64,7 +64,7 @@ export const createTenantUser = createServerFn({ method: "POST" })
 
 export const updateUser = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator(
+  .validator(
     z.object({
       user_id: z.string().uuid(),
       nome: z.string().min(1).max(255),
@@ -102,7 +102,7 @@ export const updateUser = createServerFn({ method: "POST" })
 
 export const deleteUser = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator(z.object({ user_id: z.string().uuid() }))
+  .validator(z.object({ user_id: z.string().uuid() }))
   .handler(async ({ data, context }) => {
     await assertSuperAdmin(context.supabase, context.userId);
     if (data.user_id === context.userId) throw new Error("Você não pode excluir a si mesmo.");
@@ -125,7 +125,7 @@ export const deleteUser = createServerFn({ method: "POST" })
 
 export const resetUserPassword = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator(
+  .validator(
     z.object({ user_id: z.string().uuid(), new_password: z.string().min(6).max(100) }),
   )
   .handler(async ({ data, context }) => {
@@ -140,7 +140,7 @@ export const resetUserPassword = createServerFn({ method: "POST" })
 
 export const toggleUserAtivo = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator(z.object({ user_id: z.string().uuid(), ativo: z.boolean() }))
+  .validator(z.object({ user_id: z.string().uuid(), ativo: z.boolean() }))
   .handler(async ({ data, context }) => {
     await assertSuperAdmin(context.supabase, context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -161,7 +161,7 @@ export const toggleUserAtivo = createServerFn({ method: "POST" })
 // filtrar por essa loja automaticamente.
 export const setActiveTenant = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator(z.object({ tenant_id: z.string().uuid().nullable() }))
+  .validator(z.object({ tenant_id: z.string().uuid().nullable() }))
   .handler(async ({ data, context }) => {
     await assertSuperAdmin(context.supabase, context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -175,7 +175,7 @@ export const setActiveTenant = createServerFn({ method: "POST" })
 
 export const savePermissionsAsSuperAdmin = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator(
+  .validator(
     z.object({
       user_id: z.string().uuid(),
       tenant_id: z.string().uuid(),

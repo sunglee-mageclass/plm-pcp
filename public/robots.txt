@@ -9,4 +9,4 @@ Disallow: /producao
 Disallow: /financeiro
 Disallow: /configuracoes
 
-Sitemap: https://sistrama.lovable.app/sitemap.xml
+Sitemap: https://sistrama.sung-lee.workers.dev/sitemap.xml

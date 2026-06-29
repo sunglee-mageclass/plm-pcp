@@ -82,7 +82,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:type", content: "website" },
       { property: "og:title", content: "sisTrama — PLM + PCP para Moda e Confecção" },
       { property: "og:description", content: "Gestão integrada de criação, produção, estoque e financeiro para confecção." },
-      { property: "og:url", content: "https://sistrama.lovable.app/" },
+      { property: "og:url", content: "https://sistrama.sung-lee.workers.dev/" },
       { name: "twitter:card", content: "summary" },
     ],
     links: [

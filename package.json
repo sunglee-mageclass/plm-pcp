@@ -9,6 +9,7 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "deploy": "npm run build && wrangler deploy",
+    "deploy:staging": "CLOUDFLARE_ENV=staging npm run build && wrangler deploy",
     "cf-typegen": "wrangler types",
     "lint": "eslint .",
     "format": "prettier --write .",
