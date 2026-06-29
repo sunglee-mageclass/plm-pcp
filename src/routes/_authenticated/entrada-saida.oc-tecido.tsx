@@ -946,7 +946,7 @@ function OcDialog({
       if (!parcelas.every((p) => !!p.data)) missing.push("Preencha as datas de todas as parcelas de recebimento.");
       if (!parcelas.every((p) => p.recebido === true)) missing.push("Marque todas as parcelas como recebidas.");
     }
-    if (!todasEtiquetasOk) missing.push("Anexe a etiqueta de lavagem de todos os artigos.");
+    if (!todasEtiquetasOk) missing.push("Anexe a etiqueta de lavagem de todos os tecidos.");
     if (!draft.nf_url) missing.push("Anexe a nota fiscal (NF).");
     return missing;
   };

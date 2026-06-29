@@ -641,7 +641,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       const hasGrade = grades.some(
         (g) => g.grade_total > 0 || Object.values(g.grades || {}).some((v) => (v ?? 0) > 0),
       );
-      if (hasGrade && !window.confirm("Trocar o artigo do Tecido 1 vai apagar a grade preenchida. Continuar?")) {
+      if (hasGrade && !window.confirm("Trocar o Tecido 1 vai apagar a grade preenchida. Continuar?")) {
         return;
       }
       setGrades([]);

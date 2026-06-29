@@ -31,9 +31,9 @@ export function TecidoGroup({
         <h4 className="font-semibold">Tecido {n}</h4>
       </div>
       <div className="grid gap-1">
-        <Label>Artigo</Label>
+        <Label>Tecido</Label>
         <Select value={artigoId ?? ""} onValueChange={onArtigoChange}>
-          <SelectTrigger><SelectValue placeholder="Selecionar artigo…" /></SelectTrigger>
+          <SelectTrigger><SelectValue placeholder="Selecionar tecido…" /></SelectTrigger>
           <SelectContent>
             {artigos.map((a) => <SelectItem key={a.id} value={a.id}>{artigoLabel(a)}</SelectItem>)}
           </SelectContent>
@@ -70,7 +70,7 @@ export function TecidoGroup({
                   m/kg
                 </span>
               </div>
-              <p className="text-xs text-muted-foreground">Converte kg em metros para esta OC. Padrão vem do cadastro do artigo.</p>
+              <p className="text-xs text-muted-foreground">Converte kg em metros para esta OC. Padrão vem do cadastro do tecido.</p>
             </div>
           )}
 

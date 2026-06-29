@@ -208,7 +208,7 @@ export function EtiquetaLavagemArtigoEditor({
     try {
       const path = await uploadEtiqueta(file);
       saveMut.mutate([...urls, path]);
-      toast.success("Etiqueta salva no artigo");
+      toast.success("Etiqueta salva no tecido");
     } catch (e) {
       toast.error(mensagemErro(e));
     }
@@ -224,7 +224,7 @@ export function EtiquetaLavagemArtigoEditor({
     return (
       <div className="grid gap-1">
         <Label>{label}</Label>
-        <p className="text-xs text-muted-foreground">Selecione um artigo para anexar etiqueta.</p>
+        <p className="text-xs text-muted-foreground">Selecione um tecido para anexar etiqueta.</p>
       </div>
     );
   }
@@ -235,7 +235,7 @@ export function EtiquetaLavagemArtigoEditor({
       {isLoading ? (
         <p className="text-xs text-muted-foreground">Carregando…</p>
       ) : urls.length === 0 ? (
-        <p className="text-xs text-muted-foreground">Nenhuma etiqueta cadastrada para este artigo.</p>
+        <p className="text-xs text-muted-foreground">Nenhuma etiqueta cadastrada para este tecido.</p>
       ) : (
         <div className="flex gap-2 flex-wrap">
           {urls.map((p) => (

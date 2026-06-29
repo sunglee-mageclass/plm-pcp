@@ -298,7 +298,7 @@ function TecidosTab() {
         <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}>
           <Printer className="h-4 w-4 mr-1" /> Imprimir
         </Button>
-        <SearchToggle value={search} onChange={setSearch} placeholder="Artigo ou variante" />
+        <SearchToggle value={search} onChange={setSearch} placeholder="Tecido ou variante" />
         <FilterButton
           filters={[
             { label: "Estoque", value: estoqueFilter, onChange: setEstoqueFilter, options: [{ id: "all", nome: "Todos" }, { id: "zero", nome: "Estoque Zerado" }, { id: "positive", nome: "Estoque > 0" }] },
@@ -376,7 +376,7 @@ function TecidosTab() {
         titulo="Posição de Estoque — Tecidos"
         dataStr={new Date().toLocaleDateString("pt-BR")}
         colunas={[
-          { key: "artigo", label: "Artigo" },
+          { key: "artigo", label: "Tecido" },
           { key: "variante", label: "Variante" },
           { key: "fisico", label: "Físico", align: "right" },
           { key: "reservado", label: "Reservado", align: "right" },

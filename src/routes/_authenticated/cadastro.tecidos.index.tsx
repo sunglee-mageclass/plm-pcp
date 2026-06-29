@@ -445,7 +445,7 @@ function CreateTecidoModal({
         </DialogHeader>
         <div className="space-y-3 py-2">
           <div className="space-y-1.5">
-            <Label>Nome do artigo</Label>
+            <Label>Nome do tecido</Label>
             <Input
               autoFocus
               value={nome}
