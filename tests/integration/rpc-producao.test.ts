@@ -50,4 +50,16 @@ describe.skipIf(!hasDb)("RPC de produção — corte e grade real do CQ", () => 
       expect(r.tem).toBe(true);
     });
   });
+
+  // R3 (write-skew 1:1): enforce_unique_fk deve serializar por advisory lock. Sem ele, 2
+  // inserts simultâneos do mesmo modelo_id/cad_id passavam o EXISTS e furavam a invariante.
+  it("enforce_unique_fk mantém advisory lock por valor (anti write-skew 1:1 — R3)", async () => {
+    await withTx(async (c) => {
+      const r = await um<{ tem: boolean }>(
+        c,
+        `select position('pg_advisory_xact_lock' in pg_get_functiondef('public.enforce_unique_fk()'::regprocedure)) > 0 as tem`,
+      );
+      expect(r.tem).toBe(true);
+    });
+  });
 });
