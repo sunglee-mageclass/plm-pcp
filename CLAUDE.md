@@ -50,8 +50,9 @@ unit + integração transacional de RPC — ver `tests/README.md`)
    `src/routes/auth.tsx` — **o acesso é por convite** (super_admin cria os usuários
    em `/admin/usuarios`). Removido em 26/06/2026: o tab "Criar conta" (`signUp`) e o
    **login via Google** (`signInWithOAuth`) — não há mais auto-criação de conta.
-   Resíduos do Lovable são só cosméticos: hosting/SEO em `sistrama.lovable.app`,
-   telemetria opcional no-op (`lovable-error-reporting.ts`) e strings de erro herdadas.
+   Resíduos do Lovable são só cosméticos: hosting/SEO em `sistrama.lovable.app` e
+   telemetria opcional no-op (`lovable-error-reporting.ts`). (Strings/banners herdados
+   "Connect Supabase in Lovable Cloud"/"automatically generated" foram limpos em 29/06/2026.)
 
 3. **Um piloto por vez.** Não editar no Lovable e no VS Code ao mesmo tempo.
    Sempre `git pull` antes; `git push origin main` ao terminar.
@@ -146,6 +147,9 @@ ao mexer em consumo/grade/estoque/custo/financeiro/CQ.
   `controle_qualidade.cad_id`): o PostgREST passa a tratar o embed como **objeto** (to-one)
   e quebra todo código que usa `x?.[0]`/`(x ?? []).some(...)`. Para "1:1" use **TRIGGER**
   (`enforce_unique_fk`), não constraint. UNIQUE **composta** é segura. (Regressão real.)
+  ⚠️ Ao trocar UNIQUE→TRIGGER numa coluna FK, **recrie um índice plano** nela (`CREATE INDEX`):
+  o UNIQUE removido leva o índice implícito junto, e `enforce_unique_fk`/embeds passam a fazer
+  seq scan. (Faltava em `controle_qualidade`/`producao_oficina`.cad_id — corrigido em 29/06/2026.)
 
 ## Agentes — times por especialidade (`.claude/agents/`)
 
