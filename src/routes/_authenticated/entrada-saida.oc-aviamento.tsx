@@ -565,7 +565,7 @@ function OcDialog({
       const lastDate = parcelas.length > 0
         ? [...parcelas].map((p) => p.data).filter(Boolean).sort().slice(-1)[0] ?? draft.data_entrega
         : draft.data_entrega;
-      const payload: any = {
+      const ocPayload = {
         numero_pedido: draft.numero_pedido || null,
         responsavel_nome: respMode === "select"
           ? (draft.responsavel_id ? (estilistas.find((e) => e.id === draft.responsavel_id)?.nome ?? null) : null)
@@ -580,104 +580,26 @@ function OcDialog({
         parcelas_recebimento: parcelas,
         status: markReceived ? "recebido" : status,
       };
+      const itensPayload = items
+        .filter((i) => i.aviamento_id)
+        .map((i) => ({
+          id: i.id ?? null,
+          aviamento_id: i.aviamento_id,
+          quantidade_pedida: i.quantidade_pedida,
+          quantidade_recebida: i.quantidade_recebida,
+          cancelado: i.cancelado,
+        }));
 
-
-      // CRITICAL: salvar itens ANTES de atualizar o status para 'recebido',
-      // pois o trigger gerar_parcelas_oc_aviamento lê os itens no momento do UPDATE
-      // e tem proteção anti-duplicação (parcelas erradas ficariam permanentes).
-      let ocIdLocal = ocId;
-      const finalStatus: OCStatus = markReceived ? "recebido" : status;
-      const validItems = items.filter((i) => i.aviamento_id);
-
-      if (isEdit && ocIdLocal) {
-        // Diff: UPDATE (com id), INSERT (sem id), DELETE só dos removidos.
-        const currentIds = new Set(
-          validItems.map((i) => i.id).filter((x): x is string => !!x),
-        );
-        const toDelete = originalItemIds.filter((id) => !currentIds.has(id));
-        const toUpdate = validItems.filter((i) => i.id);
-        const toInsert = validItems.filter((i) => !i.id);
-
-        if (toDelete.length > 0) {
-          const { error } = await supabase
-            .from("ocs_aviamento_itens").delete().in("id", toDelete);
-          if (error) throw error;
-        }
-        for (const it of toUpdate) {
-          const { error } = await supabase
-            .from("ocs_aviamento_itens")
-            .update({
-              aviamento_id: it.aviamento_id,
-              quantidade_pedida: it.quantidade_pedida,
-              quantidade_recebida: it.quantidade_recebida,
-              cancelado: it.cancelado,
-            } as any)
-            .eq("id", it.id!);
-          if (error) throw error;
-        }
-        if (toInsert.length > 0) {
-          const { error } = await supabase
-            .from("ocs_aviamento_itens")
-            .insert(toInsert.map((i) => ({
-              oc_aviamento_id: ocIdLocal,
-              aviamento_id: i.aviamento_id,
-              quantidade_pedida: i.quantidade_pedida,
-              quantidade_recebida: i.quantidade_recebida,
-              cancelado: i.cancelado,
-            })) as any);
-          if (error) throw error;
-        }
-
-        // Depois atualizar a OC (dispara o trigger já com itens corretos)
-        const { error } = await supabase.from("ocs_aviamento").update(payload).eq("id", ocIdLocal);
-        if (error) throw error;
-      } else {
-        // INSERT: criar como 'encomendado' (não dispara trigger), inserir itens,
-        // depois — se for o caso — atualizar para 'recebido'.
-        const insertPayload = { ...payload, status: "encomendado" };
-        const { data, error } = await supabase.from("ocs_aviamento").insert(insertPayload).select("id").single();
-        if (error) throw error;
-        ocIdLocal = data.id;
-
-        if (validItems.length > 0) {
-          const { error: itErr } = await supabase
-            .from("ocs_aviamento_itens")
-            .insert(validItems.map((i) => ({
-              oc_aviamento_id: ocIdLocal,
-              aviamento_id: i.aviamento_id,
-              quantidade_pedida: i.quantidade_pedida,
-              quantidade_recebida: i.quantidade_recebida,
-              cancelado: i.cancelado,
-            })) as any);
-          if (itErr) throw itErr;
-        }
-
-        if (finalStatus === "recebido") {
-          const { error: upErr } = await supabase
-            .from("ocs_aviamento")
-            .update({ status: "recebido" })
-            .eq("id", ocIdLocal);
-          if (upErr) throw upErr;
-        }
-      }
-
-      // Quando a OC fica recebida, recalcula as parcelas. O trigger
-      // gerar_parcelas_oc_aviamento NÃO regenera se já existir parcela (ex.: ao
-      // re-receber depois de desmarcar mantendo uma parcela paga, as demais
-      // somem). recalcular_parcelas preserva as pagas e recria as restantes.
-      if (finalStatus === "recebido" && ocIdLocal) {
-        const { error: recErr } = await supabase.rpc("recalcular_parcelas", {
-          _oc_id: ocIdLocal,
-          _tipo: "aviamento",
-        });
-        // Best-effort: o status já foi gravado e o trigger já gera as parcelas no
-        // primeiro recebimento. Não bloqueia o save se a RPC falhar, mas AVISA — uma
-        // falha aqui deixa as parcelas a pagar desatualizadas (não pode passar batido).
-        if (recErr) {
-          console.warn("recalcular_parcelas (aviamento) falhou:", recErr.message);
-          toast.warning("OC salva, mas o recálculo de parcelas falhou — confira as contas a pagar desta OC.");
-        }
-      }
+      // RPC transacional: diff de itens + OC + recálculo de parcelas numa ÚNICA transação.
+      // Dentro da RPC os itens entram ANTES do status='recebido' (o trigger gerar_parcelas
+      // lê os itens no UPDATE) e recalcular_parcelas roda no fim (preserva pagas). Acaba
+      // com a janela de falha parcial das 6-8 chamadas que isto era no cliente.
+      const { error } = await supabase.rpc("salvar_oc_aviamento" as any, {
+        _oc_id: isEdit ? ocId : null,
+        _oc: ocPayload,
+        _itens: itensPayload,
+      });
+      if (error) throw error;
     },
     onSuccess: () => {
       toast.success("OC salva");
