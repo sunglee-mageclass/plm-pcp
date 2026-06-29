@@ -38,4 +38,16 @@ describe.skipIf(!hasDb)("RPC de produção — corte e grade real do CQ", () => 
       expect(Number(r.n)).toBe(0);
     });
   });
+
+  // R1 (write-skew): o corte deve serializar por tenant via advisory lock. Sem ele, 2
+  // cortes simultâneos no mesmo lote liam o saldo cheio e baixavam a mais (estoque negativo).
+  it("o corte mantém advisory lock por tenant (anti write-skew — invariante R1)", async () => {
+    await withTx(async (c) => {
+      const r = await um<{ tem: boolean }>(
+        c,
+        `select position('pg_advisory_xact_lock' in pg_get_functiondef('public._baixar_estoque_tecido_corte_core(uuid)'::regprocedure)) > 0 as tem`,
+      );
+      expect(r.tem).toBe(true);
+    });
+  });
 });
