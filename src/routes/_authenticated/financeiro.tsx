@@ -249,7 +249,7 @@ function FinanceiroPage() {
           <ServicosView />
         </TabsContent>
         <TabsContent value="resumo" className="mt-4">
-          <ResumoView parcelas={parcelas} />
+          <ResumoView parcelas={parcelas} servicos={servicosCal as unknown as Parcela[]} />
         </TabsContent>
       </Tabs>
     </div>
@@ -1281,27 +1281,33 @@ function PagarDialog({ parcelaId, onClose }: { parcelaId: string | null; onClose
 
 type StatusSel = "a_pagar" | "pago" | "vencido";
 
-function ResumoView({ parcelas }: { parcelas: Parcela[] }) {
+function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Parcela[] }) {
   const [fFornecedor, setFFornecedor] = useState("all");
   const [fMes, setFMes] = useState("");   // yyyy-MM
   const [fDe, setFDe] = useState("");
   const [fAte, setFAte] = useState("");
   const [selected, setSelected] = useState<StatusSel | null>(null);
 
+  // Parcelas de OC + parcelas de serviço (terceirizados) num só conjunto: o Resumo
+  // contabiliza AMBOS (antes só somava as de OC, por isso os serviços não apareciam).
+  // Serviços (servicosCal) já chegam com data_vencimento garantida e sem empresa_id
+  // (o filtro por fornecedor naturalmente os ignora — serviços usam "responsável").
+  const items = useMemo(() => [...parcelas, ...servicos], [parcelas, servicos]);
+
   const fornecedores = useMemo(() => {
     const m = new Map<string, string>();
-    for (const p of parcelas) if (p.empresa_id) m.set(p.empresa_id, p.empresas?.nome ?? "—");
+    for (const p of items) if (p.empresa_id) m.set(p.empresa_id, p.empresas?.nome ?? "—");
     return Array.from(m, ([id, nome]) => ({ id, nome }));
-  }, [parcelas]);
+  }, [items]);
 
   // Conjunto-base após os filtros (fornecedor, mês, intervalo de datas).
-  const base = useMemo(() => parcelas.filter((p) => {
+  const base = useMemo(() => items.filter((p) => {
     if (fFornecedor !== "all" && p.empresa_id !== fFornecedor) return false;
     if (fMes && p.data_vencimento.slice(0, 7) !== fMes) return false;
     if (fDe && p.data_vencimento < fDe) return false;
     if (fAte && p.data_vencimento > fAte) return false;
     return true;
-  }), [parcelas, fFornecedor, fMes, fDe, fAte]);
+  }), [items, fFornecedor, fMes, fDe, fAte]);
 
   const sumBy = (st: StatusSel) => base.filter((p) => effectiveStatus(p) === st).reduce((s, p) => s + Number(p.valor), 0);
   const totalAPagar = sumBy("a_pagar");
