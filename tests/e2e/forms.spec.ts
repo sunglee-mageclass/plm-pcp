@@ -127,3 +127,36 @@ test("FLUXO — criar e excluir um tecido (create → detalhe → excluir)", asy
   await page.waitForLoadState("networkidle").catch(() => {});
   await expect(page.getByText(nome)).toHaveCount(0);
 });
+
+/* ===== Teste de CONEXÃO: criar num lugar, conferir o efeito noutro (a "fiação") ===== */
+
+test("CONEXÃO — Novo Modelo (Planejamento) vira card no Desenvolvimento (e limpa)", async () => {
+  const nome = `__ROBO_MODELO__ ${Date.now()}`;
+
+  // 1) Criar modelo no Planejamento (só o Nome é necessário).
+  await page.goto("/criacao/planejamento", { waitUntil: "networkidle" });
+  await page.getByRole("button", { name: "Novo Modelo" }).first().click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText("Novo Modelo")).toBeVisible();
+  await dialog.getByRole("textbox").first().fill(nome); // 1º textbox = "Nome do Modelo"
+  // Status "Planejado": SEM isso o modelo nasce "em_planejamento" e o Desenvolvimento
+  // (que filtra status_planejamento='planejado', linha 133) NÃO o mostra — regra do negócio.
+  await dialog.getByRole("combobox").filter({ hasText: "Em Planejamento" }).click();
+  await page.getByRole("option", { name: "Planejado", exact: true }).click();
+  await dialog.getByRole("button", { name: "Salvar" }).click();
+  await expect(dialog).toBeHidden({ timeout: 15_000 }); // salvar fecha o dialog
+
+  // 2) A CONEXÃO: o modelo planejado aparece como card no Desenvolvimento (kanban).
+  await page.goto("/criacao/desenvolvimento", { waitUntil: "networkidle" });
+  await expect(page.getByText(nome).first()).toBeVisible({ timeout: 15_000 });
+  await page.screenshot({ path: "test-results/forms/conexao-modelo-desenvolvimento.png", fullPage: true });
+
+  // 3) Limpeza: abrir o card no Planejamento e excluir.
+  await page.goto("/criacao/planejamento", { waitUntil: "networkidle" });
+  await page.getByText(nome).first().click(); // o Card é cursor-pointer → abre edição
+  const edit = page.getByRole("dialog");
+  await expect(edit).toBeVisible();
+  await edit.getByRole("button", { name: "Excluir" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Excluir", exact: true }).click();
+  await expect(page.getByText(nome)).toHaveCount(0, { timeout: 15_000 });
+});
