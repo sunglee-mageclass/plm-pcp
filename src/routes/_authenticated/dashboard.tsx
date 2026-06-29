@@ -563,8 +563,8 @@ function ProducaoTab() {
     const a = defeitoMes as any[];
     return a.length ? a.reduce((s, d) => s + Number(d.taxa || 0), 0) / a.length : 0;
   }, [defeitoMes]);
-  // Oficina e Acabamento são subtipos de Terceirizado (serviços) — não etapas próprias.
-  const etapas = ["CAD", "Terceirizado", "Controle de Qualidade", "Direcionamento", "Lançado"];
+  // Oficina e Acabamento são subtipos de Serviço — não etapas próprias.
+  const etapas = ["CAD", "Serviço", "Controle de Qualidade", "Direcionamento", "Lançado"];
   // Rótulo da timeline: a etapa "Lançado" (existe registro em lancamentos) é a
   // ETAPA de lançamento — distinta do KPI "Lançados (CQ ok)" (CQ confirmado).
   const etapaLabel: Record<string, string> = { "Lançado": "Em Lançamento" };
@@ -643,8 +643,8 @@ function ProducaoTab() {
             </thead>
             <tbody>
               {timeline.map((r: any) => {
-                // Oficina/Acabamento caem sob Terceirizado na timeline.
-                const etapaAtual = (r.etapa === "Oficina" || r.etapa === "Acabamento") ? "Terceirizado" : r.etapa;
+                // Oficina/Acabamento caem sob Serviço na timeline.
+                const etapaAtual = (r.etapa === "Oficina" || r.etapa === "Acabamento") ? "Serviço" : r.etapa;
                 const idx = etapas.indexOf(etapaAtual);
                 return (
                   <tr key={r.id} className="border-b last:border-0">

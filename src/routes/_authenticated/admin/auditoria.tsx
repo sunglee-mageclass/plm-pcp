@@ -30,8 +30,8 @@ const ACAO_META: Record<string, { label: string; cls: string }> = {
 const ENTIDADES = [
   "OC de Tecido", "OC de Aviamento", "Ordem de Saída (Tecido)", "Ordem de Saída (Aviamento)",
   "Modelo", "CAD", "Controle de Qualidade", "Baixa de Estoque", "Parcela (a pagar)",
-  "Parcela de Serviço", "Lançamento", "Produção Terceirizada", "Oficina", "Acabamento",
-  "Direcionamento", "Artigo", "Aviamento", "Colaborador", "Empresa", "Representante",
+  "Parcela de Serviço", "Lançamento", "Produção de Serviços", "Oficina", "Acabamento",
+  "Direcionamento", "Tecido", "Aviamento", "Colaborador", "Empresa", "Representante",
   "Configuração da Loja", "Usuário", "Permissões de Usuário", "Loja", "Identidade do Sistema",
 ];
 
