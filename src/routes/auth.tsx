@@ -22,12 +22,12 @@ export const Route = createFileRoute("/auth")({
       { name: "description", content: "Acesse sua conta no sisTrama para gerenciar criação, produção, estoque e financeiro da sua confecção." },
       { property: "og:title", content: "Entrar — sisTrama" },
       { property: "og:description", content: "Acesse o painel sisTrama da sua loja." },
-      { property: "og:url", content: "https://sistrama.lovable.app/auth" },
+      { property: "og:url", content: "https://sistrama.sung-lee.workers.dev/auth" },
       { property: "og:type", content: "website" },
       { name: "robots", content: "noindex, follow" },
     ],
     links: [
-      { rel: "canonical", href: "https://sistrama.lovable.app/auth" },
+      { rel: "canonical", href: "https://sistrama.sung-lee.workers.dev/auth" },
     ],
   }),
 });

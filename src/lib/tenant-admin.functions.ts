@@ -20,7 +20,7 @@ async function assertTenantAdmin(supabase: any, userId: string) {
 
 export const createStoreUser = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator(
+  .validator(
     z.object({
       nome: z.string().min(1).max(255),
       email: emailSchema,
@@ -59,7 +59,7 @@ export const createStoreUser = createServerFn({ method: "POST" })
 
 export const savePermissions = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator(
+  .validator(
     z.object({
       user_id: z.string().uuid(),
       perms: z.array(
