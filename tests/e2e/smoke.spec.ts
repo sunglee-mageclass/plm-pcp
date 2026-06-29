@@ -47,12 +47,23 @@ test.beforeAll(async ({ browser }) => {
   }
   context = await browser.newContext();
   page = await context.newPage();
-  await page.goto("/auth", { waitUntil: "domcontentloaded" });
-  await page.fill("#login-email", EMAIL);
-  await page.fill("#login-password", PASSWORD);
-  await page.getByRole("button", { name: "Entrar" }).click();
-  // login OK -> redireciona p/ /home (src/routes/auth.tsx). Se falhar, isto estoura.
-  await page.waitForURL("**/home", { timeout: 30_000 });
+
+  // Login robusto: em cold start, clicar ANTES da hidratação SSR dispara o submit
+  // NATIVO do <form> (navega p/ "/auth?") em vez de chamar o handler React → o robô
+  // ficava "flaky". Espera a rede assentar (JS carregado) e tenta até 3x, recarregando.
+  let logged = false;
+  for (let attempt = 1; attempt <= 3 && !logged; attempt++) {
+    await page.goto("/auth", { waitUntil: "networkidle" });
+    await page.fill("#login-email", EMAIL);
+    await page.fill("#login-password", PASSWORD);
+    await page.getByRole("button", { name: "Entrar" }).click();
+    try {
+      await page.waitForURL("**/home", { timeout: 15_000 });
+      logged = true;
+    } catch {
+      if (attempt === 3) throw new Error("Login não chegou em /home após 3 tentativas.");
+    }
+  }
 });
 
 test.afterAll(async () => {
