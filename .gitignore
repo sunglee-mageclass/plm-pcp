@@ -45,3 +45,9 @@ supabase/.temp/
 docs/mapeamento-campos-calculos.md
 docs/plano-de-ataque.md
 docs/api-integracao-erp.md
+
+# Playwright (testes E2E)
+test-results/
+playwright-report/
+/playwright/.cache/
+.last-run.json
