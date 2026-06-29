@@ -85,7 +85,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       else setLoading(false);
     });
 
-    return () => subscription.unsubscribe();
+    // Quando a aba volta ao foco, re-checa role/permissões: se um admin rebaixou
+    // ESTE usuário noutra sessão, a sidebar/gates se ajustam sozinhos (sem precisar F5).
+    // Não mexe em `loading` → atualização silenciosa, sem flash de "Acesso negado".
+    const recheck = () => {
+      if (document.visibilityState === "hidden") return;
+      supabase.auth.getSession().then(({ data: { session: s } }) => {
+        if (s?.user) loadProfile(s.user.id);
+      });
+    };
+    window.addEventListener("focus", recheck);
+    document.addEventListener("visibilitychange", recheck);
+
+    return () => {
+      subscription.unsubscribe();
+      window.removeEventListener("focus", recheck);
+      document.removeEventListener("visibilitychange", recheck);
+    };
   }, []);
 
   // Admin/super_admin/tenant_admin always bypass page restrictions.

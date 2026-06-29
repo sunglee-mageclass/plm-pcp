@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
@@ -18,6 +18,7 @@ import {
   ChevronRight,
   Sun,
   Moon,
+  KeyRound,
 } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
 import { TenantSwitcher } from "@/components/admin/TenantSwitcher";
@@ -53,6 +54,11 @@ import { PAGES_CATALOG, pageInProfile } from "@/lib/permissions-catalog";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useSystemIdentity } from "@/hooks/useSystemIdentity";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 
 const MODULE_META: Record<string, { title: string; icon: typeof BarChart3 }> = {
   dashboard: { title: "Dashboard", icon: BarChart3 },
@@ -235,11 +241,13 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarGroup>
-          <SidebarGroupLabel>Sistema</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {isAdmin && (
+        {/* "Sistema" só aparece para quem tem acesso de admin (antes o cabeçalho ficava
+            visível e vazio para usuário comum). */}
+        {isAdmin && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Sistema</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild isActive={isActive("/admin")} tooltip="Admin">
                     <Link to="/admin">
@@ -248,10 +256,10 @@ export function AppSidebar() {
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
-              )}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
         {isSuperAdmin && (
           <SidebarGroup>
@@ -322,6 +330,7 @@ export function AppSidebar() {
         {!collapsed && user && (
           <div className="px-2 py-1 text-xs text-muted-foreground truncate">{user.email}</div>
         )}
+        <TrocarSenhaDialog collapsed={collapsed} />
         <Button
           variant="ghost"
           size={collapsed ? "icon" : "sm"}
@@ -351,6 +360,56 @@ function ThemeToggleButton({ collapsed }: { collapsed: boolean }) {
     >
       {isDark ? <Sun className="h-4 w-4" aria-hidden="true" /> : <Moon className="h-4 w-4" aria-hidden="true" />}
     </Button>
+  );
+}
+
+// Qualquer usuário troca a PRÓPRIA senha (auth.updateUser usa a sessão atual; não
+// precisa de admin). Fica no rodapé da sidebar, ao lado de "Sair".
+function TrocarSenhaDialog({ collapsed }: { collapsed: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [senha, setSenha] = useState("");
+  const [conf, setConf] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const reset = () => { setSenha(""); setConf(""); };
+  const submit = async () => {
+    if (senha.length < 6) { toast.error("A senha deve ter ao menos 6 caracteres."); return; }
+    if (senha !== conf) { toast.error("As senhas não conferem."); return; }
+    setBusy(true);
+    const { error } = await supabase.auth.updateUser({ password: senha });
+    setBusy(false);
+    if (error) { toast.error(mensagemErro(error, "Erro ao trocar a senha.")); return; }
+    toast.success("Senha alterada.");
+    setOpen(false);
+    reset();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size={collapsed ? "icon" : "sm"} className="justify-start gap-2" aria-label="Trocar senha">
+          <KeyRound className="h-4 w-4" aria-hidden="true" />
+          {!collapsed && <span>Trocar senha</span>}
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Trocar senha</DialogTitle></DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="nova-senha">Nova senha</Label>
+            <Input id="nova-senha" type="password" autoComplete="new-password" value={senha} onChange={(e) => setSenha(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="conf-senha">Confirmar nova senha</Label>
+            <Input id="conf-senha" type="password" autoComplete="new-password" value={conf} onChange={(e) => setConf(e.target.value)} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>
+          <Button onClick={submit} disabled={busy}>{busy ? "Salvando…" : "Salvar"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
