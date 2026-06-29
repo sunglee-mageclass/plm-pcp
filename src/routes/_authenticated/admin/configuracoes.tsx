@@ -808,7 +808,7 @@ function ServicosCard({ tenantId }: { tenantId: string | null }) {
     onError: (e: any) =>
       toast.error(
         e?.code === "23503"
-          ? "Categoria em uso por terceirizados. Remova os vínculos antes."
+          ? "Categoria em uso por serviços. Remova os vínculos antes."
           : mensagemErro(e, "Erro ao excluir."),
       ),
   });
@@ -828,7 +828,7 @@ function ServicosCard({ tenantId }: { tenantId: string | null }) {
     <Card>
       <CardHeader>
         <CardTitle>Serviços</CardTitle>
-        <CardDescription>Categorias dos serviços executados por terceirizados.</CardDescription>
+        <CardDescription>Categorias dos serviços executados.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex gap-2">
@@ -887,7 +887,7 @@ function ServicosCard({ tenantId }: { tenantId: string | null }) {
           <AlertDialogTitle>Excluir o serviço “{removeTarget?.nome}”?</AlertDialogTitle>
           <AlertDialogDescription>
             Esta categoria de serviço sai da loja. Se já estiver em uso por algum
-            terceirizado, a exclusão será bloqueada. Esta ação não pode ser desfeita.
+            serviço, a exclusão será bloqueada. Esta ação não pode ser desfeita.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

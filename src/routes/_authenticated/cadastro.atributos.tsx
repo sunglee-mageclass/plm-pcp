@@ -27,7 +27,7 @@ export const Route = createFileRoute("/_authenticated/cadastro/atributos")({
   ),
 });
 
-type GroupKey = "GERAL" | "FORNECEDOR" | "TECIDO" | "AVIAMENTO" | "PRODUTO" | "TERCEIRIZADO";
+type GroupKey = "GERAL" | "FORNECEDOR" | "TECIDO" | "AVIAMENTO" | "PRODUTO" | "SERVIÇO";
 
 type AttributeItem = {
   value: string;
@@ -191,7 +191,7 @@ const ATTRIBUTES: AttributeItem[] = [
   {
     value: "cat_terceirizado",
     label: "Categoria do Serviço",
-    group: "TERCEIRIZADO",
+    group: "SERVIÇO",
     config: {
       table: "categorias_terceirizado",
       nameField: "nome",
@@ -214,7 +214,7 @@ const GROUP_ORDER: GroupKey[] = [
   "TECIDO",
   "AVIAMENTO",
   "PRODUTO",
-  "TERCEIRIZADO",
+  "SERVIÇO",
 ];
 
 function useAttributeCount(table: string) {

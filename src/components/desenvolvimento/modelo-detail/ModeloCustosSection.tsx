@@ -21,7 +21,7 @@ export function ModeloCustosSection({
       <Row label="Entretela" value={totals.entretela} />
       <Row label="Aviamento" value={totals.aviamento} />
       <div className="flex justify-between items-center">
-        <Label>Terceirizados</Label>
+        <Label>Serviços</Label>
         <NumberInput
           className="w-32 text-right"
           type="number"

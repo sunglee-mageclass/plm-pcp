@@ -421,7 +421,7 @@ function ColaboradoresPage() {
               </Select>
               <p className="text-xs text-muted-foreground">
                 Usada para filtrar o responsável em serviços internos dessa categoria
-                (ex.: Corte). Reaproveita as Categorias de Terceirizado.
+                (ex.: Corte). Reaproveita as Categorias de Serviço.
               </p>
             </div>
           </div>

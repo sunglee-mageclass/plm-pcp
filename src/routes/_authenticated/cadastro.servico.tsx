@@ -84,7 +84,7 @@ const SECTIONS: {
 }[] = [
   { value: "empresa", label: "Empresa", table: "empresas", plural: "Empresas" },
   { value: "representante", label: "Representante", table: "representantes", plural: "Representantes" },
-  { value: "terceirizado", label: "Terceirizado", table: "terceirizados", plural: "Terceirizados" },
+  { value: "terceirizado", label: "Serviço", table: "terceirizados", plural: "Serviços" },
 ];
 
 function useItemCount(table: string) {
@@ -122,7 +122,7 @@ function ServicoPage() {
         <div>
           <h1 className="text-2xl font-bold">Serviços</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {isStockOnly ? "Empresas e representantes." : "Empresas, representantes e terceirizados."}
+            {isStockOnly ? "Empresas e representantes." : "Empresas, representantes e serviços."}
           </p>
         </div>
       </header>
@@ -1341,7 +1341,7 @@ function TerceirizadosMultiCatTab() {
       const v = nome.trim();
       if (!v) throw new Error("Informe o nome do responsável.");
       if (cats.length === 0)
-        throw new Error("Selecione ao menos uma categoria do terceirizado.");
+        throw new Error("Selecione ao menos uma categoria do serviço.");
 
       let tercId = editingId;
       if (editingId) {
@@ -1381,7 +1381,7 @@ function TerceirizadosMultiCatTab() {
       if (insErr) throw insErr;
     },
     onSuccess: () => {
-      toast.success(editingId ? "Terceirizado atualizado." : "Terceirizado criado.");
+      toast.success(editingId ? "Serviço atualizado." : "Serviço criado.");
       setOpen(false);
       resetForm();
       qc.invalidateQueries({ queryKey: ["terceirizados-multi"] });
@@ -1432,7 +1432,7 @@ function TerceirizadosMultiCatTab() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Buscar terceirizados…"
+            placeholder="Buscar serviços…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
@@ -1463,7 +1463,7 @@ function TerceirizadosMultiCatTab() {
             ) : filtered.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
-                  Nenhum terceirizado encontrado.
+                  Nenhum serviço encontrado.
                 </TableCell>
               </TableRow>
             ) : (
@@ -1516,7 +1516,7 @@ function TerceirizadosMultiCatTab() {
       <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) resetForm(); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingId ? "Editar terceirizado" : "Novo terceirizado"}</DialogTitle>
+            <DialogTitle>{editingId ? "Editar serviço" : "Novo serviço"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div className="space-y-1.5">
@@ -1558,7 +1558,7 @@ function TerceirizadosMultiCatTab() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Excluir terceirizado?</AlertDialogTitle>
+            <AlertDialogTitle>Excluir serviço?</AlertDialogTitle>
             <AlertDialogDescription>
               {deleteUsage === null ? (
                 <span className="flex items-center gap-2">
@@ -1567,7 +1567,7 @@ function TerceirizadosMultiCatTab() {
                 </span>
               ) : deleteUsage > 0 ? (
                 <>
-                  Este terceirizado está em uso em <strong>{deleteUsage}</strong> registro(s).
+                  Este serviço está em uso em <strong>{deleteUsage}</strong> registro(s).
                   Deseja excluir mesmo assim?
                 </>
               ) : (

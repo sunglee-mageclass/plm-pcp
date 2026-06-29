@@ -11,7 +11,7 @@ export const Route = createFileRoute("/_authenticated/producao/")({
 
 const SECTIONS = {
   cad: { to: "/producao/cad", title: "CAD", desc: "Modelos enviados ao CAD.", icon: Scissors },
-  terceirizados: { to: "/producao/terceirizados", title: "Terceirizados", desc: "Serviços terceirizados por REF.", icon: Users },
+  terceirizados: { to: "/producao/terceirizados", title: "Serviços", desc: "Serviços por REF.", icon: Users },
   oficina: { to: "/producao/oficina", title: "Oficina", desc: "Costura e montagem por REF.", icon: Wrench },
   cq: { to: "/producao/cq", title: "Controle de Qualidade", desc: "Recebimento, conserto, lavagem, defeito.", icon: ClipboardCheck },
   acabamento: { to: "/producao/acabamento", title: "Acabamento", desc: "Etapas de acabamento por REF.", icon: Sparkles },
@@ -43,7 +43,7 @@ function ProducaoIndex() {
         <Factory className="h-7 w-7 text-primary mt-0.5 shrink-0" />
         <div>
           <h1 className="text-2xl font-bold">Produção</h1>
-          <p className="text-sm text-muted-foreground">CAD, terceirizados, oficina, Controle de Qualidade, acabamento e lançamentos.</p>
+          <p className="text-sm text-muted-foreground">CAD, serviços, oficina, Controle de Qualidade, acabamento e lançamentos.</p>
         </div>
       </header>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

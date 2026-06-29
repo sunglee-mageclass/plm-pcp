@@ -146,7 +146,7 @@ function TercListPage() {
               <SkeletonTableRow cols={6} />
             )}
             {!isLoading && sorted.length === 0 && (
-              <tr><td colSpan={6} className="p-0"><EmptyState icon={Users} title="Nenhum modelo disponível" description="Modelos enviados aos terceirizados aparecerão aqui." className="border-0 rounded-none" /></td></tr>
+              <tr><td colSpan={6} className="p-0"><EmptyState icon={Users} title="Nenhum modelo disponível" description="Modelos enviados aos serviços aparecerão aqui." className="border-0 rounded-none" /></td></tr>
             )}
             {sorted.map((r: any) => (
               <tr
