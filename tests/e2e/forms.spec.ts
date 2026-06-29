@@ -103,16 +103,18 @@ test("FLUXO — criar e excluir um tecido (create → detalhe → excluir)", asy
   await dialog.getByPlaceholder("Ex: Linho 100% premium").fill(nome);
   await dialog.getByRole("button", { name: /Criar e abrir/ }).click();
 
-  // "Criar e abrir" navega (full reload) p/ o detalhe → espera a URL + o nome render.
+  // "Criar e abrir" navega (full reload, só no onSuccess) p/ o detalhe — a própria URL
+  // /cadastro/tecidos/<id> já prova que criou. "Detalhe pronto" = botão "Excluir" visível
+  // (estável; o nome vive num <Input> editável, que getByText não casa de forma confiável).
   await page.waitForURL(/\/cadastro\/tecidos\/[0-9a-f-]+/, { timeout: 20_000 });
-  await page.waitForLoadState("networkidle").catch(() => {});
-  await expect(page.getByText(nome).first()).toBeVisible();
+  const excluirBtn = page.getByRole("button", { name: "Excluir", exact: true }).first();
+  await expect(excluirBtn).toBeVisible({ timeout: 15_000 });
   await page.screenshot({ path: "test-results/forms/fluxo-tecido-criado.png", fullPage: true });
 
   // Excluir (clica até o AlertDialog abrir — robusto contra hidratação pós-reload).
   const alert = page.getByRole("alertdialog");
   for (let i = 0; i < 3; i++) {
-    await page.getByRole("button", { name: "Excluir", exact: true }).first().click();
+    await excluirBtn.click();
     try {
       await alert.getByText("Excluir tecido?").waitFor({ state: "visible", timeout: 4000 });
       break;

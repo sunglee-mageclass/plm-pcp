@@ -110,7 +110,10 @@ function TecidoDetail() {
     if (artigo) setForm(artigo);
   }, [artigo]);
 
-  const { data: catLinks = [] } = useQuery({
+  // SEM default `= []`: um `[]` novo a cada render viraria dep instável do useEffect
+  // abaixo → setCatIds em loop → "Maximum update depth exceeded" (React #185), crash
+  // intermitente do detalhe enquanto a query carrega. `undefined` é estável (igual `artigo`).
+  const { data: catLinks } = useQuery({
     queryKey: ["artigo-cats", artigoId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -122,7 +125,7 @@ function TecidoDetail() {
     },
   });
   useEffect(() => {
-    setCatIds(catLinks);
+    if (catLinks) setCatIds(catLinks);
   }, [catLinks]);
 
   const { data: empresas = [] } = useQuery({
