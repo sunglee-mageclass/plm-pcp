@@ -832,7 +832,9 @@ function OcDialog({
                     {canShowRecebimento && <TableCell data-label="Valor Real" className="text-sm">{fmtMoney(valorReal(i))}</TableCell>}
                     <TableCell data-label="Ações">
                       <div className="flex items-center gap-1">
-                        {status === "encomendado" && (
+                        {/* Cancelar item só faz sentido numa OC já existente (encomendada ou
+                            recebida); na "Nova OC" não há o que cancelar dentro da própria ordem. */}
+                        {isEdit && (
                           <label className="flex items-center gap-1 text-xs text-muted-foreground" title="Cancelar item">
                             <Checkbox
                               checked={i.cancelado}
