@@ -368,7 +368,8 @@ function ConfiguracoesLojaPage() {
         </CardContent>
       </Card>
 
-      {!isStockOnly && (
+      {/* Integração com ERP: em desenvolvimento — visível só para super_admin. */}
+      {isSuperAdmin && !isStockOnly && (
       <Card>
         <CardHeader>
           <CardTitle>Integração com ERP</CardTitle>
@@ -388,17 +389,11 @@ function ConfiguracoesLojaPage() {
             <li>Filtrar <code>cancelado</code>/<code>estoque_zerado</code>/<code>is_rolo</code>; parcelas a pagar ≠ parcelas de recebimento; "vencido" é derivado.</li>
             <li>Teste a integração contra uma <b className="text-foreground">cópia</b> do banco, nunca em produção.</li>
           </ol>
-          {isSuperAdmin ? (
-            <p className="text-muted-foreground">
-              Crie um <b className="text-foreground">usuário de integração</b> dedicado para esta loja em{" "}
-              <Link to="/admin/usuarios" className="text-primary underline">Usuários</Link> (papel "Usuário"),
-              e ajuste as permissões dele em Usuários da Loja.
-            </p>
-          ) : (
-            <p className="text-muted-foreground">
-              Para criar o usuário de integração desta loja, peça ao <b className="text-foreground">super_admin</b> (papel "Usuário" dedicado), e ajuste as permissões em Usuários da Loja.
-            </p>
-          )}
+          <p className="text-muted-foreground">
+            Crie um <b className="text-foreground">usuário de integração</b> dedicado para esta loja em{" "}
+            <Link to="/admin/usuarios" className="text-primary underline">Usuários</Link> (papel "Usuário"),
+            e ajuste as permissões dele em Usuários da Loja.
+          </p>
         </CardContent>
       </Card>
       )}
