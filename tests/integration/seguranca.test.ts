@@ -58,4 +58,18 @@ describe.skipIf(!hasDb)("segurança — helpers de tenant/role/módulo", () => {
       expect(dono.s).toBe(true);
     });
   });
+
+  // Bug: super_admin gravava permissões (service-role) mas NÃO as relia (RLS sem policy
+  // de super_admin) → modal voltava vazio. A policy abaixo restaura a leitura/escrita.
+  it("super_admin tem policy em user_permissions (bug: gravava mas não relia)", async () => {
+    await withTx(async (c) => {
+      const r = await um<{ n: string }>(
+        c,
+        `select count(*) as n from pg_policies
+          where schemaname='public' and tablename='user_permissions'
+            and policyname='super_admin_user_permissions'`,
+      );
+      expect(Number(r.n)).toBe(1);
+    });
+  });
 });
