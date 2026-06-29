@@ -18,13 +18,16 @@ import {
 type PermState = Record<string, { pode_ver: boolean; pode_editar: boolean }>;
 
 export type PermissoesModalProps = {
-  user: { id: string; nome: string; tenant_id?: string | null };
+  user: { id: string; nome: string; tenant_id?: string | null; role?: string };
   mode: "tenant" | "super";
   onClose: () => void;
 };
 
 export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
   const qc = useQueryClient();
+  // Admins (admin/tenant_admin/super_admin) furam user_can_view → têm acesso total.
+  // Não precisam de linhas em user_permissions; o modal só reflete isso visualmente.
+  const isAdminRole = ["admin", "tenant_admin", "super_admin"].includes(user.role ?? "");
   const callTenant = useServerFn(savePermissions);
   const callSuper = useServerFn(savePermissionsAsSuperAdmin);
 
@@ -42,12 +45,14 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
 
   const initial = useMemo<PermState>(() => {
     const base: PermState = {};
-    for (const key of ALL_PAGE_KEYS) base[key] = { pode_ver: false, pode_editar: false };
-    for (const p of existing ?? []) {
-      base[p.pagina] = { pode_ver: !!p.pode_ver, pode_editar: !!p.pode_editar };
+    for (const key of ALL_PAGE_KEYS) base[key] = { pode_ver: isAdminRole, pode_editar: isAdminRole };
+    if (!isAdminRole) {
+      for (const p of existing ?? []) {
+        base[p.pagina] = { pode_ver: !!p.pode_ver, pode_editar: !!p.pode_editar };
+      }
     }
     return base;
-  }, [existing]);
+  }, [existing, isAdminRole]);
 
   const [state, setState] = useState<PermState>(initial);
   const [submitting, setSubmitting] = useState(false);
@@ -110,6 +115,12 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
         <strong>Editor:</strong> pode visualizar e também criar, editar ou excluir
         registros (inclui acesso de leitor).
       </p>
+      {isAdminRole && (
+        <p className="text-xs rounded-md border border-amber-300 bg-amber-50 text-amber-900 px-3 py-2 mt-2">
+          Este usuário é <strong>administrador</strong> — tem acesso total a todas as páginas.
+          As permissões por página não se aplicam.
+        </p>
+      )}
       <div className="space-y-6 py-2">
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Carregando…</p>
@@ -125,6 +136,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                     <span>Página</span>
                     <div className="flex justify-center items-center gap-1">
                       <Checkbox
+                        disabled={isAdminRole}
                         checked={allVer}
                         onCheckedChange={(v) => toggleAllInModule(m.module, "pode_ver", !!v)}
                         aria-label={`Marcar todos como leitor em ${m.label}`}
@@ -133,6 +145,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                     </div>
                     <div className="flex justify-center items-center gap-1">
                       <Checkbox
+                        disabled={isAdminRole}
                         checked={allEdit}
                         onCheckedChange={(v) => toggleAllInModule(m.module, "pode_editar", !!v)}
                         aria-label={`Marcar todos como editor em ${m.label}`}
@@ -146,12 +159,14 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                       <div className="flex justify-center">
                         <Checkbox
                           id={`${p.key}-ver`}
+                          disabled={isAdminRole}
                           checked={state[p.key]?.pode_ver ?? false}
                           onCheckedChange={(v) => toggle(p.key, "pode_ver", !!v)}
                         />
                       </div>
                       <div className="flex justify-center">
                         <Checkbox
+                          disabled={isAdminRole}
                           checked={state[p.key]?.pode_editar ?? false}
                           onCheckedChange={(v) => toggle(p.key, "pode_editar", !!v)}
                         />
@@ -170,7 +185,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
         <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={onClose}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <Button className="max-sm:ml-auto" onClick={onSave} disabled={submitting}>{submitting ? "Salvando…" : "Salvar"}</Button>
+        <Button className="max-sm:ml-auto" onClick={onSave} disabled={submitting || isAdminRole}>{submitting ? "Salvando…" : "Salvar"}</Button>
       </DialogFooter>
     </DialogContent>
   );

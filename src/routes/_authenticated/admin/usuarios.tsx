@@ -3,14 +3,15 @@ import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Users, Plus, KeyRound, ShieldCheck, ArrowLeft } from "lucide-react";
+import { Users, Plus, KeyRound, ShieldCheck, ArrowLeft, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import {
-  createTenantUser, resetUserPassword, toggleUserAtivo,
+  createTenantUser, updateUser, deleteUser, resetUserPassword, toggleUserAtivo,
 } from "@/lib/admin.functions";
+import { isEmail } from "@/lib/email";
 import { PermissoesModal } from "@/components/admin/PermissoesModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,9 +54,12 @@ function UsuariosPage() {
   const [open, setOpen] = useState(false);
   const [resetting, setResetting] = useState<AppUser | null>(null);
   const [permUser, setPermUser] = useState<AppUser | null>(null);
+  const [editing, setEditing] = useState<AppUser | null>(null);
+  const [deleting, setDeleting] = useState<AppUser | null>(null);
 
   const callToggle = useServerFn(toggleUserAtivo);
   const callReset = useServerFn(resetUserPassword);
+  const callDelete = useServerFn(deleteUser);
 
   const { data: tenants = [] } = useQuery({
     queryKey: ["admin", "tenants-list"],
@@ -103,6 +107,16 @@ function UsuariosPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin", "users"] });
       toast.success("Status atualizado");
+    },
+    onError: (e: Error) => toast.error(mensagemErro(e)),
+  });
+
+  const del = useMutation({
+    mutationFn: (user_id: string) => callDelete({ data: { user_id } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin", "users"] });
+      toast.success("Usuário excluído");
+      setDeleting(null);
     },
     onError: (e: Error) => toast.error(mensagemErro(e)),
   });
@@ -174,6 +188,9 @@ function UsuariosPage() {
                   </TableCell>
                   <TableCell data-label="Ações" className="text-right">
                     <div className="flex items-center justify-end gap-2">
+                      <Button size="sm" variant="ghost" onClick={() => setEditing(u)} title="Editar">
+                        <Pencil className="h-4 w-4" />
+                      </Button>
                       {u.tenant_id && u.role !== "super_admin" && (
                         <Button
                           size="sm"
@@ -187,6 +204,11 @@ function UsuariosPage() {
                       <Button size="sm" variant="ghost" onClick={() => setResetting(u)} title="Redefinir senha">
                         <KeyRound className="h-4 w-4" />
                       </Button>
+                      {u.role !== "super_admin" && (
+                        <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setDeleting(u)} title="Excluir">
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                       <Switch
                         checked={u.ativo}
                         onCheckedChange={(c) => toggle.mutate({ user_id: u.id, ativo: c })}
@@ -214,9 +236,31 @@ function UsuariosPage() {
         {permUser && (
           <PermissoesModal
             mode="super"
-            user={{ id: permUser.id, nome: permUser.nome, tenant_id: permUser.tenant_id }}
+            user={{ id: permUser.id, nome: permUser.nome, tenant_id: permUser.tenant_id, role: permUser.role }}
             onClose={() => setPermUser(null)}
           />
+        )}
+      </Dialog>
+
+      <Dialog open={!!editing} onOpenChange={(v) => !v && setEditing(null)}>
+        {editing && <EditUsuarioModal tenants={tenants} user={editing} onClose={() => setEditing(null)} />}
+      </Dialog>
+
+      <Dialog open={!!deleting} onOpenChange={(v) => !v && setDeleting(null)}>
+        {deleting && (
+          <DialogContent>
+            <DialogHeader><DialogTitle>Excluir usuário</DialogTitle></DialogHeader>
+            <p className="text-sm text-muted-foreground py-2">
+              Excluir <strong>{deleting.nome}</strong> ({deleting.email})? Remove o acesso de vez.
+              O histórico de auditoria é preservado (mostra o nome de quem agiu).
+            </p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setDeleting(null)}>Cancelar</Button>
+              <Button variant="destructive" onClick={() => del.mutate(deleting.id)} disabled={del.isPending}>
+                {del.isPending ? "Excluindo…" : "Excluir"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
         )}
       </Dialog>
 
@@ -246,6 +290,10 @@ function NovoUsuarioModal({
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isEmail(email)) {
+      toast.error("E-mail inválido — use um endereço completo (ex.: nome@empresa.com).");
+      return;
+    }
     if (!tenantId) {
       toast.error("Selecione uma loja");
       return;
@@ -309,6 +357,88 @@ function NovoUsuarioModal({
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <Button type="submit" className="max-sm:ml-auto" disabled={submitting}>{submitting ? "Salvando…" : "Criar"}</Button>
+        </DialogFooter>
+      </form>
+    </DialogContent>
+  );
+}
+
+function EditUsuarioModal({
+  tenants, user, onClose,
+}: { tenants: Tenant[]; user: AppUser; onClose: () => void }) {
+  const qc = useQueryClient();
+  const call = useServerFn(updateUser);
+  const [nome, setNome] = useState(user.nome);
+  const [email, setEmail] = useState(user.email);
+  const [tenantId, setTenantId] = useState<string>(user.tenant_id ?? "");
+  const [role, setRole] = useState<(typeof ROLES)[number]>(user.role as (typeof ROLES)[number]);
+  const [submitting, setSubmitting] = useState(false);
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isEmail(email)) {
+      toast.error("E-mail inválido — use um endereço completo (ex.: nome@empresa.com).");
+      return;
+    }
+    if (role !== "super_admin" && !tenantId) {
+      toast.error("Selecione uma loja");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await call({ data: { user_id: user.id, nome, email, role, tenant_id: role === "super_admin" ? null : tenantId } });
+      toast.success("Usuário atualizado");
+      qc.invalidateQueries({ queryKey: ["admin", "users"] });
+      onClose();
+    } catch (err) {
+      toast.error(mensagemErro(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <DialogContent className="max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[1fr] max-sm:!overflow-hidden">
+      <form onSubmit={onSubmit} className="max-sm:grid max-sm:grid-rows-[auto_minmax(0,1fr)_auto] max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-hidden">
+        <DialogHeader className="max-sm:shrink-0"><DialogTitle>Editar usuário</DialogTitle></DialogHeader>
+        <div className="space-y-4 py-4 max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-y-auto">
+          <div>
+            <Label htmlFor="edit-nome">Nome *</Label>
+            <Input id="edit-nome" autoComplete="off" value={nome} onChange={(e) => setNome(e.target.value)} required maxLength={255} />
+          </div>
+          <div>
+            <Label htmlFor="edit-email">Email *</Label>
+            <Input id="edit-email" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} required maxLength={255} />
+          </div>
+          <div>
+            <Label>Loja {role !== "super_admin" ? "*" : ""}</Label>
+            <Select value={tenantId} onValueChange={setTenantId} disabled={role === "super_admin"}>
+              <SelectTrigger><SelectValue placeholder={role === "super_admin" ? "Global (super admin)" : "Selecione…"} /></SelectTrigger>
+              <SelectContent>
+                {tenants.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>{t.nome}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>Role *</Label>
+            <Select value={role} onValueChange={(v) => setRole(v as (typeof ROLES)[number])}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="user">Usuário</SelectItem>
+                <SelectItem value="tenant_admin">Admin da Loja</SelectItem>
+                <SelectItem value="super_admin">Super Admin</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
+          <Button type="button" variant="outline" className="max-sm:hidden" onClick={onClose}>Cancelar</Button>
+          <Button type="button" variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={onClose}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <Button type="submit" className="max-sm:ml-auto" disabled={submitting}>{submitting ? "Salvando…" : "Salvar"}</Button>
         </DialogFooter>
       </form>
     </DialogContent>

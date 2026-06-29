@@ -6,6 +6,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { Users, Plus, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { isEmail } from "@/lib/email";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { createStoreUser } from "@/lib/tenant-admin.functions";
@@ -136,6 +137,10 @@ function NovoUsuarioModal({ onClose }: { onClose: () => void }) {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isEmail(email)) {
+      toast.error("E-mail inválido — use um endereço completo (ex.: nome@empresa.com).");
+      return;
+    }
     setSubmitting(true);
     try {
       await call({ data: { nome, email, password } });

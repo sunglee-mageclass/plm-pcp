@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { emailSchema } from "@/lib/email";
 
 async function assertTenantAdmin(supabase: any, userId: string) {
   const [{ data: roleRow }, { data: userRow }] = await Promise.all([
@@ -22,7 +23,7 @@ export const createStoreUser = createServerFn({ method: "POST" })
   .inputValidator(
     z.object({
       nome: z.string().min(1).max(255),
-      email: z.string().email().max(255),
+      email: emailSchema,
       password: z.string().min(6).max(100),
     }),
   )

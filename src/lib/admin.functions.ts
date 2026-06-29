@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { emailSchema } from "@/lib/email";
 
 async function assertSuperAdmin(supabase: any, userId: string) {
   const { data, error } = await supabase
@@ -17,7 +18,7 @@ export const createTenantUser = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator(
     z.object({
-      email: z.string().email(),
+      email: emailSchema,
       password: z.string().min(6).max(100),
       nome: z.string().min(1).max(255),
       tenant_id: z.string().uuid(),
@@ -59,6 +60,67 @@ export const createTenantUser = createServerFn({ method: "POST" })
       .insert({ user_id: uid, role: data.role as any });
 
     return { id: uid };
+  });
+
+export const updateUser = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator(
+    z.object({
+      user_id: z.string().uuid(),
+      nome: z.string().min(1).max(255),
+      email: emailSchema,
+      tenant_id: z.string().uuid().nullable(),
+      role: z.enum(["admin", "user", "super_admin", "tenant_admin"]),
+    }),
+  )
+  .handler(async ({ data, context }) => {
+    await assertSuperAdmin(context.supabase, context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const { error: aErr } = await supabaseAdmin.auth.admin.updateUserById(data.user_id, {
+      email: data.email,
+      user_metadata: { full_name: data.nome },
+    });
+    if (aErr) throw new Error(aErr.message);
+
+    const { error: uErr } = await supabaseAdmin
+      .from("users")
+      .update({
+        nome: data.nome,
+        email: data.email,
+        role: data.role,
+        // super_admin é global: tenant_id null (igual ao create).
+        tenant_id: data.role === "super_admin" ? null : data.tenant_id,
+      })
+      .eq("id", data.user_id);
+    if (uErr) throw new Error(uErr.message);
+
+    await supabaseAdmin.from("user_roles").delete().eq("user_id", data.user_id);
+    await supabaseAdmin.from("user_roles").insert({ user_id: data.user_id, role: data.role as any });
+    return { ok: true };
+  });
+
+export const deleteUser = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator(z.object({ user_id: z.string().uuid() }))
+  .handler(async ({ data, context }) => {
+    await assertSuperAdmin(context.supabase, context.userId);
+    if (data.user_id === context.userId) throw new Error("Você não pode excluir a si mesmo.");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    // super_admins não são excluídos (mesma regra do wipe de loja).
+    const { data: target } = await supabaseAdmin
+      .from("users").select("role").eq("id", data.user_id).maybeSingle();
+    if (target?.role === "super_admin") throw new Error("Não é permitido excluir um super_admin.");
+
+    // Limpa dependências e remove (audit_log NÃO tem FK → histórico preservado com user_nome).
+    // Ordem: filhos antes do pai (users) antes do auth.
+    await supabaseAdmin.from("user_permissions").delete().eq("user_id", data.user_id);
+    await supabaseAdmin.from("user_roles").delete().eq("user_id", data.user_id);
+    await supabaseAdmin.from("users").delete().eq("id", data.user_id);
+    const { error } = await supabaseAdmin.auth.admin.deleteUser(data.user_id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
   });
 
 export const resetUserPassword = createServerFn({ method: "POST" })
