@@ -20,11 +20,11 @@ const fmtMoney = (v: number) => v.toLocaleString("pt-BR", { style: "currency", c
 // Atalhos dos módulos (ordem amigável p/ landing). Filtrados pelos módulos da loja.
 const MODULOS: { key: string; label: string; path: string; icon: typeof BarChart3 }[] = [
   { key: "dashboard", label: "Dashboard", path: "/dashboard", icon: BarChart3 },
+  { key: "cadastro", label: "Cadastro", path: "/cadastro", icon: ClipboardList },
+  { key: "entrada_saida", label: "Entrada e Saída", path: "/entrada-saida", icon: Package },
   { key: "criacao", label: "Criação", path: "/criacao", icon: Palette },
   { key: "producao", label: "Produção", path: "/producao", icon: Factory },
-  { key: "entrada_saida", label: "Entrada e Saída", path: "/entrada-saida", icon: Package },
   { key: "financeiro", label: "Financeiro", path: "/financeiro", icon: DollarSign },
-  { key: "cadastro", label: "Cadastro", path: "/cadastro", icon: ClipboardList },
 ];
 
 /**
@@ -104,14 +104,43 @@ export function HomeLogado() {
     },
   });
 
+  // Serviços (terceirizados) também são contas a pagar — entram nos MESMOS cards
+  // ("Contas atrasadas" e "A pagar 7 dias"). Antes só as parcelas de OC eram contadas.
+  const servicos = useQuery({
+    queryKey: ["home", "servicos-fin", hoje, em7],
+    enabled: !!modules.financeiro,
+    queryFn: async () => {
+      const { data } = await supabase.rpc("servicos_financeiro" as any);
+      const abertos = ((data ?? []) as any[]).filter(
+        (r) => !r.data_pagamento && r.status !== "pago" && r.data_vencimento,
+      );
+      const venc = (r: any) => String(r.data_vencimento).slice(0, 10);
+      const soma = (arr: any[]) => arr.reduce((s, r) => s + Number(r.valor_parcela ?? 0), 0);
+      const atrasado = abertos.filter((r) => venc(r) < hoje);
+      const prox7 = abertos.filter((r) => venc(r) >= hoje && venc(r) <= em7);
+      return {
+        atrasadasN: atrasado.length, atrasadasTotal: soma(atrasado),
+        pagar7N: prox7.length, pagar7Total: soma(prox7),
+      };
+    },
+  });
+
+  // Parcelas de OC + parcelas de serviço somadas (count e valor) p/ os cards financeiros.
+  const atrasadasN = (atrasadas.data?.n ?? 0) + (servicos.data?.atrasadasN ?? 0);
+  const atrasadasTotal = (atrasadas.data?.total ?? 0) + (servicos.data?.atrasadasTotal ?? 0);
+  const pagar7N = (pagar.data?.n ?? 0) + (servicos.data?.pagar7N ?? 0);
+  const pagar7Total = (pagar.data?.total ?? 0) + (servicos.data?.pagar7Total ?? 0);
+
   const atencao = [
     modules.financeiro && {
       key: "atrasadas", to: "/financeiro", icon: CalendarX, tone: "red" as const,
-      valor: atrasadas.data?.n ?? 0, label: "Contas atrasadas", sub: atrasadas.data ? fmtMoney(atrasadas.data.total) : "—",
+      valor: atrasadasN, label: "Contas atrasadas",
+      sub: (atrasadas.data || servicos.data) ? fmtMoney(atrasadasTotal) : "—",
     },
     modules.financeiro && {
       key: "pagar", to: "/financeiro", icon: Wallet, tone: "amber" as const,
-      valor: pagar.data?.n ?? 0, label: "A pagar (próx. 7 dias)", sub: pagar.data ? fmtMoney(pagar.data.total) : "—",
+      valor: pagar7N, label: "A pagar (próx. 7 dias)",
+      sub: (pagar.data || servicos.data) ? fmtMoney(pagar7Total) : "—",
     },
     modules.entrada_saida && {
       key: "cq", to: "/entrada-saida/alertas-tecido", icon: AlertTriangle, tone: "amber" as const,

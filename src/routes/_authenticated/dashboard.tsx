@@ -421,10 +421,11 @@ function EtapaBarCard({ title, data, dataKey, name, color }: {
       <h3 className="font-semibold mb-3">{title}</h3>
       <div style={{ width: "100%", height }}>
         <ResponsiveContainer>
-          <BarChart data={data} layout="vertical" margin={{ left: 24, right: 24 }}>
+          <BarChart data={data} layout="vertical" margin={{ left: 8, right: 48 }}>
             <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-            <XAxis type="number" allowDecimals={false} />
-            <YAxis type="category" dataKey="label" width={150} tick={{ fontSize: 11 }} interval={0} />
+            {/* domain c/ folga à direita p/ o rótulo do valor não ser cortado (ex.: "770"). */}
+            <XAxis type="number" allowDecimals={false} domain={[0, (max: number) => Math.ceil(max * 1.15) || 1]} />
+            <YAxis type="category" dataKey="label" width={132} tick={{ fontSize: 11 }} interval={0} />
             <Tooltip formatter={(v: any) => fmtNum(v)} />
             <Bar dataKey={dataKey} name={name} fill={color} radius={[0, 4, 4, 0]}>
               <LabelList dataKey={dataKey} position="right" />
@@ -518,6 +519,9 @@ function ProducaoTab() {
   const [colecao, setColecao] = useState("all");
   const [linha, setLinha] = useState("all");
   const [servico, setServico] = useState("all");
+  // Timeline e SLA mostram só 5 por padrão (cabe em mobile e desktop); "ver mais" expande.
+  const [timelineAll, setTimelineAll] = useState(false);
+  const [slaAll, setSlaAll] = useState(false);
   const ini = isoDate(periodo?.from), fim = isoDate(periodo?.to);
 
   const { data, isLoading, isError } = useQuery({
@@ -642,7 +646,7 @@ function ProducaoTab() {
               </tr>
             </thead>
             <tbody>
-              {timeline.map((r: any) => {
+              {(timelineAll ? timeline : timeline.slice(0, 5)).map((r: any) => {
                 // Oficina/Acabamento caem sob Serviço na timeline.
                 const etapaAtual = (r.etapa === "Oficina" || r.etapa === "Acabamento") ? "Serviço" : r.etapa;
                 const idx = etapas.indexOf(etapaAtual);
@@ -667,6 +671,11 @@ function ProducaoTab() {
             </tbody>
           </table>
         </div>
+        {timeline.length > 5 && (
+          <button type="button" onClick={() => setTimelineAll((v) => !v)} className="mt-3 text-sm text-primary hover:underline">
+            {timelineAll ? "Ver menos" : `Ver mais (${timeline.length - 5})`}
+          </button>
+        )}
       </Card>
 
       <Card className="p-4">
@@ -708,7 +717,7 @@ function ProducaoTab() {
             </tr>
           </thead>
           <tbody>
-            {slaSort.sorted.map((r: any, i: number) => {
+            {(slaAll ? slaSort.sorted : slaSort.sorted.slice(0, 5)).map((r: any, i: number) => {
               const taxa = Number(r.taxaDefeito ?? 0);
               const produzidas = Number(r.pecasProduzidas ?? 0);
               const defeito = Number(r.pecasDefeito ?? 0);
@@ -743,6 +752,11 @@ function ProducaoTab() {
           </tbody>
         </table>
         </div>
+        {slaSort.sorted.length > 5 && (
+          <button type="button" onClick={() => setSlaAll((v) => !v)} className="mt-3 text-sm text-primary hover:underline">
+            {slaAll ? "Ver menos" : `Ver mais (${slaSort.sorted.length - 5})`}
+          </button>
+        )}
       </Card>
 
       <RankingOficinas />
@@ -917,10 +931,11 @@ function FinanceiroTab() {
           <h3 className="font-semibold mb-3">Aging de contas a pagar <span className="text-sm font-normal text-muted-foreground">· em aberto, por idade do vencimento</span></h3>
           <div style={{ width: "100%", height: 280 }}>
             <ResponsiveContainer>
-              <BarChart data={data?.aging ?? []}>
+              <BarChart data={data?.aging ?? []} margin={{ bottom: 14 }}>
                 <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                <XAxis dataKey="faixa" />
-                <YAxis tickFormatter={(v) => v.toLocaleString("pt-BR")} />
+                {/* mobile: rótulos das faixas inclinados + menores p/ não colidirem. */}
+                <XAxis dataKey="faixa" interval={0} tick={{ fontSize: 10 }} angle={-12} textAnchor="end" height={46} />
+                <YAxis width={44} tick={{ fontSize: 10 }} tickFormatter={(v) => (Number(v) >= 1000 ? `${Math.round(Number(v) / 1000)}k` : `${v}`)} />
                 <Tooltip formatter={(v: any) => brl(Number(v))} />
                 <Bar dataKey="total" name="A pagar" fill={PIE_COLORS[3]} />
               </BarChart>
@@ -931,10 +946,11 @@ function FinanceiroTab() {
           <h3 className="font-semibold mb-3">Top fornecedores <span className="text-sm font-normal text-muted-foreground">· por valor no período</span></h3>
           <div style={{ width: "100%", height: 280 }}>
             <ResponsiveContainer>
-              <BarChart data={data?.topFornecedores ?? []} layout="vertical">
+              <BarChart data={data?.topFornecedores ?? []} layout="vertical" margin={{ right: 12 }}>
                 <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-                <XAxis type="number" tickFormatter={(v) => Number(v).toLocaleString("pt-BR")} />
-                <YAxis type="category" dataKey="nome" width={110} />
+                {/* números compactos (ex.: "320k") p/ não cortar no eixo em telas estreitas. */}
+                <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v) => (Number(v) >= 1000 ? `${Math.round(Number(v) / 1000)}k` : `${v}`)} />
+                <YAxis type="category" dataKey="nome" width={92} tick={{ fontSize: 11 }} />
                 <Tooltip formatter={(v: any) => brl(Number(v))} />
                 <Bar dataKey="total" name="Total" fill={PIE_COLORS[0]} />
               </BarChart>
