@@ -733,7 +733,7 @@ function OcDialog({
         });
         // Best-effort: o status já foi gravado e o trigger já gera as parcelas
         // no primeiro recebimento. Não bloqueia o save se a RPC falhar (hoje
-        // exige admin — ver prompt Lovable p/ liberar a qualquer membro do tenant).
+        // exige admin — pode ser liberado a qualquer membro do tenant numa migration futura).
         if (recErr) {
           console.warn("recalcular_parcelas (tecido) falhou:", recErr.message);
           toast.warning("OC salva, mas o recálculo de parcelas falhou — confira as contas a pagar desta OC.");
