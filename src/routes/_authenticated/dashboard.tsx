@@ -627,12 +627,18 @@ function ProducaoTab() {
       <Card className="p-4">
         <h3 className="font-semibold mb-3">Timeline por {fl("ref")}</h3>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm card-table">
+          {/* table-fixed + larguras explícitas: REF/Nome fixos e as colunas de etapa
+              todas com a MESMA largura (alinha as bolinhas). */}
+          <table className="w-full text-sm card-table sm:table-fixed">
             <thead className="text-left text-muted-foreground">
               <tr className="border-b">
-                <th className="py-2 pr-3">{fl("ref")}</th>
-                <th className="py-2 pr-3">Nome</th>
-                {etapas.map((e) => <th key={e} className="py-2 px-2 text-center text-xs">{etapaLabel[e] ?? e}</th>)}
+                <th className="py-2 pr-3 w-[16%]">{fl("ref")}</th>
+                <th className="py-2 pr-3 w-[24%]">Nome</th>
+                {etapas.map((e) => (
+                  <th key={e} className="py-2 px-2 text-center text-xs align-bottom" style={{ width: `${60 / etapas.length}%` }}>
+                    {etapaLabel[e] ?? e}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
