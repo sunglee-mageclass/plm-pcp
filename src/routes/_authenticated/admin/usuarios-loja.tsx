@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { RoleBadge } from "@/components/shared/RoleBadge";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -45,6 +46,7 @@ function UsuariosLojaPage() {
       const { data, error } = await supabase
         .from("users")
         .select("id,nome,email,role,ativo")
+        .neq("role", "super_admin")
         .order("nome");
       if (error) throw error;
       return data as LojaUser[];
@@ -99,7 +101,7 @@ function UsuariosLojaPage() {
                 <TableRow key={u.id}>
                   <TableCell className="font-medium">{u.nome}</TableCell>
                   <TableCell data-label="Email" className="text-sm">{u.email}</TableCell>
-                  <TableCell data-label="Role"><Badge variant="secondary">{u.role}</Badge></TableCell>
+                  <TableCell data-label="Role"><RoleBadge role={u.role} /></TableCell>
                   <TableCell data-label="Status">
                     {u.ativo
                       ? <Badge className="bg-emerald-500 hover:bg-emerald-600">Ativo</Badge>
@@ -154,15 +156,15 @@ function NovoUsuarioModal({ onClose }: { onClose: () => void }) {
         <div className="space-y-4 py-4">
           <div>
             <Label htmlFor="nome">Nome *</Label>
-            <Input id="nome" value={nome} onChange={(e) => setNome(e.target.value)} required maxLength={255} />
+            <Input id="nome" autoComplete="off" value={nome} onChange={(e) => setNome(e.target.value)} required maxLength={255} />
           </div>
           <div>
             <Label htmlFor="email">Email *</Label>
-            <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required maxLength={255} />
+            <Input id="email" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} required maxLength={255} />
           </div>
           <div>
             <Label htmlFor="pwd">Senha * (mín. 6)</Label>
-            <Input id="pwd" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} maxLength={100} />
+            <Input id="pwd" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} maxLength={100} />
           </div>
         </div>
         <DialogFooter>

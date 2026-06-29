@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { RoleBadge } from "@/components/shared/RoleBadge";
 import { Switch } from "@/components/ui/switch";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -44,12 +45,6 @@ type AppUser = {
 type Tenant = { id: string; nome: string };
 
 const ROLES = ["super_admin", "admin", "tenant_admin", "user"] as const;
-const roleBadge = (role: string) => {
-  if (role === "super_admin") return <StatusBadge tone="warning">Super Admin</StatusBadge>;
-  if (role === "admin") return <StatusBadge tone="info">Admin</StatusBadge>;
-  if (role === "tenant_admin") return <StatusBadge tone="info">Admin da Loja</StatusBadge>;
-  return <StatusBadge tone="neutral">Usuário</StatusBadge>;
-};
 
 function UsuariosPage() {
   const { isSuperAdmin, loading } = useAuth();
@@ -171,7 +166,7 @@ function UsuariosPage() {
                   <TableCell className="font-medium">{u.nome}</TableCell>
                   <TableCell data-label="Email" className="text-sm">{u.email}</TableCell>
                   <TableCell data-label="Loja" className="text-sm">{u.tenant_id ? tenantMap[u.tenant_id] ?? "—" : "—"}</TableCell>
-                  <TableCell data-label="Role">{roleBadge(u.role)}</TableCell>
+                  <TableCell data-label="Role"><RoleBadge role={u.role} /></TableCell>
                   <TableCell data-label="Status">
                     {u.ativo
                       ? <StatusBadge tone="success">Ativo</StatusBadge>
@@ -275,15 +270,15 @@ function NovoUsuarioModal({
         <div className="space-y-4 py-4 max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-y-auto">
           <div>
             <Label htmlFor="nome">Nome *</Label>
-            <Input id="nome" value={nome} onChange={(e) => setNome(e.target.value)} required maxLength={255} />
+            <Input id="nome" autoComplete="off" value={nome} onChange={(e) => setNome(e.target.value)} required maxLength={255} />
           </div>
           <div>
             <Label htmlFor="email">Email *</Label>
-            <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required maxLength={255} />
+            <Input id="email" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} required maxLength={255} />
           </div>
           <div>
             <Label htmlFor="password">Senha * (mín. 6)</Label>
-            <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} maxLength={100} />
+            <Input id="password" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} maxLength={100} />
           </div>
           <div>
             <Label>Loja *</Label>
@@ -303,7 +298,6 @@ function NovoUsuarioModal({
               <SelectContent>
                 <SelectItem value="user">Usuário</SelectItem>
                 <SelectItem value="tenant_admin">Admin da Loja</SelectItem>
-                <SelectItem value="admin">Admin</SelectItem>
                 <SelectItem value="super_admin">Super Admin</SelectItem>
               </SelectContent>
             </Select>
@@ -353,7 +347,7 @@ function ResetSenhaModal({
         </DialogHeader>
         <div className="py-4 space-y-2 max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-y-auto">
           <Label htmlFor="pwd">Nova senha (mín. 6)</Label>
-          <Input id="pwd" type="password" minLength={6} maxLength={100} required value={pwd} onChange={(e) => setPwd(e.target.value)} />
+          <Input id="pwd" type="password" autoComplete="new-password" minLength={6} maxLength={100} required value={pwd} onChange={(e) => setPwd(e.target.value)} />
         </div>
         <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
           <Button type="button" variant="outline" className="max-sm:hidden" onClick={onClose}>Cancelar</Button>
