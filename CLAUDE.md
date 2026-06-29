@@ -20,7 +20,7 @@ antigo "PLM+PCP" já foi feita (0 ocorrências em `src/`).
   (o app NÃO usa mais nem o banco nem a auth do Lovable; login Google via OAuth do
   próprio Supabase — ver regra 2)
 - **Tailwind** + **Radix UI** (componentes shadcn em `src/components/ui/`)
-- **react-hook-form** + **zod** · **date-fns** · **recharts** · **lucide-react**
+- **zod** · **date-fns** · **recharts** · **lucide-react**
 
 Fontes: **Outfit** (display) e **Figtree** (corpo). Paleta oklch no `styles.css`
 (navy/azul-aço; vermelho = destructive).

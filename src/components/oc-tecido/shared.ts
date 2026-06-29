@@ -1,4 +1,4 @@
-import { format, differenceInCalendarDays, parseISO } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 
 export const BUCKET = "oc-tecido";
@@ -129,14 +129,6 @@ export function fmtDate(v: string | null | undefined) {
   if (!v) return "—";
   try { return format(parseISO(v), "dd/MM/yyyy"); } catch { return v; }
 }
-export function mensagemEntrega(prevista?: string | null, entregue?: string | null): { text: string; tone: "neutral" | "atrasado" | "adiantado" | "no_prazo" } {
-  if (!prevista || !entregue) return { text: "—", tone: "neutral" };
-  const diff = differenceInCalendarDays(parseISO(entregue), parseISO(prevista));
-  if (diff === 0) return { text: "Entrega no prazo", tone: "no_prazo" };
-  if (diff > 0) return { text: `Pedido atrasado ${diff} dia${diff > 1 ? "s" : ""}`, tone: "atrasado" };
-  return { text: `Pedido adiantado ${-diff} dia${-diff > 1 ? "s" : ""}`, tone: "adiantado" };
-}
-
 export async function uploadFile(file: File, prefix: string) {
   const { tenantPrefix } = await import("@/lib/storage-tenant");
   const tenant = await tenantPrefix();

@@ -5,4 +5,4 @@
 ## Pages
 
 - [Início](/): Redireciona para login ou painel conforme a sessão.
-- [Entrar](/auth): Tela de autenticação por e-mail/senha ou OAuth.
+- [Entrar](/auth): Tela de autenticação por e-mail/senha (acesso por convite).

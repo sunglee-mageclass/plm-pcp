@@ -17,9 +17,3 @@ export function friendlyAuthError(message: string | undefined | null): string {
     return "Falha de conexão. Verifique sua internet e tente novamente.";
   return "Não foi possível concluir a operação. Tente novamente.";
 }
-
-// Generic sanitizer for non-auth backend errors shown via toast.
-export function friendlyError(_err: unknown, fallback = "Ocorreu um erro inesperado. Tente novamente."): string {
-  if (import.meta.env.DEV) console.error(_err);
-  return fallback;
-}
