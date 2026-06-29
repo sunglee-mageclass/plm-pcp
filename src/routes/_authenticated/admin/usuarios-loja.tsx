@@ -132,6 +132,7 @@ function NovoUsuarioModal({ onClose }: { onClose: () => void }) {
   const call = useServerFn(createStoreUser);
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -142,8 +143,8 @@ function NovoUsuarioModal({ onClose }: { onClose: () => void }) {
     }
     setSubmitting(true);
     try {
-      await call({ data: { nome, email, redirectTo: `${window.location.origin}/definir-senha` } });
-      toast.success(`Convite enviado para ${email}`);
+      await call({ data: { nome, email, password } });
+      toast.success("Usuário criado");
       qc.invalidateQueries({ queryKey: ["loja", "users"] });
       onClose();
     } catch (err) {
@@ -166,9 +167,10 @@ function NovoUsuarioModal({ onClose }: { onClose: () => void }) {
             <Label htmlFor="email">Email *</Label>
             <Input id="email" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} required maxLength={255} />
           </div>
-          <p className="text-xs text-muted-foreground">
-            O usuário receberá um e-mail de convite para definir a própria senha.
-          </p>
+          <div>
+            <Label htmlFor="pwd">Senha * (mín. 6)</Label>
+            <Input id="pwd" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} maxLength={100} />
+          </div>
         </div>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>

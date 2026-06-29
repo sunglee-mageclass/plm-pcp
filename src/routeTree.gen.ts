@@ -10,7 +10,6 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
-import { Route as DefinirSenhaRouteImport } from './routes/definir-senha'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
@@ -76,11 +75,6 @@ import { Route as AuthenticatedCadastroTecidosArtigoIdRouteImport } from './rout
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
   path: '/sitemap.xml',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DefinirSenhaRoute = DefinirSenhaRouteImport.update({
-  id: '/definir-senha',
-  path: '/definir-senha',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -439,7 +433,6 @@ const AuthenticatedCadastroTecidosArtigoIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
-  '/definir-senha': typeof DefinirSenhaRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/admin': typeof AuthenticatedAdminRouteRouteWithChildren
   '/cadastro': typeof AuthenticatedCadastroRouteWithChildren
@@ -503,7 +496,6 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
-  '/definir-senha': typeof DefinirSenhaRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/configuracoes': typeof AuthenticatedConfiguracoesRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
@@ -557,7 +549,6 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/auth': typeof AuthRoute
-  '/definir-senha': typeof DefinirSenhaRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRouteRouteWithChildren
   '/_authenticated/cadastro': typeof AuthenticatedCadastroRouteWithChildren
@@ -623,7 +614,6 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/auth'
-    | '/definir-senha'
     | '/sitemap.xml'
     | '/admin'
     | '/cadastro'
@@ -687,7 +677,6 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/auth'
-    | '/definir-senha'
     | '/sitemap.xml'
     | '/configuracoes'
     | '/dashboard'
@@ -740,7 +729,6 @@ export interface FileRouteTypes {
     | '/'
     | '/_authenticated'
     | '/auth'
-    | '/definir-senha'
     | '/sitemap.xml'
     | '/_authenticated/admin'
     | '/_authenticated/cadastro'
@@ -806,7 +794,6 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
   AuthRoute: typeof AuthRoute
-  DefinirSenhaRoute: typeof DefinirSenhaRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
 }
 
@@ -817,13 +804,6 @@ declare module '@tanstack/react-router' {
       path: '/sitemap.xml'
       fullPath: '/sitemap.xml'
       preLoaderRoute: typeof SitemapDotxmlRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/definir-senha': {
-      id: '/definir-senha'
-      path: '/definir-senha'
-      fullPath: '/definir-senha'
-      preLoaderRoute: typeof DefinirSenhaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth': {
@@ -1550,7 +1530,6 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
   AuthRoute: AuthRoute,
-  DefinirSenhaRoute: DefinirSenhaRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
 }
 export const routeTree = rootRouteImport

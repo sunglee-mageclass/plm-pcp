@@ -283,6 +283,7 @@ function NovoUsuarioModal({
   const call = useServerFn(createTenantUser);
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [tenantId, setTenantId] = useState<string>("");
   const [role, setRole] = useState<(typeof ROLES)[number]>("user");
   const [submitting, setSubmitting] = useState(false);
@@ -299,8 +300,8 @@ function NovoUsuarioModal({
     }
     setSubmitting(true);
     try {
-      await call({ data: { nome, email, tenant_id: tenantId, role, redirectTo: `${window.location.origin}/definir-senha` } });
-      toast.success(`Convite enviado para ${email}`);
+      await call({ data: { nome, email, password, tenant_id: tenantId, role } });
+      toast.success("Usuário criado");
       qc.invalidateQueries({ queryKey: ["admin", "users"] });
       onClose();
     } catch (err) {
@@ -323,9 +324,10 @@ function NovoUsuarioModal({
             <Label htmlFor="email">Email *</Label>
             <Input id="email" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} required maxLength={255} />
           </div>
-          <p className="text-xs text-muted-foreground">
-            O usuário receberá um e-mail de convite para definir a própria senha.
-          </p>
+          <div>
+            <Label htmlFor="password">Senha * (mín. 6)</Label>
+            <Input id="password" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} maxLength={100} />
+          </div>
           <div>
             <Label>Loja *</Label>
             <Select value={tenantId} onValueChange={setTenantId}>

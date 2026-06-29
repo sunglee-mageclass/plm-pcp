@@ -24,20 +24,20 @@ export const createStoreUser = createServerFn({ method: "POST" })
     z.object({
       nome: z.string().min(1).max(255),
       email: emailSchema,
-      redirectTo: z.string().url(),
+      password: z.string().min(6).max(100),
     }),
   )
   .handler(async ({ data, context }) => {
     const tenantId = await assertTenantAdmin(context.supabase, context.userId);
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-    // Convite por e-mail: cria o usuário SEM senha e envia o link onde ELE define a
-    // própria senha (redirectTo = /definir-senha do app). Não trafega senha por e-mail.
-    const { data: created, error: authErr } = await supabaseAdmin.auth.admin.inviteUserByEmail(
-      data.email,
-      { data: { full_name: data.nome }, redirectTo: data.redirectTo },
-    );
-    if (authErr || !created.user) throw new Error(authErr?.message ?? "Erro ao convidar usuário");
+    const { data: created, error: authErr } = await supabaseAdmin.auth.admin.createUser({
+      email: data.email,
+      password: data.password,
+      email_confirm: true,
+      user_metadata: { full_name: data.nome },
+    });
+    if (authErr || !created.user) throw new Error(authErr?.message ?? "Erro ao criar usuário");
 
     const uid = created.user.id;
     const { error: uErr } = await supabaseAdmin.from("users").insert({
