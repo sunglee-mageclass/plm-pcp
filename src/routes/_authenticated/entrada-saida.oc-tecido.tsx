@@ -172,7 +172,12 @@ function OcTecidoPage() {
           <Scissors className="h-7 w-7 text-primary mt-0.5 shrink-0" />
           <div className="min-w-0">
             <h1 className="text-2xl font-bold truncate">OC de Tecido</h1>
-            <p className="text-sm text-muted-foreground mt-1">Ordens de compra de tecidos.</p>
+            {/* Subtítulo contextual: explica p/ que serve cada aba (um usuário não entendeu Rolos). */}
+            <p className="text-sm text-muted-foreground mt-1">
+              {view === "rolos"
+                ? "Estoque físico de rolos de tecido: cadastre rolos para ajustar seu inventário ou separe um rolo de uma OC."
+                : "Ordens de compra de tecidos."}
+            </p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
