@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/shared/DateField";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Field, FieldSelectOpt } from "./shared";
@@ -104,7 +105,7 @@ export function ModeloInfoSection({
         <div className="sm:col-span-2 grid sm:grid-cols-2 gap-3">
           <FieldSelectOpt label={`${fl("piloteiro")} 1`} value={draft.piloteiro1_id} onChange={(v) => setDraft({ ...draft, piloteiro1_id: v })} options={piloteiros} />
           <Field label="Data Piloto 1">
-            <Input type="date" value={draft.data_piloto1 ?? ""} onChange={(e) => setDraft({ ...draft, data_piloto1: e.target.value })} />
+            <DateField value={draft.data_piloto1 ?? ""} onChange={(e) => setDraft({ ...draft, data_piloto1: e.target.value })} />
           </Field>
         </div>
         {visiblePilotos.has(2) && (
@@ -118,7 +119,7 @@ export function ModeloInfoSection({
             <div className="sm:col-span-2 grid sm:grid-cols-2 gap-3">
               <FieldSelectOpt label={`${fl("piloteiro")} 2`} value={draft.piloteiro2_id} onChange={(v) => setDraft({ ...draft, piloteiro2_id: v })} options={piloteiros} />
               <Field label="Data Piloto 2">
-                <Input type="date" value={draft.data_piloto2 ?? ""} onChange={(e) => setDraft({ ...draft, data_piloto2: e.target.value })} />
+                <DateField value={draft.data_piloto2 ?? ""} onChange={(e) => setDraft({ ...draft, data_piloto2: e.target.value })} />
               </Field>
             </div>
           </>
@@ -134,7 +135,7 @@ export function ModeloInfoSection({
             <div className="sm:col-span-2 grid sm:grid-cols-2 gap-3">
               <FieldSelectOpt label={`${fl("piloteiro")} 3`} value={draft.piloteiro3_id} onChange={(v) => setDraft({ ...draft, piloteiro3_id: v })} options={piloteiros} />
               <Field label="Data Piloto 3">
-                <Input type="date" value={draft.data_piloto3 ?? ""} onChange={(e) => setDraft({ ...draft, data_piloto3: e.target.value })} />
+                <DateField value={draft.data_piloto3 ?? ""} onChange={(e) => setDraft({ ...draft, data_piloto3: e.target.value })} />
               </Field>
             </div>
           </>
@@ -154,10 +155,10 @@ export function ModeloInfoSection({
           </div>
         )}
         <Field label="Data Desenho Técnico">
-          <Input type="date" value={draft.data_desenho_tecnico ?? ""} onChange={(e) => setDraft({ ...draft, data_desenho_tecnico: e.target.value })} />
+          <DateField value={draft.data_desenho_tecnico ?? ""} onChange={(e) => setDraft({ ...draft, data_desenho_tecnico: e.target.value })} />
         </Field>
         <Field label="Data Aprovação">
-          <Input type="date" value={draft.data_aprovacao ?? ""} onChange={(e) => setDraft({ ...draft, data_aprovacao: e.target.value })} />
+          <DateField value={draft.data_aprovacao ?? ""} onChange={(e) => setDraft({ ...draft, data_aprovacao: e.target.value })} />
         </Field>
       </div>
       <Field label="Observações Técnicas" full>

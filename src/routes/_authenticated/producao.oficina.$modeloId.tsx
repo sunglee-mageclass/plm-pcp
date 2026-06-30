@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/shared/DateField";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
@@ -296,17 +297,17 @@ function OficinaDetailPage() {
 
             <div>
               <Label className="text-xs">Data Enviado</Label>
-              <Input type="date" value={form.data_enviado}
+              <DateField value={form.data_enviado}
                 onChange={(e) => setForm((f) => ({ ...f, data_enviado: e.target.value }))} />
             </div>
             <div>
               <Label className="text-xs">Data Prevista</Label>
-              <Input type="date" value={form.data_prevista}
+              <DateField value={form.data_prevista}
                 onChange={(e) => setForm((f) => ({ ...f, data_prevista: e.target.value }))} />
             </div>
             <div>
               <Label className="text-xs">Data Entregue</Label>
-              <Input type="date" value={form.data_entregue}
+              <DateField value={form.data_entregue}
                 onChange={(e) => setForm((f) => ({ ...f, data_entregue: e.target.value }))} />
             </div>
           </div>

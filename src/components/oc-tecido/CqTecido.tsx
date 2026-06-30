@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/shared/DateField";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -490,7 +491,7 @@ function ReceberReposicaoDialog({ original, reposicao, onClose }: { original: Cq
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Data recebida</Label>
-              <Input type="date" value={data} onChange={(e) => setData(e.target.value)} />
+              <DateField value={data} onChange={(e) => setData(e.target.value)} />
             </div>
             <div className="space-y-1.5">
               <Label>Metragem recebida (m)</Label>

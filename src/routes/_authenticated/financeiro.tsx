@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/shared/DateField";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -525,11 +526,10 @@ function ParcelaDetailDialog({
           <div><span className="text-muted-foreground">Valor:</span> <b>{brl(Number(parcela.valor))}</b></div>
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground">Vencimento:</span>
-            <Input
-              type="date"
+            <DateField
               value={vencimento}
               onChange={(e) => setVencimento(e.target.value)}
-              className="h-7 w-auto"
+              className="w-40"
               disabled={!podeEditar}
             />
             {podeEditar && vencimento !== parcela.data_vencimento && (
@@ -646,12 +646,11 @@ function VencimentoCell({ value, onSave }: { value: string; onSave: (v: string) 
   const [v, setV] = useState(value);
   useEffect(() => { setV(value); }, [value]);
   return (
-    <Input
-      type="date"
+    <DateField
       value={v}
       onChange={(e) => setV(e.target.value)}
       onBlur={() => { if (v && v !== value) onSave(v); }}
-      className="h-7 w-auto"
+      className="w-36"
       disabled={!podeEditar}
     />
   );
@@ -777,11 +776,11 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
             </div>
             <div>
               <Label className="text-xs">De</Label>
-              <Input type="date" value={dataIni} onChange={(e) => setDataIni(e.target.value)} />
+              <DateField value={dataIni} onChange={(e) => setDataIni(e.target.value)} />
             </div>
             <div>
               <Label className="text-xs">Até</Label>
-              <Input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
+              <DateField value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
             </div>
           </div>
         </FilterButton>
@@ -986,11 +985,11 @@ function ServicosView() {
             </div>
             <div>
               <Label className="text-xs">De</Label>
-              <Input type="date" value={dataIni} onChange={(e) => setDataIni(e.target.value)} />
+              <DateField value={dataIni} onChange={(e) => setDataIni(e.target.value)} />
             </div>
             <div>
               <Label className="text-xs">Até</Label>
-              <Input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
+              <DateField value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
             </div>
           </div>
         </FilterButton>
@@ -1260,7 +1259,7 @@ function PagarDialog({ parcelaId, onClose }: { parcelaId: string | null; onClose
         <div className="space-y-3">
           <div>
             <Label>Data do pagamento</Label>
-            <Input type="date" value={dataPag} onChange={(e) => setDataPag(e.target.value)} />
+            <DateField value={dataPag} onChange={(e) => setDataPag(e.target.value)} />
           </div>
           <div>
             <Label>Comprovante (opcional)</Label>
@@ -1352,11 +1351,11 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
           </div>
           <div className="grid gap-1">
             <Label className="text-xs">De</Label>
-            <Input type="date" className="h-8 text-sm" value={fDe} onChange={(e) => setFDe(e.target.value)} />
+            <DateField value={fDe} onChange={(e) => setFDe(e.target.value)} />
           </div>
           <div className="grid gap-1">
             <Label className="text-xs">Até</Label>
-            <Input type="date" className="h-8 text-sm" value={fAte} onChange={(e) => setFAte(e.target.value)} />
+            <DateField value={fAte} onChange={(e) => setFAte(e.target.value)} />
           </div>
         </FilterButton>
       </div>

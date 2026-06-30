@@ -1,4 +1,5 @@
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/shared/DateField";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -94,8 +95,7 @@ export function OcTecidoRecebimento({
                   className="flex flex-wrap items-center gap-x-3 gap-y-2"
                 >
                   <span className="text-sm text-muted-foreground">#{idx + 1}</span>
-                  <Input
-                    type="date"
+                  <DateField
                     className="w-40"
                     value={p.data}
                     onChange={(e) => {

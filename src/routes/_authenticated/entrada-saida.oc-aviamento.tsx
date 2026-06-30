@@ -9,6 +9,7 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/shared/DateField";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
@@ -743,11 +744,11 @@ function OcDialog({
 
             <div className="grid gap-1">
               <Label>Data do Pedido</Label>
-              <Input type="date" value={draft.data_pedido} onChange={(e) => setDraft((d) => ({ ...d, data_pedido: e.target.value }))} />
+              <DateField value={draft.data_pedido} onChange={(e) => setDraft((d) => ({ ...d, data_pedido: e.target.value }))} />
             </div>
             <div className="grid gap-1">
               <Label>Data Prevista de Entrega *</Label>
-              <Input type="date" value={draft.data_prevista_entrega} onChange={(e) => setDraft((d) => ({ ...d, data_prevista_entrega: e.target.value }))} />
+              <DateField value={draft.data_prevista_entrega} onChange={(e) => setDraft((d) => ({ ...d, data_prevista_entrega: e.target.value }))} />
             </div>
 
 
@@ -868,7 +869,7 @@ function OcDialog({
               <div className="grid sm:grid-cols-2 gap-4">
                 <div className="grid gap-1">
                   <Label>Data da Entrega <span className="text-xs text-muted-foreground">(última parcela recebida)</span></Label>
-                  <Input type="date" value={draft.data_entrega || derivedEntrega} disabled readOnly />
+                  <DateField value={draft.data_entrega || derivedEntrega} disabled readOnly />
                 </div>
                 <div className="grid gap-1">
                   <Label>Nota Fiscal</Label>
@@ -901,8 +902,7 @@ function OcDialog({
                     {parcelas.map((p, idx) => (
                       <div key={idx} className="flex items-center gap-3 rounded-md border p-2">
                         <span className="text-xs font-medium w-20">Parcela {idx + 1}</span>
-                        <Input
-                          type="date"
+                        <DateField
                           className="flex-1 max-w-[200px]"
                           value={p.data}
                           disabled={isReadOnlyRecebimento}

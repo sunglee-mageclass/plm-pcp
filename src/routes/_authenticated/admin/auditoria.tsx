@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/shared/DateField";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -139,11 +140,11 @@ function AuditoriaPage() {
           <div className="grid grid-cols-2 gap-2">
             <div className="grid gap-1">
               <Label className="text-xs">De</Label>
-              <Input className="h-8 text-sm" type="date" value={dataIni} onChange={(e) => onFilter(() => setDataIni(e.target.value))} />
+              <DateField className="text-sm" value={dataIni} onChange={(e) => onFilter(() => setDataIni(e.target.value))} />
             </div>
             <div className="grid gap-1">
               <Label className="text-xs">Até</Label>
-              <Input className="h-8 text-sm" type="date" value={dataFim} onChange={(e) => onFilter(() => setDataFim(e.target.value))} />
+              <DateField className="text-sm" value={dataFim} onChange={(e) => onFilter(() => setDataFim(e.target.value))} />
             </div>
           </div>
           {isSuperAdmin && (

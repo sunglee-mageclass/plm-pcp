@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/shared/DateField";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -689,24 +690,21 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
 
               <div>
                 <Label className="text-xs">Data Enviado</Label>
-                <Input
-                  type="date"
+                <DateField
                   value={b.data_enviado ?? ""}
                   onChange={(e) => updateBloco(idx, { data_enviado: e.target.value || null })}
                 />
               </div>
               <div>
                 <Label className="text-xs">Data Prevista</Label>
-                <Input
-                  type="date"
+                <DateField
                   value={b.data_prevista ?? ""}
                   onChange={(e) => updateBloco(idx, { data_prevista: e.target.value || null })}
                 />
               </div>
               <div>
                 <Label className="text-xs">Data Entregue</Label>
-                <Input
-                  type="date"
+                <DateField
                   value={b.data_entregue ?? ""}
                   onChange={(e) => updateBloco(idx, { data_entregue: e.target.value || null })}
                 />

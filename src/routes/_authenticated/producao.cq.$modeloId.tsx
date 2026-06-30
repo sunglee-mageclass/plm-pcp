@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/shared/DateField";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { MatrizGradeResponsiva } from "@/components/shared/MatrizGradeResponsiva";
 import { Label } from "@/components/ui/label";
@@ -705,10 +706,9 @@ function EtapaSection(props: {
           <div key={d.label}>
             <Label className="text-xs">{d.label}</Label>
             {readOnlyDatas ? (
-              <Input type="date" value={d.value ?? ""} readOnly className="bg-muted" />
+              <DateField value={d.value ?? ""} readOnly className="bg-muted" />
             ) : (
-              <Input
-                type="date"
+              <DateField
                 value={form?.[d.key as string] ?? ""}
                 onChange={(e) => setForm?.((f: any) => ({ ...f, [d.key as string]: e.target.value }))}
               />

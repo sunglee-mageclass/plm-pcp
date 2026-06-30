@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/shared/DateField";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { StatusBadge, type StatusTone } from "@/components/shared/StatusBadge";
@@ -280,17 +281,17 @@ function AcabDetailPage() {
 
             <div>
               <Label className="text-xs">Data Enviado</Label>
-              <Input type="date" value={b.data_enviado ?? ""}
+              <DateField value={b.data_enviado ?? ""}
                 onChange={(e) => updateBloco(idx, { data_enviado: e.target.value || null })} />
             </div>
             <div>
               <Label className="text-xs">Data Prevista</Label>
-              <Input type="date" value={b.data_prevista ?? ""}
+              <DateField value={b.data_prevista ?? ""}
                 onChange={(e) => updateBloco(idx, { data_prevista: e.target.value || null })} />
             </div>
             <div>
               <Label className="text-xs">Data Entregue</Label>
-              <Input type="date" value={b.data_entregue ?? ""}
+              <DateField value={b.data_entregue ?? ""}
                 onChange={(e) => updateBloco(idx, { data_entregue: e.target.value || null })} />
             </div>
           </div>
