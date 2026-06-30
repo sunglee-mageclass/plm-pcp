@@ -57,6 +57,36 @@ export const createStoreUser = createServerFn({ method: "POST" })
     return { id: uid };
   });
 
+// Admin da loja exclui um usuário da PRÓPRIA loja (espelha deleteUser, mas escopado ao
+// tenant + bloqueia self e super_admin). Audit_log preservado (sem FK, com snapshot).
+export const deleteStoreUser = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator(z.object({ user_id: z.string().uuid() }))
+  .handler(async ({ data, context }) => {
+    const tenantId = await assertTenantAdmin(context.supabase, context.userId);
+    if (data.user_id === context.userId) throw new Error("Você não pode excluir a si mesmo.");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const { data: target } = await supabaseAdmin
+      .from("users")
+      .select("tenant_id, role")
+      .eq("id", data.user_id)
+      .maybeSingle();
+    if (!target || target.tenant_id !== tenantId) {
+      throw new Error("Usuário não pertence à sua loja.");
+    }
+    if (target.role === "super_admin") {
+      throw new Error("Não é permitido excluir um super_admin.");
+    }
+
+    await supabaseAdmin.from("user_permissions").delete().eq("user_id", data.user_id);
+    await supabaseAdmin.from("user_roles").delete().eq("user_id", data.user_id);
+    await supabaseAdmin.from("users").delete().eq("id", data.user_id);
+    const { error } = await supabaseAdmin.auth.admin.deleteUser(data.user_id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
 export const savePermissions = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator(

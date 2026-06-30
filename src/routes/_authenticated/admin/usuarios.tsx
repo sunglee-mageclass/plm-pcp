@@ -3,7 +3,7 @@ import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Users, Plus, KeyRound, ShieldCheck, ArrowLeft, Pencil, Trash2 } from "lucide-react";
+import { Users, Plus, KeyRound, ShieldCheck, ArrowLeft, Pencil, Trash2, LogOut } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -48,7 +48,7 @@ type Tenant = { id: string; nome: string };
 const ROLES = ["super_admin", "admin", "tenant_admin", "user"] as const;
 
 function UsuariosPage() {
-  const { isSuperAdmin, loading } = useAuth();
+  const { isSuperAdmin, loading, user } = useAuth();
   const qc = useQueryClient();
   const [tenantFilter, setTenantFilter] = useState<string>("all");
   const [open, setOpen] = useState(false);
@@ -119,6 +119,15 @@ function UsuariosPage() {
       setDeleting(null);
     },
     onError: (e: Error) => toast.error(mensagemErro(e)),
+  });
+
+  const forceLogout = useMutation({
+    mutationFn: async (user_id: string) => {
+      const { error } = await supabase.rpc("forcar_logout" as any, { _user_id: user_id });
+      if (error) throw error;
+    },
+    onSuccess: () => toast.success("Logout forçado — o usuário cai no próximo refresh/reload."),
+    onError: (e: Error) => toast.error(mensagemErro(e, "Erro ao forçar logout")),
   });
 
   if (loading) return null;
@@ -207,6 +216,11 @@ function UsuariosPage() {
                       {u.role !== "super_admin" && (
                         <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setDeleting(u)} title="Excluir">
                           <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                      {user?.id !== u.id && (
+                        <Button size="sm" variant="ghost" onClick={() => forceLogout.mutate(u.id)} disabled={forceLogout.isPending} title="Forçar logout">
+                          <LogOut className="h-4 w-4" />
                         </Button>
                       )}
                       <Switch
