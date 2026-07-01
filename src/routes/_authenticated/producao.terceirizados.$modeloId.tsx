@@ -70,7 +70,12 @@ const STATUS_LABELS: Record<string, string> = {
 // Um bloco só conta como FINALIZADO (trava automática) quando tem data de entrega E foi
 // de fato movimentado: qtd enviada > 0 e (qtd recebida > 0 OU qtd defeito > 0). Só a data
 // não basta.
-function blocoFinalizado(b: Bloco): boolean {
+function blocoFinalizado(b: {
+  data_entregue: string | null;
+  quantidade_enviada: number;
+  quantidade_recebida: number;
+  quantidade_defeito: number;
+}): boolean {
   return (
     !!b.data_entregue &&
     Number(b.quantidade_enviada) > 0 &&
@@ -512,7 +517,13 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
   // Trava POR ABA: cada etapa (pré/pós) tem seu "finalizado" + lápis. Finalizar o pré
   // não trava o pós (que ainda nem aconteceu), e vice-versa.
   const blocosDaAba = blocos.filter((b) => catEtapa(b.categoria_terceirizado_id) === tabEtapa);
-  const abaFinalizada = blocosDaAba.length > 0 && blocosDaAba.every(blocoFinalizado);
+  // A trava reflete o estado SALVO (existing), NÃO o que está sendo digitado — senão travava no
+  // meio da digitação (ex.: ao começar a digitar a qtd recebida). Só trava após Salvar. Marcar
+  // "não há pós" também trava (o checkbox auto-salva).
+  const salvosDaAba = ((existing as any[]) ?? []).filter((r) => catEtapa(r.categoria_terceirizado_id) === tabEtapa);
+  const abaFinalizada =
+    (tabEtapa === "pos_costura" && semAcabamento && salvosDaAba.length === 0) ||
+    (salvosDaAba.length > 0 && salvosDaAba.every(blocoFinalizado));
   const locked = abaFinalizada && !editingTab[tabEtapa];
 
   return (
@@ -634,10 +645,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
               onCheckedChange={(v) => semAcabamentoMut.mutate(Boolean(v))}
               disabled={blocosDaAba.length > 0 || readOnly}
             />
-            <span>
-              Este modelo <b>não tem acabamento</b> (pós). Marque para o Status Geral virar{" "}
-              <b>Finalizado</b> mesmo sem serviço pós.
-            </span>
+            <span>Este modelo <b>não tem acabamento</b> (pós).</span>
           </label>
         )}
         <Label className="text-sm font-semibold mb-3 block">Categorias do Serviço (clique para adicionar um bloco)</Label>
