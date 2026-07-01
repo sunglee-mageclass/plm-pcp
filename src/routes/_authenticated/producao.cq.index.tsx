@@ -34,7 +34,7 @@ function CqListPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, ref, versao, nome, colecao, mes_id, ano_id, revisao_pendente, categorias_produto:categoria_principal_id(nome), cad(enviado_corte, producao_terceirizados(data_entregue, quantidade_enviada, quantidade_recebida, quantidade_defeito, ativo, categorias_terceirizado(etapa)), controle_qualidade(status))")
+        .select("id, ref, versao, nome, colecao, mes_id, ano_id, revisao_pendente, categorias_produto:categoria_principal_id(nome), cad(enviado_corte, producao_terceirizados(data_entregue, quantidade_enviada, quantidade_recebida, quantidade_defeito, ativo, categorias_terceirizado(etapa)), controle_qualidade(status, status_pos))")
         .eq("enviado_cad", true)
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -48,12 +48,23 @@ function CqListPage() {
         .map((m: any) => {
           const tercs = (m.cad?.[0]?.producao_terceirizados ?? []).filter((t: any) => t.ativo !== false);
           const pre = tercs.filter((t: any) => etapaDe(t) === "ate_costura");
+          const temPos = tercs.some((t: any) => etapaDe(t) === "pos_costura");
+          const cq = m.cad?.[0]?.controle_qualidade?.[0];
+          const statusPre = (cq?.status ?? "pendente") as string;
+          const statusPos = (cq?.status_pos ?? "pendente") as string;
+          // Status Geral (mesma ideia dos Serviços): Confirmado só quando o Pré está
+          // confirmado E (não há pós OU o Pós confirmado) = pronto pro Direcionamento.
+          // Pré confirmado com Pós ainda pendente = "Pré confirmado".
+          let statusGeral: string;
+          if (statusPre !== "confirmado") statusGeral = "pendente";
+          else if (!temPos || statusPos === "confirmado") statusGeral = "confirmado";
+          else statusGeral = "pre_confirmado";
           return {
             modelo_id: m.id, ref: m.ref, versao: m.versao, nome: m.nome, colecao: m.colecao,
             mes_id: m.mes_id, ano_id: m.ano_id, revisao_pendente: m.revisao_pendente,
             categoria_nome: m.categorias_produto?.nome ?? null,
             preFinalizado: pre.length > 0 && pre.every(finalizado),
-            status: (m.cad?.[0]?.controle_qualidade?.[0]?.status ?? "pendente") as string,
+            statusGeral,
           };
         })
         .filter((r: any) => r.preFinalizado);
@@ -78,7 +89,7 @@ function CqListPage() {
     if (fColecao !== "all" && r.colecao !== fColecao) return false;
     if (fMes !== "all" && r.mes_id !== fMes) return false;
     if (fAno !== "all" && r.ano_id !== fAno) return false;
-    if (fStatus !== "all" && r.status !== fStatus) return false;
+    if (fStatus !== "all" && r.statusGeral !== fStatus) return false;
     return true;
   });
 
@@ -108,6 +119,7 @@ function CqListPage() {
               { label: "Status", value: fStatus, onChange: setFStatus, options: [
                 { id: "all", nome: "Todos" },
                 { id: "pendente", nome: "Pendente" },
+                { id: "pre_confirmado", nome: "Pré confirmado" },
                 { id: "confirmado", nome: "Confirmado" },
               ] },
             ]}
@@ -123,7 +135,7 @@ function CqListPage() {
               <SortTh label="Nome" sortKey="nome" sortState={sortState} className="px-4 py-2" />
               <SortTh label="Categoria" sortKey="categoria_nome" sortState={sortState} className="px-4 py-2" />
               <SortTh label="Coleção" sortKey="colecao" sortState={sortState} className="px-4 py-2" />
-              <SortTh label="Status" sortKey="status" sortState={sortState} className="px-4 py-2" />
+              <SortTh label="Status" sortKey="statusGeral" sortState={sortState} className="px-4 py-2" />
             </tr>
           </thead>
           <tbody>
@@ -147,7 +159,7 @@ function CqListPage() {
                 <td className="px-4 py-2" data-label="Nome">{r.nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground" data-label="Categoria">{r.categoria_nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground" data-label="Coleção">{r.colecao ?? "—"}</td>
-                <td className="px-4 py-2" data-label="Status"><CqStatusBadge status={r.status} /></td>
+                <td className="px-4 py-2" data-label="Status"><CqStatusBadge status={r.statusGeral} /></td>
               </tr>
             ))}
           </tbody>
@@ -165,5 +177,6 @@ function CqListPage() {
 
 function CqStatusBadge({ status }: { status: string }) {
   if (status === "confirmado") return <StatusBadge tone="success">Confirmado</StatusBadge>;
+  if (status === "pre_confirmado") return <StatusBadge tone="info">Pré confirmado</StatusBadge>;
   return <StatusBadge tone="warning">Pendente</StatusBadge>;
 }
