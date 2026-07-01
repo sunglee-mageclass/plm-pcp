@@ -159,9 +159,10 @@ function ConfiguracoesLojaPage() {
   const save = useMutation({
     mutationFn: async () => {
       if (!data?.tenantId) throw new Error("Loja não identificada para este usuário.");
-      // campos_editaveis é gerenciado SÓ pela janela de Nomenclaturas — não inclui
-      // aqui para não sobrescrever o que foi salvo lá.
-      const { campos_editaveis: _ce, ...cfgRest } = cfg;
+      // campos_editaveis (janela Nomenclaturas), tamanhos_grade e etapas_acabamento
+      // (agora em Cadastro > Atributos) NÃO são salvos aqui, p/ não sobrescrever o que
+      // foi editado nesses outros lugares.
+      const { campos_editaveis: _ce, tamanhos_grade: _tg, etapas_acabamento: _ea, ...cfgRest } = cfg;
       const payload = { tenant_id: data.tenantId, ...cfgRest };
       const { error } = await supabase
         .from("tenant_config")
@@ -224,24 +225,8 @@ function ConfiguracoesLojaPage() {
       {/* Modo só-estoque: só Nomenclaturas + Módulos da loja. O restante (produção,
           fuso, baixa, OC/rolo, ERP) fica escondido. */}
       {!isStockOnly && (<>
-      <ServicosCard tenantId={data?.tenantId ?? null} />
-
-      <SortableListCard
-        title="Acabamento"
-        description="Etapas executadas após a costura."
-        items={cfg.etapas_acabamento}
-        onChange={(items) => setCfg({ ...cfg, etapas_acabamento: items })}
-        placeholder="Ex: Caseado"
-      />
-
-      <SortableListCard
-        title="Grade de Tamanhos"
-        description="Use o formato Número|Sigla (ex: 38|P)."
-        items={cfg.tamanhos_grade}
-        onChange={(items) => setCfg({ ...cfg, tamanhos_grade: items })}
-        placeholder="Ex: 38|P"
-      />
-
+      {/* Serviços (categorias), Acabamento e Grade de Tamanhos migraram p/ Cadastro > Atributos.
+          A Config NÃO gerencia mais esses campos (ver exclusão no payload do save). */}
       <SortableListCard
         title="Status do Kanban"
         description="Colunas exibidas no painel de criação."

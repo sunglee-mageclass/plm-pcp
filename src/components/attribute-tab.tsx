@@ -64,6 +64,8 @@ export type AttributeTabConfig = {
   extra?: ExtraSelect;
   /** Campo numérico opcional, editável inline (ex.: SLA de oficina em dias). */
   extraNumber?: { field: string; label: string; placeholder?: string };
+  // Campo enum (select de opções fixas) por linha — ex.: etapa "Até costura"/"Pós costura".
+  extraEnum?: { field: string; label: string; options: { value: string; label: string }[] };
   fixedFilter?: { field: string; value: string };
   /** Nomes fixos do sistema (case-insensitive) que NÃO podem ser editados/excluídos. */
   protectedNames?: string[];
@@ -86,7 +88,8 @@ export function AttributeTab({
   const [newName, setNewName] = useState("");
   const [newExtra, setNewExtra] = useState<string>("");
   const [newExtraNum, setNewExtraNum] = useState<string>("");
-  const colCount = 2 + (config.extra ? 1 : 0) + (config.extraNumber ? 1 : 0);
+  const [newEnum, setNewEnum] = useState<string>("");
+  const colCount = 2 + (config.extra ? 1 : 0) + (config.extraNumber ? 1 : 0) + (config.extraEnum ? 1 : 0);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [deleteRow, setDeleteRow] = useState<Row | null>(null);
@@ -172,6 +175,9 @@ export function AttributeTab({
         const n = newExtraNum.trim().replace(",", ".");
         payload[config.extraNumber.field] = n === "" ? null : Number(n);
       }
+      if (config.extraEnum) {
+        payload[config.extraEnum.field] = newEnum || config.extraEnum.options[0].value;
+      }
       if (config.fixedFilter) {
         payload[config.fixedFilter.field] = config.fixedFilter.value;
       }
@@ -184,6 +190,7 @@ export function AttributeTab({
       setNewName("");
       setNewExtra("");
       setNewExtraNum("");
+      setNewEnum("");
       qc.invalidateQueries({ queryKey: listKey });
       onChanged?.();
     },
@@ -233,6 +240,22 @@ export function AttributeTab({
       const { error } = await supabase
         .from(config.table as any)
         .update({ [config.extraNumber.field]: num })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: listKey });
+      onChanged?.();
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao atualizar.")),
+  });
+
+  const updateEnumMut = useMutation({
+    mutationFn: async ({ id, value }: { id: string; value: string }) => {
+      if (!config.extraEnum) return;
+      const { error } = await supabase
+        .from(config.table as any)
+        .update({ [config.extraEnum.field]: value })
         .eq("id", id);
       if (error) throw error;
     },
@@ -305,6 +328,9 @@ export function AttributeTab({
               )}
               {config.extraNumber && (
                 <SortHead label={config.extraNumber.label} sortKey={config.extraNumber.field} sortState={sortState} className="w-40" />
+              )}
+              {config.extraEnum && (
+                <SortHead label={config.extraEnum.label} sortKey={config.extraEnum.field} sortState={sortState} className="w-44" />
               )}
               <TableHead className="w-32 text-right">Ações</TableHead>
             </TableRow>
@@ -409,6 +435,22 @@ export function AttributeTab({
                       />
                     </TableCell>
                   )}
+                  {config.extraEnum && (
+                    <TableCell>
+                      <Select
+                        value={String(row[config.extraEnum.field] ?? config.extraEnum.options[0].value)}
+                        onValueChange={(v) => updateEnumMut.mutate({ id: row.id, value: v })}
+                        disabled={readOnly}
+                      >
+                        <SelectTrigger className="h-8 w-44"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {config.extraEnum.options.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                  )}
                   <TableCell className="text-right">
                     {!isProtected(row) && (
                       <>
@@ -482,6 +524,19 @@ export function AttributeTab({
                   onChange={(e) => setNewExtraNum(e.target.value)}
                   placeholder={config.extraNumber.placeholder}
                 />
+              </div>
+            )}
+            {config.extraEnum && (
+              <div className="space-y-1.5">
+                <Label>{config.extraEnum.label}</Label>
+                <Select value={newEnum || config.extraEnum.options[0].value} onValueChange={setNewEnum}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {config.extraEnum.options.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             )}
           </div>

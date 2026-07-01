@@ -18,6 +18,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 
 import { RequirePermission } from "@/components/RequirePermission";
+import { GradeTamanhosCard } from "@/components/shared/GradeTamanhosCard";
 
 export const Route = createFileRoute("/_authenticated/cadastro/atributos")({
   component: () => (
@@ -33,7 +34,8 @@ type AttributeItem = {
   value: string;
   label: string;
   group: GroupKey;
-  config: AttributeTabConfig;
+  config?: AttributeTabConfig;
+  custom?: "grade"; // seção especial (não é tabela): Grade de Tamanhos (tenant_config)
 };
 
 const ATTRIBUTES: AttributeItem[] = [
@@ -197,6 +199,15 @@ const ATTRIBUTES: AttributeItem[] = [
       nameField: "nome",
       singular: "Categoria do Serviço",
       plural: "Categorias do Serviço",
+      // Etapa: diferencia serviço "até costura" (pré) de "pós costura" (o antigo acabamento).
+      extraEnum: {
+        field: "etapa",
+        label: "Etapa",
+        options: [
+          { value: "ate_costura", label: "Até costura" },
+          { value: "pos_costura", label: "Pós costura" },
+        ],
+      },
       usage: [
         { table: "terceirizado_categorias", column: "categoria_terceirizado_id" },
         { table: "producao_terceirizados", column: "categoria_terceirizado_id" },
@@ -205,6 +216,12 @@ const ATTRIBUTES: AttributeItem[] = [
       // renomeados nem excluídos — "Oficina" alimenta a detecção do fluxo de oficina.
       protectedNames: ["corte", "oficina"],
     },
+  },
+  {
+    value: "grade_tamanhos",
+    label: "Grade de Tamanhos",
+    group: "PRODUTO",
+    custom: "grade",
   },
 ];
 
@@ -217,9 +234,10 @@ const GROUP_ORDER: GroupKey[] = [
   "SERVIÇO",
 ];
 
-function useAttributeCount(table: string) {
+function useAttributeCount(table: string | null) {
   return useQuery({
     queryKey: ["attribute-count", table],
+    enabled: !!table,
     queryFn: async () => {
       const { count, error } = await supabase
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -240,8 +258,9 @@ function AtributosPage() {
   );
   // Categoria do Produto ganha o SLA médio de oficina (dias) — exceto no modo
   // controle-de-estoque (não há produção/oficina lá).
-  const activeConfig: AttributeTabConfig =
-    selected.config.table === "categorias_produto" && !isStockOnly
+  const activeConfig: AttributeTabConfig | undefined = !selected.config
+    ? undefined
+    : selected.config.table === "categorias_produto" && !isStockOnly
       ? { ...selected.config, extraNumber: { field: "sla_oficina", label: "SLA Oficina (dias)", placeholder: "dias" } }
       : selected.config;
 
@@ -253,7 +272,7 @@ function AtributosPage() {
   }, []);
 
   const qc = useQueryClient();
-  const { data: count, isLoading: countLoading } = useAttributeCount(selected.config.table);
+  const { data: count, isLoading: countLoading } = useAttributeCount(selected.config?.table ?? null);
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
@@ -327,23 +346,33 @@ function AtributosPage() {
         <div className="flex-1 min-w-0 p-4 space-y-4">
           <div className="flex items-center justify-between gap-3 border-b pb-3">
             <div className="min-w-0">
-              <h2 className="text-lg font-semibold truncate">{selected.config.plural}</h2>
+              <h2 className="text-lg font-semibold truncate">
+                {selected.custom === "grade" ? "Grade de Tamanhos" : selected.config!.plural}
+              </h2>
               <p className="text-xs text-muted-foreground uppercase tracking-wider">
                 {selected.group}
               </p>
             </div>
-            <Badge variant="secondary" className="shrink-0">
-              {countLoading ? "…" : `${count ?? 0} ${count === 1 ? "item" : "itens"}`}
-            </Badge>
+            {!selected.custom && (
+              <Badge variant="secondary" className="shrink-0">
+                {countLoading ? "…" : `${count ?? 0} ${count === 1 ? "item" : "itens"}`}
+              </Badge>
+            )}
           </div>
 
-          <AttributeTab
-            key={selected.value}
-            config={activeConfig}
-            onChanged={() =>
-              qc.invalidateQueries({ queryKey: ["attribute-count", selected.config.table] })
-            }
-          />
+          {selected.custom === "grade" ? (
+            <GradeTamanhosCard />
+          ) : (
+            activeConfig && (
+              <AttributeTab
+                key={selected.value}
+                config={activeConfig}
+                onChanged={() =>
+                  qc.invalidateQueries({ queryKey: ["attribute-count", selected.config?.table] })
+                }
+              />
+            )
+          )}
         </div>
       </div>
     </div>
