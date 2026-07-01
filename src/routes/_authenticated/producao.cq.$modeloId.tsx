@@ -518,11 +518,9 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
             {(modelo as any)?.categorias_produto?.nome ?? "—"} • {modelo?.colecao ?? "—"}
           </p>
         </div>
-        {view === "pre" && (
-          <Badge className={confirmado ? "bg-emerald-500 hover:bg-emerald-500 text-white" : "bg-amber-500 hover:bg-amber-500 text-white"}>
-            {confirmado ? "Confirmado" : "Pendente"}
-          </Badge>
-        )}
+        <Badge className={(view === "pos" ? posBtn.confirmado : confirmado) ? "bg-emerald-500 hover:bg-emerald-500 text-white" : "bg-amber-500 hover:bg-amber-500 text-white"}>
+          {(view === "pos" ? posBtn.confirmado : confirmado) ? "Confirmado" : "Pendente"}
+        </Badge>
       </header>
 
       {/* Abas Pré/Pós — dentro do item, como em Serviços. */}
