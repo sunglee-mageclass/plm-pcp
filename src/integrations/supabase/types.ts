@@ -976,6 +976,38 @@ export type Database = {
           },
         ]
       }
+      cores_apelido: {
+        Row: {
+          cor_base_id: string | null
+          created_at: string
+          id: string
+          nome: string
+          tenant_id: string | null
+        }
+        Insert: {
+          cor_base_id?: string | null
+          created_at?: string
+          id?: string
+          nome: string
+          tenant_id?: string | null
+        }
+        Update: {
+          cor_base_id?: string | null
+          created_at?: string
+          id?: string
+          nome?: string
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cores_apelido_cor_base_id_fkey"
+            columns: ["cor_base_id"]
+            isOneToOne: false
+            referencedRelation: "cores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cq_pos_variantes: {
         Row: {
           controle_qualidade_id: string

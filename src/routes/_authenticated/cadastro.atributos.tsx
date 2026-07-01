@@ -41,14 +41,31 @@ type AttributeItem = {
 const ATTRIBUTES: AttributeItem[] = [
   {
     value: "cores",
-    label: "Cores",
+    label: "Cor base",
     group: "GERAL",
     config: {
       table: "cores",
       nameField: "nome",
-      singular: "Cor",
-      plural: "Cores",
-      usage: [{ table: "variantes_tecido", column: "cor_id" }],
+      singular: "Cor base",
+      plural: "Cores base",
+      usage: [
+        { table: "variantes_tecido", column: "cor_id" },
+        { table: "cores_apelido", column: "cor_base_id" },
+      ],
+    },
+  },
+  {
+    value: "cores_apelido",
+    label: "Cor apelido",
+    group: "GERAL",
+    config: {
+      table: "cores_apelido",
+      nameField: "nome",
+      singular: "Cor apelido",
+      plural: "Cores apelido",
+      // Cada apelido pertence a uma Cor base (obrigatório).
+      extra: { field: "cor_base_id", label: "Cor base", from: "cores", optionLabel: "nome", required: true },
+      usage: [],
     },
   },
   {
