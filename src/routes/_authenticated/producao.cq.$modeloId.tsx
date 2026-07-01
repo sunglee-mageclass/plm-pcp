@@ -214,6 +214,10 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
   const cqPosRef = useRef<CqPosHandle>(null);
   const [posBtn, setPosBtn] = useState<CqPosStatus>({ confirmado: false, editing: false, pending: false, hasServicos: false });
   const onPosStatus = useCallback((s: CqPosStatus) => setPosBtn(s), []);
+  // Monta o Pós sob demanda e MANTÉM montado (escondido com CSS) — preserva o rascunho
+  // não-salvo ao trocar de aba (senão o CqPosView desmontava e recarregava do banco).
+  const [posMounted, setPosMounted] = useState(false);
+  useEffect(() => { if (view === "pos") setPosMounted(true); }, [view]);
 
   const confirmado = status === "confirmado";
   // Confirmado trava a edição; "Editar" reabre sem desmarcar a confirmação.
@@ -529,15 +533,19 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
         <Button size="sm" variant={view === "pos" ? "secondary" : "ghost"} onClick={() => setView("pos")}>Pós (acabamento)</Button>
       </div>
 
-      {view === "pos" ? (
-        cad?.id ? (
+      {/* Pós montado sob demanda + mantido montado (escondido com CSS): preserva rascunho. */}
+      {cad?.id && posMounted && (
+        <div className={view === "pos" ? "" : "hidden"}>
           <CqPosView ref={cqPosRef} onStatus={onPosStatus} cadId={cad.id} tamanhos={tamanhos} variantList={variantList} labelByNumero={labelByNumero} readOnly={permReadOnly} />
-        ) : (
-          <Card className="p-4 border-amber-500/50 bg-amber-500/10 text-sm">
-            Este modelo ainda não tem registro de CAD.
-          </Card>
-        )
-      ) : (
+        </div>
+      )}
+      {view === "pos" && !cad?.id && (
+        <Card className="p-4 border-amber-500/50 bg-amber-500/10 text-sm">
+          Este modelo ainda não tem registro de CAD.
+        </Card>
+      )}
+
+      {view === "pre" && (
       <fieldset disabled={readOnly} className="contents">
 
       {!cad?.id && (

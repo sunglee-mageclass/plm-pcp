@@ -578,6 +578,20 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
         </Button>
       </div>
 
+      {/* "Não há acabamento": FORA do fieldset, pra continuar clicável mesmo com a aba
+          travada (senão, pra desmarcar, precisaria clicar no lápis antes). */}
+      {tabEtapa === "pos_costura" && (
+        <label className="flex items-start gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm w-fit">
+          <Checkbox
+            className="mt-0.5"
+            checked={semAcabamento}
+            onCheckedChange={(v) => semAcabamentoMut.mutate(Boolean(v))}
+            disabled={blocosDaAba.length > 0 || readOnly || !cad?.id}
+          />
+          <span>Este modelo <b>não tem acabamento</b> (pós).</span>
+        </label>
+      )}
+
       <fieldset disabled={readOnly || locked} className="contents">
 
       <header className="flex items-start gap-3">
@@ -638,17 +652,6 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
 
       {/* Categoria buttons (só as da etapa da aba) */}
       <Card className="p-4">
-        {tabEtapa === "pos_costura" && (
-          <label className="mb-3 flex items-start gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm">
-            <Checkbox
-              className="mt-0.5"
-              checked={semAcabamento}
-              onCheckedChange={(v) => semAcabamentoMut.mutate(Boolean(v))}
-              disabled={blocosDaAba.length > 0 || readOnly || !cad?.id}
-            />
-            <span>Este modelo <b>não tem acabamento</b> (pós).</span>
-          </label>
-        )}
         <Label className="text-sm font-semibold mb-3 block">Categorias do Serviço (clique para adicionar um bloco)</Label>
         <div className="flex flex-wrap gap-2">
           {(categorias as any[]).filter((c) => (c.etapa ?? "ate_costura") === tabEtapa).map((c) => {
