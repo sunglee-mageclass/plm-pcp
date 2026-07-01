@@ -525,6 +525,9 @@ function ModeloDialog({
     [estoqueArr],
   ) as Record<string, EstoqueArtigo>;
 
+  // "Ordem de Criação enviada" = gate p/ o Desenvolvimento (botão, não mais o status).
+  const [enviada, setEnviada] = useState(false);
+
   useQuery({
     queryKey: ["modelo", modeloId],
     enabled: !!modeloId,
@@ -552,6 +555,7 @@ function ModeloDialog({
           versao: (data as any).versao ?? 1,
           modelo_base_id: (data as any).modelo_base_id ?? null,
         });
+        setEnviada(!!(data as any).ordem_criacao_enviada);
       }
       return data;
     },
@@ -593,6 +597,25 @@ function ModeloDialog({
       onClose();
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro")),
+  });
+
+  // Enviar/Cancelar Ordem de Criação: gate explícito pro Desenvolvimento (independe do Salvar).
+  const enviar = useMutation({
+    mutationFn: async (send: boolean) => {
+      if (!modeloId) throw new Error("Salve o modelo primeiro.");
+      const payload = send
+        ? { ordem_criacao_enviada: true, ordem_criacao_enviada_at: new Date().toISOString(), status_planejamento: "planejado" }
+        : { ordem_criacao_enviada: false, ordem_criacao_enviada_at: null };
+      const { error } = await supabase.from("modelos").update(payload).eq("id", modeloId);
+      if (error) throw error;
+    },
+    onMutate: (send: boolean) => setEnviada(send),
+    onError: (e: any, send: boolean) => { setEnviada(!send); toast.error(mensagemErro(e, "Erro")); },
+    onSuccess: (_d, send: boolean) => {
+      toast.success(send ? "Ordem de Criação enviada" : "Envio cancelado");
+      qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+      qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
+    },
   });
 
   const duplicate = useMutation({
@@ -744,6 +767,21 @@ function ModeloDialog({
               </Button>
             </>
           )}
+          {isEdit && (enviada ? (
+            <Button variant="outline" className="max-sm:ml-auto" onClick={() => enviar.mutate(false)} disabled={enviar.isPending}>
+              Cancelar Envio
+            </Button>
+          ) : (
+            <Button
+              variant="secondary"
+              className="max-sm:ml-auto"
+              onClick={() => enviar.mutate(true)}
+              disabled={enviar.isPending || draft.status_planejamento !== "planejado"}
+              title={draft.status_planejamento !== "planejado" ? "Defina o status como Planejado primeiro" : undefined}
+            >
+              Enviar Ordem de Criação
+            </Button>
+          ))}
           <Button className="max-sm:ml-auto" onClick={() => save.mutate()} disabled={save.isPending}>Salvar</Button>
         </DialogFooter>
 

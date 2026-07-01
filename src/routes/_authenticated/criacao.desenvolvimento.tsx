@@ -130,7 +130,7 @@ function DesenvolvimentoPage() {
       const { data, error } = await supabase
         .from("modelos")
         .select("id, nome, ref, versao, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, semana, mes_id, ano_id, categoria_principal_id, status_desenvolvimento, fotos_modelo, enviado_cad, created_at")
-        .eq("status_planejamento", "planejado")
+        .eq("ordem_criacao_enviada", true)
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as Modelo[];

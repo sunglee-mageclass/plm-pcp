@@ -1824,6 +1824,8 @@ export type Database = {
           nome: string
           observacoes_gerais: string | null
           observacoes_tecnicas: string | null
+          ordem_criacao_enviada: boolean
+          ordem_criacao_enviada_at: string | null
           piloteiro1_id: string | null
           piloteiro2_id: string | null
           piloteiro3_id: string | null
@@ -1870,6 +1872,8 @@ export type Database = {
           nome: string
           observacoes_gerais?: string | null
           observacoes_tecnicas?: string | null
+          ordem_criacao_enviada?: boolean
+          ordem_criacao_enviada_at?: string | null
           piloteiro1_id?: string | null
           piloteiro2_id?: string | null
           piloteiro3_id?: string | null
@@ -1916,6 +1920,8 @@ export type Database = {
           nome?: string
           observacoes_gerais?: string | null
           observacoes_tecnicas?: string | null
+          ordem_criacao_enviada?: boolean
+          ordem_criacao_enviada_at?: string | null
           piloteiro1_id?: string | null
           piloteiro2_id?: string | null
           piloteiro3_id?: string | null
