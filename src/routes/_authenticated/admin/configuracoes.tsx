@@ -368,8 +368,9 @@ function ConfiguracoesLojaPage() {
         </CardContent>
       </Card>
 
-      {/* Integração com ERP: em desenvolvimento — visível só para super_admin. */}
-      {isSuperAdmin && !isStockOnly && (
+      {/* Integração com ERP: OCULTO por ora (a pedido do dono), inclusive p/ super_admin.
+          Para reexibir, troque `false &&` por `isSuperAdmin &&`. */}
+      {false && isSuperAdmin && !isStockOnly && (
       <Card>
         <CardHeader>
           <CardTitle>Integração com ERP</CardTitle>
