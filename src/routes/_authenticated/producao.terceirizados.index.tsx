@@ -195,5 +195,5 @@ function StatusBadge({ status }: { status: "sem" | "pendente" | "em_andamento" |
   if (status === "finalizado") return <SharedStatusBadge tone="success">Finalizado</SharedStatusBadge>;
   if (status === "em_andamento") return <SharedStatusBadge tone="warning">Em andamento</SharedStatusBadge>;
   if (status === "pendente") return <SharedStatusBadge tone="neutral">Pendente</SharedStatusBadge>;
-  return <SharedStatusBadge tone="neutral">Sem terc.</SharedStatusBadge>;
+  return <SharedStatusBadge tone="neutral">Sem serv.</SharedStatusBadge>;
 }

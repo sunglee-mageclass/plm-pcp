@@ -55,11 +55,15 @@ const STATUS_COLORS: Record<string, string> = {
   pendente: "bg-amber-500",
   em_andamento: "bg-blue-500",
   finalizado: "bg-emerald-500",
+  pre_finalizado: "bg-teal-500",
+  sem_selecao: "bg-muted",
 };
 const STATUS_LABELS: Record<string, string> = {
   pendente: "Pendente",
   em_andamento: "Em andamento",
   finalizado: "Finalizado",
+  pre_finalizado: "Pré finalizado",
+  sem_selecao: "Sem seleção",
 };
 
 function TercDetailPage() {
@@ -300,7 +304,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
   const [hydrated, setHydrated] = useState(false);
   // Trava por segurança quando o serviço está Finalizado: só edita ao clicar
   // "Editar", e o Salvar volta a travar.
-  const [editing, setEditing] = useState(false);
+  const [editingTab, setEditingTab] = useState<Record<string, boolean>>({});
 
   // "Observação de Partes do Molde": mesmo campo do CAD (cad.observacoes_molde).
   const [observacoesMolde, setObservacoesMolde] = useState("");
@@ -387,20 +391,31 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
     setBlocos((bs) => bs.map((b, i) => (i === idx ? { ...b, ...patch } : b)));
   };
 
-  // Status geral
-  const { statusGeral, dataInicial, dataFinal, slaDias } = useMemo(() => {
-    if (blocos.length === 0) return { statusGeral: "—", dataInicial: null, dataFinal: null, slaDias: null };
-    const todasEntregues = blocos.every((b) => !!b.data_entregue);
+  // 3 status: PRÉ (até costura), PÓS (pós costura) e GERAL (derivado). Regras do dono:
+  // pré fin + pós pendente → geral "pendente"; pré fin + pós fin → "finalizado";
+  // pré fin + pós SEM seleção → "pré finalizado".
+  const { statusPre, statusPos, statusGeral, dataInicial, dataFinal, slaDias } = useMemo(() => {
+    const etapaDe = (id: string) => (categorias as any[]).find((c) => c.id === id)?.etapa ?? "ate_costura";
+    const statusDe = (bs: typeof blocos) =>
+      bs.length === 0 ? "sem_selecao" : bs.every((b) => !!b.data_entregue) ? "finalizado" : "em_andamento";
+    const pre = blocos.filter((b) => etapaDe(b.categoria_terceirizado_id) === "ate_costura");
+    const pos = blocos.filter((b) => etapaDe(b.categoria_terceirizado_id) === "pos_costura");
+    const sPre = statusDe(pre);
+    const sPos = statusDe(pos);
+    let geral: string;
+    if (blocos.length === 0) geral = "sem_selecao";
+    else if (sPre !== "finalizado") geral = "em_andamento"; // pré ainda não fechou
+    else if (sPos === "finalizado") geral = "finalizado"; // pré + pós fechados
+    else if (sPos === "sem_selecao") geral = "pre_finalizado"; // pré fechado, pós não selecionado
+    else geral = "pendente"; // pré fechado, pós em andamento
     const enviados = blocos.map((b) => b.data_enviado).filter(Boolean) as string[];
     const entregues = blocos.map((b) => b.data_entregue).filter(Boolean) as string[];
     const di = enviados.length ? enviados.slice().sort()[0] : null;
     const df = entregues.length ? entregues.slice().sort().slice(-1)[0] : null;
     let sla = null;
-    if (di && df) {
-      sla = Math.round((new Date(df).getTime() - new Date(di).getTime()) / 86400000);
-    }
-    return { statusGeral: todasEntregues ? "finalizado" : "em_andamento", dataInicial: di, dataFinal: df, slaDias: sla };
-  }, [blocos]);
+    if (di && df) sla = Math.round((new Date(df).getTime() - new Date(di).getTime()) / 86400000);
+    return { statusPre: sPre, statusPos: sPos, statusGeral: geral, dataInicial: di, dataFinal: df, slaDias: sla };
+  }, [blocos, categorias]);
 
   // Custo de serviço por peça e custo real (= materiais do CAD + serviço).
   const servicoTotal = useMemo(
@@ -445,7 +460,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
     },
     onSuccess: async () => {
       toast.success("Salvo com sucesso");
-      setEditing(false); // salvar trava novamente quando está Finalizado
+      setEditingTab({}); // salvar re-trava as abas que já estão finalizadas
       // Busca os dados frescos ANTES de liberar o guard de hidratação, senão a
       // re-hidratação rodava com o cache antigo (vazio) e o formulário "sumia".
       await qc.invalidateQueries({ queryKey: ["producao-terc", cad?.id] });
@@ -457,7 +472,11 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
   });
 
-  const locked = statusGeral === "finalizado" && !editing;
+  // Trava POR ABA: cada etapa (pré/pós) tem seu "finalizado" + lápis. Finalizar o pré
+  // não trava o pós (que ainda nem aconteceu), e vice-versa.
+  const blocosDaAba = blocos.filter((b) => catEtapa(b.categoria_terceirizado_id) === tabEtapa);
+  const abaFinalizada = blocosDaAba.length > 0 && blocosDaAba.every((b) => !!b.data_entregue);
+  const locked = abaFinalizada && !editingTab[tabEtapa];
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
@@ -489,7 +508,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
             <Printer className="h-4 w-4 mr-2" /> Imprimir OS
           </Button>
           {locked ? (
-            <Button variant="outline" size="icon" onClick={() => setEditing(true)} disabled={readOnly} aria-label="Editar">
+            <Button variant="outline" size="icon" onClick={() => setEditingTab((m) => ({ ...m, [tabEtapa]: true }))} disabled={readOnly} aria-label="Editar">
               <Pencil className="h-4 w-4" />
             </Button>
           ) : (
@@ -499,6 +518,17 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
           )}
         </div>
       </div>
+
+      {/* Abas Pré/Pós — FORA do fieldset: travar uma aba não pode impedir trocar de aba. */}
+      <div className="flex rounded-md border p-0.5 w-fit">
+        <Button size="sm" variant={tabEtapa === "ate_costura" ? "secondary" : "ghost"} onClick={() => setTabEtapa("ate_costura")}>
+          Pré (até costura)
+        </Button>
+        <Button size="sm" variant={tabEtapa === "pos_costura" ? "secondary" : "ghost"} onClick={() => setTabEtapa("pos_costura")}>
+          Pós (acabamento)
+        </Button>
+      </div>
+
       <fieldset disabled={readOnly || locked} className="contents">
 
       <header className="flex items-start gap-3">
@@ -518,6 +548,18 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
         <div>
           <Label className="text-xs text-muted-foreground">Grade Total Geral</Label>
           <div className="mt-1 text-sm font-semibold">{fmtNum(gradeTotalGeral)}</div>
+        </div>
+        <div>
+          <Label className="text-xs text-muted-foreground">Status Pré</Label>
+          <div className="mt-1">
+            <Badge className={`${STATUS_COLORS[statusPre] ?? "bg-muted"} text-white`}>{STATUS_LABELS[statusPre] ?? statusPre}</Badge>
+          </div>
+        </div>
+        <div>
+          <Label className="text-xs text-muted-foreground">Status Pós</Label>
+          <div className="mt-1">
+            <Badge className={`${STATUS_COLORS[statusPos] ?? "bg-muted"} text-white`}>{STATUS_LABELS[statusPos] ?? statusPos}</Badge>
+          </div>
         </div>
         <div>
           <Label className="text-xs text-muted-foreground">Status Geral</Label>
@@ -544,16 +586,6 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
           </div>
         </div>
       </Card>
-
-      {/* Abas Pré/Pós: mesma tela, filtrando pela etapa da categoria. */}
-      <div className="flex rounded-md border p-0.5 w-fit">
-        <Button size="sm" variant={tabEtapa === "ate_costura" ? "secondary" : "ghost"} onClick={() => setTabEtapa("ate_costura")}>
-          Pré (até costura)
-        </Button>
-        <Button size="sm" variant={tabEtapa === "pos_costura" ? "secondary" : "ghost"} onClick={() => setTabEtapa("pos_costura")}>
-          Pós (acabamento)
-        </Button>
-      </div>
 
       {/* Categoria buttons (só as da etapa da aba) */}
       <Card className="p-4">
