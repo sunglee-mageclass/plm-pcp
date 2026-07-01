@@ -107,11 +107,23 @@ function agruparPorTecido(oc: OC, keep: (id: string) => boolean, anyFilter: bool
     }
     const modelos = Array.from(modelMap.values());
     for (const a of modelos) {
-      const metragens = a.variantes.reduce((s, v) => s + v.metragem_m, 0);
-      const baixado = a.variantes.reduce((s, v) => s + v.baixado_m, 0);
-      // Regra baixa × reserva: modelo CORTADO consome a baixa REAL; ainda não
-      // cortado consome o planejado (BOM) — SEM a peça piloto.
-      a.consumoTotal = a.cortado ? baixado : metragens;
+      // Junta variantes com o MESMO nome — a mesma cor pode vir de vários itens de
+      // OC / blocos de tecido (senão aparecem "soltas", repetidas). Soma metragem/
+      // baixa; grade fica a maior (em dados normais é a mesma por cor).
+      const byVar = new Map<string, VarRow>();
+      for (const v of a.variantes) {
+        const cur = byVar.get(v.variante) ?? { variante: v.variante, grade_variante: 0, metragem_m: 0, baixado_m: 0, cortado: false };
+        cur.metragem_m += v.metragem_m;
+        cur.baixado_m += v.baixado_m;
+        cur.grade_variante = Math.max(cur.grade_variante, v.grade_variante);
+        cur.cortado = cur.cortado || v.cortado;
+        byVar.set(v.variante, cur);
+      }
+      a.variantes = Array.from(byVar.values());
+      // Consumo efetivo POR variante (não no nível do modelo): cortada usa a baixa
+      // REAL; a que ainda não foi cortada usa o planejado (BOM) — SEM piloto. Assim
+      // o total soma todas as cores (antes ignorava as não-baixadas).
+      a.consumoTotal = a.variantes.reduce((s, v) => s + (v.cortado ? v.baixado_m : v.metragem_m), 0);
     }
     if (anyFilter && modelos.length === 0) continue; // com filtro ativo, esconde tecido sem modelos
     const consumido = modelos.reduce((s, a) => s + a.consumoTotal, 0);
@@ -521,8 +533,8 @@ function KV({ label, value, valueClass }: { label: string; value: string; valueC
 
 function ModeloMiniCard({ a, preco, info, onDev, onCad }: { a: ModeloAgg; preco: number; info: ModeloInfo | undefined; onDev: () => void; onCad: () => void }) {
   const foto = info?.fotos_modelo?.[0] ?? null;
-  // Consumo efetivo por variante: cortado usa a baixa real; senão o planejado (sem piloto).
-  const efetivo = (v: VarRow) => (a.cortado ? v.baixado_m : v.metragem_m);
+  // Consumo efetivo da variante: cortada usa a baixa real; senão o planejado (sem piloto).
+  const efetivo = (v: VarRow) => (v.cortado ? v.baixado_m : v.metragem_m);
   return (
     <Popover>
       <PopoverTrigger asChild>
