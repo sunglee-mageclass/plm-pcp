@@ -104,6 +104,8 @@ type Modelo = {
   status_planejamento: string | null;
   fotos_modelo: string[] | null;
   fotos_referencia: string[] | null;
+  desenho_tecnico_url: string | null;
+  croqui_url: string | null;
   observacoes_gerais: string | null;
   versao: number;
   modelo_base_id: string | null;
@@ -185,7 +187,7 @@ function PlanejamentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, estilista_id, linha_id, colecao, semana, mes_id, ano_id, categoria_principal_id, categoria_secundaria_id, status_planejamento, fotos_modelo, fotos_referencia, observacoes_gerais, versao, modelo_base_id")
+        .select("id, nome, estilista_id, linha_id, colecao, semana, mes_id, ano_id, categoria_principal_id, categoria_secundaria_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as Modelo[];
@@ -417,14 +419,21 @@ function PlanejamentoPage() {
 function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, mesNome, onOpen, compact }: {
   modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; mesNome: string | null; onOpen: () => void; compact?: boolean;
 }) {
-  const photo = modelo.fotos_modelo?.[0] ?? null;
-  const url = useSignedUrlBucket(photo);
+  // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
+  const cover = (modelo.fotos_modelo?.[0]) || modelo.desenho_tecnico_url || modelo.croqui_url || null;
+  const url = useSignedUrlBucket(cover);
+  const coverIsPdf = /\.pdf$/i.test(cover ?? "");
   const meta = statusMeta(modelo.status_planejamento);
   return (
     <Card className="overflow-hidden cursor-pointer hover:shadow-md transition-shadow" onClick={onOpen}>
       <div className="aspect-[3/4] bg-muted flex items-center justify-center overflow-hidden">
-        {url ? <img src={url} alt={modelo.nome ?? ""} className="w-full h-full object-cover" />
-             : <ImageIcon className="h-10 w-10 text-muted-foreground" />}
+        {!url ? (
+          <ImageIcon className="h-10 w-10 text-muted-foreground" />
+        ) : coverIsPdf ? (
+          <iframe src={`${url}#toolbar=0&navpanes=0&scrollbar=0`} title="" className="w-full h-full pointer-events-none" />
+        ) : (
+          <img src={url} alt={modelo.nome ?? ""} className="w-full h-full object-cover" />
+        )}
       </div>
       {!compact && (
       <div className="p-3 space-y-1.5">
