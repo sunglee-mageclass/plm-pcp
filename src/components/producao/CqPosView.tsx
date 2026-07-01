@@ -82,22 +82,26 @@ export const CqPosView = forwardRef<CqPosHandle, {
   });
 
   // CQ existente (status_pos + observações) + itens do pós, p/ hidratar.
-  const { data: cqRow, isFetched: cqFetched } = useQuery({
+  const { data: cqRow, isFetched: cqFetched, isFetching: cqFetching } = useQuery({
     queryKey: ["cqpos-cq", cadId],
     queryFn: async () =>
       (await supabase.from("controle_qualidade").select("id, status_pos, observacoes_cq_pos").eq("cad_id", cadId).maybeSingle()).data,
   });
   const cqId = (cqRow as any)?.id;
-  const { data: posItens = [], isFetched: itensFetched } = useQuery({
+  const { data: posItens = [], isFetched: itensFetched, isFetching: itensFetching } = useQuery({
     queryKey: ["cqpos-itens", cqId],
     enabled: !!cqId,
     queryFn: async () =>
       (await supabase.from("cq_pos_variantes" as any).select("*").eq("controle_qualidade_id", cqId)).data ?? [],
   });
 
+  // Só hidrata quando as queries ASSENTARAM (isFetched && !isFetching): re-hidratar do
+  // cache antigo enquanto o refetch corria travava o status no valor anterior (o botão
+  // Confirmar/Desmarcar só mudava ao sair e voltar).
   useEffect(() => {
-    if (hydrated || !cqFetched) return;
-    if (cqId && !itensFetched) return;
+    if (hydrated) return;
+    if (!cqFetched || cqFetching) return;
+    if (cqId && (!itensFetched || itensFetching)) return;
     if (cqRow) {
       setStatusPos((cqRow as any).status_pos ?? "pendente");
       setObs((cqRow as any).observacoes_cq_pos ?? "");
@@ -116,7 +120,7 @@ export const CqPosView = forwardRef<CqPosHandle, {
     });
     setPosState(st);
     setHydrated(true);
-  }, [cqRow, posItens, cqFetched, itensFetched, cqId, hydrated]);
+  }, [cqRow, posItens, cqFetched, cqFetching, itensFetched, itensFetching, cqId, hydrated]);
 
   const confirmado = statusPos === "confirmado";
   const readOnly = permReadOnly || (confirmado && !editing);
