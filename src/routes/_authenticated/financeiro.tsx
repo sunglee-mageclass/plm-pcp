@@ -952,6 +952,16 @@ function ServicosView() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["servicos-financeiro"] }); toast.success("Atualizado"); },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro")),
   });
+  // Data de pagamento editável: informar a data marca como pago (e registra QUANDO foi pago).
+  const updPag = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: string }) => {
+      const { error } = await supabase.from("parcelas_servico" as any)
+        .update({ data_pagamento: data || null, status: data ? "pago" : "a_pagar" }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["servicos-financeiro"] }); toast.success("Pagamento atualizado"); },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar pagamento")),
+  });
 
   const total = filtered.reduce((s, r) => s + Number(r.valor_parcela || 0), 0);
 
@@ -1014,6 +1024,7 @@ function ServicosView() {
                 <th className="py-2 pr-3 text-right">Valor parcela</th>
                 <th className="py-2 pr-3">Entrega</th>
                 <th className="py-2 pr-3">Vencimento</th>
+                <th className="py-2 pr-3">Pagamento</th>
                 <th className="py-2 pr-3">Status</th>
                 <th className="py-2 pr-3"></th>
               </tr>
@@ -1033,9 +1044,10 @@ function ServicosView() {
                     <td className="py-2 pr-3 text-right font-medium" data-label="Valor parcela">{brl(Number(r.valor_parcela))}</td>
                     <td className="py-2 pr-3" data-label="Entrega">{fmtD(r.data_entrega)}</td>
                     <td className="py-2 pr-3" data-label="Vencimento">
-                      {/* onBlur (VencimentoCell) em vez de gravar a cada onChange:
-                          cada tecla disparava UPDATE + RPC de sync (loop). */}
                       <VencimentoCell value={r.data_vencimento ?? ""} onSave={(data) => updVenc.mutate({ id: r.parcela_id, data })} />
+                    </td>
+                    <td className="py-2 pr-3" data-label="Pagamento">
+                      <VencimentoCell value={r.data_pagamento ?? ""} onSave={(data) => updPag.mutate({ id: r.parcela_id, data })} />
                     </td>
                     <td className="py-2 pr-3" data-label="Status">
                       <Badge variant={st === "pago" ? "default" : st === "vencido" ? "destructive" : "secondary"}>
@@ -1053,7 +1065,7 @@ function ServicosView() {
                 );
               })}
               {!isLoading && filtered.length === 0 && (
-                <tr><td colSpan={12} className="py-4 text-center text-muted-foreground">Nenhum serviço a pagar.</td></tr>
+                <tr><td colSpan={13} className="py-4 text-center text-muted-foreground">Nenhum serviço a pagar.</td></tr>
               )}
             </tbody>
           </table>
