@@ -48,6 +48,8 @@ type Modelo = {
   categoria_principal_id: string | null;
   status_desenvolvimento: string | null;
   fotos_modelo: string[] | null;
+  desenho_tecnico_url: string | null;
+  croqui_url: string | null;
   enviado_cad: boolean | null;
   created_at: string | null;
 };
@@ -129,7 +131,7 @@ function DesenvolvimentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, ref, versao, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, semana, mes_id, ano_id, categoria_principal_id, status_desenvolvimento, fotos_modelo, enviado_cad, created_at")
+        .select("id, nome, ref, versao, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, semana, mes_id, ano_id, categoria_principal_id, status_desenvolvimento, fotos_modelo, desenho_tecnico_url, croqui_url, enviado_cad, created_at")
         .eq("ordem_criacao_enviada", true)
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -350,14 +352,17 @@ function MobileCard({ modelo, estilistaNome, categoriaNome, onOpen }: {
   onOpen: () => void;
 }) {
   const fl = useFieldLabels();
-  const photo = modelo.fotos_modelo?.[0] ?? null;
-  const url = useSignedUrlBucket(photo);
+  // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
+  const cover = modelo.fotos_modelo?.[0] || modelo.desenho_tecnico_url || modelo.croqui_url || null;
+  const url = useSignedUrlBucket(cover);
+  const coverIsPdf = /\.pdf$/i.test(cover ?? "");
   return (
     <div className="bg-card border rounded-md p-2">
       <div className="flex gap-2" onClick={onOpen} role="button">
         <div className="h-14 w-14 shrink-0 rounded bg-muted overflow-hidden flex items-center justify-center">
-          {url ? <img src={url} alt={modelo.nome ?? ""} className="h-full w-full object-cover" />
-               : <ImageIcon className="h-6 w-6 text-muted-foreground" />}
+          {!url ? <ImageIcon className="h-6 w-6 text-muted-foreground" />
+               : coverIsPdf ? <iframe src={`${url}#toolbar=0&navpanes=0&scrollbar=0`} title="" className="h-full w-full pointer-events-none" />
+               : <img src={url} alt={modelo.nome ?? ""} className="h-full w-full object-cover" />}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 min-w-0">
@@ -378,8 +383,10 @@ function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: i
   modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; onOpen: () => void; draggable: boolean;
 }) {
   const fl = useFieldLabels();
-  const photo = modelo.fotos_modelo?.[0] ?? null;
-  const url = useSignedUrlBucket(photo);
+  // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
+  const cover = modelo.fotos_modelo?.[0] || modelo.desenho_tecnico_url || modelo.croqui_url || null;
+  const url = useSignedUrlBucket(cover);
+  const coverIsPdf = /\.pdf$/i.test(cover ?? "");
   return (
     <div
       draggable={isDraggable}
@@ -392,8 +399,9 @@ function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: i
     >
       <div className="flex gap-2">
         <div className="h-14 w-14 shrink-0 rounded bg-muted overflow-hidden flex items-center justify-center">
-          {url ? <img src={url} alt={modelo.nome ?? ""} className="h-full w-full object-cover" />
-               : <ImageIcon className="h-6 w-6 text-muted-foreground" />}
+          {!url ? <ImageIcon className="h-6 w-6 text-muted-foreground" />
+               : coverIsPdf ? <iframe src={`${url}#toolbar=0&navpanes=0&scrollbar=0`} title="" className="h-full w-full pointer-events-none" />
+               : <img src={url} alt={modelo.nome ?? ""} className="h-full w-full object-cover" />}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 min-w-0">
