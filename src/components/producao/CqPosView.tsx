@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Save, CheckCircle2, RotateCcw, Pencil } from "lucide-react";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -17,7 +16,8 @@ import { MatrizGradeResponsiva } from "@/components/shared/MatrizGradeResponsiva
 // independente do Pré. Salva via RPC salvar_cq_pos / desmarcar_cq_pos.
 
 type PosEtapa = "recebimento" | "conserto" | "defeito";
-const POS_ETAPAS: PosEtapa[] = ["recebimento", "conserto", "defeito"];
+// Defeito escondido por ora (a pedido do dono); o tipo/tabela mantêm suporte p/ retomar.
+const POS_ETAPAS: PosEtapa[] = ["recebimento", "conserto"];
 const ETAPA_LABEL: Record<PosEtapa, string> = { recebimento: "Recebimento", conserto: "Conserto", defeito: "Defeito" };
 
 type PosRow = { grades: Record<string, number>; grade_total: number; destino_defeito?: string | null };
@@ -25,19 +25,23 @@ type PosRow = { grades: Record<string, number>; grade_total: number; destino_def
 type PosState = Record<string, Record<PosEtapa, Record<number, PosRow>>>;
 const emptySvc = (): Record<PosEtapa, Record<number, PosRow>> => ({ recebimento: {}, conserto: {}, defeito: {} });
 
-export function CqPosView({
-  cadId,
-  tamanhos,
-  variantList,
-  labelByNumero,
-  readOnly: permReadOnly,
-}: {
+// Ações expostas ao CQ detalhe (que renderiza os botões do Pós na MESMA barra do Pré).
+export type CqPosHandle = {
+  save: (confirmar: boolean) => void;
+  desmarcar: () => void;
+  edit: () => void;
+  cancel: () => void;
+};
+export type CqPosStatus = { confirmado: boolean; editing: boolean; pending: boolean; hasServicos: boolean };
+
+export const CqPosView = forwardRef<CqPosHandle, {
   cadId: string;
   tamanhos: string[];
   variantList: { num: number }[];
   labelByNumero: Record<number, string>;
   readOnly: boolean;
-}) {
+  onStatus?: (s: CqPosStatus) => void;
+}>(function CqPosView({ cadId, tamanhos, variantList, labelByNumero, readOnly: permReadOnly, onStatus }, ref) {
   const qc = useQueryClient();
   const [posState, setPosState] = useState<PosState>({});
   const [obs, setObs] = useState("");
@@ -129,15 +133,6 @@ export function CqPosView({
       return { ...s, [sid]: { ...svc, [et]: { ...svc[et], [num]: row } } };
     });
   };
-  const setDestino = (sid: string, num: number, destino: "2_lote" | "cancelado") => {
-    setPosState((s) => {
-      const svc = s[sid] ?? emptySvc();
-      const row = { ...(svc.defeito[num] ?? { grades: {}, grade_total: 0 }) };
-      row.destino_defeito = row.destino_defeito === destino ? null : destino;
-      return { ...s, [sid]: { ...svc, defeito: { ...svc.defeito, [num]: row } } };
-    });
-  };
-
   const buildItens = () => {
     const itens: any[] = [];
     (servicos as any[]).forEach((sv) => {
@@ -199,6 +194,22 @@ export function CqPosView({
 
   const variantes = variantList.map((v) => ({ num: v.num, label: labelByNumero[v.num] ?? `Variante ${v.num}` }));
 
+  useImperativeHandle(ref, () => ({
+    save: (confirmar: boolean) => save.mutate(confirmar),
+    desmarcar: () => desmarcar.mutate(),
+    edit: () => setEditing(true),
+    cancel: () => { setEditing(false); setHydrated(false); },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), []);
+  // Reporta o estado ao pai p/ renderizar os botões corretos na barra do topo.
+  // IMPORTANTE: depende de PRIMITIVOS (bool), não do array `servicos` (=[] a cada
+  // render quando carregando → loop infinito de setState no pai).
+  const posPending = save.isPending || desmarcar.isPending;
+  const hasServicos = (servicos as any[]).length > 0;
+  useEffect(() => {
+    onStatus?.({ confirmado, editing, pending: posPending, hasServicos });
+  }, [confirmado, editing, posPending, hasServicos, onStatus]);
+
   return (
     <div className="space-y-4">
       {/* Grade real do Pré (base do acabamento) — leitura. */}
@@ -245,20 +256,6 @@ export function CqPosView({
                       onChange={(e) => setQtd(sv.id, et, num, t, Number(e.target.value) || 0)}
                     />
                   )}
-                  extraHeader={et === "defeito" ? "Ação" : undefined}
-                  renderExtra={
-                    et === "defeito"
-                      ? (num) => {
-                          const d = rowOf(sv.id, "defeito", num).destino_defeito;
-                          return (
-                            <div className="flex gap-1">
-                              <Button type="button" size="sm" variant={d === "2_lote" ? "default" : "outline"} className="h-7 text-xs" onClick={() => setDestino(sv.id, num, "2_lote")}>2º Lote</Button>
-                              <Button type="button" size="sm" variant={d === "cancelado" ? "destructive" : "outline"} className="h-7 text-xs" onClick={() => setDestino(sv.id, num, "cancelado")}>Cancelado</Button>
-                            </div>
-                          );
-                        }
-                      : undefined
-                  }
                 />
               </div>
             ))}
@@ -270,31 +267,6 @@ export function CqPosView({
           <Textarea value={obs} onChange={(e) => setObs(e.target.value)} rows={3} />
         </Card>
       </fieldset>
-
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        {confirmado && !editing ? (
-          <>
-            <Button variant="outline" size="icon" onClick={() => setEditing(true)} disabled={permReadOnly} aria-label="Editar">
-              <Pencil className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" onClick={() => desmarcar.mutate()} disabled={permReadOnly || desmarcar.isPending}>
-              <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar confirmação
-            </Button>
-          </>
-        ) : (
-          <>
-            {editing && (
-              <Button variant="ghost" onClick={() => { setEditing(false); setHydrated(false); }}>Cancelar</Button>
-            )}
-            <Button variant="outline" onClick={() => save.mutate(false)} disabled={permReadOnly || save.isPending}>
-              <Save className="h-4 w-4 mr-2" /> Salvar
-            </Button>
-            <Button onClick={() => save.mutate(true)} disabled={permReadOnly || save.isPending || (servicos as any[]).length === 0}>
-              <CheckCircle2 className="h-4 w-4 mr-2" /> Confirmar CQ Pós
-            </Button>
-          </>
-        )}
-      </div>
     </div>
   );
-}
+});

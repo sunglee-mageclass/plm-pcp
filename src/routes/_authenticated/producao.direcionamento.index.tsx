@@ -35,13 +35,20 @@ function DirListPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, ref, versao, nome, colecao, mes_id, ano_id, linha_id, revisao_pendente, linha:linha_id(nome), categorias_produto:categoria_principal_id(nome), cad(direcionamento_status, controle_qualidade(status))")
+        .select("id, ref, versao, nome, colecao, mes_id, ano_id, linha_id, revisao_pendente, linha:linha_id(nome), categorias_produto:categoria_principal_id(nome), cad(direcionamento_status, producao_terceirizados(ativo, categorias_terceirizado(etapa)), controle_qualidade(status, status_pos))")
         .eq("enviado_cad", true)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      // Só aparece após o Controle de Qualidade ser Confirmado.
+      // Só aparece após o CQ ser Confirmado: o Pré sempre; e o Pós também quando o
+      // modelo tem serviço de acabamento (pós-costura).
       return (data ?? [])
-        .filter((m: any) => (m.cad?.[0]?.controle_qualidade?.[0]?.status ?? "pendente") === "confirmado")
+        .filter((m: any) => {
+          const cq = m.cad?.[0]?.controle_qualidade?.[0];
+          if ((cq?.status ?? "pendente") !== "confirmado") return false;
+          const tercs = (m.cad?.[0]?.producao_terceirizados ?? []).filter((t: any) => t.ativo !== false);
+          const temPos = tercs.some((t: any) => (t.categorias_terceirizado?.etapa ?? "ate_costura") === "pos_costura");
+          return !temPos || (cq?.status_pos ?? "pendente") === "confirmado";
+        })
         .map((m: any) => ({
           modelo_id: m.id, ref: m.ref, versao: m.versao, nome: m.nome, colecao: m.colecao,
           mes_id: m.mes_id, ano_id: m.ano_id, linha_id: m.linha_id, revisao_pendente: m.revisao_pendente,

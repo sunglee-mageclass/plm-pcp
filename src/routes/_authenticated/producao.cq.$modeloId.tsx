@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ClipboardCheck, Save, CheckCircle2, RotateCcw, Camera, Pencil, Wrench } from "lucide-react";
@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { useReadOnly } from "@/components/RequirePermission";
 import { VerificarRevisao } from "@/components/producao/RevisaoErro";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
-import { CqPosView } from "@/components/producao/CqPosView";
+import { CqPosView, type CqPosHandle, type CqPosStatus } from "@/components/producao/CqPosView";
 
 export const Route = createFileRoute("/_authenticated/producao/cq/$modeloId")({
   component: CqDetailPage,
@@ -209,6 +209,11 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
   const [hydrated, setHydrated] = useState(false);
   // Abas Pré/Pós DENTRO do item (como em Serviços). Pré = CQ da costura (atual); Pós = acabamento.
   const [view, setView] = useState<"pre" | "pos">("pre");
+  // As ações do Pós vivem no CqPosView; espelhamos o estado + ref p/ renderizar os
+  // botões do Pós na MESMA barra do topo que os do Pré.
+  const cqPosRef = useRef<CqPosHandle>(null);
+  const [posBtn, setPosBtn] = useState<CqPosStatus>({ confirmado: false, editing: false, pending: false, hasServicos: false });
+  const onPosStatus = useCallback((s: CqPosStatus) => setPosBtn(s), []);
 
   const confirmado = status === "confirmado";
   // Confirmado trava a edição; "Editar" reabre sem desmarcar a confirmação.
@@ -480,6 +485,28 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
               </Button>
             </>
           ))}
+          {view === "pos" && (posBtn.confirmado && !posBtn.editing ? (
+            <>
+              <Button variant="outline" size="icon" onClick={() => cqPosRef.current?.edit()} disabled={permReadOnly} aria-label="Editar">
+                <Pencil className="h-4 w-4" />
+              </Button>
+              <Button variant="outline" onClick={() => cqPosRef.current?.desmarcar()} disabled={permReadOnly || posBtn.pending}>
+                <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar confirmação
+              </Button>
+            </>
+          ) : (
+            <>
+              {posBtn.editing && (
+                <Button variant="ghost" onClick={() => cqPosRef.current?.cancel()} disabled={posBtn.pending}>Cancelar</Button>
+              )}
+              <Button variant="outline" onClick={() => cqPosRef.current?.save(false)} disabled={permReadOnly || posBtn.pending}>
+                <Save className="h-4 w-4 mr-2" /> Salvar
+              </Button>
+              <Button onClick={() => cqPosRef.current?.save(true)} disabled={permReadOnly || posBtn.pending || !posBtn.hasServicos}>
+                <CheckCircle2 className="h-4 w-4 mr-2" /> Confirmar CQ Pós
+              </Button>
+            </>
+          ))}
         </div>
       </div>
 
@@ -506,7 +533,7 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
 
       {view === "pos" ? (
         cad?.id ? (
-          <CqPosView cadId={cad.id} tamanhos={tamanhos} variantList={variantList} labelByNumero={labelByNumero} readOnly={permReadOnly} />
+          <CqPosView ref={cqPosRef} onStatus={onPosStatus} cadId={cad.id} tamanhos={tamanhos} variantList={variantList} labelByNumero={labelByNumero} readOnly={permReadOnly} />
         ) : (
           <Card className="p-4 border-amber-500/50 bg-amber-500/10 text-sm">
             Este modelo ainda não tem registro de CAD.
