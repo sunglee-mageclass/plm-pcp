@@ -120,7 +120,7 @@ function ServicoPage() {
       <header className="flex items-start gap-3">
         <Wrench className="h-7 w-7 text-primary mt-0.5 shrink-0" />
         <div>
-          <h1 className="text-2xl font-bold">Serviços</h1>
+          <h1 className="text-2xl font-bold">Fornecedores</h1>
           <p className="text-sm text-muted-foreground mt-1">
             {isStockOnly ? "Empresas e representantes." : "Empresas, representantes e serviços."}
           </p>
