@@ -206,22 +206,6 @@ function ConfiguracoesLojaPage() {
         </Button>
       </header>
 
-      {/* Editor de impressão — DESABILITADO temporariamente a pedido do dono (escondido
-          do front, código preservado pra retomar depois). Trocar `false` por `true` p/ voltar. */}
-      {false && (
-      <Card>
-        <CardHeader>
-          <CardTitle>Impressão</CardTitle>
-          <CardDescription>Personalize o layout das fichas (logo, campos e textos).</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button asChild variant="outline">
-            <Link to="/admin/editor-impressao">Abrir editor de impressão — Ficha de Corte</Link>
-          </Button>
-        </CardContent>
-      </Card>
-      )}
-
       {/* Modo só-estoque: só Nomenclaturas + Módulos da loja. O restante (produção,
           fuso, baixa, OC/rolo, ERP) fica escondido. */}
       {!isStockOnly && (<>
