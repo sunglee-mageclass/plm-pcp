@@ -89,9 +89,9 @@ function fmtDate(v: string | null | undefined) {
   try { return format(parseISO(v), "dd/MM/yyyy"); } catch { return v; }
 }
 async function uploadFile(file: File, prefix: string) {
-  const { tenantPrefix } = await import("@/lib/storage-tenant");
+  const { tenantPrefix, sanitizeStorageName } = await import("@/lib/storage-tenant");
   const tenant = await tenantPrefix();
-  const path = `${tenant}/${prefix}/${crypto.randomUUID()}-${file.name}`;
+  const path = `${tenant}/${prefix}/${crypto.randomUUID()}-${sanitizeStorageName(file.name)}`;
   const { error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false });
   if (error) throw error;
   return path;

@@ -6,6 +6,7 @@ import { Store, Plus, Search, Upload, Pencil, RotateCcw, Trash2, ArrowLeft } fro
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { formatCNPJ } from "@/lib/format";
+import { sanitizeStorageName } from "@/lib/storage-tenant";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -367,7 +368,7 @@ function NovaLojaModal({ onClose }: { onClose: () => void }) {
     try {
       let logo_url: string | null = null;
       if (logoFile) {
-        const path = `${crypto.randomUUID()}-${logoFile.name}`;
+        const path = `${crypto.randomUUID()}-${sanitizeStorageName(logoFile.name)}`;
         const { error: upErr } = await supabase.storage
           .from("tenant-logos")
           .upload(path, logoFile, { upsert: false });
@@ -489,7 +490,7 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
     try {
       let logo_url: string | null | undefined = undefined;
       if (logoFile) {
-        const path = `${crypto.randomUUID()}-${logoFile.name}`;
+        const path = `${crypto.randomUUID()}-${sanitizeStorageName(logoFile.name)}`;
         const { error: upErr } = await supabase.storage
           .from("tenant-logos").upload(path, logoFile, { upsert: false });
         if (upErr) throw upErr;

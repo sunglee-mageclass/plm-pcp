@@ -18,3 +18,15 @@ export async function tenantPrefix(): Promise<string> {
 export function clearTenantPrefixCache() {
   cached = null;
 }
+
+/**
+ * Sanitiza o nome do arquivo para a "key" do Storage do Supabase: acento/espaço/símbolo
+ * quebram a key (erro "Invalid key: .../Véu - 2060.jpeg"). Remove acentos e troca o resto
+ * por "_". Use com um uuid na frente p/ garantir unicidade.
+ */
+export function sanitizeStorageName(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-zA-Z0-9._-]/g, "_");
+}

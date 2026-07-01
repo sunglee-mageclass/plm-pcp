@@ -802,9 +802,9 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const uploadFicha = async (file: File) => {
     setUploading(true);
     try {
-      const { tenantPrefix } = await import("@/lib/storage-tenant");
+      const { tenantPrefix, sanitizeStorageName } = await import("@/lib/storage-tenant");
       const tenant = await tenantPrefix();
-      const path = `${tenant}/fichas/${modeloId}/${crypto.randomUUID()}-${file.name}`;
+      const path = `${tenant}/fichas/${modeloId}/${crypto.randomUUID()}-${sanitizeStorageName(file.name)}`;
       const { error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false });
       if (error) throw error;
       setDraft((d: any) => ({ ...d, ficha_medida_url: path }));
@@ -819,9 +819,9 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const uploadDesenho = async (file: File) => {
     setUploading(true);
     try {
-      const { tenantPrefix } = await import("@/lib/storage-tenant");
+      const { tenantPrefix, sanitizeStorageName } = await import("@/lib/storage-tenant");
       const tenant = await tenantPrefix();
-      const path = `${tenant}/desenhos/${modeloId}/${crypto.randomUUID()}-${file.name}`;
+      const path = `${tenant}/desenhos/${modeloId}/${crypto.randomUUID()}-${sanitizeStorageName(file.name)}`;
       const { error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false });
       if (error) throw error;
       setDraft((d: any) => ({ ...d, desenho_tecnico_url: path }));

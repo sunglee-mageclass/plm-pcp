@@ -49,9 +49,9 @@ function useSignedUrls(paths: string[]) {
 }
 
 async function uploadEtiqueta(file: File) {
-  const { tenantPrefix } = await import("@/lib/storage-tenant");
+  const { tenantPrefix, sanitizeStorageName } = await import("@/lib/storage-tenant");
   const tenant = await tenantPrefix();
-  const path = `${tenant}/etiqueta_lavagem/${crypto.randomUUID()}-${file.name}`;
+  const path = `${tenant}/etiqueta_lavagem/${crypto.randomUUID()}-${sanitizeStorageName(file.name)}`;
   const { error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false });
   if (error) throw error;
   return path;

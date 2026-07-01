@@ -120,9 +120,9 @@ const statusMeta = (s: string | null) => STATUS_OPTS.find((o) => o.value === s) 
 
 
 async function uploadFile(file: File, prefix: string) {
-  const { tenantPrefix } = await import("@/lib/storage-tenant");
+  const { tenantPrefix, sanitizeStorageName } = await import("@/lib/storage-tenant");
   const tenant = await tenantPrefix();
-  const path = `${tenant}/${prefix}/${crypto.randomUUID()}-${file.name}`;
+  const path = `${tenant}/${prefix}/${crypto.randomUUID()}-${sanitizeStorageName(file.name)}`;
   const { error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false });
   if (error) throw error;
   return path;
@@ -1183,7 +1183,7 @@ function PhotoList({ label, paths, onAdd, onRemove }: {
         ))}
         <label className="inline-flex items-center gap-2 text-sm border rounded-md px-3 py-2 cursor-pointer hover:bg-accent w-fit">
           <Upload className="h-4 w-4" /> Adicionar
-          <input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => e.target.files?.[0] && onAdd(e.target.files[0])} />
+          <input type="file" accept="image/*,application/pdf,.jpg,.jpeg,.png,.webp,.gif,.avif,.bmp,.pdf" className="hidden" onChange={(e) => e.target.files?.[0] && onAdd(e.target.files[0])} />
         </label>
       </div>
     </div>
@@ -1248,7 +1248,7 @@ function SingleFileField({ label, path, onUpload, onRemove }: {
           <Upload className="h-4 w-4" /> {path ? "Trocar arquivo" : "Enviar arquivo"}
           <input
             type="file"
-            accept="image/*,application/pdf"
+            accept="image/*,application/pdf,.jpg,.jpeg,.png,.webp,.gif,.avif,.bmp,.pdf"
             className="hidden"
             onChange={(e) => e.target.files?.[0] && onUpload(e.target.files[0])}
           />
