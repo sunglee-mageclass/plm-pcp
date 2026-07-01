@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { useReadOnly } from "@/components/RequirePermission";
 import { VerificarRevisao } from "@/components/producao/RevisaoErro";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { CqPosView } from "@/components/producao/CqPosView";
 
 export const Route = createFileRoute("/_authenticated/producao/cq/$modeloId")({
   component: CqDetailPage,
@@ -206,6 +207,8 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
   const [editing, setEditing] = useState(false);
   const [oficinaOpen, setOficinaOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  // Abas Pré/Pós DENTRO do item (como em Serviços). Pré = CQ da costura (atual); Pós = acabamento.
+  const [view, setView] = useState<"pre" | "pos">("pre");
 
   const confirmado = status === "confirmado";
   // Confirmado trava a edição; "Editar" reabre sem desmarcar a confirmação.
@@ -421,7 +424,7 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
       <VerificarRevisao modeloId={modeloId} etapa="cq" />
-      {cad?.id && <OficinaServicoDialog cadId={cad.id} open={oficinaOpen} onClose={() => setOficinaOpen(false)} />}
+      {view === "pre" && cad?.id && <OficinaServicoDialog cadId={cad.id} open={oficinaOpen} onClose={() => setOficinaOpen(false)} />}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           {onClose ? (
@@ -433,7 +436,7 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
               <ArrowLeft className="h-4 w-4" /> Voltar
             </Link>
           )}
-          {cad?.id && (
+          {view === "pre" && cad?.id && (
             <Button size="sm" variant="outline" onClick={() => setOficinaOpen(true)}>
               <Wrench className="h-3.5 w-3.5 md:mr-1" /> <span className="max-md:sr-only">Oficina</span>
             </Button>
@@ -449,7 +452,7 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
               <Link to="/producao/cq"><ArrowLeft className="h-4 w-4" /></Link>
             </Button>
           )}
-          {!confirmado ? (
+          {view === "pre" && (!confirmado ? (
             <>
               <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly}>
                 <Save className="h-4 w-4 mr-2" /> Salvar
@@ -476,10 +479,9 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
                 <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar confirmação
               </Button>
             </>
-          )}
+          ))}
         </div>
       </div>
-      <fieldset disabled={readOnly} className="contents">
 
       <header className="flex items-start gap-3">
         <ClipboardCheck className="h-7 w-7 text-primary mt-0.5 shrink-0" />
@@ -489,10 +491,29 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
             {(modelo as any)?.categorias_produto?.nome ?? "—"} • {modelo?.colecao ?? "—"}
           </p>
         </div>
-        <Badge className={confirmado ? "bg-emerald-500 hover:bg-emerald-500 text-white" : "bg-amber-500 hover:bg-amber-500 text-white"}>
-          {confirmado ? "Confirmado" : "Pendente"}
-        </Badge>
+        {view === "pre" && (
+          <Badge className={confirmado ? "bg-emerald-500 hover:bg-emerald-500 text-white" : "bg-amber-500 hover:bg-amber-500 text-white"}>
+            {confirmado ? "Confirmado" : "Pendente"}
+          </Badge>
+        )}
       </header>
+
+      {/* Abas Pré/Pós — dentro do item, como em Serviços. */}
+      <div className="flex rounded-md border p-0.5 w-fit">
+        <Button size="sm" variant={view === "pre" ? "secondary" : "ghost"} onClick={() => setView("pre")}>Pré (costura)</Button>
+        <Button size="sm" variant={view === "pos" ? "secondary" : "ghost"} onClick={() => setView("pos")}>Pós (acabamento)</Button>
+      </div>
+
+      {view === "pos" ? (
+        cad?.id ? (
+          <CqPosView cadId={cad.id} tamanhos={tamanhos} variantList={variantList} labelByNumero={labelByNumero} readOnly={permReadOnly} />
+        ) : (
+          <Card className="p-4 border-amber-500/50 bg-amber-500/10 text-sm">
+            Este modelo ainda não tem registro de CAD.
+          </Card>
+        )
+      ) : (
+      <fieldset disabled={readOnly} className="contents">
 
       {!cad?.id && (
         <Card className="p-4 border-amber-500/50 bg-amber-500/10 text-sm">
@@ -674,6 +695,7 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
         </div>
       </Card>
       </fieldset>
+      )}
     </div>
   );
 }
