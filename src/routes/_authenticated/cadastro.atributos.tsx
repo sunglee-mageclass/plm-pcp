@@ -167,15 +167,76 @@ const ATTRIBUTES: AttributeItem[] = [
     },
   },
   {
+    value: "grupo_produto",
+    label: "Grupo",
+    group: "PRODUTO",
+    config: {
+      table: "grupos_produto",
+      nameField: "nome",
+      singular: "Grupo",
+      plural: "Grupos",
+      usage: [{ table: "categorias_produto", column: "grupo_id" }],
+    },
+  },
+  {
     value: "cat_produto",
-    label: "Categoria do Produto",
+    label: "Categoria",
     group: "PRODUTO",
     config: {
       table: "categorias_produto",
       nameField: "nome",
       singular: "Categoria de Produto",
       plural: "Categorias de Produto",
-      usage: [],
+      // A categoria pertence a um Grupo (obrigatório) — cria-se Grupo antes.
+      extra: { field: "grupo_id", label: "Grupo", from: "grupos_produto", optionLabel: "nome", required: true },
+      usage: [
+        { table: "modelos", column: "categoria_principal_id" },
+        { table: "subcategorias1_produto", column: "categoria_id" },
+        { table: "subcategorias2_produto", column: "categoria_id" },
+      ],
+    },
+  },
+  {
+    value: "subcat1_produto",
+    label: "Subcategoria 1",
+    group: "PRODUTO",
+    config: {
+      table: "subcategorias1_produto",
+      nameField: "nome",
+      singular: "Subcategoria 1",
+      plural: "Subcategorias 1",
+      // Pendura numa Categoria (obrigatório); rótulo mostra "Grupo › Categoria".
+      extra: {
+        field: "categoria_id",
+        label: "Categoria",
+        from: "categorias_produto",
+        optionLabel: "nome",
+        optionSelect: "id, nome, grupo:grupo_id(nome)",
+        optionLabelFn: (r) => `${r.grupo?.nome ? `${r.grupo.nome} › ` : ""}${r.nome}`,
+        required: true,
+      },
+      usage: [{ table: "modelos", column: "subcategoria1_id" }],
+    },
+  },
+  {
+    value: "subcat2_produto",
+    label: "Subcategoria 2",
+    group: "PRODUTO",
+    config: {
+      table: "subcategorias2_produto",
+      nameField: "nome",
+      singular: "Subcategoria 2",
+      plural: "Subcategorias 2",
+      extra: {
+        field: "categoria_id",
+        label: "Categoria",
+        from: "categorias_produto",
+        optionLabel: "nome",
+        optionSelect: "id, nome, grupo:grupo_id(nome)",
+        optionLabelFn: (r) => `${r.grupo?.nome ? `${r.grupo.nome} › ` : ""}${r.nome}`,
+        required: true,
+      },
+      usage: [{ table: "modelos", column: "subcategoria2_id" }],
     },
   },
   {
@@ -256,11 +317,11 @@ function AtributosPage() {
     () => ATTRIBUTES.find((a) => a.value === selectedValue) ?? ATTRIBUTES[0],
     [selectedValue],
   );
-  // Categoria do Produto ganha o SLA médio de oficina (dias) — exceto no modo
+  // Subcategoria 1 ganha o SLA médio de oficina (dias) — exceto no modo
   // controle-de-estoque (não há produção/oficina lá).
   const activeConfig: AttributeTabConfig | undefined = !selected.config
     ? undefined
-    : selected.config.table === "categorias_produto" && !isStockOnly
+    : selected.config.table === "subcategorias1_produto" && !isStockOnly
       ? { ...selected.config, extraNumber: { field: "sla_oficina", label: "SLA Oficina (dias)", placeholder: "dias" } }
       : selected.config;
 

@@ -38,7 +38,7 @@ export function useFichaData(modeloId: string): FichaData {
     queryFn: async () => {
       const { data } = await supabase
         .from("modelos")
-        .select("id, ref, nome, colecao, versao, fotos_modelo, linha:linha_id(nome), cat_p:categoria_principal_id(nome), cat_s:categoria_secundaria_id(nome), estilista:estilista_id(nome), modelista:modelista_id(nome), piloteiro:piloteiro1_id(nome)")
+        .select("id, ref, nome, colecao, versao, fotos_modelo, linha:linha_id(nome), cat_p:categoria_principal_id(nome, grupo:grupo_id(nome)), sub1:subcategoria1_id(nome), sub2:subcategoria2_id(nome), estilista:estilista_id(nome), modelista:modelista_id(nome), piloteiro:piloteiro1_id(nome)")
         .eq("id", modeloId)
         .maybeSingle();
       return data;

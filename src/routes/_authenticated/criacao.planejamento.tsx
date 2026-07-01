@@ -139,6 +139,8 @@ function useOpts(table: string, key = "nome") {
   });
 }
 
+type CatOpt = { id: string; nome: string; grupo_id: string | null };
+
 function PlanejamentoPage() {
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
@@ -168,7 +170,16 @@ function PlanejamentoPage() {
   });
   const { data: meses = [] } = useOpts("meses", "mes");
   const { data: anos = [] } = useOpts("anos", "ano");
-  const { data: categorias = [] } = useOpts("categorias_produto");
+  const { data: grupos = [] } = useOpts("grupos_produto");
+  const { data: categorias = [] } = useQuery({
+    queryKey: ["opt", "categorias_produto", "com-grupo"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("categorias_produto").select("id, nome, grupo_id").order("nome");
+      if (error) throw error;
+      return (data ?? []) as CatOpt[];
+    },
+  });
   const { data: linhas = [] } = useOpts("linhas");
   const { data: artigos = [] } = useQuery({
     queryKey: ["artigos-planejamento"],
@@ -390,6 +401,7 @@ function PlanejamentoPage() {
           linhas={linhas}
           meses={meses}
           anos={anos}
+          grupos={grupos}
           categorias={categorias}
           artigos={artigos}
           onClose={() => { setOpenNew(false); setOpenId(null); }}
@@ -401,6 +413,7 @@ function PlanejamentoPage() {
         <BatchCardsDialog
           meses={meses}
           anos={anos}
+          grupos={grupos}
           categorias={categorias}
           onClose={() => setOpenBatch(false)}
           onSaved={() => qc.invalidateQueries({ queryKey: ["modelos-planejamento"] })}
@@ -509,9 +522,10 @@ const emptyDraft = (): Draft => ({
 type ArtigoOpt = { id: string; nome: string; unidade_medida: string | null; preco_por_metro: number | null };
 
 function ModeloDialog({
-  modeloId, estilistas, linhas, meses, anos, categorias, artigos, onClose, onSaved,
+  modeloId, estilistas, linhas, meses, anos, grupos, categorias, artigos, onClose, onSaved,
 }: {
-  modeloId: string | null; estilistas: Opt[]; linhas: Opt[]; meses: Opt[]; anos: Opt[]; categorias: Opt[];
+  modeloId: string | null; estilistas: Opt[]; linhas: Opt[]; meses: Opt[]; anos: Opt[];
+  grupos: Opt[]; categorias: CatOpt[];
   artigos: ArtigoOpt[];
   onClose: () => void; onSaved: () => void;
 }) {
@@ -519,6 +533,8 @@ function ModeloDialog({
   const qc = useQueryClient();
   const fl = useFieldLabels();
   const [draft, setDraft] = useState<Draft>(emptyDraft());
+  // Grupo é transiente (não é coluna do modelo) — filtra as Categorias na cascata.
+  const [grupoSel, setGrupoSel] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState(false);
 
   // Estoque por artigo (físico/disponível) para mostrar ao selecionar o tecido.
@@ -566,6 +582,8 @@ function ModeloDialog({
           versao: (data as any).versao ?? 1,
           modelo_base_id: (data as any).modelo_base_id ?? null,
         });
+        // Pré-seleciona o Grupo da categoria carregada (deriva de categorias_produto.grupo_id).
+        setGrupoSel(categorias.find((c) => c.id === data.categoria_principal_id)?.grupo_id ?? null);
         setEnviada(!!(data as any).ordem_criacao_enviada);
       }
       return data;
@@ -703,32 +721,27 @@ function ModeloDialog({
             <FieldSelect label="Mês de Planejamento" value={draft.mes_id} onChange={(v) => setDraft((d) => ({ ...d, mes_id: v }))} options={meses} />
             <FieldSelect label="Ano" value={draft.ano_id} onChange={(v) => setDraft((d) => ({ ...d, ano_id: v }))} options={anos} />
             <FieldSelect
-              label="Categoria Principal"
+              label="Grupo"
+              value={grupoSel}
+              onChange={(v) => {
+                setGrupoSel(v);
+                // Se a categoria atual não pertence ao novo grupo, limpa a seleção.
+                const cat = categorias.find((c) => c.id === draft.categoria_principal_id);
+                if (cat && cat.grupo_id !== v) setDraft((d) => ({ ...d, categoria_principal_id: null }));
+              }}
+              options={grupos}
+            />
+            <FieldSelect
+              label="Categoria"
               value={draft.categoria_principal_id}
               onChange={(v) => {
+                // Ao escolher a categoria, mantém o Grupo coerente com ela.
                 const cat = categorias.find((c) => c.id === v);
-                const isConjunto = (cat?.nome ?? "").toLowerCase() === "conjunto";
-                setDraft((d) => ({
-                  ...d,
-                  categoria_principal_id: v,
-                  categoria_secundaria_id: isConjunto ? d.categoria_secundaria_id : null,
-                }));
+                if (cat?.grupo_id) setGrupoSel(cat.grupo_id);
+                setDraft((d) => ({ ...d, categoria_principal_id: v }));
               }}
-              options={categorias}
+              options={grupoSel ? categorias.filter((c) => c.grupo_id === grupoSel) : categorias}
             />
-            {(() => {
-              const cat = categorias.find((c) => c.id === draft.categoria_principal_id);
-              const isConjunto = (cat?.nome ?? "").toLowerCase() === "conjunto";
-              if (!isConjunto) return null;
-              return (
-                <FieldSelect
-                  label="Categoria Secundária"
-                  value={draft.categoria_secundaria_id}
-                  onChange={(v) => setDraft((d) => ({ ...d, categoria_secundaria_id: v }))}
-                  options={categorias.filter((c) => c.id !== draft.categoria_principal_id)}
-                />
-              );
-            })()}
             <div className="sm:col-span-2">
               <MultiArtigosField
                 label="Tecido Planejado"
@@ -831,13 +844,9 @@ function ModeloDialog({
 /* ============ BATCH — criar vários cards ============ */
 
 type CatRow = {
-  categoria_principal_id: string | null;
-  categoria_secundaria_id: string | null;
+  categoria_id: string | null;
   quantidade: string; // mantido como texto p/ permitir apagar/digitar livremente
 };
-
-const isConjuntoCat = (categorias: Opt[], id: string | null) =>
-  (categorias.find((c) => c.id === id)?.nome ?? "").toLowerCase() === "conjunto";
 
 // Quantidade digitada → inteiro (vazio/invalid = 0).
 const parseQtd = (s: string) => {
@@ -846,17 +855,19 @@ const parseQtd = (s: string) => {
 };
 
 const emptyCatRow = (): CatRow => ({
-  categoria_principal_id: null,
-  categoria_secundaria_id: null,
+  categoria_id: null,
   quantidade: "1",
 });
 
 function BatchCardsDialog({
-  meses, anos, categorias, onClose, onSaved,
+  meses, anos, grupos, categorias, onClose, onSaved,
 }: {
-  meses: Opt[]; anos: Opt[]; categorias: Opt[];
+  meses: Opt[]; anos: Opt[]; grupos: Opt[]; categorias: CatOpt[];
   onClose: () => void; onSaved: () => void;
 }) {
+  const grupoMap = Object.fromEntries(grupos.map((g) => [g.id, g.nome]));
+  // Rótulo "Grupo › Categoria" (a lista é plana; sem o grupo, categorias homônimas confundem).
+  const catLabel = (c: CatOpt) => (c.grupo_id && grupoMap[c.grupo_id] ? `${grupoMap[c.grupo_id]} › ${c.nome}` : c.nome);
   // Campos compartilhados por todos os cards (mesmo "core" do Novo Modelo,
   // sem nome/estilista/tecido/fotos).
   const [colecao, setColecao] = useState("");
@@ -867,7 +878,7 @@ function BatchCardsDialog({
   const [rows, setRows] = useState<CatRow[]>([emptyCatRow()]);
 
   const total = rows.reduce(
-    (sum, r) => sum + (r.categoria_principal_id ? parseQtd(r.quantidade) : 0),
+    (sum, r) => sum + (r.categoria_id ? parseQtd(r.quantidade) : 0),
     0,
   );
 
@@ -876,18 +887,12 @@ function BatchCardsDialog({
   const addRow = () => setRows((rs) => [...rs, emptyCatRow()]);
   const removeRow = (i: number) => setRows((rs) => rs.filter((_, j) => j !== i));
 
-  // Categorias não-conjunto já escolhidas em outras linhas: só podem aparecer
-  // uma vez (conjunto pode repetir, variando a subcategoria).
-  const usedNonConjunto = (exceptIdx: number) =>
+  // Cada categoria só pode aparecer uma vez (sem subcategoria no Planejamento).
+  const usedCats = (exceptIdx: number) =>
     new Set(
       rows
-        .filter(
-          (r, j) =>
-            j !== exceptIdx &&
-            r.categoria_principal_id &&
-            !isConjuntoCat(categorias, r.categoria_principal_id),
-        )
-        .map((r) => r.categoria_principal_id as string),
+        .filter((r, j) => j !== exceptIdx && r.categoria_id)
+        .map((r) => r.categoria_id as string),
     );
 
   const create = useMutation({
@@ -895,17 +900,13 @@ function BatchCardsDialog({
       const payloads: any[] = [];
       const combos = new Set<string>();
       for (const r of rows) {
-        if (!r.categoria_principal_id) continue;
-        const conjunto = isConjuntoCat(categorias, r.categoria_principal_id);
-        if (conjunto && !r.categoria_secundaria_id)
-          throw new Error("Escolha a subcategoria de cada Conjunto.");
+        if (!r.categoria_id) continue;
         const qtd = parseQtd(r.quantidade);
         if (qtd < 1)
           throw new Error("A quantidade de cada categoria deve ser ao menos 1.");
-        const comboKey = `${r.categoria_principal_id}::${r.categoria_secundaria_id ?? ""}`;
-        if (combos.has(comboKey))
-          throw new Error("Há categorias repetidas. Some as quantidades ou troque a subcategoria.");
-        combos.add(comboKey);
+        if (combos.has(r.categoria_id))
+          throw new Error("Há categorias repetidas. Some as quantidades.");
+        combos.add(r.categoria_id);
         for (let n = 0; n < qtd; n++) {
           payloads.push({
             nome: "",
@@ -914,8 +915,7 @@ function BatchCardsDialog({
             semana,
             mes_id: mesId,
             ano_id: anoId,
-            categoria_principal_id: r.categoria_principal_id,
-            categoria_secundaria_id: conjunto ? r.categoria_secundaria_id : null,
+            categoria_principal_id: r.categoria_id,
             tecidos_planejados: [],
             status_planejamento: status,
             fotos_modelo: [],
@@ -979,52 +979,28 @@ function BatchCardsDialog({
           <div>
             <p className="text-sm font-medium mb-2">Categorias</p>
             <p className="text-xs text-muted-foreground mb-3">
-              Selecione a categoria e a quantidade de cards. "Conjunto" pode ser adicionado mais de
-              uma vez, escolhendo a subcategoria de cada um.
+              Selecione a categoria e a quantidade de cards.
             </p>
             <div className="space-y-2">
               {rows.map((r, i) => {
-                const conjunto = isConjuntoCat(categorias, r.categoria_principal_id);
-                const used = usedNonConjunto(i);
-                const principalOpts = categorias.filter(
-                  (c) => !used.has(c.id) || c.id === r.categoria_principal_id,
+                const used = usedCats(i);
+                const opts = categorias.filter(
+                  (c) => !used.has(c.id) || c.id === r.categoria_id,
                 );
-                const subOpts = categorias.filter((c) => !isConjuntoCat(categorias, c.id));
                 return (
                   <div key={i} className="flex flex-wrap items-end gap-2 rounded-md border p-2">
                     <div className="grid gap-1 flex-1 min-w-[150px]">
                       <Label className="text-xs">Categoria</Label>
                       <Select
-                        value={r.categoria_principal_id ?? ""}
-                        onValueChange={(v) =>
-                          setRow(i, {
-                            categoria_principal_id: v,
-                            categoria_secundaria_id: isConjuntoCat(categorias, v)
-                              ? r.categoria_secundaria_id
-                              : null,
-                          })
-                        }
+                        value={r.categoria_id ?? ""}
+                        onValueChange={(v) => setRow(i, { categoria_id: v })}
                       >
                         <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
                         <SelectContent>
-                          {principalOpts.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
+                          {opts.map((c) => <SelectItem key={c.id} value={c.id}>{catLabel(c)}</SelectItem>)}
                         </SelectContent>
                       </Select>
                     </div>
-                    {conjunto && (
-                      <div className="grid gap-1 flex-1 min-w-[150px]">
-                        <Label className="text-xs">Subcategoria</Label>
-                        <Select
-                          value={r.categoria_secundaria_id ?? ""}
-                          onValueChange={(v) => setRow(i, { categoria_secundaria_id: v })}
-                        >
-                          <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
-                          <SelectContent>
-                            {subOpts.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
                     <div className="grid gap-1 w-20">
                       <Label className="text-xs">Qtd</Label>
                       <Input

@@ -12,14 +12,16 @@ export function FichaHeader({ title, modelo, logo }: { title: string; modelo: an
   const m = modelo ?? {};
   const versao = Number(m?.versao ?? 1);
   const refText = `${m?.ref ?? "—"}${versao > 1 ? ` ↻ v${versao}` : ""}`;
-  // [label, valor, sempre]: "sempre" mostra mesmo vazio (—). Subcategoria só se houver.
+  // [label, valor, sempre]: "sempre" mostra mesmo vazio (—). Grupo/Subcategorias só se houver.
   const campos: [string, unknown, boolean][] = [
     [fl("ref"), refText, true],
     ["Modelo", m?.nome ?? "—", true],
     ["Coleção", m?.colecao ?? "—", true],
     ["Linha", m?.linha?.nome ?? "—", true],
+    ["Grupo", m?.cat_p?.grupo?.nome, false],
     ["Categoria", m?.cat_p?.nome ?? "—", true],
-    ["Subcategoria", m?.cat_s?.nome, false],
+    ["Subcategoria 1", m?.sub1?.nome, false],
+    ["Subcategoria 2", m?.sub2?.nome, false],
     ["Estilista", m?.estilista?.nome ?? "—", true],
     ["Modelista", m?.modelista?.nome ?? "—", true],
     ["Piloteiro", m?.piloteiro?.nome ?? "—", true],

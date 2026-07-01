@@ -10,6 +10,7 @@ import { STATUS_DESENV_OPTS, type Opt } from "./types";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 
 type StatusOpt = { value: string; label: string };
+type SubOpt = { id: string; nome: string; categoria_id: string | null };
 
 type Draft = Record<string, any>;
 
@@ -20,6 +21,8 @@ export function ModeloInfoSection({
   modelistas,
   piloteiros,
   categorias,
+  sub1Opts,
+  sub2Opts,
   isAprovado,
   isReprovado,
   statusOptions,
@@ -30,6 +33,8 @@ export function ModeloInfoSection({
   modelistas: Opt[];
   piloteiros: Opt[];
   categorias: Opt[];
+  sub1Opts: SubOpt[];
+  sub2Opts: SubOpt[];
   isAprovado: boolean;
   isReprovado: boolean;
   statusOptions?: StatusOpt[];
@@ -95,29 +100,28 @@ export function ModeloInfoSection({
         )}
         <FieldSelectOpt label={fl("linha")} value={draft.linha_id} onChange={(v) => setDraft({ ...draft, linha_id: v })} options={linhas} />
         <FieldSelectOpt label={fl("modelista")} value={draft.modelista_id} onChange={(v) => setDraft({ ...draft, modelista_id: v })} options={modelistas} />
-        {/* Categoria/Subcategoria — editáveis (Subcategoria só quando principal = "Conjunto"). */}
+        {/* Categoria (vem do Planejamento, editável aqui) + Subcategorias 1/2 deste modelo. */}
         <FieldSelectOpt
           label="Categoria"
           value={draft.categoria_principal_id}
-          onChange={(v) => {
-            const cat = categorias.find((c) => c.id === v);
-            const isConjunto = (cat?.nome ?? "").toLowerCase() === "conjunto";
-            setDraft({
-              ...draft,
-              categoria_principal_id: v,
-              categoria_secundaria_id: isConjunto ? draft.categoria_secundaria_id : null,
-            });
-          }}
+          onChange={(v) =>
+            // Trocar a categoria invalida as subcategorias (que pertencem a ela).
+            setDraft({ ...draft, categoria_principal_id: v, subcategoria1_id: null, subcategoria2_id: null })
+          }
           options={categorias}
         />
-        {(categorias.find((c) => c.id === draft.categoria_principal_id)?.nome ?? "").toLowerCase() === "conjunto" && (
-          <FieldSelectOpt
-            label="Subcategoria"
-            value={draft.categoria_secundaria_id}
-            onChange={(v) => setDraft({ ...draft, categoria_secundaria_id: v })}
-            options={categorias.filter((c) => c.id !== draft.categoria_principal_id)}
-          />
-        )}
+        <FieldSelectOpt
+          label="Subcategoria 1"
+          value={draft.subcategoria1_id}
+          onChange={(v) => setDraft({ ...draft, subcategoria1_id: v })}
+          options={sub1Opts.filter((s) => s.categoria_id === draft.categoria_principal_id)}
+        />
+        <FieldSelectOpt
+          label="Subcategoria 2"
+          value={draft.subcategoria2_id}
+          onChange={(v) => setDraft({ ...draft, subcategoria2_id: v })}
+          options={sub2Opts.filter((s) => s.categoria_id === draft.categoria_principal_id)}
+        />
         <div className="sm:col-span-2 grid sm:grid-cols-2 gap-3">
           <FieldSelectOpt label={`${fl("piloteiro")} 1`} value={draft.piloteiro1_id} onChange={(v) => setDraft({ ...draft, piloteiro1_id: v })} options={piloteiros} />
           <Field label="Data Piloto 1">

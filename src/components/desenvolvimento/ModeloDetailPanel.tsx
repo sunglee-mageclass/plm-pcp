@@ -58,6 +58,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
 
   const linhas = useOpts("linhas");
   const categorias = useOpts("categorias_produto");
+  const sub1Opts = useSubOpts("subcategorias1_produto");
+  const sub2Opts = useSubOpts("subcategorias2_produto");
   const modelistas = useColabs("modelista");
   const piloteiros = useColabs("piloteiro");
 
@@ -151,7 +153,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const { data: modelo, isLoading: loadingModelo } = useQuery({
     queryKey: ["modelo-detail", modeloId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("modelos").select("*, cat_p:categoria_principal_id(nome), cat_s:categoria_secundaria_id(nome)").eq("id", modeloId).maybeSingle();
+      const { data, error } = await supabase.from("modelos").select("*").eq("id", modeloId).maybeSingle();
       if (error) throw error;
       return data;
     },
@@ -299,9 +301,10 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         enviado_cad: !!modelo.enviado_cad,
         fotos_modelo: (modelo.fotos_modelo ?? []) as string[],
         fotos_referencia: (modelo.fotos_referencia ?? []) as string[],
-        // Categoria/Subcategoria — editáveis no Desenvolvimento.
+        // Categoria (do Planejamento) + Subcategorias 1/2 — editáveis no Desenvolvimento.
         categoria_principal_id: modelo.categoria_principal_id ?? null,
-        categoria_secundaria_id: modelo.categoria_secundaria_id ?? null,
+        subcategoria1_id: (modelo as any).subcategoria1_id ?? null,
+        subcategoria2_id: (modelo as any).subcategoria2_id ?? null,
       });
     }
   }, [modelo]);
@@ -501,7 +504,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         desenho_tecnico_url: draft.desenho_tecnico_url || null,
         croqui_url: draft.croqui_url || null,
         categoria_principal_id: draft.categoria_principal_id || null,
-        categoria_secundaria_id: draft.categoria_secundaria_id || null,
+        subcategoria1_id: draft.subcategoria1_id || null,
+        subcategoria2_id: draft.subcategoria2_id || null,
         custo_terceirizados_previsto: draft.custo_terceirizados_previsto || 0,
         custo_tecido_total: totals.tecido,
         custo_forro_total: totals.forro,
@@ -894,6 +898,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 modelistas={modelistas.data ?? []}
                 piloteiros={piloteiros.data ?? []}
                 categorias={categorias.data ?? []}
+                sub1Opts={sub1Opts.data ?? []}
+                sub2Opts={sub2Opts.data ?? []}
                 isAprovado={isAprovado}
                 isReprovado={isReprovado}
                 statusOptions={statusOptions}
@@ -1048,6 +1054,16 @@ function useOpts(table: string) {
       const { data, error } = await supabase.from(table as any).select("id, nome").order("nome");
       if (error) throw error;
       return ((data ?? []) as unknown) as Opt[];
+    },
+  });
+}
+function useSubOpts(table: "subcategorias1_produto" | "subcategorias2_produto") {
+  return useQuery({
+    queryKey: ["opt", table],
+    queryFn: async () => {
+      const { data, error } = await supabase.from(table).select("id, nome, categoria_id").order("nome");
+      if (error) throw error;
+      return (data ?? []) as { id: string; nome: string; categoria_id: string | null }[];
     },
   });
 }

@@ -719,6 +719,7 @@ export type Database = {
       categorias_produto: {
         Row: {
           created_at: string | null
+          grupo_id: string | null
           id: string
           nome: string
           sla_oficina: number | null
@@ -726,6 +727,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string | null
+          grupo_id?: string | null
           id?: string
           nome: string
           sla_oficina?: number | null
@@ -733,12 +735,20 @@ export type Database = {
         }
         Update: {
           created_at?: string | null
+          grupo_id?: string | null
           id?: string
           nome?: string
           sla_oficina?: number | null
           tenant_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "categorias_produto_grupo_id_fkey"
+            columns: ["grupo_id"]
+            isOneToOne: false
+            referencedRelation: "grupos_produto"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "categorias_produto_tenant_id_fkey"
             columns: ["tenant_id"]
@@ -1322,6 +1332,27 @@ export type Database = {
           },
         ]
       }
+      grupos_produto: {
+        Row: {
+          created_at: string
+          id: string
+          nome: string
+          tenant_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          nome: string
+          tenant_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          nome?: string
+          tenant_id?: string | null
+        }
+        Relationships: []
+      }
       intervalos_largura: {
         Row: {
           created_at: string | null
@@ -1836,6 +1867,8 @@ export type Database = {
           semana: string | null
           status_desenvolvimento: string | null
           status_planejamento: string | null
+          subcategoria1_id: string | null
+          subcategoria2_id: string | null
           tecidos_planejados: string[]
           tenant_id: string | null
           versao: number
@@ -1885,6 +1918,8 @@ export type Database = {
           semana?: string | null
           status_desenvolvimento?: string | null
           status_planejamento?: string | null
+          subcategoria1_id?: string | null
+          subcategoria2_id?: string | null
           tecidos_planejados?: string[]
           tenant_id?: string | null
           versao?: number
@@ -1934,6 +1969,8 @@ export type Database = {
           semana?: string | null
           status_desenvolvimento?: string | null
           status_planejamento?: string | null
+          subcategoria1_id?: string | null
+          subcategoria2_id?: string | null
           tecidos_planejados?: string[]
           tenant_id?: string | null
           versao?: number
@@ -2014,6 +2051,20 @@ export type Database = {
             columns: ["piloteiro3_id"]
             isOneToOne: false
             referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelos_subcategoria1_id_fkey"
+            columns: ["subcategoria1_id"]
+            isOneToOne: false
+            referencedRelation: "subcategorias1_produto"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelos_subcategoria2_id_fkey"
+            columns: ["subcategoria2_id"]
+            isOneToOne: false
+            referencedRelation: "subcategorias2_produto"
             referencedColumns: ["id"]
           },
           {
@@ -3115,6 +3166,73 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      subcategorias1_produto: {
+        Row: {
+          categoria_id: string | null
+          created_at: string
+          id: string
+          nome: string
+          sla_oficina: number | null
+          tenant_id: string | null
+        }
+        Insert: {
+          categoria_id?: string | null
+          created_at?: string
+          id?: string
+          nome: string
+          sla_oficina?: number | null
+          tenant_id?: string | null
+        }
+        Update: {
+          categoria_id?: string | null
+          created_at?: string
+          id?: string
+          nome?: string
+          sla_oficina?: number | null
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subcategorias1_produto_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_produto"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      subcategorias2_produto: {
+        Row: {
+          categoria_id: string | null
+          created_at: string
+          id: string
+          nome: string
+          tenant_id: string | null
+        }
+        Insert: {
+          categoria_id?: string | null
+          created_at?: string
+          id?: string
+          nome: string
+          tenant_id?: string | null
+        }
+        Update: {
+          categoria_id?: string | null
+          created_at?: string
+          id?: string
+          nome?: string
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subcategorias2_produto_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_produto"
             referencedColumns: ["id"]
           },
         ]

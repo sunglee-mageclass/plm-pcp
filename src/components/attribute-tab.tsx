@@ -52,6 +52,11 @@ export type ExtraSelect = {
   label: string;
   from: string; // table to load options
   optionLabel: string; // column to display
+  // PostgREST select das opções (default: `id, ${optionLabel}`). Use p/ trazer um
+  // embed do avô e compor o rótulo (ex.: "Grupo › Categoria").
+  optionSelect?: string;
+  // Compõe o texto exibido de cada opção (default: row[optionLabel]).
+  optionLabelFn?: (row: Record<string, any>) => string;
   required?: boolean;
 };
 
@@ -119,13 +124,16 @@ export function AttributeTab({
     },
   });
 
+  const extraLabel = (row: Row) =>
+    config.extra?.optionLabelFn ? config.extra.optionLabelFn(row) : row[config.extra!.optionLabel];
+
   const { data: extraOptions = [] } = useQuery({
-    queryKey: ["attr-extra", config.extra?.from],
+    queryKey: ["attr-extra", config.extra?.from, config.extra?.optionSelect ?? ""],
     enabled: !!config.extra,
     queryFn: async () => {
       const { data, error } = await supabase
         .from(config.extra!.from as any)
-        .select(`id, ${config.extra!.optionLabel}`)
+        .select(config.extra!.optionSelect ?? `id, ${config.extra!.optionLabel}`)
         .order(config.extra!.optionLabel);
       if (error) throw error;
       return (data ?? []) as Row[];
@@ -134,7 +142,7 @@ export function AttributeTab({
 
   const extraMap = useMemo(() => {
     const m = new Map<string, string>();
-    extraOptions.forEach((o) => m.set(o.id, o[config.extra!.optionLabel]));
+    extraOptions.forEach((o) => m.set(o.id, extraLabel(o)));
     return m;
   }, [extraOptions, config.extra]);
 
@@ -408,7 +416,7 @@ export function AttributeTab({
                         <SelectContent>
                           {extraOptions.map((opt) => (
                             <SelectItem key={opt.id} value={opt.id}>
-                              {opt[config.extra!.optionLabel]}
+                              {extraLabel(opt)}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -505,7 +513,7 @@ export function AttributeTab({
                   <SelectContent>
                     {extraOptions.map((opt) => (
                       <SelectItem key={opt.id} value={opt.id}>
-                        {opt[config.extra!.optionLabel]}
+                        {extraLabel(opt)}
                       </SelectItem>
                     ))}
                   </SelectContent>

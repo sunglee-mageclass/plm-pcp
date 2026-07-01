@@ -462,9 +462,9 @@ function RankingOficinas() {
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h3 className="font-semibold">Ranking de oficinas <span className="text-sm font-normal text-muted-foreground">· SLA entregue vs cadastrado (menor desvio = melhor)</span></h3>
         <Select value={cat} onValueChange={setCat}>
-          <SelectTrigger className="h-8 w-56"><SelectValue placeholder="Categoria do produto" /></SelectTrigger>
+          <SelectTrigger className="h-8 w-56"><SelectValue placeholder="Subcategoria 1" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Geral (todas as categorias)</SelectItem>
+            <SelectItem value="all">Geral (todas as subcategorias 1)</SelectItem>
             {categorias.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
           </SelectContent>
         </Select>
