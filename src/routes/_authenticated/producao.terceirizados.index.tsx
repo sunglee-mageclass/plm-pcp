@@ -38,7 +38,7 @@ function TercListPage() {
       const { data, error } = await supabase
         .from("modelos")
         .select(
-          "id, ref, versao, nome, colecao, mes_id, ano_id, categoria_principal_id, revisao_pendente, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, status_corte, producao_terceirizados(data_enviado, data_entregue, ativo, categorias_terceirizado(etapa)))",
+          "id, ref, versao, nome, colecao, mes_id, ano_id, categoria_principal_id, revisao_pendente, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, status_corte, producao_terceirizados(data_enviado, data_entregue, quantidade_enviada, quantidade_recebida, quantidade_defeito, ativo, categorias_terceirizado(etapa)))",
         )
         .eq("enviado_cad", true)
         .order("created_at", { ascending: false });
@@ -49,9 +49,14 @@ function TercListPage() {
         // Status Geral com pré/pós (mesma regra do detalhe): pré fin + pós pendente=pendente;
         // pré+pós fin=finalizado; pré fin + pós SEM seleção=pré finalizado.
         const etapaDe = (t: any) => t.categorias_terceirizado?.etapa ?? "ate_costura";
+        // "Finalizado" = data entregue + qtd enviada > 0 + (qtd recebida > 0 OU qtd defeito > 0).
+        const finalizado = (t: any) =>
+          !!t.data_entregue &&
+          Number(t.quantidade_enviada) > 0 &&
+          (Number(t.quantidade_recebida) > 0 || Number(t.quantidade_defeito) > 0);
         const statusDe = (bs: any[]) => {
           if (bs.length === 0) return "vazio";
-          if (bs.every((t: any) => !!t.data_entregue)) return "finalizado";
+          if (bs.every(finalizado)) return "finalizado";
           if (bs.some((t: any) => !!t.data_enviado)) return "em_andamento";
           return "pendente";
         };

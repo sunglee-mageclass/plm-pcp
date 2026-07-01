@@ -66,6 +66,17 @@ const STATUS_LABELS: Record<string, string> = {
   sem_selecao: "Sem seleção",
 };
 
+// Um bloco só conta como FINALIZADO (trava automática) quando tem data de entrega E foi
+// de fato movimentado: qtd enviada > 0 e (qtd recebida > 0 OU qtd defeito > 0). Só a data
+// não basta.
+function blocoFinalizado(b: Bloco): boolean {
+  return (
+    !!b.data_entregue &&
+    Number(b.quantidade_enviada) > 0 &&
+    (Number(b.quantidade_recebida) > 0 || Number(b.quantidade_defeito) > 0)
+  );
+}
+
 function TercDetailPage() {
   const { modeloId } = Route.useParams();
   return <TerceirizadosDetail modeloId={modeloId} />;
@@ -397,7 +408,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
   const { statusPre, statusPos, statusGeral, dataInicial, dataFinal, slaDias } = useMemo(() => {
     const etapaDe = (id: string) => (categorias as any[]).find((c) => c.id === id)?.etapa ?? "ate_costura";
     const statusDe = (bs: typeof blocos) =>
-      bs.length === 0 ? "sem_selecao" : bs.every((b) => !!b.data_entregue) ? "finalizado" : "em_andamento";
+      bs.length === 0 ? "sem_selecao" : bs.every(blocoFinalizado) ? "finalizado" : "em_andamento";
     const pre = blocos.filter((b) => etapaDe(b.categoria_terceirizado_id) === "ate_costura");
     const pos = blocos.filter((b) => etapaDe(b.categoria_terceirizado_id) === "pos_costura");
     const sPre = statusDe(pre);
@@ -475,7 +486,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
   // Trava POR ABA: cada etapa (pré/pós) tem seu "finalizado" + lápis. Finalizar o pré
   // não trava o pós (que ainda nem aconteceu), e vice-versa.
   const blocosDaAba = blocos.filter((b) => catEtapa(b.categoria_terceirizado_id) === tabEtapa);
-  const abaFinalizada = blocosDaAba.length > 0 && blocosDaAba.every((b) => !!b.data_entregue);
+  const abaFinalizada = blocosDaAba.length > 0 && blocosDaAba.every(blocoFinalizado);
   const locked = abaFinalizada && !editingTab[tabEtapa];
 
   return (
