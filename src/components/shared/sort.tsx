@@ -68,7 +68,8 @@ export function SortTh({ label, sortKey, sortState, className, align = "left" }:
         type="button"
         onClick={() => sortState.toggle(sortKey)}
         className={cn("inline-flex items-center gap-1 hover:text-foreground",
-          align === "right" && "flex-row-reverse", align === "center" && "justify-center")}
+          align === "right" && "flex-row-reverse w-full justify-start",
+          align === "center" && "w-full justify-center")}
       >
         {label}
         <Indicator active={active} dir={sortState.sortDir} />
