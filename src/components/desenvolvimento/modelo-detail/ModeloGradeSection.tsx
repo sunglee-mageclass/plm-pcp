@@ -54,8 +54,9 @@ export function ModeloGradeSection({
           {tamanhos.map((t) => (
             <Field key={t} label={t}>
               <NumberInput
-                type="number"
-                value={proporcoes?.[t] ?? 0}
+                integer
+                placeholder="0"
+                value={proporcoes?.[t] || ""}
                 onChange={(e) => onChangeProporcao(t, Math.max(0, Number(e.target.value) || 0))}
               />
             </Field>
@@ -86,8 +87,8 @@ export function ModeloGradeSection({
                   <div className="flex items-center gap-2">
                     <Label className="text-xs">Grade Total</Label>
                     <NumberInput
+                      integer
                       className="w-24 bg-muted"
-                      type="number"
                       readOnly
                       tabIndex={-1}
                       value={g.grade_total}
@@ -101,9 +102,9 @@ export function ModeloGradeSection({
                   {tamanhos.map((t) => (
                     <Field key={t} label={t}>
                       <NumberInput
-                        type="number"
-                        min={0}
-                        value={g.grades[t] ?? 0}
+                        integer
+                        placeholder="0"
+                        value={g.grades[t] || ""}
                         onChange={(e) => onChangeGradeCell(n, t, Math.max(0, Number(e.target.value) || 0))}
                       />
                     </Field>

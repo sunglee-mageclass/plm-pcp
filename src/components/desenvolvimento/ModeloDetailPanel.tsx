@@ -57,6 +57,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const tenantId = useActiveTenantId();
 
   const linhas = useOpts("linhas");
+  const categorias = useOpts("categorias_produto");
   const modelistas = useColabs("modelista");
   const piloteiros = useColabs("piloteiro");
 
@@ -292,14 +293,15 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         observacoes_gerais: modelo.observacoes_gerais ?? "",
         ficha_medida_url: modelo.ficha_medida_url ?? "",
         desenho_tecnico_url: (modelo as any).desenho_tecnico_url ?? "",
+        croqui_url: (modelo as any).croqui_url ?? "",
         custo_terceirizados_previsto: Number(modelo.custo_terceirizados_previsto ?? 0),
         proporcoes: (modelo.proporcoes ?? {}) as Record<string, number>,
         enviado_cad: !!modelo.enviado_cad,
         fotos_modelo: (modelo.fotos_modelo ?? []) as string[],
         fotos_referencia: (modelo.fotos_referencia ?? []) as string[],
-        // Só exibição (read-only): categoria vem do Planejamento.
-        categoria_principal_nome: (modelo as any).cat_p?.nome ?? null,
-        categoria_secundaria_nome: (modelo as any).cat_s?.nome ?? null,
+        // Categoria/Subcategoria — editáveis no Desenvolvimento.
+        categoria_principal_id: modelo.categoria_principal_id ?? null,
+        categoria_secundaria_id: modelo.categoria_secundaria_id ?? null,
       });
     }
   }, [modelo]);
@@ -460,7 +462,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     if ((draft?.ref ?? "").trim() === "") cadMissing.push(fl("ref"));
     if ((draft?.nome ?? "").trim() === "") cadMissing.push("Nome");
     if (!(modelo as any)?.estilista_id) cadMissing.push("Estilista");
-    if (!(modelo as any)?.categoria_principal_id) cadMissing.push("Categoria");
+    if (!draft?.categoria_principal_id) cadMissing.push("Categoria");
     if (!hasTecidoComVariante) cadMissing.push("ao menos 1 tecido com variante");
     else if (!todosBlocosComArtigoTemVariante) cadMissing.push("1 variante em cada tecido/forro/entretela selecionado");
     if (gradeTotalGeral <= 0) cadMissing.push("grade preenchida");
@@ -497,6 +499,9 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         observacoes_gerais: draft.observacoes_gerais || null,
         ficha_medida_url: draft.ficha_medida_url || null,
         desenho_tecnico_url: draft.desenho_tecnico_url || null,
+        croqui_url: draft.croqui_url || null,
+        categoria_principal_id: draft.categoria_principal_id || null,
+        categoria_secundaria_id: draft.categoria_secundaria_id || null,
         custo_terceirizados_previsto: draft.custo_terceirizados_previsto || 0,
         custo_tecido_total: totals.tecido,
         custo_forro_total: totals.forro,
@@ -833,6 +838,23 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     }
   };
 
+  const uploadCroqui = async (file: File) => {
+    setUploading(true);
+    try {
+      const { tenantPrefix, sanitizeStorageName } = await import("@/lib/storage-tenant");
+      const tenant = await tenantPrefix();
+      const path = `${tenant}/croqui/${modeloId}/${crypto.randomUUID()}-${sanitizeStorageName(file.name)}`;
+      const { error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false });
+      if (error) throw error;
+      setDraft((d: any) => ({ ...d, croqui_url: path }));
+      toast.success("Croqui enviado");
+    } catch (e: any) {
+      toast.error(mensagemErro(e));
+    } finally {
+      setUploading(false);
+    }
+  };
+
   if (loadingModelo || !draft) {
     return (
       <div className="flex items-center justify-center p-12">
@@ -871,6 +893,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 linhas={linhas.data ?? []}
                 modelistas={modelistas.data ?? []}
                 piloteiros={piloteiros.data ?? []}
+                categorias={categorias.data ?? []}
                 isAprovado={isAprovado}
                 isReprovado={isReprovado}
                 statusOptions={statusOptions}
@@ -942,9 +965,14 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
               <ModeloAnexosSection
                 fichaMedidaUrl={draft.ficha_medida_url}
                 desenhoTecnicoUrl={draft.desenho_tecnico_url}
+                croquiUrl={draft.croqui_url}
                 uploading={uploading}
                 onUploadFicha={uploadFicha}
                 onUploadDesenho={uploadDesenho}
+                onUploadCroqui={uploadCroqui}
+                onRemoveFicha={() => setDraft({ ...draft, ficha_medida_url: "" })}
+                onRemoveDesenho={() => setDraft({ ...draft, desenho_tecnico_url: "" })}
+                onRemoveCroqui={() => setDraft({ ...draft, croqui_url: "" })}
                 observacoesGerais={draft.observacoes_gerais}
                 onChangeObservacoes={(v) => setDraft({ ...draft, observacoes_gerais: v })}
                 fotosModelo={draft.fotos_modelo ?? []}

@@ -1,29 +1,27 @@
-import { useEffect, useState } from "react";
-import { FileText, ImageIcon, Loader2, Trash2, Upload, ZoomIn } from "lucide-react";
+import { useState } from "react";
+import { ImageIcon, Loader2, Trash2, Upload } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { ImagePreview } from "@/components/shared/ImagePreview";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { Field } from "./shared";
 import { supabase } from "@/integrations/supabase/client";
 import { BUCKET } from "./types";
 
-function isImagePath(path: string) {
-  return /\.(jpe?g|png|webp|gif|bmp|svg)$/i.test(path);
-}
-
-function isPdfPath(path: string) {
-  return /\.pdf$/i.test(path);
-}
+// Aceita imagem OU PDF (igual ao Planejamento).
+const FILE_ACCEPT = "image/*,application/pdf,.jpg,.jpeg,.png,.webp,.gif,.avif,.bmp,.pdf";
 
 export function ModeloAnexosSection({
   fichaMedidaUrl,
   desenhoTecnicoUrl,
+  croquiUrl,
   uploading,
   onUploadFicha,
   onUploadDesenho,
+  onUploadCroqui,
+  onRemoveFicha,
+  onRemoveDesenho,
+  onRemoveCroqui,
   observacoesGerais,
   onChangeObservacoes,
   fotosModelo,
@@ -33,9 +31,14 @@ export function ModeloAnexosSection({
 }: {
   fichaMedidaUrl: string | null | undefined;
   desenhoTecnicoUrl: string | null | undefined;
+  croquiUrl: string | null | undefined;
   uploading: boolean;
   onUploadFicha: (file: File) => void;
   onUploadDesenho: (file: File) => void;
+  onUploadCroqui: (file: File) => void;
+  onRemoveFicha: () => void;
+  onRemoveDesenho: () => void;
+  onRemoveCroqui: () => void;
   observacoesGerais: string;
   onChangeObservacoes: (v: string) => void;
   fotosModelo: string[];
@@ -45,16 +48,8 @@ export function ModeloAnexosSection({
 }) {
   return (
     <div className="space-y-4">
-      <div className="grid gap-2">
-        <Label>Desenho Técnico</Label>
-        <div className="flex items-center gap-2">
-          <label className="inline-flex items-center gap-2 text-sm border rounded-md px-3 py-2 cursor-pointer hover:bg-accent">
-            {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Enviar arquivo
-            <input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => e.target.files?.[0] && onUploadDesenho(e.target.files[0])} />
-          </label>
-          {desenhoTecnicoUrl && <AnexoPreview path={desenhoTecnicoUrl} title="Desenho Técnico" />}
-        </div>
-      </div>
+      <SingleFileField label="Foto do Croqui" path={croquiUrl ?? ""} uploading={uploading} onUpload={onUploadCroqui} onRemove={onRemoveCroqui} />
+      <SingleFileField label="Desenho Técnico" path={desenhoTecnicoUrl ?? ""} uploading={uploading} onUpload={onUploadDesenho} onRemove={onRemoveDesenho} />
       <PhotoList
         label="Foto do Modelo"
         paths={fotosModelo}
@@ -67,19 +62,28 @@ export function ModeloAnexosSection({
         prefix="fotos_referencia"
         onChange={onChangeFotosReferencia}
       />
-      <div className="grid gap-2">
-        <Label>Ficha de Medida</Label>
-        <div className="flex items-center gap-2">
-          <label className="inline-flex items-center gap-2 text-sm border rounded-md px-3 py-2 cursor-pointer hover:bg-accent">
-            {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Enviar arquivo
-            <input type="file" className="hidden" onChange={(e) => e.target.files?.[0] && onUploadFicha(e.target.files[0])} />
-          </label>
-          {fichaMedidaUrl && <AnexoPreview path={fichaMedidaUrl} title="Ficha de Medida" />}
-        </div>
-      </div>
+      <SingleFileField label="Ficha de Medida" path={fichaMedidaUrl ?? ""} uploading={uploading} onUpload={onUploadFicha} onRemove={onRemoveFicha} />
       <Field label="Observações Gerais" full>
         <Textarea rows={4} value={observacoesGerais} onChange={(e) => onChangeObservacoes(e.target.value)} />
       </Field>
+    </div>
+  );
+}
+
+/* Anexo único (imagem ou PDF) com miniatura + zoom ao clicar — Croqui / Desenho Técnico / Ficha. */
+function SingleFileField({ label, path, uploading, onUpload, onRemove }: {
+  label: string; path: string; uploading: boolean; onUpload: (f: File) => void; onRemove: () => void;
+}) {
+  return (
+    <div className="grid gap-2">
+      <Label>{label}</Label>
+      <div className="flex flex-wrap items-center gap-2">
+        {path && <FileThumb path={path} onRemove={onRemove} />}
+        <label className="inline-flex items-center gap-2 text-sm border rounded-md px-3 py-2 cursor-pointer hover:bg-accent w-fit">
+          {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} {path ? "Trocar arquivo" : "Enviar arquivo"}
+          <input type="file" accept={FILE_ACCEPT} className="hidden" onChange={(e) => e.target.files?.[0] && onUpload(e.target.files[0])} />
+        </label>
+      </div>
     </div>
   );
 }
@@ -108,13 +112,13 @@ function PhotoList({
       <Label>{label}</Label>
       <div className="flex flex-wrap gap-2">
         {paths.map((p, i) => (
-          <PhotoThumb key={p} path={p} onRemove={() => onChange(paths.filter((_, j) => j !== i))} />
+          <FileThumb key={p} path={p} onRemove={() => onChange(paths.filter((_, j) => j !== i))} />
         ))}
         <label className="inline-flex items-center gap-2 text-sm border rounded-md px-3 py-2 cursor-pointer hover:bg-accent w-fit">
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Adicionar
           <input
             type="file"
-            accept="image/*"
+            accept={FILE_ACCEPT}
             className="hidden"
             onChange={(e) => e.target.files?.[0] && handleAdd(e.target.files[0])}
           />
@@ -124,76 +128,49 @@ function PhotoList({
   );
 }
 
-function PhotoThumb({ path, onRemove }: { path: string; onRemove: () => void }) {
-  // Usa o hook com cache (Map + TTL) em vez de recriar a signed URL a cada montagem.
+/* Miniatura de anexo (imagem OU PDF) com preview + zoom ao clicar (abre grande). */
+function FileThumb({ path, onRemove }: { path: string; onRemove?: () => void }) {
+  const isPdf = /\.pdf$/i.test(path);
+  // Hook com cache (Map + TTL) — não recria a signed URL a cada montagem.
   const url = useSignedUrl(path, BUCKET);
+  const [zoom, setZoom] = useState(false);
   return (
     <div className="relative h-20 w-20 rounded border overflow-hidden bg-muted group">
-      {url ? (
-        <>
-          <img src={url} className="h-full w-full object-cover" alt="" />
-          <ImagePreview src={url} alt="">
-            <div className="absolute inset-0 flex items-center justify-center bg-black/0 hover:bg-black/20 transition-colors">
-              <ZoomIn className="h-6 w-6 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-md" />
-            </div>
-          </ImagePreview>
-        </>
-      ) : (
-        <ImageIcon className="m-auto h-8 w-8 text-muted-foreground" />
-      )}
-      <button
-        type="button"
-        onClick={onRemove}
-        className="absolute top-0.5 right-0.5 bg-background/80 rounded p-0.5 opacity-0 group-hover:opacity-100"
-        aria-label="Remover foto"
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => url && setZoom(true)}
+        onKeyDown={(e) => { if (url && (e.key === "Enter" || e.key === " ")) setZoom(true); }}
+        className="h-full w-full cursor-zoom-in flex items-center justify-center"
+        title="Abrir"
       >
-        <Trash2 className="h-3 w-3" />
-      </button>
-    </div>
-  );
-}
-
-function AnexoPreview({ path, title = "Anexo" }: { path: string; title?: string }) {
-  const url = useSignedUrl(path, BUCKET);
-  const [open, setOpen] = useState(false);
-  const name = path.split("/").pop() ?? "";
-
-  if (!url) {
-    return <span className="text-xs text-muted-foreground truncate">{name}</span>;
-  }
-
-  if (isImagePath(path)) {
-    return (
-      <ImagePreview src={url} alt={name}>
-        <Badge variant="secondary" className="truncate max-w-[260px] cursor-pointer hover:bg-accent">
-          <ZoomIn className="h-3 w-3 mr-1" />
-          {name}
-        </Badge>
-      </ImagePreview>
-    );
-  }
-
-  if (isPdfPath(path)) {
-    return (
-      <>
-        <button type="button" onClick={() => setOpen(true)}>
-          <Badge variant="secondary" className="truncate max-w-[260px] cursor-pointer hover:bg-accent">
-            <FileText className="h-3 w-3 mr-1" />
-            {name}
-          </Badge>
+        {!url ? (
+          <ImageIcon className="h-8 w-8 text-muted-foreground" />
+        ) : isPdf ? (
+          <iframe src={`${url}#toolbar=0&navpanes=0&scrollbar=0`} title="PDF" className="h-full w-full pointer-events-none" />
+        ) : (
+          <img src={url} className="h-full w-full object-cover" alt="" />
+        )}
+      </div>
+      {onRemove && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onRemove(); }}
+          className="absolute top-0.5 right-0.5 bg-background/80 rounded p-0.5 opacity-0 group-hover:opacity-100 z-10"
+          aria-label="Remover"
+        >
+          <Trash2 className="h-3 w-3" />
         </button>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogContent className="max-w-4xl p-0 border-none bg-white shadow-none h-[85vh] [&>button]:!text-black [&>button]:top-2 [&>button]:right-2">
-            <iframe src={url} className="w-full h-full rounded-md" title={title} />
-          </DialogContent>
-        </Dialog>
-      </>
-    );
-  }
-
-  return (
-    <a href={url} target="_blank" rel="noreferrer">
-      <Badge variant="secondary" className="truncate max-w-[260px]">{name}</Badge>
-    </a>
+      )}
+      <Dialog open={zoom} onOpenChange={setZoom}>
+        <DialogContent className="max-w-5xl p-1 border-none bg-transparent shadow-none [&>button]:!text-white [&>button]:top-2 [&>button]:right-2">
+          {isPdf ? (
+            <iframe src={url ?? ""} title="PDF" className="w-full h-[85vh] rounded-md bg-white" />
+          ) : (
+            <img src={url ?? ""} alt="" className="max-w-full max-h-[85vh] object-contain rounded-md shadow-2xl" />
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }
