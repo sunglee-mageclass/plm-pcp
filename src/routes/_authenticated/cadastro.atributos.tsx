@@ -248,6 +248,8 @@ const ATTRIBUTES: AttributeItem[] = [
       nameField: "nome",
       singular: "Linha",
       plural: "Linhas",
+      // Markup (pode ser decimal) por Linha — usado em cálculos de preço.
+      extraNumber: { field: "markup", label: "Markup", placeholder: "ex.: 2,5", step: "0.01" },
       usage: [{ table: "modelos", column: "linha_id" }],
     },
   },

@@ -67,8 +67,8 @@ export type AttributeTabConfig = {
   plural: string; // for headers
   usage: UsageRef[];
   extra?: ExtraSelect;
-  /** Campo numérico opcional, editável inline (ex.: SLA de oficina em dias). */
-  extraNumber?: { field: string; label: string; placeholder?: string };
+  /** Campo numérico opcional, editável inline (ex.: SLA de oficina em dias, markup). */
+  extraNumber?: { field: string; label: string; placeholder?: string; step?: string };
   // Campo enum (select de opções fixas) por linha — ex.: etapa "Até costura"/"Pós costura".
   extraEnum?: { field: string; label: string; options: { value: string; label: string }[] };
   fixedFilter?: { field: string; value: string };
@@ -429,7 +429,7 @@ export function AttributeTab({
                         type="number"
                         inputMode="decimal"
                         min={0}
-                        step="0.5"
+                        step={config.extraNumber.step ?? "0.5"}
                         defaultValue={row[config.extraNumber.field] ?? ""}
                         placeholder={config.extraNumber.placeholder ?? "—"}
                         disabled={readOnly}
@@ -527,7 +527,7 @@ export function AttributeTab({
                   type="number"
                   inputMode="decimal"
                   min={0}
-                  step="0.5"
+                  step={config.extraNumber.step ?? "0.5"}
                   value={newExtraNum}
                   onChange={(e) => setNewExtraNum(e.target.value)}
                   placeholder={config.extraNumber.placeholder}

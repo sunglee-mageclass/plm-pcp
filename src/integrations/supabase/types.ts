@@ -1450,18 +1450,21 @@ export type Database = {
         Row: {
           created_at: string | null
           id: string
+          markup: number | null
           nome: string
           tenant_id: string | null
         }
         Insert: {
           created_at?: string | null
           id?: string
+          markup?: number | null
           nome: string
           tenant_id?: string | null
         }
         Update: {
           created_at?: string | null
           id?: string
+          markup?: number | null
           nome?: string
           tenant_id?: string | null
         }
