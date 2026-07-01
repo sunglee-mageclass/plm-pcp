@@ -3905,6 +3905,7 @@ export type Database = {
         }
         Returns: string
       }
+      custo_unitario_modelos: { Args: { _ids: string[] }; Returns: Json }
       dashboard_colecao: {
         Args: {
           p_colecao?: string

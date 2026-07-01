@@ -215,6 +215,17 @@ function ConsumoOcPage() {
     },
   });
 
+  // Custo total unitário por modelo (real de Serviços senão previsto de Desenvolvimento).
+  const { data: custoUnitMap = {} } = useQuery({
+    queryKey: ["consumo-oc-custo-unit", modeloIds],
+    enabled: modeloIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("custo_unitario_modelos" as any, { _ids: modeloIds });
+      if (error) throw error;
+      return (data ?? {}) as Record<string, { previsto: number; real: number; confirmado: boolean }>;
+    },
+  });
+
   const { data: modeloInfo = {} } = useQuery({
     queryKey: ["consumo-oc-modelos", modeloIds],
     enabled: modeloIds.length > 0,
@@ -428,7 +439,7 @@ function ConsumoOcPage() {
                           ) : (
                             <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                               {t.modelos.map((a) => (
-                                <ModeloMiniCard key={a.modelo_id} a={a} preco={t.preco} info={modeloInfo[a.modelo_id]} onDev={() => setDevId(a.modelo_id)} onCad={() => setCadId(a.modelo_id)} />
+                                <ModeloMiniCard key={a.modelo_id} a={a} preco={t.preco} custoUnit={num((custoUnitMap as any)[a.modelo_id]?.real)} info={modeloInfo[a.modelo_id]} onDev={() => setDevId(a.modelo_id)} onCad={() => setCadId(a.modelo_id)} />
                               ))}
                             </div>
                           )}
@@ -531,7 +542,7 @@ function KV({ label, value, valueClass }: { label: string; value: string; valueC
   );
 }
 
-function ModeloMiniCard({ a, preco, info, onDev, onCad }: { a: ModeloAgg; preco: number; info: ModeloInfo | undefined; onDev: () => void; onCad: () => void }) {
+function ModeloMiniCard({ a, preco, custoUnit, info, onDev, onCad }: { a: ModeloAgg; preco: number; custoUnit: number; info: ModeloInfo | undefined; onDev: () => void; onCad: () => void }) {
   const foto = info?.fotos_modelo?.[0] ?? null;
   // Consumo efetivo da variante: cortada usa a baixa real; senão o planejado (sem piloto).
   const efetivo = (v: VarRow) => (v.cortado ? v.baixado_m : v.metragem_m);
@@ -564,6 +575,7 @@ function ModeloMiniCard({ a, preco, info, onDev, onCad }: { a: ModeloAgg; preco:
               <KV label="Grade geral" value={fmt(a.grade_geral)} />
               <KV label="Consumo total" value={`${fmt2(a.consumoTotal)} m`} />
               <KV label="Custo total" value={preco > 0 ? brl(a.consumoTotal * preco) : "—"} />
+              <KV label="Custo unitário" value={custoUnit > 0 ? brl(custoUnit) : "—"} />
             </div>
           </div>
         </button>
