@@ -98,6 +98,8 @@ unit + integração transacional de RPC — ver `tests/README.md`)
 - Queries via TanStack Query; **queryKey única por tela** (key compartilhada já causou bug
   no financeiro). Ao ler artigo/variante, **prefira embed do Supabase** a cruzar 2 queries.
 - Upload sempre por `tenantPrefix()` (`@/lib/storage-tenant`); leitura por `useSignedUrl`.
+  ⚠️ Na **key** do Storage, o nome do arquivo tem que passar por `sanitizeStorageName()`
+  (`@/lib/storage-tenant`) — acento/espaço/símbolo dão `Invalid key` (ex.: `Véu - 2060.jpeg`).
 - Não usar `localStorage` em lógica de auth/tenant — vem do contexto/Supabase.
 
 ## Invariantes a preservar (não regredir)
