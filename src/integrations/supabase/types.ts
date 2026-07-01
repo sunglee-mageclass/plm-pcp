@@ -1896,6 +1896,7 @@ export type Database = {
           piloteiro1_id: string | null
           piloteiro2_id: string | null
           piloteiro3_id: string | null
+          preco_venda: number | null
           proporcoes: Json | null
           ref: string | null
           revisao_pendente: Json
@@ -1947,6 +1948,7 @@ export type Database = {
           piloteiro1_id?: string | null
           piloteiro2_id?: string | null
           piloteiro3_id?: string | null
+          preco_venda?: number | null
           proporcoes?: Json | null
           ref?: string | null
           revisao_pendente?: Json
@@ -1998,6 +2000,7 @@ export type Database = {
           piloteiro1_id?: string | null
           piloteiro2_id?: string | null
           piloteiro3_id?: string | null
+          preco_venda?: number | null
           proporcoes?: Json | null
           ref?: string | null
           revisao_pendente?: Json

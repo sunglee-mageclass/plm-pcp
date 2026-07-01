@@ -14,6 +14,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { NumberInput } from "@/components/shared/NumberInput";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -511,6 +512,9 @@ type Draft = {
   ano_id: string | null;
   categoria_principal_id: string | null;
   categoria_secundaria_id: string | null;
+  subcategoria1_id: string | null;
+  subcategoria2_id: string | null;
+  preco_venda: number | null;
   tecidos_planejados: string[];
   status_planejamento: string;
   croqui_url: string;
@@ -524,6 +528,7 @@ type Draft = {
 const emptyDraft = (): Draft => ({
   nome: "", estilista_id: null, linha_id: null, colecao: "", semana: "", mes_id: null, ano_id: null,
   categoria_principal_id: null, categoria_secundaria_id: null,
+  subcategoria1_id: null, subcategoria2_id: null, preco_venda: null,
   tecidos_planejados: [],
   status_planejamento: "em_planejamento", croqui_url: "", desenho_tecnico_url: "", fotos_modelo: [], fotos_referencia: [],
   observacoes_gerais: "",
@@ -532,10 +537,45 @@ const emptyDraft = (): Draft => ({
 
 type ArtigoOpt = { id: string; nome: string; unidade_medida: string | null; preco_por_metro: number | null };
 
+type LinhaOpt = { id: string; nome: string; markup: number | null };
+type SubOpt = { id: string; nome: string; categoria_id: string | null };
+
+const numOr0 = (v: any) => Number(v ?? 0) || 0;
+
+/**
+ * Preço sugerido: arredonda PRA CIMA até o próximo valor da grade que termina em
+ * 4,90 ou 9,90 (passo 5 a partir de 4,90). Ex.: 14,67 → 14,90; 437,98 → 439,90.
+ * (Os limites 4,90/9,90 virarão config da loja depois.)
+ */
+function precoSugerido(v: number): number {
+  if (!(v > 0)) return 0;
+  const k = Math.max(0, Math.ceil((v - 4.9) / 5 - 1e-9));
+  return Math.round((5 * k + 4.9) * 100) / 100;
+}
+
+function Secao({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+  return (
+    <section className="space-y-3">
+      <h3 className="text-sm font-semibold text-foreground border-b pb-1.5">{titulo}</h3>
+      {children}
+    </section>
+  );
+}
+
+/** Campo somente-leitura (label + valor) no mesmo estilo dos inputs do form. */
+function CampoRO({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid gap-1">
+      <Label>{label}</Label>
+      <div className="h-9 px-3 flex items-center rounded-md border bg-muted text-sm tabular-nums">{value}</div>
+    </div>
+  );
+}
+
 function ModeloDialog({
   modeloId, estilistas, linhas, meses, anos, grupos, categorias, artigos, onClose, onSaved,
 }: {
-  modeloId: string | null; estilistas: Opt[]; linhas: Opt[]; meses: Opt[]; anos: Opt[];
+  modeloId: string | null; estilistas: Opt[]; linhas: LinhaOpt[]; meses: Opt[]; anos: Opt[];
   grupos: Opt[]; categorias: CatOpt[];
   artigos: ArtigoOpt[];
   onClose: () => void; onSaved: () => void;
@@ -562,6 +602,56 @@ function ModeloDialog({
     [estoqueArr],
   ) as Record<string, EstoqueArtigo>;
 
+  // Subcategorias 1 e 2 (filhas da Categoria) — Setor "Informações Gerais".
+  const { data: sub1Opts = [] } = useQuery({
+    queryKey: ["opt", "subcategorias1_produto"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("subcategorias1_produto").select("id, nome, categoria_id").order("nome");
+      if (error) throw error;
+      return (data ?? []) as SubOpt[];
+    },
+  });
+  const { data: sub2Opts = [] } = useQuery({
+    queryKey: ["opt", "subcategorias2_produto"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("subcategorias2_produto").select("id, nome, categoria_id").order("nome");
+      if (error) throw error;
+      return (data ?? []) as SubOpt[];
+    },
+  });
+
+  // Custo total unitário do modelo (real de Serviços senão previsto de Desenvolvimento).
+  const { data: custoData } = useQuery({
+    queryKey: ["plan-custo-unit", modeloId],
+    enabled: !!modeloId,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("custo_unitario_modelos" as any, { _ids: [modeloId] });
+      if (error) throw error;
+      return ((data ?? {}) as any)[modeloId as string] as { previsto: number; real: number; confirmado: boolean } | undefined;
+    },
+  });
+
+  // Cálculo de preço (Setor "Preço"): custo × markup → arredonda → markup real.
+  const custo = numOr0(custoData?.real);
+  const custoReal = !!custoData?.confirmado;
+  const markup = numOr0(linhas.find((l) => l.id === draft.linha_id)?.markup);
+  const preco = custo > 0 && markup > 0 ? custo * markup : 0;
+  const precoSug = precoSugerido(preco);
+  const precoVenda = numOr0(draft.preco_venda);
+  const precoBase = precoVenda > 0 ? precoVenda : precoSug; // venda manual senão sugerido
+  const markupReal = custo > 0 && precoBase > 0 ? precoBase / custo : 0;
+
+  // Pré-preenche o Preço para venda com o sugerido (uma vez por modelo); não sobrescreve
+  // valor salvo nem edição do usuário.
+  const precoPrefilled = useRef(false);
+  useEffect(() => { precoPrefilled.current = false; }, [modeloId]);
+  useEffect(() => {
+    if (!precoPrefilled.current && numOr0(draft.preco_venda) <= 0 && precoSug > 0) {
+      precoPrefilled.current = true;
+      setDraft((d) => ({ ...d, preco_venda: precoSug }));
+    }
+  }, [precoSug, draft.preco_venda]);
+
   // "Ordem de Criação enviada" = gate p/ o Desenvolvimento (botão, não mais o status).
   const [enviada, setEnviada] = useState(false);
 
@@ -583,6 +673,9 @@ function ModeloDialog({
           ano_id: data.ano_id,
           categoria_principal_id: data.categoria_principal_id,
           categoria_secundaria_id: data.categoria_secundaria_id,
+          subcategoria1_id: (data as any).subcategoria1_id ?? null,
+          subcategoria2_id: (data as any).subcategoria2_id ?? null,
+          preco_venda: (data as any).preco_venda ?? null,
           tecidos_planejados: (data as any).tecidos_planejados ?? [],
           status_planejamento: data.status_planejamento ?? "em_planejamento",
           croqui_url: (data as any).croqui_url ?? "",
@@ -624,7 +717,12 @@ function ModeloDialog({
 
   const save = useMutation({
     mutationFn: async () => {
-      const payload: any = { ...draft, croqui_url: draft.croqui_url || null, desenho_tecnico_url: draft.desenho_tecnico_url || null };
+      const payload: any = {
+        ...draft,
+        croqui_url: draft.croqui_url || null,
+        desenho_tecnico_url: draft.desenho_tecnico_url || null,
+        preco_venda: numOr0(draft.preco_venda) > 0 ? numOr0(draft.preco_venda) : null,
+      };
       if (isEdit && modeloId) {
         const { error } = await supabase.from("modelos").update(payload).eq("id", modeloId);
         if (error) throw error;
@@ -708,94 +806,138 @@ function ModeloDialog({
           <SheetTitle>{isEdit ? draft.nome || "Modelo" : "Novo Modelo"}</SheetTitle>
         </SheetHeader>
 
-        <div className="space-y-4 mt-4">
-          <div className="grid sm:grid-cols-2 gap-3">
-            <FieldText label="Nome do Modelo" value={draft.nome} onChange={(v) => setDraft((d) => ({ ...d, nome: v }))} />
-            {draft.versao > 1 && (
+        <div className="space-y-6 mt-4">
+          {/* SETOR 1 — Informações Gerais do Produto */}
+          <Secao titulo="Informações Gerais do Produto">
+            <div className="grid sm:grid-cols-2 gap-3">
               <div className="grid gap-1">
-                <Label>Versão</Label>
-                <Input value={`v${draft.versao}`} readOnly disabled />
+                <Label>Status</Label>
+                <Select value={draft.status_planejamento} onValueChange={(v) => setDraft((d) => ({ ...d, status_planejamento: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {STATUS_OPTS.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
-            )}
-            <FieldSelect label={fl("estilista")} value={draft.estilista_id} onChange={(v) => setDraft((d) => ({ ...d, estilista_id: v }))} options={estilistas} />
-            <FieldSelect label={fl("linha")} value={draft.linha_id} onChange={(v) => setDraft((d) => ({ ...d, linha_id: v }))} options={linhas} />
-            <FieldText label={fl("colecao")} value={draft.colecao} onChange={(v) => setDraft((d) => ({ ...d, colecao: v }))} />
-            <div className="grid gap-1">
-              <Label>Semana</Label>
-              <Select value={draft.semana || ""} onValueChange={(v) => setDraft((d) => ({ ...d, semana: v }))}>
-                <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
-                <SelectContent>
-                  {["1","2","3","4","5"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <FieldSelect label="Mês de Planejamento" value={draft.mes_id} onChange={(v) => setDraft((d) => ({ ...d, mes_id: v }))} options={meses} />
-            <FieldSelect label="Ano" value={draft.ano_id} onChange={(v) => setDraft((d) => ({ ...d, ano_id: v }))} options={anos} />
-            <FieldSelect
-              label="Grupo"
-              value={grupoSel}
-              onChange={(v) => {
-                setGrupoSel(v);
-                // Se a categoria atual não pertence ao novo grupo, limpa a seleção.
-                const cat = categorias.find((c) => c.id === draft.categoria_principal_id);
-                if (cat && cat.grupo_id !== v) setDraft((d) => ({ ...d, categoria_principal_id: null }));
-              }}
-              options={grupos}
-            />
-            <FieldSelect
-              label="Categoria"
-              value={draft.categoria_principal_id}
-              onChange={(v) => {
-                // Ao escolher a categoria, mantém o Grupo coerente com ela.
-                const cat = categorias.find((c) => c.id === v);
-                if (cat?.grupo_id) setGrupoSel(cat.grupo_id);
-                setDraft((d) => ({ ...d, categoria_principal_id: v }));
-              }}
-              options={grupoSel ? categorias.filter((c) => c.grupo_id === grupoSel) : categorias}
-            />
-            <div className="sm:col-span-2">
-              <MultiArtigosField
-                label="Tecido Planejado"
-                value={draft.tecidos_planejados}
-                onChange={(v) => setDraft((d) => ({ ...d, tecidos_planejados: v }))}
-                artigos={artigos}
-                estoque={estoqueMap}
+              <FieldText label="Nome do Modelo" value={draft.nome} onChange={(v) => setDraft((d) => ({ ...d, nome: v }))} />
+              {draft.versao > 1 && (
+                <div className="grid gap-1">
+                  <Label>Versão</Label>
+                  <Input value={`v${draft.versao}`} readOnly disabled />
+                </div>
+              )}
+              <FieldSelect label={fl("estilista")} value={draft.estilista_id} onChange={(v) => setDraft((d) => ({ ...d, estilista_id: v }))} options={estilistas} />
+              <FieldSelect
+                label="Grupo"
+                value={grupoSel}
+                onChange={(v) => {
+                  setGrupoSel(v);
+                  // Se a categoria atual não pertence ao novo grupo, limpa categoria + subs.
+                  const cat = categorias.find((c) => c.id === draft.categoria_principal_id);
+                  if (cat && cat.grupo_id !== v) setDraft((d) => ({ ...d, categoria_principal_id: null, subcategoria1_id: null, subcategoria2_id: null }));
+                }}
+                options={grupos}
+              />
+              <FieldSelect
+                label="Categoria"
+                value={draft.categoria_principal_id}
+                onChange={(v) => {
+                  // Mantém o Grupo coerente e reseta as subcategorias (pertencem à categoria).
+                  const cat = categorias.find((c) => c.id === v);
+                  if (cat?.grupo_id) setGrupoSel(cat.grupo_id);
+                  setDraft((d) => ({ ...d, categoria_principal_id: v, subcategoria1_id: null, subcategoria2_id: null }));
+                }}
+                options={grupoSel ? categorias.filter((c) => c.grupo_id === grupoSel) : categorias}
+              />
+              <FieldSelect
+                label="Subcategoria 1"
+                value={draft.subcategoria1_id}
+                onChange={(v) => setDraft((d) => ({ ...d, subcategoria1_id: v }))}
+                options={sub1Opts.filter((s) => s.categoria_id === draft.categoria_principal_id)}
+              />
+              <FieldSelect
+                label="Subcategoria 2"
+                value={draft.subcategoria2_id}
+                onChange={(v) => setDraft((d) => ({ ...d, subcategoria2_id: v }))}
+                options={sub2Opts.filter((s) => s.categoria_id === draft.categoria_principal_id)}
               />
             </div>
-            <div className="grid gap-1">
-              <Label>Status</Label>
-              <Select value={draft.status_planejamento} onValueChange={(v) => setDraft((d) => ({ ...d, status_planejamento: v }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {STATUS_OPTS.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
+          </Secao>
+
+          {/* SETOR 2 — Coleção */}
+          <Secao titulo="Coleção">
+            <div className="grid sm:grid-cols-2 gap-3">
+              <FieldText label={fl("colecao")} value={draft.colecao} onChange={(v) => setDraft((d) => ({ ...d, colecao: v }))} />
+              <FieldSelect label={fl("linha")} value={draft.linha_id} onChange={(v) => setDraft((d) => ({ ...d, linha_id: v }))} options={linhas} />
+              <div className="grid gap-1">
+                <Label>Semana</Label>
+                <Select value={draft.semana || ""} onValueChange={(v) => setDraft((d) => ({ ...d, semana: v }))}>
+                  <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                  <SelectContent>
+                    {["1","2","3","4","5"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <FieldSelect label="Mês de Planejamento" value={draft.mes_id} onChange={(v) => setDraft((d) => ({ ...d, mes_id: v }))} options={meses} />
+              <FieldSelect label="Ano" value={draft.ano_id} onChange={(v) => setDraft((d) => ({ ...d, ano_id: v }))} options={anos} />
             </div>
-          </div>
+          </Secao>
 
-          <div className="grid sm:grid-cols-2 gap-4">
-            <SingleFileField
-              label="Foto do Croqui"
-              path={draft.croqui_url}
-              onUpload={(f) => uploadCroqui.mutate(f)}
-              onRemove={() => setDraft((d) => ({ ...d, croqui_url: "" }))}
-            />
-            <SingleFileField
-              label="Desenho Técnico"
-              path={draft.desenho_tecnico_url}
-              onUpload={(f) => uploadDesenho.mutate(f)}
-              onRemove={() => setDraft((d) => ({ ...d, desenho_tecnico_url: "" }))}
-            />
-          </div>
+          {/* SETOR 3 — Preço */}
+          <Secao titulo="Preço">
+            <div className="grid sm:grid-cols-2 gap-3">
+              <CampoRO label={custoReal ? "Custo (real)" : "Custo (previsto)"} value={custo > 0 ? brl(custo) : "—"} />
+              <CampoRO label="Markup" value={markup > 0 ? markup.toLocaleString("pt-BR") : "—"} />
+              <CampoRO label="Preço" value={preco > 0 ? brl(preco) : "—"} />
+              <CampoRO label="Preço sugerido" value={precoSug > 0 ? brl(precoSug) : "—"} />
+              <div className="grid gap-1">
+                <Label>Preço para venda</Label>
+                <NumberInput
+                  value={draft.preco_venda && draft.preco_venda > 0 ? draft.preco_venda : ""}
+                  placeholder={precoSug > 0 ? brl(precoSug) : undefined}
+                  onChange={(e) => { const v = e.target.value; setDraft((d) => ({ ...d, preco_venda: numOr0(v) > 0 ? Number(v) : null })); }}
+                />
+              </div>
+              <CampoRO label="Markup real" value={markupReal > 0 ? markupReal.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—"} />
+            </div>
+          </Secao>
 
-          <div className="grid sm:grid-cols-2 gap-4">
-            <PhotoList label="Foto do Modelo" paths={draft.fotos_modelo}
-              onAdd={(f) => uploadMutation.mutate({ file: f, key: "fotos_modelo" })}
-              onRemove={(i) => setDraft((d) => ({ ...d, fotos_modelo: d.fotos_modelo.filter((_, j) => j !== i) }))} />
-            <PhotoList label="Foto de Referência" paths={draft.fotos_referencia}
-              onAdd={(f) => uploadMutation.mutate({ file: f, key: "fotos_referencia" })}
-              onRemove={(i) => setDraft((d) => ({ ...d, fotos_referencia: d.fotos_referencia.filter((_, j) => j !== i) }))} />
-          </div>
+          {/* SETOR 4 — Tecido Planejado */}
+          <Secao titulo="Tecido Planejado">
+            <MultiArtigosField
+              label=""
+              value={draft.tecidos_planejados}
+              onChange={(v) => setDraft((d) => ({ ...d, tecidos_planejados: v }))}
+              artigos={artigos}
+              estoque={estoqueMap}
+            />
+          </Secao>
+
+          {/* SETOR 5 — Anexos */}
+          <Secao titulo="Anexos">
+            <div className="grid sm:grid-cols-2 gap-4">
+              <SingleFileField
+                label="Foto do Croqui"
+                path={draft.croqui_url}
+                onUpload={(f) => uploadCroqui.mutate(f)}
+                onRemove={() => setDraft((d) => ({ ...d, croqui_url: "" }))}
+              />
+              <SingleFileField
+                label="Desenho Técnico"
+                path={draft.desenho_tecnico_url}
+                onUpload={(f) => uploadDesenho.mutate(f)}
+                onRemove={() => setDraft((d) => ({ ...d, desenho_tecnico_url: "" }))}
+              />
+            </div>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <PhotoList label="Foto do Modelo" paths={draft.fotos_modelo}
+                onAdd={(f) => uploadMutation.mutate({ file: f, key: "fotos_modelo" })}
+                onRemove={(i) => setDraft((d) => ({ ...d, fotos_modelo: d.fotos_modelo.filter((_, j) => j !== i) }))} />
+              <PhotoList label="Foto de Referência" paths={draft.fotos_referencia}
+                onAdd={(f) => uploadMutation.mutate({ file: f, key: "fotos_referencia" })}
+                onRemove={(i) => setDraft((d) => ({ ...d, fotos_referencia: d.fotos_referencia.filter((_, j) => j !== i) }))} />
+            </div>
+          </Secao>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 sm:justify-end bg-background border-t pt-3 mt-4 sm:sticky sm:bottom-0 max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-50 max-sm:flex-nowrap max-sm:px-4 max-sm:py-3 max-sm:mt-0">
