@@ -45,9 +45,10 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
   const [codigoManual, setCodigoManual] = useState(false);
   const [rua, setRua] = useState("");
   const [prateleira, setPrateleira] = useState("");
-  // avulso
+  // avulso — um rolo = UMA variante (individual)
   const [artigoId, setArtigoId] = useState("");
-  const [varMet, setVarMet] = useState<Record<string, string>>({});
+  const [varId, setVarId] = useState("");
+  const [metAvulso, setMetAvulso] = useState("");
   // separar de OC
   const [ocId, setOcId] = useState("");
   const [ocItemId, setOcItemId] = useState("");
@@ -105,13 +106,14 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
       if (!codigo.trim()) throw new Error("Informe o Código do rolo.");
       if (modo === "avulso") {
         if (!artigoId) throw new Error("Selecione o tecido.");
-        const payload = Object.entries(varMet)
-          .map(([v, m]) => ({ variante_tecido_id: v, metragem: Number(m) }))
-          .filter((x) => x.metragem > 0);
-        if (payload.length === 0) throw new Error("Informe a metragem de ao menos uma variante.");
+        if (!varId) throw new Error("Selecione a variante.");
+        const m = Number(metAvulso);
+        if (!(m > 0)) throw new Error("Informe a metragem.");
+        // Um rolo = UMA variante (individual).
         const { error } = await supabase.rpc("criar_rolo" as any, {
-          _codigo: codigo, _artigo_id: artigoId, _variantes: payload, _origem_item_id: null,
-          _rua: rua, _prateleira: prateleira,
+          _codigo: codigo, _artigo_id: artigoId,
+          _variantes: [{ variante_tecido_id: varId, metragem: m }],
+          _origem_item_id: null, _rua: rua, _prateleira: prateleira,
         });
         if (error) throw error;
       } else {
@@ -172,7 +174,7 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
             <>
               <div className="space-y-1.5">
                 <Label>Tecido</Label>
-                <Select value={artigoId} onValueChange={(v) => { setArtigoId(v); setVarMet({}); }}>
+                <Select value={artigoId} onValueChange={(v) => { setArtigoId(v); setVarId(""); setMetAvulso(""); }}>
                   <SelectTrigger><SelectValue placeholder="Selecione o tecido" /></SelectTrigger>
                   <SelectContent>
                     {artigos.map((a) => (
@@ -184,30 +186,24 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
                 </Select>
               </div>
               {artigoId && (
-                <div className="space-y-1.5">
-                  <Label>Variantes e metragem (m)</Label>
-                  <div className="space-y-2 max-h-60 overflow-auto pr-1">
-                    {variantes.map((v) => {
-                      const checked = v.id in varMet;
-                      return (
-                        <div key={v.id} className="flex items-center gap-2">
-                          <Checkbox checked={checked} onCheckedChange={(c) =>
-                            setVarMet((prev) => {
-                              const next = { ...prev };
-                              if (c) next[v.id] = ""; else delete next[v.id];
-                              return next;
-                            })} />
-                          <span className="flex-1 text-sm">{varName(v)}</span>
-                          <Input type="number" className="w-28" disabled={!checked}
-                            value={checked ? varMet[v.id] : ""}
-                            onChange={(e) => setVarMet((prev) => ({ ...prev, [v.id]: e.target.value }))}
-                            placeholder="metros" />
-                        </div>
-                      );
-                    })}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Variante</Label>
+                    <Select value={varId} onValueChange={setVarId}>
+                      <SelectTrigger><SelectValue placeholder="Selecione a variante" /></SelectTrigger>
+                      <SelectContent>
+                        {variantes.map((v) => (
+                          <SelectItem key={v.id} value={v.id}>{varName(v)}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     {variantes.length === 0 && (
                       <p className="text-sm text-muted-foreground">Tecido sem variantes.</p>
                     )}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Metragem (m)</Label>
+                    <Input type="number" value={metAvulso} onChange={(e) => setMetAvulso(e.target.value)} placeholder="metros" />
                   </div>
                 </div>
               )}
