@@ -154,6 +154,10 @@ export function AppSidebar() {
       };
     });
 
+  // "Criação" logo abaixo de Início (a pedido do dono): move o módulo criacao pro topo.
+  const _criacaoIdx = visibleMainItems.findIndex((i) => i.url === "/criacao");
+  if (_criacaoIdx > 0) visibleMainItems.unshift(visibleMainItems.splice(_criacaoIdx, 1)[0]);
+
   const isActive = (path: string) => pathname === path || pathname.startsWith(path + "/");
 
 
