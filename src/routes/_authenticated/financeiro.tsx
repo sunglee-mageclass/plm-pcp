@@ -1286,12 +1286,17 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
   const [fDe, setFDe] = useState("");
   const [fAte, setFAte] = useState("");
   const [selected, setSelected] = useState<StatusSel | null>(null);
+  const [fOrigem, setFOrigem] = useState<"all" | "oc" | "servico">("all");
 
   // Parcelas de OC + parcelas de serviço (terceirizados) num só conjunto: o Resumo
   // contabiliza AMBOS (antes só somava as de OC, por isso os serviços não apareciam).
   // Serviços (servicosCal) já chegam com data_vencimento garantida e sem empresa_id
   // (o filtro por fornecedor naturalmente os ignora — serviços usam "responsável").
-  const items = useMemo(() => [...parcelas, ...servicos], [parcelas, servicos]);
+  // Cada item ganha `_origem` (oc/servico) p/ o filtro do gráfico por origem.
+  const items = useMemo(() => [
+    ...parcelas.map((p) => ({ ...p, _origem: "oc" as const })),
+    ...servicos.map((p) => ({ ...p, _origem: "servico" as const })),
+  ], [parcelas, servicos]);
 
   const fornecedores = useMemo(() => {
     const m = new Map<string, string>();
@@ -1301,12 +1306,13 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
 
   // Conjunto-base após os filtros (fornecedor, mês, intervalo de datas).
   const base = useMemo(() => items.filter((p) => {
+    if (fOrigem !== "all" && p._origem !== fOrigem) return false;
     if (fFornecedor !== "all" && p.empresa_id !== fFornecedor) return false;
     if (fMes && p.data_vencimento.slice(0, 7) !== fMes) return false;
     if (fDe && p.data_vencimento < fDe) return false;
     if (fAte && p.data_vencimento > fAte) return false;
     return true;
-  }), [items, fFornecedor, fMes, fDe, fAte]);
+  }), [items, fOrigem, fFornecedor, fMes, fDe, fAte]);
 
   const sumBy = (st: StatusSel) => base.filter((p) => effectiveStatus(p) === st).reduce((s, p) => s + Number(p.valor), 0);
   const totalAPagar = sumBy("a_pagar");
@@ -1334,6 +1340,14 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-end gap-2">
+        {/* Origem: ver o gráfico + totais por OC, por Serviço, ou ambos. */}
+        <div className="mr-auto flex rounded-md border p-0.5">
+          {([["all", "Todos"], ["oc", "OC"], ["servico", "Serviço"]] as const).map(([o, lbl]) => (
+            <Button key={o} type="button" size="sm" variant={fOrigem === o ? "secondary" : "ghost"} className="h-7 px-3 text-xs" onClick={() => setFOrigem(o)}>
+              {lbl}
+            </Button>
+          ))}
+        </div>
         <FilterButton activeCount={activeCount} onClear={clearFilters}>
           <div className="grid gap-1">
             <Label className="text-xs">Fornecedor</Label>
