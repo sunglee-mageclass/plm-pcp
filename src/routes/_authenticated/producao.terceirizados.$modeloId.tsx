@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { DateField } from "@/components/shared/DateField";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -319,13 +320,38 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
 
   // "Observação de Partes do Molde": mesmo campo do CAD (cad.observacoes_molde).
   const [observacoesMolde, setObservacoesMolde] = useState("");
+  // "Não há acabamento (pós)": peças sem serviço pós → Status Geral vira Finalizado.
+  const [semAcabamento, setSemAcabamento] = useState(false);
   const [moldeHydrated, setMoldeHydrated] = useState(false);
   useEffect(() => {
     if (moldeHydrated) return;
     if (cad === undefined) return; // espera o cad carregar
     setObservacoesMolde((cad as any)?.observacoes_molde ?? "");
+    setSemAcabamento(Boolean((cad as any)?.sem_acabamento));
     setMoldeHydrated(true);
   }, [cad, moldeHydrated]);
+
+  // Salva a flag "não há pós" direto na cad (auto-save do toggle), otimista.
+  const semAcabamentoMut = useMutation({
+    mutationFn: async (v: boolean) => {
+      if (!cad?.id) return;
+      const { error } = await supabase.from("cad").update({ sem_acabamento: v } as any).eq("id", cad.id);
+      if (error) throw error;
+    },
+    onMutate: (v: boolean) => {
+      const prev = semAcabamento;
+      setSemAcabamento(v);
+      return { prev };
+    },
+    onError: (e: any, _v, ctx: any) => {
+      if (ctx) setSemAcabamento(ctx.prev);
+      toast.error(mensagemErro(e, "Erro ao salvar"));
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["terc-cad", modeloId] });
+      qc.invalidateQueries({ queryKey: ["producao-terc-list"] });
+    },
+  });
 
   // Hidrata os blocos a partir do servidor uma única vez (e de novo após salvar,
   // quando liberamos o guard). Espera a query ASSENTAR (isFetched && !isFetching):
@@ -417,7 +443,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
     if (blocos.length === 0) geral = "sem_selecao";
     else if (sPre !== "finalizado") geral = "em_andamento"; // pré ainda não fechou
     else if (sPos === "finalizado") geral = "finalizado"; // pré + pós fechados
-    else if (sPos === "sem_selecao") geral = "pre_finalizado"; // pré fechado, pós não selecionado
+    else if (sPos === "sem_selecao") geral = semAcabamento ? "finalizado" : "pre_finalizado"; // pré fechado, pós não selecionado (ou "não há pós")
     else geral = "pendente"; // pré fechado, pós em andamento
     const enviados = blocos.map((b) => b.data_enviado).filter(Boolean) as string[];
     const entregues = blocos.map((b) => b.data_entregue).filter(Boolean) as string[];
@@ -426,7 +452,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
     let sla = null;
     if (di && df) sla = Math.round((new Date(df).getTime() - new Date(di).getTime()) / 86400000);
     return { statusPre: sPre, statusPos: sPos, statusGeral: geral, dataInicial: di, dataFinal: df, slaDias: sla };
-  }, [blocos, categorias]);
+  }, [blocos, categorias, semAcabamento]);
 
   // Custo de serviço por peça e custo real (= materiais do CAD + serviço).
   const servicoTotal = useMemo(
@@ -600,6 +626,20 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
 
       {/* Categoria buttons (só as da etapa da aba) */}
       <Card className="p-4">
+        {tabEtapa === "pos_costura" && (
+          <label className="mb-3 flex items-start gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm">
+            <Checkbox
+              className="mt-0.5"
+              checked={semAcabamento}
+              onCheckedChange={(v) => semAcabamentoMut.mutate(Boolean(v))}
+              disabled={blocosDaAba.length > 0 || readOnly}
+            />
+            <span>
+              Este modelo <b>não tem acabamento</b> (pós). Marque para o Status Geral virar{" "}
+              <b>Finalizado</b> mesmo sem serviço pós.
+            </span>
+          </label>
+        )}
         <Label className="text-sm font-semibold mb-3 block">Categorias do Serviço (clique para adicionar um bloco)</Label>
         <div className="flex flex-wrap gap-2">
           {(categorias as any[]).filter((c) => (c.etapa ?? "ate_costura") === tabEtapa).map((c) => {
