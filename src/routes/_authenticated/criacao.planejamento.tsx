@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, Group, LayoutGrid, FileText, ArrowLeft, ArrowUp, ArrowDown } from "lucide-react";
+import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, Group, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -480,6 +480,7 @@ type Draft = {
   categoria_secundaria_id: string | null;
   tecidos_planejados: string[];
   status_planejamento: string;
+  croqui_url: string;
   desenho_tecnico_url: string;
   fotos_modelo: string[];
   fotos_referencia: string[];
@@ -491,7 +492,7 @@ const emptyDraft = (): Draft => ({
   nome: "", estilista_id: null, linha_id: null, colecao: "", semana: "", mes_id: null, ano_id: null,
   categoria_principal_id: null, categoria_secundaria_id: null,
   tecidos_planejados: [],
-  status_planejamento: "em_planejamento", desenho_tecnico_url: "", fotos_modelo: [], fotos_referencia: [],
+  status_planejamento: "em_planejamento", croqui_url: "", desenho_tecnico_url: "", fotos_modelo: [], fotos_referencia: [],
   observacoes_gerais: "",
   versao: 1, modelo_base_id: null,
 });
@@ -548,6 +549,7 @@ function ModeloDialog({
           categoria_secundaria_id: data.categoria_secundaria_id,
           tecidos_planejados: (data as any).tecidos_planejados ?? [],
           status_planejamento: data.status_planejamento ?? "em_planejamento",
+          croqui_url: (data as any).croqui_url ?? "",
           desenho_tecnico_url: (data as any).desenho_tecnico_url ?? "",
           fotos_modelo: data.fotos_modelo ?? [],
           fotos_referencia: data.fotos_referencia ?? [],
@@ -576,9 +578,15 @@ function ModeloDialog({
     onError: (e: any) => toast.error(mensagemErro(e)),
   });
 
+  const uploadCroqui = useMutation({
+    mutationFn: async (file: File) => uploadFile(file, "croqui"),
+    onSuccess: (path) => setDraft((d) => ({ ...d, croqui_url: path })),
+    onError: (e: any) => toast.error(mensagemErro(e)),
+  });
+
   const save = useMutation({
     mutationFn: async () => {
-      const payload: any = { ...draft, desenho_tecnico_url: draft.desenho_tecnico_url || null };
+      const payload: any = { ...draft, croqui_url: draft.croqui_url || null, desenho_tecnico_url: draft.desenho_tecnico_url || null };
       if (isEdit && modeloId) {
         const { error } = await supabase.from("modelos").update(payload).eq("id", modeloId);
         if (error) throw error;
@@ -732,11 +740,20 @@ function ModeloDialog({
             </div>
           </div>
 
-          <DesenhoTecnicoField
-            path={draft.desenho_tecnico_url}
-            onUpload={(f) => uploadDesenho.mutate(f)}
-            onRemove={() => setDraft((d) => ({ ...d, desenho_tecnico_url: "" }))}
-          />
+          <div className="grid sm:grid-cols-2 gap-4">
+            <SingleFileField
+              label="Foto do Croqui"
+              path={draft.croqui_url}
+              onUpload={(f) => uploadCroqui.mutate(f)}
+              onRemove={() => setDraft((d) => ({ ...d, croqui_url: "" }))}
+            />
+            <SingleFileField
+              label="Desenho Técnico"
+              path={draft.desenho_tecnico_url}
+              onUpload={(f) => uploadDesenho.mutate(f)}
+              onRemove={() => setDraft((d) => ({ ...d, desenho_tecnico_url: "" }))}
+            />
+          </div>
 
           <div className="grid sm:grid-cols-2 gap-4">
             <PhotoList label="Foto do Modelo" paths={draft.fotos_modelo}
@@ -1153,52 +1170,71 @@ function PhotoList({ label, paths, onAdd, onRemove }: {
       <Label>{label}</Label>
       <div className="flex flex-wrap gap-2">
         {paths.map((p, i) => (
-          <PhotoThumb key={i} path={p} onRemove={() => onRemove(i)} />
+          <FileThumb key={i} path={p} onRemove={() => onRemove(i)} />
         ))}
         <label className="inline-flex items-center gap-2 text-sm border rounded-md px-3 py-2 cursor-pointer hover:bg-accent w-fit">
           <Upload className="h-4 w-4" /> Adicionar
-          <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && onAdd(e.target.files[0])} />
+          <input type="file" accept="image/*,application/pdf" className="hidden" onChange={(e) => e.target.files?.[0] && onAdd(e.target.files[0])} />
         </label>
       </div>
     </div>
   );
 }
-function PhotoThumb({ path, onRemove }: { path: string; onRemove: () => void }) {
+/* Miniatura de anexo (imagem OU PDF) com preview + zoom ao clicar (abre grande). */
+function FileThumb({ path, onRemove }: { path: string; onRemove?: () => void }) {
+  const isPdf = /\.pdf$/i.test(path);
   const url = useSignedUrlBucket(path);
+  const [zoom, setZoom] = useState(false);
   return (
     <div className="relative h-20 w-20 rounded border overflow-hidden bg-muted group">
-      {url ? <img src={url} className="h-full w-full object-cover" alt="" /> : <ImageIcon className="m-auto h-8 w-8 text-muted-foreground" />}
-      <button onClick={onRemove} className="absolute top-0.5 right-0.5 bg-background/80 rounded p-0.5 opacity-0 group-hover:opacity-100">
-        <Trash2 className="h-3 w-3" />
-      </button>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => url && setZoom(true)}
+        onKeyDown={(e) => { if (url && (e.key === "Enter" || e.key === " ")) setZoom(true); }}
+        className="h-full w-full cursor-zoom-in flex items-center justify-center"
+        title="Abrir"
+      >
+        {!url ? (
+          <ImageIcon className="h-8 w-8 text-muted-foreground" />
+        ) : isPdf ? (
+          <iframe src={`${url}#toolbar=0&navpanes=0&scrollbar=0`} title="PDF" className="h-full w-full pointer-events-none" />
+        ) : (
+          <img src={url} className="h-full w-full object-cover" alt="" />
+        )}
+      </div>
+      {onRemove && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onRemove(); }}
+          className="absolute top-0.5 right-0.5 bg-background/80 rounded p-0.5 opacity-0 group-hover:opacity-100 z-10"
+          aria-label="Remover"
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
+      )}
+      <Dialog open={zoom} onOpenChange={setZoom}>
+        <DialogContent className="max-w-5xl p-1 border-none bg-transparent shadow-none [&>button]:!text-white [&>button]:top-2 [&>button]:right-2">
+          {isPdf ? (
+            <iframe src={url ?? ""} title="PDF" className="w-full h-[85vh] rounded-md bg-white" />
+          ) : (
+            <img src={url ?? ""} alt="" className="max-w-full max-h-[85vh] object-contain rounded-md shadow-2xl" />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-/* Anexo único (imagem ou PDF) — Desenho Técnico no Planejamento. */
-function DesenhoTecnicoField({ path, onUpload, onRemove }: {
-  path: string; onUpload: (f: File) => void; onRemove: () => void;
+/* Anexo único (imagem ou PDF) com preview + zoom — Croqui / Desenho Técnico. */
+function SingleFileField({ label, path, onUpload, onRemove }: {
+  label: string; path: string; onUpload: (f: File) => void; onRemove: () => void;
 }) {
-  const isPdf = /\.pdf$/i.test(path);
-  const pdfUrl = useSignedUrlBucket(isPdf && path ? path : null);
   return (
     <div className="grid gap-2">
-      <Label>Desenho Técnico</Label>
+      <Label>{label}</Label>
       <div className="flex flex-wrap items-center gap-2">
-        {path && (
-          isPdf ? (
-            <div className="flex items-center gap-2 border rounded-md px-3 py-2">
-              <a href={pdfUrl ?? "#"} target="_blank" rel="noreferrer" className="text-sm inline-flex items-center gap-2 hover:underline">
-                <FileText className="h-4 w-4" /> {path.split("/").pop()}
-              </a>
-              <button type="button" onClick={onRemove} className="text-muted-foreground hover:text-destructive" aria-label="Remover">
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </div>
-          ) : (
-            <PhotoThumb path={path} onRemove={onRemove} />
-          )
-        )}
+        {path && <FileThumb path={path} onRemove={onRemove} />}
         <label className="inline-flex items-center gap-2 text-sm border rounded-md px-3 py-2 cursor-pointer hover:bg-accent w-fit">
           <Upload className="h-4 w-4" /> {path ? "Trocar arquivo" : "Enviar arquivo"}
           <input

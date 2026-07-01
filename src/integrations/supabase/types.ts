@@ -1798,6 +1798,7 @@ export type Database = {
           categoria_secundaria_id: string | null
           colecao: string | null
           created_at: string | null
+          croqui_url: string | null
           custo_aviamento_total: number | null
           custo_entretela_total: number | null
           custo_forro_total: number | null
@@ -1846,6 +1847,7 @@ export type Database = {
           categoria_secundaria_id?: string | null
           colecao?: string | null
           created_at?: string | null
+          croqui_url?: string | null
           custo_aviamento_total?: number | null
           custo_entretela_total?: number | null
           custo_forro_total?: number | null
@@ -1894,6 +1896,7 @@ export type Database = {
           categoria_secundaria_id?: string | null
           colecao?: string | null
           created_at?: string | null
+          croqui_url?: string | null
           custo_aviamento_total?: number | null
           custo_entretela_total?: number | null
           custo_forro_total?: number | null
