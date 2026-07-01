@@ -180,7 +180,14 @@ function PlanejamentoPage() {
       return (data ?? []) as CatOpt[];
     },
   });
-  const { data: linhas = [] } = useOpts("linhas");
+  const { data: linhas = [] } = useQuery({
+    queryKey: ["opt", "linhas", "com-markup"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("linhas").select("id, nome, markup").order("nome");
+      if (error) throw error;
+      return (data ?? []) as { id: string; nome: string; markup: number | null }[];
+    },
+  });
   const { data: artigos = [] } = useQuery({
     queryKey: ["artigos-planejamento"],
     queryFn: async () => {
@@ -226,6 +233,7 @@ function PlanejamentoPage() {
   const estMap = Object.fromEntries(estilistas.map((e) => [e.id, e.nome]));
   const catMap = Object.fromEntries(categorias.map((c) => [c.id, c.nome]));
   const linhaMap = Object.fromEntries(linhas.map((l) => [l.id, l.nome]));
+  const linhaMarkupMap = Object.fromEntries(linhas.map((l) => [l.id, l.markup]));
   const mesMap = Object.fromEntries(meses.map((x) => [x.id, x.nome]));
 
   // Ordenação dos cards. Como nome/estilista/categoria/coleção/linha/status são
@@ -270,6 +278,7 @@ function PlanejamentoPage() {
       estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
       categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
       linhaNome={m.linha_id ? linhaMap[m.linha_id] : null}
+      markup={m.linha_id ? (linhaMarkupMap[m.linha_id] ?? null) : null}
       mesNome={m.mes_id ? mesMap[m.mes_id] : null}
       onOpen={() => setOpenId(m.id)}
       compact={compact}
@@ -429,8 +438,8 @@ function PlanejamentoPage() {
 }
 
 
-function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, mesNome, onOpen, compact }: {
-  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; mesNome: string | null; onOpen: () => void; compact?: boolean;
+function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, markup, mesNome, onOpen, compact }: {
+  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; markup: number | null; mesNome: string | null; onOpen: () => void; compact?: boolean;
 }) {
   // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
   const cover = (modelo.fotos_modelo?.[0]) || modelo.desenho_tecnico_url || modelo.croqui_url || null;
@@ -460,6 +469,7 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, mesNome, 
         <p className="text-xs text-muted-foreground truncate">{mesNome ?? "—"}</p>
         <p className="text-xs text-muted-foreground truncate">{categoriaNome ?? "Sem categoria"}</p>
         <p className="text-xs text-muted-foreground truncate">{linhaNome ?? "Sem linha"}</p>
+        {markup != null && <p className="text-xs text-muted-foreground truncate">Markup: {Number(markup).toLocaleString("pt-BR")}</p>}
       </div>
       )}
     </Card>

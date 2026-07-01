@@ -36,6 +36,7 @@ type LancCard = {
   nome: string | null;
   colecao: string | null;
   linha: string | null;
+  markup: number | null;
   mes: string | null;
   ano: string | null;
   mes_id: string | null;
@@ -80,7 +81,7 @@ function LancamentosPage() {
       // Produtos cujo Controle de Qualidade foi CONFIRMADO.
       const { data: modelos, error } = await supabase
         .from("modelos")
-        .select("id, ref, nome, colecao, mes_id, ano_id, linha_id, revisao_pendente, fotos_modelo, linha:linha_id(nome), categorias_produto:categoria_principal_id(nome), cad(id, controle_qualidade(id, status, fotografado_variantes))")
+        .select("id, ref, nome, colecao, mes_id, ano_id, linha_id, revisao_pendente, fotos_modelo, linha:linha_id(nome, markup), categorias_produto:categoria_principal_id(nome), cad(id, controle_qualidade(id, status, fotografado_variantes))")
         .eq("enviado_cad", true);
       if (error) throw error;
 
@@ -144,6 +145,7 @@ function LancamentosPage() {
           nome: m.nome,
           colecao: m.colecao,
           linha: m.linha?.nome ?? null,
+          markup: m.linha?.markup ?? null,
           mes: m.mes_id ? (mesMap.get(m.mes_id) ?? null) : null,
           ano: m.ano_id ? (anoMap.get(m.ano_id) ?? null) : null,
           mes_id: m.mes_id,
@@ -407,6 +409,7 @@ function LancamentoCard(props: { card: LancCard; compact: boolean; onUpload: (f:
                 {[card.colecao, card.linha, card.categoria_nome].filter(Boolean).join(" · ") || "—"}
               </p>
               <p className="text-muted-foreground">{[card.mes, card.ano].filter(Boolean).join(" / ") || "—"}</p>
+              {card.markup != null && <p className="text-muted-foreground">Markup: {Number(card.markup).toLocaleString("pt-BR")}</p>}
               {card.tecido_nome && <p className="text-muted-foreground">Tecido: {card.tecido_nome}</p>}
               {card.variantes.length > 0 && (
                 <div className="pt-1 mt-1 border-t space-y-0.5">
