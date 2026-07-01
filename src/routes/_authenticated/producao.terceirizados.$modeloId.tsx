@@ -184,7 +184,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
     queryFn: async () => {
       const { data, error } = await supabase
         .from("categorias_terceirizado")
-        .select("id, nome")
+        .select("id, nome, etapa")
         .order("ordem")
         .order("nome");
       if (error) throw error;
@@ -266,6 +266,9 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
   });
 
   const [blocos, setBlocos] = useState<Bloco[]>([]);
+  // Abas Pré (até costura) / Pós (pós costura = "acabamento") — filtram categorias e blocos.
+  const [tabEtapa, setTabEtapa] = useState<"ate_costura" | "pos_costura">("ate_costura");
+  const catEtapa = (id: string) => (categorias as any[]).find((c) => c.id === id)?.etapa ?? "ate_costura";
   const [printTarget, setPrintTarget] = useState<"ficha" | "os">("ficha");
 
   // Itens da Ordem de Serviço: um por bloco COM responsável (terceirizado ou colaborador interno).
@@ -542,11 +545,21 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
         </div>
       </Card>
 
-      {/* Categoria buttons */}
+      {/* Abas Pré/Pós: mesma tela, filtrando pela etapa da categoria. */}
+      <div className="flex rounded-md border p-0.5 w-fit">
+        <Button size="sm" variant={tabEtapa === "ate_costura" ? "secondary" : "ghost"} onClick={() => setTabEtapa("ate_costura")}>
+          Pré (até costura)
+        </Button>
+        <Button size="sm" variant={tabEtapa === "pos_costura" ? "secondary" : "ghost"} onClick={() => setTabEtapa("pos_costura")}>
+          Pós (acabamento)
+        </Button>
+      </div>
+
+      {/* Categoria buttons (só as da etapa da aba) */}
       <Card className="p-4">
         <Label className="text-sm font-semibold mb-3 block">Categorias do Serviço (clique para adicionar um bloco)</Label>
         <div className="flex flex-wrap gap-2">
-          {(categorias as any[]).map((c) => {
+          {(categorias as any[]).filter((c) => (c.etapa ?? "ate_costura") === tabEtapa).map((c) => {
             const count = countByCat[c.id] ?? 0;
             return (
               <Button
@@ -576,8 +589,9 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
         </div>
       </Card>
 
-      {/* Blocos */}
+      {/* Blocos (só os da etapa da aba; idx preservado p/ updateBloco) */}
       {blocos.map((b, idx) => {
+        if (catEtapa(b.categoria_terceirizado_id) !== tabEtapa) return null;
         const catNome = (categorias as any[]).find((c) => c.id === b.categoria_terceirizado_id)?.nome ?? "—";
         const responsaveis = (terceirizados as any[]).filter((t) => (t.categorias_ids ?? []).includes(b.categoria_terceirizado_id));
         const colabsCat = colaboradoresDaCategoria(b.categoria_terceirizado_id);

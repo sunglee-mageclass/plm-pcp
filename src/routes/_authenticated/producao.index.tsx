@@ -32,10 +32,11 @@ function ProducaoIndex() {
 
   // oficina_posicao: 'terceirizados' (default) | 'acabamento' — oficina vira sub-item dessa etapa
   const pos = (cfg as any)?.oficina_posicao ?? "terceirizados";
+  // Acabamento aposentado: virou serviço "pós-costura" (aba Pós dentro de Serviços).
   const ordered: (keyof typeof SECTIONS)[] =
     pos === "acabamento"
-      ? ["cad", "terceirizados", "cq", "acabamento", "direcionamento", "lancamentos"]
-      : ["cad", "terceirizados", "cq", "acabamento", "direcionamento", "lancamentos"];
+      ? ["cad", "terceirizados", "cq", "direcionamento", "lancamentos"]
+      : ["cad", "terceirizados", "cq", "direcionamento", "lancamentos"];
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6">
@@ -43,7 +44,7 @@ function ProducaoIndex() {
         <Factory className="h-7 w-7 text-primary mt-0.5 shrink-0" />
         <div>
           <h1 className="text-2xl font-bold">Produção</h1>
-          <p className="text-sm text-muted-foreground">CAD, serviços, oficina, Controle de Qualidade, acabamento e lançamentos.</p>
+          <p className="text-sm text-muted-foreground">CAD, serviços (pré/pós), Controle de Qualidade, direcionamento e lançamentos.</p>
         </div>
       </header>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
