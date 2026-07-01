@@ -356,8 +356,8 @@ function ConsumoOcPage() {
           {filtered.map((oc) => {
             const isOpen = expanded.has(oc.oc_id);
             return (
-              <Card key={oc.oc_id}>
-                <CardHeader className="pb-3 cursor-pointer" onClick={() => toggle(oc.oc_id)}>
+              <Card key={oc.oc_id} className="cursor-pointer" onClick={() => toggle(oc.oc_id)}>
+                <CardHeader className="pb-3">
                   <div className="flex items-center justify-between gap-3 flex-wrap">
                     <CardTitle className="text-base flex items-center gap-2">
                       <ChevronRight className={`h-4 w-4 transition-transform ${isOpen ? "rotate-90" : ""}`} />
@@ -379,7 +379,10 @@ function ConsumoOcPage() {
                     </div>
                   </div>
                 </CardHeader>
-                <CardContent className={isOpen ? "space-y-6" : "pt-0"}>
+                <CardContent
+                  className={isOpen ? "space-y-6 cursor-default" : "pt-0"}
+                  onClick={isOpen ? (e) => e.stopPropagation() : undefined}
+                >
                   {isOpen ? (
                     agruparPorTecido(oc, keepModel, anyFilter).filter((t) => catKeep(t.artigo_id)).map((t) => {
                       const sobraClass = t.sobra < 0 ? "text-destructive" : t.sobra <= t.recebido * 0.05 ? "text-emerald-600" : "text-foreground";
