@@ -362,6 +362,7 @@ export type Database = {
           observacoes_molde: string | null
           observacoes_tecnicas: string | null
           proporcoes_replanejadas: Json | null
+          sem_acabamento: boolean
           status_corte: string | null
           tenant_id: string | null
         }
@@ -379,6 +380,7 @@ export type Database = {
           observacoes_molde?: string | null
           observacoes_tecnicas?: string | null
           proporcoes_replanejadas?: Json | null
+          sem_acabamento?: boolean
           status_corte?: string | null
           tenant_id?: string | null
         }
@@ -396,6 +398,7 @@ export type Database = {
           observacoes_molde?: string | null
           observacoes_tecnicas?: string | null
           proporcoes_replanejadas?: Json | null
+          sem_acabamento?: boolean
           status_corte?: string | null
           tenant_id?: string | null
         }
@@ -777,6 +780,7 @@ export type Database = {
       categorias_terceirizado: {
         Row: {
           created_at: string | null
+          etapa: string
           id: string
           nome: string
           ordem: number
@@ -784,6 +788,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string | null
+          etapa?: string
           id?: string
           nome: string
           ordem?: number
@@ -791,6 +796,7 @@ export type Database = {
         }
         Update: {
           created_at?: string | null
+          etapa?: string
           id?: string
           nome?: string
           ordem?: number
@@ -842,6 +848,7 @@ export type Database = {
         Row: {
           cad_id: string | null
           confirmado_at: string | null
+          confirmado_pos_at: string | null
           created_at: string | null
           data_conserto_entregue: string | null
           data_conserto_enviado: string | null
@@ -852,17 +859,21 @@ export type Database = {
           data_recebimento_enviado_oficina: string | null
           data_recebimento_prevista: string | null
           fotografado_variantes: Json
+          fotografado_variantes_pos: Json
           id: string
           observacoes_cq: string | null
+          observacoes_cq_pos: string | null
           pecas_faltantes: number | null
           pecas_incompletas: number | null
           pecas_sem_etiqueta: number | null
           status: string
+          status_pos: string
           tenant_id: string | null
         }
         Insert: {
           cad_id?: string | null
           confirmado_at?: string | null
+          confirmado_pos_at?: string | null
           created_at?: string | null
           data_conserto_entregue?: string | null
           data_conserto_enviado?: string | null
@@ -873,17 +884,21 @@ export type Database = {
           data_recebimento_enviado_oficina?: string | null
           data_recebimento_prevista?: string | null
           fotografado_variantes?: Json
+          fotografado_variantes_pos?: Json
           id?: string
           observacoes_cq?: string | null
+          observacoes_cq_pos?: string | null
           pecas_faltantes?: number | null
           pecas_incompletas?: number | null
           pecas_sem_etiqueta?: number | null
           status?: string
+          status_pos?: string
           tenant_id?: string | null
         }
         Update: {
           cad_id?: string | null
           confirmado_at?: string | null
+          confirmado_pos_at?: string | null
           created_at?: string | null
           data_conserto_entregue?: string | null
           data_conserto_enviado?: string | null
@@ -894,12 +909,15 @@ export type Database = {
           data_recebimento_enviado_oficina?: string | null
           data_recebimento_prevista?: string | null
           fotografado_variantes?: Json
+          fotografado_variantes_pos?: Json
           id?: string
           observacoes_cq?: string | null
+          observacoes_cq_pos?: string | null
           pecas_faltantes?: number | null
           pecas_incompletas?: number | null
           pecas_sem_etiqueta?: number | null
           status?: string
+          status_pos?: string
           tenant_id?: string | null
         }
         Relationships: [
@@ -944,6 +962,57 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cq_pos_variantes: {
+        Row: {
+          controle_qualidade_id: string
+          created_at: string
+          destino_defeito: string | null
+          etapa: string
+          grade_total: number
+          grades: Json
+          id: string
+          producao_terceirizado_id: string
+          variante_numero: number
+        }
+        Insert: {
+          controle_qualidade_id: string
+          created_at?: string
+          destino_defeito?: string | null
+          etapa: string
+          grade_total?: number
+          grades?: Json
+          id?: string
+          producao_terceirizado_id: string
+          variante_numero: number
+        }
+        Update: {
+          controle_qualidade_id?: string
+          created_at?: string
+          destino_defeito?: string | null
+          etapa?: string
+          grade_total?: number
+          grades?: Json
+          id?: string
+          producao_terceirizado_id?: string
+          variante_numero?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cq_pos_variantes_controle_qualidade_id_fkey"
+            columns: ["controle_qualidade_id"]
+            isOneToOne: false
+            referencedRelation: "controle_qualidade"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cq_pos_variantes_producao_terceirizado_id_fkey"
+            columns: ["producao_terceirizado_id"]
+            isOneToOne: false
+            referencedRelation: "producao_terceirizados"
             referencedColumns: ["id"]
           },
         ]
@@ -2603,41 +2672,6 @@ export type Database = {
           },
         ]
       }
-      print_templates: {
-        Row: {
-          created_at: string | null
-          doc_type: string
-          id: string
-          layout: Json
-          tenant_id: string | null
-          updated_at: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          doc_type: string
-          id?: string
-          layout?: Json
-          tenant_id?: string | null
-          updated_at?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          doc_type?: string
-          id?: string
-          layout?: Json
-          tenant_id?: string | null
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "print_templates_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       producao_acabamento: {
         Row: {
           ativo: boolean | null
@@ -3569,6 +3603,7 @@ export type Database = {
         Returns: Json
       }
       _desmarcar_cq_core: { Args: { _cad_id: string }; Returns: Json }
+      _desmarcar_cq_pos_core: { Args: { _cad_id: string }; Returns: Json }
       _enviar_modelo_para_cad_core: {
         Args: {
           _ficha_medida_url?: string
@@ -3585,6 +3620,10 @@ export type Database = {
           p_mes_id: string
         }
         Returns: boolean
+      }
+      _ranking_oficinas_core: {
+        Args: { p_categoria_produto?: string }
+        Returns: Json
       }
       _reabrir_rolo_core: { Args: { _rolo_id: string }; Returns: undefined }
       _recalcular_parcelas_core: {
@@ -3640,6 +3679,15 @@ export type Database = {
         }
         Returns: Json
       }
+      _salvar_cq_pos_core: {
+        Args: {
+          _cad_id: string
+          _confirmar?: boolean
+          _cq_pos: Json
+          _itens: Json
+        }
+        Returns: Json
+      }
       _salvar_modelo_bom_core: {
         Args: {
           _aviamentos: Json
@@ -3648,6 +3696,10 @@ export type Database = {
           _tecidos: Json
         }
         Returns: undefined
+      }
+      _salvar_oc_aviamento_core: {
+        Args: { _itens: Json; _oc: Json; _oc_id: string }
+        Returns: string
       }
       _trocar_rolo_core: {
         Args: { _nova_metragem?: number; _rolo_id: string }
@@ -3727,6 +3779,7 @@ export type Database = {
         Returns: Json
       }
       desmarcar_cq: { Args: { _cad_id: string }; Returns: Json }
+      desmarcar_cq_pos: { Args: { _cad_id: string }; Returns: Json }
       detalhe_estoque_variante: {
         Args: { _variante_id: string }
         Returns: Json
@@ -3741,6 +3794,7 @@ export type Database = {
       }
       estoque_tecido_por_artigo: { Args: never; Returns: Json }
       excluir_loja: { Args: { _tenant_id: string }; Returns: undefined }
+      forcar_logout: { Args: { _user_id: string }; Returns: undefined }
       get_user_tenant_id: { Args: never; Returns: string }
       has_role: {
         Args: {
@@ -3776,6 +3830,10 @@ export type Database = {
       }
       ocs_para_rolo: { Args: never; Returns: Json }
       proximo_codigo_rolo: { Args: { _artigo_id?: string }; Returns: string }
+      ranking_oficinas: {
+        Args: { p_categoria_produto?: string }
+        Returns: Json
+      }
       reabrir_rolo: { Args: { _rolo_id: string }; Returns: undefined }
       recalcular_parcelas: {
         Args: { _oc_id: string; _tipo: string }
@@ -3833,6 +3891,15 @@ export type Database = {
         }
         Returns: Json
       }
+      salvar_cq_pos: {
+        Args: {
+          _cad_id: string
+          _confirmar?: boolean
+          _cq_pos: Json
+          _itens: Json
+        }
+        Returns: Json
+      }
       salvar_direcionamento: {
         Args: { _cad_id: string; _rows: Json }
         Returns: undefined
@@ -3845,6 +3912,10 @@ export type Database = {
           _tecidos: Json
         }
         Returns: undefined
+      }
+      salvar_oc_aviamento: {
+        Args: { _itens: Json; _oc: Json; _oc_id: string }
+        Returns: string
       }
       salvar_terceirizados: {
         Args: { _blocos: Json; _cad_id: string; _observacoes_molde?: string }

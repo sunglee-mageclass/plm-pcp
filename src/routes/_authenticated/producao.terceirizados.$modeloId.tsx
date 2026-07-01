@@ -340,7 +340,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
   const semAcabamentoMut = useMutation({
     mutationFn: async (v: boolean) => {
       if (!cad?.id) return;
-      const { error } = await supabase.from("cad").update({ sem_acabamento: v } as any).eq("id", cad.id);
+      const { error } = await supabase.from("cad").update({ sem_acabamento: v }).eq("id", cad.id);
       if (error) throw error;
     },
     onMutate: (v: boolean) => {

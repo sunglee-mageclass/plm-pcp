@@ -92,7 +92,7 @@ export const CqPosView = forwardRef<CqPosHandle, {
     queryKey: ["cqpos-itens", cqId],
     enabled: !!cqId,
     queryFn: async () =>
-      (await supabase.from("cq_pos_variantes" as any).select("*").eq("controle_qualidade_id", cqId)).data ?? [],
+      (await supabase.from("cq_pos_variantes").select("*").eq("controle_qualidade_id", cqId)).data ?? [],
   });
 
   // Só hidrata quando as queries ASSENTARAM (isFetched && !isFetching): re-hidratar do
@@ -162,7 +162,7 @@ export const CqPosView = forwardRef<CqPosHandle, {
 
   const save = useMutation({
     mutationFn: async (confirmar: boolean) => {
-      const { error } = await supabase.rpc("salvar_cq_pos" as any, {
+      const { error } = await supabase.rpc("salvar_cq_pos", {
         _cad_id: cadId,
         _cq_pos: { observacoes_cq_pos: obs || null, fotografado_variantes_pos: {} },
         _itens: buildItens(),
@@ -184,7 +184,7 @@ export const CqPosView = forwardRef<CqPosHandle, {
 
   const desmarcar = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.rpc("desmarcar_cq_pos" as any, { _cad_id: cadId });
+      const { error } = await supabase.rpc("desmarcar_cq_pos", { _cad_id: cadId });
       if (error) throw error;
     },
     onSuccess: async () => {
