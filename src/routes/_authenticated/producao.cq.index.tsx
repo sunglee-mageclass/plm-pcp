@@ -67,6 +67,9 @@ function CqListPage() {
             statusGeral,
           };
         })
+        // Premissa: todo modelo produzível tem serviço de costura (pré). Um modelo com
+        // SÓ serviço pós-costura (sem pré) não entra no CQ por aqui — caso inexistente
+        // hoje (etapa default 'ate_costura'); se surgir, relaxar este gate.
         .filter((r: any) => r.preFinalizado);
     },
   });

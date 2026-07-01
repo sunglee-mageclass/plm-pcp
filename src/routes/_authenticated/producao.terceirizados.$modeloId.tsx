@@ -644,7 +644,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
               className="mt-0.5"
               checked={semAcabamento}
               onCheckedChange={(v) => semAcabamentoMut.mutate(Boolean(v))}
-              disabled={blocosDaAba.length > 0 || readOnly}
+              disabled={blocosDaAba.length > 0 || readOnly || !cad?.id}
             />
             <span>Este modelo <b>não tem acabamento</b> (pós).</span>
           </label>
