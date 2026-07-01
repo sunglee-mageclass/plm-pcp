@@ -38,7 +38,7 @@ function TercListPage() {
       const { data, error } = await supabase
         .from("modelos")
         .select(
-          "id, ref, versao, nome, colecao, mes_id, ano_id, categoria_principal_id, revisao_pendente, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, status_corte, producao_terceirizados(data_enviado, data_entregue, ativo))",
+          "id, ref, versao, nome, colecao, mes_id, ano_id, categoria_principal_id, revisao_pendente, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, status_corte, producao_terceirizados(data_enviado, data_entregue, ativo, categorias_terceirizado(etapa)))",
         )
         .eq("enviado_cad", true)
         .order("created_at", { ascending: false });
@@ -46,12 +46,22 @@ function TercListPage() {
       // Só aparece após o CAD ser confirmado (Confirmar CAD => cad.enviado_corte).
       return (data ?? []).filter((m: any) => m.cad?.[0]?.enviado_corte === true).map((m: any) => {
         const tercs = (m.cad?.[0]?.producao_terceirizados ?? []).filter((t: any) => t.ativo !== false);
-        let statusGeral: "sem" | "pendente" | "em_andamento" | "finalizado" = "sem";
+        // Status Geral com pré/pós (mesma regra do detalhe): pré fin + pós pendente=pendente;
+        // pré+pós fin=finalizado; pré fin + pós SEM seleção=pré finalizado.
+        const etapaDe = (t: any) => t.categorias_terceirizado?.etapa ?? "ate_costura";
+        const statusDe = (bs: any[]) => {
+          if (bs.length === 0) return "vazio";
+          if (bs.every((t: any) => !!t.data_entregue)) return "finalizado";
+          if (bs.some((t: any) => !!t.data_enviado)) return "em_andamento";
+          return "pendente";
+        };
+        let statusGeral: "sem" | "pendente" | "em_andamento" | "finalizado" | "pre_finalizado" = "sem";
         if (tercs.length > 0) {
-          const todosEntregues = tercs.every((t: any) => !!t.data_entregue);
-          const algumEnviado = tercs.some((t: any) => !!t.data_enviado);
-          if (todosEntregues) statusGeral = "finalizado";
-          else if (algumEnviado) statusGeral = "em_andamento";
+          const sPre = statusDe(tercs.filter((t: any) => etapaDe(t) === "ate_costura"));
+          const sPos = statusDe(tercs.filter((t: any) => etapaDe(t) === "pos_costura"));
+          if (sPre !== "finalizado") statusGeral = sPre === "vazio" ? "pendente" : (sPre as any);
+          else if (sPos === "finalizado") statusGeral = "finalizado";
+          else if (sPos === "vazio") statusGeral = "pre_finalizado";
           else statusGeral = "pendente";
         }
         return {
@@ -121,6 +131,7 @@ function TercListPage() {
                 { id: "all", nome: "Todos" },
                 { id: "pendente", nome: "Pendente" },
                 { id: "em_andamento", nome: "Em andamento" },
+                { id: "pre_finalizado", nome: "Pré finalizado" },
                 { id: "finalizado", nome: "Finalizado" },
                 { id: "sem", nome: "Sem serviço" },
               ] },
@@ -191,8 +202,9 @@ function TercListPage() {
   );
 }
 
-function StatusBadge({ status }: { status: "sem" | "pendente" | "em_andamento" | "finalizado" }) {
+function StatusBadge({ status }: { status: "sem" | "pendente" | "em_andamento" | "finalizado" | "pre_finalizado" }) {
   if (status === "finalizado") return <SharedStatusBadge tone="success">Finalizado</SharedStatusBadge>;
+  if (status === "pre_finalizado") return <SharedStatusBadge tone="info">Pré finalizado</SharedStatusBadge>;
   if (status === "em_andamento") return <SharedStatusBadge tone="warning">Em andamento</SharedStatusBadge>;
   if (status === "pendente") return <SharedStatusBadge tone="neutral">Pendente</SharedStatusBadge>;
   return <SharedStatusBadge tone="neutral">Sem serv.</SharedStatusBadge>;
