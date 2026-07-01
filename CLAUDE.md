@@ -82,8 +82,10 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   (+variantes), aviamentos
 - **criacao**: planejamento, desenvolvimento (kanban dinâmico, ficha técnica, observações)
 - **entrada-saida**: oc-tecido, oc-aviamento, rolos, estoque
-- **producao**: cad, terceirizados, oficina, cq (+ alertas de CQ de tecido), acabamento,
-  direcionamento, lancamentos, consumo por OC
+- **producao**: cad, terceirizados=**Serviços** (abas pré/pós-costura por `categorias_terceirizado.etapa`),
+  oficina, cq (abas **Pré/Pós** dentro do item — ver invariante 6), direcionamento, lancamentos,
+  consumo por OC (+ alertas de CQ de tecido). **Acabamento aposentado** (virou serviço pós-costura);
+  Editor de Impressão REMOVIDO (Ficha de Corte usa sempre o cabeçalho padrão `FichaHeader`)
 - **financeiro**: calendário + lista + parcelas (a pagar) + serviços terceirizados
 - **dashboard**: 5 abas (coleção, estoque, produção, financeiro, custos)
 - **admin**: lojas (criar/editar/reset/excluir), usuarios, usuarios-loja, configuracoes
@@ -117,6 +119,12 @@ e verifique** — o repo muda rápido.
 6. **CQ** — `salvar_cq`/`desmarcar_cq` fazem status + `cq_variantes` + grade real numa txn.
    `salvar_cad_completo` PRESERVA a grade real quando o CQ do CAD está confirmado. CQ de
    tecido em `ocs_tecido_itens.cq_*` + página Alertas (`cq_alerta_status`: troca/cancelar).
+   **CQ Pré/Pós (Fase 3):** 2 visões DENTRO do item. **Pré** = o de sempre (status, `cq_variantes`,
+   grade real → `cad_grades`). **Pós** (acabamento) = `controle_qualidade.status_pos` + tabela
+   `cq_pos_variantes` (serviço pós-costura × variante × etapa), RPCs `salvar_cq_pos`/`desmarcar_cq_pos`
+   que **NÃO** tocam `cad_grades` (só exibem a grade real do Pré). Gates: Pré abre com pré finalizado;
+   Pós com pós finalizado; **Direcionamento exige Pré E (se há pós) Pós confirmados.** "Sem acabamento"
+   = `cad.sem_acabamento` (Pré finalizado vira Finalizado sem pós).
 7. **1 CAD por modelo** — garantido por TRIGGER `enforce_unique_fk` (NÃO por UNIQUE, ver
    "O que NÃO fazer"). Enviar ao corte (`baixar_estoque_tecido_corte`) é atômico e retorna
    `deficit[]` por variante.
@@ -124,7 +132,10 @@ e verifique** — o repo muda rápido.
    (`parcelas_servico` + RPC `servicos_financeiro`); oficina entra após CQ confirmado.
 9. **Segurança / RPC** — padrão **wrapper + `_core`**: o wrapper checa
    `user_can_view(_pagina)` (dashboards) ou `tenant_module_enabled(_module)` (módulos
-   desligáveis) e o `_core` tem EXECUTE revogado de anon. Loja inativa = suspensão real
+   desligáveis) e o `_core` tem EXECUTE revogado de anon+authenticated. ⚠️ **`REVOKE … FROM PUBLIC`
+   NÃO basta** — o default ACL do Supabase concede EXECUTE a `anon`/`authenticated` em toda função
+   nova; use **`REVOKE EXECUTE … FROM anon, authenticated`** no `_core` (senão dá pra chamar o `_core`
+   direto e furar o gate de módulo — regressão real pega na revisão do CQ Pós). Loja inativa = suspensão real
    (sentinela nil → RLS bloqueia + RPCs dão RAISE). `reset_loja`/`excluir_loja` são
    super_admin-only; `_wipe_tenant_core` usa `session_replication_role=replica` (FKs p/
    `tenants` são NO ACTION); super_admins nunca são apagados.

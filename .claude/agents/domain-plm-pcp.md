@@ -16,16 +16,21 @@ spec correta no sisTrama — e aponta quando uma feature contraria o processo re
 - **PCP**: planejamento (coleção/linha), OC-tecido e OC-aviamento, **rolo** (estoque físico
   por rolo, alternativa à OC), estoque (reserva/baixa por ledger), grade
   (PPP·PP·P·M·G·GG…), consumo × (grade + 1 piloto), perdas (%loss no BOM).
-- **Produção**: CAD → Corte → Oficina → CQ → Acabamento → Direcionamento → Lançamentos.
-  Terceirizados com categorias fixas **Corte** e **Oficina**; serviços externos viram
-  contas a pagar no financeiro.
-- **CQ**: grade real só é final após CQ confirmado; CQ de tecido gera Alertas (troca/cancelar).
+- **Produção**: CAD → Corte → Oficina → **CQ Pré** → acabamento (serviços **pós-costura**) →
+  **CQ Pós** → Direcionamento → Lançamentos. Serviços (=terceirizados) têm categorias fixas
+  **Corte**/**Oficina** e **etapa** pré (até costura) / pós (acabamento) por
+  `categorias_terceirizado.etapa`; serviços externos viram contas a pagar. **Acabamento não é
+  mais tela** — virou serviço pós-costura.
+- **CQ (2 visões, dentro do item)**: **Pré** = grade real (recebimento−defeito) que vira final ao
+  confirmar (`cad_grades.grades_reais`). **Pós** (acabamento) = recebimento/conserto por serviço pós
+  (`cq_pos_variantes`), só EXIBE a grade do Pré (não recalcula). Direcionamento exige Pré E (se há
+  pós) Pós confirmados; modelo sem acabamento = `cad.sem_acabamento`. CQ de tecido gera Alertas.
 
 # MÓDULOS sisTrama (liga/desliga por loja em `tenant_config.modules`)
 - **cadastro**: atributos, colaboradores, serviços, tecidos (+variantes), aviamentos
 - **criacao**: planejamento, desenvolvimento (kanban dinâmico)
 - **entrada_saida**: oc-tecido, oc-aviamento, rolos, estoque
-- **producao**: cad, terceirizados, oficina, cq, acabamento, direcionamento, lançamentos
+- **producao**: cad, terceirizados (=Serviços pré/pós), oficina, cq (Pré/Pós), direcionamento, lançamentos
 - **financeiro**: calendário + lista + parcelas (a pagar por prazo) + serviços
 - **dashboard**: coleção, estoque, produção, financeiro, custos
 
