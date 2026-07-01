@@ -213,6 +213,7 @@ function PlanejamentoPage() {
   const estMap = Object.fromEntries(estilistas.map((e) => [e.id, e.nome]));
   const catMap = Object.fromEntries(categorias.map((c) => [c.id, c.nome]));
   const linhaMap = Object.fromEntries(linhas.map((l) => [l.id, l.nome]));
+  const mesMap = Object.fromEntries(meses.map((x) => [x.id, x.nome]));
 
   // Ordenação dos cards. Como nome/estilista/categoria/coleção/linha/status são
   // exibidos formatados (ou via mapa de id→nome), ordenamos pelo VALOR CRU usando
@@ -256,6 +257,7 @@ function PlanejamentoPage() {
       estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
       categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
       linhaNome={m.linha_id ? linhaMap[m.linha_id] : null}
+      mesNome={m.mes_id ? mesMap[m.mes_id] : null}
       onOpen={() => setOpenId(m.id)}
       compact={compact}
     />
@@ -297,7 +299,7 @@ function PlanejamentoPage() {
               { label: "Status", value: fStatus, onChange: setFStatus, options: [{ id: "all", nome: "Todos" }, ...STATUS_OPTS.map((s) => ({ id: s.value, nome: s.label }))] },
               { label: fl("estilista"), value: fEstilista, onChange: setFEstilista, options: [{ id: "all", nome: "Todos" }, ...estilistas] },
               { label: "Semana", value: fSemana || "all", onChange: (v) => setFSemana(v === "all" ? "" : v), options: [{ id: "all", nome: "Todas" }, ...["1","2","3","4","5"].map((s) => ({ id: s, nome: s }))] },
-              { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
+              { label: "Mês de Planejamento", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
               { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...anos] },
               { label: "Categoria", value: fCat, onChange: setFCat, options: [{ id: "all", nome: "Todas" }, ...categorias] },
               { label: fl("colecao"), value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
@@ -412,8 +414,8 @@ function PlanejamentoPage() {
 }
 
 
-function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, onOpen, compact }: {
-  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; onOpen: () => void; compact?: boolean;
+function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, mesNome, onOpen, compact }: {
+  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; mesNome: string | null; onOpen: () => void; compact?: boolean;
 }) {
   const photo = modelo.fotos_modelo?.[0] ?? null;
   const url = useSignedUrlBucket(photo);
@@ -435,6 +437,7 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, onOpen, c
         <p className="text-xs text-muted-foreground truncate">{modelo.colecao ?? "Sem coleção"}</p>
         <p className="text-xs text-muted-foreground truncate">{categoriaNome ?? "Sem categoria"}</p>
         <p className="text-xs text-muted-foreground truncate">{linhaNome ?? "Sem linha"}</p>
+        <p className="text-xs text-muted-foreground truncate">Mês de Planejamento: {mesNome ?? "—"}</p>
       </div>
       )}
     </Card>
@@ -657,7 +660,7 @@ function ModeloDialog({
                 </SelectContent>
               </Select>
             </div>
-            <FieldSelect label="Mês" value={draft.mes_id} onChange={(v) => setDraft((d) => ({ ...d, mes_id: v }))} options={meses} />
+            <FieldSelect label="Mês de Planejamento" value={draft.mes_id} onChange={(v) => setDraft((d) => ({ ...d, mes_id: v }))} options={meses} />
             <FieldSelect label="Ano" value={draft.ano_id} onChange={(v) => setDraft((d) => ({ ...d, ano_id: v }))} options={anos} />
             <FieldSelect
               label="Categoria Principal"
@@ -904,7 +907,7 @@ function BatchCardsDialog({
                   </SelectContent>
                 </Select>
               </div>
-              <FieldSelect label="Mês" value={mesId} onChange={(v) => setMesId(v)} options={meses} />
+              <FieldSelect label="Mês de Planejamento" value={mesId} onChange={(v) => setMesId(v)} options={meses} />
               <FieldSelect label="Ano" value={anoId} onChange={(v) => setAnoId(v)} options={anos} />
             </div>
           </div>
