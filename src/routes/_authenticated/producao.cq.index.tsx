@@ -10,6 +10,7 @@ import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { RevisaoErroBadge } from "@/components/producao/RevisaoErro";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { FilterButton } from "@/components/shared/filters";
@@ -28,29 +29,39 @@ function CqListPage() {
   const [fMes, setFMes] = useState("all");
   const [fAno, setFAno] = useState("all");
   const [fStatus, setFStatus] = useState("all");
+  const [tabView, setTabView] = useState<"pre" | "pos">("pre");
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["producao-cq-list"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, ref, versao, nome, colecao, mes_id, ano_id, revisao_pendente, categorias_produto:categoria_principal_id(nome), cad(enviado_corte, producao_terceirizados(data_entregue, ativo), controle_qualidade(status))")
+        .select("id, ref, versao, nome, colecao, mes_id, ano_id, revisao_pendente, categorias_produto:categoria_principal_id(nome), cad(enviado_corte, producao_terceirizados(data_entregue, quantidade_enviada, quantidade_recebida, quantidade_defeito, ativo, categorias_terceirizado(etapa)), controle_qualidade(status, status_pos))")
         .eq("enviado_cad", true)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      // CQ só ativa quando o Status Geral dos Serviços é "Finalizado"
-      // (todos os serviços ativos entregues, e há ao menos um).
+      // Gate por etapa: CQ Pré aparece quando o PRÉ (até costura) finaliza; CQ Pós quando
+      // o PÓS (acabamento) finaliza. "Finalizado" = entregue + qtd enviada + (recebida OU defeito).
+      const finalizado = (t: any) =>
+        !!t.data_entregue && Number(t.quantidade_enviada) > 0 &&
+        (Number(t.quantidade_recebida) > 0 || Number(t.quantidade_defeito) > 0);
+      const etapaDe = (t: any) => t.categorias_terceirizado?.etapa ?? "ate_costura";
       return (data ?? [])
-        .filter((m: any) => {
+        .map((m: any) => {
           const tercs = (m.cad?.[0]?.producao_terceirizados ?? []).filter((t: any) => t.ativo !== false);
-          return tercs.length > 0 && tercs.every((t: any) => !!t.data_entregue);
+          const pre = tercs.filter((t: any) => etapaDe(t) === "ate_costura");
+          const pos = tercs.filter((t: any) => etapaDe(t) === "pos_costura");
+          return {
+            modelo_id: m.id, ref: m.ref, versao: m.versao, nome: m.nome, colecao: m.colecao,
+            mes_id: m.mes_id, ano_id: m.ano_id, revisao_pendente: m.revisao_pendente,
+            categoria_nome: m.categorias_produto?.nome ?? null,
+            preFinalizado: pre.length > 0 && pre.every(finalizado),
+            posFinalizado: pos.length > 0 && pos.every(finalizado),
+            status: (m.cad?.[0]?.controle_qualidade?.[0]?.status ?? "pendente") as string,
+            status_pos: (m.cad?.[0]?.controle_qualidade?.[0]?.status_pos ?? "pendente") as string,
+          };
         })
-        .map((m: any) => ({
-          modelo_id: m.id, ref: m.ref, versao: m.versao, nome: m.nome, colecao: m.colecao,
-          mes_id: m.mes_id, ano_id: m.ano_id, revisao_pendente: m.revisao_pendente,
-          categoria_nome: m.categorias_produto?.nome ?? null,
-          status: (m.cad?.[0]?.controle_qualidade?.[0]?.status ?? "pendente") as string,
-        }));
+        .filter((r: any) => r.preFinalizado || r.posFinalizado);
     },
   });
 
@@ -67,14 +78,18 @@ function CqListPage() {
     [rows],
   );
 
-  const filtered = (rows as any[]).filter((r) => {
-    if (q && !`${r.ref ?? ""} ${r.nome ?? ""}`.toLowerCase().includes(q.toLowerCase())) return false;
-    if (fColecao !== "all" && r.colecao !== fColecao) return false;
-    if (fMes !== "all" && r.mes_id !== fMes) return false;
-    if (fAno !== "all" && r.ano_id !== fAno) return false;
-    if (fStatus !== "all" && r.status !== fStatus) return false;
-    return true;
-  });
+  const filtered = (rows as any[])
+    .filter((r) => {
+      if (tabView === "pre" ? !r.preFinalizado : !r.posFinalizado) return false;
+      if (q && !`${r.ref ?? ""} ${r.nome ?? ""}`.toLowerCase().includes(q.toLowerCase())) return false;
+      if (fColecao !== "all" && r.colecao !== fColecao) return false;
+      if (fMes !== "all" && r.mes_id !== fMes) return false;
+      if (fAno !== "all" && r.ano_id !== fAno) return false;
+      const st = tabView === "pre" ? r.status : r.status_pos;
+      if (fStatus !== "all" && st !== fStatus) return false;
+      return true;
+    })
+    .map((r) => ({ ...r, statusView: tabView === "pre" ? r.status : r.status_pos }));
 
   const { sorted, sortKey, sortDir, toggle } = useSort(filtered, { key: "ref" });
   const sortState = { sortKey, sortDir, toggle };
@@ -86,10 +101,14 @@ function CqListPage() {
           <ClipboardCheck className="h-7 w-7 text-primary mt-0.5 shrink-0" />
           <div>
             <h1 className="text-2xl font-bold">Controle de Qualidade</h1>
-            <p className="text-sm text-muted-foreground">Recebimento, conserto, lavagem e defeito por REF.</p>
+            <p className="text-sm text-muted-foreground">Pré (recebimento da costura) e Pós (acabamento) por REF.</p>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-md border p-0.5">
+            <Button size="sm" variant={tabView === "pre" ? "secondary" : "ghost"} className="h-8" onClick={() => setTabView("pre")}>Pré</Button>
+            <Button size="sm" variant={tabView === "pos" ? "secondary" : "ghost"} className="h-8" onClick={() => setTabView("pos")}>Pós</Button>
+          </div>
           <div className="relative flex-1 max-w-sm">
             <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input className="pl-9" placeholder={`${fl("ref")} ou nome…`} value={q} onChange={(e) => setQ(e.target.value)} />
@@ -117,7 +136,7 @@ function CqListPage() {
               <SortTh label="Nome" sortKey="nome" sortState={sortState} className="px-4 py-2" />
               <SortTh label="Categoria" sortKey="categoria_nome" sortState={sortState} className="px-4 py-2" />
               <SortTh label="Coleção" sortKey="colecao" sortState={sortState} className="px-4 py-2" />
-              <SortTh label="Status" sortKey="status" sortState={sortState} className="px-4 py-2" />
+              <SortTh label="Status" sortKey="statusView" sortState={sortState} className="px-4 py-2" />
             </tr>
           </thead>
           <tbody>
@@ -141,7 +160,7 @@ function CqListPage() {
                 <td className="px-4 py-2" data-label="Nome">{r.nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground" data-label="Categoria">{r.categoria_nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground" data-label="Coleção">{r.colecao ?? "—"}</td>
-                <td className="px-4 py-2" data-label="Status"><CqStatusBadge status={r.status} /></td>
+                <td className="px-4 py-2" data-label="Status"><CqStatusBadge status={r.statusView} /></td>
               </tr>
             ))}
           </tbody>
