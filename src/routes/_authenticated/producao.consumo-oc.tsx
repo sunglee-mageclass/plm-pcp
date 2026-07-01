@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { brl } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import { useModoOcRolo } from "@/hooks/useModoOcRolo";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -59,10 +60,12 @@ type ModeloAgg = {
   consumo_unit: number; mult: number; grade_geral: number;
   variantes: VarRow[]; cortado: boolean; consumoTotal: number;
 };
-type Tecido = { artigo_id: string; artigo_nome: string; recebido: number; consumido: number; sobra: number; modelos: ModeloAgg[] };
+type Tecido = { artigo_id: string; artigo_nome: string; preco: number; recebido: number; consumido: number; sobra: number; modelos: ModeloAgg[] };
 
 const num = (v: any) => Number(v ?? 0) || 0;
 const fmt = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(2));
+// Valores de metragem/consumo/custo são decimais — sempre 2 casas (grade continua inteiro via fmt).
+const fmt2 = (v: number) => v.toFixed(2);
 const fmtDate = (s: string | null | undefined) => (s ? s.split("-").reverse().join("/") : "—");
 const fmtProporcoes = (p: Record<string, any> | null | undefined) => {
   if (!p || typeof p !== "object") return "—";
@@ -77,7 +80,7 @@ const fmtProporcoes = (p: Record<string, any> | null | undefined) => {
 };
 const recebidoItem = (oc: OC, it: Item) => (oc.status === "recebido" ? num(it.recebido_m) : num(it.pedido_m));
 
-function agruparPorTecido(oc: OC, keep: (id: string) => boolean, anyFilter: boolean): Tecido[] {
+function agruparPorTecido(oc: OC, keep: (id: string) => boolean, anyFilter: boolean, precoMap: Record<string, number>): Tecido[] {
   const byArtigo = new Map<string, Item[]>();
   for (const it of oc.itens) {
     const k = it.artigo_id ?? `sem-${it.oc_tecido_item_id}`;
@@ -107,12 +110,12 @@ function agruparPorTecido(oc: OC, keep: (id: string) => boolean, anyFilter: bool
       const metragens = a.variantes.reduce((s, v) => s + v.metragem_m, 0);
       const baixado = a.variantes.reduce((s, v) => s + v.baixado_m, 0);
       // Regra baixa × reserva: modelo CORTADO consome a baixa REAL; ainda não
-      // cortado consome o planejado (BOM) + 1 peça piloto.
-      a.consumoTotal = a.cortado ? baixado : metragens + a.consumo_unit * a.mult;
+      // cortado consome o planejado (BOM) — SEM a peça piloto.
+      a.consumoTotal = a.cortado ? baixado : metragens;
     }
     if (anyFilter && modelos.length === 0) continue; // com filtro ativo, esconde tecido sem modelos
     const consumido = modelos.reduce((s, a) => s + a.consumoTotal, 0);
-    out.push({ artigo_id, artigo_nome: items[0]?.artigo_nome ?? "—", recebido, consumido, sobra: recebido - consumido, modelos });
+    out.push({ artigo_id, artigo_nome: items[0]?.artigo_nome ?? "—", preco: precoMap[artigo_id] ?? 0, recebido, consumido, sobra: recebido - consumido, modelos });
   }
   return out;
 }
@@ -187,6 +190,18 @@ function ConsumoOcPage() {
   });
   const catOf = (artigoId: string | null | undefined) => (artigoId && (artigoBucket as any)[artigoId]) || "tecido";
   const catKeep = (artigoId: string | null | undefined) => cats.has(catOf(artigoId));
+
+  // Preço por metro de cada artigo (tecido) — base do custo por variante.
+  const { data: precoMap = {} } = useQuery({
+    queryKey: ["consumo-oc-artigo-preco", artigoIds],
+    enabled: artigoIds.length > 0,
+    queryFn: async () => {
+      const { data } = await supabase.from("artigos").select("id, preco_por_metro").in("id", artigoIds);
+      const m: Record<string, number> = {};
+      for (const r of (data ?? []) as any[]) m[r.id] = num(r.preco_por_metro);
+      return m;
+    },
+  });
 
   const { data: modeloInfo = {} } = useQuery({
     queryKey: ["consumo-oc-modelos", modeloIds],
@@ -384,16 +399,16 @@ function ConsumoOcPage() {
                   onClick={isOpen ? (e) => e.stopPropagation() : undefined}
                 >
                   {isOpen ? (
-                    agruparPorTecido(oc, keepModel, anyFilter).filter((t) => catKeep(t.artigo_id)).map((t) => {
+                    agruparPorTecido(oc, keepModel, anyFilter, precoMap).filter((t) => catKeep(t.artigo_id)).map((t) => {
                       const sobraClass = t.sobra < 0 ? "text-destructive" : t.sobra <= t.recebido * 0.05 ? "text-emerald-600" : "text-foreground";
                       return (
                         <div key={t.artigo_id} className="space-y-3">
                           <div className="flex items-center justify-between gap-3 flex-wrap border-b pb-2">
                             <div className="font-medium text-sm">{t.artigo_nome}</div>
                             <div className="flex items-center gap-4 text-sm tabular-nums">
-                              <span className="text-muted-foreground">{oc.status === "recebido" ? "Recebido" : "Pedido"}: <strong className="text-foreground">{fmt(t.recebido)} m</strong></span>
-                              <span className="text-muted-foreground">Consumido: <strong className="text-foreground">{fmt(t.consumido)} m</strong></span>
-                              <span className="text-muted-foreground">Sobra: <strong className={sobraClass}>{fmt(t.sobra)} m</strong></span>
+                              <span className="text-muted-foreground">{oc.status === "recebido" ? "Recebido" : "Pedido"}: <strong className="text-foreground">{fmt2(t.recebido)} m</strong></span>
+                              <span className="text-muted-foreground">Consumido: <strong className="text-foreground">{fmt2(t.consumido)} m</strong></span>
+                              <span className="text-muted-foreground">Sobra: <strong className={sobraClass}>{fmt2(t.sobra)} m</strong></span>
                             </div>
                           </div>
                           {t.modelos.length === 0 ? (
@@ -401,7 +416,7 @@ function ConsumoOcPage() {
                           ) : (
                             <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                               {t.modelos.map((a) => (
-                                <ModeloMiniCard key={a.modelo_id} a={a} info={modeloInfo[a.modelo_id]} onDev={() => setDevId(a.modelo_id)} onCad={() => setCadId(a.modelo_id)} />
+                                <ModeloMiniCard key={a.modelo_id} a={a} preco={t.preco} info={modeloInfo[a.modelo_id]} onDev={() => setDevId(a.modelo_id)} onCad={() => setCadId(a.modelo_id)} />
                               ))}
                             </div>
                           )}
@@ -470,10 +485,10 @@ function ResumoVariantes({ oc, keep, onToggleZerar }: { oc: OC; keep: (id: strin
             </div>
             <div className="flex items-center gap-3 tabular-nums">
               <Badge variant="secondary">{modelos.length} modelo{modelos.length === 1 ? "" : "s"}</Badge>
-              <span className="text-muted-foreground">{oc.status === "recebido" ? "Receb." : "Ped."}: <strong className="text-foreground">{fmt(recebido)} m</strong></span>
+              <span className="text-muted-foreground">{oc.status === "recebido" ? "Receb." : "Ped."}: <strong className="text-foreground">{fmt2(recebido)} m</strong></span>
               <span className="text-muted-foreground">Sobra: {zerado
                 ? <strong className="text-emerald-600">zerado</strong>
-                : <strong className={sobraClass}>{fmt(sobra)} m</strong>}</span>
+                : <strong className={sobraClass}>{fmt2(sobra)} m</strong>}</span>
               <Button
                 type="button"
                 size="sm"
@@ -504,8 +519,10 @@ function KV({ label, value, valueClass }: { label: string; value: string; valueC
   );
 }
 
-function ModeloMiniCard({ a, info, onDev, onCad }: { a: ModeloAgg; info: ModeloInfo | undefined; onDev: () => void; onCad: () => void }) {
+function ModeloMiniCard({ a, preco, info, onDev, onCad }: { a: ModeloAgg; preco: number; info: ModeloInfo | undefined; onDev: () => void; onCad: () => void }) {
   const foto = info?.fotos_modelo?.[0] ?? null;
+  // Consumo efetivo por variante: cortado usa a baixa real; senão o planejado (sem piloto).
+  const efetivo = (v: VarRow) => (a.cortado ? v.baixado_m : v.metragem_m);
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -519,20 +536,22 @@ function ModeloMiniCard({ a, info, onDev, onCad }: { a: ModeloAgg; info: ModeloI
               {a.cortado && <Badge variant="outline" className="shrink-0 text-[10px] px-1 py-0 border-emerald-500 text-emerald-600">Baixado</Badge>}
             </div>
             <KV label="Proporção" value={fmtProporcoes(info?.proporcoes)} />
-            <KV label="Consumo" value={`${fmt(a.consumo_unit)} m`} />
+            <KV label="Consumo" value={`${fmt2(a.consumo_unit)} m`} />
             <div className="pt-1 mt-1 border-t space-y-1">
               {a.variantes.map((v, i) => (
                 <div key={i} className="space-y-0.5">
                   <div className="text-[11px] font-medium truncate">{v.variante}</div>
                   <KV label="Grade" value={fmt(v.grade_variante)} />
-                  <KV label="Metragem" value={`${fmt(v.metragem_m)} m`} />
-                  {v.cortado && <KV label="Baixado" value={`${fmt(v.baixado_m)} m`} valueClass="text-emerald-600" />}
+                  <KV label="Metragem" value={`${fmt2(v.metragem_m)} m`} />
+                  {v.cortado && <KV label="Baixado" value={`${fmt2(v.baixado_m)} m`} valueClass="text-emerald-600" />}
+                  <KV label="Custo" value={preco > 0 ? brl(efetivo(v) * preco) : "—"} />
                 </div>
               ))}
             </div>
             <div className="pt-1 mt-1 border-t space-y-1">
               <KV label="Grade geral" value={fmt(a.grade_geral)} />
-              <KV label="Consumo total (+piloto)" value={`${fmt(a.consumoTotal)} m`} />
+              <KV label="Consumo total" value={`${fmt2(a.consumoTotal)} m`} />
+              <KV label="Custo total" value={preco > 0 ? brl(a.consumoTotal * preco) : "—"} />
             </div>
           </div>
         </button>
