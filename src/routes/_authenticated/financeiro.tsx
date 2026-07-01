@@ -639,8 +639,10 @@ function Legend2({ color, label }: { color: string; label: string }) {
 
 /* ============================== LISTA ============================== */
 
-// Célula de vencimento com estado local: salva no BLUR (não a cada tecla) e mostra
-// o que o usuário escolheu enquanto edita.
+// Célula de vencimento com estado local. Salva no onChange do DateField — que só
+// EMITE quando o ISO está completo/válido (ou vazio), nunca a cada tecla. Antes salvava
+// no blur do input, mas ESCOLHER no calendário não dispara blur (o foco fica no popover),
+// então a data mudava na tela mas NÃO persistia e voltava ao antigo no próximo refetch.
 function VencimentoCell({ value, onSave }: { value: string; onSave: (v: string) => void }) {
   const podeEditar = usePodeEditarFinanceiro();
   const [v, setV] = useState(value);
@@ -648,8 +650,11 @@ function VencimentoCell({ value, onSave }: { value: string; onSave: (v: string) 
   return (
     <DateField
       value={v}
-      onChange={(e) => setV(e.target.value)}
-      onBlur={() => { if (v && v !== value) onSave(v); }}
+      onChange={(e) => {
+        const iso = e.target.value;
+        setV(iso);
+        if (iso && iso !== value) onSave(iso);
+      }}
       className="w-36"
       disabled={!podeEditar}
     />

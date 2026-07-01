@@ -177,6 +177,7 @@ export const CqPosView = forwardRef<CqPosHandle, {
       await qc.invalidateQueries({ queryKey: ["cqpos-cq", cadId] });
       await qc.invalidateQueries({ queryKey: ["cqpos-itens"] });
       await qc.invalidateQueries({ queryKey: ["producao-cq-list"] });
+      await qc.invalidateQueries({ queryKey: ["dir-list"] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
   });
@@ -192,6 +193,7 @@ export const CqPosView = forwardRef<CqPosHandle, {
       setHydrated(false);
       await qc.invalidateQueries({ queryKey: ["cqpos-cq", cadId] });
       await qc.invalidateQueries({ queryKey: ["producao-cq-list"] });
+      await qc.invalidateQueries({ queryKey: ["dir-list"] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desmarcar")),
   });

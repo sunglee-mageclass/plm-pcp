@@ -507,6 +507,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
       // re-hidratação rodava com o cache antigo (vazio) e o formulário "sumia".
       await qc.invalidateQueries({ queryKey: ["producao-terc", cad?.id] });
       await qc.invalidateQueries({ queryKey: ["terc-cad", modeloId] });
+      await qc.invalidateQueries({ queryKey: ["producao-terc-list"] });
       await refetch();
       setHydrated(false);
       setMoldeHydrated(false);
@@ -728,7 +729,12 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
                 <Badge variant="outline" className="text-xs whitespace-nowrap">
                   SLA: {slaBloco != null ? `${slaBloco}d` : "—"}
                 </Badge>
-                <Badge className={`${STATUS_COLORS[b.status ?? "pendente"] ?? "bg-muted"} text-white`}>{STATUS_LABELS[b.status ?? "pendente"] ?? (b.status ?? "pendente")}</Badge>
+                {(() => {
+                  // Badge do bloco pela MESMA regra do lock/status (blocoFinalizado), não pelo
+                  // b.status cru do trigger (que vira 'finalizado' só com data_entregue).
+                  const bSt = blocoFinalizado(b) ? "finalizado" : b.data_enviado ? "em_andamento" : "pendente";
+                  return <Badge className={`${STATUS_COLORS[bSt] ?? "bg-muted"} text-white`}>{STATUS_LABELS[bSt] ?? bSt}</Badge>;
+                })()}
                 <Button type="button" size="icon" variant="ghost" onClick={() => removeBloco(idx)} aria-label="Remover bloco">
                   <Trash2 className="h-4 w-4 text-destructive" />
                 </Button>
