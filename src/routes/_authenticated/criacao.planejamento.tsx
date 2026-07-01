@@ -21,7 +21,7 @@ import {
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS, useCompactCards } from "@/hooks/useGridCols";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
-import { fmtNum } from "@/lib/format";
+import { brl, fmtNum } from "@/lib/format";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { useSort } from "@/components/shared/sort";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -173,10 +173,10 @@ function PlanejamentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("artigos")
-        .select("id, nome, unidade_medida")
+        .select("id, nome, unidade_medida, preco_por_metro")
         .order("nome");
       if (error) throw error;
-      return (data ?? []) as { id: string; nome: string; unidade_medida: string | null }[];
+      return (data ?? []) as { id: string; nome: string; unidade_medida: string | null; preco_por_metro: number | null }[];
     },
   });
 
@@ -496,7 +496,7 @@ const emptyDraft = (): Draft => ({
   versao: 1, modelo_base_id: null,
 });
 
-type ArtigoOpt = { id: string; nome: string; unidade_medida: string | null };
+type ArtigoOpt = { id: string; nome: string; unidade_medida: string | null; preco_por_metro: number | null };
 
 function ModeloDialog({
   modeloId, estilistas, linhas, meses, anos, categorias, artigos, onClose, onSaved,
@@ -1036,6 +1036,9 @@ function MultiArtigosField({ label, value, onChange, artigos, estoque }: {
           return (
             <Badge key={id} variant="secondary" className="gap-1">
               {a ? (a.unidade_medida ? `${a.nome} [${a.unidade_medida}]` : a.nome) : id}
+              {a?.preco_por_metro != null && (
+                <span className="text-[10px] opacity-70">· {brl(a.preco_por_metro)}/m</span>
+              )}
               {e && (
                 <span className={`text-[10px] ${e.disponivel_m <= 0 ? "text-destructive font-medium" : "opacity-70"}`}>
                   · disp. {fmtMetros(e.disponivel_m)}
@@ -1063,6 +1066,7 @@ function MultiArtigosField({ label, value, onChange, artigos, estoque }: {
                 <SelectItem key={a.id} value={a.id}>
                   <span className="flex flex-col">
                     <span>{a.unidade_medida ? `${a.nome} [${a.unidade_medida}]` : a.nome}</span>
+                    <span className="text-xs text-muted-foreground">Preço/m: {a.preco_por_metro != null ? brl(a.preco_por_metro) : "—"}</span>
                     {e && (
                       <span className={`text-xs ${e.disponivel_m <= 0 ? "text-destructive" : "text-muted-foreground"}`}>
                         Estoque: {fmtMetros(e.fisico_m)} · disp.: {fmtMetros(e.disponivel_m)}
