@@ -435,9 +435,9 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, mesNome, 
         </div>
         <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
         <p className="text-xs text-muted-foreground truncate">{modelo.colecao ?? "Sem coleção"}</p>
+        <p className="text-xs text-muted-foreground truncate">{mesNome ?? "—"}</p>
         <p className="text-xs text-muted-foreground truncate">{categoriaNome ?? "Sem categoria"}</p>
         <p className="text-xs text-muted-foreground truncate">{linhaNome ?? "Sem linha"}</p>
-        <p className="text-xs text-muted-foreground truncate">Mês de Planejamento: {mesNome ?? "—"}</p>
       </div>
       )}
     </Card>
