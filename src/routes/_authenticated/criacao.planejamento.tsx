@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -701,13 +702,13 @@ function ModeloDialog({
   });
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
-        <DialogHeader className="max-sm:shrink-0">
-          <DialogTitle>{isEdit ? draft.nome || "Modelo" : "Novo Modelo"}</DialogTitle>
-        </DialogHeader>
+    <Sheet open onOpenChange={(o) => !o && onClose()}>
+      <SheetContent className="w-full sm:w-[70vw] sm:max-w-3xl overflow-y-auto max-sm:pb-24 max-sm:[&>button]:hidden">
+        <SheetHeader>
+          <SheetTitle>{isEdit ? draft.nome || "Modelo" : "Novo Modelo"}</SheetTitle>
+        </SheetHeader>
 
-        <div className="space-y-4 max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-y-auto">
+        <div className="space-y-4 mt-4">
           <div className="grid sm:grid-cols-2 gap-3">
             <FieldText label="Nome do Modelo" value={draft.nome} onChange={(v) => setDraft((d) => ({ ...d, nome: v }))} />
             {draft.versao > 1 && (
@@ -797,7 +798,7 @@ function ModeloDialog({
           </div>
         </div>
 
-        <DialogFooter className="gap-2 max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end bg-background border-t pt-3 mt-4 sm:sticky sm:bottom-0 max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-50 max-sm:flex-nowrap max-sm:px-4 max-sm:py-3 max-sm:mt-0">
           {/* Voltar: desktop "Cancelar" texto, mobile ícone de voltar. */}
           <Button variant="outline" onClick={onClose} aria-label="Voltar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
             <ArrowLeft className="h-4 w-4 sm:hidden" />
@@ -832,7 +833,7 @@ function ModeloDialog({
             </Button>
           ))}
           <Button className="max-sm:ml-auto" onClick={() => save.mutate()} disabled={save.isPending}>Salvar</Button>
-        </DialogFooter>
+        </div>
 
         <AlertDialog open={confirmDel} onOpenChange={setConfirmDel}>
           <AlertDialogContent>
@@ -846,8 +847,8 @@ function ModeloDialog({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 }
 
