@@ -617,11 +617,11 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
         </div>
         <div>
           <Label className="text-xs text-muted-foreground">Data Inicial</Label>
-          <div className="mt-1 text-sm">{dataInicial ?? "—"}</div>
+          <div className="mt-1 text-sm">{dataInicial ? dataInicial.split("-").reverse().join("/") : "—"}</div>
         </div>
         <div>
           <Label className="text-xs text-muted-foreground">Data Final</Label>
-          <div className="mt-1 text-sm">{dataFinal ?? "—"}</div>
+          <div className="mt-1 text-sm">{dataFinal ? dataFinal.split("-").reverse().join("/") : "—"}</div>
         </div>
         <div>
           <Label className="text-xs text-muted-foreground">SLA (dias)</Label>
