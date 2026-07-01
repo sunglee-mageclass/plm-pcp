@@ -150,7 +150,7 @@ function PlanejamentoPage() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [openNew, setOpenNew] = useState(false);
   const [openBatch, setOpenBatch] = useState(false);
-  const [groupByCat, setGroupByCat] = useState(false);
+  const [groupByCat, setGroupByCat] = useState(true);
   const [cols, setCols] = useGridCols("planejamento");
   const gridRef = useRef<HTMLDivElement>(null);
   const compact = useCompactCards(gridRef, cols);
