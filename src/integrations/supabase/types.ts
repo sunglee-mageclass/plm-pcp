@@ -1989,6 +1989,7 @@ export type Database = {
           status_planejamento: string | null
           subcategoria1_id: string | null
           subcategoria2_id: string | null
+          subcolecao: string | null
           tecidos_planejados: string[]
           tenant_id: string | null
           versao: number
@@ -2045,6 +2046,7 @@ export type Database = {
           status_planejamento?: string | null
           subcategoria1_id?: string | null
           subcategoria2_id?: string | null
+          subcolecao?: string | null
           tecidos_planejados?: string[]
           tenant_id?: string | null
           versao?: number
@@ -2101,6 +2103,7 @@ export type Database = {
           status_planejamento?: string | null
           subcategoria1_id?: string | null
           subcategoria2_id?: string | null
+          subcolecao?: string | null
           tecidos_planejados?: string[]
           tenant_id?: string | null
           versao?: number
@@ -4101,6 +4104,8 @@ export type Database = {
         Returns: Json
       }
       ocs_para_rolo: { Args: never; Returns: Json }
+      otb_confirmar: { Args: { _colecao_id: string }; Returns: Json }
+      otb_importar_colecoes: { Args: never; Returns: Json }
       proximo_codigo_rolo: { Args: { _artigo_id?: string }; Returns: string }
       ranking_oficinas: {
         Args: { p_categoria_produto?: string }
