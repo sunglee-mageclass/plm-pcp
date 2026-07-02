@@ -354,7 +354,7 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
                       return (
                         <td key={t} className="border p-0">
                           <NumberInput
-                            type="number" min={0} max={real}
+                            integer min={0} max={real}
                             className={`h-8 border-0 bg-transparent text-center ${over ? "text-destructive" : ""}`}
                             value={v.ecommerce?.[t] ?? ""}
                             onChange={(e) => setEcommerce(v.variante_numero, t, Math.max(0, Number(e.target.value) || 0))}
@@ -395,7 +395,7 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
                     <div className="mt-1">
                       <span className="text-xs text-muted-foreground">E-commerce</span>
                       <NumberInput
-                        type="number" min={0} max={real}
+                        integer min={0} max={real}
                         className={`h-9 text-center ${over ? "border-destructive text-destructive" : ""}`}
                         value={v.ecommerce?.[t] ?? ""}
                         onChange={(e) => setEcommerce(v.variante_numero, t, Math.max(0, Number(e.target.value) || 0))}
