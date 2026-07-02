@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Hammer, ImageIcon, ChevronRight } from "lucide-react";
+import { Hammer, ImageIcon, ChevronRight, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -11,6 +11,7 @@ import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { DEFAULT_STATUSES, type KanbanStatus, normalizeKanbanStatuses } from "@/lib/kanban-status";
 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ModeloDetailPanel } from "@/components/desenvolvimento/ModeloDetailPanel";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
@@ -241,6 +242,10 @@ function DesenvolvimentoPage() {
     updateStatus.mutate({ id, status: statusKey });
   };
 
+  const allCollapsed = statusKanban.length > 0 && statusKanban.every((s) => collapsed.has(s.key));
+  const toggleAll = () =>
+    setCollapsed(allCollapsed ? new Set() : new Set(statusKanban.map((s) => s.key)));
+
   return (
     <div className="container mx-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -252,6 +257,16 @@ function DesenvolvimentoPage() {
           </div>
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            className="hidden md:inline-flex h-9"
+            onClick={toggleAll}
+            title={allCollapsed ? "Expandir todas as colunas" : "Recolher todas as colunas"}
+          >
+            {allCollapsed ? <ChevronsUpDown className="h-4 w-4 sm:mr-1" /> : <ChevronsDownUp className="h-4 w-4 sm:mr-1" />}
+            <span className="max-lg:sr-only">{allCollapsed ? "Expandir todas" : "Recolher todas"}</span>
+          </Button>
           <Select value={s.sortKey ?? ""} onValueChange={(v) => s.toggle(v)}>
             <SelectTrigger className="h-9 w-auto gap-1 text-xs sm:text-sm">
               <SelectValue placeholder="Ordenar por" />
