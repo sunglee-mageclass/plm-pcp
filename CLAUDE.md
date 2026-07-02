@@ -148,6 +148,14 @@ e verifique** — o repo muda rápido.
 `docs/api-integracao-erp.md` (leitura p/ ERP: o quê + quando o dado é final). Ler/atualizar
 ao mexer em consumo/grade/estoque/custo/financeiro/CQ.
 
+**Motor de regras do kanban (transição de status no Desenvolvimento):** requisitos de ENTRADA
+por status (todos em E). SSOT do catálogo de condições = `src/lib/kanban-condicoes.ts` (config
+e enforcement leem daí; NÃO duplicar em doc). Avaliação por modelo na RPC `avaliar_condicoes_kanban`;
+config guarda `tenant_config.status_kanban[i].requisitos`. **Ao adicionar condição/módulo:**
+catálogo TS + branch na RPC — o **teste anti-drift** (Vitest) falha se as chaves não casarem.
+Enforcement no Select de status E no arraste (colunas inválidas esmaecidas). Atualizar este bloco +
+a memória a cada mudança (papel do `docs-keeper`).
+
 ## O que NÃO fazer
 
 - Não esquecer de aplicar a migration com `psql -f`/`db push --db-url` no banco novo (regra 1).
