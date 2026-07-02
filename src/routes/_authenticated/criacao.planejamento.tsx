@@ -898,7 +898,7 @@ function ModeloDialog({
 
   return (
     <Sheet open onOpenChange={(o) => !o && onClose()}>
-      <SheetContent className="w-full sm:w-[70vw] sm:max-w-3xl overflow-y-auto max-sm:pb-24 max-sm:[&>button]:hidden">
+      <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] overflow-y-auto max-sm:pb-24 max-sm:[&>button]:hidden">
         <SheetHeader>
           <SheetTitle>{isEdit ? draft.nome || "Modelo" : "Novo Modelo"}</SheetTitle>
         </SheetHeader>
