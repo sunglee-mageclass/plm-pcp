@@ -123,7 +123,12 @@ export function ColecaoSheet({
 
   const save = useMutation({
     mutationFn: persistColecao,
-    onSuccess: () => { toast.success("Coleção salva"); qc.invalidateQueries({ queryKey: ["otb-colecoes"] }); onSaved(); onClose(); },
+    onSuccess: () => {
+      toast.success("Coleção salva");
+      qc.invalidateQueries({ queryKey: ["otb-colecoes"] });
+      qc.invalidateQueries({ queryKey: ["otb-semanas-todas"] });
+      onSaved(); onClose();
+    },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar coleção")),
   });
 
@@ -142,6 +147,8 @@ export function ColecaoSheet({
       ].filter(Boolean);
       toast.success(`Coleção confirmada. ${partes.join(" · ") || "Sem mudanças."}`);
       qc.invalidateQueries({ queryKey: ["otb-colecoes"] });
+      qc.invalidateQueries({ queryKey: ["otb-semanas-todas"] });
+      qc.invalidateQueries({ queryKey: ["otb-modelos-link"] });
       qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
       onSaved(); onClose();
     },

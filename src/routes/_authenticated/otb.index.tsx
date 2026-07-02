@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -88,7 +88,7 @@ function OtbPage() {
   const linhaMarkupMap = Object.fromEntries(linhas.map((l) => [l.id, l.markup]));
 
   // Per-collection stats
-  const statsByColecao = (() => {
+  const statsByColecao = useMemo(() => {
     const planejado: Record<string, number> = {};
     for (const s of semanas) planejado[s.colecao_id] = (planejado[s.colecao_id] ?? 0) + Number(s.qtd_planejada ?? 0);
     const byCol: Record<string, typeof modelosLink> = {};
@@ -100,7 +100,7 @@ function OtbPage() {
       out[c.id] = { planejado: planejado[c.id] ?? 0, vinculados: ms.length, previsto: resumo.previsto };
     }
     return out;
-  })();
+  }, [semanas, modelosLink, colecoes, custoMap, gradeMap, linhaMarkupMap]);
 
   const qc = useQueryClient();
   const importar = useMutation({
@@ -140,7 +140,9 @@ function OtbPage() {
         </div>
       </header>
       {colecoesFiltradas.length === 0 ? (
-        <EmptyState icon={Target} title="Nenhuma coleção" description="Crie a primeira coleção do OTB." />
+        colecoes.length === 0
+          ? <EmptyState icon={Target} title="Nenhuma coleção" description="Crie a primeira coleção do OTB." />
+          : <EmptyState icon={Target} title="Nenhuma coleção no filtro" description="Ajuste o filtro de ano/mês." />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {colecoesFiltradas.map((c) => {
