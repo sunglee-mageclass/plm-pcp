@@ -4,6 +4,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Rocket, Upload, CheckCircle2, Camera, ArrowUp, ArrowDown } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { brl } from "@/lib/format";
+import { precoInfo } from "@/lib/preco";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -37,6 +39,7 @@ type LancCard = {
   colecao: string | null;
   linha: string | null;
   markup: number | null;
+  preco_venda: number | null;
   mes: string | null;
   ano: string | null;
   mes_id: string | null;
@@ -81,7 +84,7 @@ function LancamentosPage() {
       // Produtos cujo Controle de Qualidade foi CONFIRMADO.
       const { data: modelos, error } = await supabase
         .from("modelos")
-        .select("id, ref, nome, colecao, mes_id, ano_id, linha_id, revisao_pendente, fotos_modelo, linha:linha_id(nome, markup), categorias_produto:categoria_principal_id(nome), cad(id, controle_qualidade(id, status, fotografado_variantes))")
+        .select("id, ref, nome, colecao, mes_id, ano_id, linha_id, preco_venda, revisao_pendente, fotos_modelo, linha:linha_id(nome, markup), categorias_produto:categoria_principal_id(nome), cad(id, controle_qualidade(id, status, fotografado_variantes))")
         .eq("enviado_cad", true);
       if (error) throw error;
 
@@ -146,6 +149,7 @@ function LancamentosPage() {
           colecao: m.colecao,
           linha: m.linha?.nome ?? null,
           markup: m.linha?.markup ?? null,
+          preco_venda: m.preco_venda ?? null,
           mes: m.mes_id ? (mesMap.get(m.mes_id) ?? null) : null,
           ano: m.ano_id ? (anoMap.get(m.ano_id) ?? null) : null,
           mes_id: m.mes_id,
@@ -199,6 +203,25 @@ function LancamentosPage() {
   // `sorted` substitui `filtered` na renderização.
   const s = useSort(filtered, undefined);
   const sorted = s.sorted;
+
+  // Custo unitário (real senão previsto) por modelo — p/ markup real, preço e o
+  // "poder de venda" (preço efetivo × grade).
+  const modeloIdsAll = useMemo(() => cards.map((c) => c.modelo_id).sort(), [cards]);
+  const { data: custoMap = {} } = useQuery({
+    queryKey: ["lanc-custo-unit", modeloIdsAll],
+    enabled: modeloIdsAll.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("custo_unitario_modelos" as any, { _ids: modeloIdsAll });
+      if (error) throw error;
+      return (data ?? {}) as Record<string, { previsto: number; real: number; confirmado: boolean }>;
+    },
+  });
+  const piFor = (c: LancCard) => precoInfo((custoMap as any)[c.modelo_id]?.real, c.markup, c.preco_venda);
+  const resumo = useMemo(() => {
+    let poder = 0;
+    for (const c of sorted) poder += piFor(c).efetivo * (Number(c.gradeTotal) || 0);
+    return { poder, qtd: sorted.length };
+  }, [sorted, custoMap]);
 
   // Sentinela "__none__" = ordem padrão. (Radix Select v2 PROÍBE SelectItem com
   // value "" — daí o sentinela.) Sem accessor "__none__" nem campo homônimo no card,
@@ -279,7 +302,12 @@ function LancamentosPage() {
             <Button key={n} size="sm" variant={cols === n ? "default" : "outline"} onClick={() => setCols(n)} className="h-7 w-9 px-0">{n}</Button>
           ))}
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
+          <span>Poder de venda: <strong className="text-foreground tabular-nums">{brl(resumo.poder)}</strong></span>
+          <span aria-hidden>·</span>
+          <span><strong className="text-foreground tabular-nums">{resumo.qtd}</strong> {resumo.qtd === 1 ? "modelo" : "modelos"}</span>
+        </div>
+        <div className="flex items-center gap-1.5 ml-auto">
           <Label className="text-xs text-muted-foreground">Ordenar por</Label>
           <Select
             value={s.sortKey ?? SORT_NONE}
@@ -315,23 +343,28 @@ function LancamentosPage() {
       )}
 
       <div ref={gridRef} className={GRID_COLS_CLASS[cols]}>
-        {sorted.map((c) => (
-          <LancamentoCard
-            key={c.modelo_id}
-            card={{ ...c, lancamento: (lancByCad as any)[c.cad_id] ?? null }}
-            compact={compact}
-            onUpload={(file) => uploadMut.mutate({ card: c, file })}
-            uploading={uploadMut.isPending}
-            readOnly={readOnly}
-          />
-        ))}
+        {sorted.map((c) => {
+          const pi = piFor(c);
+          return (
+            <LancamentoCard
+              key={c.modelo_id}
+              card={{ ...c, lancamento: (lancByCad as any)[c.cad_id] ?? null }}
+              markup={pi.markupExibir > 0 ? pi.markupExibir : null}
+              preco={pi.efetivo > 0 ? pi.efetivo : null}
+              compact={compact}
+              onUpload={(file) => uploadMut.mutate({ card: c, file })}
+              uploading={uploadMut.isPending}
+              readOnly={readOnly}
+            />
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function LancamentoCard(props: { card: LancCard; compact: boolean; onUpload: (f: File) => void; uploading: boolean; readOnly: boolean }) {
-  const { card, compact, readOnly } = props;
+function LancamentoCard(props: { card: LancCard; markup: number | null; preco: number | null; compact: boolean; onUpload: (f: File) => void; uploading: boolean; readOnly: boolean }) {
+  const { card, compact, readOnly, markup, preco } = props;
   const qc = useQueryClient();
   const [foto, setFoto] = useState<Record<string, boolean>>(card.fotoByNum);
   useEffect(() => { setFoto(card.fotoByNum); }, [card.cqId, JSON.stringify(card.fotoByNum)]);
@@ -409,7 +442,8 @@ function LancamentoCard(props: { card: LancCard; compact: boolean; onUpload: (f:
                 {[card.colecao, card.linha, card.categoria_nome].filter(Boolean).join(" · ") || "—"}
               </p>
               <p className="text-muted-foreground">{[card.mes, card.ano].filter(Boolean).join(" / ") || "—"}</p>
-              {card.markup != null && <p className="text-muted-foreground">Markup: {Number(card.markup).toLocaleString("pt-BR")}</p>}
+              {markup != null && <p className="text-muted-foreground">Markup: {Number(markup).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</p>}
+              {preco != null && <p className="font-medium">{brl(preco)}</p>}
               {card.tecido_nome && <p className="text-muted-foreground">Tecido: {card.tecido_nome}</p>}
               {card.variantes.length > 0 && (
                 <div className="pt-1 mt-1 border-t space-y-0.5">

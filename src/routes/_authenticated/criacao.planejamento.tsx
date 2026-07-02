@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { NumberInput } from "@/components/shared/NumberInput";
+import { precoInfo } from "@/lib/preco";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -111,6 +112,7 @@ type Modelo = {
   observacoes_gerais: string | null;
   versao: number;
   modelo_base_id: string | null;
+  preco_venda: number | null;
 };
 
 const STATUS_OPTS = [
@@ -207,10 +209,35 @@ function PlanejamentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, estilista_id, linha_id, colecao, semana, mes_id, ano_id, categoria_principal_id, categoria_secundaria_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id")
+        .select("id, nome, estilista_id, linha_id, colecao, semana, mes_id, ano_id, categoria_principal_id, categoria_secundaria_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as Modelo[];
+    },
+  });
+
+  const modeloIdsAll = useMemo(() => modelos.map((m) => m.id).sort(), [modelos]);
+
+  // Custo unitário (real senão previsto) e grade planejada por modelo — p/ o preço
+  // efetivo e o "poder de venda" (preço × grade).
+  const { data: custoMap = {} } = useQuery({
+    queryKey: ["plan-custo-unit", modeloIdsAll],
+    enabled: modeloIdsAll.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("custo_unitario_modelos" as any, { _ids: modeloIdsAll });
+      if (error) throw error;
+      return (data ?? {}) as Record<string, { previsto: number; real: number; confirmado: boolean }>;
+    },
+  });
+  const { data: gradeByModelo = {} } = useQuery({
+    queryKey: ["plan-grade-total", modeloIdsAll],
+    enabled: modeloIdsAll.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("modelo_grades").select("modelo_id, grade_total").in("modelo_id", modeloIdsAll);
+      if (error) throw error;
+      const m: Record<string, number> = {};
+      for (const r of (data ?? []) as any[]) m[r.modelo_id] = (m[r.modelo_id] ?? 0) + Number(r.grade_total ?? 0);
+      return m;
     },
   });
 
@@ -236,6 +263,9 @@ function PlanejamentoPage() {
   const catMap = Object.fromEntries(categorias.map((c) => [c.id, c.nome]));
   const linhaMap = Object.fromEntries(linhas.map((l) => [l.id, l.nome]));
   const linhaMarkupMap = Object.fromEntries(linhas.map((l) => [l.id, l.markup]));
+  // Preço/markup efetivos de um modelo (custo × markup da linha → sugerido → venda).
+  const piFor = (m: Modelo) =>
+    precoInfo((custoMap as any)[m.id]?.real, m.linha_id ? linhaMarkupMap[m.linha_id] : 0, m.preco_venda);
   const mesMap = Object.fromEntries(meses.map((x) => [x.id, x.nome]));
 
   // Ordenação dos cards. Como nome/estilista/categoria/coleção/linha/status são
@@ -256,6 +286,13 @@ function PlanejamentoPage() {
   const sortOpts = useMemo(() => ({ accessors: sortAccessors }), [sortAccessors]);
   const s = useSort(filtered, sortOpts);
   const sorted = s.sorted;
+
+  // Resumo (influenciado pelos filtros): poder de venda = Σ (preço efetivo × grade).
+  const resumo = useMemo(() => {
+    let poder = 0;
+    for (const m of sorted) poder += piFor(m).efetivo * numOr0((gradeByModelo as any)[m.id]);
+    return { poder, qtd: sorted.length };
+  }, [sorted, custoMap, gradeByModelo, linhas]);
 
   // Sentinela "__none__" = ordem padrão. (Radix Select v2 PROÍBE SelectItem com
   // value "" — daí o sentinela.) Como não existe accessor "__none__" nem campo
@@ -280,7 +317,8 @@ function PlanejamentoPage() {
       estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
       categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
       linhaNome={m.linha_id ? linhaMap[m.linha_id] : null}
-      markup={m.linha_id ? (linhaMarkupMap[m.linha_id] ?? null) : null}
+      markup={(() => { const p = piFor(m); return p.markupExibir > 0 ? p.markupExibir : null; })()}
+      preco={(() => { const p = piFor(m); return p.efetivo > 0 ? p.efetivo : null; })()}
       mesNome={m.mes_id ? mesMap[m.mes_id] : null}
       onOpen={() => setOpenId(m.id)}
       compact={compact}
@@ -342,6 +380,11 @@ function PlanejamentoPage() {
         >
           <Group className="h-4 w-4 mr-1" /> Agrupar por categoria
         </Button>
+        <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
+          <span>Poder de venda: <strong className="text-foreground tabular-nums">{brl(resumo.poder)}</strong></span>
+          <span aria-hidden>·</span>
+          <span><strong className="text-foreground tabular-nums">{resumo.qtd}</strong> {resumo.qtd === 1 ? "modelo" : "modelos"}</span>
+        </div>
         <div className="flex items-center gap-1.5 ml-auto">
           <Label className="text-xs text-muted-foreground">Ordenar por</Label>
           <Select
@@ -440,8 +483,8 @@ function PlanejamentoPage() {
 }
 
 
-function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, markup, mesNome, onOpen, compact }: {
-  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; markup: number | null; mesNome: string | null; onOpen: () => void; compact?: boolean;
+function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, markup, preco, mesNome, onOpen, compact }: {
+  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; markup: number | null; preco: number | null; mesNome: string | null; onOpen: () => void; compact?: boolean;
 }) {
   // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
   const cover = (modelo.fotos_modelo?.[0]) || modelo.desenho_tecnico_url || modelo.croqui_url || null;
@@ -471,7 +514,8 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, markup, m
         <p className="text-xs text-muted-foreground truncate">{mesNome ?? "—"}</p>
         <p className="text-xs text-muted-foreground truncate">{categoriaNome ?? "Sem categoria"}</p>
         <p className="text-xs text-muted-foreground truncate">{linhaNome ?? "Sem linha"}</p>
-        {markup != null && <p className="text-xs text-muted-foreground truncate">Markup: {Number(markup).toLocaleString("pt-BR")}</p>}
+        {markup != null && <p className="text-xs text-muted-foreground truncate">Markup: {Number(markup).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</p>}
+        {preco != null && <p className="text-xs font-medium truncate">{brl(preco)}</p>}
       </div>
       )}
     </Card>
@@ -541,17 +585,6 @@ type LinhaOpt = { id: string; nome: string; markup: number | null };
 type SubOpt = { id: string; nome: string; categoria_id: string | null };
 
 const numOr0 = (v: any) => Number(v ?? 0) || 0;
-
-/**
- * Preço sugerido: arredonda PRA CIMA até o próximo valor da grade que termina em
- * 4,90 ou 9,90 (passo 5 a partir de 4,90). Ex.: 14,67 → 14,90; 437,98 → 439,90.
- * (Os limites 4,90/9,90 virarão config da loja depois.)
- */
-function precoSugerido(v: number): number {
-  if (!(v > 0)) return 0;
-  const k = Math.max(0, Math.ceil((v - 4.9) / 5 - 1e-9));
-  return Math.round((5 * k + 4.9) * 100) / 100;
-}
 
 function Secao({ titulo, children }: { titulo: string; children: React.ReactNode }) {
   return (
@@ -631,15 +664,10 @@ function ModeloDialog({
     },
   });
 
-  // Cálculo de preço (Setor "Preço"): custo × markup → arredonda → markup real.
-  const custo = numOr0(custoData?.real);
+  // Cálculo de preço (Setor "Preço") — mesma lógica usada na lista e nos Lançamentos.
   const custoReal = !!custoData?.confirmado;
-  const markup = numOr0(linhas.find((l) => l.id === draft.linha_id)?.markup);
-  const preco = custo > 0 && markup > 0 ? custo * markup : 0;
-  const precoSug = precoSugerido(preco);
-  const precoVenda = numOr0(draft.preco_venda);
-  const precoBase = precoVenda > 0 ? precoVenda : precoSug; // venda manual senão sugerido
-  const markupReal = custo > 0 && precoBase > 0 ? precoBase / custo : 0;
+  const { custo, markupLinha: markup, preco, sugerido: precoSug, markupReal } =
+    precoInfo(custoData?.real, linhas.find((l) => l.id === draft.linha_id)?.markup, draft.preco_venda);
 
   // Pré-preenche o Preço para venda com o sugerido (uma vez por modelo); não sobrescreve
   // valor salvo nem edição do usuário.
