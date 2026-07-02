@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown } from "lucide-react";
+import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -35,6 +35,7 @@ import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { RequirePermission } from "@/components/RequirePermission";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
+import { Checkbox } from "@/components/ui/checkbox";
 export const Route = createFileRoute("/_authenticated/criacao/planejamento")({
   component: () => (
     <RequirePermission page="criacao_planejamento">
@@ -166,6 +167,12 @@ function PlanejamentoPage() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [openNew, setOpenNew] = useState(false);
   const [openBatch, setOpenBatch] = useState(false);
+  const [openBulk, setOpenBulk] = useState(false);
+  const [selMode, setSelMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const toggleSel = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const selectAllFiltered = () => setSelected(new Set(sorted.map((m) => m.id)));
+  const clearSel = () => setSelected(new Set());
   const [groupByCat, setGroupByCat] = useState(true);
   const [groupByLinha, setGroupByLinha] = useState(false);
   const [groupByRep, setGroupByRep] = useState(false);
@@ -344,19 +351,25 @@ function PlanejamentoPage() {
   ];
 
   const renderCard = (m: Modelo) => (
-    <ModeloCard
-      key={m.id}
-      modelo={m}
-      estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
-      categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
-      linhaNome={m.linha_id ? linhaMap[m.linha_id] : null}
-      markup={(() => { const p = piFor(m); return p.markupExibir > 0 ? p.markupExibir : null; })()}
-      preco={(() => { const p = piFor(m); return p.efetivo > 0 ? p.efetivo : null; })()}
-      aprovacao={(() => { const a = (aprovacaoMap as any)[m.id]; return a?.tem ? (a.todos ? "verde" : "amarela") : null; })()}
-      mesNome={m.mes_id ? mesMap[m.mes_id] : null}
-      onOpen={() => setOpenId(m.id)}
-      compact={compact}
-    />
+    <div key={m.id} className="relative">
+      {selMode && (
+        <div className="absolute left-2 top-2 z-10">
+          <Checkbox checked={selected.has(m.id)} onCheckedChange={() => toggleSel(m.id)} />
+        </div>
+      )}
+      <ModeloCard
+        modelo={m}
+        estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
+        categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
+        linhaNome={m.linha_id ? linhaMap[m.linha_id] : null}
+        markup={(() => { const p = piFor(m); return p.markupExibir > 0 ? p.markupExibir : null; })()}
+        preco={(() => { const p = piFor(m); return p.efetivo > 0 ? p.efetivo : null; })()}
+        aprovacao={(() => { const a = (aprovacaoMap as any)[m.id]; return a?.tem ? (a.todos ? "verde" : "amarela") : null; })()}
+        mesNome={m.mes_id ? mesMap[m.mes_id] : null}
+        onOpen={() => (selMode ? toggleSel(m.id) : setOpenId(m.id))}
+        compact={compact}
+      />
+    </div>
   );
 
   // Agrupamentos combináveis: por linha, categoria e/ou repetição. Aninhamento de
@@ -466,6 +479,16 @@ function PlanejamentoPage() {
             { label: "Repetição", active: groupByRep, onToggle: () => setGroupByRep((v) => !v) },
           ]}
         />
+        <Button size="sm" variant={selMode ? "default" : "outline"} onClick={() => { setSelMode((v) => !v); clearSel(); }}>
+          <CheckSquare className="h-4 w-4 mr-1" /> Selecionar
+        </Button>
+        {selMode && (
+          <>
+            <Button size="sm" variant="ghost" onClick={selectAllFiltered}>Todos ({sorted.length})</Button>
+            <span className="text-xs text-muted-foreground">{selected.size} selecionado(s)</span>
+            <Button size="sm" disabled={selected.size === 0} onClick={() => setOpenBulk(true)}>Definir em massa</Button>
+          </>
+        )}
         <ResumoVenda {...resumo} />
         <div className="flex items-center gap-1.5 ml-auto">
           <Label className="text-xs text-muted-foreground">Ordenar por</Label>
