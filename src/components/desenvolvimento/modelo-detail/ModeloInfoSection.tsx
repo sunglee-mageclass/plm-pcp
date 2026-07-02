@@ -28,6 +28,8 @@ export function ModeloInfoSection({
   isReprovado,
   statusOptions,
   podeEntrarStatus,
+  otbOn,
+  colecoes,
 }: {
   draft: Draft;
   setDraft: (d: Draft) => void;
@@ -41,6 +43,8 @@ export function ModeloInfoSection({
   isReprovado: boolean;
   statusOptions?: StatusOpt[];
   podeEntrarStatus?: (statusKey: string) => { ok: boolean; faltando: { label: string }[] };
+  otbOn?: boolean;
+  colecoes?: { id: string; nome: string; mes_id: string | null; ano_id: string | null }[];
 }) {
   const fl = useFieldLabels();
   const [visiblePilotos, setVisiblePilotos] = useState<Set<number>>(() => {
@@ -135,6 +139,18 @@ export function ModeloInfoSection({
           onChange={(v) => setDraft({ ...draft, subcategoria2_id: v })}
           options={sub2Opts.filter((s) => s.categoria_id === draft.categoria_principal_id)}
         />
+        {otbOn && (
+          <FieldSelectOpt
+            label="Coleção"
+            value={draft.colecao_id}
+            onChange={(v) => {
+              const col = (colecoes ?? []).find((c) => c.id === v);
+              setDraft({ ...draft, colecao_id: v, colecao: col?.nome ?? draft.colecao,
+                mes_id: draft.mes_id ?? col?.mes_id ?? null, ano_id: draft.ano_id ?? col?.ano_id ?? null });
+            }}
+            options={(colecoes ?? []).map((c) => ({ id: c.id, nome: c.nome }))}
+          />
+        )}
         <div className="sm:col-span-2 grid sm:grid-cols-2 gap-3">
           <FieldSelectOpt label={`${fl("piloteiro")} 1`} value={draft.piloteiro1_id} onChange={(v) => setDraft({ ...draft, piloteiro1_id: v })} options={piloteiros} />
           <Field label="Data Piloto 1">

@@ -14,6 +14,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Button } from "@/components/ui/button";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { useTenantModules } from "@/hooks/useTenantModules";
 import { normalizeKanbanStatuses, APROVADO_KEY } from "@/lib/kanban-status";
 import { requisitosOk } from "@/lib/kanban-condicoes";
 
@@ -56,6 +57,17 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const qc = useQueryClient();
   const fl = useFieldLabels();
   const tenantId = useActiveTenantId();
+
+  const { isModuleEnabled } = useTenantModules();
+  const otbOn = isModuleEnabled("otb");
+  const { data: colecoes = [] } = useQuery({
+    queryKey: ["otb-colecoes-opts"],
+    enabled: otbOn,
+    queryFn: async () => {
+      const { data } = await supabase.from("colecoes").select("id, nome, mes_id, ano_id").order("nome");
+      return (data ?? []) as { id: string; nome: string; mes_id: string | null; ano_id: string | null }[];
+    },
+  });
 
   const linhas = useOpts("linhas");
   const categorias = useOpts("categorias_produto");
@@ -320,6 +332,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         categoria_principal_id: modelo.categoria_principal_id ?? null,
         subcategoria1_id: (modelo as any).subcategoria1_id ?? null,
         subcategoria2_id: (modelo as any).subcategoria2_id ?? null,
+        colecao_id: (modelo as any).colecao_id ?? null,
       });
     }
   }, [modelo]);
@@ -521,6 +534,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         categoria_principal_id: draft.categoria_principal_id || null,
         subcategoria1_id: draft.subcategoria1_id || null,
         subcategoria2_id: draft.subcategoria2_id || null,
+        colecao_id: draft.colecao_id || null,
         custo_terceirizados_previsto: draft.custo_terceirizados_previsto || 0,
         custo_tecido_total: totals.tecido,
         custo_forro_total: totals.forro,
@@ -921,6 +935,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 isReprovado={isReprovado}
                 statusOptions={statusOptions}
                 podeEntrarStatus={podeEntrarStatus}
+                otbOn={otbOn}
+                colecoes={colecoes}
               />
             </AccordionContent>
           </AccordionItem>
