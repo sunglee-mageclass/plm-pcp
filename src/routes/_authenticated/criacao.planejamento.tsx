@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { DateField } from "@/components/shared/DateField";
+import { ResumoVenda } from "@/components/shared/ResumoVenda";
 import { precoInfo } from "@/lib/preco";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -310,17 +311,18 @@ function PlanejamentoPage() {
   const s = useSort(filtered, sortOpts);
   const sorted = s.sorted;
 
-  // Resumo (influenciado pelos filtros): poder de venda = Σ (preço efetivo × grade);
-  // markup médio real = média aritmética do markup real dos modelos que o têm.
-  const resumo = useMemo(() => {
+  // Resumo (poder de venda = Σ preço efetivo × grade; markup médio real = média
+  // aritmética do markup real dos que o têm) — de uma lista qualquer de modelos.
+  const computeResumo = (items: Modelo[]) => {
     let poder = 0, somaMk = 0, nMk = 0;
-    for (const m of sorted) {
+    for (const m of items) {
       const p = piFor(m);
       poder += p.efetivo * numOr0((gradeByModelo as any)[m.id]);
       if (p.markupReal > 0) { somaMk += p.markupReal; nMk++; }
     }
-    return { poder, qtd: sorted.length, markupMedio: nMk > 0 ? somaMk / nMk : 0 };
-  }, [sorted, custoMap, gradeByModelo, linhas]);
+    return { poder, qtd: items.length, markupMedio: nMk > 0 ? somaMk / nMk : 0 };
+  };
+  const resumo = computeResumo(sorted);
 
   // Sentinela "__none__" = ordem padrão. (Radix Select v2 PROÍBE SelectItem com
   // value "" — daí o sentinela.) Como não existe accessor "__none__" nem campo
@@ -354,35 +356,39 @@ function PlanejamentoPage() {
     />
   );
 
-  // Agrupa por categoria principal (cards sem categoria caem em "Sem categoria").
-  const grouped = (() => {
+  // Agrupamentos (combináveis): por categoria e/ou por repetição. Cada grupo carrega o
+  // próprio resumo; com os dois ligados, categoria por fora e repetição por dentro.
+  const byCat = (items: Modelo[]) => {
     const map = new Map<string, Modelo[]>();
-    sorted.forEach((m) => {
+    items.forEach((m) => {
       const key = m.categoria_principal_id ?? "__none__";
       const arr = map.get(key);
-      if (arr) arr.push(m);
-      else map.set(key, [m]);
+      if (arr) arr.push(m); else map.set(key, [m]);
     });
     return Array.from(map.entries())
-      .map(([key, items]) => ({
-        key,
-        nome: key === "__none__" ? "Sem categoria" : catMap[key] ?? "Sem categoria",
-        items,
-      }))
+      .map(([key, its]) => ({ key, nome: key === "__none__" ? "Sem categoria" : catMap[key] ?? "Sem categoria", items: its }))
       .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
-  })();
-
-  // Agrupar por repetição: "Repetidos" (v2+) e "Únicos" (v1).
-  const groupedByRep = (() => {
-    const reps = sorted.filter(isRepeticao);
-    const unis = sorted.filter((m) => !isRepeticao(m));
+  };
+  const byRep = (items: Modelo[]) => {
+    const reps = items.filter(isRepeticao);
+    const unis = items.filter((m) => !isRepeticao(m));
     const out: { key: string; nome: string; items: Modelo[] }[] = [];
     if (reps.length) out.push({ key: "rep", nome: "Repetidos", items: reps });
     if (unis.length) out.push({ key: "uni", nome: "Únicos", items: unis });
     return out;
+  };
+  type Grupo = { key: string; nome: string; resumo: ReturnType<typeof computeResumo>; items?: Modelo[]; subgroups?: Grupo[] };
+  const groups: Grupo[] | null = (() => {
+    if (groupByCat && groupByRep) {
+      return byCat(sorted).map((g) => ({
+        key: g.key, nome: g.nome, resumo: computeResumo(g.items),
+        subgroups: byRep(g.items).map((sg) => ({ key: sg.key, nome: sg.nome, items: sg.items, resumo: computeResumo(sg.items) })),
+      }));
+    }
+    if (groupByCat) return byCat(sorted).map((g) => ({ ...g, resumo: computeResumo(g.items) }));
+    if (groupByRep) return byRep(sorted).map((g) => ({ ...g, resumo: computeResumo(g.items) }));
+    return null;
   })();
-
-  const activeGroups = groupByCat ? grouped : groupByRep ? groupedByRep : null;
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
@@ -420,24 +426,18 @@ function PlanejamentoPage() {
         <Button
           variant={groupByCat ? "default" : "outline"}
           size="sm"
-          onClick={() => { setGroupByCat((v) => !v); setGroupByRep(false); }}
+          onClick={() => setGroupByCat((v) => !v)}
         >
           <Group className="h-4 w-4 mr-1" /> Agrupar por categoria
         </Button>
         <Button
           variant={groupByRep ? "default" : "outline"}
           size="sm"
-          onClick={() => { setGroupByRep((v) => !v); setGroupByCat(false); }}
+          onClick={() => setGroupByRep((v) => !v)}
         >
           <Group className="h-4 w-4 mr-1" /> Agrupar por repetição
         </Button>
-        <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
-          <span>Poder de venda: <strong className="text-foreground tabular-nums">{brl(resumo.poder)}</strong></span>
-          <span aria-hidden>·</span>
-          <span>Markup médio real: <strong className="text-foreground tabular-nums">{resumo.markupMedio > 0 ? resumo.markupMedio.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—"}</strong></span>
-          <span aria-hidden>·</span>
-          <span><strong className="text-foreground tabular-nums">{resumo.qtd}</strong> {resumo.qtd === 1 ? "modelo" : "modelos"}</span>
-        </div>
+        <ResumoVenda {...resumo} />
         <div className="flex items-center gap-1.5 ml-auto">
           <Label className="text-xs text-muted-foreground">Ordenar por</Label>
           <Select
@@ -484,15 +484,29 @@ function PlanejamentoPage() {
       <div ref={gridRef}>
       {filtered.length === 0 ? (
         <EmptyState icon={Palette} title="Nenhum modelo encontrado" description="Crie um modelo usando o botão Novo Modelo." />
-      ) : activeGroups ? (
+      ) : groups ? (
         <div className="space-y-8">
-          {activeGroups.map((g) => (
+          {groups.map((g) => (
             <section key={g.key}>
-              <div className="flex items-center gap-2 mb-3">
+              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-3">
                 <h2 className="text-lg font-semibold">{g.nome}</h2>
-                <Badge variant="secondary">{g.items.length}</Badge>
+                <ResumoVenda {...g.resumo} />
               </div>
-              <div className={GRID_COLS_CLASS[cols]}>{g.items.map(renderCard)}</div>
+              {g.subgroups ? (
+                <div className="space-y-5 border-l pl-3">
+                  {g.subgroups.map((sg) => (
+                    <div key={sg.key}>
+                      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-2">
+                        <h3 className="text-sm font-semibold text-muted-foreground">{sg.nome}</h3>
+                        <ResumoVenda {...sg.resumo} />
+                      </div>
+                      <div className={GRID_COLS_CLASS[cols]}>{sg.items!.map(renderCard)}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className={GRID_COLS_CLASS[cols]}>{g.items!.map(renderCard)}</div>
+              )}
             </section>
           ))}
         </div>

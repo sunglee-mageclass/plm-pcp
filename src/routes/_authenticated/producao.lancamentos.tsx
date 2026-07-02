@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { brl } from "@/lib/format";
 import { precoInfo } from "@/lib/preco";
+import { ResumoVenda } from "@/components/shared/ResumoVenda";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -236,37 +237,49 @@ function LancamentosPage() {
     },
   });
   const piFor = (c: LancCard) => precoInfo((custoMap as any)[c.modelo_id]?.real, c.markup, c.preco_venda);
-  const resumo = useMemo(() => {
+  const computeResumo = (items: LancCard[]) => {
     let poder = 0, somaMk = 0, nMk = 0;
-    for (const c of sorted) {
+    for (const c of items) {
       const p = piFor(c);
       poder += p.efetivo * (Number(c.gradeTotal) || 0);
       if (p.markupReal > 0) { somaMk += p.markupReal; nMk++; }
     }
-    return { poder, qtd: sorted.length, markupMedio: nMk > 0 ? somaMk / nMk : 0 };
-  }, [sorted, custoMap]);
+    return { poder, qtd: items.length, markupMedio: nMk > 0 ? somaMk / nMk : 0 };
+  };
+  const resumo = computeResumo(sorted);
 
-  // Agrupamentos (por categoria / por repetição) — mutuamente exclusivos.
-  const groupedByCat = (() => {
+  // Agrupamentos combináveis (categoria por fora, repetição por dentro); resumo por grupo.
+  const byCat = (items: LancCard[]) => {
     const map = new Map<string, LancCard[]>();
-    sorted.forEach((c) => {
+    items.forEach((c) => {
       const key = c.categoria_nome ?? "__none__";
       const arr = map.get(key);
       if (arr) arr.push(c); else map.set(key, [c]);
     });
     return Array.from(map.entries())
-      .map(([key, items]) => ({ key, nome: key === "__none__" ? "Sem categoria" : key, items }))
+      .map(([key, its]) => ({ key, nome: key === "__none__" ? "Sem categoria" : key, items: its }))
       .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
-  })();
-  const groupedByRep = (() => {
-    const reps = sorted.filter((c) => (c.versao ?? 1) > 1);
-    const unis = sorted.filter((c) => (c.versao ?? 1) <= 1);
+  };
+  const byRep = (items: LancCard[]) => {
+    const reps = items.filter((c) => (c.versao ?? 1) > 1);
+    const unis = items.filter((c) => (c.versao ?? 1) <= 1);
     const out: { key: string; nome: string; items: LancCard[] }[] = [];
     if (reps.length) out.push({ key: "rep", nome: "Repetidos", items: reps });
     if (unis.length) out.push({ key: "uni", nome: "Únicos", items: unis });
     return out;
+  };
+  type Grupo = { key: string; nome: string; resumo: ReturnType<typeof computeResumo>; items?: LancCard[]; subgroups?: Grupo[] };
+  const groups: Grupo[] | null = (() => {
+    if (groupByCat && groupByRep) {
+      return byCat(sorted).map((g) => ({
+        key: g.key, nome: g.nome, resumo: computeResumo(g.items),
+        subgroups: byRep(g.items).map((sg) => ({ key: sg.key, nome: sg.nome, items: sg.items, resumo: computeResumo(sg.items) })),
+      }));
+    }
+    if (groupByCat) return byCat(sorted).map((g) => ({ ...g, resumo: computeResumo(g.items) }));
+    if (groupByRep) return byRep(sorted).map((g) => ({ ...g, resumo: computeResumo(g.items) }));
+    return null;
   })();
-  const activeGroups = groupByCat ? groupedByCat : groupByRep ? groupedByRep : null;
 
   const renderLancCard = (c: LancCard) => {
     const pi = piFor(c);
@@ -365,19 +378,13 @@ function LancamentosPage() {
             <Button key={n} size="sm" variant={cols === n ? "default" : "outline"} onClick={() => setCols(n)} className="h-7 w-9 px-0">{n}</Button>
           ))}
         </div>
-        <Button size="sm" variant={groupByCat ? "default" : "outline"} onClick={() => { setGroupByCat((v) => !v); setGroupByRep(false); }}>
+        <Button size="sm" variant={groupByCat ? "default" : "outline"} onClick={() => setGroupByCat((v) => !v)}>
           <Group className="h-4 w-4 mr-1" /> Agrupar por categoria
         </Button>
-        <Button size="sm" variant={groupByRep ? "default" : "outline"} onClick={() => { setGroupByRep((v) => !v); setGroupByCat(false); }}>
+        <Button size="sm" variant={groupByRep ? "default" : "outline"} onClick={() => setGroupByRep((v) => !v)}>
           <Group className="h-4 w-4 mr-1" /> Agrupar por repetição
         </Button>
-        <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
-          <span>Poder de venda: <strong className="text-foreground tabular-nums">{brl(resumo.poder)}</strong></span>
-          <span aria-hidden>·</span>
-          <span>Markup médio real: <strong className="text-foreground tabular-nums">{resumo.markupMedio > 0 ? resumo.markupMedio.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—"}</strong></span>
-          <span aria-hidden>·</span>
-          <span><strong className="text-foreground tabular-nums">{resumo.qtd}</strong> {resumo.qtd === 1 ? "modelo" : "modelos"}</span>
-        </div>
+        <ResumoVenda {...resumo} />
         <div className="flex items-center gap-1.5 ml-auto">
           <Label className="text-xs text-muted-foreground">Ordenar por</Label>
           <Select
@@ -414,15 +421,29 @@ function LancamentosPage() {
       )}
 
       <div ref={gridRef}>
-        {activeGroups ? (
+        {groups ? (
           <div className="space-y-8">
-            {activeGroups.map((g) => (
+            {groups.map((g) => (
               <section key={g.key}>
-                <div className="flex items-center gap-2 mb-3">
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-3">
                   <h2 className="text-lg font-semibold">{g.nome}</h2>
-                  <Badge variant="secondary">{g.items.length}</Badge>
+                  <ResumoVenda {...g.resumo} />
                 </div>
-                <div className={GRID_COLS_CLASS[cols]}>{g.items.map(renderLancCard)}</div>
+                {g.subgroups ? (
+                  <div className="space-y-5 border-l pl-3">
+                    {g.subgroups.map((sg) => (
+                      <div key={sg.key}>
+                        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-2">
+                          <h3 className="text-sm font-semibold text-muted-foreground">{sg.nome}</h3>
+                          <ResumoVenda {...sg.resumo} />
+                        </div>
+                        <div className={GRID_COLS_CLASS[cols]}>{sg.items!.map(renderLancCard)}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className={GRID_COLS_CLASS[cols]}>{g.items!.map(renderLancCard)}</div>
+                )}
               </section>
             ))}
           </div>
