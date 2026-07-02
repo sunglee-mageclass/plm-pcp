@@ -165,6 +165,7 @@ function PlanejamentoPage() {
   const [openNew, setOpenNew] = useState(false);
   const [openBatch, setOpenBatch] = useState(false);
   const [groupByCat, setGroupByCat] = useState(true);
+  const [groupByLinha, setGroupByLinha] = useState(false);
   const [groupByRep, setGroupByRep] = useState(false);
   const [cols, setCols] = useGridCols("planejamento");
   const gridRef = useRef<HTMLDivElement>(null);
@@ -356,9 +357,22 @@ function PlanejamentoPage() {
     />
   );
 
-  // Agrupamentos (combináveis): por categoria e/ou por repetição. Cada grupo carrega o
-  // próprio resumo; com os dois ligados, categoria por fora e repetição por dentro.
-  const byCat = (items: Modelo[]) => {
+  // Agrupamentos combináveis: por linha, categoria e/ou repetição. Aninhamento de
+  // amplo→fino (linha › categoria › repetição); qualquer combinação liga/desliga
+  // independente. Cada nó carrega o próprio resumo (poder de venda etc.).
+  type Split = { key: string; nome: string; items: Modelo[] };
+  const byLinha = (items: Modelo[]): Split[] => {
+    const map = new Map<string, Modelo[]>();
+    items.forEach((m) => {
+      const key = m.linha_id ?? "__none__";
+      const arr = map.get(key);
+      if (arr) arr.push(m); else map.set(key, [m]);
+    });
+    return Array.from(map.entries())
+      .map(([key, its]) => ({ key, nome: key === "__none__" ? "Sem linha" : linhaMap[key] ?? "Sem linha", items: its }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  };
+  const byCat = (items: Modelo[]): Split[] => {
     const map = new Map<string, Modelo[]>();
     items.forEach((m) => {
       const key = m.categoria_principal_id ?? "__none__";
@@ -369,26 +383,46 @@ function PlanejamentoPage() {
       .map(([key, its]) => ({ key, nome: key === "__none__" ? "Sem categoria" : catMap[key] ?? "Sem categoria", items: its }))
       .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
   };
-  const byRep = (items: Modelo[]) => {
+  const byRep = (items: Modelo[]): Split[] => {
     const reps = items.filter(isRepeticao);
     const unis = items.filter((m) => !isRepeticao(m));
-    const out: { key: string; nome: string; items: Modelo[] }[] = [];
+    const out: Split[] = [];
     if (reps.length) out.push({ key: "rep", nome: "Repetidos", items: reps });
     if (unis.length) out.push({ key: "uni", nome: "Únicos", items: unis });
     return out;
   };
+  // Ordem de aninhamento fixa (amplo→fino); os toggles só escolhem quais níveis entram.
+  const splitters: ((items: Modelo[]) => Split[])[] = [
+    groupByLinha ? byLinha : null,
+    groupByCat ? byCat : null,
+    groupByRep ? byRep : null,
+  ].filter(Boolean) as ((items: Modelo[]) => Split[])[];
   type Grupo = { key: string; nome: string; resumo: ReturnType<typeof computeResumo>; items?: Modelo[]; subgroups?: Grupo[] };
-  const groups: Grupo[] | null = (() => {
-    if (groupByCat && groupByRep) {
-      return byCat(sorted).map((g) => ({
-        key: g.key, nome: g.nome, resumo: computeResumo(g.items),
-        subgroups: byRep(g.items).map((sg) => ({ key: sg.key, nome: sg.nome, items: sg.items, resumo: computeResumo(sg.items) })),
-      }));
-    }
-    if (groupByCat) return byCat(sorted).map((g) => ({ ...g, resumo: computeResumo(g.items) }));
-    if (groupByRep) return byRep(sorted).map((g) => ({ ...g, resumo: computeResumo(g.items) }));
-    return null;
-  })();
+  const buildGroups = (items: Modelo[], depth: number): Grupo[] =>
+    splitters[depth](items).map((g) => {
+      const node: Grupo = { key: g.key, nome: g.nome, resumo: computeResumo(g.items) };
+      if (depth + 1 < splitters.length) node.subgroups = buildGroups(g.items, depth + 1);
+      else node.items = g.items;
+      return node;
+    });
+  const groups: Grupo[] | null = splitters.length ? buildGroups(sorted, 0) : null;
+
+  // Render recursivo dos grupos (profundidade arbitrária). Título encolhe com a
+  // profundidade; nós internos ganham barra/indentação à esquerda.
+  const HEADER_CLS = ["text-lg font-semibold", "text-base font-semibold", "text-sm font-semibold text-muted-foreground"];
+  const renderGroup = (g: Grupo, depth: number) => (
+    <section key={g.key}>
+      <div className={`flex flex-wrap items-baseline gap-x-3 gap-y-1 ${depth === 0 ? "mb-3" : "mb-2"}`}>
+        <h2 className={HEADER_CLS[Math.min(depth, HEADER_CLS.length - 1)]}>{g.nome}</h2>
+        <ResumoVenda {...g.resumo} />
+      </div>
+      {g.subgroups ? (
+        <div className="space-y-5 border-l pl-3">{g.subgroups.map((sg) => renderGroup(sg, depth + 1))}</div>
+      ) : (
+        <div className={GRID_COLS_CLASS[cols]}>{g.items!.map(renderCard)}</div>
+      )}
+    </section>
+  );
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
@@ -423,6 +457,13 @@ function PlanejamentoPage() {
       </header>
 
       <div className="flex items-center gap-2 flex-wrap">
+        <Button
+          variant={groupByLinha ? "default" : "outline"}
+          size="sm"
+          onClick={() => setGroupByLinha((v) => !v)}
+        >
+          <Group className="h-4 w-4 mr-1" /> Agrupar por linha
+        </Button>
         <Button
           variant={groupByCat ? "default" : "outline"}
           size="sm"
@@ -486,29 +527,7 @@ function PlanejamentoPage() {
         <EmptyState icon={Palette} title="Nenhum modelo encontrado" description="Crie um modelo usando o botão Novo Modelo." />
       ) : groups ? (
         <div className="space-y-8">
-          {groups.map((g) => (
-            <section key={g.key}>
-              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-3">
-                <h2 className="text-lg font-semibold">{g.nome}</h2>
-                <ResumoVenda {...g.resumo} />
-              </div>
-              {g.subgroups ? (
-                <div className="space-y-5 border-l pl-3">
-                  {g.subgroups.map((sg) => (
-                    <div key={sg.key}>
-                      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-2">
-                        <h3 className="text-sm font-semibold text-muted-foreground">{sg.nome}</h3>
-                        <ResumoVenda {...sg.resumo} />
-                      </div>
-                      <div className={GRID_COLS_CLASS[cols]}>{sg.items!.map(renderCard)}</div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className={GRID_COLS_CLASS[cols]}>{g.items!.map(renderCard)}</div>
-              )}
-            </section>
-          ))}
+          {groups.map((g) => renderGroup(g, 0))}
         </div>
       ) : (
         <div className={GRID_COLS_CLASS[cols]}>{sorted.map(renderCard)}</div>

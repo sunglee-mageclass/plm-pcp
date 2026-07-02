@@ -75,6 +75,7 @@ function LancamentosPage() {
   const [fGrupo, setFGrupo] = useState("all");
   const [fRep, setFRep] = useState("all");
   const [groupByCat, setGroupByCat] = useState(false);
+  const [groupByLinha, setGroupByLinha] = useState(false);
   const [groupByRep, setGroupByRep] = useState(false);
 
   const { data: meses = [] } = useQuery({
@@ -248,8 +249,22 @@ function LancamentosPage() {
   };
   const resumo = computeResumo(sorted);
 
-  // Agrupamentos combináveis (categoria por fora, repetição por dentro); resumo por grupo.
-  const byCat = (items: LancCard[]) => {
+  // Agrupamentos combináveis: por linha, categoria e/ou repetição. Aninhamento
+  // amplo→fino (linha › categoria › repetição); toggles independentes. Cada nó
+  // carrega o próprio resumo (poder de venda etc.).
+  type Split = { key: string; nome: string; items: LancCard[] };
+  const byLinha = (items: LancCard[]): Split[] => {
+    const map = new Map<string, LancCard[]>();
+    items.forEach((c) => {
+      const key = c.linha_id ?? "__none__";
+      const arr = map.get(key);
+      if (arr) arr.push(c); else map.set(key, [c]);
+    });
+    return Array.from(map.entries())
+      .map(([key, its]) => ({ key, nome: key === "__none__" ? "Sem linha" : (its[0].linha ?? "Sem linha"), items: its }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  };
+  const byCat = (items: LancCard[]): Split[] => {
     const map = new Map<string, LancCard[]>();
     items.forEach((c) => {
       const key = c.categoria_nome ?? "__none__";
@@ -260,26 +275,28 @@ function LancamentosPage() {
       .map(([key, its]) => ({ key, nome: key === "__none__" ? "Sem categoria" : key, items: its }))
       .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
   };
-  const byRep = (items: LancCard[]) => {
+  const byRep = (items: LancCard[]): Split[] => {
     const reps = items.filter((c) => (c.versao ?? 1) > 1);
     const unis = items.filter((c) => (c.versao ?? 1) <= 1);
-    const out: { key: string; nome: string; items: LancCard[] }[] = [];
+    const out: Split[] = [];
     if (reps.length) out.push({ key: "rep", nome: "Repetidos", items: reps });
     if (unis.length) out.push({ key: "uni", nome: "Únicos", items: unis });
     return out;
   };
+  const splitters: ((items: LancCard[]) => Split[])[] = [
+    groupByLinha ? byLinha : null,
+    groupByCat ? byCat : null,
+    groupByRep ? byRep : null,
+  ].filter(Boolean) as ((items: LancCard[]) => Split[])[];
   type Grupo = { key: string; nome: string; resumo: ReturnType<typeof computeResumo>; items?: LancCard[]; subgroups?: Grupo[] };
-  const groups: Grupo[] | null = (() => {
-    if (groupByCat && groupByRep) {
-      return byCat(sorted).map((g) => ({
-        key: g.key, nome: g.nome, resumo: computeResumo(g.items),
-        subgroups: byRep(g.items).map((sg) => ({ key: sg.key, nome: sg.nome, items: sg.items, resumo: computeResumo(sg.items) })),
-      }));
-    }
-    if (groupByCat) return byCat(sorted).map((g) => ({ ...g, resumo: computeResumo(g.items) }));
-    if (groupByRep) return byRep(sorted).map((g) => ({ ...g, resumo: computeResumo(g.items) }));
-    return null;
-  })();
+  const buildGroups = (items: LancCard[], depth: number): Grupo[] =>
+    splitters[depth](items).map((g) => {
+      const node: Grupo = { key: g.key, nome: g.nome, resumo: computeResumo(g.items) };
+      if (depth + 1 < splitters.length) node.subgroups = buildGroups(g.items, depth + 1);
+      else node.items = g.items;
+      return node;
+    });
+  const groups: Grupo[] | null = splitters.length ? buildGroups(sorted, 0) : null;
 
   const renderLancCard = (c: LancCard) => {
     const pi = piFor(c);
@@ -296,6 +313,23 @@ function LancamentosPage() {
       />
     );
   };
+
+  // Render recursivo dos grupos (profundidade arbitrária). Título encolhe com a
+  // profundidade; nós internos ganham barra/indentação à esquerda.
+  const HEADER_CLS = ["text-lg font-semibold", "text-base font-semibold", "text-sm font-semibold text-muted-foreground"];
+  const renderGroup = (g: Grupo, depth: number) => (
+    <section key={g.key}>
+      <div className={`flex flex-wrap items-baseline gap-x-3 gap-y-1 ${depth === 0 ? "mb-3" : "mb-2"}`}>
+        <h2 className={HEADER_CLS[Math.min(depth, HEADER_CLS.length - 1)]}>{g.nome}</h2>
+        <ResumoVenda {...g.resumo} />
+      </div>
+      {g.subgroups ? (
+        <div className="space-y-5 border-l pl-3">{g.subgroups.map((sg) => renderGroup(sg, depth + 1))}</div>
+      ) : (
+        <div className={GRID_COLS_CLASS[cols]}>{g.items!.map(renderLancCard)}</div>
+      )}
+    </section>
+  );
 
   // Sentinela "__none__" = ordem padrão. (Radix Select v2 PROÍBE SelectItem com
   // value "" — daí o sentinela.) Sem accessor "__none__" nem campo homônimo no card,
@@ -378,6 +412,9 @@ function LancamentosPage() {
             <Button key={n} size="sm" variant={cols === n ? "default" : "outline"} onClick={() => setCols(n)} className="h-7 w-9 px-0">{n}</Button>
           ))}
         </div>
+        <Button size="sm" variant={groupByLinha ? "default" : "outline"} onClick={() => setGroupByLinha((v) => !v)}>
+          <Group className="h-4 w-4 mr-1" /> Agrupar por linha
+        </Button>
         <Button size="sm" variant={groupByCat ? "default" : "outline"} onClick={() => setGroupByCat((v) => !v)}>
           <Group className="h-4 w-4 mr-1" /> Agrupar por categoria
         </Button>
@@ -423,29 +460,7 @@ function LancamentosPage() {
       <div ref={gridRef}>
         {groups ? (
           <div className="space-y-8">
-            {groups.map((g) => (
-              <section key={g.key}>
-                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-3">
-                  <h2 className="text-lg font-semibold">{g.nome}</h2>
-                  <ResumoVenda {...g.resumo} />
-                </div>
-                {g.subgroups ? (
-                  <div className="space-y-5 border-l pl-3">
-                    {g.subgroups.map((sg) => (
-                      <div key={sg.key}>
-                        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mb-2">
-                          <h3 className="text-sm font-semibold text-muted-foreground">{sg.nome}</h3>
-                          <ResumoVenda {...sg.resumo} />
-                        </div>
-                        <div className={GRID_COLS_CLASS[cols]}>{sg.items!.map(renderLancCard)}</div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className={GRID_COLS_CLASS[cols]}>{g.items!.map(renderLancCard)}</div>
-                )}
-              </section>
-            ))}
+            {groups.map((g) => renderGroup(g, 0))}
           </div>
         ) : (
           <div className={GRID_COLS_CLASS[cols]}>{sorted.map(renderLancCard)}</div>
