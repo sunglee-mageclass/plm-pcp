@@ -100,11 +100,12 @@ function OtbPage() {
     for (const s of semanas) planejado[s.colecao_id] = (planejado[s.colecao_id] ?? 0) + Number(s.qtd_planejada ?? 0);
     const byCol: Record<string, typeof modelosLink> = {};
     for (const m of modelosLink) (byCol[m.colecao_id] ??= []).push(m);
-    const out: Record<string, { planejado: number; vinculados: number; previsto: number }> = {};
+    const out: Record<string, { planejado: number; vinculados: number; previsto: number; real: number }> = {};
     for (const c of colecoes) {
       const ms = byCol[c.id] ?? [];
       const resumo = computeColecaoResumo(ms as any, custoMap as any, gradeMap as any, linhaMarkupMap as any);
-      out[c.id] = { planejado: planejado[c.id] ?? 0, vinculados: ms.length, previsto: resumo.previsto };
+      // "custo utilizado" = real (que já cai no previsto quando não há CAD no corte) — o "valor usado" do projeto.
+      out[c.id] = { planejado: planejado[c.id] ?? 0, vinculados: ms.length, previsto: resumo.previsto, real: resumo.real };
     }
     return out;
   }, [semanas, modelosLink, colecoes, custoMap, gradeMap, linhaMarkupMap]);
@@ -156,16 +157,16 @@ function OtbPage() {
             const anoNome = c.ano_id ? (anos.find((a) => a.id === c.ano_id)?.nome ?? null) : null;
             const mesNome = c.mes_id ? (meses.find((m) => m.id === c.mes_id)?.nome ?? null) : null;
             const periodoLabel = [mesNome, anoNome].filter(Boolean).join(" / ");
-            const st = statsByColecao[c.id] ?? { planejado: 0, vinculados: 0, previsto: 0 };
+            const st = statsByColecao[c.id] ?? { planejado: 0, vinculados: 0, previsto: 0, real: 0 };
             const orc = c.orcamento != null ? Number(c.orcamento) : null;
-            const fora = orc != null && st.previsto > orc;
+            const fora = orc != null && st.real > orc;
             return (
               <button key={c.id} onClick={() => setOpenId(c.id)} className="text-left rounded-lg border p-3 hover:bg-muted">
                 <div className="flex items-center justify-between"><span className="font-semibold">{c.nome}</span>
                   <span className="text-xs text-muted-foreground">{c.status === "confirmada" ? "Confirmada" : "Rascunho"}</span></div>
                 {periodoLabel && <div className="text-xs text-muted-foreground mt-0.5">{periodoLabel}</div>}
                 <div className="text-sm text-muted-foreground mt-1">Orçamento: {c.orcamento != null ? brl(Number(c.orcamento)) : "—"}</div>
-                <div className="text-sm text-muted-foreground">Custo utilizado: {brl(st.previsto)}</div>
+                <div className="text-sm text-muted-foreground">Custo utilizado: {brl(st.real)}</div>
                 {orc != null && (
                   <div className="mt-1">
                     <Badge variant={fora ? "destructive" : "secondary"} className={fora ? "" : "bg-emerald-100 text-emerald-700 hover:bg-emerald-100"}>
