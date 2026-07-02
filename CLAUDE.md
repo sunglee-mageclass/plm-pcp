@@ -70,13 +70,21 @@ unit + integração transacional de RPC — ver `tests/README.md`)
 - Roles: `super_admin` (gestão global de lojas/usuários — quem cria, ativa/inativa,
   **reseta** e **exclui** loja; atribui o admin da loja), `tenant_admin` (admin da loja)
   e permissões por-página em `user_permissions` (canView/canEdit, respeitado na sidebar).
-- **Modularização**: 6 módulos liga/desliga por loja em `tenant_config.modules` (jsonb):
-  `cadastro, entrada_saida, criacao, producao, financeiro, dashboard` (hook
-  `useTenantModules`). **Modos da loja** em `tenant_config`: `modo_oc_rolo ∈ {oc,rolo,ambos}`,
+- **Modularização**: 7 módulos liga/desliga por loja em `tenant_config.modules` (jsonb):
+  `cadastro, entrada_saida, criacao, producao, financeiro, dashboard` + **`otb`** (hook
+  `useTenantModules`). ⚠️ **`otb` é OPT-IN (default OFF)** — sobrescrito p/ `false` em
+  `useTenantModules.DEFAULTS` E `admin/lojas.tsx MODULE_DEFAULTS` (o fallback genérico é
+  `?? true`; sem isso, chave ausente ligaria por engano). Loja sem `otb` = Coleção é texto
+  livre (como antes); com `otb` = Coleção vira dropdown das `colecoes`. **Modos da loja** em `tenant_config`: `modo_oc_rolo ∈ {oc,rolo,ambos}`,
   `modo_baixa_estoque ∈ {por_oc,automatico}`, `timezone` (`useStoreTimezone`).
 
 ## Mapa de rotas (`src/routes/_authenticated/`)
 
+- **otb** (opt-in): orçamento de coleção antes do Planejamento (`otb.index.tsx`). Coleção é
+  entidade dona (`colecoes`/`colecao_semanas`/`modelos.colecao_id`); painel orçamento vs
+  previsto/real + poder de venda (client-side, reusa `preco.ts`); RPC `otb_confirmar`
+  gera/reconcilia cards em branco por semana (NUNCA apaga preenchido); RPC
+  `otb_importar_colecoes`. Preenchimento em massa fica no Planejamento (`BulkEditDialog`).
 - **cadastro**: atributos (categorias tecido/aviamento/material/subcategoria, linhas,
   categorias de serviço fixas Corte/Oficina), colaboradores, servicos, tecidos
   (+variantes), aviamentos
