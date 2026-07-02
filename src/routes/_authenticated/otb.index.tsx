@@ -165,13 +165,16 @@ function OtbPage() {
                   <span className="text-xs text-muted-foreground">{c.status === "confirmada" ? "Confirmada" : "Rascunho"}</span></div>
                 {periodoLabel && <div className="text-xs text-muted-foreground mt-0.5">{periodoLabel}</div>}
                 <div className="text-sm text-muted-foreground mt-1">Orçamento: {c.orcamento != null ? brl(Number(c.orcamento)) : "—"}</div>
-                <div className="mt-1 flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground tabular-nums">{st.planejado}/{st.vinculados} modelos</span>
-                  {orc != null && (
+                <div className="text-sm text-muted-foreground">Custo utilizado: {brl(st.previsto)}</div>
+                {orc != null && (
+                  <div className="mt-1">
                     <Badge variant={fora ? "destructive" : "secondary"} className={fora ? "" : "bg-emerald-100 text-emerald-700 hover:bg-emerald-100"}>
                       {fora ? "Fora" : "Dentro"}
                     </Badge>
-                  )}
+                  </div>
+                )}
+                <div className="mt-1">
+                  <span className="text-xs text-muted-foreground tabular-nums">{st.vinculados}/{st.planejado} modelos</span>
                 </div>
               </button>
             );
