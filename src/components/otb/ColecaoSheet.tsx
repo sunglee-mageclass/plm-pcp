@@ -83,6 +83,7 @@ export function ColecaoSheet({
   });
   const { data: linhas = [] } = useQuery({
     queryKey: ["opt", "linhas", "markup"],
+    enabled: !!colecaoId,
     queryFn: async () => {
       const { data } = await supabase.from("linhas").select("id, markup");
       return (data ?? []) as { id: string; markup: number | null }[];

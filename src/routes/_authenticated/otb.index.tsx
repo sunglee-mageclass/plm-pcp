@@ -48,13 +48,19 @@ function OtbPage() {
         <EmptyState icon={Target} title="Nenhuma coleção" description="Crie a primeira coleção do OTB." />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {colecoes.map((c) => (
-            <button key={c.id} onClick={() => setOpenId(c.id)} className="text-left rounded-lg border p-3 hover:bg-muted">
-              <div className="flex items-center justify-between"><span className="font-semibold">{c.nome}</span>
-                <span className="text-xs text-muted-foreground">{c.status === "confirmada" ? "Confirmada" : "Rascunho"}</span></div>
-              <div className="text-sm text-muted-foreground mt-1">Orçamento: {c.orcamento != null ? brl(Number(c.orcamento)) : "—"}</div>
-            </button>
-          ))}
+          {colecoes.map((c) => {
+            const anoNome = c.ano_id ? (anos.find((a) => a.id === c.ano_id)?.nome ?? null) : null;
+            const mesNome = c.mes_id ? (meses.find((m) => m.id === c.mes_id)?.nome ?? null) : null;
+            const periodoLabel = [mesNome, anoNome].filter(Boolean).join(" / ");
+            return (
+              <button key={c.id} onClick={() => setOpenId(c.id)} className="text-left rounded-lg border p-3 hover:bg-muted">
+                <div className="flex items-center justify-between"><span className="font-semibold">{c.nome}</span>
+                  <span className="text-xs text-muted-foreground">{c.status === "confirmada" ? "Confirmada" : "Rascunho"}</span></div>
+                {periodoLabel && <div className="text-xs text-muted-foreground mt-0.5">{periodoLabel}</div>}
+                <div className="text-sm text-muted-foreground mt-1">Orçamento: {c.orcamento != null ? brl(Number(c.orcamento)) : "—"}</div>
+              </button>
+            );
+          })}
         </div>
       )}
       {(openNew || openId) && (
