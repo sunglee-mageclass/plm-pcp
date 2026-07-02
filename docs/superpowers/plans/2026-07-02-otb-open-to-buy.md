@@ -1300,6 +1300,139 @@ git commit -m "feat(planejamento): preenchimento em massa dos cards selecionados
 
 ---
 
+## PHASE 5 — OTB list: filtro ano/mês + badge de orçamento + xx/yy modelos
+
+### Task 5.1: Enriquecer a lista de coleções em `/otb`
+
+**Files:** Modify `src/routes/_authenticated/otb.index.tsx`
+
+**Interfaces:**
+- Consumes: `FilterButton` from `@/components/shared/filters`; `computeColecaoResumo` from `@/components/otb/otb-resumo`; `custo_unitario_modelos` RPC; `modelo_grades`, `colecao_semanas`, `linhas`, `modelos`.
+- Produces: per-collection `{ planejado: number; vinculados: number; previsto: number; orcamento: number|null }` used by the card.
+
+Requisitos:
+1. **Filtro (ícone)** por **Ano** e **Mês**, usando o `FilterButton` compartilhado (mesmo padrão do Planejamento). Estado `fAno`/`fMes` (default `"all"`), aplicados à lista de coleções por `ano_id`/`mes_id`. Opções vêm de `meses`/`anos` (já carregados via `useOpts`).
+2. **xx/yy modelos** em cada card:
+   - **xx (planejado)** = Σ `qtd_planejada` das `colecao_semanas` daquela coleção.
+   - **yy (vinculados)** = nº de `modelos` com `colecao_id` = a coleção.
+   - Exibir como `"{xx}/{yy} modelos"` (ex.: `10/7 modelos`).
+3. **Badge Dentro/Fora do orçamento** em cada card: compara `orcamento` vs **previsto** (Σ custo previsto × grade, via `computeColecaoResumo`). Regra: sem orçamento → sem badge (ou "—"); `previsto ≤ orçamento` → badge "Dentro" (verde); `previsto > orçamento` → badge "Fora" (vermelho/destructive). Reusar o componente `Badge` do shadcn.
+
+Dados (carregar uma vez, agrupar por `colecao_id`):
+- `colecao_semanas`: `select colecao_id, qtd_planejada` → soma por `colecao_id` = **xx**.
+- `modelos`: `select id, colecao_id, linha_id, preco_venda from modelos where colecao_id not is null` → agrupa por `colecao_id`; a contagem por grupo = **yy**; a lista alimenta o resumo.
+- `custo_unitario_modelos(_ids)` com todos os ids desses modelos; `modelo_grades` (`select modelo_id, grade_total`) com os mesmos ids; `linhas` (`select id, markup`).
+- Por coleção: `computeColecaoResumo(modelosDaColecao, custoMap, gradeMap, linhaMarkupMap).previsto` → **previsto** p/ o badge.
+
+- [ ] **Step 1: Add the ano/mês filter**
+
+Import `FilterButton` from `@/components/shared/filters`. Add state `const [fAno, setFAno] = useState("all"); const [fMes, setFMes] = useState("all");`. Render `<FilterButton filters={[{ label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...anos] }, { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...meses] }]} />` in the header (next to "Nova coleção"/"Importar"). Filter the list: `const colecoesFiltradas = colecoes.filter((c) => (fAno === "all" || c.ano_id === fAno) && (fMes === "all" || c.mes_id === fMes));` and render `colecoesFiltradas` instead of `colecoes`.
+
+- [ ] **Step 2: Load aggregate data (weeks, models, cost, grade, linha)**
+
+```tsx
+const { data: semanas = [] } = useQuery({
+  queryKey: ["otb-semanas-todas"],
+  queryFn: async () => {
+    const { data, error } = await supabase.from("colecao_semanas").select("colecao_id, qtd_planejada");
+    if (error) throw error;
+    return (data ?? []) as { colecao_id: string; qtd_planejada: number }[];
+  },
+});
+const { data: modelosLink = [] } = useQuery({
+  queryKey: ["otb-modelos-link"],
+  queryFn: async () => {
+    const { data, error } = await supabase.from("modelos").select("id, colecao_id, linha_id, preco_venda").not("colecao_id", "is", null);
+    if (error) throw error;
+    return (data ?? []) as { id: string; colecao_id: string; linha_id: string | null; preco_venda: number | null }[];
+  },
+});
+const modeloIds = modelosLink.map((m) => m.id).sort();
+const { data: custoMap = {} } = useQuery({
+  queryKey: ["otb-custo-lista", modeloIds],
+  enabled: modeloIds.length > 0,
+  queryFn: async () => {
+    const { data, error } = await supabase.rpc("custo_unitario_modelos" as any, { _ids: modeloIds });
+    if (error) throw error;
+    return (data ?? {}) as Record<string, { previsto: number; real: number; confirmado: boolean }>;
+  },
+});
+const { data: gradeMap = {} } = useQuery({
+  queryKey: ["otb-grade-lista", modeloIds],
+  enabled: modeloIds.length > 0,
+  queryFn: async () => {
+    const { data, error } = await supabase.from("modelo_grades").select("modelo_id, grade_total").in("modelo_id", modeloIds);
+    if (error) throw error;
+    const m: Record<string, number> = {};
+    for (const r of (data ?? []) as any[]) m[r.modelo_id] = (m[r.modelo_id] ?? 0) + Number(r.grade_total ?? 0);
+    return m;
+  },
+});
+const { data: linhas = [] } = useQuery({
+  queryKey: ["opt", "linhas", "markup"],
+  queryFn: async () => {
+    const { data } = await supabase.from("linhas").select("id, markup");
+    return (data ?? []) as { id: string; markup: number | null }[];
+  },
+});
+const linhaMarkupMap = Object.fromEntries(linhas.map((l) => [l.id, l.markup]));
+```
+
+- [ ] **Step 3: Compute per-collection stats**
+
+```tsx
+import { computeColecaoResumo } from "@/components/otb/otb-resumo";
+// …
+const statsByColecao = (() => {
+  const planejado: Record<string, number> = {};
+  for (const s of semanas) planejado[s.colecao_id] = (planejado[s.colecao_id] ?? 0) + Number(s.qtd_planejada ?? 0);
+  const byCol: Record<string, typeof modelosLink> = {};
+  for (const m of modelosLink) (byCol[m.colecao_id] ??= []).push(m);
+  const out: Record<string, { planejado: number; vinculados: number; previsto: number }> = {};
+  for (const c of colecoes) {
+    const ms = byCol[c.id] ?? [];
+    const resumo = computeColecaoResumo(ms as any, custoMap as any, gradeMap as any, linhaMarkupMap as any);
+    out[c.id] = { planejado: planejado[c.id] ?? 0, vinculados: ms.length, previsto: resumo.previsto };
+  }
+  return out;
+})();
+```
+
+- [ ] **Step 4: Render badge + xx/yy on each card**
+
+In the card JSX, add (using the existing `Badge` import — add `import { Badge } from "@/components/ui/badge"` if missing):
+```tsx
+{(() => {
+  const st = statsByColecao[c.id] ?? { planejado: 0, vinculados: 0, previsto: 0 };
+  const orc = c.orcamento != null ? Number(c.orcamento) : null;
+  const fora = orc != null && st.previsto > orc;
+  return (
+    <div className="mt-1 flex items-center gap-2">
+      <span className="text-xs text-muted-foreground tabular-nums">{st.planejado}/{st.vinculados} modelos</span>
+      {orc != null && (
+        <Badge variant={fora ? "destructive" : "secondary"} className={fora ? "" : "bg-emerald-100 text-emerald-700 hover:bg-emerald-100"}>
+          {fora ? "Fora" : "Dentro"}
+        </Badge>
+      )}
+    </div>
+  );
+})()}
+```
+
+- [ ] **Step 5: tsc + build**
+
+Run: `npx tsc --noEmit 2>&1 | grep -E "TS2304|otb|colec|Badge" ; npm run build 2>&1 | tail -3`
+Expected: no tsc errors; build `✓ built`.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/routes/_authenticated/otb.index.tsx
+git commit -m "feat(otb): lista com filtro ano/mês + badge dentro/fora + xx/yy modelos por coleção"
+```
+
+---
+
 ## Final verification (after all phases)
 
 - [ ] Run the full integration suite: `npx vitest run tests/integration/otb.test.ts` → all PASS.
