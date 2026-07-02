@@ -81,11 +81,12 @@ function LancamentosPage() {
   const { data: cards = [], isLoading } = useQuery<LancCard[]>({
     queryKey: ["lancamentos-cards", meses, anos],
     queryFn: async () => {
-      // Produtos cujo Controle de Qualidade foi CONFIRMADO.
+      // Produtos: enviados ao CAD + CQ CONFIRMADO + LANÇADOS (gate explícito no card).
       const { data: modelos, error } = await supabase
         .from("modelos")
         .select("id, ref, nome, colecao, mes_id, ano_id, linha_id, preco_venda, revisao_pendente, fotos_modelo, linha:linha_id(nome, markup), categorias_produto:categoria_principal_id(nome), cad(id, controle_qualidade(id, status, fotografado_variantes))")
-        .eq("enviado_cad", true);
+        .eq("enviado_cad", true)
+        .eq("lancado", true);
       if (error) throw error;
 
       const list = (modelos ?? []).filter(

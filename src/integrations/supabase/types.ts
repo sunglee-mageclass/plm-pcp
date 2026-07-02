@@ -1873,6 +1873,7 @@ export type Database = {
           custo_terceirizados_previsto: number | null
           data_aprovacao: string | null
           data_desenho_tecnico: string | null
+          data_lancamento: string | null
           data_piloto1: string | null
           data_piloto2: string | null
           data_piloto3: string | null
@@ -1883,6 +1884,7 @@ export type Database = {
           fotos_modelo: string[] | null
           fotos_referencia: string[] | null
           id: string
+          lancado: boolean
           linha_id: string | null
           mes_id: string | null
           modelista_id: string | null
@@ -1925,6 +1927,7 @@ export type Database = {
           custo_terceirizados_previsto?: number | null
           data_aprovacao?: string | null
           data_desenho_tecnico?: string | null
+          data_lancamento?: string | null
           data_piloto1?: string | null
           data_piloto2?: string | null
           data_piloto3?: string | null
@@ -1935,6 +1938,7 @@ export type Database = {
           fotos_modelo?: string[] | null
           fotos_referencia?: string[] | null
           id?: string
+          lancado?: boolean
           linha_id?: string | null
           mes_id?: string | null
           modelista_id?: string | null
@@ -1977,6 +1981,7 @@ export type Database = {
           custo_terceirizados_previsto?: number | null
           data_aprovacao?: string | null
           data_desenho_tecnico?: string | null
+          data_lancamento?: string | null
           data_piloto1?: string | null
           data_piloto2?: string | null
           data_piloto3?: string | null
@@ -1987,6 +1992,7 @@ export type Database = {
           fotos_modelo?: string[] | null
           fotos_referencia?: string[] | null
           id?: string
+          lancado?: boolean
           linha_id?: string | null
           mes_id?: string | null
           modelista_id?: string | null

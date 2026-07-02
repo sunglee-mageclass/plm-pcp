@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { NumberInput } from "@/components/shared/NumberInput";
+import { DateField } from "@/components/shared/DateField";
 import { precoInfo } from "@/lib/preco";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -583,6 +584,7 @@ type Draft = {
   subcategoria1_id: string | null;
   subcategoria2_id: string | null;
   preco_venda: number | null;
+  data_lancamento: string | null;
   tecidos_planejados: string[];
   status_planejamento: string;
   croqui_url: string;
@@ -596,7 +598,7 @@ type Draft = {
 const emptyDraft = (): Draft => ({
   nome: "", estilista_id: null, linha_id: null, colecao: "", semana: "", mes_id: null, ano_id: null,
   categoria_principal_id: null, categoria_secundaria_id: null,
-  subcategoria1_id: null, subcategoria2_id: null, preco_venda: null,
+  subcategoria1_id: null, subcategoria2_id: null, preco_venda: null, data_lancamento: null,
   tecidos_planejados: [],
   status_planejamento: "em_planejamento", croqui_url: "", desenho_tecnico_url: "", fotos_modelo: [], fotos_referencia: [],
   observacoes_gerais: "",
@@ -706,6 +708,21 @@ function ModeloDialog({
 
   // "Ordem de Criação enviada" = gate p/ o Desenvolvimento (botão, não mais o status).
   const [enviada, setEnviada] = useState(false);
+  // "Lançado" = gate p/ Lançamentos (botão, após CAD + CQ confirmado).
+  const [lancado, setLancado] = useState(false);
+
+  // CAD + status do CQ do modelo — habilita a Data de Lançamento / botão Lançar.
+  const { data: cqInfo } = useQuery({
+    queryKey: ["plan-cq", modeloId],
+    enabled: !!modeloId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("cad").select("id, controle_qualidade(status)").eq("modelo_id", modeloId!).maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+  const cqConfirmado = (((cqInfo as any)?.controle_qualidade ?? [])[0]?.status) === "confirmado";
 
   useQuery({
     queryKey: ["modelo", modeloId],
@@ -728,6 +745,7 @@ function ModeloDialog({
           subcategoria1_id: (data as any).subcategoria1_id ?? null,
           subcategoria2_id: (data as any).subcategoria2_id ?? null,
           preco_venda: (data as any).preco_venda ?? null,
+          data_lancamento: (data as any).data_lancamento ?? null,
           tecidos_planejados: (data as any).tecidos_planejados ?? [],
           status_planejamento: data.status_planejamento ?? "em_planejamento",
           croqui_url: (data as any).croqui_url ?? "",
@@ -741,6 +759,7 @@ function ModeloDialog({
         // Pré-seleciona o Grupo da categoria carregada (deriva de categorias_produto.grupo_id).
         setGrupoSel(categorias.find((c) => c.id === data.categoria_principal_id)?.grupo_id ?? null);
         setEnviada(!!(data as any).ordem_criacao_enviada);
+        setLancado(!!(data as any).lancado);
       }
       return data;
     },
@@ -774,6 +793,7 @@ function ModeloDialog({
         croqui_url: draft.croqui_url || null,
         desenho_tecnico_url: draft.desenho_tecnico_url || null,
         preco_venda: numOr0(draft.preco_venda) > 0 ? numOr0(draft.preco_venda) : null,
+        data_lancamento: draft.data_lancamento || null,
       };
       if (isEdit && modeloId) {
         const { error } = await supabase.from("modelos").update(payload).eq("id", modeloId);
@@ -814,6 +834,27 @@ function ModeloDialog({
     },
   });
 
+  // Lançar/Cancelar: gate explícito pro Lançamentos (independe do Salvar). Persiste a
+  // Data de Lançamento junto (o usuário pode não ter clicado em Salvar).
+  const lancar = useMutation({
+    mutationFn: async (send: boolean) => {
+      if (!modeloId) throw new Error("Salve o modelo primeiro.");
+      if (send && !draft.data_lancamento) throw new Error("Preencha a Data de Lançamento.");
+      const payload = send
+        ? { lancado: true, data_lancamento: draft.data_lancamento }
+        : { lancado: false };
+      const { error } = await supabase.from("modelos").update(payload as any).eq("id", modeloId);
+      if (error) throw error;
+    },
+    onMutate: (send: boolean) => setLancado(send),
+    onError: (e: any, send: boolean) => { setLancado(!send); toast.error(mensagemErro(e, "Erro")); },
+    onSuccess: (_d, send: boolean) => {
+      toast.success(send ? "Modelo lançado" : "Lançamento cancelado");
+      qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+      qc.invalidateQueries({ queryKey: ["lancamentos-cards"] });
+    },
+  });
+
   const duplicate = useMutation({
     mutationFn: async () => {
       if (!modeloId) return;
@@ -831,6 +872,7 @@ function ModeloDialog({
       const payload: any = {
         ...rest,
         status_planejamento: "em_planejamento",
+        data_lancamento: null, // a cópia (nova versão) não nasce lançada (lancado default false)
         versao: maxV + 1,
         modelo_base_id: root,
       };
@@ -990,6 +1032,39 @@ function ModeloDialog({
                 onRemove={(i) => setDraft((d) => ({ ...d, fotos_referencia: d.fotos_referencia.filter((_, j) => j !== i) }))} />
             </div>
           </Secao>
+
+          {/* SETOR 6 — Lançamento (gate p/ Lançamentos: só após CAD + CQ confirmado) */}
+          {isEdit && (
+            <Secao titulo="Lançamento">
+              {cqConfirmado ? (
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="grid gap-1 flex-1 min-w-[180px]">
+                    <Label>Data de Lançamento</Label>
+                    <DateField
+                      value={draft.data_lancamento ?? ""}
+                      onChange={(e) => setDraft((d) => ({ ...d, data_lancamento: e.target.value || null }))}
+                    />
+                  </div>
+                  {lancado ? (
+                    <Button variant="outline" onClick={() => lancar.mutate(false)} disabled={lancar.isPending}>
+                      Cancelar Lançamento
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={() => lancar.mutate(true)}
+                      disabled={lancar.isPending || !draft.data_lancamento}
+                      title={!draft.data_lancamento ? "Preencha a Data de Lançamento" : undefined}
+                    >
+                      Lançar
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">Disponível após o CAD e o Controle de Qualidade confirmado.</p>
+              )}
+              {lancado && <p className="mt-2 text-xs text-emerald-600">✓ Lançado — aparece em Lançamentos.</p>}
+            </Secao>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2 sm:justify-end bg-background border-t pt-3 mt-4 sm:sticky sm:bottom-0 max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-50 max-sm:flex-nowrap max-sm:px-4 max-sm:py-3 max-sm:mt-0">
