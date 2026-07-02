@@ -176,15 +176,17 @@ function TercListPage() {
                 onClick={() => setSheetId(r.modelo_id)}
               >
                 <td className="px-4 py-2">
-                  {r.aprovacao && (
-                    <span
-                      className={`inline-block h-2.5 w-2.5 rounded-full mr-2 align-middle ${r.aprovacao === "verde" ? "bg-emerald-500" : "bg-amber-400"}`}
-                      title={r.aprovacao === "verde" ? "Serviços aprovados" : "Aprovação de serviço pendente"}
-                    />
-                  )}
-                  <span className="font-mono text-primary">{r.ref ?? "—"}</span>
-                  <VersaoBadge versao={r.versao} className="ml-2 text-[10px]" />
-                  <span className="ml-2"><RevisaoErroBadge revisao={r.revisao_pendente} etapa="terceirizados" /></span>
+                  <span className="inline-flex items-center gap-2">
+                    {r.aprovacao && (
+                      <span
+                        className={`h-2.5 w-2.5 shrink-0 rounded-full ${r.aprovacao === "verde" ? "bg-emerald-500" : "bg-amber-400"}`}
+                        title={r.aprovacao === "verde" ? "Serviços aprovados" : "Aprovação de serviço pendente"}
+                      />
+                    )}
+                    <span className="font-mono text-primary">{r.ref ?? "—"}</span>
+                    <VersaoBadge versao={r.versao} className="text-[10px]" />
+                    <RevisaoErroBadge revisao={r.revisao_pendente} etapa="terceirizados" />
+                  </span>
                 </td>
                 <td className="px-4 py-2" data-label="Nome">{r.nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground" data-label="Categoria">{r.categoria_nome ?? "—"}</td>

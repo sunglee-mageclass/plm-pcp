@@ -695,16 +695,9 @@ function ModeloDialog({
   const { custo, markupLinha: markup, preco, sugerido: precoSug, markupReal } =
     precoInfo(custoData?.real, linhas.find((l) => l.id === draft.linha_id)?.markup, draft.preco_venda);
 
-  // Pré-preenche o Preço para venda com o sugerido (uma vez por modelo); não sobrescreve
-  // valor salvo nem edição do usuário.
-  const precoPrefilled = useRef(false);
-  useEffect(() => { precoPrefilled.current = false; }, [modeloId]);
-  useEffect(() => {
-    if (!precoPrefilled.current && numOr0(draft.preco_venda) <= 0 && precoSug > 0) {
-      precoPrefilled.current = true;
-      setDraft((d) => ({ ...d, preco_venda: precoSug }));
-    }
-  }, [precoSug, draft.preco_venda]);
+  // Preço para venda é PLACEHOLDER (mostra o sugerido); só vira valor real se o usuário
+  // digitar. Não auto-preenche o draft (isso causava o flip-flop preenchido↔placeholder).
+  // O preço efetivo já cai no sugerido via precoInfo quando o campo está vazio.
 
   // "Ordem de Criação enviada" = gate p/ o Desenvolvimento (botão, não mais o status).
   const [enviada, setEnviada] = useState(false);
