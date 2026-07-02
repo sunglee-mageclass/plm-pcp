@@ -44,6 +44,7 @@ function OtbPage() {
     onSuccess: (r) => {
       toast.success(`${r.importadas} coleção(ões) importada(s), ${r.vinculados} modelo(s) vinculado(s).`);
       qc.invalidateQueries({ queryKey: ["otb-colecoes"] });
+      qc.invalidateQueries({ queryKey: ["otb-colecoes-opts"] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao importar coleções")),
   });

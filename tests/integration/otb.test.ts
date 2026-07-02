@@ -81,4 +81,16 @@ describe.skipIf(!hasDb)("OTB — importar coleções existentes", () => {
       expect(Number(linked.n)).toBeGreaterThanOrEqual(2);
     });
   });
+
+  it("bloqueia quando o módulo otb está desligado", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      // tenant_module_enabled retorna true para super_admin incondicionalmente;
+      // temporariamente removemos o papel super_admin do usuário de teste (dentro da txn, revertido no ROLLBACK)
+      // para que a verificação de módulo seja avaliada normalmente.
+      await c.query(`delete from user_roles where user_id=$1 and role='super_admin'`, [USER_TESTE]);
+      await c.query(`update tenant_config set modules = coalesce(modules,'{}'::jsonb) || '{"otb":false}'::jsonb where tenant_id=$1`, [TENANT_TESTE]);
+      await expect(c.query(`select public.otb_importar_colecoes()`)).rejects.toThrow();
+    });
+  });
 });
