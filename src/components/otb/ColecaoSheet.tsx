@@ -98,29 +98,54 @@ export function ColecaoSheet({
   const statusCor = orc == null ? "text-muted-foreground" : pct > 1 ? "text-destructive" : pct >= 0.9 ? "text-amber-600" : "text-emerald-600";
   const statusTxt = orc == null ? "Sem orçamento" : pct > 1 ? "Estourou" : pct >= 0.9 ? "Perto do teto" : "Dentro";
 
+  // Helper compartilhado: persiste a coleção + semanas, devolve o id.
+  // NÃO exibe toast nem fecha o sheet — quem chama é responsável por isso.
+  const persistColecao = async (): Promise<string> => {
+    if (!nome.trim()) throw new Error("Informe o nome da coleção.");
+    const payload = { nome: nome.trim(), ano_id: anoId, mes_id: mesId, orcamento: orcamento === "" ? null : Number(orcamento) };
+    let id = colecaoId;
+    if (id) {
+      const { error } = await supabase.from("colecoes").update(payload).eq("id", id);
+      if (error) throw error;
+    } else {
+      const { data: ins, error } = await supabase.from("colecoes").insert(payload).select("id").single();
+      if (error) throw error;
+      id = (ins as any).id;
+    }
+    // Diff das semanas: apaga as desmarcadas, upserta as marcadas.
+    const marked = WEEKS.filter((s) => weeks[s] != null);
+    await supabase.from("colecao_semanas").delete().eq("colecao_id", id!).not("semana", "in", `(${marked.map((s) => `'${s}'`).join(",") || "''"})`);
+    for (const s of marked) {
+      await supabase.from("colecao_semanas").upsert({ colecao_id: id!, semana: s, qtd_planejada: weeks[s] ?? 0 }, { onConflict: "colecao_id,semana" });
+    }
+    return id!;
+  };
+
   const save = useMutation({
-    mutationFn: async () => {
-      if (!nome.trim()) throw new Error("Informe o nome da coleção.");
-      const payload = { nome: nome.trim(), ano_id: anoId, mes_id: mesId, orcamento: orcamento === "" ? null : Number(orcamento) };
-      let id = colecaoId;
-      if (id) {
-        const { error } = await supabase.from("colecoes").update(payload).eq("id", id);
-        if (error) throw error;
-      } else {
-        const { data: ins, error } = await supabase.from("colecoes").insert(payload).select("id").single();
-        if (error) throw error;
-        id = (ins as any).id;
-      }
-      // Diff das semanas: apaga as desmarcadas, upserta as marcadas.
-      const marked = WEEKS.filter((s) => weeks[s] != null);
-      await supabase.from("colecao_semanas").delete().eq("colecao_id", id!).not("semana", "in", `(${marked.map((s) => `'${s}'`).join(",") || "''"})`);
-      for (const s of marked) {
-        await supabase.from("colecao_semanas").upsert({ colecao_id: id!, semana: s, qtd_planejada: weeks[s] ?? 0 }, { onConflict: "colecao_id,semana" });
-      }
-      return id!;
-    },
+    mutationFn: persistColecao,
     onSuccess: () => { toast.success("Coleção salva"); qc.invalidateQueries({ queryKey: ["otb-colecoes"] }); onSaved(); onClose(); },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar coleção")),
+  });
+
+  const confirmar = useMutation({
+    mutationFn: async () => {
+      const id = await persistColecao();
+      const { data, error } = await supabase.rpc("otb_confirmar" as any, { _colecao_id: id });
+      if (error) throw error;
+      return data as { criados: number; removidos: number; mantidos: number };
+    },
+    onSuccess: (r) => {
+      const partes = [
+        r.criados ? `${r.criados} criado(s)` : "",
+        r.removidos ? `${r.removidos} removido(s)` : "",
+        r.mantidos ? `${r.mantidos} mantido(s) (preenchidos)` : "",
+      ].filter(Boolean);
+      toast.success(`Coleção confirmada. ${partes.join(" · ") || "Sem mudanças."}`);
+      qc.invalidateQueries({ queryKey: ["otb-colecoes"] });
+      qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+      onSaved(); onClose();
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao confirmar coleção")),
   });
 
   return (
@@ -165,7 +190,10 @@ export function ColecaoSheet({
         </div>
         <div className="p-4 border-t shrink-0 flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-          <Button onClick={() => save.mutate()} disabled={save.isPending}>{save.isPending ? "Salvando…" : "Salvar"}</Button>
+          <Button variant="secondary" onClick={() => confirmar.mutate()} disabled={confirmar.isPending || save.isPending}>
+            {confirmar.isPending ? "Confirmando…" : "Confirmar"}
+          </Button>
+          <Button onClick={() => save.mutate()} disabled={save.isPending || confirmar.isPending}>{save.isPending ? "Salvando…" : "Salvar"}</Button>
         </div>
       </SheetContent>
     </Sheet>
