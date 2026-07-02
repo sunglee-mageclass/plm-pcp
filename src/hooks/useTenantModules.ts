@@ -13,15 +13,17 @@ export type ModuleKey =
   | "criacao"
   | "producao"
   | "financeiro"
-  | "dashboard";
+  | "dashboard"
+  | "otb";
 
-const ALL_ON: Record<ModuleKey, boolean> = {
+const DEFAULTS: Record<ModuleKey, boolean> = {
   cadastro: true,
   entrada_saida: true,
   criacao: true,
   producao: true,
   financeiro: true,
   dashboard: true,
+  otb: false, // opt-in
 };
 
 const MODULE_BASE_PATH: Record<ModuleKey, string> = {
@@ -31,6 +33,7 @@ const MODULE_BASE_PATH: Record<ModuleKey, string> = {
   producao: "/producao",
   financeiro: "/financeiro",
   dashboard: "/dashboard",
+  otb: "/otb",
 };
 
 // Prioridade para landing/redirect. Dashboard primeiro mantém o comportamento
@@ -57,9 +60,10 @@ export function useTenantModules() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const modules: Record<ModuleKey, boolean> = { ...ALL_ON, ...(data ?? {}) };
+  const modules: Record<ModuleKey, boolean> = { ...DEFAULTS, ...(data ?? {}) };
 
-  const isModuleEnabled = (key: string) => modules[key as ModuleKey] ?? true;
+  const isModuleEnabled = (key: string) =>
+    modules[key as ModuleKey] ?? DEFAULTS[key as ModuleKey] ?? true;
 
   // Modo só-estoque: apenas Cadastro + Entrada e Saída ligados.
   const isStockOnly =

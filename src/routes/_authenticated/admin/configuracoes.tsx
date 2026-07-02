@@ -102,6 +102,7 @@ type ConfigState = typeof DEFAULTS;
 const MODULE_LABELS: { key: string; label: string }[] = [
   { key: "cadastro", label: "Cadastro" },
   { key: "criacao", label: "Criação" },
+  { key: "otb", label: "OTB" },
   { key: "entrada_saida", label: "Entrada e Saída" },
   { key: "producao", label: "Produção" },
   { key: "financeiro", label: "Financeiro" },

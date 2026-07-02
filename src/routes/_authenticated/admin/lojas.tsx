@@ -31,9 +31,10 @@ import { useSort, SortHead } from "@/components/shared/sort";
 
 // Toggles de módulo (chaves batem com tenant_config.modules e PAGES_CATALOG).
 const MODULE_TOGGLES = PAGES_CATALOG.map((m) => ({ key: m.module, label: m.label }));
-const MODULE_DEFAULTS: Record<string, boolean> = Object.fromEntries(
-  MODULE_TOGGLES.map((m) => [m.key, true]),
-);
+const MODULE_DEFAULTS: Record<string, boolean> = {
+  ...Object.fromEntries(MODULE_TOGGLES.map((m) => [m.key, true])),
+  otb: false, // opt-in
+};
 
 function TenantLogo({ path, alt }: { path: string | null; alt: string }) {
   const url = useSignedUrl(path, "tenant-logos");

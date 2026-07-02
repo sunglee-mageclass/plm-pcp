@@ -40,6 +40,14 @@ export const PAGES_CATALOG: ModuleDef[] = [
     ],
   },
   {
+    module: "otb",
+    label: "OTB",
+    basePath: "/otb",
+    pages: [
+      { key: "otb", label: "OTB" },
+    ],
+  },
+  {
     module: "criacao",
     label: "Criação",
     basePath: "/criacao",

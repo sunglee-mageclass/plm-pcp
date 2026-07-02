@@ -19,6 +19,7 @@ import {
   Sun,
   Moon,
   KeyRound,
+  Target,
 } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
 import { TenantSwitcher } from "@/components/admin/TenantSwitcher";
@@ -67,6 +68,7 @@ const MODULE_META: Record<string, { title: string; icon: typeof BarChart3 }> = {
   criacao: { title: "Criação", icon: Palette },
   producao: { title: "Produção", icon: Factory },
   financeiro: { title: "Financeiro", icon: DollarSign },
+  otb: { title: "OTB", icon: Target },
 };
 
 // Map of page key -> URL for sidebar subitems. Modules without an entry render as a single direct link.
@@ -154,9 +156,13 @@ export function AppSidebar() {
       };
     });
 
-  // "Criação" logo abaixo de Início (a pedido do dono): move o módulo criacao pro topo.
-  const _criacaoIdx = visibleMainItems.findIndex((i) => i.url === "/criacao");
-  if (_criacaoIdx > 0) visibleMainItems.unshift(visibleMainItems.splice(_criacaoIdx, 1)[0]);
+  // Topo (a pedido do dono): OTB e Criação logo abaixo de Início.
+  const moveTop = (url: string) => {
+    const i = visibleMainItems.findIndex((x) => x.url === url);
+    if (i > 0) visibleMainItems.unshift(visibleMainItems.splice(i, 1)[0]);
+  };
+  moveTop("/criacao"); // Criação sobe primeiro…
+  moveTop("/otb");     // …e OTB fica acima dela.
 
   const isActive = (path: string) => pathname === path || pathname.startsWith(path + "/");
 
