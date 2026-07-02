@@ -55,6 +55,26 @@ describe.skipIf(!hasDb)("OTB — otb_confirmar (geração/reconciliação)", () 
     });
   });
 
+  it("protege card tocado só via campo do preenchimento em massa (linha_id) no shrink", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await c.query(`update tenant_config set modules = coalesce(modules,'{}'::jsonb) || '{"otb":true}'::jsonb where tenant_id=$1`, [TENANT_TESTE]);
+      const col = await um<{ id: string }>(c, `insert into colecoes (nome, status) values ('C-OTB-LINHA','rascunho') returning id`, []);
+      await c.query(`insert into colecao_semanas (colecao_id, semana, qtd_planejada) values ($1,'1',3)`, [col.id]);
+      await c.query(`select public.otb_confirmar($1)`, [col.id]);
+      // "toca" um card definindo SÓ a linha (como faz o preenchimento em massa)
+      const linha = await um<{ id: string }>(c, `insert into linhas (nome) values ('L-OTB-TEST') returning id`, []);
+      await c.query(`update modelos set linha_id=$2 where id = (select id from modelos where colecao_id=$1 and semana='1' limit 1)`, [col.id, linha.id]);
+      // baixa alvo p/ 1 → só os 2 brancos podem sair; o de linha definida fica protegido
+      await c.query(`update colecao_semanas set qtd_planejada=1 where colecao_id=$1 and semana='1'`, [col.id]);
+      const r = await um<{ obj: any }>(c, `select public.otb_confirmar($1) as obj`, [col.id]);
+      expect(r.obj.removidos).toBe(2);
+      const kept = await um<{ n: string; linha: string | null }>(c, `select count(*)::text n, max(linha_id::text) linha from modelos where colecao_id=$1 and semana='1'`, [col.id]);
+      expect(kept.n).toBe("1");
+      expect(kept.linha).toBe(linha.id);
+    });
+  });
+
   it("bloqueia quando o módulo otb está desligado", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);

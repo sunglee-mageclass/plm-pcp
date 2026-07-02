@@ -480,6 +480,13 @@ function PlanejamentoPage() {
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
 
           <SearchToggle value={search} onChange={setSearch} placeholder="Pesquisar por nome…" />
+          <AgrupamentoButton
+            groups={[
+              { label: "Linha", active: groupByLinha, onToggle: () => setGroupByLinha((v) => !v) },
+              { label: "Categoria", active: groupByCat, onToggle: () => setGroupByCat((v) => !v) },
+              { label: "Repetição", active: groupByRep, onToggle: () => setGroupByRep((v) => !v) },
+            ]}
+          />
           <FilterButton
             filters={[
               { label: "Status", value: fStatus, onChange: setFStatus, options: [{ id: "all", nome: "Todos" }, ...STATUS_OPTS.map((s) => ({ id: s.value, nome: s.label }))] },
@@ -500,13 +507,6 @@ function PlanejamentoPage() {
       </header>
 
       <div className="flex items-center gap-2 flex-wrap">
-        <AgrupamentoButton
-          groups={[
-            { label: "Linha", active: groupByLinha, onToggle: () => setGroupByLinha((v) => !v) },
-            { label: "Categoria", active: groupByCat, onToggle: () => setGroupByCat((v) => !v) },
-            { label: "Repetição", active: groupByRep, onToggle: () => setGroupByRep((v) => !v) },
-          ]}
-        />
         <Button size="sm" variant={selMode ? "default" : "outline"} onClick={() => { setSelMode((v) => !v); clearSel(); }}>
           <CheckSquare className="h-4 w-4 mr-1" /> Selecionar
         </Button>

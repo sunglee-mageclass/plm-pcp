@@ -391,6 +391,13 @@ function LancamentosPage() {
         </div>
         <div className="flex items-center gap-2">
           <SearchToggle value={q} onChange={setQ} placeholder={`${fl("ref")} ou nome…`} />
+          <AgrupamentoButton
+            groups={[
+              { label: "Linha", active: groupByLinha, onToggle: () => setGroupByLinha((v) => !v) },
+              { label: "Categoria", active: groupByCat, onToggle: () => setGroupByCat((v) => !v) },
+              { label: "Repetição", active: groupByRep, onToggle: () => setGroupByRep((v) => !v) },
+            ]}
+          />
           <FilterButton
             filters={[
               { label: "Grupo", value: fGrupo, onChange: setFGrupo, options: [{ id: "all", nome: "Todos" }, ...grupos] },
@@ -405,20 +412,16 @@ function LancamentosPage() {
       </header>
 
       <div className="flex items-center gap-2 flex-wrap">
-        <div className="hidden lg:flex items-center gap-2">
+        <div className="hidden lg:flex items-center gap-1.5">
           <LayoutGrid className="h-4 w-4 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground">Colunas:</span>
-          {GRID_COLS_OPTIONS.map((n) => (
-            <Button key={n} size="sm" variant={cols === n ? "default" : "outline"} onClick={() => setCols(n)} className="h-7 w-9 px-0">{n}</Button>
-          ))}
+          <Label className="text-xs text-muted-foreground">Colunas</Label>
+          <Select value={String(cols)} onValueChange={(v) => setCols(Number(v))}>
+            <SelectTrigger className="h-8 w-16"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {GRID_COLS_OPTIONS.map((n) => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
-        <AgrupamentoButton
-          groups={[
-            { label: "Linha", active: groupByLinha, onToggle: () => setGroupByLinha((v) => !v) },
-            { label: "Categoria", active: groupByCat, onToggle: () => setGroupByCat((v) => !v) },
-            { label: "Repetição", active: groupByRep, onToggle: () => setGroupByRep((v) => !v) },
-          ]}
-        />
         <ResumoVenda {...resumo} />
         <div className="flex items-center gap-1.5 ml-auto">
           <Label className="text-xs text-muted-foreground">Ordenar por</Label>

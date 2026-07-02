@@ -45,6 +45,10 @@ begin
         select id from modelos
         where tenant_id = v_tenant and colecao_id = _colecao_id and coalesce(semana,'') = v_wk.semana
           and coalesce(nome,'') = '' and estilista_id is null and categoria_principal_id is null
+          -- "tocado" também protege campos setáveis pelo preenchimento em massa/diálogos:
+          and linha_id is null and subcategoria1_id is null and subcategoria2_id is null
+          and preco_venda is null and data_lancamento is null and lancado = false
+          and origem = 'interno' and coalesce(observacoes_gerais,'') = ''
           and cardinality(coalesce(fotos_modelo,'{}')) = 0
           and cardinality(coalesce(fotos_referencia,'{}')) = 0
           and cardinality(tecidos_planejados) = 0
