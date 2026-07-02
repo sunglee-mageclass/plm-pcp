@@ -114,6 +114,7 @@ type Modelo = {
   versao: number;
   modelo_base_id: string | null;
   preco_venda: number | null;
+  origem: string | null;
 };
 
 const STATUS_OPTS = [
@@ -157,6 +158,7 @@ function PlanejamentoPage() {
   const [fGrupo, setFGrupo] = useState("all");
   const [fCat, setFCat] = useState("all");
   const [fRep, setFRep] = useState("all");
+  const [fOrigem, setFOrigem] = useState("all");
   const [fColecao, setFColecao] = useState("all");
   const [openId, setOpenId] = useState<string | null>(null);
   const [openNew, setOpenNew] = useState(false);
@@ -212,7 +214,7 @@ function PlanejamentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, estilista_id, linha_id, colecao, semana, mes_id, ano_id, categoria_principal_id, categoria_secundaria_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda")
+        .select("id, nome, estilista_id, linha_id, colecao, semana, mes_id, ano_id, categoria_principal_id, categoria_secundaria_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, origem")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as Modelo[];
@@ -275,6 +277,7 @@ function PlanejamentoPage() {
     if (fColecao !== "all" && m.colecao !== fColecao) return false;
     if (fRep === "rep" && !isRepeticao(m)) return false;
     if (fRep === "uni" && isRepeticao(m)) return false;
+    if (fOrigem !== "all" && (m.origem ?? "interno") !== fOrigem) return false;
     return true;
   });
 
@@ -391,6 +394,7 @@ function PlanejamentoPage() {
               { label: "Grupo", value: fGrupo, onChange: (v) => { setFGrupo(v); setFCat("all"); }, options: [{ id: "all", nome: "Todos" }, ...grupos] },
               { label: "Categoria", value: fCat, onChange: setFCat, options: [{ id: "all", nome: "Todas" }, ...(fGrupo === "all" ? categorias : categorias.filter((c) => c.grupo_id === fGrupo))] },
               { label: fl("colecao"), value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
+              { label: "Origem", value: fOrigem, onChange: setFOrigem, options: [{ id: "all", nome: "Todas" }, { id: "interno", nome: "Interno" }, { id: "revenda", nome: "Revenda" }] },
               { label: "Repetição", value: fRep, onChange: setFRep, options: [{ id: "all", nome: "Todos" }, { id: "rep", nome: "Repetidos" }, { id: "uni", nome: "Únicos" }] },
             ]}
           />
@@ -900,15 +904,15 @@ function ModeloDialog({
 
   return (
     <Sheet open onOpenChange={(o) => !o && onClose()}>
-      <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] overflow-y-auto max-sm:pb-24 max-sm:[&>button]:hidden">
-        <SheetHeader>
+      <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] flex flex-col gap-0 p-0 max-sm:[&>button]:hidden">
+        <SheetHeader className="shrink-0 px-6 pt-6 pb-2">
           <SheetTitle className="flex flex-wrap items-center gap-2">
             <span>{isEdit ? draft.nome || "Modelo" : "Novo Modelo"}</span>
             {draft.versao > 1 && <VersaoBadge versao={draft.versao} />}
           </SheetTitle>
         </SheetHeader>
 
-        <div className="space-y-6 mt-4">
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-4 space-y-6">
           {/* SETOR 1 — Informações Gerais do Produto */}
           <Secao titulo="Informações Gerais do Produto">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1079,7 +1083,7 @@ function ModeloDialog({
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 sm:justify-end bg-background border-t pt-3 mt-4 sm:sticky sm:bottom-0 max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-50 max-sm:flex-nowrap max-sm:px-4 max-sm:py-3 max-sm:mt-0">
+        <div className="shrink-0 border-t bg-background px-6 py-3 flex flex-wrap items-center gap-2 sm:justify-end max-sm:flex-nowrap">
           {/* Voltar: desktop "Cancelar" texto, mobile ícone de voltar. */}
           <Button variant="outline" onClick={onClose} aria-label="Voltar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
             <ArrowLeft className="h-4 w-4 sm:hidden" />
