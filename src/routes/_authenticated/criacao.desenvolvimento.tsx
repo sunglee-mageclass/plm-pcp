@@ -44,10 +44,12 @@ type Modelo = {
   piloteiro2_id: string | null;
   piloteiro3_id: string | null;
   colecao: string | null;
+  subcolecao: string | null;
   semana: string | null;
   mes_id: string | null;
   ano_id: string | null;
   categoria_principal_id: string | null;
+  subcategoria1_id: string | null;
   status_desenvolvimento: string | null;
   fotos_modelo: string[] | null;
   desenho_tecnico_url: string | null;
@@ -102,6 +104,9 @@ function DesenvolvimentoPage() {
   const [fMes, setFMes] = useState("all");
   const [fAno, setFAno] = useState("all");
   const [fColecao, setFColecao] = useState("all");
+  const [fSubcolecao, setFSubcolecao] = useState("all");
+  const [fCat, setFCat] = useState("all");
+  const [fSub1, setFSub1] = useState("all");
   const [fStatus, setFStatus] = useState("all");
   const [fCad, setFCad] = useState("all");
   const [fGrupo, setFGrupo] = useState("all");
@@ -127,6 +132,14 @@ function DesenvolvimentoPage() {
       const { data, error } = await supabase.from("categorias_produto").select("id, nome, grupo_id").order("nome");
       if (error) throw error;
       return (data ?? []) as { id: string; nome: string; grupo_id: string | null }[];
+    },
+  });
+  const { data: sub1Opts = [] } = useQuery({
+    queryKey: ["opt", "subcategorias1_produto"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("subcategorias1_produto").select("id, nome, categoria_id").order("nome");
+      if (error) throw error;
+      return (data ?? []) as { id: string; nome: string; categoria_id: string | null }[];
     },
   });
 
@@ -159,7 +172,7 @@ function DesenvolvimentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, ref, versao, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, semana, mes_id, ano_id, categoria_principal_id, status_desenvolvimento, fotos_modelo, desenho_tecnico_url, croqui_url, enviado_cad, created_at")
+        .select("id, nome, ref, versao, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, status_desenvolvimento, fotos_modelo, desenho_tecnico_url, croqui_url, enviado_cad, created_at")
         .eq("ordem_criacao_enviada", true)
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -187,6 +200,12 @@ function DesenvolvimentoPage() {
     return Array.from(s).sort();
   }, [modelos]);
 
+  const subcolecoes = useMemo(() => {
+    const s = new Set<string>();
+    modelos.forEach((m) => m.subcolecao && s.add(m.subcolecao));
+    return Array.from(s).sort();
+  }, [modelos]);
+
   const statusKeySet = useMemo(() => new Set(statusKanban.map((s) => s.key)), [statusKanban]);
   const firstStatusKey = statusKanban[0]?.key;
 
@@ -194,6 +213,9 @@ function DesenvolvimentoPage() {
   const filtered = modelos.filter((m) => {
     if (search && !(m.nome ?? "").toLowerCase().includes(search.toLowerCase())) return false;
     if (fGrupo !== "all" && (m.categoria_principal_id ? catGrupoMap[m.categoria_principal_id] : null) !== fGrupo) return false;
+    if (fCat !== "all" && m.categoria_principal_id !== fCat) return false;
+    if (fSubcolecao !== "all" && m.subcolecao !== fSubcolecao) return false;
+    if (fSub1 !== "all" && m.subcategoria1_id !== fSub1) return false;
     if (fStatus !== "all") {
       // status efetivo = a coluna onde o card cai (null/desconhecido → primeira)
       const eff = m.status_desenvolvimento && statusKeySet.has(m.status_desenvolvimento)
@@ -318,8 +340,11 @@ function DesenvolvimentoPage() {
               { label: "Estilista", value: fEstilista, onChange: setFEstilista, options: [{ id: "all", nome: "Todos" }, ...estilistas] },
               { label: "Modelista", value: fModelista, onChange: setFModelista, options: [{ id: "all", nome: "Todos" }, ...modelistas] },
               { label: "Piloteiro", value: fPiloteiro, onChange: setFPiloteiro, options: [{ id: "all", nome: "Todos" }, ...piloteiros] },
-              { label: "Grupo", value: fGrupo, onChange: setFGrupo, options: [{ id: "all", nome: "Todos" }, ...grupos] },
               { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
+              { label: "Subcoleção", value: fSubcolecao, onChange: setFSubcolecao, options: [{ id: "all", nome: "Todas" }, ...subcolecoes.map((c) => ({ id: c, nome: c }))] },
+              { label: "Grupo", value: fGrupo, onChange: (v) => { setFGrupo(v); setFCat("all"); }, options: [{ id: "all", nome: "Todos" }, ...grupos] },
+              { label: "Categoria", value: fCat, onChange: setFCat, options: [{ id: "all", nome: "Todas" }, ...(fGrupo === "all" ? categorias : categorias.filter((c) => c.grupo_id === fGrupo))] },
+              { label: "Subcategoria", value: fSub1, onChange: setFSub1, options: [{ id: "all", nome: "Todas" }, ...sub1Opts.map((s) => ({ id: s.id, nome: s.nome }))] },
               { label: "Semana", value: fSemana || "all", onChange: (v) => setFSemana(v === "all" ? "" : v), options: [{ id: "all", nome: "Todas" }, ...["1","2","3","4","5"].map((s) => ({ id: s, nome: s }))] },
               { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
               { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...anos] },

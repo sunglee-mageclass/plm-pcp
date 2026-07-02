@@ -105,11 +105,13 @@ type Modelo = {
   linha_id: string | null;
   colecao: string | null;
   colecao_id: string | null;
+  subcolecao: string | null;
   semana: string | null;
   mes_id: string | null;
   ano_id: string | null;
   categoria_principal_id: string | null;
   categoria_secundaria_id: string | null;
+  subcategoria1_id: string | null;
   status_planejamento: string | null;
   fotos_modelo: string[] | null;
   fotos_referencia: string[] | null;
@@ -162,6 +164,8 @@ function PlanejamentoPage() {
   const [fAno, setFAno] = useState("all");
   const [fGrupo, setFGrupo] = useState("all");
   const [fCat, setFCat] = useState("all");
+  const [fSubcolecao, setFSubcolecao] = useState("all");
+  const [fSub1, setFSub1] = useState("all");
   const [fRep, setFRep] = useState("all");
   const [fOrigem, setFOrigem] = useState("all");
   const [fColecao, setFColecao] = useState("all");
@@ -254,7 +258,7 @@ function PlanejamentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, estilista_id, linha_id, colecao, colecao_id, semana, mes_id, ano_id, categoria_principal_id, categoria_secundaria_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, origem")
+        .select("id, nome, estilista_id, linha_id, colecao, colecao_id, subcolecao, semana, mes_id, ano_id, categoria_principal_id, categoria_secundaria_id, subcategoria1_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, origem")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as Modelo[];
@@ -302,6 +306,12 @@ function PlanejamentoPage() {
     return Array.from(s).sort();
   }, [modelos]);
 
+  const subcolecoes = useMemo(() => {
+    const s = new Set<string>();
+    modelos.forEach((m) => m.subcolecao && s.add(m.subcolecao));
+    return Array.from(s).sort();
+  }, [modelos]);
+
   const catGrupoMap = Object.fromEntries(categorias.map((c) => [c.id, c.grupo_id]));
   // "Repetição" = versão v2 em diante (cópia). O original (v1) é "único".
   const isRepeticao = (m: Modelo) => (m.versao ?? 1) > 1;
@@ -315,6 +325,8 @@ function PlanejamentoPage() {
     if (fGrupo !== "all" && (m.categoria_principal_id ? catGrupoMap[m.categoria_principal_id] : null) !== fGrupo) return false;
     if (fCat !== "all" && m.categoria_principal_id !== fCat) return false;
     if (fColecao !== "all" && m.colecao !== fColecao) return false;
+    if (fSubcolecao !== "all" && m.subcolecao !== fSubcolecao) return false;
+    if (fSub1 !== "all" && m.subcategoria1_id !== fSub1) return false;
     if (fRep === "rep" && !isRepeticao(m)) return false;
     if (fRep === "uni" && isRepeticao(m)) return false;
     if (fOrigem !== "all" && (m.origem ?? "interno") !== fOrigem) return false;
@@ -497,6 +509,8 @@ function PlanejamentoPage() {
               { label: "Grupo", value: fGrupo, onChange: (v) => { setFGrupo(v); setFCat("all"); }, options: [{ id: "all", nome: "Todos" }, ...grupos] },
               { label: "Categoria", value: fCat, onChange: setFCat, options: [{ id: "all", nome: "Todas" }, ...(fGrupo === "all" ? categorias : categorias.filter((c) => c.grupo_id === fGrupo))] },
               { label: fl("colecao"), value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
+              { label: "Subcoleção", value: fSubcolecao, onChange: setFSubcolecao, options: [{ id: "all", nome: "Todas" }, ...subcolecoes.map((c) => ({ id: c, nome: c }))] },
+              { label: "Subcategoria", value: fSub1, onChange: setFSub1, options: [{ id: "all", nome: "Todas" }, ...sub1Opts.map((s) => ({ id: s.id, nome: s.nome }))] },
               { label: "Origem", value: fOrigem, onChange: setFOrigem, options: [{ id: "all", nome: "Todas" }, { id: "interno", nome: "Interno" }, { id: "revenda", nome: "Revenda" }] },
               { label: "Repetição", value: fRep, onChange: setFRep, options: [{ id: "all", nome: "Todos" }, { id: "rep", nome: "Repetidos" }, { id: "uni", nome: "Únicos" }] },
             ]}
@@ -702,6 +716,7 @@ type Draft = {
   linha_id: string | null;
   colecao: string;
   colecao_id: string | null;
+  subcolecao: string;
   semana: string;
   mes_id: string | null;
   ano_id: string | null;
@@ -723,7 +738,7 @@ type Draft = {
   modelo_base_id: string | null;
 };
 const emptyDraft = (): Draft => ({
-  nome: "", estilista_id: null, linha_id: null, colecao: "", colecao_id: null, semana: "", mes_id: null, ano_id: null,
+  nome: "", estilista_id: null, linha_id: null, colecao: "", colecao_id: null, subcolecao: "", semana: "", mes_id: null, ano_id: null,
   categoria_principal_id: null, categoria_secundaria_id: null,
   subcategoria1_id: null, subcategoria2_id: null, origem: "interno", preco_venda: null, data_lancamento: null,
   tecidos_planejados: [],
@@ -868,6 +883,7 @@ function ModeloDialog({
           linha_id: (data as any).linha_id ?? null,
           colecao: data.colecao ?? "",
           colecao_id: (data as any).colecao_id ?? null,
+          subcolecao: (data as any).subcolecao ?? "",
           semana: data.semana ?? "",
           mes_id: data.mes_id,
           ano_id: data.ano_id,
@@ -1114,6 +1130,7 @@ function ModeloDialog({
               ) : (
                 <FieldText label={fl("colecao")} value={draft.colecao} onChange={(v) => setDraft((d) => ({ ...d, colecao: v }))} />
               )}
+              <FieldText label="Subcoleção" value={draft.subcolecao ?? ""} onChange={(v) => setDraft((d) => ({ ...d, subcolecao: v }))} />
               <FieldSelect label={fl("linha")} value={draft.linha_id} onChange={(v) => setDraft((d) => ({ ...d, linha_id: v }))} options={linhas} />
               <div className="grid gap-1">
                 <Label>Semana</Label>

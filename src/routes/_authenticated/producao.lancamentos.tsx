@@ -38,6 +38,7 @@ type LancCard = {
   ref: string | null;
   nome: string | null;
   colecao: string | null;
+  subcolecao: string | null;
   linha: string | null;
   markup: number | null;
   preco_venda: number | null;
@@ -47,8 +48,11 @@ type LancCard = {
   ano_id: string | null;
   linha_id: string | null;
   categoria_nome: string | null;
+  categoria_principal_id: string | null;
   grupo_id: string | null;
   grupo_nome: string | null;
+  subcategoria1_id: string | null;
+  subcategoria1_nome: string | null;
   versao: number;
   fotos_modelo: string[];
   tecido_nome: string | null;
@@ -69,6 +73,9 @@ function LancamentosPage() {
   const compact = useCompactCards(gridRef, cols);
   const [q, setQ] = useState("");
   const [fColecao, setFColecao] = useState("all");
+  const [fSubcolecao, setFSubcolecao] = useState("all");
+  const [fCat, setFCat] = useState("all");
+  const [fSub1, setFSub1] = useState("all");
   const [fLinha, setFLinha] = useState("all");
   const [fMes, setFMes] = useState("all");
   const [fAno, setFAno] = useState("all");
@@ -93,7 +100,7 @@ function LancamentosPage() {
       // Produtos: enviados ao CAD + CQ CONFIRMADO + LANÇADOS (gate explícito no card).
       const { data: modelos, error } = await supabase
         .from("modelos")
-        .select("id, ref, nome, colecao, mes_id, ano_id, linha_id, versao, preco_venda, revisao_pendente, fotos_modelo, linha:linha_id(nome, markup), categorias_produto:categoria_principal_id(nome, grupo_id, grupo:grupo_id(nome)), cad(id, controle_qualidade(id, status, fotografado_variantes))")
+        .select("id, ref, nome, colecao, subcolecao, mes_id, ano_id, linha_id, versao, preco_venda, revisao_pendente, fotos_modelo, categoria_principal_id, subcategoria1_id, linha:linha_id(nome, markup), categorias_produto:categoria_principal_id(nome, grupo_id, grupo:grupo_id(nome)), subcategorias1_produto:subcategoria1_id(nome), cad(id, controle_qualidade(id, status, fotografado_variantes))")
         .eq("enviado_cad", true)
         .eq("lancado", true);
       if (error) throw error;
@@ -157,6 +164,7 @@ function LancamentosPage() {
           ref: m.ref,
           nome: m.nome,
           colecao: m.colecao,
+          subcolecao: m.subcolecao ?? null,
           linha: m.linha?.nome ?? null,
           markup: m.linha?.markup ?? null,
           preco_venda: m.preco_venda ?? null,
@@ -166,8 +174,11 @@ function LancamentosPage() {
           ano_id: m.ano_id,
           linha_id: m.linha_id,
           categoria_nome: m.categorias_produto?.nome ?? null,
+          categoria_principal_id: m.categoria_principal_id ?? null,
           grupo_id: m.categorias_produto?.grupo_id ?? null,
           grupo_nome: m.categorias_produto?.grupo?.nome ?? null,
+          subcategoria1_id: m.subcategoria1_id ?? null,
+          subcategoria1_nome: (m as any).subcategorias1_produto?.nome ?? null,
           versao: Number(m.versao ?? 1),
           fotos_modelo: Array.isArray(m.fotos_modelo) ? m.fotos_modelo : [],
           tecido_nome: tec?.artigos?.nome ?? null,
@@ -207,9 +218,30 @@ function LancamentosPage() {
     return Array.from(m, ([id, nome]) => ({ id, nome }));
   }, [cards]);
 
+  const subcolecoes = useMemo(() => {
+    const s = new Set<string>();
+    cards.forEach((c) => c.subcolecao && s.add(c.subcolecao));
+    return Array.from(s).sort();
+  }, [cards]);
+
+  const categorias = useMemo(() => {
+    const m = new Map<string, string>();
+    cards.forEach((c) => { if (c.categoria_principal_id && c.categoria_nome) m.set(c.categoria_principal_id, c.categoria_nome); });
+    return Array.from(m, ([id, nome]) => ({ id, nome }));
+  }, [cards]);
+
+  const sub1s = useMemo(() => {
+    const m = new Map<string, string>();
+    cards.forEach((c) => { if (c.subcategoria1_id && c.subcategoria1_nome) m.set(c.subcategoria1_id, c.subcategoria1_nome); });
+    return Array.from(m, ([id, nome]) => ({ id, nome }));
+  }, [cards]);
+
   const filtered = cards.filter((c) => {
     if (q && !`${c.ref ?? ""} ${c.nome ?? ""}`.toLowerCase().includes(q.toLowerCase())) return false;
     if (fColecao !== "all" && c.colecao !== fColecao) return false;
+    if (fSubcolecao !== "all" && c.subcolecao !== fSubcolecao) return false;
+    if (fCat !== "all" && c.categoria_principal_id !== fCat) return false;
+    if (fSub1 !== "all" && c.subcategoria1_id !== fSub1) return false;
     if (fLinha !== "all" && c.linha_id !== fLinha) return false;
     if (fGrupo !== "all" && c.grupo_id !== fGrupo) return false;
     if (fMes !== "all" && c.mes_id !== fMes) return false;
@@ -402,6 +434,9 @@ function LancamentosPage() {
             filters={[
               { label: "Grupo", value: fGrupo, onChange: setFGrupo, options: [{ id: "all", nome: "Todos" }, ...grupos] },
               { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
+              { label: "Subcoleção", value: fSubcolecao, onChange: setFSubcolecao, options: [{ id: "all", nome: "Todas" }, ...subcolecoes.map((c) => ({ id: c, nome: c }))] },
+              { label: "Categoria", value: fCat, onChange: setFCat, options: [{ id: "all", nome: "Todas" }, ...categorias] },
+              { label: "Subcategoria", value: fSub1, onChange: setFSub1, options: [{ id: "all", nome: "Todas" }, ...sub1s] },
               { label: "Linha", value: fLinha, onChange: setFLinha, options: [{ id: "all", nome: "Todas" }, ...linhas] },
               { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...(meses as any[]).map((m) => ({ id: m.id, nome: m.nome }))] },
               { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...(anos as any[]).map((a) => ({ id: a.id, nome: a.nome }))] },

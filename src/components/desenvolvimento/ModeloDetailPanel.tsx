@@ -333,6 +333,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         subcategoria1_id: (modelo as any).subcategoria1_id ?? null,
         subcategoria2_id: (modelo as any).subcategoria2_id ?? null,
         colecao_id: (modelo as any).colecao_id ?? null,
+        subcolecao: (modelo as any).subcolecao ?? "",
       });
     }
   }, [modelo]);
@@ -535,6 +536,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         subcategoria1_id: draft.subcategoria1_id || null,
         subcategoria2_id: draft.subcategoria2_id || null,
         colecao_id: draft.colecao_id || null,
+        subcolecao: draft.subcolecao || null,
         custo_terceirizados_previsto: draft.custo_terceirizados_previsto || 0,
         custo_tecido_total: totals.tecido,
         custo_forro_total: totals.forro,

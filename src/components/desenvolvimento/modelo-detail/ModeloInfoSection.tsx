@@ -151,6 +151,9 @@ export function ModeloInfoSection({
             options={(colecoes ?? []).map((c) => ({ id: c.id, nome: c.nome }))}
           />
         )}
+        <Field label="Subcoleção">
+          <Input value={draft.subcolecao ?? ""} onChange={(e) => setDraft({ ...draft, subcolecao: e.target.value })} />
+        </Field>
         <div className="sm:col-span-2 grid sm:grid-cols-2 gap-3">
           <FieldSelectOpt label={`${fl("piloteiro")} 1`} value={draft.piloteiro1_id} onChange={(v) => setDraft({ ...draft, piloteiro1_id: v })} options={piloteiros} />
           <Field label="Data Piloto 1">
