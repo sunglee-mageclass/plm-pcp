@@ -707,17 +707,17 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
         <div className="grid gap-4 md:grid-cols-3">
           <div>
             <Label className="text-xs">Peças Incompletas</Label>
-            <NumberInput type="number" value={form.pecas_incompletas}
+            <NumberInput integer value={form.pecas_incompletas}
               onChange={(e) => setForm((f) => ({ ...f, pecas_incompletas: Number(e.target.value) }))} />
           </div>
           <div>
             <Label className="text-xs">Peças Faltantes</Label>
-            <NumberInput type="number" value={form.pecas_faltantes}
+            <NumberInput integer value={form.pecas_faltantes}
               onChange={(e) => setForm((f) => ({ ...f, pecas_faltantes: Number(e.target.value) }))} />
           </div>
           <div>
             <Label className="text-xs">Peças sem Etiqueta</Label>
-            <NumberInput type="number" value={form.pecas_sem_etiqueta}
+            <NumberInput integer value={form.pecas_sem_etiqueta}
               onChange={(e) => setForm((f) => ({ ...f, pecas_sem_etiqueta: Number(e.target.value) }))} />
           </div>
         </div>
@@ -810,7 +810,7 @@ function GradeMatrix(props: {
         const over = overFn?.(num, t, Number(row?.grades?.[t] ?? 0)) ?? false;
         return (
           <NumberInput
-            type="number"
+            integer
             className={`h-8 w-full border-0 text-center ${over ? "text-destructive font-semibold" : ""}`}
             value={row?.grades?.[t] ?? ""}
             onChange={(e) => setQtd(etapa, num, t, Number(e.target.value) || 0)}

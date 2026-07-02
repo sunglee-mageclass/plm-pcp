@@ -256,7 +256,7 @@ export const CqPosView = forwardRef<CqPosHandle, {
                   total={(num) => rowOf(sv.id, et, num).grade_total}
                   renderCell={(num, t) => (
                     <NumberInput
-                      type="number"
+                      integer
                       className="h-8 w-full border-0 text-center"
                       value={rowOf(sv.id, et, num).grades?.[t] ?? ""}
                       onChange={(e) => setQtd(sv.id, et, num, t, Number(e.target.value) || 0)}
