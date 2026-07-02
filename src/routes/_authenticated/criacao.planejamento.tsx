@@ -36,6 +36,7 @@ import { RequirePermission } from "@/components/RequirePermission";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { BulkEditDialog } from "@/components/planejamento/BulkEditDialog";
 export const Route = createFileRoute("/_authenticated/criacao/planejamento")({
   component: () => (
     <RequirePermission page="criacao_planejamento">
@@ -218,6 +219,33 @@ function PlanejamentoPage() {
         .order("nome");
       if (error) throw error;
       return (data ?? []) as { id: string; nome: string; unidade_medida: string | null; preco_por_metro: number | null }[];
+    },
+  });
+
+  const { isModuleEnabled } = useTenantModules();
+  const otbOn = isModuleEnabled("otb");
+  const { data: colecoesList = [] } = useQuery({
+    queryKey: ["otb-colecoes-opts"],
+    enabled: otbOn,
+    queryFn: async () => {
+      const { data } = await supabase.from("colecoes").select("id, nome, mes_id, ano_id").order("nome");
+      return (data ?? []) as { id: string; nome: string; mes_id: string | null; ano_id: string | null }[];
+    },
+  });
+  const { data: sub1Opts = [] } = useQuery({
+    queryKey: ["opt", "subcategorias1_produto"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("subcategorias1_produto").select("id, nome, categoria_id").order("nome");
+      if (error) throw error;
+      return (data ?? []) as SubOpt[];
+    },
+  });
+  const { data: sub2Opts = [] } = useQuery({
+    queryKey: ["opt", "subcategorias2_produto"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("subcategorias2_produto").select("id, nome, categoria_id").order("nome");
+      if (error) throw error;
+      return (data ?? []) as SubOpt[];
     },
   });
 
@@ -568,6 +596,25 @@ function PlanejamentoPage() {
           categorias={categorias}
           onClose={() => setOpenBatch(false)}
           onSaved={() => qc.invalidateQueries({ queryKey: ["modelos-planejamento"] })}
+        />
+      )}
+
+      {openBulk && (
+        <BulkEditDialog
+          ids={[...selected]}
+          otbOn={otbOn}
+          colecoes={colecoesList}
+          grupos={grupos}
+          categorias={categorias}
+          sub1={sub1Opts}
+          sub2={sub2Opts}
+          estilistas={estilistas}
+          linhas={linhas}
+          meses={meses}
+          anos={anos}
+          statusOpts={STATUS_OPTS.map((s) => ({ id: s.value, nome: s.label }))}
+          onClose={() => setOpenBulk(false)}
+          onSaved={() => { qc.invalidateQueries({ queryKey: ["modelos-planejamento"] }); clearSel(); setSelMode(false); }}
         />
       )}
 
