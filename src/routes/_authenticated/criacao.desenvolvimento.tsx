@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { DEFAULT_STATUSES, type KanbanStatus, normalizeKanbanStatuses } from "@/lib/kanban-status";
+import { requisitosOk } from "@/lib/kanban-condicoes";
 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
@@ -105,6 +106,7 @@ function DesenvolvimentoPage() {
   const [fCad, setFCad] = useState("all");
   const [fGrupo, setFGrupo] = useState("all");
   const [dragOver, setDragOver] = useState<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const toggleCollapse = (key: string) => setCollapsed((prev) => {
     const n = new Set(prev);
@@ -142,6 +144,16 @@ function DesenvolvimentoPage() {
     },
   });
 
+  // Requisitos de entrada por status (motor de regras) + condições satisfeitas por modelo.
+  const { data: kanbanRequisitos = {} } = useQuery({
+    queryKey: ["tenant-kanban-requisitos", tenantId],
+    enabled: !!tenantId,
+    queryFn: async () => {
+      const { data } = await supabase.from("tenant_config").select("kanban_requisitos").eq("tenant_id", tenantId).maybeSingle();
+      return ((data as any)?.kanban_requisitos ?? {}) as Record<string, string[]>;
+    },
+  });
+
   const { data: modelos = [] } = useQuery({
     queryKey: ["modelos-desenvolvimento"],
     queryFn: async () => {
@@ -154,6 +166,20 @@ function DesenvolvimentoPage() {
       return (data ?? []) as Modelo[];
     },
   });
+
+  const modeloIdsAll = useMemo(() => modelos.map((m) => m.id).sort(), [modelos]);
+  const { data: condicoesMap = {} } = useQuery({
+    queryKey: ["desenv-condicoes", modeloIdsAll],
+    enabled: modeloIdsAll.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("avaliar_condicoes_kanban" as any, { _ids: modeloIdsAll });
+      if (error) throw error;
+      return (data ?? {}) as Record<string, Record<string, boolean>>;
+    },
+  });
+  // Um card pode ENTRAR no status? (requisitos do status ⊆ condições satisfeitas do modelo)
+  const podeEntrar = (modeloId: string, statusKey: string) =>
+    requisitosOk((kanbanRequisitos as any)[statusKey], (condicoesMap as any)[modeloId] ?? {});
 
   const colecoes = useMemo(() => {
     const s = new Set<string>();
@@ -235,10 +261,17 @@ function DesenvolvimentoPage() {
   const handleDrop = (statusKey: string, e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(null);
+    setDraggingId(null);
     const id = e.dataTransfer.getData("text/plain");
     if (!id) return;
     const cur = modelos.find((m) => m.id === id);
     if (!cur || cur.status_desenvolvimento === statusKey) return;
+    // Motor de regras: só entra no status se os requisitos estiverem satisfeitos.
+    const { ok, faltando } = podeEntrar(id, statusKey);
+    if (!ok) {
+      toast.error(`Não pode entrar aqui. Faltam: ${faltando.map((c) => c.label).join(", ")}`);
+      return;
+    }
     updateStatus.mutate({ id, status: statusKey });
   };
 
@@ -301,10 +334,13 @@ function DesenvolvimentoPage() {
           const cards = byStatus.get(s.key) ?? [];
           const isOver = dragOver === s.key;
           const isCollapsed = collapsed.has(s.key);
+          // Arrastando: esmaece colunas onde o card NÃO pode entrar (regras não batem).
+          const dragModel = draggingId ? modelos.find((m) => m.id === draggingId) : null;
+          const esmaecido = !!draggingId && dragModel?.status_desenvolvimento !== s.key && !podeEntrar(draggingId!, s.key).ok;
           return (
             <div
               key={s.key}
-              className={`shrink-0 rounded-lg border bg-muted/30 flex max-h-[calc(100vh-260px)] ${isCollapsed ? "" : "w-80"} ${isOver ? "ring-2 ring-primary" : ""}`}
+              className={`shrink-0 rounded-lg border bg-muted/30 flex max-h-[calc(100vh-260px)] transition-opacity ${isCollapsed ? "" : "w-80"} ${isOver ? "ring-2 ring-primary" : ""} ${esmaecido ? "opacity-40 grayscale pointer-events-none" : ""}`}
               onDragOver={(e) => { e.preventDefault(); setDragOver(s.key); }}
               onDragLeave={() => setDragOver((cur) => (cur === s.key ? null : cur))}
               onDrop={(e) => handleDrop(s.key, e)}
@@ -334,6 +370,8 @@ function DesenvolvimentoPage() {
                       categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
                       onOpen={() => setOpenId(m.id)}
                       draggable={editable}
+                      onDragStartCard={() => setDraggingId(m.id)}
+                      onDragEndCard={() => setDraggingId(null)}
                     />
                   ))}
                 </div>
@@ -421,8 +459,9 @@ function MobileCard({ modelo, estilistaNome, categoriaNome, onOpen }: {
 }
 
 
-function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: isDraggable }: {
+function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: isDraggable, onDragStartCard, onDragEndCard }: {
   modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; onOpen: () => void; draggable: boolean;
+  onDragStartCard?: () => void; onDragEndCard?: () => void;
 }) {
   const fl = useFieldLabels();
   // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
@@ -435,7 +474,9 @@ function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: i
       onDragStart={(e) => {
         e.dataTransfer.setData("text/plain", modelo.id);
         e.dataTransfer.effectAllowed = "move";
+        onDragStartCard?.();
       }}
+      onDragEnd={() => onDragEndCard?.()}
       className={`bg-card border rounded-md p-2 hover:shadow-md transition-shadow ${isDraggable ? "cursor-grab active:cursor-grabbing" : ""}`}
       onClick={onOpen}
     >
