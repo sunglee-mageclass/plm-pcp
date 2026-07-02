@@ -39,7 +39,7 @@ describe.skipIf(!hasDb)("OTB — otb_confirmar (geração/reconciliação)", () 
 
       // 2) idempotente: reconfirmar não cria/remove nada
       r = await um<{ obj: any }>(c, `select public.otb_confirmar($1) as obj`, [col.id]);
-      expect(r.obj.criados).toBe(0); expect(r.obj.removidos).toBe(0);
+      expect(r.obj.criados).toBe(0); expect(r.obj.removidos).toBe(0); expect(r.obj.mantidos).toBe(0);
 
       // 3) preenche 1 card (toca), baixa alvo p/ 1 → remove só os brancos, mantém o preenchido
       // Postgres não tem UPDATE ... LIMIT; usar subselect:
@@ -47,7 +47,7 @@ describe.skipIf(!hasDb)("OTB — otb_confirmar (geração/reconciliação)", () 
       await c.query(`update colecao_semanas set qtd_planejada=1 where colecao_id=$1 and semana='1'`, [col.id]);
       r = await um<{ obj: any }>(c, `select public.otb_confirmar($1) as obj`, [col.id]);
       // existiam 3, alvo 1, diff -2; brancos = 2 → remove 2, sobra o preenchido (mantidos reflete o excesso não-removível=0)
-      expect(r.obj.removidos).toBe(2);
+      expect(r.obj.removidos).toBe(2); expect(r.obj.mantidos).toBe(0);
       cnt = await um<{ n: string }>(c, `select count(*)::text n from modelos where colecao_id=$1 and semana='1'`, [col.id]);
       expect(cnt.n).toBe("1");
       const nome = await um<{ nome: string }>(c, `select nome from modelos where colecao_id=$1 and semana='1'`, [col.id]);

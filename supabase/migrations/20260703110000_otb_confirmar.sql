@@ -25,7 +25,7 @@ begin
   select * into v_col from colecoes where id = _colecao_id and tenant_id = v_tenant;
   if not found then raise exception 'Coleção não encontrada'; end if;
 
-  for v_wk in select semana, qtd_planejada from colecao_semanas where colecao_id = _colecao_id loop
+  for v_wk in select semana, qtd_planejada from colecao_semanas where colecao_id = _colecao_id and tenant_id = v_tenant loop
     select count(*) into v_existing from modelos
       where tenant_id = v_tenant and colecao_id = _colecao_id and coalesce(semana,'') = v_wk.semana;
     v_diff := v_wk.qtd_planejada - v_existing;
@@ -59,7 +59,7 @@ begin
     end if;
   end loop;
 
-  update colecoes set status = 'confirmada' where id = _colecao_id;
+  update colecoes set status = 'confirmada' where id = _colecao_id and tenant_id = v_tenant;
   return jsonb_build_object('criados', v_criados, 'removidos', v_removidos, 'mantidos', v_mantidos);
 end;
 $function$;
