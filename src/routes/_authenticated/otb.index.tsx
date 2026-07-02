@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { Button } from "@/components/ui/button";
@@ -32,6 +34,19 @@ function OtbPage() {
       return data as any[];
     },
   });
+  const qc = useQueryClient();
+  const importar = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.rpc("otb_importar_colecoes" as any);
+      if (error) throw error;
+      return data as { importadas: number; vinculados: number };
+    },
+    onSuccess: (r) => {
+      toast.success(`${r.importadas} coleção(ões) importada(s), ${r.vinculados} modelo(s) vinculado(s).`);
+      qc.invalidateQueries({ queryKey: ["otb-colecoes"] });
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao importar coleções")),
+  });
 
   if (!isModuleEnabled("otb")) {
     return <div className="container mx-auto p-6"><EmptyState icon={Target} title="OTB não habilitado" description="Ative o módulo OTB nas configurações da loja." /></div>;
@@ -42,7 +57,10 @@ function OtbPage() {
       <header className="flex items-center justify-between gap-3">
         <div className="flex items-start gap-3"><Target className="h-7 w-7 text-primary mt-0.5" />
           <div><h1 className="text-2xl font-bold">OTB</h1><p className="text-sm text-muted-foreground">Orçamento de coleção.</p></div></div>
-        <Button onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /> Nova coleção</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => importar.mutate()} disabled={importar.isPending}>Importar coleções existentes</Button>
+          <Button onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /> Nova coleção</Button>
+        </div>
       </header>
       {colecoes.length === 0 ? (
         <EmptyState icon={Target} title="Nenhuma coleção" description="Crie a primeira coleção do OTB." />

@@ -68,3 +68,17 @@ describe.skipIf(!hasDb)("OTB — otb_confirmar (geração/reconciliação)", () 
     });
   });
 });
+
+describe.skipIf(!hasDb)("OTB — importar coleções existentes", () => {
+  it("cria coleção a partir do texto e liga os modelos", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await c.query(`update tenant_config set modules = coalesce(modules,'{}'::jsonb) || '{"otb":true}'::jsonb where tenant_id=$1`, [TENANT_TESTE]);
+      await c.query(`insert into modelos (nome, colecao, status_planejamento, versao) values ('M1','ImportTest','em_planejamento',1),('M2','ImportTest','em_planejamento',1)`);
+      const r = await um<{ obj: any }>(c, `select public.otb_importar_colecoes() as obj`, []);
+      expect(r.obj.importadas).toBeGreaterThanOrEqual(1);
+      const linked = await um<{ n: string }>(c, `select count(*)::text n from modelos m join colecoes col on col.id=m.colecao_id where col.nome='ImportTest'`, []);
+      expect(Number(linked.n)).toBeGreaterThanOrEqual(2);
+    });
+  });
+});
