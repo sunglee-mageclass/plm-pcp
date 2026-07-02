@@ -2943,6 +2943,7 @@ export type Database = {
       }
       producao_terceirizados: {
         Row: {
+          aprovado: boolean
           ativo: boolean | null
           aviamentos_enviados: Json | null
           cad_id: string | null
@@ -2968,6 +2969,7 @@ export type Database = {
           terceirizado_id: string | null
         }
         Insert: {
+          aprovado?: boolean
           ativo?: boolean | null
           aviamentos_enviados?: Json | null
           cad_id?: string | null
@@ -2993,6 +2995,7 @@ export type Database = {
           terceirizado_id?: string | null
         }
         Update: {
+          aprovado?: boolean
           ativo?: boolean | null
           aviamentos_enviados?: Json | null
           cad_id?: string | null
@@ -4087,6 +4090,7 @@ export type Database = {
         Args: { _blocos: Json; _cad_id: string; _observacoes_molde?: string }
         Returns: undefined
       }
+      servico_aprovacao_por_modelo: { Args: { _ids: string[] }; Returns: Json }
       servicos_financeiro: { Args: never; Returns: Json }
       tenant_module_enabled: { Args: { _module: string }; Returns: boolean }
       trocar_rolo: {

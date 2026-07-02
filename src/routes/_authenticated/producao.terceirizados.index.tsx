@@ -38,7 +38,7 @@ function TercListPage() {
       const { data, error } = await supabase
         .from("modelos")
         .select(
-          "id, ref, versao, nome, colecao, mes_id, ano_id, categoria_principal_id, revisao_pendente, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, status_corte, sem_acabamento, producao_terceirizados(data_enviado, data_entregue, quantidade_enviada, quantidade_recebida, quantidade_defeito, ativo, categorias_terceirizado(etapa)))",
+          "id, ref, versao, nome, colecao, mes_id, ano_id, categoria_principal_id, revisao_pendente, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, status_corte, sem_acabamento, producao_terceirizados(data_enviado, data_entregue, quantidade_enviada, quantidade_recebida, quantidade_defeito, ativo, interno, aprovado, categorias_terceirizado(etapa)))",
         )
         .eq("enviado_cad", true)
         .order("created_at", { ascending: false });
@@ -69,6 +69,10 @@ function TercListPage() {
           else if (sPos === "vazio") statusGeral = m.cad?.[0]?.sem_acabamento === true ? "finalizado" : "pre_finalizado";
           else statusGeral = "pendente";
         }
+        // Aprovação (só blocos externos): amarela enquanto nem todos aprovados; verde se todos.
+        const externos = tercs.filter((t: any) => t.interno === false);
+        const aprovacao: "amarela" | "verde" | null =
+          externos.length === 0 ? null : externos.every((t: any) => t.aprovado) ? "verde" : "amarela";
         return {
           modelo_id: m.id,
           ref: m.ref,
@@ -81,6 +85,7 @@ function TercListPage() {
           categoria_nome: m.categorias_produto?.nome ?? null,
           cad_id: m.cad?.[0]?.id ?? null,
           statusGeral,
+          aprovacao,
         };
       });
     },
@@ -171,6 +176,12 @@ function TercListPage() {
                 onClick={() => setSheetId(r.modelo_id)}
               >
                 <td className="px-4 py-2">
+                  {r.aprovacao && (
+                    <span
+                      className={`inline-block h-2.5 w-2.5 rounded-full mr-2 align-middle ${r.aprovacao === "verde" ? "bg-emerald-500" : "bg-amber-400"}`}
+                      title={r.aprovacao === "verde" ? "Serviços aprovados" : "Aprovação de serviço pendente"}
+                    />
+                  )}
                   <span className="font-mono text-primary">{r.ref ?? "—"}</span>
                   <VersaoBadge versao={r.versao} className="ml-2 text-[10px]" />
                   <span className="ml-2"><RevisaoErroBadge revisao={r.revisao_pendente} etapa="terceirizados" /></span>

@@ -240,6 +240,16 @@ function PlanejamentoPage() {
       return m;
     },
   });
+  // Aprovação de serviço por modelo (bolinha na foto): {id: {tem, todos}}.
+  const { data: aprovacaoMap = {} } = useQuery({
+    queryKey: ["plan-servico-aprovacao", modeloIdsAll],
+    enabled: modeloIdsAll.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("servico_aprovacao_por_modelo" as any, { _ids: modeloIdsAll });
+      if (error) throw error;
+      return (data ?? {}) as Record<string, { tem: boolean; todos: boolean }>;
+    },
+  });
 
   const colecoes = useMemo(() => {
     const s = new Set<string>();
@@ -324,6 +334,7 @@ function PlanejamentoPage() {
       linhaNome={m.linha_id ? linhaMap[m.linha_id] : null}
       markup={(() => { const p = piFor(m); return p.markupExibir > 0 ? p.markupExibir : null; })()}
       preco={(() => { const p = piFor(m); return p.efetivo > 0 ? p.efetivo : null; })()}
+      aprovacao={(() => { const a = (aprovacaoMap as any)[m.id]; return a?.tem ? (a.todos ? "verde" : "amarela") : null; })()}
       mesNome={m.mes_id ? mesMap[m.mes_id] : null}
       onOpen={() => setOpenId(m.id)}
       compact={compact}
@@ -490,8 +501,8 @@ function PlanejamentoPage() {
 }
 
 
-function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, markup, preco, mesNome, onOpen, compact }: {
-  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; markup: number | null; preco: number | null; mesNome: string | null; onOpen: () => void; compact?: boolean;
+function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, markup, preco, aprovacao, mesNome, onOpen, compact }: {
+  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; markup: number | null; preco: number | null; aprovacao: "verde" | "amarela" | null; mesNome: string | null; onOpen: () => void; compact?: boolean;
 }) {
   // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
   const cover = (modelo.fotos_modelo?.[0]) || modelo.desenho_tecnico_url || modelo.croqui_url || null;
@@ -500,7 +511,13 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, markup, p
   const meta = statusMeta(modelo.status_planejamento);
   return (
     <Card className="overflow-hidden cursor-pointer hover:shadow-md transition-shadow" onClick={onOpen}>
-      <div className="aspect-[3/4] bg-muted flex items-center justify-center overflow-hidden">
+      <div className="relative aspect-[3/4] bg-muted flex items-center justify-center overflow-hidden">
+        {aprovacao && (
+          <span
+            className={`absolute top-1.5 right-1.5 z-10 h-3 w-3 rounded-full ring-2 ring-white shadow ${aprovacao === "verde" ? "bg-emerald-500" : "bg-amber-400"}`}
+            title={aprovacao === "verde" ? "Serviços aprovados" : "Aprovação de serviço pendente"}
+          />
+        )}
         {!url ? (
           <ImageIcon className="h-10 w-10 text-muted-foreground" />
         ) : coverIsPdf ? (

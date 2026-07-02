@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useReadOnly } from "@/components/RequirePermission";
+import { useAuth } from "@/hooks/useAuth";
 import { ModeloObservacoes } from "@/components/shared/ModeloObservacoes";
 import { VerificarRevisao } from "@/components/producao/RevisaoErro";
 import { printWithImages } from "@/lib/print";
@@ -37,6 +38,7 @@ type Bloco = {
   terceirizado_id: string | null;
   colaborador_id: string | null;
   preco_metro_unidade: number;
+  aprovado: boolean;
   quantidade_enviada: number;
   quantidade_recebida: number;
   quantidade_defeito: number;
@@ -91,6 +93,10 @@ function TercDetailPage() {
 export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; onClose?: () => void }) {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
+  // Permissão dedicada da "Aprovação" (independe do editar de Serviços): leitor vê, editor marca.
+  const { canView, canEdit } = useAuth();
+  const canSeeAprovacao = canView("producao_servico_aprovacao");
+  const canAprovar = canEdit("producao_servico_aprovacao");
 
   const { data: modelo } = useQuery({
     queryKey: ["terc-modelo", modeloId],
@@ -375,6 +381,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
         terceirizado_id: r.terceirizado_id,
         colaborador_id: (r as any).colaborador_id ?? null,
         preco_metro_unidade: Number(r.preco_metro_unidade ?? 0),
+        aprovado: Boolean((r as any).aprovado),
         quantidade_enviada: Number(r.quantidade_enviada ?? 0),
         quantidade_recebida: Number(r.quantidade_recebida ?? 0),
         quantidade_defeito: Number(r.quantidade_defeito ?? 0),
@@ -411,6 +418,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
         terceirizado_id: null,
         colaborador_id: null,
         preco_metro_unidade: 0,
+        aprovado: false,
         quantidade_enviada: 0,
         quantidade_recebida: 0,
         quantidade_defeito: 0,
@@ -514,6 +522,26 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
   });
+
+  // Aprovação por bloco — persiste na hora (independe do Salvar; salvar_terceirizados
+  // NÃO toca em `aprovado`, então nunca sobrescreve uma aprovação).
+  const aprovacaoMut = useMutation({
+    mutationFn: async ({ id, value }: { id: string; value: boolean }) => {
+      const { error } = await supabase.from("producao_terceirizados").update({ aprovado: value } as never).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["producao-terc", cad?.id] });
+      qc.invalidateQueries({ queryKey: ["producao-terc-list"] });
+      qc.invalidateQueries({ queryKey: ["plan-servico-aprovacao"] });
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao aprovar")),
+  });
+  const toggleAprovacao = (idx: number, value: boolean) => {
+    const b = blocos[idx];
+    updateBloco(idx, { aprovado: value });
+    if (b.id) aprovacaoMut.mutate({ id: b.id, value });
+  };
 
   // Trava POR ABA: cada etapa (pré/pós) tem seu "finalizado" + lápis. Finalizar o pré
   // não trava o pós (que ainda nem aconteceu), e vice-versa.
@@ -791,6 +819,16 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
                     value={b.preco_metro_unidade}
                     onChange={(e) => updateBloco(idx, { preco_metro_unidade: Number(e.target.value) })}
                   />
+                  {canSeeAprovacao && (
+                    <label className="mt-1.5 flex items-center gap-2 text-xs cursor-pointer select-none">
+                      <Checkbox
+                        checked={!!b.aprovado}
+                        disabled={!canAprovar || !b.id}
+                        onCheckedChange={(v) => toggleAprovacao(idx, !!v)}
+                      />
+                      <span title={!b.id ? "Salve o bloco primeiro" : undefined}>Aprovação</span>
+                    </label>
+                  )}
                 </div>
               )}
               <div>
