@@ -1232,7 +1232,18 @@ function BatchCardsDialog({
   const catLabel = (c: CatOpt) => (c.grupo_id && grupoMap[c.grupo_id] ? `${grupoMap[c.grupo_id]} › ${c.nome}` : c.nome);
   // Campos compartilhados por todos os cards (mesmo "core" do Novo Modelo,
   // sem nome/estilista/tecido/fotos).
+  const { isModuleEnabled: batchIsModuleEnabled } = useTenantModules();
+  const otbOn = batchIsModuleEnabled("otb");
+  const { data: colecoesBatch = [] } = useQuery({
+    queryKey: ["otb-colecoes-opts"],
+    enabled: otbOn,
+    queryFn: async () => {
+      const { data } = await supabase.from("colecoes").select("id, nome, mes_id, ano_id").order("nome");
+      return (data ?? []) as { id: string; nome: string; mes_id: string | null; ano_id: string | null }[];
+    },
+  });
   const [colecao, setColecao] = useState("");
+  const [colecaoId, setColecaoId] = useState<string | null>(null);
   const [status, setStatus] = useState("em_planejamento");
   const [semana, setSemana] = useState("");
   const [mesId, setMesId] = useState<string | null>(null);
@@ -1274,6 +1285,7 @@ function BatchCardsDialog({
             nome: "",
             estilista_id: null,
             colecao,
+            colecao_id: colecaoId,
             semana,
             mes_id: mesId,
             ano_id: anoId,
@@ -1314,7 +1326,22 @@ function BatchCardsDialog({
             <p className="text-sm font-medium mb-2">Campos compartilhados</p>
             <p className="text-xs text-muted-foreground mb-3">Aplicados a todos os cards criados.</p>
             <div className="grid sm:grid-cols-2 gap-3">
-              <FieldText label="Coleção" value={colecao} onChange={setColecao} />
+              {otbOn ? (
+                <FieldSelect
+                  label="Coleção"
+                  value={colecaoId ?? null}
+                  onChange={(v) => {
+                    const col = colecoesBatch.find((c) => c.id === v);
+                    setColecaoId(v);
+                    setColecao(col?.nome ?? colecao);
+                    if (!mesId && col?.mes_id) setMesId(col.mes_id);
+                    if (!anoId && col?.ano_id) setAnoId(col.ano_id);
+                  }}
+                  options={colecoesBatch}
+                />
+              ) : (
+                <FieldText label="Coleção" value={colecao} onChange={setColecao} />
+              )}
               <div className="grid gap-1">
                 <Label>Status</Label>
                 <Select value={status} onValueChange={setStatus}>
