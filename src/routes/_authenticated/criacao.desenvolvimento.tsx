@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Hammer, ImageIcon } from "lucide-react";
+import { Hammer, ImageIcon, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -104,6 +104,12 @@ function DesenvolvimentoPage() {
   const [fCad, setFCad] = useState("all");
   const [fGrupo, setFGrupo] = useState("all");
   const [dragOver, setDragOver] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const toggleCollapse = (key: string) => setCollapsed((prev) => {
+    const n = new Set(prev);
+    n.has(key) ? n.delete(key) : n.add(key);
+    return n;
+  });
   const [openId, setOpenId] = useState<string | null>(null);
 
   const { data: estilistas = [] } = useColaboradoresByTipo("estilista");
@@ -274,40 +280,49 @@ function DesenvolvimentoPage() {
         </div>
       </header>
 
-      {/* Desktop: Kanban horizontal com drag-and-drop */}
-      <div className="hidden md:flex gap-4 overflow-x-auto pb-4">
+      {/* Desktop: Kanban — título em barra vertical à esquerda de cada coluna, colapsável */}
+      <div className="hidden md:flex gap-4 overflow-x-auto pb-4 items-start">
         {statusKanban.map((s) => {
           const cards = byStatus.get(s.key) ?? [];
           const isOver = dragOver === s.key;
+          const isCollapsed = collapsed.has(s.key);
           return (
             <div
               key={s.key}
-              className={`w-72 shrink-0 rounded-lg border bg-muted/30 flex flex-col max-h-[calc(100vh-260px)] ${isOver ? "ring-2 ring-primary" : ""}`}
+              className={`shrink-0 rounded-lg border bg-muted/30 flex max-h-[calc(100vh-260px)] ${isCollapsed ? "" : "w-80"} ${isOver ? "ring-2 ring-primary" : ""}`}
               onDragOver={(e) => { e.preventDefault(); setDragOver(s.key); }}
               onDragLeave={() => setDragOver((cur) => (cur === s.key ? null : cur))}
               onDrop={(e) => handleDrop(s.key, e)}
             >
-              <div className="px-3 py-2 flex items-center justify-between border-b">
-                <div className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: s.color ?? "#64748b" }} />
-                  <span className="text-sm font-semibold">{s.label}</span>
-                </div>
+              {/* Barra de título vertical à esquerda (clica p/ recolher) */}
+              <button
+                type="button"
+                onClick={() => toggleCollapse(s.key)}
+                title={s.label}
+                className={`shrink-0 w-9 flex flex-col items-center gap-2 py-3 hover:bg-muted/50 ${isCollapsed ? "" : "border-r"}`}
+              >
+                <ChevronRight className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${isCollapsed ? "" : "rotate-90"}`} />
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: s.color ?? "#64748b" }} />
+                <span className="text-sm font-semibold whitespace-nowrap [writing-mode:vertical-rl] rotate-180">{s.label}</span>
                 <span className="text-xs text-muted-foreground">{cards.length}</span>
-              </div>
-              <div className="p-2 space-y-2 overflow-y-auto">
-                {cards.length === 0 ? (
-                  <p className="text-xs text-muted-foreground text-center py-6">Sem cards</p>
-                ) : cards.map((m) => (
-                  <KanbanCard
-                    key={m.id}
-                    modelo={m}
-                    estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
-                    categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
-                    onOpen={() => setOpenId(m.id)}
-                    draggable={editable}
-                  />
-                ))}
-              </div>
+              </button>
+              {/* Cards empilhados à direita */}
+              {!isCollapsed && (
+                <div className="flex-1 min-w-0 p-2 space-y-2 overflow-y-auto">
+                  {cards.length === 0 ? (
+                    <p className="text-xs text-muted-foreground text-center py-6">Sem cards</p>
+                  ) : cards.map((m) => (
+                    <KanbanCard
+                      key={m.id}
+                      modelo={m}
+                      estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
+                      categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
+                      onOpen={() => setOpenId(m.id)}
+                      draggable={editable}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}
