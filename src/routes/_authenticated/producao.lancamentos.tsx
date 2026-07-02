@@ -450,7 +450,6 @@ function LancamentosPage() {
             </SelectContent>
           </Select>
         </div>
-        <span className="ml-auto text-xs text-muted-foreground"><Badge variant="secondary">{filtered.length}</Badge> produto(s)</span>
       </div>
 
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
