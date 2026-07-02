@@ -17,7 +17,7 @@ import { Label } from "@/components/ui/label";
 import { useSort } from "@/components/shared/sort";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS, useCompactCards } from "@/hooks/useGridCols";
-import { LayoutGrid } from "lucide-react";
+import { LayoutGrid, Group } from "lucide-react";
 
 import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
 import { RevisaoErroBadge, VerificarRevisao } from "@/components/producao/RevisaoErro";
@@ -73,6 +73,8 @@ function LancamentosPage() {
   const [fAno, setFAno] = useState("all");
   const [fGrupo, setFGrupo] = useState("all");
   const [fRep, setFRep] = useState("all");
+  const [groupByCat, setGroupByCat] = useState(false);
+  const [groupByRep, setGroupByRep] = useState(false);
 
   const { data: meses = [] } = useQuery({
     queryKey: ["opt", "meses"],
@@ -244,6 +246,44 @@ function LancamentosPage() {
     return { poder, qtd: sorted.length, markupMedio: nMk > 0 ? somaMk / nMk : 0 };
   }, [sorted, custoMap]);
 
+  // Agrupamentos (por categoria / por repetição) — mutuamente exclusivos.
+  const groupedByCat = (() => {
+    const map = new Map<string, LancCard[]>();
+    sorted.forEach((c) => {
+      const key = c.categoria_nome ?? "__none__";
+      const arr = map.get(key);
+      if (arr) arr.push(c); else map.set(key, [c]);
+    });
+    return Array.from(map.entries())
+      .map(([key, items]) => ({ key, nome: key === "__none__" ? "Sem categoria" : key, items }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  })();
+  const groupedByRep = (() => {
+    const reps = sorted.filter((c) => (c.versao ?? 1) > 1);
+    const unis = sorted.filter((c) => (c.versao ?? 1) <= 1);
+    const out: { key: string; nome: string; items: LancCard[] }[] = [];
+    if (reps.length) out.push({ key: "rep", nome: "Repetidos", items: reps });
+    if (unis.length) out.push({ key: "uni", nome: "Únicos", items: unis });
+    return out;
+  })();
+  const activeGroups = groupByCat ? groupedByCat : groupByRep ? groupedByRep : null;
+
+  const renderLancCard = (c: LancCard) => {
+    const pi = piFor(c);
+    return (
+      <LancamentoCard
+        key={c.modelo_id}
+        card={{ ...c, lancamento: (lancByCad as any)[c.cad_id] ?? null }}
+        markup={pi.markupExibir > 0 ? pi.markupExibir : null}
+        preco={pi.efetivo > 0 ? pi.efetivo : null}
+        compact={compact}
+        onUpload={(file) => uploadMut.mutate({ card: c, file })}
+        uploading={uploadMut.isPending}
+        readOnly={readOnly}
+      />
+    );
+  };
+
   // Sentinela "__none__" = ordem padrão. (Radix Select v2 PROÍBE SelectItem com
   // value "" — daí o sentinela.) Sem accessor "__none__" nem campo homônimo no card,
   // useSort lê undefined p/ todos → comparador estável → mantém a ordem original.
@@ -325,6 +365,12 @@ function LancamentosPage() {
             <Button key={n} size="sm" variant={cols === n ? "default" : "outline"} onClick={() => setCols(n)} className="h-7 w-9 px-0">{n}</Button>
           ))}
         </div>
+        <Button size="sm" variant={groupByCat ? "default" : "outline"} onClick={() => { setGroupByCat((v) => !v); setGroupByRep(false); }}>
+          <Group className="h-4 w-4 mr-1" /> Agrupar por categoria
+        </Button>
+        <Button size="sm" variant={groupByRep ? "default" : "outline"} onClick={() => { setGroupByRep((v) => !v); setGroupByCat(false); }}>
+          <Group className="h-4 w-4 mr-1" /> Agrupar por repetição
+        </Button>
         <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
           <span>Poder de venda: <strong className="text-foreground tabular-nums">{brl(resumo.poder)}</strong></span>
           <span aria-hidden>·</span>
@@ -367,22 +413,22 @@ function LancamentosPage() {
         <EmptyState icon={Rocket} title="Nenhum produto com CQ confirmado" description="Quando o CQ aprovar produtos, eles aparecerão aqui prontos para lançamento." />
       )}
 
-      <div ref={gridRef} className={GRID_COLS_CLASS[cols]}>
-        {sorted.map((c) => {
-          const pi = piFor(c);
-          return (
-            <LancamentoCard
-              key={c.modelo_id}
-              card={{ ...c, lancamento: (lancByCad as any)[c.cad_id] ?? null }}
-              markup={pi.markupExibir > 0 ? pi.markupExibir : null}
-              preco={pi.efetivo > 0 ? pi.efetivo : null}
-              compact={compact}
-              onUpload={(file) => uploadMut.mutate({ card: c, file })}
-              uploading={uploadMut.isPending}
-              readOnly={readOnly}
-            />
-          );
-        })}
+      <div ref={gridRef}>
+        {activeGroups ? (
+          <div className="space-y-8">
+            {activeGroups.map((g) => (
+              <section key={g.key}>
+                <div className="flex items-center gap-2 mb-3">
+                  <h2 className="text-lg font-semibold">{g.nome}</h2>
+                  <Badge variant="secondary">{g.items.length}</Badge>
+                </div>
+                <div className={GRID_COLS_CLASS[cols]}>{g.items.map(renderLancCard)}</div>
+              </section>
+            ))}
+          </div>
+        ) : (
+          <div className={GRID_COLS_CLASS[cols]}>{sorted.map(renderLancCard)}</div>
+        )}
       </div>
     </div>
   );

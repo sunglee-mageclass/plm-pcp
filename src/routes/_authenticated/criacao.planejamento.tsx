@@ -164,6 +164,7 @@ function PlanejamentoPage() {
   const [openNew, setOpenNew] = useState(false);
   const [openBatch, setOpenBatch] = useState(false);
   const [groupByCat, setGroupByCat] = useState(true);
+  const [groupByRep, setGroupByRep] = useState(false);
   const [cols, setCols] = useGridCols("planejamento");
   const gridRef = useRef<HTMLDivElement>(null);
   const compact = useCompactCards(gridRef, cols);
@@ -371,6 +372,18 @@ function PlanejamentoPage() {
       .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
   })();
 
+  // Agrupar por repetição: "Repetidos" (v2+) e "Únicos" (v1).
+  const groupedByRep = (() => {
+    const reps = sorted.filter(isRepeticao);
+    const unis = sorted.filter((m) => !isRepeticao(m));
+    const out: { key: string; nome: string; items: Modelo[] }[] = [];
+    if (reps.length) out.push({ key: "rep", nome: "Repetidos", items: reps });
+    if (unis.length) out.push({ key: "uni", nome: "Únicos", items: unis });
+    return out;
+  })();
+
+  const activeGroups = groupByCat ? grouped : groupByRep ? groupedByRep : null;
+
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
       <header className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
@@ -407,9 +420,16 @@ function PlanejamentoPage() {
         <Button
           variant={groupByCat ? "default" : "outline"}
           size="sm"
-          onClick={() => setGroupByCat((v) => !v)}
+          onClick={() => { setGroupByCat((v) => !v); setGroupByRep(false); }}
         >
           <Group className="h-4 w-4 mr-1" /> Agrupar por categoria
+        </Button>
+        <Button
+          variant={groupByRep ? "default" : "outline"}
+          size="sm"
+          onClick={() => { setGroupByRep((v) => !v); setGroupByCat(false); }}
+        >
+          <Group className="h-4 w-4 mr-1" /> Agrupar por repetição
         </Button>
         <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
           <span>Poder de venda: <strong className="text-foreground tabular-nums">{brl(resumo.poder)}</strong></span>
@@ -464,9 +484,9 @@ function PlanejamentoPage() {
       <div ref={gridRef}>
       {filtered.length === 0 ? (
         <EmptyState icon={Palette} title="Nenhum modelo encontrado" description="Crie um modelo usando o botão Novo Modelo." />
-      ) : groupByCat ? (
+      ) : activeGroups ? (
         <div className="space-y-8">
-          {grouped.map((g) => (
+          {activeGroups.map((g) => (
             <section key={g.key}>
               <div className="flex items-center gap-2 mb-3">
                 <h2 className="text-lg font-semibold">{g.nome}</h2>
