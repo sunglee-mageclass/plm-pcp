@@ -33,6 +33,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 
 import { RequirePermission } from "@/components/RequirePermission";
+import { useTenantModules } from "@/hooks/useTenantModules";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 export const Route = createFileRoute("/_authenticated/criacao/planejamento")({
   component: () => (
@@ -101,6 +102,7 @@ type Modelo = {
   estilista_id: string | null;
   linha_id: string | null;
   colecao: string | null;
+  colecao_id: string | null;
   semana: string | null;
   mes_id: string | null;
   ano_id: string | null;
@@ -217,7 +219,7 @@ function PlanejamentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, estilista_id, linha_id, colecao, semana, mes_id, ano_id, categoria_principal_id, categoria_secundaria_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, origem")
+        .select("id, nome, estilista_id, linha_id, colecao, colecao_id, semana, mes_id, ano_id, categoria_principal_id, categoria_secundaria_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, origem")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as Modelo[];
@@ -629,6 +631,7 @@ type Draft = {
   estilista_id: string | null;
   linha_id: string | null;
   colecao: string;
+  colecao_id: string | null;
   semana: string;
   mes_id: string | null;
   ano_id: string | null;
@@ -650,7 +653,7 @@ type Draft = {
   modelo_base_id: string | null;
 };
 const emptyDraft = (): Draft => ({
-  nome: "", estilista_id: null, linha_id: null, colecao: "", semana: "", mes_id: null, ano_id: null,
+  nome: "", estilista_id: null, linha_id: null, colecao: "", colecao_id: null, semana: "", mes_id: null, ano_id: null,
   categoria_principal_id: null, categoria_secundaria_id: null,
   subcategoria1_id: null, subcategoria2_id: null, origem: "interno", preco_venda: null, data_lancamento: null,
   tecidos_planejados: [],
@@ -700,6 +703,16 @@ function ModeloDialog({
   // Grupo é transiente (não é coluna do modelo) — filtra as Categorias na cascata.
   const [grupoSel, setGrupoSel] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState(false);
+  const { isModuleEnabled } = useTenantModules();
+  const otbOn = isModuleEnabled("otb");
+  const { data: colecoes = [] } = useQuery({
+    queryKey: ["otb-colecoes-opts"],
+    enabled: otbOn,
+    queryFn: async () => {
+      const { data } = await supabase.from("colecoes").select("id, nome, mes_id, ano_id").order("nome");
+      return (data ?? []) as { id: string; nome: string; mes_id: string | null; ano_id: string | null }[];
+    },
+  });
 
   // Estoque por artigo (físico/disponível) para mostrar ao selecionar o tecido.
   const { data: estoqueArr = [] } = useQuery({
@@ -784,6 +797,7 @@ function ModeloDialog({
           estilista_id: data.estilista_id,
           linha_id: (data as any).linha_id ?? null,
           colecao: data.colecao ?? "",
+          colecao_id: (data as any).colecao_id ?? null,
           semana: data.semana ?? "",
           mes_id: data.mes_id,
           ano_id: data.ano_id,
@@ -1016,7 +1030,20 @@ function ModeloDialog({
           {/* SETOR 2 — Coleção */}
           <Secao titulo="Coleção">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              <FieldText label={fl("colecao")} value={draft.colecao} onChange={(v) => setDraft((d) => ({ ...d, colecao: v }))} />
+              {otbOn ? (
+                <FieldSelect
+                  label={fl("colecao")}
+                  value={draft.colecao_id ?? null}
+                  onChange={(v) => {
+                    const col = colecoes.find((c) => c.id === v);
+                    setDraft((d) => ({ ...d, colecao_id: v, colecao: col?.nome ?? d.colecao,
+                      mes_id: d.mes_id ?? col?.mes_id ?? null, ano_id: d.ano_id ?? col?.ano_id ?? null }));
+                  }}
+                  options={colecoes}
+                />
+              ) : (
+                <FieldText label={fl("colecao")} value={draft.colecao} onChange={(v) => setDraft((d) => ({ ...d, colecao: v }))} />
+              )}
               <FieldSelect label={fl("linha")} value={draft.linha_id} onChange={(v) => setDraft((d) => ({ ...d, linha_id: v }))} options={linhas} />
               <div className="grid gap-1">
                 <Label>Semana</Label>
