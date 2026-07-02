@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DateField } from "@/components/shared/DateField";
 import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Field, FieldSelectOpt } from "./shared";
 import { STATUS_DESENV_OPTS, type Opt } from "./types";
@@ -26,6 +27,7 @@ export function ModeloInfoSection({
   isAprovado,
   isReprovado,
   statusOptions,
+  podeEntrarStatus,
 }: {
   draft: Draft;
   setDraft: (d: Draft) => void;
@@ -38,6 +40,7 @@ export function ModeloInfoSection({
   isAprovado: boolean;
   isReprovado: boolean;
   statusOptions?: StatusOpt[];
+  podeEntrarStatus?: (statusKey: string) => { ok: boolean; faltando: { label: string }[] };
 }) {
   const fl = useFieldLabels();
   const [visiblePilotos, setVisiblePilotos] = useState<Set<number>>(() => {
@@ -81,7 +84,17 @@ export function ModeloInfoSection({
           <Input value={draft.nome} onChange={(e) => setDraft({ ...draft, nome: e.target.value })} />
         </Field>
         <Field label="Status">
-          <Select value={currentValue} onValueChange={(v) => setDraft({ ...draft, status_desenvolvimento: v })}>
+          <Select value={currentValue} onValueChange={(v) => {
+            // Motor de regras: só muda de status se os requisitos (estado SALVO) batem.
+            if (v !== currentValue) {
+              const chk = podeEntrarStatus?.(v);
+              if (chk && !chk.ok) {
+                toast.error(`Salve as pendências primeiro. Faltam: ${chk.faltando.map((c) => c.label).join(", ")}`);
+                return;
+              }
+            }
+            setDraft({ ...draft, status_desenvolvimento: v });
+          }}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               {renderList.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}

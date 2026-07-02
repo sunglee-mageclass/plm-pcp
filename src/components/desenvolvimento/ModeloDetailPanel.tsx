@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { normalizeKanbanStatuses, APROVADO_KEY } from "@/lib/kanban-status";
+import { requisitosOk } from "@/lib/kanban-condicoes";
 
 import {
   BUCKET,
@@ -68,11 +69,25 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     enabled: !!tenantId,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("tenant_config").select("tamanhos_grade, status_kanban").eq("tenant_id", tenantId).maybeSingle();
+        .from("tenant_config").select("tamanhos_grade, status_kanban, kanban_requisitos").eq("tenant_id", tenantId).maybeSingle();
       if (error) throw error;
       return data;
     },
   });
+
+  // Motor de regras: condições satisfeitas do modelo (estado SALVO) + requisitos por status.
+  // Bloqueia mudar de status pelo Select se os requisitos não batem — só o salvo conta.
+  const { data: condicoesModelo = {} } = useQuery({
+    queryKey: ["modelo-condicoes-kanban", modeloId],
+    enabled: !!modeloId,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("avaliar_condicoes_kanban" as any, { _ids: [modeloId] });
+      if (error) throw error;
+      return (((data ?? {}) as any)[modeloId] ?? {}) as Record<string, boolean>;
+    },
+  });
+  const podeEntrarStatus = (statusKey: string) =>
+    requisitosOk(((tenantCfg as any)?.kanban_requisitos ?? {})[statusKey], condicoesModelo as Record<string, boolean>);
   // status_kanban resolvido para chave SNAKE canônica (bate com status_desenvolvimento).
   const statusOptions = useMemo(
     () => normalizeKanbanStatuses((tenantCfg as any)?.status_kanban).map((s) => ({ value: s.key, label: s.label })),
@@ -602,6 +617,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       });
       setGradeAlterada(false); setConsumoAlterado(false); setAviamentoAlterado(false);
       qc.invalidateQueries({ queryKey: ["modelo-detail", modeloId] });
+      qc.invalidateQueries({ queryKey: ["modelo-condicoes-kanban", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-tecidos", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-tecido-oc-links", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-aviamentos", modeloId] });
@@ -632,6 +648,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       toast.success("Enviado para o CAD");
       setDraft((d: any) => ({ ...d, enviado_cad: true }));
       qc.invalidateQueries({ queryKey: ["modelo-detail", modeloId] });
+      qc.invalidateQueries({ queryKey: ["modelo-condicoes-kanban", modeloId] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao enviar para CAD")),
   });
@@ -903,6 +920,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 isAprovado={isAprovado}
                 isReprovado={isReprovado}
                 statusOptions={statusOptions}
+                podeEntrarStatus={podeEntrarStatus}
               />
             </AccordionContent>
           </AccordionItem>
