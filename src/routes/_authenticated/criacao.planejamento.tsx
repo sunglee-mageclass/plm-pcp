@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, Group, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown } from "lucide-react";
+import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -27,7 +27,7 @@ import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { useGridCols, GRID_COLS_OPTIONS, GRID_COLS_CLASS, useCompactCards } from "@/hooks/useGridCols";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { brl, fmtNum } from "@/lib/format";
-import { FilterButton, SearchToggle } from "@/components/shared/filters";
+import { FilterButton, SearchToggle, AgrupamentoButton } from "@/components/shared/filters";
 import { useSort } from "@/components/shared/sort";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
@@ -457,27 +457,13 @@ function PlanejamentoPage() {
       </header>
 
       <div className="flex items-center gap-2 flex-wrap">
-        <Button
-          variant={groupByLinha ? "default" : "outline"}
-          size="sm"
-          onClick={() => setGroupByLinha((v) => !v)}
-        >
-          <Group className="h-4 w-4 mr-1" /> Agrupar por linha
-        </Button>
-        <Button
-          variant={groupByCat ? "default" : "outline"}
-          size="sm"
-          onClick={() => setGroupByCat((v) => !v)}
-        >
-          <Group className="h-4 w-4 mr-1" /> Agrupar por categoria
-        </Button>
-        <Button
-          variant={groupByRep ? "default" : "outline"}
-          size="sm"
-          onClick={() => setGroupByRep((v) => !v)}
-        >
-          <Group className="h-4 w-4 mr-1" /> Agrupar por repetição
-        </Button>
+        <AgrupamentoButton
+          groups={[
+            { label: "Linha", active: groupByLinha, onToggle: () => setGroupByLinha((v) => !v) },
+            { label: "Categoria", active: groupByCat, onToggle: () => setGroupByCat((v) => !v) },
+            { label: "Repetição", active: groupByRep, onToggle: () => setGroupByRep((v) => !v) },
+          ]}
+        />
         <ResumoVenda {...resumo} />
         <div className="flex items-center gap-1.5 ml-auto">
           <Label className="text-xs text-muted-foreground">Ordenar por</Label>

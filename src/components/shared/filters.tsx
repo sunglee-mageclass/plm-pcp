@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Filter, Search, X } from "lucide-react";
+import { Filter, Group, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -92,6 +93,63 @@ export function FilterButton({ filters, children, activeCount, onClear }: Filter
               onClick={handleClear}
             >
               Limpar filtros
+            </Button>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+export type GroupToggle = {
+  label: string;
+  active: boolean;
+  onToggle: () => void;
+};
+
+/**
+ * Botão único (estilo Filtros) que abre um popover com checkboxes de agrupamento.
+ * Os agrupamentos são combináveis e aninham na ordem em que `groups` é passado
+ * (do mais amplo ao mais fino). Badge mostra quantos estão ativos.
+ */
+export function AgrupamentoButton({ groups }: { groups: GroupToggle[] }) {
+  const count = groups.filter((g) => g.active).length;
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant={count > 0 ? "default" : "outline"} size="sm" className="gap-2">
+          <Group className="h-4 w-4" />
+          <span>Agrupar</span>
+          {count > 0 && (
+            <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">
+              {count}
+            </Badge>
+          )}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-60 space-y-1">
+        <p className="px-2 pb-1 text-[11px] text-muted-foreground">
+          Combináveis · aninham nesta ordem
+        </p>
+        {groups.map((g) => (
+          <label
+            key={g.label}
+            className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted"
+          >
+            <Checkbox checked={g.active} onCheckedChange={() => g.onToggle()} />
+            <span>{g.label}</span>
+          </label>
+        ))}
+        {count > 0 && (
+          <div className="pt-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="w-full"
+              onClick={() => groups.forEach((g) => g.active && g.onToggle())}
+            >
+              Limpar agrupamentos
             </Button>
           </div>
         )}
