@@ -1,3 +1,4 @@
+Connecting to aws-1-sa-east-1.pooler.supabase.com 5432
 export type Json =
   | string
   | number
@@ -850,6 +851,86 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      colecao_semanas: {
+        Row: {
+          colecao_id: string
+          id: string
+          qtd_planejada: number
+          semana: string
+          tenant_id: string | null
+        }
+        Insert: {
+          colecao_id: string
+          id?: string
+          qtd_planejada?: number
+          semana: string
+          tenant_id?: string | null
+        }
+        Update: {
+          colecao_id?: string
+          id?: string
+          qtd_planejada?: number
+          semana?: string
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "colecao_semanas_colecao_id_fkey"
+            columns: ["colecao_id"]
+            isOneToOne: false
+            referencedRelation: "colecoes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      colecoes: {
+        Row: {
+          ano_id: string | null
+          created_at: string
+          id: string
+          mes_id: string | null
+          nome: string
+          orcamento: number | null
+          status: string
+          tenant_id: string | null
+        }
+        Insert: {
+          ano_id?: string | null
+          created_at?: string
+          id?: string
+          mes_id?: string | null
+          nome: string
+          orcamento?: number | null
+          status?: string
+          tenant_id?: string | null
+        }
+        Update: {
+          ano_id?: string | null
+          created_at?: string
+          id?: string
+          mes_id?: string | null
+          nome?: string
+          orcamento?: number | null
+          status?: string
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "colecoes_ano_id_fkey"
+            columns: ["ano_id"]
+            isOneToOne: false
+            referencedRelation: "anos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "colecoes_mes_id_fkey"
+            columns: ["mes_id"]
+            isOneToOne: false
+            referencedRelation: "meses"
             referencedColumns: ["id"]
           },
         ]
@@ -1863,6 +1944,7 @@ export type Database = {
           categoria_principal_id: string | null
           categoria_secundaria_id: string | null
           colecao: string | null
+          colecao_id: string | null
           created_at: string | null
           croqui_url: string | null
           custo_aviamento_total: number | null
@@ -1918,6 +2000,7 @@ export type Database = {
           categoria_principal_id?: string | null
           categoria_secundaria_id?: string | null
           colecao?: string | null
+          colecao_id?: string | null
           created_at?: string | null
           croqui_url?: string | null
           custo_aviamento_total?: number | null
@@ -1973,6 +2056,7 @@ export type Database = {
           categoria_principal_id?: string | null
           categoria_secundaria_id?: string | null
           colecao?: string | null
+          colecao_id?: string | null
           created_at?: string | null
           croqui_url?: string | null
           custo_aviamento_total?: number | null
@@ -2042,6 +2126,13 @@ export type Database = {
             columns: ["categoria_secundaria_id"]
             isOneToOne: false
             referencedRelation: "categorias_produto"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "modelos_colecao_id_fkey"
+            columns: ["colecao_id"]
+            isOneToOne: false
+            referencedRelation: "colecoes"
             referencedColumns: ["id"]
           },
           {
