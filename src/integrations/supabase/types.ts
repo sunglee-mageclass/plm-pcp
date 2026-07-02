@@ -3330,6 +3330,7 @@ export type Database = {
           etapas_acabamento: Json | null
           formato_mes: string | null
           id: string
+          kanban_requisitos: Json
           modo_baixa_estoque: string
           modo_oc_rolo: string
           modules: Json
@@ -3351,6 +3352,7 @@ export type Database = {
           etapas_acabamento?: Json | null
           formato_mes?: string | null
           id?: string
+          kanban_requisitos?: Json
           modo_baixa_estoque?: string
           modo_oc_rolo?: string
           modules?: Json
@@ -3372,6 +3374,7 @@ export type Database = {
           etapas_acabamento?: Json | null
           formato_mes?: string | null
           id?: string
+          kanban_requisitos?: Json
           modo_baixa_estoque?: string
           modo_oc_rolo?: string
           modules?: Json

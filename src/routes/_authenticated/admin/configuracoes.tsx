@@ -44,6 +44,8 @@ import {
 } from "@/components/ui/select";
 import { PAGES_CATALOG } from "@/lib/permissions-catalog";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
+import { resolveStatusKey } from "@/lib/kanban-status";
+import { RequisitosStatusButton } from "@/components/admin/RequisitosStatusDialog";
 
 export const Route = createFileRoute("/_authenticated/admin/configuracoes")({
   component: ConfiguracoesLojaPage,
@@ -91,6 +93,8 @@ const DEFAULTS = {
   campos_editaveis: {} as Record<string, string>,
   modo_baixa_estoque: "por_oc" as "por_oc" | "automatico",
   modo_oc_rolo: "ambos" as "oc" | "rolo" | "ambos",
+  // Requisitos de entrada por status do kanban: { status_key: [chave_condicao] }.
+  kanban_requisitos: {} as Record<string, string[]>,
 };
 
 type ConfigState = typeof DEFAULTS;
@@ -153,6 +157,10 @@ function ConfiguracoesLojaPage() {
           : DEFAULTS.campos_editaveis,
       modo_baixa_estoque: r.modo_baixa_estoque ?? DEFAULTS.modo_baixa_estoque,
       modo_oc_rolo: (r as any).modo_oc_rolo ?? DEFAULTS.modo_oc_rolo,
+      kanban_requisitos:
+        (r as any).kanban_requisitos && typeof (r as any).kanban_requisitos === "object" && !Array.isArray((r as any).kanban_requisitos)
+          ? ((r as any).kanban_requisitos as Record<string, string[]>)
+          : DEFAULTS.kanban_requisitos,
     });
   }, [data?.cfg]);
 
@@ -213,10 +221,26 @@ function ConfiguracoesLojaPage() {
           A Config NÃO gerencia mais esses campos (ver exclusão no payload do save). */}
       <SortableListCard
         title="Status do Kanban"
-        description="Colunas exibidas no painel de criação."
+        description="Colunas do painel de Desenvolvimento. Em cada status, defina os Requisitos: o que um card precisa ter preenchido para poder ENTRAR nele."
         items={cfg.status_kanban}
         onChange={(items) => setCfg({ ...cfg, status_kanban: items })}
         placeholder="Ex: Em Modelagem"
+        renderItemExtra={(label) => {
+          const key = resolveStatusKey(label);
+          return (
+            <RequisitosStatusButton
+              label={label}
+              requisitos={cfg.kanban_requisitos?.[key] ?? []}
+              onChange={(next) =>
+                setCfg((c) => {
+                  const map = { ...(c.kanban_requisitos ?? {}) };
+                  if (next.length) map[key] = next; else delete map[key];
+                  return { ...c, kanban_requisitos: map };
+                })
+              }
+            />
+          );
+        }}
       />
 
       <Card>
@@ -412,12 +436,14 @@ function SortableListCard({
   items,
   onChange,
   placeholder,
+  renderItemExtra,
 }: {
   title: string;
   description?: string;
   items: string[];
   onChange: (items: string[]) => void;
   placeholder?: string;
+  renderItemExtra?: (label: string, index: number) => React.ReactNode;
 }) {
   const [draft, setDraft] = useState("");
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -488,6 +514,7 @@ function SortableListCard({
                   value={label}
                   onChange={(v) => update(idx, v)}
                   onRemove={() => remove(idx)}
+                  extra={renderItemExtra?.(label, idx)}
                 />
               ))}
               {items.length === 0 && (
@@ -506,11 +533,13 @@ function SortableItem({
   value,
   onChange,
   onRemove,
+  extra,
 }: {
   id: string;
   value: string;
   onChange: (v: string) => void;
   onRemove: () => void;
+  extra?: React.ReactNode;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id,
@@ -540,6 +569,7 @@ function SortableItem({
         onChange={(e) => onChange(e.target.value)}
         className="h-8 border-0 shadow-none focus-visible:ring-1"
       />
+      {extra}
       <Button type="button" size="icon" variant="ghost" onClick={onRemove}>
         <Trash2 className="h-4 w-4 text-destructive" />
       </Button>
