@@ -46,6 +46,9 @@ type LancCard = {
   ano_id: string | null;
   linha_id: string | null;
   categoria_nome: string | null;
+  grupo_id: string | null;
+  grupo_nome: string | null;
+  versao: number;
   fotos_modelo: string[];
   tecido_nome: string | null;
   variantes: VarInfo[];
@@ -68,6 +71,8 @@ function LancamentosPage() {
   const [fLinha, setFLinha] = useState("all");
   const [fMes, setFMes] = useState("all");
   const [fAno, setFAno] = useState("all");
+  const [fGrupo, setFGrupo] = useState("all");
+  const [fRep, setFRep] = useState("all");
 
   const { data: meses = [] } = useQuery({
     queryKey: ["opt", "meses"],
@@ -84,7 +89,7 @@ function LancamentosPage() {
       // Produtos: enviados ao CAD + CQ CONFIRMADO + LANÇADOS (gate explícito no card).
       const { data: modelos, error } = await supabase
         .from("modelos")
-        .select("id, ref, nome, colecao, mes_id, ano_id, linha_id, preco_venda, revisao_pendente, fotos_modelo, linha:linha_id(nome, markup), categorias_produto:categoria_principal_id(nome), cad(id, controle_qualidade(id, status, fotografado_variantes))")
+        .select("id, ref, nome, colecao, mes_id, ano_id, linha_id, versao, preco_venda, revisao_pendente, fotos_modelo, linha:linha_id(nome, markup), categorias_produto:categoria_principal_id(nome, grupo_id, grupo:grupo_id(nome)), cad(id, controle_qualidade(id, status, fotografado_variantes))")
         .eq("enviado_cad", true)
         .eq("lancado", true);
       if (error) throw error;
@@ -157,6 +162,9 @@ function LancamentosPage() {
           ano_id: m.ano_id,
           linha_id: m.linha_id,
           categoria_nome: m.categorias_produto?.nome ?? null,
+          grupo_id: m.categorias_produto?.grupo_id ?? null,
+          grupo_nome: m.categorias_produto?.grupo?.nome ?? null,
+          versao: Number(m.versao ?? 1),
           fotos_modelo: Array.isArray(m.fotos_modelo) ? m.fotos_modelo : [],
           tecido_nome: tec?.artigos?.nome ?? null,
           variantes,
@@ -189,13 +197,21 @@ function LancamentosPage() {
     cards.forEach((c) => { if (c.linha_id && c.linha) m.set(c.linha_id, c.linha); });
     return Array.from(m, ([id, nome]) => ({ id, nome }));
   }, [cards]);
+  const grupos = useMemo(() => {
+    const m = new Map<string, string>();
+    cards.forEach((c) => { if (c.grupo_id && c.grupo_nome) m.set(c.grupo_id, c.grupo_nome); });
+    return Array.from(m, ([id, nome]) => ({ id, nome }));
+  }, [cards]);
 
   const filtered = cards.filter((c) => {
     if (q && !`${c.ref ?? ""} ${c.nome ?? ""}`.toLowerCase().includes(q.toLowerCase())) return false;
     if (fColecao !== "all" && c.colecao !== fColecao) return false;
     if (fLinha !== "all" && c.linha_id !== fLinha) return false;
+    if (fGrupo !== "all" && c.grupo_id !== fGrupo) return false;
     if (fMes !== "all" && c.mes_id !== fMes) return false;
     if (fAno !== "all" && c.ano_id !== fAno) return false;
+    if (fRep === "rep" && !((c.versao ?? 1) > 1)) return false;
+    if (fRep === "uni" && (c.versao ?? 1) > 1) return false;
     return true;
   });
 
@@ -290,10 +306,12 @@ function LancamentosPage() {
           <SearchToggle value={q} onChange={setQ} placeholder={`${fl("ref")} ou nome…`} />
           <FilterButton
             filters={[
+              { label: "Grupo", value: fGrupo, onChange: setFGrupo, options: [{ id: "all", nome: "Todos" }, ...grupos] },
               { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
               { label: "Linha", value: fLinha, onChange: setFLinha, options: [{ id: "all", nome: "Todas" }, ...linhas] },
               { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...(meses as any[]).map((m) => ({ id: m.id, nome: m.nome }))] },
               { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...(anos as any[]).map((a) => ({ id: a.id, nome: a.nome }))] },
+              { label: "Repetição", value: fRep, onChange: setFRep, options: [{ id: "all", nome: "Todos" }, { id: "rep", nome: "Repetidos" }, { id: "uni", nome: "Únicos" }] },
             ]}
           />
         </div>

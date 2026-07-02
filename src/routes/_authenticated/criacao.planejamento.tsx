@@ -154,7 +154,9 @@ function PlanejamentoPage() {
   const [fSemana, setFSemana] = useState("");
   const [fMes, setFMes] = useState("all");
   const [fAno, setFAno] = useState("all");
+  const [fGrupo, setFGrupo] = useState("all");
   const [fCat, setFCat] = useState("all");
+  const [fRep, setFRep] = useState("all");
   const [fColecao, setFColecao] = useState("all");
   const [openId, setOpenId] = useState<string | null>(null);
   const [openNew, setOpenNew] = useState(false);
@@ -258,6 +260,9 @@ function PlanejamentoPage() {
     return Array.from(s).sort();
   }, [modelos]);
 
+  const catGrupoMap = Object.fromEntries(categorias.map((c) => [c.id, c.grupo_id]));
+  // "Repetição" = versão v2 em diante (cópia). O original (v1) é "único".
+  const isRepeticao = (m: Modelo) => (m.versao ?? 1) > 1;
   const filtered = modelos.filter((m) => {
     if (search && !(m.nome ?? "").toLowerCase().includes(search.toLowerCase())) return false;
     if (fStatus !== "all" && m.status_planejamento !== fStatus) return false;
@@ -265,8 +270,11 @@ function PlanejamentoPage() {
     if (fSemana && m.semana !== fSemana) return false;
     if (fMes !== "all" && m.mes_id !== fMes) return false;
     if (fAno !== "all" && m.ano_id !== fAno) return false;
+    if (fGrupo !== "all" && (m.categoria_principal_id ? catGrupoMap[m.categoria_principal_id] : null) !== fGrupo) return false;
     if (fCat !== "all" && m.categoria_principal_id !== fCat) return false;
     if (fColecao !== "all" && m.colecao !== fColecao) return false;
+    if (fRep === "rep" && !isRepeticao(m)) return false;
+    if (fRep === "uni" && isRepeticao(m)) return false;
     return true;
   });
 
@@ -380,8 +388,10 @@ function PlanejamentoPage() {
               { label: "Semana", value: fSemana || "all", onChange: (v) => setFSemana(v === "all" ? "" : v), options: [{ id: "all", nome: "Todas" }, ...["1","2","3","4","5"].map((s) => ({ id: s, nome: s }))] },
               { label: "Mês de Planejamento", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
               { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...anos] },
-              { label: "Categoria", value: fCat, onChange: setFCat, options: [{ id: "all", nome: "Todas" }, ...categorias] },
+              { label: "Grupo", value: fGrupo, onChange: (v) => { setFGrupo(v); setFCat("all"); }, options: [{ id: "all", nome: "Todos" }, ...grupos] },
+              { label: "Categoria", value: fCat, onChange: setFCat, options: [{ id: "all", nome: "Todas" }, ...(fGrupo === "all" ? categorias : categorias.filter((c) => c.grupo_id === fGrupo))] },
               { label: fl("colecao"), value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
+              { label: "Repetição", value: fRep, onChange: setFRep, options: [{ id: "all", nome: "Todos" }, { id: "rep", nome: "Repetidos" }, { id: "uni", nome: "Únicos" }] },
             ]}
           />
           <Button className="max-sm:hidden" variant="outline" onClick={() => setOpenBatch(true)} aria-label="Vários Cards"><Layers className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Vários Cards</span></Button>

@@ -102,6 +102,7 @@ function DesenvolvimentoPage() {
   const [fColecao, setFColecao] = useState("all");
   const [fStatus, setFStatus] = useState("all");
   const [fCad, setFCad] = useState("all");
+  const [fGrupo, setFGrupo] = useState("all");
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
 
@@ -110,7 +111,15 @@ function DesenvolvimentoPage() {
   const { data: piloteiros = [] } = useColaboradoresByTipo("piloteiro");
   const { data: meses = [] } = useOpts("meses", "mes");
   const { data: anos = [] } = useOpts("anos", "ano");
-  const { data: categorias = [] } = useOpts("categorias_produto");
+  const { data: grupos = [] } = useOpts("grupos_produto");
+  const { data: categorias = [] } = useQuery({
+    queryKey: ["opt", "categorias_produto", "com-grupo"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("categorias_produto").select("id, nome, grupo_id").order("nome");
+      if (error) throw error;
+      return (data ?? []) as { id: string; nome: string; grupo_id: string | null }[];
+    },
+  });
 
   const { data: statusKanban = DEFAULT_STATUSES } = useQuery({
     queryKey: ["tenant-status-kanban", tenantId],
@@ -148,8 +157,10 @@ function DesenvolvimentoPage() {
   const statusKeySet = useMemo(() => new Set(statusKanban.map((s) => s.key)), [statusKanban]);
   const firstStatusKey = statusKanban[0]?.key;
 
+  const catGrupoMap = Object.fromEntries(categorias.map((c) => [c.id, c.grupo_id]));
   const filtered = modelos.filter((m) => {
     if (search && !(m.nome ?? "").toLowerCase().includes(search.toLowerCase())) return false;
+    if (fGrupo !== "all" && (m.categoria_principal_id ? catGrupoMap[m.categoria_principal_id] : null) !== fGrupo) return false;
     if (fStatus !== "all") {
       // status efetivo = a coluna onde o card cai (null/desconhecido → primeira)
       const eff = m.status_desenvolvimento && statusKeySet.has(m.status_desenvolvimento)
@@ -253,6 +264,7 @@ function DesenvolvimentoPage() {
               { label: "Estilista", value: fEstilista, onChange: setFEstilista, options: [{ id: "all", nome: "Todos" }, ...estilistas] },
               { label: "Modelista", value: fModelista, onChange: setFModelista, options: [{ id: "all", nome: "Todos" }, ...modelistas] },
               { label: "Piloteiro", value: fPiloteiro, onChange: setFPiloteiro, options: [{ id: "all", nome: "Todos" }, ...piloteiros] },
+              { label: "Grupo", value: fGrupo, onChange: setFGrupo, options: [{ id: "all", nome: "Todos" }, ...grupos] },
               { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
               { label: "Semana", value: fSemana || "all", onChange: (v) => setFSemana(v === "all" ? "" : v), options: [{ id: "all", nome: "Todas" }, ...["1","2","3","4","5"].map((s) => ({ id: s, nome: s }))] },
               { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
