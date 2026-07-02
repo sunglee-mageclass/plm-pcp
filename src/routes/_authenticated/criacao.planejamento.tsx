@@ -287,11 +287,16 @@ function PlanejamentoPage() {
   const s = useSort(filtered, sortOpts);
   const sorted = s.sorted;
 
-  // Resumo (influenciado pelos filtros): poder de venda = Σ (preço efetivo × grade).
+  // Resumo (influenciado pelos filtros): poder de venda = Σ (preço efetivo × grade);
+  // markup médio real = média aritmética do markup real dos modelos que o têm.
   const resumo = useMemo(() => {
-    let poder = 0;
-    for (const m of sorted) poder += piFor(m).efetivo * numOr0((gradeByModelo as any)[m.id]);
-    return { poder, qtd: sorted.length };
+    let poder = 0, somaMk = 0, nMk = 0;
+    for (const m of sorted) {
+      const p = piFor(m);
+      poder += p.efetivo * numOr0((gradeByModelo as any)[m.id]);
+      if (p.markupReal > 0) { somaMk += p.markupReal; nMk++; }
+    }
+    return { poder, qtd: sorted.length, markupMedio: nMk > 0 ? somaMk / nMk : 0 };
   }, [sorted, custoMap, gradeByModelo, linhas]);
 
   // Sentinela "__none__" = ordem padrão. (Radix Select v2 PROÍBE SelectItem com
@@ -382,6 +387,8 @@ function PlanejamentoPage() {
         </Button>
         <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
           <span>Poder de venda: <strong className="text-foreground tabular-nums">{brl(resumo.poder)}</strong></span>
+          <span aria-hidden>·</span>
+          <span>Markup médio real: <strong className="text-foreground tabular-nums">{resumo.markupMedio > 0 ? resumo.markupMedio.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—"}</strong></span>
           <span aria-hidden>·</span>
           <span><strong className="text-foreground tabular-nums">{resumo.qtd}</strong> {resumo.qtd === 1 ? "modelo" : "modelos"}</span>
         </div>

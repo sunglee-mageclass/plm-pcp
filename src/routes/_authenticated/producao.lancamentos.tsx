@@ -218,9 +218,13 @@ function LancamentosPage() {
   });
   const piFor = (c: LancCard) => precoInfo((custoMap as any)[c.modelo_id]?.real, c.markup, c.preco_venda);
   const resumo = useMemo(() => {
-    let poder = 0;
-    for (const c of sorted) poder += piFor(c).efetivo * (Number(c.gradeTotal) || 0);
-    return { poder, qtd: sorted.length };
+    let poder = 0, somaMk = 0, nMk = 0;
+    for (const c of sorted) {
+      const p = piFor(c);
+      poder += p.efetivo * (Number(c.gradeTotal) || 0);
+      if (p.markupReal > 0) { somaMk += p.markupReal; nMk++; }
+    }
+    return { poder, qtd: sorted.length, markupMedio: nMk > 0 ? somaMk / nMk : 0 };
   }, [sorted, custoMap]);
 
   // Sentinela "__none__" = ordem padrão. (Radix Select v2 PROÍBE SelectItem com
@@ -304,6 +308,8 @@ function LancamentosPage() {
         </div>
         <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
           <span>Poder de venda: <strong className="text-foreground tabular-nums">{brl(resumo.poder)}</strong></span>
+          <span aria-hidden>·</span>
+          <span>Markup médio real: <strong className="text-foreground tabular-nums">{resumo.markupMedio > 0 ? resumo.markupMedio.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—"}</strong></span>
           <span aria-hidden>·</span>
           <span><strong className="text-foreground tabular-nums">{resumo.qtd}</strong> {resumo.qtd === 1 ? "modelo" : "modelos"}</span>
         </div>
