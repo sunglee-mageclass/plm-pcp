@@ -593,6 +593,7 @@ type Draft = {
   categoria_secundaria_id: string | null;
   subcategoria1_id: string | null;
   subcategoria2_id: string | null;
+  origem: string;
   preco_venda: number | null;
   data_lancamento: string | null;
   tecidos_planejados: string[];
@@ -608,7 +609,7 @@ type Draft = {
 const emptyDraft = (): Draft => ({
   nome: "", estilista_id: null, linha_id: null, colecao: "", semana: "", mes_id: null, ano_id: null,
   categoria_principal_id: null, categoria_secundaria_id: null,
-  subcategoria1_id: null, subcategoria2_id: null, preco_venda: null, data_lancamento: null,
+  subcategoria1_id: null, subcategoria2_id: null, origem: "interno", preco_venda: null, data_lancamento: null,
   tecidos_planejados: [],
   status_planejamento: "em_planejamento", croqui_url: "", desenho_tecnico_url: "", fotos_modelo: [], fotos_referencia: [],
   observacoes_gerais: "",
@@ -747,6 +748,7 @@ function ModeloDialog({
           categoria_secundaria_id: data.categoria_secundaria_id,
           subcategoria1_id: (data as any).subcategoria1_id ?? null,
           subcategoria2_id: (data as any).subcategoria2_id ?? null,
+          origem: (data as any).origem ?? "interno",
           preco_venda: (data as any).preco_venda ?? null,
           data_lancamento: (data as any).data_lancamento ?? null,
           tecidos_planejados: (data as any).tecidos_planejados ?? [],
@@ -900,13 +902,16 @@ function ModeloDialog({
     <Sheet open onOpenChange={(o) => !o && onClose()}>
       <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] overflow-y-auto max-sm:pb-24 max-sm:[&>button]:hidden">
         <SheetHeader>
-          <SheetTitle>{isEdit ? draft.nome || "Modelo" : "Novo Modelo"}</SheetTitle>
+          <SheetTitle className="flex flex-wrap items-center gap-2">
+            <span>{isEdit ? draft.nome || "Modelo" : "Novo Modelo"}</span>
+            {draft.versao > 1 && <VersaoBadge versao={draft.versao} />}
+          </SheetTitle>
         </SheetHeader>
 
         <div className="space-y-6 mt-4">
           {/* SETOR 1 — Informações Gerais do Produto */}
           <Secao titulo="Informações Gerais do Produto">
-            <div className="grid sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <div className="grid gap-1">
                 <Label>Status</Label>
                 <Select value={draft.status_planejamento} onValueChange={(v) => setDraft((d) => ({ ...d, status_planejamento: v }))}>
@@ -917,13 +922,17 @@ function ModeloDialog({
                 </Select>
               </div>
               <FieldText label="Nome do Modelo" value={draft.nome} onChange={(v) => setDraft((d) => ({ ...d, nome: v }))} />
-              {draft.versao > 1 && (
-                <div className="grid gap-1">
-                  <Label>Versão</Label>
-                  <Input value={`v${draft.versao}`} readOnly disabled />
-                </div>
-              )}
               <FieldSelect label={fl("estilista")} value={draft.estilista_id} onChange={(v) => setDraft((d) => ({ ...d, estilista_id: v }))} options={estilistas} />
+              <div className="grid gap-1">
+                <Label>Origem</Label>
+                <Select value={draft.origem} onValueChange={(v) => setDraft((d) => ({ ...d, origem: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="interno">Interno</SelectItem>
+                    <SelectItem value="revenda">Revenda</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <FieldSelect
                 label="Grupo"
                 value={grupoSel}
@@ -963,7 +972,7 @@ function ModeloDialog({
 
           {/* SETOR 2 — Coleção */}
           <Secao titulo="Coleção">
-            <div className="grid sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <FieldText label={fl("colecao")} value={draft.colecao} onChange={(v) => setDraft((d) => ({ ...d, colecao: v }))} />
               <FieldSelect label={fl("linha")} value={draft.linha_id} onChange={(v) => setDraft((d) => ({ ...d, linha_id: v }))} options={linhas} />
               <div className="grid gap-1">
