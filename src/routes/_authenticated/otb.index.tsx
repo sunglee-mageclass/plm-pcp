@@ -13,8 +13,15 @@ import { Target, Plus } from "lucide-react";
 import { ColecaoSheet } from "@/components/otb/ColecaoSheet";
 import { computeColecaoResumo } from "@/components/otb/otb-resumo";
 import { brl } from "@/lib/format";
+import { RequirePermission } from "@/components/RequirePermission";
 
-export const Route = createFileRoute("/_authenticated/otb/")({ component: OtbPage });
+export const Route = createFileRoute("/_authenticated/otb/")({
+  component: () => (
+    <RequirePermission page="otb">
+      <OtbPage />
+    </RequirePermission>
+  ),
+});
 
 function useOpts(table: string, key = "nome") {
   return useQuery({ queryKey: ["opt", table], queryFn: async () => {
