@@ -3901,6 +3901,7 @@ export type Database = {
         }
         Returns: undefined
       }
+      avaliar_condicoes_kanban: { Args: { _ids: string[] }; Returns: Json }
       baixar_estoque_tecido_corte: { Args: { _cad_id: string }; Returns: Json }
       cancelar_rolo: { Args: { _rolo_id: string }; Returns: undefined }
       consumo_por_oc: { Args: never; Returns: Json }

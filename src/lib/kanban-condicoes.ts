@@ -15,7 +15,7 @@
  * Mantenha CLAUDE.md e a memória do projeto em dia ao mexer aqui.
  */
 
-export type CondicaoModulo = "planejamento" | "desenvolvimento" | "producao" | "cq";
+export type CondicaoModulo = "planejamento" | "desenvolvimento" | "cad" | "servicos" | "cq" | "direcionamento";
 
 export type Condicao = {
   key: string;
@@ -28,8 +28,10 @@ export type Condicao = {
 export const MODULOS: { key: CondicaoModulo; label: string }[] = [
   { key: "planejamento", label: "Planejamento" },
   { key: "desenvolvimento", label: "Desenvolvimento" },
-  { key: "producao", label: "Produção / Serviços" },
+  { key: "cad", label: "CAD" },
+  { key: "servicos", label: "Serviços" },
   { key: "cq", label: "Controle de Qualidade" },
+  { key: "direcionamento", label: "Direcionamento" },
 ];
 
 export const CONDICOES: Condicao[] = [
@@ -61,15 +63,19 @@ export const CONDICOES: Condicao[] = [
   { key: "ficha_medida_anexada", label: "Ficha de Medida anexada", modulo: "desenvolvimento" },
   { key: "enviado_cad", label: "Enviado ao CAD", modulo: "desenvolvimento" },
 
-  // ── Produção / Serviços ───────────────────────────────────────
-  { key: "cad_confirmado", label: "CAD confirmado (enviado ao corte)", modulo: "producao" },
-  { key: "servico_aprovado", label: "Serviço aprovado (todos os blocos externos)", modulo: "producao" },
-  { key: "servico_finalizado", label: "Serviços finalizados", modulo: "producao" },
-  { key: "direcionamento_feito", label: "Direcionamento feito", modulo: "producao" },
+  // ── CAD ───────────────────────────────────────────────────────
+  { key: "cad_confirmado", label: "CAD confirmado (enviado ao corte)", modulo: "cad" },
+
+  // ── Serviços ──────────────────────────────────────────────────
+  { key: "servico_aprovado", label: "Serviço aprovado (todos os blocos externos)", modulo: "servicos" },
+  { key: "servico_finalizado", label: "Serviços finalizados", modulo: "servicos" },
 
   // ── Controle de Qualidade ─────────────────────────────────────
   { key: "cq_confirmado", label: "CQ (Pré) confirmado", modulo: "cq" },
   { key: "cq_pos_confirmado", label: "CQ Pós confirmado", modulo: "cq" },
+
+  // ── Direcionamento ────────────────────────────────────────────
+  { key: "direcionamento_feito", label: "Direcionamento feito", modulo: "direcionamento" },
 ];
 
 export const CONDICAO_KEYS = CONDICOES.map((c) => c.key);
