@@ -139,7 +139,6 @@ export function HomeLogado() {
       valor: atrasadasN, label: "Contas atrasadas",
       sub: (atrasadas.data || servicos.data) ? fmtMoney(atrasadasTotal) : "—",
       loading: atrasadas.isLoading || servicos.isLoading,
-      search: { tab: "lista", status: "vencido" },
     },
     modules.entrada_saida && {
       key: "oc", to: "/entrada-saida/oc-tecido", icon: Clock, tone: "red" as const,
@@ -151,14 +150,13 @@ export function HomeLogado() {
       valor: pagar7N, label: "A pagar em 7 dias",
       sub: (pagar.data || servicos.data) ? fmtMoney(pagar7Total) : "—",
       loading: pagar.isLoading || servicos.isLoading,
-      search: { tab: "lista", status: "a_pagar" },
     },
     modules.entrada_saida && {
       key: "cq", to: "/entrada-saida/alertas-tecido", icon: AlertTriangle, tone: "amber" as const,
       valor: cq.data ?? 0, label: "Alertas de CQ (tecido)", sub: "pendentes",
       loading: cq.isLoading,
     },
-  ].filter(Boolean) as { key: string; to: string; icon: typeof BarChart3; tone: "red" | "amber"; valor: number; label: string; sub: string; loading: boolean; search?: Record<string, string> }[];
+  ].filter(Boolean) as { key: string; to: string; icon: typeof BarChart3; tone: "red" | "amber"; valor: number; label: string; sub: string; loading: boolean }[];
 
   const atalhos = MODULOS.filter((m) => (modules as Record<string, boolean>)[m.key]);
 
@@ -199,7 +197,7 @@ export function HomeLogado() {
           <h2 className="text-sm font-semibold text-foreground">Precisa da sua atenção</h2>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {atencao.map((a) => (
-              <Link key={a.key} to={a.to as any} search={(a.search ?? undefined) as any} className="block h-full">
+              <Link key={a.key} to={a.to as any} className="block h-full">
                 <Card className={cn(
                   "flex h-full min-h-[120px] flex-col gap-3 p-4 transition-colors hover:bg-accent",
                   a.valor > 0 && (a.tone === "red" ? "border-red-500/50" : "border-amber-500/50"),
