@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare } from "lucide-react";
+import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, Save } from "lucide-react";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -498,7 +499,7 @@ function PlanejamentoPage() {
             <p className="text-sm text-muted-foreground">Cards de modelos em planejamento.</p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto max-sm:justify-end">
 
           <SearchToggle value={search} onChange={setSearch} placeholder="Pesquisar por nome…" />
           <AgrupamentoButton
@@ -530,7 +531,9 @@ function PlanejamentoPage() {
         </div>
       </header>
 
-      <div className="flex items-center gap-2 flex-wrap">
+      {/* mobile: Selecionar + Ordenar por na 1ª linha; resumo total na 2ª (w-full);
+          borda inferior separa do que vem abaixo. */}
+      <div className="flex items-center gap-2 flex-wrap max-sm:border-b max-sm:pb-3">
         <Button size="sm" variant={selMode ? "default" : "outline"} onClick={() => { setSelMode((v) => !v); clearSel(); }}>
           <CheckSquare className="h-4 w-4 mr-1" /> Selecionar
         </Button>
@@ -541,7 +544,7 @@ function PlanejamentoPage() {
             <Button size="sm" disabled={selected.size === 0} onClick={() => setOpenBulk(true)}>Definir em massa</Button>
           </>
         )}
-        <ResumoVenda {...resumo} />
+        <ResumoVenda {...resumo} className="max-sm:order-last max-sm:w-full" />
         <div className="flex items-center gap-1.5 ml-auto">
           <Label className="text-xs text-muted-foreground">Ordenar por</Label>
           <Select
@@ -585,6 +588,7 @@ function PlanejamentoPage() {
         </div>
       </div>
 
+      <TooltipProvider delayDuration={200}>
       <div ref={gridRef}>
       {filtered.length === 0 ? (
         <EmptyState icon={Palette} title="Nenhum modelo encontrado" description="Crie um modelo usando o botão Novo Modelo." />
@@ -596,6 +600,7 @@ function PlanejamentoPage() {
         <div className={GRID_COLS_CLASS[cols]}>{sorted.map(renderCard)}</div>
       )}
       </div>
+      </TooltipProvider>
 
       {(openNew || openId) && (
         <ModeloDialog
@@ -660,10 +665,11 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
   const coverIsPdf = /\.pdf$/i.test(cover ?? "");
   const meta = statusMeta(modelo.status_planejamento);
   return (
+    <Tooltip>
+      <TooltipTrigger asChild>
     <Card
       className={`overflow-hidden cursor-pointer hover:shadow-md transition-shadow border-l-4 ${meta.border}`}
       onClick={onOpen}
-      title={meta.label}
     >
       <div className="relative aspect-[3/4] bg-muted flex items-center justify-center overflow-hidden">
         {aprovacao && (
@@ -712,6 +718,10 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
         </div>
       )}
     </Card>
+      </TooltipTrigger>
+      {/* topo, alinhado à esquerda = canto superior da imagem (perto da borda de status) */}
+      <TooltipContent side="top" align="start">{meta.label}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -1296,10 +1306,14 @@ function ModeloDialog({
               disabled={enviar.isPending || draft.status_planejamento !== "planejado"}
               title={draft.status_planejamento !== "planejado" ? "Defina o status como Planejado primeiro" : undefined}
             >
-              Enviar Ordem de Criação
+              <span className="sm:hidden">Enviar Ordem</span>
+              <span className="hidden sm:inline">Enviar Ordem de Criação</span>
             </Button>
           ))}
-          <Button className="max-sm:ml-auto" onClick={() => save.mutate()} disabled={save.isPending}>Salvar</Button>
+          <Button className="max-sm:ml-auto shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Salvar" onClick={() => save.mutate()} disabled={save.isPending}>
+            <Save className="h-4 w-4 sm:mr-1" />
+            <span className="max-sm:sr-only">Salvar</span>
+          </Button>
         </div>
 
         <AlertDialog open={confirmDel} onOpenChange={setConfirmDel}>
