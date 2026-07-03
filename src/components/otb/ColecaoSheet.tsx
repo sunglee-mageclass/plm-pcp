@@ -6,6 +6,11 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Trash2 } from "lucide-react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NumberInput } from "@/components/shared/NumberInput";
@@ -30,6 +35,7 @@ export function ColecaoSheet({
   const [mesId, setMesId] = useState<string | null>(null);
   const [orcamento, setOrcamento] = useState<string>("");
   const [weeks, setWeeks] = useState<Record<string, number | null>>({}); // semana→qtd (undefined = off)
+  const [confirmDel, setConfirmDel] = useState(false);
 
   const { data } = useQuery({
     queryKey: ["otb-colecao", colecaoId],
@@ -172,6 +178,23 @@ export function ColecaoSheet({
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao confirmar coleção")),
   });
 
+  const excluir = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.rpc("otb_excluir_colecao" as any, { _colecao_id: colecaoId });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Coleção excluída");
+      qc.invalidateQueries({ queryKey: ["otb-colecoes"] });
+      qc.invalidateQueries({ queryKey: ["otb-semanas-todas"] });
+      qc.invalidateQueries({ queryKey: ["otb-modelos-link"] });
+      qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+      setConfirmDel(false); onSaved(); onClose();
+    },
+    // Bloqueio (há modelo planejado) chega como erro: mostra a mensagem do banco.
+    onError: (e: any) => { setConfirmDel(false); toast.error(mensagemErro(e, "Erro ao excluir coleção")); },
+  });
+
   return (
     <Sheet open onOpenChange={(o) => !o && onClose()}>
       <SheetContent side="right" className="w-full sm:max-w-[70vw] flex flex-col p-0">
@@ -218,6 +241,11 @@ export function ColecaoSheet({
           </div>
         </div>
         <div className="p-4 border-t shrink-0 flex justify-end gap-2">
+          {colecaoId && (
+            <Button variant="ghost" className="mr-auto text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => setConfirmDel(true)} disabled={excluir.isPending}>
+              <Trash2 className="h-4 w-4 mr-1" /> Excluir
+            </Button>
+          )}
           <Button variant="ghost" onClick={onClose}>Cancelar</Button>
           {!isConfirmada && (
             <Button variant="secondary" onClick={() => confirmar.mutate()} disabled={confirmar.isPending || save.isPending}>
@@ -227,6 +255,28 @@ export function ColecaoSheet({
           <Button onClick={() => save.mutate()} disabled={save.isPending || confirmar.isPending}>{save.isPending ? "Salvando…" : "Salvar"}</Button>
         </div>
       </SheetContent>
+
+      <AlertDialog open={confirmDel} onOpenChange={setConfirmDel}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir a coleção “{nome}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Exclui a coleção, suas semanas e os modelos vinculados que ainda estão <strong>em planejamento</strong> (ou reprovados).
+              Se houver algum modelo já <strong>planejado</strong>, a exclusão é <strong>bloqueada</strong>. Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => { e.preventDefault(); excluir.mutate(); }}
+              disabled={excluir.isPending}
+            >
+              {excluir.isPending ? "Excluindo…" : "Excluir"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Sheet>
   );
 }
