@@ -32,6 +32,12 @@ import { useSort, SortTh } from "@/components/shared/sort";
 import { alertaBadge } from "@/components/oc-tecido/CqTecido";
 import { AlertTriangle } from "lucide-react";
 export const Route = createFileRoute("/_authenticated/financeiro")({
+  // Deep-link do Início: /financeiro?tab=lista&status=vencido (Contas atrasadas)
+  // ou status=a_pagar (A pagar em 7 dias) — abre já na aba/filtro certos.
+  validateSearch: (search: Record<string, unknown>): { tab?: string; status?: string } => ({
+    tab: typeof search.tab === "string" ? search.tab : undefined,
+    status: typeof search.status === "string" ? search.status : undefined,
+  }),
   component: () => (
     <ModuleGuard module="financeiro">
       <RequirePermission anyOf={["financeiro_parcelas","financeiro_calendario","financeiro_resumo"]}>
@@ -93,7 +99,8 @@ function FinanceiroPage() {
   // Escrita só com edição na aba que de fato muta (parcelas a pagar / calendário).
   // `financeiro_resumo` é relatório, não concede escrita.
   const podeEditar = canEdit("financeiro_parcelas") || canEdit("financeiro_calendario");
-  const [tab, setTab] = useState("calendario");
+  const { tab: tabParam, status: statusParam } = Route.useSearch();
+  const [tab, setTab] = useState(tabParam ?? "calendario");
   const { data: parcelas = [], isLoading } = useQuery({
     queryKey: ["parcelas"],
     queryFn: async () => {
@@ -244,7 +251,7 @@ function FinanceiroPage() {
           <CalendarioView parcelas={parcelasCal} loading={isLoading} />
         </TabsContent>
         <TabsContent value="lista" className="mt-4">
-          <ListaView parcelas={parcelas} loading={isLoading} />
+          <ListaView parcelas={parcelas} loading={isLoading} initialStatus={statusParam} />
         </TabsContent>
         <TabsContent value="servicos" className="mt-4">
           <ServicosView />
@@ -661,11 +668,11 @@ function VencimentoCell({ value, onSave }: { value: string; onSave: (v: string) 
   );
 }
 
-function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolean }) {
+function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; loading: boolean; initialStatus?: string }) {
   const qc = useQueryClient();
   const podeEditar = usePodeEditarFinanceiro();
   const [fornecedor, setFornecedor] = useState("all");
-  const [status, setStatus] = useState("all");
+  const [status, setStatus] = useState(initialStatus ?? "all");
   const [dataIni, setDataIni] = useState("");
   const [dataFim, setDataFim] = useState("");
   const [pagandoId, setPagandoId] = useState<string | null>(null);
