@@ -44,7 +44,8 @@ export function HomeLogado() {
     new Intl.DateTimeFormat("pt-BR", { hour: "numeric", hour12: false, timeZone: tz }).format(new Date()),
   );
   const saud = hora < 12 ? "Bom dia" : hora < 18 ? "Boa tarde" : "Boa noite";
-  const nome = ((user?.user_metadata as any)?.full_name || user?.email || "").split("@")[0].split(" ")[0];
+  // Só usa o nome real (full_name); sem ele, saúda sem nome (não usa o prefixo do e-mail).
+  const nome = (((user?.user_metadata as any)?.full_name as string) || "").trim().split(" ")[0];
 
   // ── Contadores de atenção (cada um aterrado numa query real, gated por módulo) ──
   const cq = useQuery({
@@ -131,26 +132,31 @@ export function HomeLogado() {
   const pagar7N = (pagar.data?.n ?? 0) + (servicos.data?.pagar7N ?? 0);
   const pagar7Total = (pagar.data?.total ?? 0) + (servicos.data?.pagar7Total ?? 0);
 
+  // Ordem por urgência: vermelhos (crítico) antes dos âmbar (atenção) — varredura mais rápida.
   const atencao = [
     modules.financeiro && {
       key: "atrasadas", to: "/financeiro", icon: CalendarX, tone: "red" as const,
       valor: atrasadasN, label: "Contas atrasadas",
       sub: (atrasadas.data || servicos.data) ? fmtMoney(atrasadasTotal) : "—",
+      loading: atrasadas.isLoading || servicos.isLoading,
+    },
+    modules.entrada_saida && {
+      key: "oc", to: "/entrada-saida/oc-tecido", icon: Clock, tone: "red" as const,
+      valor: ocAtrasada.data ?? 0, label: "OCs atrasadas", sub: "em aberto",
+      loading: ocAtrasada.isLoading,
     },
     modules.financeiro && {
       key: "pagar", to: "/financeiro", icon: Wallet, tone: "amber" as const,
-      valor: pagar7N, label: "A pagar (próx. 7 dias)",
+      valor: pagar7N, label: "A pagar em 7 dias",
       sub: (pagar.data || servicos.data) ? fmtMoney(pagar7Total) : "—",
+      loading: pagar.isLoading || servicos.isLoading,
     },
     modules.entrada_saida && {
       key: "cq", to: "/entrada-saida/alertas-tecido", icon: AlertTriangle, tone: "amber" as const,
       valor: cq.data ?? 0, label: "Alertas de CQ (tecido)", sub: "pendentes",
+      loading: cq.isLoading,
     },
-    modules.entrada_saida && {
-      key: "oc", to: "/entrada-saida/oc-tecido", icon: Clock, tone: "red" as const,
-      valor: ocAtrasada.data ?? 0, label: "OCs de tecido atrasadas", sub: "em aberto",
-    },
-  ].filter(Boolean) as { key: string; to: string; icon: typeof BarChart3; tone: "red" | "amber"; valor: number; label: string; sub: string }[];
+  ].filter(Boolean) as { key: string; to: string; icon: typeof BarChart3; tone: "red" | "amber"; valor: number; label: string; sub: string; loading: boolean }[];
 
   const atalhos = MODULOS.filter((m) => (modules as Record<string, boolean>)[m.key]);
 
@@ -179,7 +185,7 @@ export function HomeLogado() {
           <div className="min-w-0">
             {branding.nome && <p className="truncate text-sm text-muted-foreground">{branding.nome}</p>}
             <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">
-              {saud}{nome ? `, ${nome}` : ""} 👋
+              {saud}{nome ? `, ${nome}` : ""} <span aria-hidden>👋</span>
             </h1>
           </div>
         </div>
@@ -188,12 +194,12 @@ export function HomeLogado() {
       {/* Precisa da sua atenção */}
       {atencao.length > 0 && (
         <section className="space-y-2">
-          <h2 className="text-sm font-semibold text-muted-foreground">Precisa da sua atenção</h2>
+          <h2 className="text-sm font-semibold text-foreground">Precisa da sua atenção</h2>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {atencao.map((a) => (
               <Link key={a.key} to={a.to as any} className="block">
                 <Card className={cn(
-                  "flex aspect-square flex-col p-4 transition-colors hover:bg-accent",
+                  "flex min-h-[128px] flex-col p-4 transition-colors hover:bg-accent",
                   a.valor > 0 && (a.tone === "red" ? "border-red-500/50" : "border-amber-500/50"),
                 )}>
                   <div className="flex items-start justify-between">
@@ -208,7 +214,11 @@ export function HomeLogado() {
                     <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
                   </div>
                   <div className="mt-auto">
-                    <div className="text-3xl font-semibold leading-none">{a.valor}</div>
+                    {a.loading ? (
+                      <div className="h-[30px] w-12 animate-pulse rounded bg-muted" aria-hidden />
+                    ) : (
+                      <div className="text-3xl font-semibold leading-none">{a.valor}</div>
+                    )}
                     <div className="mt-2 text-sm font-medium leading-snug">{a.label}</div>
                     <div className="mt-0.5 text-xs text-muted-foreground">{a.sub}</div>
                   </div>
