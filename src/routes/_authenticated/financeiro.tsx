@@ -226,7 +226,7 @@ function FinanceiroPage() {
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="calendario">Calendário</SelectItem>
-              <SelectItem value="lista">Lista de Parcelas</SelectItem>
+              <SelectItem value="lista">OCs</SelectItem>
               <SelectItem value="servicos">Serviços</SelectItem>
               <SelectItem value="resumo">Resumo</SelectItem>
             </SelectContent>
@@ -236,7 +236,7 @@ function FinanceiroPage() {
             no cabeçalho do calendário, parecendo "camufladas" dentro dele). */}
         <TabsList className="mb-2 hidden sm:inline-flex sm:flex-nowrap">
           <TabsTrigger value="calendario">Calendário</TabsTrigger>
-          <TabsTrigger value="lista">Lista de Parcelas</TabsTrigger>
+          <TabsTrigger value="lista">OCs</TabsTrigger>
           <TabsTrigger value="servicos">Serviços</TabsTrigger>
           <TabsTrigger value="resumo">Resumo</TabsTrigger>
         </TabsList>

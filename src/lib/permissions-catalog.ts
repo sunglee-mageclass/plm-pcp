@@ -79,7 +79,7 @@ export const PAGES_CATALOG: ModuleDef[] = [
     basePath: "/financeiro",
     pages: [
       { key: "financeiro_calendario", label: "Calendário" },
-      { key: "financeiro_parcelas", label: "Lista de Parcelas" },
+      { key: "financeiro_parcelas", label: "OCs" },
       { key: "financeiro_resumo", label: "Resumo" },
     ],
   },
