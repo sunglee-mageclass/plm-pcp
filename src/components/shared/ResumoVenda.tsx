@@ -18,9 +18,17 @@ export function ResumoVenda({
 }) {
   return (
     <div className={`text-xs text-muted-foreground flex items-center gap-2 flex-wrap ${className ?? ""}`}>
-      <span>Poder de venda: <strong className="text-foreground tabular-nums">{brl(poder)}</strong></span>
+      <span>
+        <span className="sm:hidden">PV:</span>
+        <span className="hidden sm:inline">Poder de venda:</span>{" "}
+        <strong className="text-foreground tabular-nums">{brl(poder)}</strong>
+      </span>
       <span aria-hidden>·</span>
-      <span>Markup médio: <strong className="text-foreground tabular-nums">{markupMedio > 0 ? markupMedio.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—"}</strong></span>
+      <span>
+        <span className="sm:hidden">M. Médio:</span>
+        <span className="hidden sm:inline">Markup médio:</span>{" "}
+        <strong className="text-foreground tabular-nums">{markupMedio > 0 ? markupMedio.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—"}</strong>
+      </span>
       <span aria-hidden>·</span>
       <span><strong className="text-foreground tabular-nums">{qtd}</strong> {qtd === 1 ? "modelo" : "modelos"}</span>
     </div>

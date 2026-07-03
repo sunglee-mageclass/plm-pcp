@@ -124,12 +124,17 @@ type Modelo = {
   origem: string | null;
 };
 
-// Cores tonalizadas (bg claro + texto escuro) — passam WCAG AA, ao contrário do
-// -500 + branco de antes (~2:1). Mesmo padrão de RequirePermission, com dark mode.
+// `color` = badge tonalizado (bg claro + texto escuro; passa WCAG AA, ao contrário do
+// -500 + branco de antes ~2:1) p/ onde o status aparece como badge (ex.: diálogo/detalhe).
+// `border` = faixa esquerda do card no Planejamento: o status vira a BORDA do card (não
+// ocupa linha de texto). Cor-só p/ scan; o label vai no `title`/tooltip do card.
+// `color` = badge tonalizado (usado no diálogo/detalhe; passa WCAG AA). `border` = faixa
+// esquerda do card no Planejamento: o status vira a BORDA (não gasta linha); o label vai
+// no `title`/tooltip do card (desktop). Cor da borda como sinal principal (decisão do dono).
 const STATUS_OPTS = [
-  { value: "em_planejamento", label: "Em Planejamento", color: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200" },
-  { value: "reprovado", label: "Reprovado", color: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200" },
-  { value: "planejado", label: "Planejado", color: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" },
+  { value: "em_planejamento", label: "Em Planejamento", color: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200", border: "border-l-amber-500" },
+  { value: "reprovado", label: "Reprovado", color: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200", border: "border-l-red-500" },
+  { value: "planejado", label: "Planejado", color: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200", border: "border-l-emerald-500" },
 ];
 const statusMeta = (s: string | null) => STATUS_OPTS.find((o) => o.value === s) ?? STATUS_OPTS[0];
 
@@ -404,6 +409,8 @@ function PlanejamentoPage() {
         estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
         categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
         linhaNome={m.linha_id ? linhaMap[m.linha_id] : null}
+        custo={(() => { const p = piFor(m); return p.custo > 0 ? p.custo : null; })()}
+        custoReal={!!(custoMap as any)[m.id]?.confirmado}
         markup={(() => { const p = piFor(m); return p.markupExibir > 0 ? p.markupExibir : null; })()}
         preco={(() => { const p = piFor(m); return p.efetivo > 0 ? p.efetivo : null; })()}
         aprovacao={(() => { const a = (aprovacaoMap as any)[m.id]; return a?.tem ? (a.todos ? "verde" : "amarela") : null; })()}
@@ -511,9 +518,9 @@ function PlanejamentoPage() {
               { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...anos] },
               { label: "Grupo", value: fGrupo, onChange: (v) => { setFGrupo(v); setFCat("all"); }, options: [{ id: "all", nome: "Todos" }, ...grupos] },
               { label: "Categoria", value: fCat, onChange: setFCat, options: [{ id: "all", nome: "Todas" }, ...(fGrupo === "all" ? categorias : categorias.filter((c) => c.grupo_id === fGrupo))] },
+              { label: "Subcategoria", value: fSub1, onChange: setFSub1, options: [{ id: "all", nome: "Todas" }, ...sub1Opts.map((s) => ({ id: s.id, nome: s.nome }))] },
               { label: fl("colecao"), value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
               { label: "Subcoleção", value: fSubcolecao, onChange: setFSubcolecao, options: [{ id: "all", nome: "Todas" }, ...subcolecoes.map((c) => ({ id: c, nome: c }))] },
-              { label: "Subcategoria", value: fSub1, onChange: setFSub1, options: [{ id: "all", nome: "Todas" }, ...sub1Opts.map((s) => ({ id: s.id, nome: s.nome }))] },
               { label: "Origem", value: fOrigem, onChange: setFOrigem, options: [{ id: "all", nome: "Todas" }, { id: "interno", nome: "Interno" }, { id: "revenda", nome: "Revenda" }] },
               { label: "Repetição", value: fRep, onChange: setFRep, options: [{ id: "all", nome: "Todos" }, { id: "rep", nome: "Repetidos" }, { id: "uni", nome: "Únicos" }] },
             ]}
@@ -644,8 +651,8 @@ function PlanejamentoPage() {
 }
 
 
-function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, markup, preco, aprovacao, mesNome, onOpen, compact }: {
-  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; markup: number | null; preco: number | null; aprovacao: "verde" | "amarela" | null; mesNome: string | null; onOpen: () => void; compact?: boolean;
+function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, custoReal, markup, preco, aprovacao, mesNome, onOpen, compact }: {
+  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; aprovacao: "verde" | "amarela" | null; mesNome: string | null; onOpen: () => void; compact?: boolean;
 }) {
   // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
   const cover = (modelo.fotos_modelo?.[0]) || modelo.desenho_tecnico_url || modelo.croqui_url || null;
@@ -653,8 +660,12 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, markup, p
   const coverIsPdf = /\.pdf$/i.test(cover ?? "");
   const meta = statusMeta(modelo.status_planejamento);
   return (
-    <Card className="overflow-hidden cursor-pointer hover:shadow-md transition-shadow" onClick={onOpen}>
-      <div className="relative aspect-[4/5] bg-muted flex items-center justify-center overflow-hidden">
+    <Card
+      className={`overflow-hidden cursor-pointer hover:shadow-md transition-shadow border-l-4 ${meta.border}`}
+      onClick={onOpen}
+      title={meta.label}
+    >
+      <div className="relative aspect-[3/4] bg-muted flex items-center justify-center overflow-hidden">
         {aprovacao && (
           <span
             className={`absolute top-1.5 right-1.5 z-10 h-3 w-3 rounded-full ring-2 ring-white shadow ${aprovacao === "verde" ? "bg-emerald-500" : "bg-amber-400"}`}
@@ -670,31 +681,33 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, markup, p
         )}
       </div>
       {compact ? (
-        // Compacto (mobile e desktop c/ muitas colunas): mínimo p/ triagem — nome +
-        // status + preço, em vez de só a foto (antes o corpo sumia por completo).
-        <div className="p-2 space-y-1">
+        // Compacto (mobile e desktop c/ muitas colunas): nome + preço. O STATUS é a
+        // borda esquerda do card (não gasta linha). Antes o corpo sumia por completo.
+        <div className="p-2 space-y-0.5">
           <h3 className="font-medium text-xs leading-tight truncate">{modelo.nome || "Sem nome"}</h3>
-          <div className="flex items-center justify-between gap-1">
-            <Badge className={`${meta.color} px-1.5 py-0 text-[10px]`}>{meta.label}</Badge>
-            {preco != null && <span className="text-[11px] font-medium">{brl(preco)}</span>}
-          </div>
+          <p className="text-[11px] font-medium truncate">{preco != null ? brl(preco) : "—"}</p>
         </div>
       ) : (
-        <div className="p-3 space-y-1">
-          <h3 className="font-semibold text-sm leading-tight truncate">{modelo.nome || "Sem nome"}</h3>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Badge className={meta.color}>{meta.label}</Badge>
+        // Corpo cheio: status = borda do card (sem badge, poupa a linha). Uma info por
+        // linha; custo (real/previsto) incluído.
+        <div className="p-3 space-y-1.5">
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="font-semibold text-sm leading-tight truncate">{modelo.nome || "Sem nome"}</h3>
             <VersaoBadge versao={modelo.versao} />
           </div>
-          {estilistaNome && <p className="text-xs text-muted-foreground truncate">{estilistaNome}</p>}
-          {/* pares relacionados na mesma linha p/ densidade (coleção·mês, categoria·linha) */}
-          <p className="text-xs text-muted-foreground truncate">{(modelo.colecao ?? "Sem coleção") + (mesNome ? ` · ${mesNome}` : "")}</p>
-          <p className="text-xs text-muted-foreground truncate">{(categoriaNome ?? "Sem categoria") + (linhaNome ? ` · ${linhaNome}` : "")}</p>
-          {(markup != null || preco != null) && (
-            <div className="flex items-center justify-between gap-2 pt-0.5">
-              <span className="text-xs text-muted-foreground">{markup != null ? `Markup ${Number(markup).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}` : ""}</span>
-              {preco != null && <span className="text-xs font-medium">{brl(preco)}</span>}
-            </div>
+          <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
+          <p className="text-xs text-muted-foreground truncate">{modelo.colecao ?? "Sem coleção"}</p>
+          <p className="text-xs text-muted-foreground truncate">{mesNome ?? "—"}</p>
+          <p className="text-xs text-muted-foreground truncate">{categoriaNome ?? "Sem categoria"}</p>
+          <p className="text-xs text-muted-foreground truncate">{linhaNome ?? "Sem linha"}</p>
+          {/* custo/markup/preço renderizam SEMPRE (— quando vazio) p/ todo card ter a
+              mesma altura, como se estivesse todo preenchido. */}
+          <p className="text-xs text-muted-foreground truncate">{custoReal ? "Custo" : "Custo prev."}: {custo != null ? brl(custo) : "—"}</p>
+          <p className="text-xs text-muted-foreground truncate">Markup: {markup != null ? Number(markup).toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—"}</p>
+          {preco != null ? (
+            <p className="text-xs font-medium truncate">{brl(preco)}</p>
+          ) : (
+            <p className="text-xs text-muted-foreground truncate">Preço: —</p>
           )}
         </div>
       )}
