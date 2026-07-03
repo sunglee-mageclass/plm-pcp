@@ -500,6 +500,7 @@ function PlanejamentoPage() {
             ]}
           />
           <FilterButton
+            screen="planejamento"
             filters={[
               { label: "Status", value: fStatus, onChange: setFStatus, options: [{ id: "all", nome: "Todos" }, ...STATUS_OPTS.map((s) => ({ id: s.value, nome: s.label }))] },
               { label: fl("estilista"), value: fEstilista, onChange: setFEstilista, options: [{ id: "all", nome: "Todos" }, ...estilistas] },

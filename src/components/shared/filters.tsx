@@ -13,6 +13,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useFilterUsage } from "@/hooks/useFilterUsage";
+
+/** A partir de quantos filtros vale a pena o layout multi-coluna + "Mais usados". */
+const ADAPTIVE_MIN = 5;
+/** Quantos filtros a coluna "Mais usados" mostra no máximo. */
+const MOST_USED_MAX = 4;
 
 export type FilterOption = { id: string; nome: string };
 
@@ -31,9 +37,18 @@ type FilterButtonProps = {
   /** Quantidade de filtros ativos quando usando children. */
   activeCount?: number;
   onClear?: () => void;
+  /**
+   * Chave da tela. Quando definida (e houver ≥ ADAPTIVE_MIN filtros), liga o
+   * layout de 3 colunas no desktop (1ª = "Mais usados", adaptativa por uso do
+   * usuário; 2ª/3ª = todos os filtros na ordem fixa em que `filters` é passado)
+   * e rastreia o uso por-usuário. No mobile continua 1 coluna.
+   */
+  screen?: string;
 };
 
-export function FilterButton({ filters, children, activeCount, onClear }: FilterButtonProps) {
+export function FilterButton({ filters, children, activeCount, onClear, screen }: FilterButtonProps) {
+  const { counts, record } = useFilterUsage(screen);
+
   const computedCount =
     activeCount ??
     (filters
@@ -50,6 +65,47 @@ export function FilterButton({ filters, children, activeCount, onClear }: Filter
     }
   };
 
+  // Um único <Select> por filtro; renderizável tanto na coluna "Mais usados"
+  // quanto na lista fixa (mesmo estado — mudar num lugar reflete no outro).
+  const renderFilter = (f: FilterConfig) => {
+    const empty = f.emptyValue ?? "all";
+    const active = Boolean(f.value) && f.value !== empty;
+    return (
+      <div key={f.label} className="grid gap-1">
+        <Label className="text-xs">{f.label}</Label>
+        <Select
+          value={f.value}
+          onValueChange={(v) => {
+            if (v !== empty) record(f.label); // só conta aplicação real, não limpeza
+            f.onChange(v);
+          }}
+        >
+          {/* Ativo (valor ≠ vazio) ganha borda/peso — reconhecer o que filtra sem varrer todos. */}
+          <SelectTrigger
+            className={`h-8 text-sm ${active ? "border-primary font-medium text-foreground" : ""}`}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {f.options.map((o) => (
+              <SelectItem key={o.id} value={o.id}>
+                {o.nome}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    );
+  };
+
+  const adaptive = Boolean(screen) && !!filters && filters.length >= ADAPTIVE_MIN;
+  const mostUsed = adaptive
+    ? [...filters!]
+        .filter((f) => (counts[f.label] ?? 0) > 0)
+        .sort((a, b) => (counts[b.label] ?? 0) - (counts[a.label] ?? 0))
+        .slice(0, MOST_USED_MAX)
+    : [];
+
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -63,26 +119,42 @@ export function FilterButton({ filters, children, activeCount, onClear }: Filter
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 space-y-3">
-        {filters
-          ? filters.map((f) => (
-              <div key={f.label} className="grid gap-1">
-                <Label className="text-xs">{f.label}</Label>
-                <Select value={f.value} onValueChange={f.onChange}>
-                  <SelectTrigger className="h-8 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {f.options.map((o) => (
-                      <SelectItem key={o.id} value={o.id}>
-                        {o.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+      <PopoverContent
+        align="end"
+        className={`max-h-[75vh] space-y-3 overflow-y-auto ${adaptive ? "w-[22rem] sm:w-[46rem]" : "w-72"}`}
+      >
+        {filters ? (
+          adaptive ? (
+            <div className="grid grid-cols-1 gap-x-5 gap-y-3 sm:grid-cols-3">
+              {/* Coluna 1 — Mais usados (adaptativa por usuário) */}
+              <div className="space-y-3 sm:border-r sm:pr-4">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Mais usados
+                </p>
+                {mostUsed.length ? (
+                  mostUsed.map(renderFilter)
+                ) : (
+                  <p className="text-xs leading-relaxed text-muted-foreground/70">
+                    Os filtros que você mais usa aparecem aqui.
+                  </p>
+                )}
               </div>
-            ))
-          : children}
+              {/* Colunas 2–3 — todos os filtros na ordem fixa da tela */}
+              <div className="sm:col-span-2">
+                <p className="mb-3 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Todos os filtros
+                </p>
+                <div className="grid grid-cols-1 gap-x-5 gap-y-3 sm:grid-cols-2">
+                  {filters.map(renderFilter)}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">{filters.map(renderFilter)}</div>
+          )
+        ) : (
+          children
+        )}
         {computedCount > 0 && (
           <div className="pt-1">
             <Button
