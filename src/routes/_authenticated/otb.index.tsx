@@ -142,7 +142,7 @@ function OtbPage() {
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-3"><Target className="h-7 w-7 text-primary mt-0.5 shrink-0" />
           <div><h1 className="text-2xl font-bold">OTB</h1><p className="text-sm text-muted-foreground">Orçamento de coleção.</p></div></div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 max-sm:w-full max-sm:justify-end">
           <FilterButton filters={[
             { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...anos] },
             { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
@@ -166,18 +166,16 @@ function OtbPage() {
             const temOrc = orc != null && orc > 0;
             const fora = temOrc && st.real > (orc as number);
             const pctUso = temOrc ? Math.round((st.real / (orc as number)) * 100) : null;
-            // Bolinha: verde=dentro · vermelho=estourou · amarelo=sem orçamento. Rótulo = % (ou "—").
-            const dotCor = !temOrc ? "bg-amber-600" : fora ? "bg-red-600" : "bg-emerald-600";
+            // Orçamento vira a BORDA esquerda do card: verde=dentro · vermelho=estourou ·
+            // amarelo=sem orçamento. O % (texto) fica como canal não-cromático + title.
+            const borderCor = !temOrc ? "border-l-amber-500" : fora ? "border-l-red-500" : "border-l-emerald-500";
             const orcTitle = !temOrc ? "Sem orçamento" : `${fora ? "Acima do" : "Dentro do"} orçamento — ${pctUso}% usado`;
             return (
-              <button key={c.id} onClick={() => setOpenId(c.id)} className="text-left rounded-lg border p-3 hover:bg-muted">
+              <button key={c.id} onClick={() => setOpenId(c.id)} title={orcTitle} className={`text-left rounded-lg border border-l-4 ${borderCor} p-3 hover:bg-muted`}>
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-semibold truncate">{c.nome}</span>
                   <div className="flex shrink-0 items-center gap-2">
-                    <span className="flex items-center gap-1" title={orcTitle} aria-label={orcTitle}>
-                      <span className={`h-2.5 w-2.5 rounded-full ${dotCor}`} />
-                      <span className="text-xs text-muted-foreground tabular-nums">{temOrc ? `${pctUso}%` : "—"}</span>
-                    </span>
+                    <span className="text-xs text-muted-foreground tabular-nums" title={orcTitle} aria-label={orcTitle}>{temOrc ? `${pctUso}%` : "—"}</span>
                     <Badge variant={c.status === "confirmada" ? "secondary" : "outline"}>{c.status === "confirmada" ? "Confirmada" : "Rascunho"}</Badge>
                   </div>
                 </div>

@@ -6,7 +6,7 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Trash2, ArrowLeft } from "lucide-react";
+import { Trash2, ArrowLeft, Check, Save } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -251,11 +251,15 @@ export function ColecaoSheet({
             <span className="max-sm:sr-only">Cancelar</span>
           </Button>
           {!isConfirmada && (
-            <Button variant="secondary" onClick={() => confirmar.mutate()} disabled={confirmar.isPending || save.isPending}>
-              {confirmar.isPending ? "Confirmando…" : "Confirmar"}
+            <Button variant="secondary" onClick={() => confirmar.mutate()} disabled={confirmar.isPending || save.isPending} aria-label="Confirmar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
+              <Check className="h-4 w-4 sm:hidden" />
+              <span className="max-sm:sr-only">{confirmar.isPending ? "Confirmando…" : "Confirmar"}</span>
             </Button>
           )}
-          <Button onClick={() => save.mutate()} disabled={save.isPending || confirmar.isPending}>{save.isPending ? "Salvando…" : "Salvar"}</Button>
+          <Button onClick={() => save.mutate()} disabled={save.isPending || confirmar.isPending} aria-label="Salvar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
+            <Save className="h-4 w-4 sm:hidden" />
+            <span className="max-sm:sr-only">{save.isPending ? "Salvando…" : "Salvar"}</span>
+          </Button>
         </div>
       </SheetContent>
 
