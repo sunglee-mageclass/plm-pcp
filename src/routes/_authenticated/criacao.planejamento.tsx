@@ -1285,11 +1285,11 @@ function ModeloDialog({
             <>
               {/* Duplicar/Excluir: só-ícone no mobile, texto no desktop. */}
               <Button variant="outline" onClick={() => duplicate.mutate()} disabled={duplicate.isPending} aria-label="Duplicar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
-                <Copy className="h-4 w-4 sm:mr-1" />
+                <Copy className="h-4 w-4 sm:hidden" />
                 <span className="max-sm:sr-only">Duplicar</span>
               </Button>
               <Button variant="destructive" onClick={() => setConfirmDel(true)} aria-label="Excluir" className="shrink-0 max-sm:aspect-square max-sm:px-0">
-                <Trash2 className="h-4 w-4 sm:mr-1" />
+                <Trash2 className="h-4 w-4 sm:hidden" />
                 <span className="max-sm:sr-only">Excluir</span>
               </Button>
             </>
@@ -1311,7 +1311,7 @@ function ModeloDialog({
             </Button>
           ))}
           <Button className="max-sm:ml-auto shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Salvar" onClick={() => save.mutate()} disabled={save.isPending}>
-            <Save className="h-4 w-4 sm:mr-1" />
+            <Save className="h-4 w-4 sm:hidden" />
             <span className="max-sm:sr-only">Salvar</span>
           </Button>
         </div>
