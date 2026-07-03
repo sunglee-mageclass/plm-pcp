@@ -6,7 +6,7 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Trash2 } from "lucide-react";
+import { Trash2, ArrowLeft } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -197,7 +197,7 @@ export function ColecaoSheet({
 
   return (
     <Sheet open onOpenChange={(o) => !o && onClose()}>
-      <SheetContent side="right" className="w-full sm:max-w-[70vw] flex flex-col p-0">
+      <SheetContent side="right" className="w-full sm:max-w-[70vw] flex flex-col p-0 max-sm:[&>button]:hidden">
         <SheetHeader className="p-4 border-b shrink-0">
           <SheetTitle className="flex items-center gap-2">
             {colecaoId ? "Editar coleção" : "Nova coleção"}
@@ -242,11 +242,14 @@ export function ColecaoSheet({
         </div>
         <div className="p-4 border-t shrink-0 flex justify-end gap-2">
           {colecaoId && (
-            <Button variant="ghost" className="mr-auto text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => setConfirmDel(true)} disabled={excluir.isPending}>
-              <Trash2 className="h-4 w-4 mr-1" /> Excluir
+            <Button variant="destructive" size="icon" className="sm:mr-auto" onClick={() => setConfirmDel(true)} disabled={excluir.isPending} aria-label="Excluir coleção">
+              <Trash2 className="h-4 w-4" />
             </Button>
           )}
-          <Button variant="ghost" onClick={onClose}>Cancelar</Button>
+          <Button variant="outline" onClick={onClose} aria-label="Voltar" className="shrink-0 max-sm:order-first max-sm:mr-auto max-sm:aspect-square max-sm:px-0">
+            <ArrowLeft className="h-4 w-4 sm:hidden" />
+            <span className="max-sm:sr-only">Cancelar</span>
+          </Button>
           {!isConfirmada && (
             <Button variant="secondary" onClick={() => confirmar.mutate()} disabled={confirmar.isPending || save.isPending}>
               {confirmar.isPending ? "Confirmando…" : "Confirmar"}
