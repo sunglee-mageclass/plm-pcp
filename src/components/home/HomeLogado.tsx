@@ -197,9 +197,9 @@ export function HomeLogado() {
           <h2 className="text-sm font-semibold text-foreground">Precisa da sua atenção</h2>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {atencao.map((a) => (
-              <Link key={a.key} to={a.to as any} className="block">
+              <Link key={a.key} to={a.to as any} className="block h-full">
                 <Card className={cn(
-                  "flex min-h-[128px] flex-col p-4 transition-colors hover:bg-accent",
+                  "flex h-full min-h-[120px] flex-col gap-3 p-4 transition-colors hover:bg-accent",
                   a.valor > 0 && (a.tone === "red" ? "border-red-500/50" : "border-amber-500/50"),
                 )}>
                   <div className="flex items-start justify-between">
@@ -213,7 +213,7 @@ export function HomeLogado() {
                     </div>
                     <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
                   </div>
-                  <div className="mt-auto">
+                  <div>
                     {a.loading ? (
                       <div className="h-[30px] w-12 animate-pulse rounded bg-muted" aria-hidden />
                     ) : (
