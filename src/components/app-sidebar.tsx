@@ -171,7 +171,17 @@ export function AppSidebar() {
     <Sidebar collapsible="icon">
       <SidebarHeader className="border-b">
         <div className={cn("flex items-center py-3", collapsed ? "justify-center px-1" : "gap-2 px-2")}>
-          <SystemBrand collapsed={collapsed} />
+          {/* Logo + nome levam ao Início (convenção universal). Toggle de tema fica de fora. */}
+          <Link
+            to="/home"
+            aria-label="Ir para o Início"
+            className={cn(
+              "flex min-w-0 items-center rounded-md transition-opacity hover:opacity-80",
+              collapsed ? "justify-center" : "flex-1 gap-2",
+            )}
+          >
+            <SystemBrand collapsed={collapsed} />
+          </Link>
           <ThemeToggleButton collapsed={collapsed} />
         </div>
       </SidebarHeader>
