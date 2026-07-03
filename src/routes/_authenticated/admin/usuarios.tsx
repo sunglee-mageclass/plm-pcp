@@ -1,4 +1,5 @@
 import { SkeletonTableRow } from "@/components/shared/Skeletons";
+import { filtroAtivoClass } from "@/components/shared/filters";
 import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -156,7 +157,7 @@ function UsuariosPage() {
       <div className="max-w-sm">
         <Label className="text-xs text-muted-foreground">Filtrar por loja</Label>
         <Select value={tenantFilter} onValueChange={setTenantFilter}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectTrigger className={filtroAtivoClass(tenantFilter !== "all")}><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Todas as lojas</SelectItem>
             {tenants.map((t) => (

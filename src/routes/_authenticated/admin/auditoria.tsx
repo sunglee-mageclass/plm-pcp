@@ -13,7 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FilterButton } from "@/components/shared/filters";
+import { FilterButton, filtroAtivoClass } from "@/components/shared/filters";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 
 export const Route = createFileRoute("/_authenticated/admin/auditoria")({
@@ -114,7 +114,7 @@ function AuditoriaPage() {
           <div className="grid gap-1">
             <Label className="text-xs">Ação</Label>
             <Select value={acao} onValueChange={(v) => onFilter(() => setAcao(v))}>
-              <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+              <SelectTrigger className={`h-8 text-sm ${filtroAtivoClass(acao !== "all")}`}><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todas</SelectItem>
                 <SelectItem value="criar">Criou</SelectItem>
@@ -126,7 +126,7 @@ function AuditoriaPage() {
           <div className="grid gap-1">
             <Label className="text-xs">Entidade</Label>
             <Select value={entidade} onValueChange={(v) => onFilter(() => setEntidade(v))}>
-              <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+              <SelectTrigger className={`h-8 text-sm ${filtroAtivoClass(entidade !== "all")}`}><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todas</SelectItem>
                 {ENTIDADES.map((e) => <SelectItem key={e} value={e}>{e}</SelectItem>)}
@@ -135,7 +135,7 @@ function AuditoriaPage() {
           </div>
           <div className="grid gap-1">
             <Label className="text-xs">Usuário</Label>
-            <Input className="h-8 text-sm" value={usuario} onChange={(e) => onFilter(() => setUsuario(e.target.value))} placeholder="Nome ou e-mail" />
+            <Input className={`h-8 text-sm ${filtroAtivoClass(!!usuario)}`} value={usuario} onChange={(e) => onFilter(() => setUsuario(e.target.value))} placeholder="Nome ou e-mail" />
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="grid gap-1">
@@ -151,7 +151,7 @@ function AuditoriaPage() {
             <div className="grid gap-1">
               <Label className="text-xs">Loja</Label>
               <Select value={tenant} onValueChange={(v) => onFilter(() => setTenant(v))}>
-                <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                <SelectTrigger className={`h-8 text-sm ${filtroAtivoClass(tenant !== "all")}`}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todas as lojas</SelectItem>
                   {lojas.map((l) => <SelectItem key={l.id} value={l.id}>{l.nome}</SelectItem>)}

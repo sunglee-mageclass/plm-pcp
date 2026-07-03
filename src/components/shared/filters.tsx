@@ -20,6 +20,16 @@ const ADAPTIVE_MIN = 5;
 /** Quantos filtros a coluna "Mais usados" mostra no máximo. */
 const MOST_USED_MAX = 4;
 
+/**
+ * Classe do estado "filtro ativo" (valor ≠ vazio) — borda primary + peso.
+ * Use no SelectTrigger/Input de filtros CUSTOM (children do FilterButton, ex.:
+ * financeiro/auditoria, que misturam data/texto) p/ igualar o realce que o
+ * layout de array já dá. Não pega em DateField (className vai no wrapper, não no
+ * input) — nesses a contagem no badge do botão sinaliza.
+ */
+export const filtroAtivoClass = (active: boolean) =>
+  active ? "border-primary font-medium text-foreground" : "";
+
 export type FilterOption = { id: string; nome: string };
 
 export type FilterConfig = {
@@ -81,9 +91,7 @@ export function FilterButton({ filters, children, activeCount, onClear, screen }
           }}
         >
           {/* Ativo (valor ≠ vazio) ganha borda/peso — reconhecer o que filtra sem varrer todos. */}
-          <SelectTrigger
-            className={`h-8 text-sm ${active ? "border-primary font-medium text-foreground" : ""}`}
-          >
+          <SelectTrigger className={`h-8 text-sm ${filtroAtivoClass(active)}`}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

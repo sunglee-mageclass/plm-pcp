@@ -27,7 +27,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, Cart
 
 import { RequirePermission } from "@/components/RequirePermission";
 import { ModuleGuard } from "@/components/ModuleGuard";
-import { FilterButton } from "@/components/shared/filters";
+import { FilterButton, filtroAtivoClass } from "@/components/shared/filters";
 import { useSort, SortTh } from "@/components/shared/sort";
 import { alertaBadge } from "@/components/oc-tecido/CqTecido";
 import { AlertTriangle } from "lucide-react";
@@ -760,7 +760,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
             <div>
               <Label className="text-xs">Fornecedor</Label>
               <Select value={fornecedor} onValueChange={setFornecedor}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger className={`h-8 text-sm ${filtroAtivoClass(fornecedor !== "all")}`}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos</SelectItem>
                   {fornecedores.map((f) => <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>)}
@@ -770,7 +770,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
             <div>
               <Label className="text-xs">Status</Label>
               <Select value={status} onValueChange={setStatus}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger className={`h-8 text-sm ${filtroAtivoClass(status !== "all")}`}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos</SelectItem>
                   <SelectItem value="a_pagar">A pagar</SelectItem>
@@ -979,7 +979,7 @@ function ServicosView() {
             <div>
               <Label className="text-xs">Responsável</Label>
               <Select value={responsavel} onValueChange={setResponsavel}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger className={`h-8 text-sm ${filtroAtivoClass(responsavel !== "all")}`}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos</SelectItem>
                   {responsaveis.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
@@ -989,7 +989,7 @@ function ServicosView() {
             <div>
               <Label className="text-xs">Status</Label>
               <Select value={status} onValueChange={setStatus}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger className={`h-8 text-sm ${filtroAtivoClass(status !== "all")}`}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos</SelectItem>
                   <SelectItem value="a_pagar">A pagar</SelectItem>
@@ -1369,7 +1369,7 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
           <div className="grid gap-1">
             <Label className="text-xs">Fornecedor</Label>
             <Select value={fFornecedor} onValueChange={setFFornecedor}>
-              <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+              <SelectTrigger className={`h-8 text-sm ${filtroAtivoClass(fFornecedor !== "all")}`}><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos</SelectItem>
                 {fornecedores.map((f) => <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>)}
@@ -1378,7 +1378,7 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
           </div>
           <div className="grid gap-1">
             <Label className="text-xs">Mês</Label>
-            <Input type="month" className="h-8 text-sm" value={fMes} onChange={(e) => setFMes(e.target.value)} />
+            <Input type="month" className={`h-8 text-sm ${filtroAtivoClass(!!fMes)}`} value={fMes} onChange={(e) => setFMes(e.target.value)} />
           </div>
           <div className="grid gap-1">
             <Label className="text-xs">De</Label>
