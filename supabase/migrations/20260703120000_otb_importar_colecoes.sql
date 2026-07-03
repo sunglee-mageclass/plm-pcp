@@ -18,7 +18,8 @@ begin
   loop
     select id into v_col_id from colecoes where tenant_id = v_tenant and nome = v_nome;
     if v_col_id is null then
-      insert into colecoes (tenant_id, nome, status) values (v_tenant, v_nome, 'confirmada') returning id into v_col_id;
+      -- Importada nasce RASCUNHO: ainda não tem orçamento/semanas, o dono confirma quando quiser.
+      insert into colecoes (tenant_id, nome, status) values (v_tenant, v_nome, 'rascunho') returning id into v_col_id;
       v_imp := v_imp + 1;
     end if;
     update modelos set colecao_id = v_col_id

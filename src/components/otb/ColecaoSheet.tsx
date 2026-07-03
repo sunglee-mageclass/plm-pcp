@@ -52,8 +52,8 @@ export function ColecaoSheet({
     setAnoId(data.ano_id ?? null);
     setMesId(data.mes_id ?? null);
     setOrcamento(data.orcamento != null ? String(data.orcamento) : "");
-    const w: Record<string, number> = {};
-    for (const s of data.colecao_semanas ?? []) w[s.semana] = s.qtd_planejada;
+    const w: Record<string, number | null> = {};
+    for (const s of data.colecao_semanas ?? []) w[s.semana] = s.qtd_planejada > 0 ? s.qtd_planejada : null;
     setWeeks(w);
   }, [data]);
 
@@ -120,7 +120,7 @@ export function ColecaoSheet({
       id = (ins as any).id;
     }
     // Diff das semanas: apaga as desmarcadas, upserta as marcadas.
-    const marked = WEEKS.filter((s) => weeks[s] != null);
+    const marked = WEEKS.filter((s) => s in weeks);
     await supabase.from("colecao_semanas").delete().eq("colecao_id", id!).not("semana", "in", `(${marked.map((s) => `'${s}'`).join(",") || "''"})`);
     for (const s of marked) {
       await supabase.from("colecao_semanas").upsert({ colecao_id: id!, semana: s, qtd_planejada: weeks[s] ?? 0 }, { onConflict: "colecao_id,semana" });
@@ -219,12 +219,12 @@ export function ColecaoSheet({
             <Label className="mb-2 block">Semanas</Label>
             <div className="space-y-2">
               {WEEKS.map((s) => {
-                const on = weeks[s] != null;
+                const on = s in weeks; // marcada = chave presente (valor pode ser null = vazio)
                 return (
                   <div key={s} className="flex items-center gap-3">
-                    <Checkbox checked={on} onCheckedChange={(v) => setWeeks((w) => { const n = { ...w }; if (v) n[s] = n[s] ?? 0; else delete n[s]; return n; })} />
+                    <Checkbox checked={on} onCheckedChange={(v) => setWeeks((w) => { const n = { ...w }; if (v) n[s] = n[s] ?? null; else delete n[s]; return n; })} />
                     <span className="w-16 text-sm">Semana {s}</span>
-                    {on && <div className="w-28"><NumberInput integer value={String(weeks[s] ?? 0)} onChange={(e) => setWeeks((w) => ({ ...w, [s]: Number(e.target.value) || 0 }))} /></div>}
+                    {on && <div className="w-28"><NumberInput integer placeholder="0" value={weeks[s] == null ? "" : String(weeks[s])} onChange={(e) => setWeeks((w) => ({ ...w, [s]: e.target.value === "" ? null : Number(e.target.value) }))} /></div>}
                   </div>
                 );
               })}
