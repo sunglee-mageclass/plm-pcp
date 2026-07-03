@@ -44,3 +44,20 @@ Sempre marcar **desktop / mobile / ambos**.
 ## Regras
 - Achado só se **REAL e verificável** (no render ou no código). Tela boa = "sem achados". Não inventar dado/estudo.
 - Peso do produto: **ferramenta B2B densa, uso EXPERT/repetido** — otimizar eficiência e prevenção de erro, não "encantamento" de novato. Mobile importa muito (uso no chão de fábrica).
+
+## Rito de CORREÇÃO por tela (o time acompanha — UI é PORTÃO, não etapa)
+
+O time de 3 lentes (`cognitive-ergonomist`, `ux-tester`, `ui-ux-mobile`) não só diagnostica: **valida cada correção**. Toda tela que a gente conserta passa por:
+
+1. **Achados** — puxa os 3 laudos da tela (`/tmp/ux-audit/sweep/{cog,ux,ui}-<mslug>.md` + laudo).
+2. **Proposta** — proponho fixes priorizados; o dono **direciona** quais. Se ele apontar algo fora do diagnóstico, eu **avalio a validade** (render/código) antes de aceitar.
+3. **Aplico** — edito + `tsc --noEmit` limpo + `vite build` verde.
+4. **Re-captura que ESTRESSA o layout** (nunca só o zero-state, que esconde defeito): dado real (números, labels longos, muitos itens), **3 estados** (vazio/carregando/cheio), **2 breakpoints** (desktop 1440 + mobile 390), tema **claro e escuro**.
+5. **GATE do time no RESULTADO** — disparo as 3 lentes no screenshot **DEPOIS**. Cada uma responde: (a) o achado foi resolvido? (b) **regrediu** algo? Retorno: **APROVADO** ou **FLAGS**.
+6. **Corrijo flags → re-gate.** Só commito quando o time aprova (ou o dono aceita explicitamente).
+
+**Checklist mínimo do gate de UI** (o que pegou o desalinhamento do Início): alinhamento e **alturas iguais por linha**; sem vão órfão; ritmo 8pt; contraste WCAG AA; alvos ≥44px no mobile; nada truncado/estourando; os 3 estados e 2 breakpoints acima.
+
+**Por que:** um achado aponta o problema, mas **virar código bom** exige mão + conferência visual com dado que estressa. Sem o gate, a UI vira consequência da mudança de UX (foi o que gerou a regressão do Início). O gate faz a UI ser aprovação obrigatória.
+
+**Blindagem automática (investimento futuro):** visual-regression Playwright (baseline por tela → diff pixel a pixel acusa regressão sozinho) + **componentizar** padrões repetidos (cards de atenção, tabelas, badges) p/ resolver alinhamento **uma vez** no componente em vez de reajustar flex/altura à mão em cada tela.
