@@ -276,6 +276,7 @@ function AviamentosGallery() {
             </SelectContent>
           </Select>
           <FilterButton
+            screen="aviamentos"
             filters={[
               { label: "Categoria", value: fCat, onChange: (v) => { setFCat(v); setFSub("all"); }, options: [{ id: "all", nome: "Todas" }, ...categorias] },
               { label: "Subcategoria", value: fSub, onChange: setFSub, options: [{ id: "all", nome: "Todas" }, ...subcategorias.filter((s) => fCat === "all" || s.categoria_aviamento_id === fCat)] },

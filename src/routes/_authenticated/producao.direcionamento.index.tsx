@@ -104,6 +104,7 @@ function DirListPage() {
             <Input className="pl-9" placeholder={`${fl("ref")} ou nome…`} value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
           <FilterButton
+            screen="direcionamento"
             filters={[
               { label: "Status", value: fStatus, onChange: setFStatus, options: [{ id: "all", nome: "Todos" }, { id: "pendente", nome: "Pendente" }, { id: "separado", nome: "Separado" }] },
               { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },

@@ -431,6 +431,7 @@ function LancamentosPage() {
             ]}
           />
           <FilterButton
+            screen="lancamentos"
             filters={[
               { label: "Grupo", value: fGrupo, onChange: setFGrupo, options: [{ id: "all", nome: "Todos" }, ...grupos] },
               { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
