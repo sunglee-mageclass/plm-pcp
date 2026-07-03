@@ -231,7 +231,7 @@ export function HomeLogado() {
 
       {/* Atalhos dos módulos */}
       <section className="space-y-2">
-        <h2 className="text-sm font-semibold text-muted-foreground">Atalhos</h2>
+        <h2 className="text-sm font-semibold text-foreground">Atalhos</h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {atalhos.map((m) => (
             <Link key={m.key} to={m.path as any} className="block">
