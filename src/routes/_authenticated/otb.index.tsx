@@ -59,9 +59,9 @@ function OtbPage() {
   const { data: modelosLink = [] } = useQuery({
     queryKey: ["otb-modelos-link"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("modelos").select("id, colecao_id, linha_id, preco_venda").not("colecao_id", "is", null);
+      const { data, error } = await supabase.from("modelos").select("id, colecao_id, linha_id, preco_venda, status_planejamento").not("colecao_id", "is", null);
       if (error) throw error;
-      return (data ?? []) as { id: string; colecao_id: string; linha_id: string | null; preco_venda: number | null }[];
+      return (data ?? []) as { id: string; colecao_id: string; linha_id: string | null; preco_venda: number | null; status_planejamento: string | null }[];
     },
   });
   const modeloIds = modelosLink.map((m) => m.id).sort();
@@ -96,16 +96,19 @@ function OtbPage() {
 
   // Per-collection stats
   const statsByColecao = useMemo(() => {
-    const planejado: Record<string, number> = {};
-    for (const s of semanas) planejado[s.colecao_id] = (planejado[s.colecao_id] ?? 0) + Number(s.qtd_planejada ?? 0);
+    // definido = qtd definida no OTB (Σ das semanas). planejados = modelos que
+    // chegaram no status "planejado" (rascunho/em planejamento/reprovado NÃO contam).
+    const definido: Record<string, number> = {};
+    for (const s of semanas) definido[s.colecao_id] = (definido[s.colecao_id] ?? 0) + Number(s.qtd_planejada ?? 0);
     const byCol: Record<string, typeof modelosLink> = {};
     for (const m of modelosLink) (byCol[m.colecao_id] ??= []).push(m);
-    const out: Record<string, { planejado: number; vinculados: number; previsto: number; real: number }> = {};
+    const out: Record<string, { definido: number; planejados: number; previsto: number; real: number }> = {};
     for (const c of colecoes) {
       const ms = byCol[c.id] ?? [];
       const resumo = computeColecaoResumo(ms as any, custoMap as any, gradeMap as any, linhaMarkupMap as any);
-      // "custo utilizado" = real (que já cai no previsto quando não há CAD no corte) — o "valor usado" do projeto.
-      out[c.id] = { planejado: planejado[c.id] ?? 0, vinculados: ms.length, previsto: resumo.previsto, real: resumo.real };
+      const planejados = ms.filter((m) => m.status_planejamento === "planejado").length;
+      // "custo comprometido" = real (que já cai no previsto quando não há CAD no corte).
+      out[c.id] = { definido: definido[c.id] ?? 0, planejados, previsto: resumo.previsto, real: resumo.real };
     }
     return out;
   }, [semanas, modelosLink, colecoes, custoMap, gradeMap, linhaMarkupMap]);
@@ -135,16 +138,16 @@ function OtbPage() {
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6">
-      <header className="flex items-center justify-between gap-3">
-        <div className="flex items-start gap-3"><Target className="h-7 w-7 text-primary mt-0.5" />
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-3"><Target className="h-7 w-7 text-primary mt-0.5 shrink-0" />
           <div><h1 className="text-2xl font-bold">OTB</h1><p className="text-sm text-muted-foreground">Orçamento de coleção.</p></div></div>
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <FilterButton filters={[
             { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...anos] },
             { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
           ]} />
-          <Button variant="outline" onClick={() => importar.mutate()} disabled={importar.isPending}>Importar coleções existentes</Button>
-          <Button onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /> Nova coleção</Button>
+          <Button variant="outline" className="w-full sm:w-auto" onClick={() => importar.mutate()} disabled={importar.isPending}>Importar coleções existentes</Button>
+          <Button className="w-full sm:w-auto" onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /> Nova coleção</Button>
         </div>
       </header>
       {colecoesFiltradas.length === 0 ? (
@@ -157,25 +160,29 @@ function OtbPage() {
             const anoNome = c.ano_id ? (anos.find((a) => a.id === c.ano_id)?.nome ?? null) : null;
             const mesNome = c.mes_id ? (meses.find((m) => m.id === c.mes_id)?.nome ?? null) : null;
             const periodoLabel = [mesNome, anoNome].filter(Boolean).join(" / ");
-            const st = statsByColecao[c.id] ?? { planejado: 0, vinculados: 0, previsto: 0, real: 0 };
+            const st = statsByColecao[c.id] ?? { definido: 0, planejados: 0, previsto: 0, real: 0 };
             const orc = c.orcamento != null ? Number(c.orcamento) : null;
             const fora = orc != null && st.real > orc;
             return (
               <button key={c.id} onClick={() => setOpenId(c.id)} className="text-left rounded-lg border p-3 hover:bg-muted">
-                <div className="flex items-center justify-between"><span className="font-semibold">{c.nome}</span>
-                  <span className="text-xs text-muted-foreground">{c.status === "confirmada" ? "Confirmada" : "Rascunho"}</span></div>
+                <div className="flex items-center justify-between gap-2"><span className="font-semibold truncate">{c.nome}</span>
+                  <Badge variant={c.status === "confirmada" ? "secondary" : "outline"} className="shrink-0">{c.status === "confirmada" ? "Confirmada" : "Rascunho"}</Badge></div>
                 {periodoLabel && <div className="text-xs text-muted-foreground mt-0.5">{periodoLabel}</div>}
                 <div className="text-sm text-muted-foreground mt-1">Orçamento: {c.orcamento != null ? brl(Number(c.orcamento)) : "—"}</div>
-                <div className="text-sm text-muted-foreground">Custo utilizado: {brl(st.real)}</div>
-                {orc != null && (
-                  <div className="mt-1">
+                <div className="text-sm text-muted-foreground">Custo comprometido: {brl(st.real)}</div>
+                <div className="mt-1">
+                  {orc != null ? (
                     <Badge variant={fora ? "destructive" : "secondary"} className={fora ? "" : "bg-emerald-100 text-emerald-700 hover:bg-emerald-100"}>
                       {fora ? "Fora" : "Dentro"}
                     </Badge>
-                  </div>
-                )}
+                  ) : (
+                    <Badge variant="secondary" className="bg-amber-100 text-amber-800 hover:bg-amber-100">Sem orçamento</Badge>
+                  )}
+                </div>
                 <div className="mt-1">
-                  <span className="text-xs text-muted-foreground tabular-nums">{st.vinculados}/{st.planejado} modelos</span>
+                  <span className="text-xs text-muted-foreground tabular-nums" title="Modelos em status planejado / quantidade definida no OTB">
+                    {st.definido > 0 ? `${st.planejados}/${st.definido} planejados` : `${st.planejados} ${st.planejados === 1 ? "planejado" : "planejados"}`}
+                  </span>
                 </div>
               </button>
             );
