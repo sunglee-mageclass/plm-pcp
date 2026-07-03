@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { FilterButton } from "@/components/shared/filters";
+import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { Target, Plus } from "lucide-react";
 import { ColecaoSheet } from "@/components/otb/ColecaoSheet";
 import { computeColecaoResumo } from "@/components/otb/otb-resumo";
@@ -137,17 +138,17 @@ function OtbPage() {
   }
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-3"><Target className="h-7 w-7 text-primary mt-0.5 shrink-0" />
           <div><h1 className="text-2xl font-bold">OTB</h1><p className="text-sm text-muted-foreground">Orçamento de coleção.</p></div></div>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="flex items-center gap-2">
           <FilterButton filters={[
             { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...anos] },
             { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
           ]} />
-          <Button variant="outline" className="w-full sm:w-auto" onClick={() => importar.mutate()} disabled={importar.isPending}>Importar coleções existentes</Button>
-          <Button className="w-full sm:w-auto" onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /> Nova coleção</Button>
+          <Button variant="outline" className="max-sm:hidden" onClick={() => importar.mutate()} disabled={importar.isPending}>Importar coleções existentes</Button>
+          <Button className="max-sm:hidden" onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /> Nova coleção</Button>
         </div>
       </header>
       {colecoesFiltradas.length === 0 ? (
@@ -162,23 +163,27 @@ function OtbPage() {
             const periodoLabel = [mesNome, anoNome].filter(Boolean).join(" / ");
             const st = statsByColecao[c.id] ?? { definido: 0, planejados: 0, previsto: 0, real: 0 };
             const orc = c.orcamento != null ? Number(c.orcamento) : null;
-            const fora = orc != null && st.real > orc;
+            const temOrc = orc != null && orc > 0;
+            const fora = temOrc && st.real > (orc as number);
+            const pctUso = temOrc ? Math.round((st.real / (orc as number)) * 100) : null;
+            // Bolinha: verde=dentro · vermelho=estourou · amarelo=sem orçamento. Rótulo = % (ou "—").
+            const dotCor = !temOrc ? "bg-amber-600" : fora ? "bg-red-600" : "bg-emerald-600";
+            const orcTitle = !temOrc ? "Sem orçamento" : `${fora ? "Acima do" : "Dentro do"} orçamento — ${pctUso}% usado`;
             return (
               <button key={c.id} onClick={() => setOpenId(c.id)} className="text-left rounded-lg border p-3 hover:bg-muted">
-                <div className="flex items-center justify-between gap-2"><span className="font-semibold truncate">{c.nome}</span>
-                  <Badge variant={c.status === "confirmada" ? "secondary" : "outline"} className="shrink-0">{c.status === "confirmada" ? "Confirmada" : "Rascunho"}</Badge></div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold truncate">{c.nome}</span>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="flex items-center gap-1" title={orcTitle} aria-label={orcTitle}>
+                      <span className={`h-2.5 w-2.5 rounded-full ${dotCor}`} />
+                      <span className="text-xs text-muted-foreground tabular-nums">{temOrc ? `${pctUso}%` : "—"}</span>
+                    </span>
+                    <Badge variant={c.status === "confirmada" ? "secondary" : "outline"}>{c.status === "confirmada" ? "Confirmada" : "Rascunho"}</Badge>
+                  </div>
+                </div>
                 {periodoLabel && <div className="text-xs text-muted-foreground mt-0.5">{periodoLabel}</div>}
                 <div className="text-sm text-muted-foreground mt-1">Orçamento: {c.orcamento != null ? brl(Number(c.orcamento)) : "—"}</div>
                 <div className="text-sm text-muted-foreground">Custo comprometido: {brl(st.real)}</div>
-                <div className="mt-1">
-                  {orc != null ? (
-                    <Badge variant={fora ? "destructive" : "secondary"} className={fora ? "" : "bg-emerald-100 text-emerald-700 hover:bg-emerald-100"}>
-                      {fora ? "Fora" : "Dentro"}
-                    </Badge>
-                  ) : (
-                    <Badge variant="secondary" className="bg-amber-100 text-amber-800 hover:bg-amber-100">Sem orçamento</Badge>
-                  )}
-                </div>
                 <div className="mt-1">
                   <span className="text-xs text-muted-foreground tabular-nums" title="Modelos em status planejado / quantidade definida no OTB">
                     {st.definido > 0 ? `${st.planejados}/${st.definido} planejados` : `${st.planejados} ${st.planejados === 1 ? "planejado" : "planejados"}`}
@@ -193,6 +198,10 @@ function OtbPage() {
         <ColecaoSheet colecaoId={openId} meses={meses} anos={anos}
           onClose={() => { setOpenNew(false); setOpenId(null); }} onSaved={() => {}} />
       )}
+      <MobileActionBar>
+        <Button variant="outline" aria-label="Importar coleções existentes" onClick={() => importar.mutate()} disabled={importar.isPending}>Importar</Button>
+        <Button className="ml-auto" onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /> Nova coleção</Button>
+      </MobileActionBar>
     </div>
   );
 }
