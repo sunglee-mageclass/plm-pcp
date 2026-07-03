@@ -124,10 +124,12 @@ type Modelo = {
   origem: string | null;
 };
 
+// Cores tonalizadas (bg claro + texto escuro) — passam WCAG AA, ao contrário do
+// -500 + branco de antes (~2:1). Mesmo padrão de RequirePermission, com dark mode.
 const STATUS_OPTS = [
-  { value: "em_planejamento", label: "Em Planejamento", color: "bg-amber-500" },
-  { value: "reprovado", label: "Reprovado", color: "bg-red-500" },
-  { value: "planejado", label: "Planejado", color: "bg-emerald-500" },
+  { value: "em_planejamento", label: "Em Planejamento", color: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200" },
+  { value: "reprovado", label: "Reprovado", color: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200" },
+  { value: "planejado", label: "Planejado", color: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" },
 ];
 const statusMeta = (s: string | null) => STATUS_OPTS.find((o) => o.value === s) ?? STATUS_OPTS[0];
 
@@ -652,7 +654,7 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, markup, p
   const meta = statusMeta(modelo.status_planejamento);
   return (
     <Card className="overflow-hidden cursor-pointer hover:shadow-md transition-shadow" onClick={onOpen}>
-      <div className="relative aspect-[3/4] bg-muted flex items-center justify-center overflow-hidden">
+      <div className="relative aspect-[4/5] bg-muted flex items-center justify-center overflow-hidden">
         {aprovacao && (
           <span
             className={`absolute top-1.5 right-1.5 z-10 h-3 w-3 rounded-full ring-2 ring-white shadow ${aprovacao === "verde" ? "bg-emerald-500" : "bg-amber-400"}`}
@@ -667,21 +669,34 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, markup, p
           <img src={url} alt={modelo.nome ?? ""} className="w-full h-full object-cover" />
         )}
       </div>
-      {!compact && (
-      <div className="p-3 space-y-1.5">
-        <h3 className="font-semibold text-sm leading-tight truncate">{modelo.nome || "Sem nome"}</h3>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Badge className={`${meta.color} text-white`}>{meta.label}</Badge>
-          <VersaoBadge versao={modelo.versao} />
+      {compact ? (
+        // Compacto (mobile e desktop c/ muitas colunas): mínimo p/ triagem — nome +
+        // status + preço, em vez de só a foto (antes o corpo sumia por completo).
+        <div className="p-2 space-y-1">
+          <h3 className="font-medium text-xs leading-tight truncate">{modelo.nome || "Sem nome"}</h3>
+          <div className="flex items-center justify-between gap-1">
+            <Badge className={`${meta.color} px-1.5 py-0 text-[10px]`}>{meta.label}</Badge>
+            {preco != null && <span className="text-[11px] font-medium">{brl(preco)}</span>}
+          </div>
         </div>
-        <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
-        <p className="text-xs text-muted-foreground truncate">{modelo.colecao ?? "Sem coleção"}</p>
-        <p className="text-xs text-muted-foreground truncate">{mesNome ?? "—"}</p>
-        <p className="text-xs text-muted-foreground truncate">{categoriaNome ?? "Sem categoria"}</p>
-        <p className="text-xs text-muted-foreground truncate">{linhaNome ?? "Sem linha"}</p>
-        {markup != null && <p className="text-xs text-muted-foreground truncate">Markup: {Number(markup).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</p>}
-        {preco != null && <p className="text-xs font-medium truncate">{brl(preco)}</p>}
-      </div>
+      ) : (
+        <div className="p-3 space-y-1">
+          <h3 className="font-semibold text-sm leading-tight truncate">{modelo.nome || "Sem nome"}</h3>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge className={meta.color}>{meta.label}</Badge>
+            <VersaoBadge versao={modelo.versao} />
+          </div>
+          {estilistaNome && <p className="text-xs text-muted-foreground truncate">{estilistaNome}</p>}
+          {/* pares relacionados na mesma linha p/ densidade (coleção·mês, categoria·linha) */}
+          <p className="text-xs text-muted-foreground truncate">{(modelo.colecao ?? "Sem coleção") + (mesNome ? ` · ${mesNome}` : "")}</p>
+          <p className="text-xs text-muted-foreground truncate">{(categoriaNome ?? "Sem categoria") + (linhaNome ? ` · ${linhaNome}` : "")}</p>
+          {(markup != null || preco != null) && (
+            <div className="flex items-center justify-between gap-2 pt-0.5">
+              <span className="text-xs text-muted-foreground">{markup != null ? `Markup ${Number(markup).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}` : ""}</span>
+              {preco != null && <span className="text-xs font-medium">{brl(preco)}</span>}
+            </div>
+          )}
+        </div>
       )}
     </Card>
   );
