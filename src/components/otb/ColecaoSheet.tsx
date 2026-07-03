@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NumberInput } from "@/components/shared/NumberInput";
@@ -121,12 +122,28 @@ export function ColecaoSheet({
     return id!;
   };
 
+  const isConfirmada = data?.status === "confirmada";
+
   const save = useMutation({
-    mutationFn: persistColecao,
-    onSuccess: () => {
-      toast.success("Coleção salva");
+    mutationFn: async () => {
+      const id = await persistColecao();
+      // Já confirmada: Salvar também RECONCILIA os cards (mantém em sincronia com as semanas).
+      if (isConfirmada) {
+        const { data: r, error } = await supabase.rpc("otb_confirmar" as any, { _colecao_id: id });
+        if (error) throw error;
+        return r as { criados: number; removidos: number; mantidos: number };
+      }
+      return null;
+    },
+    onSuccess: (r) => {
+      const partes = r ? [r.criados ? `${r.criados} criado(s)` : "", r.removidos ? `${r.removidos} removido(s)` : ""].filter(Boolean) : [];
+      toast.success(`Coleção salva.${partes.length ? " " + partes.join(" · ") : ""}`);
       qc.invalidateQueries({ queryKey: ["otb-colecoes"] });
       qc.invalidateQueries({ queryKey: ["otb-semanas-todas"] });
+      if (isConfirmada) {
+        qc.invalidateQueries({ queryKey: ["otb-modelos-link"] });
+        qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+      }
       onSaved(); onClose();
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar coleção")),
@@ -158,7 +175,12 @@ export function ColecaoSheet({
   return (
     <Sheet open onOpenChange={(o) => !o && onClose()}>
       <SheetContent side="right" className="w-full sm:max-w-[70vw] flex flex-col p-0">
-        <SheetHeader className="p-4 border-b shrink-0"><SheetTitle>{colecaoId ? "Editar coleção" : "Nova coleção"}</SheetTitle></SheetHeader>
+        <SheetHeader className="p-4 border-b shrink-0">
+          <SheetTitle className="flex items-center gap-2">
+            {colecaoId ? "Editar coleção" : "Nova coleção"}
+            {colecaoId && data && <Badge variant={isConfirmada ? "secondary" : "outline"}>{isConfirmada ? "Confirmada" : "Rascunho"}</Badge>}
+          </SheetTitle>
+        </SheetHeader>
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           <div className="grid gap-1"><Label>Nome</Label><Input value={nome} onChange={(e) => setNome(e.target.value)} /></div>
           <div className="grid sm:grid-cols-3 gap-3">
@@ -197,9 +219,11 @@ export function ColecaoSheet({
         </div>
         <div className="p-4 border-t shrink-0 flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-          <Button variant="secondary" onClick={() => confirmar.mutate()} disabled={confirmar.isPending || save.isPending}>
-            {confirmar.isPending ? "Confirmando…" : "Confirmar"}
-          </Button>
+          {!isConfirmada && (
+            <Button variant="secondary" onClick={() => confirmar.mutate()} disabled={confirmar.isPending || save.isPending}>
+              {confirmar.isPending ? "Confirmando…" : "Confirmar"}
+            </Button>
+          )}
           <Button onClick={() => save.mutate()} disabled={save.isPending || confirmar.isPending}>{save.isPending ? "Salvando…" : "Salvar"}</Button>
         </div>
       </SheetContent>
