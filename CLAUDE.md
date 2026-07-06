@@ -111,8 +111,11 @@ unit + integração transacional de RPC — ver `tests/README.md`)
 - **entrada-saida**: oc-tecido, oc-aviamento, rolos, estoque
 - **producao**: cad, terceirizados=**Serviços** (abas pré/pós-costura por `categorias_terceirizado.etapa`),
   oficina, cq (abas **Pré/Pós** dentro do item — ver invariante 6), direcionamento, lancamentos,
-  consumo por OC (+ alertas de CQ de tecido). **Acabamento aposentado** (virou serviço pós-costura);
-  Editor de Impressão REMOVIDO (Ficha de Corte usa sempre o cabeçalho padrão `FichaHeader`)
+  consumo por OC (+ alertas de CQ de tecido). **Acabamento aposentado** (virou serviço pós-costura) —
+  ⚠️ **é CÓDIGO MORTO/legado**: as rotas `producao.acabamento.*.tsx`, a permissão `producao_acabamento` e o
+  ramo `oficina_posicao='acabamento'` (sidebar/`producao.index`) ainda existem no repo mas NÃO fazem parte do
+  produto atual (limpeza/remoção pendente — não construir em cima). Se um laudo/doc antigo cita "Acabamento", é
+  histórico. Editor de Impressão REMOVIDO (Ficha de Corte usa sempre o cabeçalho padrão `FichaHeader`)
 - **financeiro**: calendário + lista + parcelas (a pagar) + serviços terceirizados
 - **dashboard**: 5 abas (coleção, estoque, produção, financeiro, custos)
 - **admin**: lojas (criar/editar/reset/excluir), usuarios, usuarios-loja, configuracoes
