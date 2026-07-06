@@ -896,6 +896,54 @@ export type Database = {
           },
         ]
       }
+      colecao_semana_categorias: {
+        Row: {
+          categoria_id: string
+          colecao_id: string
+          created_at: string
+          id: string
+          qtd: number
+          semana: string
+          subcolecao_id: string | null
+          tenant_id: string | null
+        }
+        Insert: {
+          categoria_id: string
+          colecao_id: string
+          created_at?: string
+          id?: string
+          qtd?: number
+          semana: string
+          subcolecao_id?: string | null
+          tenant_id?: string | null
+        }
+        Update: {
+          categoria_id?: string
+          colecao_id?: string
+          created_at?: string
+          id?: string
+          qtd?: number
+          semana?: string
+          subcolecao_id?: string | null
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "colecao_semana_categorias_colecao_id_fkey"
+            columns: ["colecao_id"]
+            isOneToOne: false
+            referencedRelation: "colecoes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "colecao_semana_categorias_subcolecao_id_fkey"
+            columns: ["subcolecao_id"]
+            isOneToOne: false
+            referencedRelation: "colecao_subcolecoes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       colecao_subcolecoes: {
         Row: {
           colecao_id: string

@@ -84,11 +84,19 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   entidade dona (`colecoes`/`colecao_semanas`/`modelos.colecao_id`). Hierarquia **coleção → subcoleções
   (`colecao_subcolecoes`) → semanas×qtd** (`colecao_semanas.subcolecao_id`, NULL = modo simples sem
   subcoleção). O card (`ColecaoSheet`) tem Nome de Coleção + blocos de subcoleção (nome + Semanas 1–5 c/ qtd).
-  RPC `otb_confirmar` gera/reconcilia cards em branco por **(subcoleção × semana)** — cada modelo nasce c/
-  `colecao_id`+`subcolecao`+`semana` (NUNCA apaga preenchido); RPC `otb_importar_colecoes`. `modelos.subcolecao`
-  (texto): no Planejamento/Desenvolvimento vira **dropdown das subcoleções da coleção** quando OTB ligado
-  (senão texto livre). Preenchimento em massa no Planejamento (`BulkEditDialog`). O Planejamento abre **sempre
-  com 5 colunas** (`useGridCols(...,5,true)` — não persiste a escolha); card mostra coleção→subcoleção→semana→mês/ano.
+  Cada semana pode ter **distribuição por categoria** (`colecao_semana_categorias`, chave por coleção/subcoleção/
+  semana/categoria; soma fecha com a qtd da semana — validado na UI e no diálogo "Categorias da semana", botão ao
+  lado da qtd). RPC `otb_confirmar` reconcilia cards em branco por **bucket = (subcoleção × semana × categoria)** —
+  cada modelo nasce c/ `colecao_id`+`subcolecao`+`semana`(+`categoria_principal_id` se distribuído). **Sincronização
+  bidirecional**: (1) diminuir a qtd no OTB remove cards **"vazios"** (só os campos que o OTB preenche +
+  status em_planejamento/reprovado — o predicado NÃO conta coleção/subcoleção/semana/categoria como "tocado";
+  NUNCA apaga card que o usuário mexeu ou que avançou); (2) **apagar um card baixa a qtd** da sua semana/subcoleção/
+  categoria — trigger `trg_otb_dec_semana` em `modelos` (só p/ `colecao_id` not null), com trava GUC
+  `app.otb_reconciling` que `otb_confirmar`/`otb_excluir_colecao` setam p/ o encolher da RPC não decrementar 2×.
+  RPC `otb_importar_colecoes`. `modelos.subcolecao` (texto): no Planejamento/Desenvolvimento vira **dropdown das
+  subcoleções da coleção** quando OTB ligado (senão texto livre). Preenchimento em massa no Planejamento
+  (`BulkEditDialog`). O Planejamento abre **sempre com 5 colunas** (`useGridCols(...,5,true)` — não persiste);
+  card mostra coleção→subcoleção→semana→mês/ano.
 - **cadastro**: atributos (categorias tecido/aviamento/material/subcategoria, linhas,
   categorias de serviço fixas Corte/Oficina), colaboradores, servicos, tecidos
   (+variantes), aviamentos
