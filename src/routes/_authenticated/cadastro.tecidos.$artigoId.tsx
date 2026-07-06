@@ -79,12 +79,14 @@ type Variante = {
   id: string;
   artigo_id: string;
   cor_id: string | null;
+  cor_apelido_id: string | null;
   nome_variante: string | null;
   codigo_variante: string | null;
   foto_url: string | null;
 };
 
 type Cor = { id: string; nome: string };
+type Apelido = { id: string; nome: string; cor_base_id: string | null };
 
 function TecidoDetail() {
   const { artigoId } = Route.useParams();
@@ -547,12 +549,22 @@ function Field({
 function VariantesSection({ artigoId, readOnly }: { artigoId: string; readOnly: boolean }) {
   const qc = useQueryClient();
   const [removeTarget, setRemoveTarget] = useState<Variante | null>(null);
+  const [addBase, setAddBase] = useState<string>("");
+  const [addApelido, setAddApelido] = useState<string>("");
 
   const { data: cores = [] } = useQuery({
     queryKey: ["cores-options"],
     queryFn: async () => {
       const { data } = await supabase.from("cores").select("id,nome").order("nome");
       return (data ?? []) as Cor[];
+    },
+  });
+
+  const { data: apelidos = [] } = useQuery({
+    queryKey: ["cores-apelido-options"],
+    queryFn: async () => {
+      const { data } = await supabase.from("cores_apelido").select("id,nome,cor_base_id").order("nome");
+      return (data ?? []) as Apelido[];
     },
   });
 
@@ -570,26 +582,26 @@ function VariantesSection({ artigoId, readOnly }: { artigoId: string; readOnly: 
   });
 
   const coresMap = useMemo(() => new Map(cores.map((c) => [c.id, c.nome])), [cores]);
-  const selectedCorIds = useMemo(
-    () => new Set(variantes.map((v) => v.cor_id).filter(Boolean) as string[]),
-    [variantes],
-  );
+  const apelidosMap = useMemo(() => new Map(apelidos.map((a) => [a.id, a.nome])), [apelidos]);
+  const apelidoBase = useMemo(() => new Map(apelidos.map((a) => [a.id, a.cor_base_id])), [apelidos]);
 
-  const addCorMut = useMutation({
-    mutationFn: async (corId: string) => {
+  const addVarMut = useMutation({
+    mutationFn: async ({ corId, apelidoId }: { corId: string; apelidoId: string }) => {
       const { data: art } = await supabase
         .from("artigos")
         .select("nome")
         .eq("id", artigoId)
         .single();
       const corNome = coresMap.get(corId) ?? "";
-      const nomeVariante = `${art?.nome ?? ""} - ${corNome}`.trim();
+      const apelidoNome = apelidosMap.get(apelidoId) ?? "";
+      const nomeVariante = `${art?.nome ?? ""} - ${corNome}${apelidoNome ? ` - ${apelidoNome}` : ""}`.trim();
       const { error } = await supabase
         .from("variantes_tecido")
-        .insert({ artigo_id: artigoId, cor_id: corId, nome_variante: nomeVariante });
+        .insert({ artigo_id: artigoId, cor_id: corId, cor_apelido_id: apelidoId, nome_variante: nomeVariante });
       if (error) throw error;
     },
     onSuccess: () => {
+      setAddBase(""); setAddApelido("");
       qc.invalidateQueries({ queryKey: ["variantes", artigoId] });
       qc.invalidateQueries({ queryKey: ["variantes-thumb"] });
     },
@@ -612,56 +624,75 @@ function VariantesSection({ artigoId, readOnly }: { artigoId: string; readOnly: 
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao remover.")),
   });
 
-  const toggleCor = (corId: string, checked: boolean) => {
-    if (checked) {
-      addCorMut.mutate(corId);
-    } else {
-      const existing = variantes.find((v) => v.cor_id === corId);
-      if (existing) setRemoveTarget(existing);
-    }
-  };
+  const jaExiste = variantes.some((v) => v.cor_id === addBase && v.cor_apelido_id === addApelido);
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Cores e Variantes</CardTitle>
         <CardDescription>
-          Marque cores para criar variantes automaticamente.
+          Cada variante é uma cor: escolha a <strong>cor base</strong> e o{" "}
+          <strong>apelido</strong> (vinculados) e adicione.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="outline" className="w-full justify-between" disabled={readOnly}>
-              Selecionar cores{" "}
-              <Badge variant="secondary" className="ml-2">
-                {selectedCorIds.size}
-              </Badge>
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-72 max-h-72 overflow-auto" align="start">
-            <ul className="space-y-1">
-              {cores.length === 0 && (
-                <li className="text-sm text-muted-foreground italic px-2 py-1">
-                  Cadastre cores em Atributos primeiro.
-                </li>
-              )}
-              {cores.map((c) => (
-                <li
-                  key={c.id}
-                  className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-accent cursor-pointer"
-                  onClick={() => toggleCor(c.id, !selectedCorIds.has(c.id))}
-                >
-                  <Checkbox
-                    checked={selectedCorIds.has(c.id)}
-                    onCheckedChange={(v) => toggleCor(c.id, !!v)}
-                  />
-                  <span className="text-sm">{c.nome}</span>
-                </li>
-              ))}
-            </ul>
-          </PopoverContent>
-        </Popover>
+        {/* Adicionar variante — cor base ↔ cor apelido vinculados (apelido obrigatório).
+            Escolher a base filtra os apelidos daquela base; escolher o apelido preenche a base. */}
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+          <div className="flex-1 space-y-1">
+            <Label className="text-xs">Cor base</Label>
+            <Select
+              value={addBase}
+              onValueChange={(b) => {
+                setAddBase(b);
+                if (addApelido && apelidoBase.get(addApelido) !== b) setAddApelido("");
+              }}
+              disabled={readOnly}
+            >
+              <SelectTrigger className="h-9"><SelectValue placeholder="Selecione a cor" /></SelectTrigger>
+              <SelectContent>
+                {cores.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex-1 space-y-1">
+            <Label className="text-xs">Cor apelido *</Label>
+            <Select
+              value={addApelido}
+              onValueChange={(a) => {
+                setAddApelido(a);
+                const base = apelidoBase.get(a);
+                if (base) setAddBase(base);
+              }}
+              disabled={readOnly}
+            >
+              <SelectTrigger className="h-9"><SelectValue placeholder="Selecione o apelido" /></SelectTrigger>
+              <SelectContent>
+                {(addBase ? apelidos.filter((a) => a.cor_base_id === addBase) : apelidos).map((a) => (
+                  <SelectItem key={a.id} value={a.id}>
+                    {a.nome}{!addBase && a.cor_base_id ? ` · ${coresMap.get(a.cor_base_id) ?? ""}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button
+            type="button"
+            className="shrink-0"
+            disabled={readOnly || !addBase || !addApelido || jaExiste || addVarMut.isPending}
+            onClick={() => addVarMut.mutate({ corId: addBase, apelidoId: addApelido })}
+          >
+            <Plus className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Adicionar</span>
+          </Button>
+        </div>
+        {jaExiste && (
+          <p className="text-xs text-amber-600">Essa combinação de cor + apelido já existe neste tecido.</p>
+        )}
+        {(cores.length === 0 || apelidos.length === 0) && (
+          <p className="text-xs text-muted-foreground italic">
+            Cadastre cores e cores apelido em Atributos primeiro.
+          </p>
+        )}
 
         {variantes.length === 0 ? (
           <p className="text-sm text-muted-foreground italic">Nenhuma variante criada ainda.</p>
@@ -672,6 +703,9 @@ function VariantesSection({ artigoId, readOnly }: { artigoId: string; readOnly: 
                 key={v.id}
                 variante={v}
                 corLabel={v.cor_id ? coresMap.get(v.cor_id) ?? "—" : "—"}
+                apelidoLabel={v.cor_apelido_id ? apelidosMap.get(v.cor_apelido_id) ?? null : null}
+                cores={cores}
+                apelidos={apelidos}
                 onRemove={() => setRemoveTarget(v)}
                 readOnly={readOnly}
               />
@@ -713,11 +747,17 @@ function VariantesSection({ artigoId, readOnly }: { artigoId: string; readOnly: 
 function VariantRow({
   variante,
   corLabel,
+  apelidoLabel,
+  cores,
+  apelidos,
   onRemove,
   readOnly,
 }: {
   variante: Variante;
   corLabel: string;
+  apelidoLabel: string | null;
+  cores: Cor[];
+  apelidos: Apelido[];
   onRemove: () => void;
   readOnly: boolean;
 }) {
@@ -725,6 +765,8 @@ function VariantRow({
   const [expanded, setExpanded] = useState(false);
   const [nome, setNome] = useState(variante.nome_variante ?? "");
   const [codigo, setCodigo] = useState(variante.codigo_variante ?? "");
+  const [corId, setCorId] = useState(variante.cor_id ?? "");
+  const [apelidoId, setApelidoId] = useState(variante.cor_apelido_id ?? "");
   const [enderecos, setEnderecos] = useState<{ rua: string; prateleira: string }[]>(() => {
     const e = (variante as any).enderecos;
     if (Array.isArray(e) && e.length > 0) return e.map((x: any) => ({ rua: x?.rua ?? "", prateleira: x?.prateleira ?? "" }));
@@ -789,7 +831,9 @@ function VariantRow({
           )}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium">{corLabel}</p>
+          <p className="text-sm font-medium">
+            {corLabel}{apelidoLabel ? ` · ${apelidoLabel}` : ""}
+          </p>
           <p className="text-xs text-muted-foreground line-clamp-1">
             {variante.codigo_variante || variante.nome_variante || "Sem código"}
           </p>
@@ -803,6 +847,46 @@ function VariantRow({
       </div>
       {expanded && (
         <div className="grid gap-3 p-3 border-t md:grid-cols-3 bg-muted/30">
+          {/* Cor base ↔ apelido editáveis (p/ acertar variantes antigas sem apelido).
+              Salva ao mudar; escolher apelido preenche a base. */}
+          <div className="space-y-1.5">
+            <Label>Cor base</Label>
+            <Select
+              value={corId}
+              onValueChange={(b) => {
+                setCorId(b);
+                const keep = apelidos.some((a) => a.id === apelidoId && a.cor_base_id === b) ? apelidoId : "";
+                setApelidoId(keep);
+                saveMut.mutate({ cor_id: b, cor_apelido_id: keep || null });
+              }}
+              disabled={readOnly}
+            >
+              <SelectTrigger><SelectValue placeholder="Selecione a cor" /></SelectTrigger>
+              <SelectContent>
+                {cores.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Cor apelido</Label>
+            <Select
+              value={apelidoId}
+              onValueChange={(a) => {
+                setApelidoId(a);
+                const base = apelidos.find((x) => x.id === a)?.cor_base_id ?? corId;
+                setCorId(base);
+                saveMut.mutate({ cor_apelido_id: a, cor_id: base });
+              }}
+              disabled={readOnly}
+            >
+              <SelectTrigger><SelectValue placeholder="Selecione o apelido" /></SelectTrigger>
+              <SelectContent>
+                {(corId ? apelidos.filter((a) => a.cor_base_id === corId) : apelidos).map((a) => (
+                  <SelectItem key={a.id} value={a.id}>{a.nome}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <div className="space-y-1.5">
             <Label>Nome da variante</Label>
             <Input

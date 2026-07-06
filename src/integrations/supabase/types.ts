@@ -3746,6 +3746,7 @@ export type Database = {
           artigo_id: string | null
           codigo_variante: string | null
           cor_id: string | null
+          cor_apelido_id: string | null
           created_at: string | null
           enderecos: Json
           foto_url: string | null
@@ -3759,6 +3760,7 @@ export type Database = {
           artigo_id?: string | null
           codigo_variante?: string | null
           cor_id?: string | null
+          cor_apelido_id?: string | null
           created_at?: string | null
           enderecos?: Json
           foto_url?: string | null
@@ -3772,6 +3774,7 @@ export type Database = {
           artigo_id?: string | null
           codigo_variante?: string | null
           cor_id?: string | null
+          cor_apelido_id?: string | null
           created_at?: string | null
           enderecos?: Json
           foto_url?: string | null
