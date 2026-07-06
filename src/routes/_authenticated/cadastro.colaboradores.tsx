@@ -294,6 +294,18 @@ function ColaboradoresPage() {
         <Button type="button" variant="outline" size="icon" onClick={openCreate} aria-label="Novo tipo" disabled={readOnly}>
           <Plus className="h-4 w-4" />
         </Button>
+        {/* Editar/excluir o TIPO custom selecionado. No desktop isso fica na lista lateral
+            (hover); no mobile não existia — não dava pra gerenciar um tipo criado. */}
+        {selected.custom && !readOnly && (
+          <>
+            <Button type="button" variant="outline" size="icon" onClick={() => openEdit(selected)} aria-label={`Editar tipo ${selected.label}`}>
+              <Pencil className="h-4 w-4" />
+            </Button>
+            <Button type="button" variant="outline" size="icon" onClick={() => setDelTab(selected)} aria-label={`Excluir tipo ${selected.label}`}>
+              <Trash2 className="h-4 w-4 text-destructive" />
+            </Button>
+          </>
+        )}
       </div>
 
       <div className="flex gap-6 rounded-lg border bg-card">
