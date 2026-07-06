@@ -93,10 +93,14 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   NUNCA apaga card que o usuário mexeu ou que avançou); (2) **apagar um card baixa a qtd** da sua semana/subcoleção/
   categoria — trigger `trg_otb_dec_semana` em `modelos` (só p/ `colecao_id` not null), com trava GUC
   `app.otb_reconciling` que `otb_confirmar`/`otb_excluir_colecao` setam p/ o encolher da RPC não decrementar 2×.
-  RPC `otb_importar_colecoes`. `modelos.subcolecao` (texto): no Planejamento/Desenvolvimento vira **dropdown das
-  subcoleções da coleção** quando OTB ligado (senão texto livre). Preenchimento em massa no Planejamento
-  (`BulkEditDialog`). O Planejamento abre **sempre com 5 colunas** (`useGridCols(...,5,true)` — não persiste);
-  card mostra coleção→subcoleção→semana→mês/ano.
+  RPC `otb_importar_colecoes`. **Integridade OTB↔Planejamento** (total tem que bater): `otb_confirmar` também
+  **limpa órfãos** (remove cards vazios em Planejamento/Rejeitado fora de qualquer bucket — sobras do modelo
+  antigo); a distribuição por categoria pode ser **parcial** (Σcat ≤ total; o **resto** vira cards sem categoria);
+  e o `ColecaoSheet` tem um bloco **"Não classificados"** (cards sem semana/subcoleção) com **Atribuir** direto →
+  RPC `otb_atribuir_card` (sobe a qtd da semana e da categoria). `modelos.subcolecao` (texto): no Planejamento/
+  Desenvolvimento vira **dropdown das subcoleções da coleção** quando OTB ligado (senão texto livre). Preenchimento
+  em massa no Planejamento (`BulkEditDialog`). O Planejamento abre **sempre com 5 colunas** (`useGridCols(...,5,true)`
+  — não persiste); card mostra coleção→subcoleção→semana→mês/ano.
 - **cadastro**: atributos (categorias tecido/aviamento/material/subcategoria, linhas,
   categorias de serviço fixas Corte/Oficina), colaboradores, servicos, tecidos
   (+variantes), aviamentos

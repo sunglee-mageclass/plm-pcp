@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -43,8 +43,9 @@ function CategoriaDistribuicaoDialog({
 }) {
   const [map, setMap] = useState<Record<string, number>>(value ?? {});
   const sum = somaCats(map);
+  const resto = total - sum;
   const setQtd = (catId: string, n: number) => setMap((m) => { const x = { ...m }; if (n > 0) x[catId] = n; else delete x[catId]; return x; });
-  const valid = sum === total || sum === 0;
+  const valid = sum <= total; // pode ser parcial: o resto vira cards sem categoria
   const semGrupo = categorias.filter((c) => !c.grupo_id || !grupos.some((g) => g.id === c.grupo_id));
   const blocos: { g: Grupo | null; cats: Categoria[] }[] = [
     ...grupos.map((g) => ({ g, cats: categorias.filter((c) => c.grupo_id === g.id) })).filter((b) => b.cats.length),
@@ -77,8 +78,8 @@ function CategoriaDistribuicaoDialog({
         </div>
         {/* flex-row também no mobile: Cancelar à esquerda, Aplicar à direita (não empilhar). */}
         <DialogFooter className="flex-row items-center justify-end gap-2">
-          <span className={`mr-auto text-sm tabular-nums ${sum > total ? "text-destructive" : sum === total ? "text-emerald-600" : "text-muted-foreground"}`}>
-            {sum} / {total}
+          <span className={`mr-auto text-sm tabular-nums ${sum > total ? "text-destructive" : "text-muted-foreground"}`}>
+            {sum} / {total}{resto > 0 ? ` · resto ${resto} sem categoria` : ""}
           </span>
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
           <Button disabled={!valid} onClick={() => onSave(map)}>Aplicar</Button>
@@ -104,7 +105,7 @@ function WeeksEditor({
         const on = s in value; // marcada = chave presente (valor pode ser null = vazio)
         const total = value[s] ?? 0;
         const dist = somaCats(cats[s]);
-        const distFecha = dist === 0 || dist === total;
+        const distFecha = dist <= total; // parcial é ok (resto = sem categoria); vermelho só se passar
         return (
           <div key={s} className="flex items-center gap-3">
             <Checkbox checked={on} onCheckedChange={(v) => { const n = { ...value }; if (v) n[s] = n[s] ?? null; else delete n[s]; onChange(n); }} />
@@ -129,6 +130,62 @@ function WeeksEditor({
           onSave={(m) => { onCatsChange({ ...cats, [dlgWeek]: m }); setDlgWeek(null); }}
         />
       )}
+    </div>
+  );
+}
+
+// Cards da coleção que não estão em nenhum bucket (sem semana/subcoleção): atribui direto
+// aqui — sobe a qtd da semana (e a categoria, se o card tiver), pra OTB e Planejamento baterem.
+function NaoClassificados({
+  cards, subcolecoes, onChanged,
+}: {
+  cards: any[];
+  subcolecoes: { id: string; nome: string }[];
+  onChanged: () => void;
+}) {
+  const [sel, setSel] = useState<Record<string, { sub: string | null; sem: string }>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const hasSubs = subcolecoes.length > 0;
+  const assign = async (cardId: string) => {
+    const s = sel[cardId] ?? { sub: null, sem: "" };
+    if (!s.sem) { toast.error("Escolha a semana"); return; }
+    if (hasSubs && !s.sub) { toast.error("Escolha a subcoleção"); return; }
+    setBusy(cardId);
+    const { error } = await supabase.rpc("otb_atribuir_card" as any, {
+      _modelo_id: cardId, _subcolecao_id: hasSubs ? s.sub : null, _semana: s.sem,
+    });
+    setBusy(null);
+    if (error) { toast.error(mensagemErro(error, "Erro ao atribuir")); return; }
+    toast.success("Card atribuído");
+    onChanged();
+  };
+  return (
+    <div className="rounded-lg border p-3 space-y-2">
+      <div className="text-sm font-medium flex items-center justify-between">
+        <span>Não classificados</span><Badge variant="secondary">{cards.length}</Badge>
+      </div>
+      <p className="text-xs text-muted-foreground">Cards desta coleção sem semana/subcoleção. Atribua para eles entrarem na contagem do plano.</p>
+      <div className="space-y-2">
+        {cards.map((c) => {
+          const s = sel[c.id] ?? { sub: null, sem: "" };
+          return (
+            <div key={c.id} className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="flex-1 min-w-[110px] truncate">{c.nome || "Sem nome"}{c.categorias_produto?.nome ? ` · ${c.categorias_produto.nome}` : ""}</span>
+              {hasSubs && (
+                <Select value={s.sub ?? ""} onValueChange={(v) => setSel((p) => ({ ...p, [c.id]: { ...s, sub: v } }))}>
+                  <SelectTrigger className="w-32 h-8"><SelectValue placeholder="Subcoleção" /></SelectTrigger>
+                  <SelectContent>{subcolecoes.map((sc) => <SelectItem key={sc.id} value={sc.id}>{sc.nome}</SelectItem>)}</SelectContent>
+                </Select>
+              )}
+              <Select value={s.sem} onValueChange={(v) => setSel((p) => ({ ...p, [c.id]: { ...s, sem: v } }))}>
+                <SelectTrigger className="w-24 h-8"><SelectValue placeholder="Semana" /></SelectTrigger>
+                <SelectContent>{WEEKS.map((w) => <SelectItem key={w} value={w}>Semana {w}</SelectItem>)}</SelectContent>
+              </Select>
+              <Button size="sm" className="h-8" disabled={busy === c.id} onClick={() => assign(c.id)}>Atribuir</Button>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -210,6 +267,37 @@ export function ColecaoSheet({
       return data as { id: string; linha_id: string | null; preco_venda: number | null }[];
     },
   });
+  // Todos os cards da coleção (p/ achar os "não classificados" — fora de qualquer bucket).
+  const { data: colecaoCards = [] } = useQuery({
+    queryKey: ["otb-colecao-cards", colecaoId],
+    enabled: !!colecaoId,
+    queryFn: async () => {
+      const { data } = await supabase.from("modelos")
+        .select("id, nome, subcolecao, semana, categoria_principal_id, categorias_produto:categoria_principal_id(nome)")
+        .eq("colecao_id", colecaoId!);
+      return (data ?? []) as any[];
+    },
+  });
+  // Buckets salvos (subcoleção-nome, semana). Card fora de qualquer bucket = não classificado.
+  const naoClassificados = useMemo(() => {
+    if (!data) return [] as any[];
+    const subName = new Map<string, string>(((data.colecao_subcolecoes ?? []) as any[]).map((s) => [s.id, s.nome]));
+    const bucketKeys = new Set<string>();
+    for (const cs of (data.colecao_semanas ?? []) as any[]) {
+      const sn = cs.subcolecao_id ? subName.get(cs.subcolecao_id) ?? "" : "";
+      bucketKeys.add(`${sn}||${cs.semana}`);
+    }
+    return colecaoCards.filter((c) => !bucketKeys.has(`${c.subcolecao ?? ""}||${c.semana ?? ""}`));
+  }, [data, colecaoCards]);
+  const onCardAtribuido = () => {
+    qc.invalidateQueries({ queryKey: ["otb-colecao", colecaoId] });
+    qc.invalidateQueries({ queryKey: ["otb-colecao-cards", colecaoId] });
+    qc.invalidateQueries({ queryKey: ["otb-colecao-modelos", colecaoId] });
+    qc.invalidateQueries({ queryKey: ["otb-colecoes"] });
+    qc.invalidateQueries({ queryKey: ["otb-semanas-todas"] });
+    qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+  };
+
   const modeloIds = modelos.map((m) => m.id).sort();
   const { data: custoMap = {} } = useQuery({
     queryKey: ["otb-custo", modeloIds],
@@ -262,7 +350,7 @@ export function ColecaoSheet({
         if (!(s in wk)) continue;
         const total = wk[s] ?? 0;
         const dist = somaCats(cats[s]);
-        if (dist > 0 && dist !== total) throw new Error(`${ctx}Semana ${s}: a distribuição por categoria (${dist}) não fecha com a quantidade (${total}).`);
+        if (dist > total) throw new Error(`${ctx}Semana ${s}: a distribuição por categoria (${dist}) passou da quantidade (${total}).`);
       }
     };
     if (cleanSubs.length > 0) cleanSubs.forEach((s) => validarCats(s.weeks, s.cats, `Subcoleção "${s.nome}" · `));
@@ -464,7 +552,22 @@ export function ColecaoSheet({
               </div>
             )}
           </div>
+          {colecaoId && naoClassificados.length > 0 && (
+            <NaoClassificados
+              cards={naoClassificados}
+              subcolecoes={((data?.colecao_subcolecoes ?? []) as any[]).map((s) => ({ id: s.id, nome: s.nome }))}
+              onChanged={onCardAtribuido}
+            />
+          )}
           <div className="rounded-lg border p-3 space-y-1 text-sm">
+            {colecaoId && (
+              <div className="flex justify-between border-b pb-1 mb-1">
+                <span className="text-muted-foreground">No Planejamento</span>
+                <span className="tabular-nums">
+                  {colecaoCards.length} card(s){naoClassificados.length > 0 ? ` · ${naoClassificados.length} não classificado(s)` : ""}
+                </span>
+              </div>
+            )}
             <div className="flex justify-between"><span className="text-muted-foreground">Orçamento</span><span className="tabular-nums">{orc != null ? brl(orc) : "—"}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Custo previsto</span><span className="tabular-nums">{brl(resumo.previsto)}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Custo real</span><span className="tabular-nums">{brl(resumo.real)}</span></div>
