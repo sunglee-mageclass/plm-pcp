@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Search, Plus, Pencil, Trash2, Check, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -81,10 +81,13 @@ type Row = Record<string, any>;
 export function AttributeTab({
   config,
   onChanged,
+  onFilteredCount,
 }: {
   config: AttributeTabConfig;
   /** Chamado após criar/editar/excluir, p/ o pai atualizar contadores próprios. */
   onChanged?: () => void;
+  /** Reporta a contagem FILTRADA (após busca) — o cabeçalho mostra "X de Y itens". */
+  onFilteredCount?: (n: number) => void;
 }) {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
@@ -153,6 +156,14 @@ export function AttributeTab({
       String(r[config.nameField] ?? "").toLowerCase().includes(s),
     );
   }, [rows, search, config.nameField]);
+
+  // Reporta a contagem filtrada ao pai (cabeçalho "X de Y itens"). Ref p/ não depender
+  // da identidade da callback (evita re-disparo a cada render).
+  const onFilteredCountRef = useRef(onFilteredCount);
+  onFilteredCountRef.current = onFilteredCount;
+  useEffect(() => {
+    onFilteredCountRef.current?.(filtered.length);
+  }, [filtered.length]);
 
   // Ordenação clicável: por Nome e pelos campos extra/extraNumber quando existirem.
   // A coluna "extra" exibe o rótulo mapeado (extraMap), então ordena por esse valor cru.
@@ -476,10 +487,6 @@ export function AttributeTab({
             )}
           </TableBody>
         </Table>
-      </div>
-
-      <div className="text-xs text-muted-foreground">
-        <Badge variant="secondary">{filtered.length}</Badge> registro(s)
       </div>
 
       {/* Create modal */}

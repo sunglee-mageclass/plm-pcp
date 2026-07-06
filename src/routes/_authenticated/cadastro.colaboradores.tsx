@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Users, Plus, Trash2, Pencil } from "lucide-react";
@@ -180,6 +180,9 @@ function ColaboradoresPage() {
   );
 
   const { data: count, isLoading: countLoading } = useColabCount(selected.tipo);
+  // Contagem FILTRADA (após busca) reportada pelo AttributeTab; reseta ao trocar de tipo.
+  const [filteredN, setFilteredN] = useState<number | null>(null);
+  useEffect(() => setFilteredN(null), [selected.key]);
 
   const addType = useMutation({
     mutationFn: async ({ nome, categoriaId }: { nome: string; categoriaId: string }) => {
@@ -368,13 +371,16 @@ function ColaboradoresPage() {
               </p>
             </div>
             <Badge variant="secondary" className="shrink-0">
-              {countLoading ? "…" : `${count ?? 0} ${count === 1 ? "item" : "itens"}`}
+              {countLoading
+                ? "…"
+                : `${filteredN ?? count ?? 0} de ${count ?? 0} ${(count ?? 0) === 1 ? "item" : "itens"}`}
             </Badge>
           </div>
 
           <AttributeTab
             key={selected.key}
             config={selected.config}
+            onFilteredCount={setFilteredN}
             onChanged={() => qc.invalidateQueries({ queryKey: ["colab-count", selected.tipo] })}
           />
         </div>

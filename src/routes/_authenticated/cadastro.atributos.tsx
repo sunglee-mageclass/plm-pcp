@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Tags } from "lucide-react";
@@ -353,6 +353,9 @@ function AtributosPage() {
 
   const qc = useQueryClient();
   const { data: count, isLoading: countLoading } = useAttributeCount(selected.config?.table ?? null);
+  // Contagem FILTRADA (após busca) reportada pelo AttributeTab; reseta ao trocar de atributo.
+  const [filteredN, setFilteredN] = useState<number | null>(null);
+  useEffect(() => setFilteredN(null), [selectedValue]);
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
@@ -435,7 +438,9 @@ function AtributosPage() {
             </div>
             {!selected.custom && (
               <Badge variant="secondary" className="shrink-0">
-                {countLoading ? "…" : `${count ?? 0} ${count === 1 ? "item" : "itens"}`}
+                {countLoading
+                  ? "…"
+                  : `${filteredN ?? count ?? 0} de ${count ?? 0} ${(count ?? 0) === 1 ? "item" : "itens"}`}
               </Badge>
             )}
           </div>
@@ -447,6 +452,7 @@ function AtributosPage() {
               <AttributeTab
                 key={selected.value}
                 config={activeConfig}
+                onFilteredCount={setFilteredN}
                 onChanged={() =>
                   qc.invalidateQueries({ queryKey: ["attribute-count", selected.config?.table] })
                 }
