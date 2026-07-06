@@ -312,6 +312,8 @@ function DesenvolvimentoPage() {
           </div>
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+          {/* ordem: lupa · recolher (desktop) · ordenar · filtros */}
+          <SearchToggle value={search} onChange={setSearch} placeholder="Pesquisar por nome…" />
           <Button
             variant="outline"
             size="sm"
@@ -332,7 +334,6 @@ function DesenvolvimentoPage() {
               ))}
             </SelectContent>
           </Select>
-          <SearchToggle value={search} onChange={setSearch} placeholder="Pesquisar por nome…" />
           <FilterButton
             screen="desenvolvimento"
             filters={[
@@ -354,8 +355,9 @@ function DesenvolvimentoPage() {
         </div>
       </header>
 
-      {/* Desktop: Kanban — título em barra vertical à esquerda de cada coluna, colapsável */}
-      <div className="hidden md:flex gap-4 overflow-x-auto pb-4 items-start">
+      {/* Desktop: Kanban — título em barra vertical à esquerda de cada coluna, colapsável.
+          items-stretch = todas as colunas (e suas barras de título) na altura da mais alta. */}
+      <div className="hidden md:flex gap-4 overflow-x-auto pb-4 items-stretch">
         {statusKanban.map((s) => {
           const cards = byStatus.get(s.key) ?? [];
           const isOver = dragOver === s.key;
@@ -463,7 +465,10 @@ function MobileCard({ modelo, estilistaNome, categoriaNome, onOpen }: {
   const url = useSignedUrlBucket(cover);
   const coverIsPdf = /\.pdf$/i.test(cover ?? "");
   return (
-    <div className="bg-card border rounded-md p-2">
+    <div className="relative bg-card border rounded-md p-2">
+      {modelo.enviado_cad && (
+        <span className="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full bg-sky-600 ring-2 ring-card" title="Enviado ao CAD" aria-label="Enviado ao CAD" />
+      )}
       <div className="flex gap-2" onClick={onOpen} role="button">
         <div className="h-14 w-14 shrink-0 rounded bg-muted overflow-hidden flex items-center justify-center">
           {!url ? <ImageIcon className="h-6 w-6 text-muted-foreground" />
@@ -503,9 +508,12 @@ function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: i
         onDragStartCard?.();
       }}
       onDragEnd={() => onDragEndCard?.()}
-      className={`bg-card border rounded-md p-2 hover:shadow-md transition-shadow ${isDraggable ? "cursor-grab active:cursor-grabbing" : ""}`}
+      className={`relative bg-card border rounded-md p-2 hover:shadow-md transition-shadow ${isDraggable ? "cursor-grab active:cursor-grabbing" : ""}`}
       onClick={onOpen}
     >
+      {modelo.enviado_cad && (
+        <span className="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full bg-sky-600 ring-2 ring-card" title="Enviado ao CAD" aria-label="Enviado ao CAD" />
+      )}
       <div className="flex gap-2">
         <div className="h-14 w-14 shrink-0 rounded bg-muted overflow-hidden flex items-center justify-center">
           {!url ? <ImageIcon className="h-6 w-6 text-muted-foreground" />

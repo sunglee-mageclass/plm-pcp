@@ -46,7 +46,7 @@ export function ModeloDetailPanel({ modeloId, onClose }: {
   const open = !!modeloId;
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] overflow-y-auto max-sm:pb-24 max-sm:[&>button]:hidden">
+      <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] flex flex-col max-sm:[&>button]:hidden">
         {modeloId && <PanelContent modeloId={modeloId} onClose={onClose} />}
       </SheetContent>
     </Sheet>
@@ -919,7 +919,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       />
 
       <fieldset disabled={locked} className="contents">
-      <div className="mt-4">
+      {/* área rolável (flex-1) — o footer fica fixo embaixo como irmão shrink-0 */}
+      <div className="mt-4 flex-1 min-h-0 overflow-y-auto">
         <Accordion type="multiple" defaultValue={["s1"]}>
           <AccordionItem value="s1">
             <AccordionTrigger>1. Informações Básicas</AccordionTrigger>
@@ -1032,7 +1033,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       </div>
       </fieldset>
 
-      <div className="bg-background border-t pt-3 flex flex-wrap gap-2 justify-end items-center sm:sticky sm:bottom-0 sm:mt-4 max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-50 max-sm:flex-nowrap max-sm:px-4 max-sm:py-3 max-sm:mt-0">
+      <div className="bg-background border-t pt-3 mt-3 shrink-0 flex flex-wrap gap-2 justify-end items-center max-sm:flex-nowrap">
         {draft.enviado_cad && (
           <span className="text-xs text-muted-foreground mr-auto max-sm:hidden">✓ Já enviado para o CAD</span>
         )}
