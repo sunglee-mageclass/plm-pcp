@@ -26,12 +26,14 @@ export function RomaneioDirecionamento({
   variantes,
   confirmado,
   dataStr,
+  labelByNumero,
 }: {
   modelo: any;
   tamanhos: string[];
   variantes: VarState[];
   confirmado: boolean;
   dataStr: string;
+  labelByNumero?: Record<number, string>;
 }) {
   const num = (o: Record<string, number> | undefined, t: string) => Number(o?.[t] ?? 0);
   const sum = (o: Record<string, number>) => tamanhos.reduce((s, t) => s + (o[t] ?? 0), 0);
@@ -92,7 +94,7 @@ export function RomaneioDirecionamento({
         });
         return (
           <div key={v.variante_numero} className="print-section" style={{ marginBottom: 14 }}>
-            <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 4 }}>Variante {v.variante_numero}</div>
+            <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 4 }}>{labelByNumero?.[v.variante_numero] ?? `Variante ${v.variante_numero}`}</div>
             {tabela({ real, ec, lf })}
           </div>
         );

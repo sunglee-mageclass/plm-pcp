@@ -476,7 +476,7 @@ function OcDialog({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("variantes_tecido")
-        .select("id, artigo_id, nome_variante, codigo_variante")
+        .select("id, artigo_id, nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)")
         .in("artigo_id", artigoIds);
       if (error) throw error;
       return (data ?? []) as Variante[];

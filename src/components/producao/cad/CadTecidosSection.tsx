@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Field } from "./shared";
 import { EtiquetaLavagemArtigoView } from "@/components/shared/EtiquetaLavagemArtigo";
 import { fmtNum } from "@/lib/format";
+import { varianteLabel } from "@/lib/variante";
 import type { TecidoRow, VarianteRow } from "./types";
 
 type Props = {
@@ -96,7 +97,7 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
                 <tbody>
                   {t.variantes.map((v, j) => (
                     <tr key={`${v.variante_tecido_id}-${j}`} className="border-t">
-                      <td className="px-2 py-1">{v.variante_nome ?? "—"}</td>
+                      <td className="px-2 py-1">{varianteLabel({ nome: v.variante_nome, cor: v.variante_cor, apelido: v.variante_apelido })}</td>
                       {compl && (
                         <td className="px-2 py-1" data-label="× grade">
                           <NumberInput type="number" step="0.01" min={0} className="w-16 max-md:w-24"

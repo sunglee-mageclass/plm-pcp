@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { artigoLabel } from "@/lib/artigo-label";
+import { labelVarianteRow } from "@/lib/variante";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DateField } from "@/components/shared/DateField";
@@ -130,11 +131,11 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
       if (tipo === "tecido") {
         const { data, error } = await supabase
           .from("variantes_tecido")
-          .select("id, nome_variante, codigo_variante, cores(nome), artigos(nome, unidade_medida)");
+          .select("id, nome_variante, codigo_variante, cores(nome), apelido:cor_apelido_id(nome), artigos(nome, unidade_medida)");
         if (error) throw error;
         return (data ?? []).map((v: any) => ({
           id: v.id,
-          label: `${artigoLabel(v.artigos)} · ${v.nome_variante || v.cores?.nome || v.codigo_variante || "variante"}`,
+          label: `${artigoLabel(v.artigos)} · ${labelVarianteRow(v) !== "—" ? labelVarianteRow(v) : "variante"}`,
         }));
       }
       const { data, error } = await supabase.from("aviamentos").select("id, codigo_nome").order("codigo_nome");

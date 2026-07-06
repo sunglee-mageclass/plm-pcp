@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { varianteLabel } from "@/lib/variante";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useSignedUrl, VARIANT_BUCKET } from "@/hooks/useSignedUrl";
@@ -568,15 +569,6 @@ function VariantesSection({ artigoId, readOnly }: { artigoId: string; readOnly: 
     },
   });
 
-  // Nome do artigo — base p/ gerar o nome_variante "{artigo} - {cor} - {apelido}".
-  const { data: artigoNome = "" } = useQuery({
-    queryKey: ["artigo-nome", artigoId],
-    queryFn: async () => {
-      const { data } = await supabase.from("artigos").select("nome").eq("id", artigoId).single();
-      return data?.nome ?? "";
-    },
-  });
-
   const { data: variantes = [] } = useQuery({
     queryKey: ["variantes", artigoId],
     queryFn: async () => {
@@ -596,12 +588,11 @@ function VariantesSection({ artigoId, readOnly }: { artigoId: string; readOnly: 
 
   const addVarMut = useMutation({
     mutationFn: async ({ corId, apelidoId }: { corId: string; apelidoId: string }) => {
-      const corNome = coresMap.get(corId) ?? "";
-      const apelidoNome = apelidosMap.get(apelidoId) ?? "";
-      const nomeVariante = `${artigoNome} - ${corNome}${apelidoNome ? ` - ${apelidoNome}` : ""}`.trim();
+      // nome_variante é OPCIONAL (nome comercial, ex.: "Malha") — NÃO auto-gerar a partir
+      // de cor. O rótulo em toda tela é montado por nome + cor + apelido (helper).
       const { error } = await supabase
         .from("variantes_tecido")
-        .insert({ artigo_id: artigoId, cor_id: corId, cor_apelido_id: apelidoId, nome_variante: nomeVariante });
+        .insert({ artigo_id: artigoId, cor_id: corId, cor_apelido_id: apelidoId });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -710,7 +701,6 @@ function VariantesSection({ artigoId, readOnly }: { artigoId: string; readOnly: 
                 apelidoLabel={v.cor_apelido_id ? apelidosMap.get(v.cor_apelido_id) ?? null : null}
                 cores={cores}
                 apelidos={apelidos}
-                artigoNome={artigoNome}
                 onRemove={() => setRemoveTarget(v)}
                 readOnly={readOnly}
               />
@@ -755,7 +745,6 @@ function VariantRow({
   apelidoLabel,
   cores,
   apelidos,
-  artigoNome,
   onRemove,
   readOnly,
 }: {
@@ -764,7 +753,6 @@ function VariantRow({
   apelidoLabel: string | null;
   cores: Cor[];
   apelidos: Apelido[];
-  artigoNome: string;
   onRemove: () => void;
   readOnly: boolean;
 }) {
@@ -774,13 +762,6 @@ function VariantRow({
   const [codigo, setCodigo] = useState(variante.codigo_variante ?? "");
   const [corId, setCorId] = useState(variante.cor_id ?? "");
   const [apelidoId, setApelidoId] = useState(variante.cor_apelido_id ?? "");
-  // Regera o nome_variante ("{artigo} - {cor} - {apelido}") ao mudar cor/apelido, p/ as
-  // telas que exibem via nome_variante (OC, Desenvolvimento, Consumo) refletirem o apelido.
-  const genNome = (cId: string, aId: string) => {
-    const cor = cores.find((c) => c.id === cId)?.nome ?? "";
-    const apel = apelidos.find((a) => a.id === aId)?.nome ?? "";
-    return `${artigoNome} - ${cor}${apel ? ` - ${apel}` : ""}`.trim();
-  };
   const [enderecos, setEnderecos] = useState<{ rua: string; prateleira: string }[]>(() => {
     const e = (variante as any).enderecos;
     if (Array.isArray(e) && e.length > 0) return e.map((x: any) => ({ rua: x?.rua ?? "", prateleira: x?.prateleira ?? "" }));
@@ -846,7 +827,7 @@ function VariantRow({
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium">
-            {corLabel}{apelidoLabel ? ` · ${apelidoLabel}` : ""}
+            {varianteLabel({ nome: variante.nome_variante, cor: corLabel, apelido: apelidoLabel })}
           </p>
           <p className="text-xs text-muted-foreground line-clamp-1">
             {variante.codigo_variante || variante.nome_variante || "Sem código"}
@@ -871,9 +852,7 @@ function VariantRow({
                 setCorId(b);
                 const keep = apelidos.some((a) => a.id === apelidoId && a.cor_base_id === b) ? apelidoId : "";
                 setApelidoId(keep);
-                const nv = genNome(b, keep);
-                setNome(nv);
-                saveMut.mutate({ cor_id: b, cor_apelido_id: keep || null, nome_variante: nv });
+                saveMut.mutate({ cor_id: b, cor_apelido_id: keep || null });
               }}
               disabled={readOnly}
             >
@@ -891,9 +870,7 @@ function VariantRow({
                 setApelidoId(a);
                 const base = apelidos.find((x) => x.id === a)?.cor_base_id ?? corId;
                 setCorId(base);
-                const nv = genNome(base, a);
-                setNome(nv);
-                saveMut.mutate({ cor_apelido_id: a, cor_id: base, nome_variante: nv });
+                saveMut.mutate({ cor_apelido_id: a, cor_id: base });
               }}
               disabled={readOnly}
             >
@@ -906,7 +883,7 @@ function VariantRow({
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label>Nome da variante</Label>
+            <Label>Nome comercial (opcional)</Label>
             <Input
               value={nome}
               onChange={(e) => setNome(e.target.value)}

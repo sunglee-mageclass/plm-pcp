@@ -15,6 +15,7 @@ import { printWithImages } from "@/lib/print";
 import { RelatorioPrint } from "@/components/shared/RelatorioPrint";
 import { cn } from "@/lib/utils";
 import { fmtNum } from "@/lib/format";
+import { labelVarianteRow } from "@/lib/variante";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { useSort, SortTh } from "@/components/shared/sort";
 
@@ -74,7 +75,7 @@ function TecidosTab() {
     queryKey: ["estoque-tecidos"],
     queryFn: async () => {
       const [variantesRes, ocItensRes, baixasRes, modTecRes, modTecVarRes, modelosRes, modGradesRes, osItensRes] = await Promise.all([
-        supabase.from("variantes_tecido").select("id, artigo_id, nome_variante, codigo_variante, rua, prateleira, enderecos, cores(nome), artigos(id, nome, unidade_medida, rendimento, empresa_id, categoria_tecido_id, empresas(nome_fantasia), categorias_tecido(nome))"),
+        supabase.from("variantes_tecido").select("id, artigo_id, nome_variante, codigo_variante, rua, prateleira, enderecos, cores(nome), apelido:cor_apelido_id(nome), artigos(id, nome, unidade_medida, rendimento, empresa_id, categoria_tecido_id, empresas(nome_fantasia), categorias_tecido(nome))"),
         (supabase.from("ocs_tecido_itens") as any).select("id, artigo_id, variante_tecido_id, quantidade_pedida, quantidade_recebida, cancelado, estoque_zerado, substitui_item_id, oc_tecido_id, ocs_tecido!oc_tecido_id!inner(status, is_rolo, rolo_origem_item_id)"),
         // Baixa real = ledger estoque_tecido_baixas (consumo de estoque RECEBIDO no
         // corte, capado no saldo) — fonte única de baixa, por ITEM de OC.
@@ -221,7 +222,7 @@ function TecidosTab() {
         const previsto = fisico + prevRecebM - reservado;
         return {
           varId: v.id,
-          nomeVariante: v.nome_variante || v.codigo_variante || v.cores?.nome || "—",
+          nomeVariante: labelVarianteRow(v),
           enderecos: (Array.isArray(v.enderecos) && v.enderecos.length > 0)
             ? v.enderecos
             : ((v.rua || v.prateleira) ? [{ rua: v.rua, prateleira: v.prateleira }] : []),

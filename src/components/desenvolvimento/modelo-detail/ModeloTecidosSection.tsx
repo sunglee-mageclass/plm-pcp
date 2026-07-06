@@ -14,6 +14,7 @@ import { useModoOcRolo } from "@/hooks/useModoOcRolo";
 import { TIPOS, TIPO_LABEL, type TecidoBlock, type GradeRow, type OcAlloc } from "./types";
 import { EtiquetaLavagemArtigoView } from "@/components/shared/EtiquetaLavagemArtigo";
 import { fmtNum } from "@/lib/format";
+import { labelVarianteRow } from "@/lib/variante";
 
 type ArtigoOpt = { id: string; nome: string; unidade_medida?: string | null };
 
@@ -199,13 +200,13 @@ function TecidoBlockEditor({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("variantes_tecido")
-        .select("id, nome_variante, codigo_variante, artigo_id")
+        .select("id, nome_variante, codigo_variante, artigo_id, cor:cor_id(nome), apelido:cor_apelido_id(nome)")
         .in("artigo_id", poolArtigoIds);
       if (error) throw error;
       return (data ?? []).map((v: any) => ({
         id: v.id,
         artigo_id: v.artigo_id as string,
-        nome: v.nome_variante || v.codigo_variante || v.id,
+        nome: labelVarianteRow(v) !== "—" ? labelVarianteRow(v) : v.id,
       }));
     },
   });

@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ClipboardCheck, Save, CheckCircle2, RotateCcw, Camera, Pencil, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
-import { corApelidoLabel } from "@/lib/variante";
+import { varianteLabel } from "@/lib/variante";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -157,10 +157,9 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
     const vs = (((mainFabric as any)?.cad_tecido_variantes ?? []) as any[])
       .filter((v) => v.ordem != null)
       .map((v) => {
-        const cor = (v.variantes_tecido?.cor?.nome || v.variantes_tecido?.apelido?.nome)
-          ? corApelidoLabel(v.variantes_tecido?.cor?.nome, v.variantes_tecido?.apelido?.nome)
-          : v.variantes_tecido?.nome_variante || "—";
-        return { num: Number(v.ordem), label: `Variante ${v.ordem} - ${cor}` };
+        const vt = v.variantes_tecido;
+        const lbl = varianteLabel({ nome: vt?.nome_variante, cor: vt?.cor?.nome, apelido: vt?.apelido?.nome });
+        return { num: Number(v.ordem), label: lbl !== "—" ? `${v.ordem} - ${lbl}` : `${v.ordem}` };
       })
       .sort((a, b) => a.num - b.num);
     if (vs.length) return vs;

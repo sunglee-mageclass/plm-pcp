@@ -24,3 +24,22 @@ export function corApelidoLabel(cor?: string | null, apelido?: string | null): s
 export function corApelidoLabelServico(cor?: string | null, apelido?: string | null): string {
   return junta(apelido, cor);
 }
+
+/** Rótulo a partir de uma linha embedada de `variantes_tecido`. Aceita a cor base tanto
+ *  pelo alias `cor` (embed `cor:cor_id(nome)`) quanto por `cores` (embed implícito
+ *  `cores(nome)`), e o apelido por `apelido:cor_apelido_id(nome)`. Cai p/ código da
+ *  variante e, por fim, "—" quando não há cor/nome. */
+export function labelVarianteRow(
+  v?: {
+    nome_variante?: string | null;
+    codigo_variante?: string | null;
+    cor?: { nome: string | null } | null;
+    cores?: { nome: string | null } | null;
+    apelido?: { nome: string | null } | null;
+  } | null,
+): string {
+  if (!v) return "—";
+  const cor = v.cor?.nome ?? v.cores?.nome ?? null;
+  const base = varianteLabel({ nome: v.nome_variante, cor, apelido: v.apelido?.nome });
+  return base !== "—" ? base : v.codigo_variante || "—";
+}

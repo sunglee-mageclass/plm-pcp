@@ -6,6 +6,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { labelVarianteRow } from "@/lib/variante";
 import { Loader2, Pencil, Send, ArrowLeft } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -468,12 +469,13 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     queryFn: async () => {
       const { data, error } = await supabase
         .from("variantes_tecido")
-        .select("id, nome_variante, codigo_variante")
+        .select("id, nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)")
         .in("id", tecido1VarianteIds);
       if (error) throw error;
       const map: Record<string, string> = {};
       (data ?? []).forEach((v: any) => {
-        map[v.id] = v.nome_variante || v.codigo_variante || "";
+        const l = labelVarianteRow(v);
+        map[v.id] = l !== "—" ? l : "";
       });
       return map;
     },

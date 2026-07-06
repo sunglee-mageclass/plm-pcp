@@ -6,6 +6,7 @@ import { printWithImages } from "@/lib/print";
 import { RomaneioDirecionamento } from "@/components/producao/RomaneioDirecionamento";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { varianteLabel } from "@/lib/variante";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -70,6 +71,33 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
       return data ?? [];
     },
   });
+
+  // Variantes do Tecido Principal (tipo=tecido, numero=1) p/ rotular por cor+apelido.
+  const { data: mainFabric } = useQuery({
+    queryKey: ["dir-main-fabric", cad?.id],
+    enabled: !!cad?.id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("cad_tecidos")
+        .select("cad_tecido_variantes(ordem, variantes_tecido:variante_tecido_id(nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))")
+        .eq("cad_id", cad!.id)
+        .eq("tipo", "tecido")
+        .eq("numero", 1)
+        .maybeSingle();
+      return data;
+    },
+  });
+  // variante_numero (= ordem) -> "N - nome - cor - apelido" (fallback "Variante N").
+  const labelByNumero = useMemo<Record<number, string>>(() => {
+    const m: Record<number, string> = {};
+    (((mainFabric as any)?.cad_tecido_variantes ?? []) as any[]).forEach((v) => {
+      if (v.ordem == null) return;
+      const vt = v.variantes_tecido;
+      const lbl = varianteLabel({ nome: vt?.nome_variante, cor: vt?.cor?.nome, apelido: vt?.apelido?.nome });
+      m[Number(v.ordem)] = lbl !== "—" ? `${v.ordem} - ${lbl}` : `Variante ${v.ordem}`;
+    });
+    return m;
+  }, [mainFabric]);
 
   // Apenas os tamanhos presentes na Grade Real (cadastrados), na ordem do
   // tenant_config — não traz os tamanhos da config que o modelo não usa.
@@ -319,7 +347,7 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
         return (
           <Card key={v.variante_numero} className="p-5 space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold">Variante {v.variante_numero}</h3>
+              <h3 className="font-semibold">{labelByNumero[v.variante_numero] ?? `Variante ${v.variante_numero}`}</h3>
               <div className="text-xs text-muted-foreground">Grade Real Total: <strong>{realTotal}</strong></div>
             </div>
             {overSizes.length > 0 && (
@@ -425,6 +453,7 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
         variantes={variantes}
         confirmado={confirmado}
         dataStr={new Date().toLocaleDateString("pt-BR")}
+        labelByNumero={labelByNumero}
       />
     </div>
   );

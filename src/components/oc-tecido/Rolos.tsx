@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
-import { corApelidoLabel } from "@/lib/variante";
+import { corApelidoLabel, varianteLabel } from "@/lib/variante";
 import { Trash2, Pencil, Undo2, Printer } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -317,7 +317,11 @@ const roloMetragem = (r: RoloRow) =>
   }, 0);
 const roloVariantes = (r: RoloRow) =>
   (r.ocs_tecido_itens ?? [])
-    .map((it) => it.variantes_tecido?.nome_variante || it.variantes_tecido?.codigo_variante)
+    .map((it) => {
+      const v = it.variantes_tecido;
+      const lbl = varianteLabel({ nome: v?.nome_variante, cor: v?.cor?.nome, apelido: v?.apelido?.nome });
+      return lbl !== "—" ? lbl : v?.codigo_variante || null;
+    })
     .filter(Boolean)
     .join(", ");
 const roloEndereco = (r: RoloRow) => [r.rolo_rua, r.rolo_prateleira].filter(Boolean).join(" · ");

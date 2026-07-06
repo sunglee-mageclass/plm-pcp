@@ -5,7 +5,7 @@ import { ImageIcon, Scissors, AlertTriangle } from "lucide-react";
 import { useEtapasAfetadas, DownstreamConfirmDialog } from "@/components/desenvolvimento/DownstreamImpactAlert";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
-import { corApelidoLabel } from "@/lib/variante";
+import { varianteLabel } from "@/lib/variante";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -708,10 +708,8 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
     const t1 = tecidos.find((t) => t.tipo === "tecido" && t.numero === 1);
     const m: Record<number, string> = {};
     (t1?.variantes ?? []).forEach((v) => {
-      const cor = (v.variante_cor || v.variante_apelido)
-        ? corApelidoLabel(v.variante_cor, v.variante_apelido)
-        : v.variante_nome || "—";
-      if (v.ordem) m[v.ordem] = `Variante ${v.ordem} — ${cor}`;
+      const lbl = varianteLabel({ nome: v.variante_nome, cor: v.variante_cor, apelido: v.variante_apelido });
+      if (v.ordem) m[v.ordem] = lbl !== "—" ? `${v.ordem} - ${lbl}` : `${v.ordem}`;
     });
     return m;
   }, [tecidos]);

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { varianteLabel } from "@/lib/variante";
 import { AlertTriangle, Check, Ban, RotateCcw, Repeat } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -49,7 +50,7 @@ const STATUS_BADGE: Record<CqStatus, { label: string; cls: string } | null> = {
 };
 
 const SELECT_COLS =
-  "id, cancelado, variante_tecido_id, cq_observacao, cq_ok, cq_alerta_status, artigos(nome), variantes_tecido(nome_variante, codigo_variante)";
+  "id, cancelado, variante_tecido_id, cq_observacao, cq_ok, cq_alerta_status, artigos(nome), variantes_tecido(nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome))";
 // Para rolos, também trazemos consumo (baixa) e vínculo de Dev p/ saber se está "em uso".
 const ROLO_SELECT_COLS = `${SELECT_COLS}, estoque_tecido_baixas(id), modelo_tecido_oc_links(id)`;
 
@@ -63,8 +64,18 @@ export function alertaBadge(statuses: string[]): { label: string; cls: string } 
   return null;
 }
 
-const vName = (v?: { nome_variante: string | null; codigo_variante: string | null } | null) =>
-  v ? v.nome_variante || v.codigo_variante || "—" : "—";
+const vName = (
+  v?: {
+    nome_variante: string | null;
+    codigo_variante: string | null;
+    cor?: { nome: string | null } | null;
+    apelido?: { nome: string | null } | null;
+  } | null,
+) => {
+  if (!v) return "—";
+  const base = varianteLabel({ nome: v.nome_variante, cor: v.cor?.nome, apelido: v.apelido?.nome });
+  return base !== "—" ? base : v.codigo_variante || "—";
+};
 
 const toCqItem = (it: any, ocId: string | null, ocNumero: string | null, isRolo = false): CqItem => ({
   id: it.id,
@@ -527,9 +538,17 @@ function TrocaDialog({ original, resol, onClose }: { original: CqItem; resol: Re
     enabled: !!artigoId,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("variantes_tecido").select("id, nome_variante, codigo_variante").eq("artigo_id", artigoId);
+        .from("variantes_tecido")
+        .select("id, nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)")
+        .eq("artigo_id", artigoId);
       if (error) throw error;
-      return (data ?? []) as { id: string; nome_variante: string | null; codigo_variante: string | null }[];
+      return (data ?? []) as {
+        id: string;
+        nome_variante: string | null;
+        codigo_variante: string | null;
+        cor?: { nome: string | null } | null;
+        apelido?: { nome: string | null } | null;
+      }[];
     },
   });
 
@@ -570,7 +589,7 @@ function TrocaDialog({ original, resol, onClose }: { original: CqItem; resol: Re
                 <SelectTrigger><SelectValue placeholder="Selecione a variante" /></SelectTrigger>
                 <SelectContent>
                   {variantes.map((v) => (
-                    <SelectItem key={v.id} value={v.id}>{v.nome_variante || v.codigo_variante || "—"}</SelectItem>
+                    <SelectItem key={v.id} value={v.id}>{vName(v)}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

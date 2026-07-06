@@ -4,7 +4,7 @@ import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { artigoLabel, unidadeSufixo } from "@/lib/artigo-label";
-import type { Artigo, ItemDraft, Variante } from "./shared";
+import { labelVariante, type Artigo, type ItemDraft, type Variante } from "./shared";
 
 export function TecidoGroup({
   n, artigos, artigoId, onArtigoChange, variantes, items, toggleVariante, setQtd, setRendimento, varianteMap,
@@ -51,7 +51,7 @@ export function TecidoGroup({
                 return (
                   <label key={v.id} className="flex items-center gap-2 text-sm">
                     <input type="checkbox" checked={checked} onChange={(e) => toggleVariante(v.id, e.target.checked)} />
-                    <span>{v.nome_variante ?? v.codigo_variante ?? v.id.slice(0, 8)}</span>
+                    <span>{labelVariante(v) !== "—" ? labelVariante(v) : v.id.slice(0, 8)}</span>
                   </label>
                 );
               })}
@@ -82,7 +82,7 @@ export function TecidoGroup({
                 return (
                   <div key={i.tempId} className="flex items-center gap-3">
                     <span className="text-sm flex-1">
-                      {v?.nome_variante ?? v?.codigo_variante ?? "—"}
+                      {labelVariante(v)}
                     </span>
                     <div className="relative w-32">
                       <NumberInput type="number" step="0.01" className={sufixo ? "pr-10" : ""}

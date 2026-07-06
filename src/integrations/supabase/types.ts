@@ -3800,6 +3800,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "variantes_tecido_cor_apelido_id_fkey"
+            columns: ["cor_apelido_id"]
+            isOneToOne: false
+            referencedRelation: "cores_apelido"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "variantes_tecido_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false

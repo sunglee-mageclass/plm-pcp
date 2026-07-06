@@ -1,5 +1,5 @@
 import { cell, cellH } from "./types";
-import { corApelidoLabel } from "@/lib/variante";
+import { varianteLabel } from "@/lib/variante";
 import type { AviamentoRow, EtiquetaRow, GradeRow, TecidoRow } from "./types";
 import { EtiquetaLavagemArtigoPrint } from "@/components/shared/EtiquetaLavagemArtigo";
 import { FichaHeader } from "@/components/producao/FichaHeader";
@@ -54,10 +54,8 @@ export function Assinatura({ dataPrevista = false }: { dataPrevista?: boolean })
 }
 
 function varLabel(v: TecidoRow["variantes"][number]) {
-  const cor = (v.variante_cor || v.variante_apelido)
-    ? corApelidoLabel(v.variante_cor, v.variante_apelido)
-    : v.variante_nome;
-  return `Variante ${v.ordem}${cor ? ` - ${cor}` : ""}`;
+  const lbl = varianteLabel({ nome: v.variante_nome, cor: v.variante_cor, apelido: v.variante_apelido });
+  return lbl !== "—" ? `${v.ordem} - ${lbl}` : `${v.ordem}`;
 }
 
 /** Tabela de variantes (mesmo esquema p/ tecido e p/ forro/entretela). */

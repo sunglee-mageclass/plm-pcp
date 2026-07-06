@@ -1,7 +1,12 @@
 import { format, parseISO } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
+import { labelVarianteRow } from "@/lib/variante";
 
 export const BUCKET = "oc-tecido";
+
+/** Rótulo padrão da variante de tecido: "nome comercial - cor - apelido" (fonte única
+ * em @/lib/variante). Mantido aqui como reexport pela ergonomia dos componentes de OC. */
+export const labelVariante = labelVarianteRow;
 
 export type OCStatus = "encomendado" | "recebido";
 
@@ -15,6 +20,8 @@ export type Artigo = {
 export type Variante = {
   id: string; artigo_id: string;
   nome_variante: string | null; codigo_variante: string | null;
+  cor?: { nome: string | null } | null;
+  apelido?: { nome: string | null } | null;
 };
 export type OCItem = {
   id: string;

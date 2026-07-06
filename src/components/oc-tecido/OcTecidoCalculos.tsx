@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { artigoLabel, unidadeSufixo } from "@/lib/artigo-label";
 import { cn } from "@/lib/utils";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
-import { fmtMoney, type Artigo, type ItemDraft, type RoloEntry, type Variante } from "./shared";
+import { fmtMoney, labelVariante, type Artigo, type ItemDraft, type RoloEntry, type Variante } from "./shared";
 
 // Quantidade EDITÁVEL de um rolo já criado: controlado (mostra o valor salvo) e só
 // dispara o ajuste (RPC) no blur se mudou.
@@ -126,7 +126,7 @@ export function OcTecidoCalculos({
               <TableRow key={i.tempId} className={cn(i.cancelado && "opacity-50")}>
                 <TableCell>
                   <div className={cn("text-sm", i.cancelado && "line-through")}>{artigoLabel(a)}</div>
-                  <div className={cn("text-xs text-muted-foreground", i.cancelado && "line-through")}>{v?.nome_variante ?? v?.codigo_variante ?? "—"}</div>
+                  <div className={cn("text-xs text-muted-foreground", i.cancelado && "line-through")}>{labelVariante(v)}</div>
                 </TableCell>
                 <TableCell data-label="Qtd Pedida" className={cn(i.cancelado && "line-through")}>{i.quantidade_pedida}{sufixo ? ` ${sufixo}` : ""}</TableCell>
                 {hasKg && <TableCell data-label="Metr. Pedida" className={cn(i.cancelado && "line-through")}>{fmtNum(metragemPedida(i))} m</TableCell>}
