@@ -216,7 +216,7 @@ export function ColecaoSheet({
             <div className="grid gap-1"><Label>Orçamento</Label><NumberInput value={orcamento} onChange={(e) => setOrcamento(e.target.value)} /></div>
           </div>
           <div>
-            <Label className="mb-2 block">Semanas</Label>
+            <Label className="mb-2 block">Modelos por Semana</Label>
             <div className="space-y-2">
               {WEEKS.map((s) => {
                 const on = s in weeks; // marcada = chave presente (valor pode ser null = vazio)
