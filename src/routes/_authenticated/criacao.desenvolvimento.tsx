@@ -465,9 +465,9 @@ function MobileCard({ modelo, estilistaNome, categoriaNome, onOpen }: {
   const url = useSignedUrlBucket(cover);
   const coverIsPdf = /\.pdf$/i.test(cover ?? "");
   return (
-    <div className="relative bg-card border rounded-md p-2">
+    <div className="relative bg-card border rounded-md p-2" title={modelo.enviado_cad ? "Enviado ao CAD" : undefined}>
       {modelo.enviado_cad && (
-        <span className="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full bg-sky-600 ring-2 ring-card" title="Enviado ao CAD" aria-label="Enviado ao CAD" />
+        <span className="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full bg-sky-600 ring-2 ring-card" aria-label="Enviado ao CAD" />
       )}
       <div className="flex gap-2" onClick={onOpen} role="button">
         <div className="h-14 w-14 shrink-0 rounded bg-muted overflow-hidden flex items-center justify-center">
@@ -510,9 +510,10 @@ function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: i
       onDragEnd={() => onDragEndCard?.()}
       className={`relative bg-card border rounded-md p-2 hover:shadow-md transition-shadow ${isDraggable ? "cursor-grab active:cursor-grabbing" : ""}`}
       onClick={onOpen}
+      title={modelo.enviado_cad ? "Enviado ao CAD" : undefined}
     >
       {modelo.enviado_cad && (
-        <span className="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full bg-sky-600 ring-2 ring-card" title="Enviado ao CAD" aria-label="Enviado ao CAD" />
+        <span className="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full bg-sky-600 ring-2 ring-card" aria-label="Enviado ao CAD" />
       )}
       <div className="flex gap-2">
         <div className="h-14 w-14 shrink-0 rounded bg-muted overflow-hidden flex items-center justify-center">

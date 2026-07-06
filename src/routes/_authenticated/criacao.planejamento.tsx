@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, Save } from "lucide-react";
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -588,7 +587,6 @@ function PlanejamentoPage() {
         </div>
       </div>
 
-      <TooltipProvider delayDuration={200}>
       <div ref={gridRef}>
       {filtered.length === 0 ? (
         <EmptyState icon={Palette} title="Nenhum modelo encontrado" description="Crie um modelo usando o botão Novo Modelo." />
@@ -600,7 +598,6 @@ function PlanejamentoPage() {
         <div className={GRID_COLS_CLASS[cols]}>{sorted.map(renderCard)}</div>
       )}
       </div>
-      </TooltipProvider>
 
       {(openNew || openId) && (
         <ModeloDialog
@@ -664,18 +661,22 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
   const url = useSignedUrlBucket(cover);
   const coverIsPdf = /\.pdf$/i.test(cover ?? "");
   const meta = statusMeta(modelo.status_planejamento);
+  // Tooltip NATIVO (aparece no cursor): status + aprovação de serviço numa string só —
+  // não precisa mirar a bolinha. \n vira quebra de linha no tooltip do navegador.
+  const tip = aprovacao
+    ? `${meta.label}\n${aprovacao === "verde" ? "Serviços aprovados" : "Aprovação de serviço pendente"}`
+    : meta.label;
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
     <Card
       className={`overflow-hidden cursor-pointer hover:shadow-md transition-shadow border-l-4 ${meta.border}`}
       onClick={onOpen}
+      title={tip}
     >
       <div className="relative aspect-[3/4] bg-muted flex items-center justify-center overflow-hidden">
         {aprovacao && (
           <span
             className={`absolute top-1.5 right-1.5 z-10 h-3 w-3 rounded-full ring-2 ring-white shadow ${aprovacao === "verde" ? "bg-emerald-500" : "bg-amber-400"}`}
-            title={aprovacao === "verde" ? "Serviços aprovados" : "Aprovação de serviço pendente"}
+            aria-label={aprovacao === "verde" ? "Serviços aprovados" : "Aprovação de serviço pendente"}
           />
         )}
         {!url ? (
@@ -718,10 +719,6 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
         </div>
       )}
     </Card>
-      </TooltipTrigger>
-      {/* topo, alinhado à esquerda = canto superior da imagem (perto da borda de status) */}
-      <TooltipContent side="top" align="start">{meta.label}</TooltipContent>
-    </Tooltip>
   );
 }
 
