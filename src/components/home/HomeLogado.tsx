@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { format, addDays } from "date-fns";
 import {
   AlertTriangle, Wallet, Clock, CalendarX, ArrowRight,
-  BarChart3, ClipboardList, Package, Palette, Factory, DollarSign,
+  BarChart3, ClipboardList, Package, Palette, Factory, DollarSign, Target,
 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -22,6 +22,7 @@ const MODULOS: { key: string; label: string; path: string; icon: typeof BarChart
   { key: "dashboard", label: "Dashboard", path: "/dashboard", icon: BarChart3 },
   { key: "cadastro", label: "Cadastro", path: "/cadastro", icon: ClipboardList },
   { key: "entrada_saida", label: "Entrada e Saída", path: "/entrada-saida", icon: Package },
+  { key: "otb", label: "OTB", path: "/otb", icon: Target },
   { key: "criacao", label: "Criação", path: "/criacao", icon: Palette },
   { key: "producao", label: "Produção", path: "/producao", icon: Factory },
   { key: "financeiro", label: "Financeiro", path: "/financeiro", icon: DollarSign },
