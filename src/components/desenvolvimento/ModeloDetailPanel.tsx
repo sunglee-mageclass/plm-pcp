@@ -246,6 +246,15 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   });
 
   const [draft, setDraft] = useState<any | null>(null);
+  // Subcoleções da coleção escolhida — dropdown de Subcoleção (OTB ligado).
+  const { data: subcolecoesOpts = [] } = useQuery({
+    queryKey: ["subcolecoes-opts", draft?.colecao_id],
+    enabled: otbOn && !!draft?.colecao_id,
+    queryFn: async () => {
+      const { data } = await supabase.from("colecao_subcolecoes").select("nome").eq("colecao_id", draft.colecao_id).order("ordem");
+      return (data ?? []).map((r: any) => r.nome as string);
+    },
+  });
   const [blocks, setBlocks] = useState<TecidoBlock[]>(makeEmptyBlocks());
   const [aviamentosState, setAviamentosState] = useState<AviamentoRow[]>([]);
   const [grades, setGrades] = useState<GradeRow[]>([]);
@@ -942,6 +951,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 podeEntrarStatus={podeEntrarStatus}
                 otbOn={otbOn}
                 colecoes={colecoes}
+                subcolecoes={subcolecoesOpts}
               />
             </AccordionContent>
           </AccordionItem>

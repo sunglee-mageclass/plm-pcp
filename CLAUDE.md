@@ -81,10 +81,14 @@ unit + integração transacional de RPC — ver `tests/README.md`)
 ## Mapa de rotas (`src/routes/_authenticated/`)
 
 - **otb** (opt-in): orçamento de coleção antes do Planejamento (`otb.index.tsx`). Coleção é
-  entidade dona (`colecoes`/`colecao_semanas`/`modelos.colecao_id`); painel orçamento vs
-  previsto/real + poder de venda (client-side, reusa `preco.ts`); RPC `otb_confirmar`
-  gera/reconcilia cards em branco por semana (NUNCA apaga preenchido); RPC
-  `otb_importar_colecoes`. Preenchimento em massa fica no Planejamento (`BulkEditDialog`).
+  entidade dona (`colecoes`/`colecao_semanas`/`modelos.colecao_id`). Hierarquia **coleção → subcoleções
+  (`colecao_subcolecoes`) → semanas×qtd** (`colecao_semanas.subcolecao_id`, NULL = modo simples sem
+  subcoleção). O card (`ColecaoSheet`) tem Nome de Coleção + blocos de subcoleção (nome + Semanas 1–5 c/ qtd).
+  RPC `otb_confirmar` gera/reconcilia cards em branco por **(subcoleção × semana)** — cada modelo nasce c/
+  `colecao_id`+`subcolecao`+`semana` (NUNCA apaga preenchido); RPC `otb_importar_colecoes`. `modelos.subcolecao`
+  (texto): no Planejamento/Desenvolvimento vira **dropdown das subcoleções da coleção** quando OTB ligado
+  (senão texto livre). Preenchimento em massa no Planejamento (`BulkEditDialog`). O Planejamento abre **sempre
+  com 5 colunas** (`useGridCols(...,5,true)` — não persiste a escolha); card mostra coleção→subcoleção→semana→mês/ano.
 - **cadastro**: atributos (categorias tecido/aviamento/material/subcategoria, linhas,
   categorias de serviço fixas Corte/Oficina), colaboradores, servicos, tecidos
   (+variantes), aviamentos

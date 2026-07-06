@@ -20,30 +20,37 @@ const MAX = 10;
 /**
  * Quantidade de colunas do grid, lembrada POR USUÁRIO (localStorage). Mobile fica
  * fixo em 2; o valor controla só o desktop. Use com GRID_COLS_CLASS[cols].
+ *
+ * `alwaysReset`: quando true, ignora o localStorage e SEMPRE começa no `fallback` a
+ * cada acesso à tela (não persiste a escolha). Usado no Planejamento, que deve abrir
+ * sempre com 5 colunas.
  */
-export function useGridCols(pageKey: string, fallback = 4) {
+export function useGridCols(pageKey: string, fallback = 4, alwaysReset = false) {
   const { user } = useAuth();
   const storageKey = `gridcols:${pageKey}:${user?.id ?? "anon"}`;
   const [cols, setColsState] = useState<number>(fallback);
 
-  // Recarrega a preferência quando o usuário (chave) resolve.
+  // Recarrega a preferência quando o usuário (chave) resolve. Com alwaysReset,
+  // volta ao fallback (não lê a preferência salva).
   useEffect(() => {
+    if (alwaysReset) { setColsState(fallback); return; }
     if (typeof window === "undefined") return;
     const v = Number(window.localStorage.getItem(storageKey));
     setColsState(Number.isFinite(v) && v >= MIN && v <= MAX ? v : fallback);
-  }, [storageKey, fallback]);
+  }, [storageKey, fallback, alwaysReset]);
 
   const setCols = useCallback(
     (n: number) => {
       const c = Math.max(MIN, Math.min(MAX, n));
       setColsState(c);
+      if (alwaysReset) return; // escolha vale só na sessão atual; não persiste
       try {
         window.localStorage.setItem(storageKey, String(c));
       } catch {
         /* ignore */
       }
     },
-    [storageKey],
+    [storageKey, alwaysReset],
   );
 
   return [cols, setCols] as const;

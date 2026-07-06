@@ -860,6 +860,7 @@ export type Database = {
           id: string
           qtd_planejada: number
           semana: string
+          subcolecao_id: string | null
           tenant_id: string | null
         }
         Insert: {
@@ -867,6 +868,7 @@ export type Database = {
           id?: string
           qtd_planejada?: number
           semana: string
+          subcolecao_id?: string | null
           tenant_id?: string | null
         }
         Update: {
@@ -874,11 +876,54 @@ export type Database = {
           id?: string
           qtd_planejada?: number
           semana?: string
+          subcolecao_id?: string | null
           tenant_id?: string | null
         }
         Relationships: [
           {
             foreignKeyName: "colecao_semanas_colecao_id_fkey"
+            columns: ["colecao_id"]
+            isOneToOne: false
+            referencedRelation: "colecoes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "colecao_semanas_subcolecao_id_fkey"
+            columns: ["subcolecao_id"]
+            isOneToOne: false
+            referencedRelation: "colecao_subcolecoes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      colecao_subcolecoes: {
+        Row: {
+          colecao_id: string
+          created_at: string
+          id: string
+          nome: string
+          ordem: number
+          tenant_id: string | null
+        }
+        Insert: {
+          colecao_id: string
+          created_at?: string
+          id?: string
+          nome: string
+          ordem?: number
+          tenant_id?: string | null
+        }
+        Update: {
+          colecao_id?: string
+          created_at?: string
+          id?: string
+          nome?: string
+          ordem?: number
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "colecao_subcolecoes_colecao_id_fkey"
             columns: ["colecao_id"]
             isOneToOne: false
             referencedRelation: "colecoes"

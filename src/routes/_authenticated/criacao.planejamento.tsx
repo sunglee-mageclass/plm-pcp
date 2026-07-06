@@ -189,7 +189,8 @@ function PlanejamentoPage() {
   const [groupByCat, setGroupByCat] = useState(true);
   const [groupByLinha, setGroupByLinha] = useState(false);
   const [groupByRep, setGroupByRep] = useState(false);
-  const [cols, setCols] = useGridCols("planejamento");
+  // Planejamento sempre abre com 5 colunas (não persiste a escolha entre acessos).
+  const [cols, setCols] = useGridCols("planejamento", 5, true);
   const gridRef = useRef<HTMLDivElement>(null);
   const compact = useCompactCards(gridRef, cols);
   const fl = useFieldLabels();
@@ -349,6 +350,7 @@ function PlanejamentoPage() {
   const piFor = (m: Modelo) =>
     precoInfo((custoMap as any)[m.id]?.real, m.linha_id ? linhaMarkupMap[m.linha_id] : 0, m.preco_venda);
   const mesMap = Object.fromEntries(meses.map((x) => [x.id, x.nome]));
+  const anoMap = Object.fromEntries(anos.map((x) => [x.id, x.nome]));
 
   // Ordenação dos cards. Como nome/estilista/categoria/coleção/linha/status são
   // exibidos formatados (ou via mapa de id→nome), ordenamos pelo VALOR CRU usando
@@ -416,6 +418,7 @@ function PlanejamentoPage() {
         preco={(() => { const p = piFor(m); return p.efetivo > 0 ? p.efetivo : null; })()}
         aprovacao={(() => { const a = (aprovacaoMap as any)[m.id]; return a?.tem ? (a.todos ? "verde" : "amarela") : null; })()}
         mesNome={m.mes_id ? mesMap[m.mes_id] : null}
+        anoNome={m.ano_id ? anoMap[m.ano_id] : null}
         onOpen={() => (selMode ? toggleSel(m.id) : setOpenId(m.id))}
         compact={compact}
       />
@@ -654,8 +657,8 @@ function PlanejamentoPage() {
 }
 
 
-function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, custoReal, markup, preco, aprovacao, mesNome, onOpen, compact }: {
-  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; aprovacao: "verde" | "amarela" | null; mesNome: string | null; onOpen: () => void; compact?: boolean;
+function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, custoReal, markup, preco, aprovacao, mesNome, anoNome, onOpen, compact }: {
+  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; aprovacao: "verde" | "amarela" | null; mesNome: string | null; anoNome: string | null; onOpen: () => void; compact?: boolean;
 }) {
   // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
   const cover = (modelo.fotos_modelo?.[0]) || modelo.desenho_tecnico_url || modelo.croqui_url || null;
@@ -707,7 +710,9 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
           </div>
           <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
           <p className="text-xs text-muted-foreground truncate">{modelo.colecao ?? "Sem coleção"}</p>
-          <p className="text-xs text-muted-foreground truncate">{mesNome ?? "—"}</p>
+          <p className="text-xs text-muted-foreground truncate">{modelo.subcolecao || "—"}</p>
+          <p className="text-xs text-muted-foreground truncate">{modelo.semana ? `Semana ${modelo.semana}` : "—"}</p>
+          <p className="text-xs text-muted-foreground truncate">{[mesNome, anoNome].filter(Boolean).join(" / ") || "—"}</p>
           <p className="text-xs text-muted-foreground truncate">{categoriaNome ?? "Sem categoria"}</p>
           <p className="text-xs text-muted-foreground truncate">{linhaNome ?? "Sem linha"}</p>
           {/* custo/markup/preço renderizam SEMPRE (— quando vazio) p/ todo card ter a
@@ -837,6 +842,15 @@ function ModeloDialog({
     queryFn: async () => {
       const { data } = await supabase.from("colecoes").select("id, nome, mes_id, ano_id").order("nome");
       return (data ?? []) as { id: string; nome: string; mes_id: string | null; ano_id: string | null }[];
+    },
+  });
+  // Subcoleções da coleção escolhida — viram o dropdown de Subcoleção (OTB ligado).
+  const { data: subcolecoesOpts = [] } = useQuery({
+    queryKey: ["subcolecoes-opts", draft.colecao_id],
+    enabled: otbOn && !!draft.colecao_id,
+    queryFn: async () => {
+      const { data } = await supabase.from("colecao_subcolecoes").select("nome").eq("colecao_id", draft.colecao_id!).order("ordem");
+      return (data ?? []).map((r: any) => r.nome as string);
     },
   });
 
@@ -1171,7 +1185,16 @@ function ModeloDialog({
               ) : (
                 <FieldText label={fl("colecao")} value={draft.colecao} onChange={(v) => setDraft((d) => ({ ...d, colecao: v }))} />
               )}
-              <FieldText label="Subcoleção" value={draft.subcolecao ?? ""} onChange={(v) => setDraft((d) => ({ ...d, subcolecao: v }))} />
+              {otbOn ? (
+                <FieldSelect
+                  label="Subcoleção"
+                  value={draft.subcolecao || null}
+                  onChange={(v) => setDraft((d) => ({ ...d, subcolecao: v }))}
+                  options={Array.from(new Set([...subcolecoesOpts, ...(draft.subcolecao ? [draft.subcolecao] : [])])).map((s) => ({ id: s, nome: s }))}
+                />
+              ) : (
+                <FieldText label="Subcoleção" value={draft.subcolecao ?? ""} onChange={(v) => setDraft((d) => ({ ...d, subcolecao: v }))} />
+              )}
               <FieldSelect label={fl("linha")} value={draft.linha_id} onChange={(v) => setDraft((d) => ({ ...d, linha_id: v }))} options={linhas} />
               <div className="grid gap-1">
                 <Label>Semana</Label>

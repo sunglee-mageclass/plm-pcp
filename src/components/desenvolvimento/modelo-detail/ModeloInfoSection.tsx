@@ -30,6 +30,7 @@ export function ModeloInfoSection({
   podeEntrarStatus,
   otbOn,
   colecoes,
+  subcolecoes,
 }: {
   draft: Draft;
   setDraft: (d: Draft) => void;
@@ -45,6 +46,7 @@ export function ModeloInfoSection({
   podeEntrarStatus?: (statusKey: string) => { ok: boolean; faltando: { label: string }[] };
   otbOn?: boolean;
   colecoes?: { id: string; nome: string; mes_id: string | null; ano_id: string | null }[];
+  subcolecoes?: string[];
 }) {
   const fl = useFieldLabels();
   const [visiblePilotos, setVisiblePilotos] = useState<Set<number>>(() => {
@@ -151,9 +153,18 @@ export function ModeloInfoSection({
             options={(colecoes ?? []).map((c) => ({ id: c.id, nome: c.nome }))}
           />
         )}
-        <Field label="Subcoleção">
-          <Input value={draft.subcolecao ?? ""} onChange={(e) => setDraft({ ...draft, subcolecao: e.target.value })} />
-        </Field>
+        {otbOn ? (
+          <FieldSelectOpt
+            label="Subcoleção"
+            value={draft.subcolecao || null}
+            onChange={(v) => setDraft({ ...draft, subcolecao: v })}
+            options={Array.from(new Set([...(subcolecoes ?? []), ...(draft.subcolecao ? [draft.subcolecao] : [])])).map((s) => ({ id: s, nome: s }))}
+          />
+        ) : (
+          <Field label="Subcoleção">
+            <Input value={draft.subcolecao ?? ""} onChange={(e) => setDraft({ ...draft, subcolecao: e.target.value })} />
+          </Field>
+        )}
         <div className="sm:col-span-2 grid sm:grid-cols-2 gap-3">
           <FieldSelectOpt label={`${fl("piloteiro")} 1`} value={draft.piloteiro1_id} onChange={(v) => setDraft({ ...draft, piloteiro1_id: v })} options={piloteiros} />
           <Field label="Data Piloto 1">

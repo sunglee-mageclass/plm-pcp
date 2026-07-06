@@ -6,7 +6,7 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Trash2, ArrowLeft, Check, Save } from "lucide-react";
+import { Trash2, ArrowLeft, Check, Save, Plus } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -21,6 +21,26 @@ import { brl } from "@/lib/format";
 
 const WEEKS = ["1", "2", "3", "4", "5"];
 type Opt = { id: string; nome: string };
+// Um bloco de subcoleção no editor: nome + semanas (semana→qtd; ausente = semana off).
+type SubBlock = { id: string | null; nome: string; weeks: Record<string, number | null> };
+
+// Editor das 5 semanas (reutilizado no modo simples e em cada subcoleção).
+function WeeksEditor({ value, onChange }: { value: Record<string, number | null>; onChange: (w: Record<string, number | null>) => void }) {
+  return (
+    <div className="space-y-2">
+      {WEEKS.map((s) => {
+        const on = s in value; // marcada = chave presente (valor pode ser null = vazio)
+        return (
+          <div key={s} className="flex items-center gap-3">
+            <Checkbox checked={on} onCheckedChange={(v) => { const n = { ...value }; if (v) n[s] = n[s] ?? null; else delete n[s]; onChange(n); }} />
+            <span className="w-16 text-sm">Semana {s}</span>
+            {on && <div className="w-28"><NumberInput integer placeholder="0" value={value[s] == null ? "" : String(value[s])} onChange={(e) => onChange({ ...value, [s]: e.target.value === "" ? null : Number(e.target.value) })} /></div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 export function ColecaoSheet({
   colecaoId, meses, anos, onClose, onSaved,
@@ -34,14 +54,17 @@ export function ColecaoSheet({
   const [anoId, setAnoId] = useState<string | null>(null);
   const [mesId, setMesId] = useState<string | null>(null);
   const [orcamento, setOrcamento] = useState<string>("");
-  const [weeks, setWeeks] = useState<Record<string, number | null>>({}); // semana→qtd (undefined = off)
+  const [weeks, setWeeks] = useState<Record<string, number | null>>({}); // modo simples (sem subcoleção)
+  const [subs, setSubs] = useState<SubBlock[]>([]); // subcoleções, cada uma com suas semanas
   const [confirmDel, setConfirmDel] = useState(false);
 
   const { data } = useQuery({
     queryKey: ["otb-colecao", colecaoId],
     enabled: !!colecaoId,
     queryFn: async () => {
-      const { data: col, error } = await supabase.from("colecoes").select("*, colecao_semanas(semana, qtd_planejada)").eq("id", colecaoId!).single();
+      const { data: col, error } = await supabase.from("colecoes")
+        .select("*, colecao_semanas(semana, qtd_planejada, subcolecao_id), colecao_subcolecoes(id, nome, ordem)")
+        .eq("id", colecaoId!).single();
       if (error) throw error;
       return col as any;
     },
@@ -52,9 +75,21 @@ export function ColecaoSheet({
     setAnoId(data.ano_id ?? null);
     setMesId(data.mes_id ?? null);
     setOrcamento(data.orcamento != null ? String(data.orcamento) : "");
-    const w: Record<string, number | null> = {};
-    for (const s of data.colecao_semanas ?? []) w[s.semana] = s.qtd_planejada > 0 ? s.qtd_planejada : null;
-    setWeeks(w);
+    const allSem = (data.colecao_semanas ?? []) as { semana: string; qtd_planejada: number; subcolecao_id: string | null }[];
+    // Semanas de nível coleção (modo simples).
+    const flat: Record<string, number | null> = {};
+    for (const s of allSem) if (!s.subcolecao_id) flat[s.semana] = s.qtd_planejada > 0 ? s.qtd_planejada : null;
+    setWeeks(flat);
+    // Subcoleções ordenadas, cada uma com as suas semanas.
+    const subList = ((data.colecao_subcolecoes ?? []) as { id: string; nome: string; ordem: number }[])
+      .slice()
+      .sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0))
+      .map((sc) => {
+        const wk: Record<string, number | null> = {};
+        for (const s of allSem) if (s.subcolecao_id === sc.id) wk[s.semana] = s.qtd_planejada > 0 ? s.qtd_planejada : null;
+        return { id: sc.id, nome: sc.nome, weeks: wk } as SubBlock;
+      });
+    setSubs(subList);
   }, [data]);
 
   // Queries para painel de resumo (só quando editando coleção existente)
@@ -109,6 +144,10 @@ export function ColecaoSheet({
   // NÃO exibe toast nem fecha o sheet — quem chama é responsável por isso.
   const persistColecao = async (): Promise<string> => {
     if (!nome.trim()) throw new Error("Informe o nome da coleção.");
+    const cleanSubs = subs.map((s) => ({ ...s, nome: s.nome.trim() })).filter((s) => s.nome !== "");
+    const nomesLower = cleanSubs.map((s) => s.nome.toLowerCase());
+    if (new Set(nomesLower).size !== nomesLower.length) throw new Error("Há subcoleções com o mesmo nome.");
+
     const payload = { nome: nome.trim(), ano_id: anoId, mes_id: mesId, orcamento: orcamento === "" ? null : Number(orcamento) };
     let id = colecaoId;
     if (id) {
@@ -119,11 +158,47 @@ export function ColecaoSheet({
       if (error) throw error;
       id = (ins as any).id;
     }
-    // Diff das semanas: apaga as desmarcadas, upserta as marcadas.
-    const marked = WEEKS.filter((s) => s in weeks);
-    await supabase.from("colecao_semanas").delete().eq("colecao_id", id!).not("semana", "in", `(${marked.map((s) => `'${s}'`).join(",") || "''"})`);
-    for (const s of marked) {
-      await supabase.from("colecao_semanas").upsert({ colecao_id: id!, semana: s, qtd_planejada: weeks[s] ?? 0 }, { onConflict: "colecao_id,semana" });
+
+    // Regrava as semanas de um (coleção, subcoleção): apaga todas e insere as marcadas.
+    const saveWeeks = async (subId: string | null, wk: Record<string, number | null>) => {
+      let del = supabase.from("colecao_semanas").delete().eq("colecao_id", id!);
+      del = subId ? del.eq("subcolecao_id", subId) : (del.is as any)("subcolecao_id", null);
+      { const { error } = await del; if (error) throw error; }
+      const marked = WEEKS.filter((s) => s in wk);
+      if (marked.length) {
+        const { error } = await supabase.from("colecao_semanas")
+          .insert(marked.map((s) => ({ colecao_id: id!, subcolecao_id: subId, semana: s, qtd_planejada: wk[s] ?? 0 })) as any);
+        if (error) throw error;
+      }
+    };
+
+    if (cleanSubs.length > 0) {
+      // Com subcoleções: zera as semanas de nível coleção (modo simples desligado).
+      await saveWeeks(null, {});
+      // Remove subcoleções que sumiram (cascade apaga as semanas delas).
+      const keptIds = cleanSubs.map((s) => s.id).filter(Boolean) as string[];
+      let delSub = supabase.from("colecao_subcolecoes").delete().eq("colecao_id", id!);
+      if (keptIds.length) delSub = delSub.not("id", "in", `(${keptIds.map((x) => `'${x}'`).join(",")})`);
+      { const { error } = await delSub; if (error) throw error; }
+      // Insere/atualiza cada subcoleção + regrava as suas semanas.
+      for (let i = 0; i < cleanSubs.length; i++) {
+        const s = cleanSubs[i];
+        let subId = s.id;
+        if (subId) {
+          const { error } = await supabase.from("colecao_subcolecoes").update({ nome: s.nome, ordem: i } as any).eq("id", subId);
+          if (error) throw error;
+        } else {
+          const { data: insSub, error } = await supabase.from("colecao_subcolecoes")
+            .insert({ colecao_id: id!, nome: s.nome, ordem: i } as any).select("id").single();
+          if (error) throw error;
+          subId = (insSub as any).id;
+        }
+        await saveWeeks(subId, s.weeks);
+      }
+    } else {
+      // Sem subcoleções: apaga todas (cascade suas semanas) e grava as semanas da coleção.
+      { const { error } = await supabase.from("colecao_subcolecoes").delete().eq("colecao_id", id!); if (error) throw error; }
+      await saveWeeks(null, weeks);
     }
     return id!;
   };
@@ -205,7 +280,7 @@ export function ColecaoSheet({
           </SheetTitle>
         </SheetHeader>
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          <div className="grid gap-1"><Label>Nome</Label><Input value={nome} onChange={(e) => setNome(e.target.value)} /></div>
+          <div className="grid gap-1"><Label>Nome de Coleção</Label><Input value={nome} onChange={(e) => setNome(e.target.value)} /></div>
           <div className="grid sm:grid-cols-3 gap-3">
             <div className="grid gap-1"><Label>Ano</Label>
               <Select value={anoId ?? ""} onValueChange={setAnoId}><SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
@@ -215,20 +290,35 @@ export function ColecaoSheet({
                 <SelectContent>{meses.map((m) => <SelectItem key={m.id} value={m.id}>{m.nome}</SelectItem>)}</SelectContent></Select></div>
             <div className="grid gap-1"><Label>Orçamento</Label><NumberInput value={orcamento} onChange={(e) => setOrcamento(e.target.value)} /></div>
           </div>
-          <div>
-            <Label className="mb-2 block">Modelos por Semana</Label>
-            <div className="space-y-2">
-              {WEEKS.map((s) => {
-                const on = s in weeks; // marcada = chave presente (valor pode ser null = vazio)
-                return (
-                  <div key={s} className="flex items-center gap-3">
-                    <Checkbox checked={on} onCheckedChange={(v) => setWeeks((w) => { const n = { ...w }; if (v) n[s] = n[s] ?? null; else delete n[s]; return n; })} />
-                    <span className="w-16 text-sm">Semana {s}</span>
-                    {on && <div className="w-28"><NumberInput integer placeholder="0" value={weeks[s] == null ? "" : String(weeks[s])} onChange={(e) => setWeeks((w) => ({ ...w, [s]: e.target.value === "" ? null : Number(e.target.value) }))} /></div>}
-                  </div>
-                );
-              })}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="block">Subcoleções e Modelos por Semana</Label>
+              <Button type="button" variant="outline" size="sm" onClick={() => setSubs((p) => [...p, { id: null, nome: "", weeks: {} }])}>
+                <Plus className="h-4 w-4 mr-1" /> Subcoleção
+              </Button>
             </div>
+            {subs.length === 0 ? (
+              <div className="rounded-lg border p-3 space-y-2">
+                <p className="text-xs text-muted-foreground">Sem subcoleção: informe os modelos por semana da coleção. Ou clique em “Subcoleção” para dividir a coleção.</p>
+                <WeeksEditor value={weeks} onChange={setWeeks} />
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {subs.map((s, i) => (
+                  <div key={i} className="rounded-lg border p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Input value={s.nome} placeholder="Nome da subcoleção (ex.: Praia)"
+                        onChange={(e) => setSubs((p) => p.map((x, j) => (j === i ? { ...x, nome: e.target.value } : x)))} />
+                      <Button type="button" variant="ghost" size="icon" className="shrink-0 text-muted-foreground hover:text-destructive"
+                        onClick={() => setSubs((p) => p.filter((_, j) => j !== i))} aria-label="Remover subcoleção">
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <WeeksEditor value={s.weeks} onChange={(w) => setSubs((p) => p.map((x, j) => (j === i ? { ...x, weeks: w } : x)))} />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <div className="rounded-lg border p-3 space-y-1 text-sm">
             <div className="flex justify-between"><span className="text-muted-foreground">Orçamento</span><span className="tabular-nums">{orc != null ? brl(orc) : "—"}</span></div>
