@@ -35,7 +35,6 @@ import { Route as AuthenticatedProducaoDirecionamentoRouteImport } from './route
 import { Route as AuthenticatedProducaoCqRouteImport } from './routes/_authenticated/producao.cq'
 import { Route as AuthenticatedProducaoConsumoOcRouteImport } from './routes/_authenticated/producao.consumo-oc'
 import { Route as AuthenticatedProducaoCadRouteImport } from './routes/_authenticated/producao.cad'
-import { Route as AuthenticatedProducaoAcabamentoRouteImport } from './routes/_authenticated/producao.acabamento'
 import { Route as AuthenticatedEntradaSaidaOsTecidoRouteImport } from './routes/_authenticated/entrada-saida.os-tecido'
 import { Route as AuthenticatedEntradaSaidaOsAviamentoRouteImport } from './routes/_authenticated/entrada-saida.os-aviamento'
 import { Route as AuthenticatedEntradaSaidaOcTecidoRouteImport } from './routes/_authenticated/entrada-saida.oc-tecido'
@@ -62,14 +61,12 @@ import { Route as AuthenticatedProducaoOficinaIndexRouteImport } from './routes/
 import { Route as AuthenticatedProducaoDirecionamentoIndexRouteImport } from './routes/_authenticated/producao.direcionamento.index'
 import { Route as AuthenticatedProducaoCqIndexRouteImport } from './routes/_authenticated/producao.cq.index'
 import { Route as AuthenticatedProducaoCadIndexRouteImport } from './routes/_authenticated/producao.cad.index'
-import { Route as AuthenticatedProducaoAcabamentoIndexRouteImport } from './routes/_authenticated/producao.acabamento.index'
 import { Route as AuthenticatedCadastroTecidosIndexRouteImport } from './routes/_authenticated/cadastro.tecidos.index'
 import { Route as AuthenticatedProducaoTerceirizadosModeloIdRouteImport } from './routes/_authenticated/producao.terceirizados.$modeloId'
 import { Route as AuthenticatedProducaoOficinaModeloIdRouteImport } from './routes/_authenticated/producao.oficina.$modeloId'
 import { Route as AuthenticatedProducaoDirecionamentoModeloIdRouteImport } from './routes/_authenticated/producao.direcionamento.$modeloId'
 import { Route as AuthenticatedProducaoCqModeloIdRouteImport } from './routes/_authenticated/producao.cq.$modeloId'
 import { Route as AuthenticatedProducaoCadModeloIdRouteImport } from './routes/_authenticated/producao.cad.$modeloId'
-import { Route as AuthenticatedProducaoAcabamentoModeloIdRouteImport } from './routes/_authenticated/producao.acabamento.$modeloId'
 import { Route as AuthenticatedCadastroTecidosArtigoIdRouteImport } from './routes/_authenticated/cadastro.tecidos.$artigoId'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
@@ -211,12 +208,6 @@ const AuthenticatedProducaoCadRoute =
   AuthenticatedProducaoCadRouteImport.update({
     id: '/cad',
     path: '/cad',
-    getParentRoute: () => AuthenticatedProducaoRoute,
-  } as any)
-const AuthenticatedProducaoAcabamentoRoute =
-  AuthenticatedProducaoAcabamentoRouteImport.update({
-    id: '/acabamento',
-    path: '/acabamento',
     getParentRoute: () => AuthenticatedProducaoRoute,
   } as any)
 const AuthenticatedEntradaSaidaOsTecidoRoute =
@@ -374,12 +365,6 @@ const AuthenticatedProducaoCadIndexRoute =
     path: '/',
     getParentRoute: () => AuthenticatedProducaoCadRoute,
   } as any)
-const AuthenticatedProducaoAcabamentoIndexRoute =
-  AuthenticatedProducaoAcabamentoIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => AuthenticatedProducaoAcabamentoRoute,
-  } as any)
 const AuthenticatedCadastroTecidosIndexRoute =
   AuthenticatedCadastroTecidosIndexRouteImport.update({
     id: '/',
@@ -415,12 +400,6 @@ const AuthenticatedProducaoCadModeloIdRoute =
     id: '/$modeloId',
     path: '/$modeloId',
     getParentRoute: () => AuthenticatedProducaoCadRoute,
-  } as any)
-const AuthenticatedProducaoAcabamentoModeloIdRoute =
-  AuthenticatedProducaoAcabamentoModeloIdRouteImport.update({
-    id: '/$modeloId',
-    path: '/$modeloId',
-    getParentRoute: () => AuthenticatedProducaoAcabamentoRoute,
   } as any)
 const AuthenticatedCadastroTecidosArtigoIdRoute =
   AuthenticatedCadastroTecidosArtigoIdRouteImport.update({
@@ -463,7 +442,6 @@ export interface FileRoutesByFullPath {
   '/entrada-saida/oc-tecido': typeof AuthenticatedEntradaSaidaOcTecidoRoute
   '/entrada-saida/os-aviamento': typeof AuthenticatedEntradaSaidaOsAviamentoRoute
   '/entrada-saida/os-tecido': typeof AuthenticatedEntradaSaidaOsTecidoRoute
-  '/producao/acabamento': typeof AuthenticatedProducaoAcabamentoRouteWithChildren
   '/producao/cad': typeof AuthenticatedProducaoCadRouteWithChildren
   '/producao/consumo-oc': typeof AuthenticatedProducaoConsumoOcRoute
   '/producao/cq': typeof AuthenticatedProducaoCqRouteWithChildren
@@ -478,14 +456,12 @@ export interface FileRoutesByFullPath {
   '/otb/': typeof AuthenticatedOtbIndexRoute
   '/producao/': typeof AuthenticatedProducaoIndexRoute
   '/cadastro/tecidos/$artigoId': typeof AuthenticatedCadastroTecidosArtigoIdRoute
-  '/producao/acabamento/$modeloId': typeof AuthenticatedProducaoAcabamentoModeloIdRoute
   '/producao/cad/$modeloId': typeof AuthenticatedProducaoCadModeloIdRoute
   '/producao/cq/$modeloId': typeof AuthenticatedProducaoCqModeloIdRoute
   '/producao/direcionamento/$modeloId': typeof AuthenticatedProducaoDirecionamentoModeloIdRoute
   '/producao/oficina/$modeloId': typeof AuthenticatedProducaoOficinaModeloIdRoute
   '/producao/terceirizados/$modeloId': typeof AuthenticatedProducaoTerceirizadosModeloIdRoute
   '/cadastro/tecidos/': typeof AuthenticatedCadastroTecidosIndexRoute
-  '/producao/acabamento/': typeof AuthenticatedProducaoAcabamentoIndexRoute
   '/producao/cad/': typeof AuthenticatedProducaoCadIndexRoute
   '/producao/cq/': typeof AuthenticatedProducaoCqIndexRoute
   '/producao/direcionamento/': typeof AuthenticatedProducaoDirecionamentoIndexRoute
@@ -529,14 +505,12 @@ export interface FileRoutesByTo {
   '/otb': typeof AuthenticatedOtbIndexRoute
   '/producao': typeof AuthenticatedProducaoIndexRoute
   '/cadastro/tecidos/$artigoId': typeof AuthenticatedCadastroTecidosArtigoIdRoute
-  '/producao/acabamento/$modeloId': typeof AuthenticatedProducaoAcabamentoModeloIdRoute
   '/producao/cad/$modeloId': typeof AuthenticatedProducaoCadModeloIdRoute
   '/producao/cq/$modeloId': typeof AuthenticatedProducaoCqModeloIdRoute
   '/producao/direcionamento/$modeloId': typeof AuthenticatedProducaoDirecionamentoModeloIdRoute
   '/producao/oficina/$modeloId': typeof AuthenticatedProducaoOficinaModeloIdRoute
   '/producao/terceirizados/$modeloId': typeof AuthenticatedProducaoTerceirizadosModeloIdRoute
   '/cadastro/tecidos': typeof AuthenticatedCadastroTecidosIndexRoute
-  '/producao/acabamento': typeof AuthenticatedProducaoAcabamentoIndexRoute
   '/producao/cad': typeof AuthenticatedProducaoCadIndexRoute
   '/producao/cq': typeof AuthenticatedProducaoCqIndexRoute
   '/producao/direcionamento': typeof AuthenticatedProducaoDirecionamentoIndexRoute
@@ -579,7 +553,6 @@ export interface FileRoutesById {
   '/_authenticated/entrada-saida/oc-tecido': typeof AuthenticatedEntradaSaidaOcTecidoRoute
   '/_authenticated/entrada-saida/os-aviamento': typeof AuthenticatedEntradaSaidaOsAviamentoRoute
   '/_authenticated/entrada-saida/os-tecido': typeof AuthenticatedEntradaSaidaOsTecidoRoute
-  '/_authenticated/producao/acabamento': typeof AuthenticatedProducaoAcabamentoRouteWithChildren
   '/_authenticated/producao/cad': typeof AuthenticatedProducaoCadRouteWithChildren
   '/_authenticated/producao/consumo-oc': typeof AuthenticatedProducaoConsumoOcRoute
   '/_authenticated/producao/cq': typeof AuthenticatedProducaoCqRouteWithChildren
@@ -594,14 +567,12 @@ export interface FileRoutesById {
   '/_authenticated/otb/': typeof AuthenticatedOtbIndexRoute
   '/_authenticated/producao/': typeof AuthenticatedProducaoIndexRoute
   '/_authenticated/cadastro/tecidos/$artigoId': typeof AuthenticatedCadastroTecidosArtigoIdRoute
-  '/_authenticated/producao/acabamento/$modeloId': typeof AuthenticatedProducaoAcabamentoModeloIdRoute
   '/_authenticated/producao/cad/$modeloId': typeof AuthenticatedProducaoCadModeloIdRoute
   '/_authenticated/producao/cq/$modeloId': typeof AuthenticatedProducaoCqModeloIdRoute
   '/_authenticated/producao/direcionamento/$modeloId': typeof AuthenticatedProducaoDirecionamentoModeloIdRoute
   '/_authenticated/producao/oficina/$modeloId': typeof AuthenticatedProducaoOficinaModeloIdRoute
   '/_authenticated/producao/terceirizados/$modeloId': typeof AuthenticatedProducaoTerceirizadosModeloIdRoute
   '/_authenticated/cadastro/tecidos/': typeof AuthenticatedCadastroTecidosIndexRoute
-  '/_authenticated/producao/acabamento/': typeof AuthenticatedProducaoAcabamentoIndexRoute
   '/_authenticated/producao/cad/': typeof AuthenticatedProducaoCadIndexRoute
   '/_authenticated/producao/cq/': typeof AuthenticatedProducaoCqIndexRoute
   '/_authenticated/producao/direcionamento/': typeof AuthenticatedProducaoDirecionamentoIndexRoute
@@ -644,7 +615,6 @@ export interface FileRouteTypes {
     | '/entrada-saida/oc-tecido'
     | '/entrada-saida/os-aviamento'
     | '/entrada-saida/os-tecido'
-    | '/producao/acabamento'
     | '/producao/cad'
     | '/producao/consumo-oc'
     | '/producao/cq'
@@ -659,14 +629,12 @@ export interface FileRouteTypes {
     | '/otb/'
     | '/producao/'
     | '/cadastro/tecidos/$artigoId'
-    | '/producao/acabamento/$modeloId'
     | '/producao/cad/$modeloId'
     | '/producao/cq/$modeloId'
     | '/producao/direcionamento/$modeloId'
     | '/producao/oficina/$modeloId'
     | '/producao/terceirizados/$modeloId'
     | '/cadastro/tecidos/'
-    | '/producao/acabamento/'
     | '/producao/cad/'
     | '/producao/cq/'
     | '/producao/direcionamento/'
@@ -710,14 +678,12 @@ export interface FileRouteTypes {
     | '/otb'
     | '/producao'
     | '/cadastro/tecidos/$artigoId'
-    | '/producao/acabamento/$modeloId'
     | '/producao/cad/$modeloId'
     | '/producao/cq/$modeloId'
     | '/producao/direcionamento/$modeloId'
     | '/producao/oficina/$modeloId'
     | '/producao/terceirizados/$modeloId'
     | '/cadastro/tecidos'
-    | '/producao/acabamento'
     | '/producao/cad'
     | '/producao/cq'
     | '/producao/direcionamento'
@@ -759,7 +725,6 @@ export interface FileRouteTypes {
     | '/_authenticated/entrada-saida/oc-tecido'
     | '/_authenticated/entrada-saida/os-aviamento'
     | '/_authenticated/entrada-saida/os-tecido'
-    | '/_authenticated/producao/acabamento'
     | '/_authenticated/producao/cad'
     | '/_authenticated/producao/consumo-oc'
     | '/_authenticated/producao/cq'
@@ -774,14 +739,12 @@ export interface FileRouteTypes {
     | '/_authenticated/otb/'
     | '/_authenticated/producao/'
     | '/_authenticated/cadastro/tecidos/$artigoId'
-    | '/_authenticated/producao/acabamento/$modeloId'
     | '/_authenticated/producao/cad/$modeloId'
     | '/_authenticated/producao/cq/$modeloId'
     | '/_authenticated/producao/direcionamento/$modeloId'
     | '/_authenticated/producao/oficina/$modeloId'
     | '/_authenticated/producao/terceirizados/$modeloId'
     | '/_authenticated/cadastro/tecidos/'
-    | '/_authenticated/producao/acabamento/'
     | '/_authenticated/producao/cad/'
     | '/_authenticated/producao/cq/'
     | '/_authenticated/producao/direcionamento/'
@@ -980,13 +943,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedProducaoCadRouteImport
       parentRoute: typeof AuthenticatedProducaoRoute
     }
-    '/_authenticated/producao/acabamento': {
-      id: '/_authenticated/producao/acabamento'
-      path: '/acabamento'
-      fullPath: '/producao/acabamento'
-      preLoaderRoute: typeof AuthenticatedProducaoAcabamentoRouteImport
-      parentRoute: typeof AuthenticatedProducaoRoute
-    }
     '/_authenticated/entrada-saida/os-tecido': {
       id: '/_authenticated/entrada-saida/os-tecido'
       path: '/os-tecido'
@@ -1169,13 +1125,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedProducaoCadIndexRouteImport
       parentRoute: typeof AuthenticatedProducaoCadRoute
     }
-    '/_authenticated/producao/acabamento/': {
-      id: '/_authenticated/producao/acabamento/'
-      path: '/'
-      fullPath: '/producao/acabamento/'
-      preLoaderRoute: typeof AuthenticatedProducaoAcabamentoIndexRouteImport
-      parentRoute: typeof AuthenticatedProducaoAcabamentoRoute
-    }
     '/_authenticated/cadastro/tecidos/': {
       id: '/_authenticated/cadastro/tecidos/'
       path: '/'
@@ -1217,13 +1166,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/producao/cad/$modeloId'
       preLoaderRoute: typeof AuthenticatedProducaoCadModeloIdRouteImport
       parentRoute: typeof AuthenticatedProducaoCadRoute
-    }
-    '/_authenticated/producao/acabamento/$modeloId': {
-      id: '/_authenticated/producao/acabamento/$modeloId'
-      path: '/$modeloId'
-      fullPath: '/producao/acabamento/$modeloId'
-      preLoaderRoute: typeof AuthenticatedProducaoAcabamentoModeloIdRouteImport
-      parentRoute: typeof AuthenticatedProducaoAcabamentoRoute
     }
     '/_authenticated/cadastro/tecidos/$artigoId': {
       id: '/_authenticated/cadastro/tecidos/$artigoId'
@@ -1356,24 +1298,6 @@ const AuthenticatedEntradaSaidaRouteWithChildren =
     AuthenticatedEntradaSaidaRouteChildren,
   )
 
-interface AuthenticatedProducaoAcabamentoRouteChildren {
-  AuthenticatedProducaoAcabamentoModeloIdRoute: typeof AuthenticatedProducaoAcabamentoModeloIdRoute
-  AuthenticatedProducaoAcabamentoIndexRoute: typeof AuthenticatedProducaoAcabamentoIndexRoute
-}
-
-const AuthenticatedProducaoAcabamentoRouteChildren: AuthenticatedProducaoAcabamentoRouteChildren =
-  {
-    AuthenticatedProducaoAcabamentoModeloIdRoute:
-      AuthenticatedProducaoAcabamentoModeloIdRoute,
-    AuthenticatedProducaoAcabamentoIndexRoute:
-      AuthenticatedProducaoAcabamentoIndexRoute,
-  }
-
-const AuthenticatedProducaoAcabamentoRouteWithChildren =
-  AuthenticatedProducaoAcabamentoRoute._addFileChildren(
-    AuthenticatedProducaoAcabamentoRouteChildren,
-  )
-
 interface AuthenticatedProducaoCadRouteChildren {
   AuthenticatedProducaoCadModeloIdRoute: typeof AuthenticatedProducaoCadModeloIdRoute
   AuthenticatedProducaoCadIndexRoute: typeof AuthenticatedProducaoCadIndexRoute
@@ -1462,7 +1386,6 @@ const AuthenticatedProducaoTerceirizadosRouteWithChildren =
   )
 
 interface AuthenticatedProducaoRouteChildren {
-  AuthenticatedProducaoAcabamentoRoute: typeof AuthenticatedProducaoAcabamentoRouteWithChildren
   AuthenticatedProducaoCadRoute: typeof AuthenticatedProducaoCadRouteWithChildren
   AuthenticatedProducaoConsumoOcRoute: typeof AuthenticatedProducaoConsumoOcRoute
   AuthenticatedProducaoCqRoute: typeof AuthenticatedProducaoCqRouteWithChildren
@@ -1474,8 +1397,6 @@ interface AuthenticatedProducaoRouteChildren {
 }
 
 const AuthenticatedProducaoRouteChildren: AuthenticatedProducaoRouteChildren = {
-  AuthenticatedProducaoAcabamentoRoute:
-    AuthenticatedProducaoAcabamentoRouteWithChildren,
   AuthenticatedProducaoCadRoute: AuthenticatedProducaoCadRouteWithChildren,
   AuthenticatedProducaoConsumoOcRoute: AuthenticatedProducaoConsumoOcRoute,
   AuthenticatedProducaoCqRoute: AuthenticatedProducaoCqRouteWithChildren,

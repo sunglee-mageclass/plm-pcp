@@ -1,42 +1,23 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { Factory, Scissors, Users, Wrench, ClipboardCheck, Sparkles, Compass, Rocket } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
-import { useActiveTenantId } from "@/hooks/useActiveTenantId";
+import { Factory, Scissors, Users, ClipboardCheck, Compass, Rocket } from "lucide-react";
 import { Card } from "@/components/ui/card";
 
 export const Route = createFileRoute("/_authenticated/producao/")({
   component: ProducaoIndex,
 });
 
+// Acabamento foi aposentado (virou serviço "pós-costura", aba Pós dentro de Serviços) e a
+// Oficina é acessada dentro de Serviços — nenhum dos dois é card próprio neste hub.
 const SECTIONS = {
   cad: { to: "/producao/cad", title: "CAD", desc: "Modelos enviados ao CAD.", icon: Scissors },
   terceirizados: { to: "/producao/terceirizados", title: "Serviços", desc: "Serviços por REF.", icon: Users },
-  oficina: { to: "/producao/oficina", title: "Oficina", desc: "Costura e montagem por REF.", icon: Wrench },
   cq: { to: "/producao/cq", title: "Controle de Qualidade", desc: "Recebimento, conserto, lavagem, defeito.", icon: ClipboardCheck },
-  acabamento: { to: "/producao/acabamento", title: "Acabamento", desc: "Etapas de acabamento por REF.", icon: Sparkles },
   direcionamento: { to: "/producao/direcionamento", title: "Direcionamento", desc: "E-commerce vs Loja Física.", icon: Compass },
   lancamentos: { to: "/producao/lancamentos", title: "Lançamentos", desc: "Produtos finalizados.", icon: Rocket },
 } as const;
 
 function ProducaoIndex() {
-  const tenantId = useActiveTenantId();
-  const { data: cfg } = useQuery({
-    queryKey: ["tenant_config", "oficina_posicao", tenantId],
-    enabled: !!tenantId,
-    queryFn: async () => {
-      const { data } = await supabase.from("tenant_config").select("oficina_posicao").eq("tenant_id", tenantId).maybeSingle();
-      return data;
-    },
-  });
-
-  // oficina_posicao: 'terceirizados' (default) | 'acabamento' — oficina vira sub-item dessa etapa
-  const pos = (cfg as any)?.oficina_posicao ?? "terceirizados";
-  // Acabamento aposentado: virou serviço "pós-costura" (aba Pós dentro de Serviços).
-  const ordered: (keyof typeof SECTIONS)[] =
-    pos === "acabamento"
-      ? ["cad", "terceirizados", "cq", "direcionamento", "lancamentos"]
-      : ["cad", "terceirizados", "cq", "direcionamento", "lancamentos"];
+  const ordered: (keyof typeof SECTIONS)[] = ["cad", "terceirizados", "cq", "direcionamento", "lancamentos"];
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6">

@@ -21,7 +21,6 @@ const SCREENS: { path: string; name: string }[] = [
   { path: "/producao/cad", name: "producao-cad" },
   { path: "/producao/cq", name: "producao-cq" },
   { path: "/producao/oficina", name: "producao-oficina" },
-  { path: "/producao/acabamento", name: "producao-acabamento" },
   { path: "/producao/lancamentos", name: "producao-lancamentos" },
   { path: "/producao/consumo-oc", name: "producao-consumo-oc" },
   { path: "/entrada-saida/oc-tecido", name: "oc-tecido" },

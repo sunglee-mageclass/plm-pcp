@@ -48,7 +48,6 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { useModoOcRolo } from "@/hooks/useModoOcRolo";
-import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { useTabLabels } from "@/hooks/useTabLabels";
 import { Button } from "@/components/ui/button";
 import { PAGES_CATALOG, pageInProfile } from "@/lib/permissions-catalog";
@@ -91,8 +90,7 @@ const PAGE_URLS: Record<string, string> = {
   producao_cad: "/producao/cad",
   producao_consumo_oc: "/producao/consumo-oc",
   producao_terceirizados: "/producao/terceirizados",
-  // Oficina e Acabamento saíram do menu: acessados dentro de Terceirizados.
-  // (rotas e permissões mantidas; só não aparecem na navegação lateral)
+  // Oficina é acessada dentro de Serviços; não aparece como item próprio na navegação lateral.
   producao_cq: "/producao/cq",
   producao_direcionamento: "/producao/direcionamento",
   producao_lancamentos: "/producao/lancamentos",
@@ -112,18 +110,6 @@ export function AppSidebar() {
   // No modo Só Rolo a página "Consumo por OC" passa a se chamar "Consumo por Rolo".
   const labelFor = (key: string, fallback: string) =>
     tabLabels[key] || (key === "producao_consumo_oc" && modoOcRolo === "rolo" ? "Consumo por Rolo" : fallback);
-  const activeTenantId = useActiveTenantId();
-
-  const { data: tenantCfg } = useQuery({
-    queryKey: ["tenant_config", "oficina_posicao", activeTenantId],
-    enabled: !!activeTenantId,
-    queryFn: async () => {
-      const { data } = await supabase.from("tenant_config").select("oficina_posicao").eq("tenant_id", activeTenantId).maybeSingle();
-      return data as { oficina_posicao?: "terceirizados" | "acabamento" } | null;
-    },
-  });
-  const oficinaPos = tenantCfg?.oficina_posicao ?? "terceirizados";
-
   const visibleMainItems = PAGES_CATALOG
     // Gate de módulo (a loja contratou?): vale para todos os papéis, inclusive admin.
     .filter((m) => isModuleEnabled(m.module))
@@ -133,18 +119,7 @@ export function AppSidebar() {
         : m.pages.some((p) => canView(p.key)),
     )
     .map((m) => {
-      let pages = m.pages;
-      if (m.module === "producao" && oficinaPos === "acabamento") {
-        const oficina = pages.find((p) => p.key === "producao_oficina");
-        const rest = pages.filter((p) => p.key !== "producao_oficina");
-        if (oficina) {
-          const cqIdx = rest.findIndex((p) => p.key === "producao_cq");
-          if (cqIdx >= 0) rest.splice(cqIdx + 1, 0, oficina);
-          else rest.push(oficina);
-        }
-        pages = rest;
-      }
-      const subs = pages
+      const subs = m.pages
         .filter((p) => pageInProfile(p, profile))
         .filter((p) => PAGE_URLS[p.key] && (isAdmin || isSuperAdmin || isTenantAdmin || canView(p.key)))
         .map((p) => ({ key: p.key, label: labelFor(p.key, p.label), url: PAGE_URLS[p.key] }));

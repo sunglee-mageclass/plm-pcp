@@ -15,7 +15,6 @@ type Etapas = {
   terceirizados?: boolean;
   oficina?: boolean;
   cq?: boolean;
-  acabamento?: boolean;
   direcionamento?: boolean;
   lancamentos?: boolean;
 };
@@ -33,7 +32,6 @@ const STAGES: StageDef[] = [
   { key: "terceirizados", label: "Serviços", desc: "Quantidades e custos dos serviços.", href: (id) => `/producao/terceirizados/${id}` },
   { key: "oficina", label: "Oficina", desc: "Quantidades e custos da oficina.", href: (id) => `/producao/oficina/${id}` },
   { key: "cq", label: "CQ", desc: "Grade e peças conferidas.", href: (id) => `/producao/cq/${id}` },
-  { key: "acabamento", label: "Acabamento", desc: "Quantidades no acabamento.", href: (id) => `/producao/acabamento/${id}` },
   { key: "direcionamento", label: "Direcionamento", desc: "Direcionamento das peças.", href: (id) => `/producao/direcionamento/${id}` },
   { key: "lancamentos", label: "Lançamentos", desc: "Lançamentos de produção.", href: () => `/producao/lancamentos` },
 ];
@@ -41,7 +39,7 @@ const STAGES: StageDef[] = [
 // Impacto por CAMPO editado: o que muda e quais etapas isso atinge.
 export type CamposAlterados = { grade?: boolean; consumo?: boolean; aviamentos?: boolean };
 const FIELD_IMPACT: { key: keyof CamposAlterados; label: string; stages: (keyof Etapas)[]; motivo: string }[] = [
-  { key: "grade", label: "Grade", stages: ["corte", "terceirizados", "oficina", "cq", "acabamento", "direcionamento", "lancamentos"],
+  { key: "grade", label: "Grade", stages: ["corte", "terceirizados", "oficina", "cq", "direcionamento", "lancamentos"],
     motivo: "a grade total (por variante e geral) muda — as QUANTIDADES de produção e a metragem planejada (consumo×grade) mudam" },
   { key: "consumo", label: "Consumo / tecido", stages: ["corte"],
     motivo: "a metragem planejada do CAD (consumo×grade), a metragem baixada no corte e o custo mudam" },
