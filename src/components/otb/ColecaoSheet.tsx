@@ -312,7 +312,8 @@ export function ColecaoSheet({
       // Remove subcoleções que sumiram (cascade apaga as semanas/categorias delas).
       const keptIds = cleanSubs.map((s) => s.id).filter(Boolean) as string[];
       let delSub = supabase.from("colecao_subcolecoes").delete().eq("colecao_id", id!);
-      if (keptIds.length) delSub = delSub.not("id", "in", `(${keptIds.map((x) => `'${x}'`).join(",")})`);
+      // uuid no filtro `in` vai SEM aspas (aspas quebram o cast → 22P02).
+      if (keptIds.length) delSub = delSub.not("id", "in", `(${keptIds.join(",")})`);
       { const { error } = await delSub; if (error) throw error; }
       // Insere/atualiza cada subcoleção + regrava as suas semanas e distribuição.
       for (let i = 0; i < cleanSubs.length; i++) {
