@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Users, Plus, Trash2, Pencil } from "lucide-react";
+import { Users, Plus, Trash2, Pencil, MoreVertical } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { AttributeTab, type AttributeTabConfig } from "@/components/attribute-tab";
@@ -103,6 +104,7 @@ function ColaboradoresPage() {
   const [novoTipo, setNovoTipo] = useState("");
   const [novaCategoria, setNovaCategoria] = useState<string>("");
   const [delTab, setDelTab] = useState<Tab | null>(null);
+  const [typeMenuOpen, setTypeMenuOpen] = useState(false); // kebab de tipos (mobile)
 
   const openCreate = () => {
     setEditTab(null);
@@ -291,20 +293,43 @@ function ColaboradoresPage() {
             ))}
           </SelectContent>
         </Select>
-        <Button type="button" variant="outline" size="icon" onClick={openCreate} aria-label="Novo tipo" disabled={readOnly}>
-          <Plus className="h-4 w-4" />
-        </Button>
-        {/* Editar/excluir o TIPO custom selecionado. No desktop isso fica na lista lateral
-            (hover); no mobile não existia — não dava pra gerenciar um tipo criado. */}
-        {selected.custom && !readOnly && (
-          <>
-            <Button type="button" variant="outline" size="icon" onClick={() => openEdit(selected)} aria-label={`Editar tipo ${selected.label}`}>
-              <Pencil className="h-4 w-4" />
-            </Button>
-            <Button type="button" variant="outline" size="icon" onClick={() => setDelTab(selected)} aria-label={`Excluir tipo ${selected.label}`}>
-              <Trash2 className="h-4 w-4 text-destructive" />
-            </Button>
-          </>
+        {/* Kebab único: gerencia os tipos (Novo sempre; Editar/Excluir só em tipo custom).
+            No desktop essas ações ficam na lista lateral; no mobile não existiam. */}
+        {!readOnly && (
+          <Popover open={typeMenuOpen} onOpenChange={setTypeMenuOpen}>
+            <PopoverTrigger asChild>
+              <Button type="button" variant="outline" size="icon" aria-label="Gerenciar tipos">
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-48 p-1">
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                onClick={() => { setTypeMenuOpen(false); openCreate(); }}
+              >
+                <Plus className="h-4 w-4" /> Novo tipo
+              </button>
+              {selected.custom && (
+                <>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
+                    onClick={() => { setTypeMenuOpen(false); openEdit(selected); }}
+                  >
+                    <Pencil className="h-4 w-4" /> Editar tipo
+                  </button>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10"
+                    onClick={() => { setTypeMenuOpen(false); setDelTab(selected); }}
+                  >
+                    <Trash2 className="h-4 w-4" /> Excluir tipo
+                  </button>
+                </>
+              )}
+            </PopoverContent>
+          </Popover>
         )}
       </div>
 
