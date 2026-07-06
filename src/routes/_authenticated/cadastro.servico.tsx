@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Wrench,
@@ -8,7 +8,6 @@ import {
   Pencil,
   Trash2,
   Loader2,
-  Download,
 } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -101,6 +100,16 @@ function useItemCount(table: string) {
   });
 }
 
+/** Reporta ao pai a contagem filtrada (cabeçalho "X de Y itens"), ref-estável (não
+ *  re-dispara a cada render). Usado pelos 3 sub-componentes de lista. */
+function useReportFiltered(n: number, cb?: (n: number) => void) {
+  const ref = useRef(cb);
+  ref.current = cb;
+  useEffect(() => {
+    ref.current?.(n);
+  }, [n]);
+}
+
 function ServicoPage() {
   const { isStockOnly } = useTenantModules();
   // No modo só-estoque, Terceirizado (produção) não faz sentido — some da lista.
@@ -114,6 +123,9 @@ function ServicoPage() {
   const { data: count, isLoading: countLoading } = useItemCount(
     selectedSection.table
   );
+  // Contagem FILTRADA (busca) reportada pelo sub-componente; reseta ao trocar de seção.
+  const [filteredN, setFilteredN] = useState<number | null>(null);
+  useEffect(() => setFilteredN(null), [selected]);
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
@@ -179,13 +191,13 @@ function ServicoPage() {
             <Badge variant="secondary" className="shrink-0">
               {countLoading
                 ? "…"
-                : `${count ?? 0} ${count === 1 ? "item" : "itens"}`}
+                : `${filteredN ?? count ?? 0} de ${count ?? 0} ${(count ?? 0) === 1 ? "item" : "itens"}`}
             </Badge>
           </div>
 
-          {selected === "empresa" && <EmpresasMultiCatTab />}
-          {selected === "representante" && <RepresentantesTab />}
-          {selected === "terceirizado" && !isStockOnly && <TerceirizadosMultiCatTab />}
+          {selected === "empresa" && <EmpresasMultiCatTab onFilteredCount={setFilteredN} />}
+          {selected === "representante" && <RepresentantesTab onFilteredCount={setFilteredN} />}
+          {selected === "terceirizado" && !isStockOnly && <TerceirizadosMultiCatTab onFilteredCount={setFilteredN} />}
         </div>
       </div>
     </div>
@@ -243,7 +255,7 @@ function isSituacaoAtiva(s: string | null | undefined) {
   return (s ?? "").toUpperCase().includes("ATIV");
 }
 
-function RepresentantesTab() {
+function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) => void }) {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
   const [search, setSearch] = useState("");
@@ -303,6 +315,7 @@ function RepresentantesTab() {
         .some((x) => x.includes(s)),
     );
   }, [rows, search, empresasMap]);
+  useReportFiltered(filtered.length, onFilteredCount);
 
   const sort = useSort(filtered, {
     key: "nome",
@@ -529,9 +542,6 @@ function RepresentantesTab() {
         </Table>
       </div>
 
-      <div className="text-xs text-muted-foreground">
-        <Badge variant="secondary">{filtered.length}</Badge> registro(s)
-      </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-2xl">
@@ -608,14 +618,17 @@ function RepresentantesTab() {
                   <Button
                     type="button"
                     variant="secondary"
+                    className="shrink-0"
                     onClick={lookupCnpj}
                     disabled={lookupLoading}
+                    title="Buscar dados da empresa pelo CNPJ (Receita)"
                   >
                     {lookupLoading ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
                     ) : (
-                      <Download className="h-4 w-4" />
+                      <Search className="h-4 w-4 mr-1" />
                     )}
+                    Buscar
                   </Button>
                 </div>
               </div>
@@ -826,7 +839,7 @@ type EmpresaRow = {
   nome_fantasia: string;
 };
 
-function EmpresasMultiCatTab() {
+function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number) => void }) {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
   const [search, setSearch] = useState("");
@@ -895,6 +908,7 @@ function EmpresasMultiCatTab() {
       e.nome_fantasia.toLowerCase().includes(s),
     );
   }, [empresas, search]);
+  useReportFiltered(filtered.length, onFilteredCount);
 
   const sort = useSort(filtered, { key: "nome_fantasia" });
 
@@ -1089,9 +1103,6 @@ function EmpresasMultiCatTab() {
         </Table>
       </div>
 
-      <div className="text-xs text-muted-foreground">
-        <Badge variant="secondary">{filtered.length}</Badge> registro(s)
-      </div>
 
       <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) resetForm(); }}>
         <DialogContent>
@@ -1248,7 +1259,7 @@ function CategoriasTerceirizadoMultiSelect({
   );
 }
 
-function TerceirizadosMultiCatTab() {
+function TerceirizadosMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number) => void }) {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
   const [search, setSearch] = useState("");
@@ -1315,6 +1326,7 @@ function TerceirizadosMultiCatTab() {
     if (!s) return terceirizados;
     return terceirizados.filter((t) => t.nome_responsavel.toLowerCase().includes(s));
   }, [terceirizados, search]);
+  useReportFiltered(filtered.length, onFilteredCount);
 
   const sort = useSort(filtered, { key: "nome_responsavel" });
 
@@ -1509,9 +1521,6 @@ function TerceirizadosMultiCatTab() {
         </Table>
       </div>
 
-      <div className="text-xs text-muted-foreground">
-        <Badge variant="secondary">{filtered.length}</Badge> registro(s)
-      </div>
 
       <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) resetForm(); }}>
         <DialogContent>
