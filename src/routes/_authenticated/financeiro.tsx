@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { DollarSign, ChevronLeft, ChevronRight, Upload, Printer, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { brl } from "@/lib/format";
+import { corApelidoLabel } from "@/lib/variante";
 import { printWithImages } from "@/lib/print";
 import { RelatorioPrint } from "@/components/shared/RelatorioPrint";
 import { PrintArea } from "@/components/shared/PrintArea";
@@ -1126,7 +1127,7 @@ function OcViewDialog({ view, onClose }: { view: { tipo: string; id: string } | 
       if (view!.tipo === "tecido") {
         const { data } = await supabase
           .from("ocs_tecido")
-          .select("*, empresas:empresa_id(nome_fantasia), ocs_tecido_itens(quantidade_pedida, quantidade_recebida, artigos:artigo_id(nome), variantes_tecido:variante_tecido_id(nome_variante, cor:cor_id(nome)))")
+          .select("*, empresas:empresa_id(nome_fantasia), ocs_tecido_itens(quantidade_pedida, quantidade_recebida, artigos:artigo_id(nome), variantes_tecido:variante_tecido_id(nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))")
           .eq("id", view!.id)
           .maybeSingle();
         return data as any;
@@ -1179,7 +1180,7 @@ function OcViewDialog({ view, onClose }: { view: { tipo: string; id: string } | 
                     )}
                     {itens.map((it, i) => {
                       const nome = view?.tipo === "tecido"
-                        ? `${it.artigos?.nome ?? "—"}${it.variantes_tecido?.cor?.nome ? ` · ${it.variantes_tecido.cor.nome}` : it.variantes_tecido?.nome_variante ? ` · ${it.variantes_tecido.nome_variante}` : ""}`
+                        ? `${it.artigos?.nome ?? "—"}${it.variantes_tecido?.cor?.nome ? ` · ${corApelidoLabel(it.variantes_tecido.cor.nome, it.variantes_tecido.apelido?.nome)}` : it.variantes_tecido?.nome_variante ? ` · ${it.variantes_tecido.nome_variante}` : ""}`
                         : (it.aviamentos?.codigo_nome ?? "—");
                       return (
                         <tr key={i} className="border-b last:border-0">
@@ -1209,7 +1210,7 @@ function OcViewDialog({ view, onClose }: { view: { tipo: string; id: string } | 
             ]}
             linhas={itens.map((it) => ({
               item: view?.tipo === "tecido"
-                ? `${it.artigos?.nome ?? "—"}${it.variantes_tecido?.cor?.nome ? ` · ${it.variantes_tecido.cor.nome}` : it.variantes_tecido?.nome_variante ? ` · ${it.variantes_tecido.nome_variante}` : ""}`
+                ? `${it.artigos?.nome ?? "—"}${it.variantes_tecido?.cor?.nome ? ` · ${corApelidoLabel(it.variantes_tecido.cor.nome, it.variantes_tecido.apelido?.nome)}` : it.variantes_tecido?.nome_variante ? ` · ${it.variantes_tecido.nome_variante}` : ""}`
                 : (it.aviamentos?.codigo_nome ?? "—"),
               pedida: String(Number(it.quantidade_pedida ?? 0)),
               recebida: String(Number(it.quantidade_recebida ?? 0)),

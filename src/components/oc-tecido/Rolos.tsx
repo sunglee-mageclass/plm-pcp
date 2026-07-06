@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { corApelidoLabel } from "@/lib/variante";
 import { Trash2, Pencil, Undo2, Printer } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -275,7 +276,7 @@ type RoloRow = {
     id: string;
     quantidade_recebida: number | null;
     artigos: { nome: string; unidade_medida: string | null; rendimento: number | null; empresas: { nome_fantasia: string | null } | null } | null;
-    variantes_tecido: { nome_variante: string | null; codigo_variante: string | null; cor: { nome: string | null } | null } | null;
+    variantes_tecido: { nome_variante: string | null; codigo_variante: string | null; cor: { nome: string | null } | null; apelido: { nome: string | null } | null } | null;
     estoque_tecido_baixas: { quantidade: number | null }[] | null;
   }[];
 };
@@ -326,7 +327,10 @@ function EtiquetaRolo({ rolo, logo }: { rolo: RoloRow; logo: string | null }) {
   const itens = rolo.ocs_tecido_itens ?? [];
   const tecido = itens[0]?.artigos?.nome ?? "—";
   const variante = itens.map((it) => it.variantes_tecido?.nome_variante || it.variantes_tecido?.codigo_variante).filter(Boolean).join(", ") || "—";
-  const cor = Array.from(new Set(itens.map((it) => it.variantes_tecido?.cor?.nome).filter(Boolean))).join(", ") || "—";
+  const cor = Array.from(new Set(itens.map((it) => {
+    const c = it.variantes_tecido?.cor?.nome, a = it.variantes_tecido?.apelido?.nome;
+    return (c || a) ? corApelidoLabel(c, a) : null;
+  }).filter(Boolean))).join(", ") || "—";
   const fornecedor = itens[0]?.artigos?.empresas?.nome_fantasia ?? "—";
   const codigo = rolo.rolo_codigo || "";
   const campo = (label: string, valor: string, big?: boolean) => (
@@ -367,7 +371,7 @@ export function RolosList() {
         .from("ocs_tecido")
         .select(
           // relacionamento explícito (!oc_tecido_id) p/ não depender do schema cache.
-          "id, rolo_codigo, rolo_origem_item_id, rolo_rua, rolo_prateleira, ocs_tecido_itens!oc_tecido_id(id, quantidade_recebida, cancelado, artigos(nome, unidade_medida, rendimento, empresas:empresa_id(nome_fantasia)), variantes_tecido(nome_variante, codigo_variante, cor:cor_id(nome)), estoque_tecido_baixas(quantidade))",
+          "id, rolo_codigo, rolo_origem_item_id, rolo_rua, rolo_prateleira, ocs_tecido_itens!oc_tecido_id(id, quantidade_recebida, cancelado, artigos(nome, unidade_medida, rendimento, empresas:empresa_id(nome_fantasia)), variantes_tecido(nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)), estoque_tecido_baixas(quantidade))",
         )
         .eq("is_rolo" as never, true as never)
         .order("created_at", { ascending: false });
