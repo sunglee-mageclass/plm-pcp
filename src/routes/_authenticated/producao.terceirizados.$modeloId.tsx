@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Users, Save, Plus, Trash2, FileText, Pencil, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { corApelidoLabelServico } from "@/lib/variante";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
@@ -256,7 +257,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
       const { data } = await supabase
         .from("modelo_tecidos")
         .select(
-          "id, tipo, numero, artigos:artigo_id(nome), modelo_tecido_variantes(id, ordem, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante, cor:cor_id(nome)))",
+          "id, tipo, numero, artigos:artigo_id(nome), modelo_tecido_variantes(id, ordem, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))",
         )
         .eq("modelo_id", modeloId)
         .order("numero");
@@ -268,10 +269,11 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
           .map((v: any) => ({
             id: v.id as string,
             label:
-              v.variantes_tecido?.cor?.nome ||
-              v.variantes_tecido?.nome_variante ||
-              v.variantes_tecido?.codigo_variante ||
-              `Variante ${v.ordem ?? ""}`.trim(),
+              (v.variantes_tecido?.cor?.nome || v.variantes_tecido?.apelido?.nome)
+                ? corApelidoLabelServico(v.variantes_tecido?.cor?.nome, v.variantes_tecido?.apelido?.nome)
+                : v.variantes_tecido?.nome_variante ||
+                  v.variantes_tecido?.codigo_variante ||
+                  `Variante ${v.ordem ?? ""}`.trim(),
           }))
           .filter((v: any) => v.id),
       }));

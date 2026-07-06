@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { corApelidoLabel } from "@/lib/variante";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import type { TecidoRow, GradeRow, AviamentoRow, EtiquetaRow } from "./types";
 
@@ -64,7 +65,7 @@ export function useFichaData(modeloId: string): FichaData {
     queryFn: async () => {
       const { data } = await supabase
         .from("cad_tecidos")
-        .select("*, artigos:artigo_id(nome, composicao, etiqueta_lavagem_urls, largura_estimada), cad_tecido_variantes(*, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante, cor:cor_id(nome)))")
+        .select("*, artigos:artigo_id(nome, composicao, etiqueta_lavagem_urls, largura_estimada), cad_tecido_variantes(*, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))")
         .eq("cad_id", cadId);
       return data ?? [];
     },
@@ -144,6 +145,7 @@ export function useFichaData(modeloId: string): FichaData {
           metragem_enviada: num(v.metragem_enviada),
           variante_nome: v.variantes_tecido?.nome_variante,
           variante_cor: v.variantes_tecido?.cor?.nome,
+          variante_apelido: v.variantes_tecido?.apelido?.nome,
         })),
       }))
       .sort((a, b) => {
@@ -180,7 +182,9 @@ export function useFichaData(modeloId: string): FichaData {
     const t1 = tecidos.find((t) => t.tipo === "tecido" && t.numero === 1);
     const m: Record<number, string> = {};
     (t1?.variantes ?? []).forEach((v) => {
-      const cor = v.variante_cor || v.variante_nome || "—";
+      const cor = (v.variante_cor || v.variante_apelido)
+        ? corApelidoLabel(v.variante_cor, v.variante_apelido)
+        : v.variante_nome || "—";
       if (v.ordem) m[v.ordem] = `Variante ${v.ordem} — ${cor}`;
     });
     return m;

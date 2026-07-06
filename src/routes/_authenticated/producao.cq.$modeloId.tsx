@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ClipboardCheck, Save, CheckCircle2, RotateCcw, Camera, Pencil, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { corApelidoLabel } from "@/lib/variante";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -91,7 +92,7 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
     queryFn: async () => {
       const { data } = await supabase
         .from("cad_tecidos")
-        .select("tipo, numero, cad_tecido_variantes(ordem, variantes_tecido:variante_tecido_id(nome_variante, cor:cor_id(nome)))")
+        .select("tipo, numero, cad_tecido_variantes(ordem, variantes_tecido:variante_tecido_id(nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))")
         .eq("cad_id", cad!.id)
         .eq("tipo", "tecido")
         .eq("numero", 1)
@@ -156,7 +157,9 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
     const vs = (((mainFabric as any)?.cad_tecido_variantes ?? []) as any[])
       .filter((v) => v.ordem != null)
       .map((v) => {
-        const cor = v.variantes_tecido?.cor?.nome || v.variantes_tecido?.nome_variante || "—";
+        const cor = (v.variantes_tecido?.cor?.nome || v.variantes_tecido?.apelido?.nome)
+          ? corApelidoLabel(v.variantes_tecido?.cor?.nome, v.variantes_tecido?.apelido?.nome)
+          : v.variantes_tecido?.nome_variante || "—";
         return { num: Number(v.ordem), label: `Variante ${v.ordem} - ${cor}` };
       })
       .sort((a, b) => a.num - b.num);

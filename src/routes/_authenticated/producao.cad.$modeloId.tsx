@@ -5,6 +5,7 @@ import { ImageIcon, Scissors, AlertTriangle } from "lucide-react";
 import { useEtapasAfetadas, DownstreamConfirmDialog } from "@/components/desenvolvimento/DownstreamImpactAlert";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { corApelidoLabel } from "@/lib/variante";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -111,7 +112,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
       const { data, error } = await supabase
         .from("modelo_tecidos")
         .select(
-          "id, numero, tipo, artigo_id, consumo, loss_percent, artigos:artigo_id(nome, preco_por_metro, unidade_medida, etiqueta_lavagem_urls, largura_estimada), modelo_tecido_variantes(id, variante_tecido_id, ordem, multiplicador, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante, cor:cor_id(nome)))",
+          "id, numero, tipo, artigo_id, consumo, loss_percent, artigos:artigo_id(nome, preco_por_metro, unidade_medida, etiqueta_lavagem_urls, largura_estimada), modelo_tecido_variantes(id, variante_tecido_id, ordem, multiplicador, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))",
         )
         .eq("modelo_id", modeloId)
         .order("tipo")
@@ -128,7 +129,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
       const { data, error } = await supabase
         .from("cad_tecidos")
         .select(
-          "*, artigos:artigo_id(nome, preco_por_metro, unidade_medida, etiqueta_lavagem_urls, largura_estimada), cad_tecido_variantes(*, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante, cor:cor_id(nome)))",
+          "*, artigos:artigo_id(nome, preco_por_metro, unidade_medida, etiqueta_lavagem_urls, largura_estimada), cad_tecido_variantes(*, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))",
         )
         .eq("cad_id", cadRow!.id);
       if (error) throw error;
@@ -263,6 +264,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
       variante_tecido_id: v.variante_tecido_id,
       variante_nome: v.variantes_tecido?.nome_variante ?? v.variantes_tecido?.codigo_variante,
       variante_cor: v.variantes_tecido?.cor?.nome ?? null,
+      variante_apelido: v.variantes_tecido?.apelido?.nome ?? null,
       multiplicador: Number(v.multiplicador ?? 1) || 1,
       ordem: v.ordem,
       quantidade_folhas: 0,
@@ -309,6 +311,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
           variante_tecido_id: v.variante_tecido_id,
           variante_nome: v.variantes_tecido?.nome_variante ?? v.variantes_tecido?.codigo_variante,
           variante_cor: v.variantes_tecido?.cor?.nome ?? null,
+      variante_apelido: v.variantes_tecido?.apelido?.nome ?? null,
           multiplicador: Number(v.multiplicador ?? 1) || 1,
           ordem: v.ordem,
           quantidade_folhas: Number(v.quantidade_folhas ?? 0),
@@ -705,7 +708,9 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
     const t1 = tecidos.find((t) => t.tipo === "tecido" && t.numero === 1);
     const m: Record<number, string> = {};
     (t1?.variantes ?? []).forEach((v) => {
-      const cor = v.variante_cor || v.variante_nome || "—";
+      const cor = (v.variante_cor || v.variante_apelido)
+        ? corApelidoLabel(v.variante_cor, v.variante_apelido)
+        : v.variante_nome || "—";
       if (v.ordem) m[v.ordem] = `Variante ${v.ordem} — ${cor}`;
     });
     return m;

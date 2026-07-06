@@ -5,6 +5,7 @@ import { Rocket, Upload, CheckCircle2, Camera, ArrowUp, ArrowDown } from "lucide
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { brl } from "@/lib/format";
+import { corApelidoLabel } from "@/lib/variante";
 import { precoInfo } from "@/lib/preco";
 import { ResumoVenda } from "@/components/shared/ResumoVenda";
 import { supabase } from "@/integrations/supabase/client";
@@ -119,7 +120,7 @@ function LancamentosPage() {
         cadIds.length
           ? supabase
               .from("cad_tecidos")
-              .select("cad_id, tipo, numero, artigos:artigo_id(nome), cad_tecido_variantes(ordem, variantes_tecido:variante_tecido_id(nome_variante, cor:cor_id(nome)))")
+              .select("cad_id, tipo, numero, artigos:artigo_id(nome), cad_tecido_variantes(ordem, variantes_tecido:variante_tecido_id(nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))")
               .in("cad_id", cadIds)
               .eq("tipo", "tecido")
               .eq("numero", 1)
@@ -149,7 +150,9 @@ function LancamentosPage() {
         const variantes: VarInfo[] = ((tec?.cad_tecido_variantes ?? []) as any[])
           .filter((v) => v.ordem != null)
           .map((v) => {
-            const cor = v.variantes_tecido?.cor?.nome || v.variantes_tecido?.nome_variante || "—";
+            const cor = (v.variantes_tecido?.cor?.nome || v.variantes_tecido?.apelido?.nome)
+              ? corApelidoLabel(v.variantes_tecido?.cor?.nome, v.variantes_tecido?.apelido?.nome)
+              : v.variantes_tecido?.nome_variante || "—";
             return { num: Number(v.ordem), label: `Variante ${v.ordem} - ${cor}`, gradeTotal: gradeByNum.get(Number(v.ordem)) ?? 0 };
           })
           .sort((a, b) => a.num - b.num);
