@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ModeloDetailPanel } from "@/components/desenvolvimento/ModeloDetailPanel";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
+import { useCursorTip } from "@/components/shared/CursorTip";
 import { useSort } from "@/components/shared/sort";
 
 
@@ -465,7 +466,7 @@ function MobileCard({ modelo, estilistaNome, categoriaNome, onOpen }: {
   const url = useSignedUrlBucket(cover);
   const coverIsPdf = /\.pdf$/i.test(cover ?? "");
   return (
-    <div className="relative bg-card border rounded-md p-2" title={modelo.enviado_cad ? "Enviado ao CAD" : undefined}>
+    <div className="relative bg-card border rounded-md p-2">
       {modelo.enviado_cad && (
         <span className="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full bg-sky-600 ring-2 ring-card" aria-label="Enviado ao CAD" />
       )}
@@ -499,7 +500,9 @@ function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: i
   const cover = modelo.fotos_modelo?.[0] || modelo.desenho_tecnico_url || modelo.croqui_url || null;
   const url = useSignedUrlBucket(cover);
   const coverIsPdf = /\.pdf$/i.test(cover ?? "");
+  const { handlers, node } = useCursorTip(modelo.enviado_cad ? "Enviado ao CAD" : null);
   return (
+    <>
     <div
       draggable={isDraggable}
       onDragStart={(e) => {
@@ -510,7 +513,7 @@ function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: i
       onDragEnd={() => onDragEndCard?.()}
       className={`relative bg-card border rounded-md p-2 hover:shadow-md transition-shadow ${isDraggable ? "cursor-grab active:cursor-grabbing" : ""}`}
       onClick={onOpen}
-      title={modelo.enviado_cad ? "Enviado ao CAD" : undefined}
+      {...handlers}
     >
       {modelo.enviado_cad && (
         <span className="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full bg-sky-600 ring-2 ring-card" aria-label="Enviado ao CAD" />
@@ -532,6 +535,8 @@ function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: i
         </div>
       </div>
     </div>
+    {node}
+    </>
   );
 }
 

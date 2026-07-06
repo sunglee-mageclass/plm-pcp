@@ -17,6 +17,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { NumberInput } from "@/components/shared/NumberInput";
 import { DateField } from "@/components/shared/DateField";
 import { ResumoVenda } from "@/components/shared/ResumoVenda";
+import { useCursorTip } from "@/components/shared/CursorTip";
 import { precoInfo } from "@/lib/preco";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
@@ -661,16 +662,18 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
   const url = useSignedUrlBucket(cover);
   const coverIsPdf = /\.pdf$/i.test(cover ?? "");
   const meta = statusMeta(modelo.status_planejamento);
-  // Tooltip NATIVO (aparece no cursor): status + aprovação de serviço numa string só —
-  // não precisa mirar a bolinha. \n vira quebra de linha no tooltip do navegador.
+  // Tooltip que SEGUE o cursor (sem atraso): status + aprovação de serviço numa string só —
+  // não precisa mirar a bolinha. \n vira quebra de linha.
   const tip = aprovacao
     ? `${meta.label}\n${aprovacao === "verde" ? "Serviços aprovados" : "Aprovação de serviço pendente"}`
     : meta.label;
+  const { handlers, node } = useCursorTip(tip);
   return (
+    <>
     <Card
       className={`overflow-hidden cursor-pointer hover:shadow-md transition-shadow border-l-4 ${meta.border}`}
       onClick={onOpen}
-      title={tip}
+      {...handlers}
     >
       <div className="relative aspect-[3/4] bg-muted flex items-center justify-center overflow-hidden">
         {aprovacao && (
@@ -719,6 +722,8 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
         </div>
       )}
     </Card>
+    {node}
+    </>
   );
 }
 
