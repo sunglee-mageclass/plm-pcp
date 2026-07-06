@@ -568,6 +568,15 @@ function VariantesSection({ artigoId, readOnly }: { artigoId: string; readOnly: 
     },
   });
 
+  // Nome do artigo — base p/ gerar o nome_variante "{artigo} - {cor} - {apelido}".
+  const { data: artigoNome = "" } = useQuery({
+    queryKey: ["artigo-nome", artigoId],
+    queryFn: async () => {
+      const { data } = await supabase.from("artigos").select("nome").eq("id", artigoId).single();
+      return data?.nome ?? "";
+    },
+  });
+
   const { data: variantes = [] } = useQuery({
     queryKey: ["variantes", artigoId],
     queryFn: async () => {
@@ -587,14 +596,9 @@ function VariantesSection({ artigoId, readOnly }: { artigoId: string; readOnly: 
 
   const addVarMut = useMutation({
     mutationFn: async ({ corId, apelidoId }: { corId: string; apelidoId: string }) => {
-      const { data: art } = await supabase
-        .from("artigos")
-        .select("nome")
-        .eq("id", artigoId)
-        .single();
       const corNome = coresMap.get(corId) ?? "";
       const apelidoNome = apelidosMap.get(apelidoId) ?? "";
-      const nomeVariante = `${art?.nome ?? ""} - ${corNome}${apelidoNome ? ` - ${apelidoNome}` : ""}`.trim();
+      const nomeVariante = `${artigoNome} - ${corNome}${apelidoNome ? ` - ${apelidoNome}` : ""}`.trim();
       const { error } = await supabase
         .from("variantes_tecido")
         .insert({ artigo_id: artigoId, cor_id: corId, cor_apelido_id: apelidoId, nome_variante: nomeVariante });
@@ -706,6 +710,7 @@ function VariantesSection({ artigoId, readOnly }: { artigoId: string; readOnly: 
                 apelidoLabel={v.cor_apelido_id ? apelidosMap.get(v.cor_apelido_id) ?? null : null}
                 cores={cores}
                 apelidos={apelidos}
+                artigoNome={artigoNome}
                 onRemove={() => setRemoveTarget(v)}
                 readOnly={readOnly}
               />
@@ -750,6 +755,7 @@ function VariantRow({
   apelidoLabel,
   cores,
   apelidos,
+  artigoNome,
   onRemove,
   readOnly,
 }: {
@@ -758,6 +764,7 @@ function VariantRow({
   apelidoLabel: string | null;
   cores: Cor[];
   apelidos: Apelido[];
+  artigoNome: string;
   onRemove: () => void;
   readOnly: boolean;
 }) {
@@ -767,6 +774,13 @@ function VariantRow({
   const [codigo, setCodigo] = useState(variante.codigo_variante ?? "");
   const [corId, setCorId] = useState(variante.cor_id ?? "");
   const [apelidoId, setApelidoId] = useState(variante.cor_apelido_id ?? "");
+  // Regera o nome_variante ("{artigo} - {cor} - {apelido}") ao mudar cor/apelido, p/ as
+  // telas que exibem via nome_variante (OC, Desenvolvimento, Consumo) refletirem o apelido.
+  const genNome = (cId: string, aId: string) => {
+    const cor = cores.find((c) => c.id === cId)?.nome ?? "";
+    const apel = apelidos.find((a) => a.id === aId)?.nome ?? "";
+    return `${artigoNome} - ${cor}${apel ? ` - ${apel}` : ""}`.trim();
+  };
   const [enderecos, setEnderecos] = useState<{ rua: string; prateleira: string }[]>(() => {
     const e = (variante as any).enderecos;
     if (Array.isArray(e) && e.length > 0) return e.map((x: any) => ({ rua: x?.rua ?? "", prateleira: x?.prateleira ?? "" }));
@@ -857,7 +871,9 @@ function VariantRow({
                 setCorId(b);
                 const keep = apelidos.some((a) => a.id === apelidoId && a.cor_base_id === b) ? apelidoId : "";
                 setApelidoId(keep);
-                saveMut.mutate({ cor_id: b, cor_apelido_id: keep || null });
+                const nv = genNome(b, keep);
+                setNome(nv);
+                saveMut.mutate({ cor_id: b, cor_apelido_id: keep || null, nome_variante: nv });
               }}
               disabled={readOnly}
             >
@@ -875,7 +891,9 @@ function VariantRow({
                 setApelidoId(a);
                 const base = apelidos.find((x) => x.id === a)?.cor_base_id ?? corId;
                 setCorId(base);
-                saveMut.mutate({ cor_apelido_id: a, cor_id: base });
+                const nv = genNome(base, a);
+                setNome(nv);
+                saveMut.mutate({ cor_apelido_id: a, cor_id: base, nome_variante: nv });
               }}
               disabled={readOnly}
             >
