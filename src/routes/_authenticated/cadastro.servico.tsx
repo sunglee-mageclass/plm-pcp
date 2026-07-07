@@ -1411,7 +1411,6 @@ function TerceirizadosMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: n
     const refs: { table: string; column: string }[] = [
       { table: "producao_terceirizados", column: "terceirizado_id" },
       { table: "producao_oficina", column: "terceirizado_id" },
-      { table: "producao_acabamento", column: "terceirizado_id" },
     ];
     for (const r of refs) {
       const { count } = await supabase

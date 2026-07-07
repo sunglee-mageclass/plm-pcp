@@ -2965,88 +2965,6 @@ export type Database = {
           },
         ]
       }
-      producao_acabamento: {
-        Row: {
-          ativo: boolean | null
-          aviamentos_utilizados: Json | null
-          cad_id: string | null
-          created_at: string | null
-          data_entregue: string | null
-          data_enviado: string | null
-          data_prevista: string | null
-          id: string
-          observacao: string | null
-          preco_por_peca: number | null
-          quantidade_defeito: number | null
-          quantidade_enviada: number | null
-          quantidade_recebida: number | null
-          status: string | null
-          tenant_id: string | null
-          terceirizado_id: string | null
-          tipo: string
-        }
-        Insert: {
-          ativo?: boolean | null
-          aviamentos_utilizados?: Json | null
-          cad_id?: string | null
-          created_at?: string | null
-          data_entregue?: string | null
-          data_enviado?: string | null
-          data_prevista?: string | null
-          id?: string
-          observacao?: string | null
-          preco_por_peca?: number | null
-          quantidade_defeito?: number | null
-          quantidade_enviada?: number | null
-          quantidade_recebida?: number | null
-          status?: string | null
-          tenant_id?: string | null
-          terceirizado_id?: string | null
-          tipo: string
-        }
-        Update: {
-          ativo?: boolean | null
-          aviamentos_utilizados?: Json | null
-          cad_id?: string | null
-          created_at?: string | null
-          data_entregue?: string | null
-          data_enviado?: string | null
-          data_prevista?: string | null
-          id?: string
-          observacao?: string | null
-          preco_por_peca?: number | null
-          quantidade_defeito?: number | null
-          quantidade_enviada?: number | null
-          quantidade_recebida?: number | null
-          status?: string | null
-          tenant_id?: string | null
-          terceirizado_id?: string | null
-          tipo?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "producao_acabamento_cad_id_fkey"
-            columns: ["cad_id"]
-            isOneToOne: false
-            referencedRelation: "cad"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "producao_acabamento_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "producao_acabamento_terceirizado_id_fkey"
-            columns: ["terceirizado_id"]
-            isOneToOne: false
-            referencedRelation: "terceirizados"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       producao_oficina: {
         Row: {
           cad_id: string | null
@@ -3521,7 +3439,6 @@ export type Database = {
           modo_oc_rolo: string
           modules: Json
           oficina_interna: boolean | null
-          oficina_posicao: string | null
           status_kanban: Json | null
           tab_labels: Json
           tamanhos_grade: Json | null
@@ -3543,7 +3460,6 @@ export type Database = {
           modo_oc_rolo?: string
           modules?: Json
           oficina_interna?: boolean | null
-          oficina_posicao?: string | null
           status_kanban?: Json | null
           tab_labels?: Json
           tamanhos_grade?: Json | null
@@ -3565,7 +3481,6 @@ export type Database = {
           modo_oc_rolo?: string
           modules?: Json
           oficina_interna?: boolean | null
-          oficina_posicao?: string | null
           status_kanban?: Json | null
           tab_labels?: Json
           tamanhos_grade?: Json | null
@@ -4243,10 +4158,6 @@ export type Database = {
         Returns: {
           saldo_m: number
         }[]
-      }
-      salvar_acabamento: {
-        Args: { _blocos: Json; _cad_id: string }
-        Returns: undefined
       }
       salvar_cad_completo: {
         Args: {
