@@ -111,10 +111,13 @@ unit + integração transacional de RPC — ver `tests/README.md`)
 - **entrada-saida**: oc-tecido, oc-aviamento, rolos, estoque
 - **producao**: cad, terceirizados=**Serviços** (abas pré/pós-costura por `categorias_terceirizado.etapa`),
   oficina, cq (abas **Pré/Pós** dentro do item — ver invariante 6), direcionamento, lancamentos,
-  consumo por OC (+ alertas de CQ de tecido). **Acabamento aposentado** (virou serviço pós-costura) —
-  ⚠️ **é CÓDIGO MORTO/legado**: as rotas `producao.acabamento.*.tsx`, a permissão `producao_acabamento` e o
-  ramo `oficina_posicao='acabamento'` (sidebar/`producao.index`) ainda existem no repo mas NÃO fazem parte do
-  produto atual (limpeza/remoção pendente — não construir em cima). Se um laudo/doc antigo cita "Acabamento", é
+  consumo por OC (+ alertas de CQ de tecido). **Acabamento aposentado** (virou serviço pós-costura) — o
+  código morto foi REMOVIDO (jul/2026, commits `2bdfcf2` front + `600cf54` banco): rotas
+  `producao.acabamento.*`, permissão `producao_acabamento`, ramo `oficina_posicao`, tabela
+  `producao_acabamento` (0 linhas), RPC `salvar_acabamento` e coluna `tenant_config.oficina_posicao`.
+  **Mantidos de propósito** (não são resíduo): o literal `WHEN 'producao_acabamento'` em `fn_audit` (rótulo
+  de linhas históricas do audit_log) e as colunas `modelos.categoria_secundaria_id` / `categorias_produto.sla_oficina`
+  / `tenant_config.etapas_acabamento` (têm dado ou leitor vivo). Se um laudo/doc antigo cita "Acabamento", é
   histórico. Editor de Impressão REMOVIDO (Ficha de Corte usa sempre o cabeçalho padrão `FichaHeader`)
 - **financeiro**: calendário + lista + parcelas (a pagar) + serviços terceirizados
 - **dashboard**: 5 abas (coleção, estoque, produção, financeiro, custos)
