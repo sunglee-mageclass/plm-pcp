@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -55,6 +55,11 @@ type Parcela = {
   status: string | null;
   comprovante_url: string | null;
   empresas?: { nome: string } | null;
+  // Empresa/representante crus p/ o card (o `empresas.nome` é o rótulo combinado da tabela/calendário).
+  empresaNome?: string | null;
+  empresaCnpj?: string | null;
+  representanteNome?: string | null;
+  representanteCnpj?: string | null;
   ocs_tecido?: { numero_pedido: string | null } | null;
   ocs_aviamento?: { numero_pedido: string | null } | null;
   ocBadge?: { label: string; cls: string } | null;
@@ -111,14 +116,14 @@ function FinanceiroPage() {
 
       const [empresasRes, tecidoRes, aviamentoRes] = await Promise.all([
         empresaIds.length
-          ? supabase.from("empresas").select("id,nome_fantasia").in("id", empresaIds)
+          ? supabase.from("empresas").select("id,nome_fantasia,cnpj").in("id", empresaIds)
           : Promise.resolve({ data: [], error: null } as const),
 
         tecidoIds.length
-          ? supabase.from("ocs_tecido").select("id, numero_pedido, valor_real_total, representante:representante_id(nome), ocs_tecido_itens!oc_tecido_id(cq_alerta_status, cancelado)").in("id", tecidoIds)
+          ? supabase.from("ocs_tecido").select("id, numero_pedido, valor_real_total, representante:representante_id(nome,cnpj), ocs_tecido_itens!oc_tecido_id(cq_alerta_status, cancelado)").in("id", tecidoIds)
           : Promise.resolve({ data: [], error: null } as const),
         aviamentoIds.length
-          ? supabase.from("ocs_aviamento").select("id,numero_pedido, representante:representante_id(nome)").in("id", aviamentoIds)
+          ? supabase.from("ocs_aviamento").select("id,numero_pedido, representante:representante_id(nome,cnpj)").in("id", aviamentoIds)
           : Promise.resolve({ data: [], error: null } as const),
       ]);
       if (empresasRes.error) throw empresasRes.error;
@@ -126,11 +131,16 @@ function FinanceiroPage() {
       if (aviamentoRes.error) throw aviamentoRes.error;
 
       const empMap = new Map((empresasRes.data ?? []).map((e: any) => [e.id, e.nome_fantasia as string]));
+      // CNPJ da empresa (payee quando a OC é direto no fornecedor, sem representante).
+      const empCnpjMap = new Map((empresasRes.data ?? []).map((e: any) => [e.id, (e.cnpj ?? null) as string | null]));
       const tecMap = new Map((tecidoRes.data ?? []).map((o: any) => [o.id, o.numero_pedido as string | null]));
       const aviMap = new Map((aviamentoRes.data ?? []).map((o: any) => [o.id, o.numero_pedido as string | null]));
       // Representante da OC (se houver): o financeiro paga o rep — distingue "via representante".
       const tecRepMap = new Map((tecidoRes.data ?? []).map((o: any) => [o.id, (o.representante?.nome ?? null) as string | null]));
       const aviRepMap = new Map((aviamentoRes.data ?? []).map((o: any) => [o.id, (o.representante?.nome ?? null) as string | null]));
+      // CNPJ do representante da OC (payee quando a compra é via representante).
+      const tecRepCnpjMap = new Map((tecidoRes.data ?? []).map((o: any) => [o.id, (o.representante?.cnpj ?? null) as string | null]));
+      const aviRepCnpjMap = new Map((aviamentoRes.data ?? []).map((o: any) => [o.id, (o.representante?.cnpj ?? null) as string | null]));
       // Badge de alerta (troca/cancelamento/etc.) por OC de tecido.
       const tecBadge = new Map(
         (tecidoRes.data ?? []).map((o: any) => [o.id, alertaBadge((o.ocs_tecido_itens ?? []).map((it: any) => it.cq_alerta_status))]),
@@ -147,10 +157,18 @@ function FinanceiroPage() {
         .filter((p) => !(p.oc_tecido_id && ocCancelada.has(p.oc_tecido_id)))
         .map((p) => {
         const empNome = p.empresa_id ? (empMap.get(p.empresa_id) ?? "—") : null;
+        const empCnpj = p.empresa_id ? (empCnpjMap.get(p.empresa_id) ?? null) : null;
         const repNome = p.oc_tecido_id ? tecRepMap.get(p.oc_tecido_id) : p.oc_aviamento_id ? aviRepMap.get(p.oc_aviamento_id) : null;
+        const repCnpj = p.oc_tecido_id ? tecRepCnpjMap.get(p.oc_tecido_id) : p.oc_aviamento_id ? aviRepCnpjMap.get(p.oc_aviamento_id) : null;
         return {
         ...p,
         empresas: empNome ? { nome: repNome ? `${empNome} · via ${repNome}` : empNome } : null,
+        // Campos crus p/ o card/detalhe: empresa e representante separados + o CNPJ certo.
+        // payee = representante (se houver), senão a empresa.
+        empresaNome: empNome,
+        empresaCnpj: empCnpj,
+        representanteNome: repNome ?? null,
+        representanteCnpj: repCnpj ?? null,
         ocs_tecido: p.oc_tecido_id ? { numero_pedido: tecMap.get(p.oc_tecido_id) ?? null } : null,
         ocs_aviamento: p.oc_aviamento_id ? { numero_pedido: aviMap.get(p.oc_aviamento_id) ?? null } : null,
         ocBadge: p.oc_tecido_id ? tecBadge.get(p.oc_tecido_id) ?? null : null,
@@ -169,15 +187,22 @@ function FinanceiroPage() {
       if (error) throw error;
       return ((data ?? []) as any[])
         .filter((r) => r.data_vencimento)
-        .map((r) => ({
+        .map((r) => {
+          // Payee p/ o rótulo do calendário: empresa + (representante se houver),
+          // com fallback ao `responsavel` legado.
+          const payee = r.representante_nome
+            ? `${r.empresa_nome ?? "—"} · via ${r.representante_nome}`
+            : (r.empresa_nome ?? r.responsavel ?? "—");
+          return {
           id: r.parcela_id,
           data_vencimento: r.data_vencimento,
           valor: r.valor_parcela,
-          empresas: { nome: `🔧 ${r.servico} · ${r.responsavel}` },
+          empresas: { nome: `🔧 ${r.servico} · ${payee}` },
           status: r.status,
           data_pagamento: r.data_pagamento,
           _servico: true,
-        }));
+          };
+        });
     },
   });
   const parcelasCal = useMemo(() => [...parcelas, ...(servicosCal as any[])] as Parcela[], [parcelas, servicosCal]);
@@ -522,12 +547,24 @@ function ParcelaDetailDialog({
   const st = effectiveStatus(parcela);
   const ocNumero = parcela.ocs_tecido?.numero_pedido ?? parcela.ocs_aviamento?.numero_pedido ?? "—";
   const tipoLabel = parcela.tipo_oc === "tecido" ? "OC de Tecido" : parcela.tipo_oc === "aviamento" ? "OC de Aviamento" : parcela.tipo_oc;
+  // O financeiro paga o REPRESENTANTE quando a OC foi via rep; senão, a empresa.
+  // O CNPJ mostrado é o do payee (rep se houver, senão a empresa).
+  const temRep = !!parcela.representanteNome;
+  const payeeCnpj = temRep ? (parcela.representanteCnpj ?? null) : (parcela.empresaCnpj ?? null);
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader><DialogTitle>Detalhes da Parcela</DialogTitle></DialogHeader>
         <div className="space-y-2 text-sm">
-          <div><span className="text-muted-foreground">Fornecedor:</span> <b>{parcela.empresas?.nome ?? "—"}</b></div>
+          <div><span className="text-muted-foreground">Fornecedor:</span> <b>{parcela.empresaNome ?? parcela.empresas?.nome ?? "—"}</b></div>
+          {temRep && (
+            <div><span className="text-muted-foreground">Representante:</span> <b>{parcela.representanteNome}</b></div>
+          )}
+          {payeeCnpj && (
+            <div>
+              <span className="text-muted-foreground">CNPJ{temRep ? " (representante)" : ""}:</span> {payeeCnpj}
+            </div>
+          )}
           <div className="flex items-center gap-2"><span className="text-muted-foreground">Origem:</span> {tipoLabel} · Nº {ocNumero}
             {parcela.ocBadge && <Badge className={parcela.ocBadge.cls}>{parcela.ocBadge.label}</Badge>}</div>
           <div><span className="text-muted-foreground">Parcela:</span> {parcela.numero_parcela}</div>
@@ -678,6 +715,8 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
   const [dataFim, setDataFim] = useState("");
   const [pagandoId, setPagandoId] = useState<string | null>(null);
   const [ocView, setOcView] = useState<{ tipo: string; id: string } | null>(null);
+  // Card/detalhe da parcela: a LINHA inteira abre (não só o nº do pedido).
+  const [detalheId, setDetalheId] = useState<string | null>(null);
   // Realce transitório da linha recém-editada: como a lista é ordenada por
   // data_vencimento, mudar a data faz a linha SALTAR de posição no re-sort —
   // o realce ajuda o usuário a seguir para onde ela foi (e ver o novo status).
@@ -817,10 +856,20 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
             <tbody>
               {sorted.map((p) => {
                 const st = effectiveStatus(p);
+                // Impede que clicar/teclar num controle interno (botão, data, link) também
+                // abra o card da linha. Só o "espaço vazio" da linha abre o detalhe.
+                const stop = (e: SyntheticEvent) => e.stopPropagation();
                 return (
                   <tr
                     key={p.id}
-                    className={`border-b last:border-0 transition-colors ${p.id === highlightId ? "bg-primary/10" : ""}`}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Detalhes da parcela ${p.numero_parcela} de ${p.empresas?.nome ?? "—"}`}
+                    onClick={() => setDetalheId(p.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDetalheId(p.id); }
+                    }}
+                    className={`border-b last:border-0 transition-colors cursor-pointer hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary ${p.id === highlightId ? "bg-primary/10" : ""}`}
                   >
                     <td className="py-2 pr-3">{p.empresas?.nome ?? "—"}</td>
                     <td className="py-2 pr-3" data-label="Nº Pedido">
@@ -829,7 +878,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
                           <button
                             type="button"
                             className="text-primary hover:underline"
-                            onClick={() => setOcView({ tipo: p.tipo_oc, id: (p.oc_tecido_id ?? p.oc_aviamento_id)! })}
+                            onClick={(e) => { stop(e); setOcView({ tipo: p.tipo_oc, id: (p.oc_tecido_id ?? p.oc_aviamento_id)! }); }}
                           >
                             {ocNumero(p)}
                           </button>
@@ -839,7 +888,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
                     </td>
                     <td className="py-2 pr-3" data-label="Parcela">{p.numero_parcela}</td>
                     <td className="py-2 pr-3 text-right" data-label="Valor">{brl(Number(p.valor))}</td>
-                    <td className="py-2 pr-3" data-label="Vencimento">
+                    <td className="py-2 pr-3" data-label="Vencimento" onClick={stop} onKeyDown={stop}>
                       <VencimentoCell
                         value={p.data_vencimento}
                         onSave={(v) => updateVencimentoMut.mutate({ id: p.id, data: v })}
@@ -851,7 +900,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
                       </Badge>
                     </td>
                     <td className="py-2 pr-3" data-label="Pagamento">{p.data_pagamento ? format(parseISO(p.data_pagamento), "dd/MM/yyyy") : "—"}</td>
-                    <td className="py-2 pr-3" data-label="">
+                    <td className="py-2 pr-3" data-label="" onClick={stop} onKeyDown={stop}>
                       {podeEditar && (st !== "pago" ? (
                         <Button size="sm" variant="outline" onClick={() => setPagandoId(p.id)}>Marcar pago</Button>
                       ) : (
@@ -872,10 +921,16 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
         </div>
       </Card>
 
+      <ParcelaDetailDialog
+        parcela={detalheId ? filtered.find((p) => p.id === detalheId) ?? null : null}
+        onClose={() => setDetalheId(null)}
+        onMarkPaid={(id) => { setDetalheId(null); setPagandoId(id); }}
+        onOpenOc={(tipo, id) => { setDetalheId(null); setOcView({ tipo, id }); }}
+      />
       <PagarDialog parcelaId={pagandoId} onClose={() => setPagandoId(null)} />
       <OcViewDialog view={ocView} onClose={() => setOcView(null)} />
 
-      {!ocView && <RelatorioPrint
+      {!ocView && !detalheId && <RelatorioPrint
         titulo="Contas a Pagar"
         subtitulo={`${filtered.length} parcela(s)${dataIni || dataFim ? ` · ${dataIni || "…"} a ${dataFim || "…"}` : ""}`}
         dataStr={new Date().toLocaleDateString("pt-BR")}
@@ -922,10 +977,14 @@ function ServicosView() {
     },
   });
 
-  const [responsavel, setResponsavel] = useState("all");
+  // Filtro por FORNECEDOR (empresa). Antes filtrava por "responsável" (texto legado);
+  // agora o dono quer ver empresa/representante. Filtra pelo nome da empresa, com
+  // fallback ao `responsavel` quando a parcela não tem empresa (dado legado).
+  const [fornecedor, setFornecedor] = useState("all");
   const [status, setStatus] = useState("all");
   const [dataIni, setDataIni] = useState("");
   const [dataFim, setDataFim] = useState("");
+  const [detalhe, setDetalhe] = useState<any | null>(null);
 
   const stOf = (r: any) => {
     if (r.status === "pago" || r.data_pagamento) return "pago";
@@ -933,15 +992,20 @@ function ServicosView() {
     return "a_pagar";
   };
   const fmtD = (d: string | null) => (d ? d.slice(0, 10).split("-").reverse().join("/") : "—");
+  // Chave/rótulo da empresa da parcela (fallback ao responsável legado).
+  const empresaDe = (r: any) => (r.empresa_nome ?? r.responsavel ?? "—") as string;
 
-  const responsaveis = useMemo(() => Array.from(new Set(rows.map((r) => r.responsavel).filter(Boolean))) as string[], [rows]);
+  const fornecedores = useMemo(
+    () => Array.from(new Set(rows.map(empresaDe).filter((n) => n && n !== "—"))) as string[],
+    [rows],
+  );
   const filtered = useMemo(() => rows.filter((r) => {
-    if (responsavel !== "all" && r.responsavel !== responsavel) return false;
+    if (fornecedor !== "all" && empresaDe(r) !== fornecedor) return false;
     if (status !== "all" && stOf(r) !== status) return false;
     if (dataIni && (r.data_vencimento ?? "") < dataIni) return false;
     if (dataFim && (r.data_vencimento ?? "") > dataFim) return false;
     return true;
-  }), [rows, responsavel, status, dataIni, dataFim]);
+  }), [rows, fornecedor, status, dataIni, dataFim]);
 
   const updVenc = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: string }) => {
@@ -980,17 +1044,17 @@ function ServicosView() {
           <Printer className="h-4 w-4 mr-1" /> Imprimir
         </Button>
         <FilterButton
-          activeCount={[responsavel !== "all", status !== "all", !!dataIni, !!dataFim].filter(Boolean).length}
-          onClear={() => { setResponsavel("all"); setStatus("all"); setDataIni(""); setDataFim(""); }}
+          activeCount={[fornecedor !== "all", status !== "all", !!dataIni, !!dataFim].filter(Boolean).length}
+          onClear={() => { setFornecedor("all"); setStatus("all"); setDataIni(""); setDataFim(""); }}
         >
           <div className="grid gap-3">
             <div>
-              <Label className="text-xs">Responsável</Label>
-              <Select value={responsavel} onValueChange={setResponsavel}>
-                <SelectTrigger className={`h-8 text-sm ${filtroAtivoClass(responsavel !== "all")}`}><SelectValue /></SelectTrigger>
+              <Label className="text-xs">Fornecedor</Label>
+              <Select value={fornecedor} onValueChange={setFornecedor}>
+                <SelectTrigger className={`h-8 text-sm ${filtroAtivoClass(fornecedor !== "all")}`}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todos</SelectItem>
-                  {responsaveis.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                  {fornecedores.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -1023,14 +1087,9 @@ function ServicosView() {
             <thead className="text-left text-muted-foreground">
               <tr className="border-b">
                 <th className="py-2 pr-3">Serviço</th>
-                <th className="py-2 pr-3">Responsável</th>
+                <th className="py-2 pr-3">Empresa / Representante</th>
                 <th className="py-2 pr-3">Parcela</th>
-                <th className="py-2 pr-3 text-right">Bruto</th>
-                <th className="py-2 pr-3 text-right">Desconto</th>
-                <th className="py-2 pr-3 text-right">Multa</th>
-                <th className="py-2 pr-3 text-right">Líquido</th>
                 <th className="py-2 pr-3 text-right">Valor parcela</th>
-                <th className="py-2 pr-3">Entrega</th>
                 <th className="py-2 pr-3">Vencimento</th>
                 <th className="py-2 pr-3">Pagamento</th>
                 <th className="py-2 pr-3">Status</th>
@@ -1040,21 +1099,32 @@ function ServicosView() {
             <tbody>
               {filtered.map((r) => {
                 const st = stOf(r);
+                const stop = (e: SyntheticEvent) => e.stopPropagation();
                 return (
-                  <tr key={r.parcela_id} className="border-b last:border-0">
+                  <tr
+                    key={r.parcela_id}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Detalhes do serviço ${r.servico} — parcela ${r.numero_parcela}/${r.numero_parcelas}`}
+                    onClick={() => setDetalhe(r)}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDetalhe(r); } }}
+                    className="border-b last:border-0 cursor-pointer transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                  >
                     <td className="py-2 pr-3">{r.servico}{r.ref ? ` · ${r.ref}` : ""}</td>
-                    <td className="py-2 pr-3" data-label="Responsável">{r.responsavel}</td>
+                    <td className="py-2 pr-3" data-label="Empresa / Representante">
+                      <div className="flex flex-col">
+                        <span>{r.empresa_nome ?? r.responsavel ?? "—"}</span>
+                        {r.representante_nome && (
+                          <span className="text-xs text-muted-foreground">via {r.representante_nome}</span>
+                        )}
+                      </div>
+                    </td>
                     <td className="py-2 pr-3" data-label="Parcela">{r.numero_parcela}/{r.numero_parcelas}</td>
-                    <td className="py-2 pr-3 text-right" data-label="Bruto">{brl(Number(r.custo_bruto))}</td>
-                    <td className="py-2 pr-3 text-right" data-label="Desconto">{brl(Number(r.desconto))}</td>
-                    <td className="py-2 pr-3 text-right" data-label="Multa">{brl(Number(r.multa))}</td>
-                    <td className="py-2 pr-3 text-right" data-label="Líquido">{brl(Number(r.custo_liquido))}</td>
                     <td className="py-2 pr-3 text-right font-medium" data-label="Valor parcela">{brl(Number(r.valor_parcela))}</td>
-                    <td className="py-2 pr-3" data-label="Entrega">{fmtD(r.data_entrega)}</td>
-                    <td className="py-2 pr-3" data-label="Vencimento">
+                    <td className="py-2 pr-3" data-label="Vencimento" onClick={stop} onKeyDown={stop}>
                       <VencimentoCell value={r.data_vencimento ?? ""} onSave={(data) => updVenc.mutate({ id: r.parcela_id, data })} />
                     </td>
-                    <td className="py-2 pr-3" data-label="Pagamento">
+                    <td className="py-2 pr-3" data-label="Pagamento" onClick={stop} onKeyDown={stop}>
                       <VencimentoCell value={r.data_pagamento ?? ""} onSave={(data) => updPag.mutate({ id: r.parcela_id, data })} />
                     </td>
                     <td className="py-2 pr-3" data-label="Status">
@@ -1062,7 +1132,7 @@ function ServicosView() {
                         {st === "a_pagar" ? "A pagar" : st === "pago" ? "Pago" : "Vencido"}
                       </Badge>
                     </td>
-                    <td className="py-2 pr-3" data-label="">
+                    <td className="py-2 pr-3" data-label="" onClick={stop} onKeyDown={stop}>
                       {podeEditar && (st === "pago" ? (
                         <Button size="sm" variant="destructive" onClick={() => togglePago.mutate({ id: r.parcela_id, pago: false })} disabled={togglePago.isPending}>Desmarcar</Button>
                       ) : (
@@ -1073,7 +1143,7 @@ function ServicosView() {
                 );
               })}
               {!isLoading && filtered.length === 0 && (
-                <tr><td colSpan={13} className="py-4 text-center text-muted-foreground">Nenhum serviço a pagar.</td></tr>
+                <tr><td colSpan={8} className="py-4 text-center text-muted-foreground">Nenhum serviço a pagar.</td></tr>
               )}
             </tbody>
           </table>
@@ -1082,6 +1152,17 @@ function ServicosView() {
           <p className="mt-3 text-sm text-right text-muted-foreground">Total a pagar (parcelas): <b className="text-foreground">{brl(total)}</b></p>
         )}
       </Card>
+
+      <ServicoDetailDialog
+        row={detalhe}
+        stLabel={detalhe ? (stOf(detalhe) === "a_pagar" ? "A pagar" : stOf(detalhe) === "pago" ? "Pago" : "Vencido") : ""}
+        stVariant={detalhe ? (stOf(detalhe) === "pago" ? "default" : stOf(detalhe) === "vencido" ? "destructive" : "secondary") : "secondary"}
+        fmtD={fmtD}
+        canPay={podeEditar}
+        onTogglePago={(pago) => { if (detalhe) togglePago.mutate({ id: detalhe.parcela_id, pago }); }}
+        toggling={togglePago.isPending}
+        onClose={() => setDetalhe(null)}
+      />
 
       <RelatorioPrint
         titulo="Serviços a Pagar"
@@ -1094,7 +1175,7 @@ function ServicosView() {
         ]}
         colunas={[
           { key: "servico", label: "Serviço" },
-          { key: "responsavel", label: "Responsável" },
+          { key: "empresa", label: "Empresa / Representante" },
           { key: "parcela", label: "Parcela" },
           { key: "bruto", label: "Bruto", align: "right" },
           { key: "desconto", label: "Desconto", align: "right" },
@@ -1107,7 +1188,7 @@ function ServicosView() {
         ]}
         linhas={filtered.map((r) => ({
           servico: `${r.servico}${r.ref ? ` · ${r.ref}` : ""}`,
-          responsavel: r.responsavel,
+          empresa: r.representante_nome ? `${r.empresa_nome ?? r.responsavel ?? "—"} · via ${r.representante_nome}` : (r.empresa_nome ?? r.responsavel ?? "—"),
           parcela: `${r.numero_parcela}/${r.numero_parcelas}`,
           bruto: brl(Number(r.custo_bruto)),
           desconto: brl(Number(r.desconto)),
@@ -1121,6 +1202,77 @@ function ServicosView() {
         rodape={`Total: ${brl(total)}`}
       />
     </div>
+  );
+}
+
+/* ===== Card/detalhe de uma parcela de SERVIÇO (terceirizado) ===== */
+
+function ServicoDetailDialog({
+  row, stLabel, stVariant, fmtD, canPay, onTogglePago, toggling, onClose,
+}: {
+  row: any | null;
+  stLabel: string;
+  stVariant: "default" | "destructive" | "secondary";
+  fmtD: (d: string | null) => string;
+  canPay: boolean;
+  onTogglePago: (pago: boolean) => void;
+  toggling: boolean;
+  onClose: () => void;
+}) {
+  if (!row) return null;
+  // O payee é o representante (se houver) ou a empresa. Mostra o CNPJ do payee.
+  const temRep = !!row.representante_nome;
+  const payeeCnpj = temRep ? (row.representante_cnpj ?? null) : (row.empresa_cnpj ?? null);
+  const isPago = stLabel === "Pago";
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Detalhes do Serviço</DialogTitle></DialogHeader>
+        <div className="space-y-2 text-sm">
+          <div><span className="text-muted-foreground">Serviço:</span> <b>{row.servico}</b>{row.ref ? ` · ${row.ref}` : ""}</div>
+          {row.modelo_nome && (
+            <div><span className="text-muted-foreground">Modelo:</span> {row.modelo_nome}</div>
+          )}
+          <div><span className="text-muted-foreground">Empresa:</span> <b>{row.empresa_nome ?? row.responsavel ?? "—"}</b></div>
+          {temRep && (
+            <div><span className="text-muted-foreground">Representante:</span> <b>{row.representante_nome}</b></div>
+          )}
+          {payeeCnpj && (
+            <div><span className="text-muted-foreground">CNPJ{temRep ? " (representante)" : ""}:</span> {payeeCnpj}</div>
+          )}
+          <div className="mt-2 border-t pt-2 grid grid-cols-2 gap-x-4 gap-y-1">
+            <div><span className="text-muted-foreground">Bruto:</span> {brl(Number(row.custo_bruto))}</div>
+            <div><span className="text-muted-foreground">Desconto:</span> {brl(Number(row.desconto))}</div>
+            <div><span className="text-muted-foreground">Multa:</span> {brl(Number(row.multa))}</div>
+            <div><span className="text-muted-foreground">Líquido:</span> {brl(Number(row.custo_liquido))}</div>
+          </div>
+          <div className="border-t pt-2">
+            <span className="text-muted-foreground">Parcela:</span> {row.numero_parcela}/{row.numero_parcelas} ·{" "}
+            <span className="text-muted-foreground">Valor:</span> <b>{brl(Number(row.valor_parcela))}</b>
+          </div>
+          <div><span className="text-muted-foreground">Entrega:</span> {fmtD(row.data_entrega)}</div>
+          <div><span className="text-muted-foreground">Vencimento:</span> {fmtD(row.data_vencimento)}</div>
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground">Status:</span>
+            <Badge variant={stVariant}>{stLabel}</Badge>
+          </div>
+          {row.data_pagamento && (
+            <div><span className="text-muted-foreground">Pago em:</span> {fmtD(row.data_pagamento)}</div>
+          )}
+        </div>
+        <DialogFooter className="flex-row flex-wrap justify-end gap-2">
+          <Button size="sm" variant="outline" onClick={onClose} aria-label="Voltar" className="max-sm:aspect-square max-sm:px-0">
+            <ArrowLeft className="h-4 w-4 sm:hidden" />
+            <span className="max-sm:sr-only">Fechar</span>
+          </Button>
+          {canPay && (isPago ? (
+            <Button size="sm" variant="destructive" onClick={() => onTogglePago(false)} disabled={toggling}>Desmarcar pago</Button>
+          ) : (
+            <Button size="sm" onClick={() => onTogglePago(true)} disabled={toggling}>Marcar pago</Button>
+          ))}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
