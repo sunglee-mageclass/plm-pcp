@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -68,6 +68,7 @@ const SORT_OPTIONS: Array<{ value: string; label: string }> = [
 
 function TecidosGallery() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const readOnly = useReadOnly();
   const [cols, setCols] = useGridCols("tecidos");
   const gridRef = useRef<HTMLDivElement>(null);
@@ -222,8 +223,7 @@ function TecidosGallery() {
       toast.success("Tecido criado.");
       setCreateOpen(false);
       qc.invalidateQueries({ queryKey: ["artigos"] });
-      // Redirect to detail
-      window.location.href = `/cadastro/tecidos/${id}`;
+      navigate({ to: "/cadastro/tecidos/$artigoId", params: { artigoId: id } });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao criar.")),
   });
@@ -242,7 +242,7 @@ function TecidosGallery() {
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+        <div className="flex flex-wrap items-center justify-end gap-2 w-full sm:w-auto">
 
           <SearchToggle value={search} onChange={setSearch} placeholder="Buscar por nome…" />
           <Select value={sort} onValueChange={setSort}>
@@ -268,24 +268,19 @@ function TecidosGallery() {
       </header>
 
       <div className="flex items-center gap-2">
-        <div className="hidden lg:flex items-center gap-2">
-          <LayoutGrid className="h-4 w-4 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground">Colunas:</span>
-          {COLUMN_OPTIONS.map((n) => (
-            <Button
-              key={n}
-              size="sm"
-              variant={cols === n ? "default" : "outline"}
-              onClick={() => setCols(n)}
-              className="h-7 w-9 px-0"
-            >
-              {n}
-            </Button>
-          ))}
-        </div>
-        <span className="ml-auto text-xs text-muted-foreground">
-          <Badge variant="secondary">{filtered.length}</Badge> tecido(s)
+        <span className="text-xs text-muted-foreground">
+          <Badge variant="secondary">{filtered.length}</Badge> {filtered.length === 1 ? "tecido" : "tecidos"}
         </span>
+        <div className="hidden lg:flex items-center gap-1.5 ml-auto">
+          <LayoutGrid className="h-4 w-4 text-muted-foreground" />
+          <Label className="text-xs text-muted-foreground">Colunas</Label>
+          <Select value={String(cols)} onValueChange={(v) => setCols(Number(v))}>
+            <SelectTrigger className="h-8 w-16"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {COLUMN_OPTIONS.map((n) => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {isLoading ? (
@@ -294,8 +289,25 @@ function TecidosGallery() {
           Carregando…
         </div>
       ) : filtered.length === 0 ? (
-        <div className="py-12 text-center text-muted-foreground">
-          Nenhum tecido cadastrado ainda.
+        <div className="py-12 text-center text-muted-foreground space-y-3">
+          {artigos.length === 0 ? (
+            <>
+              <p>Nenhum tecido cadastrado ainda.</p>
+              <Button onClick={() => setCreateOpen(true)} disabled={readOnly}>
+                <Plus className="h-4 w-4 mr-1" /> Novo tecido
+              </Button>
+            </>
+          ) : (
+            <>
+              <p>Nenhum tecido encontrado para os filtros.</p>
+              <Button
+                variant="outline"
+                onClick={() => { setSearch(""); setEmpresaFilter("all"); setCatFilter("all"); setSort("nome"); }}
+              >
+                Limpar filtros
+              </Button>
+            </>
+          )}
         </div>
       ) : (
         <div ref={gridRef} className={GRID_COLS_CLASS[cols]}>
@@ -373,7 +385,7 @@ function TecidoCard({
           <div className="p-3 space-y-1">
             <h3 className="font-medium leading-tight line-clamp-1">{artigo.nome}</h3>
             {(semCategoria || semFornecedor) && (
-              <div className="flex items-center gap-1 rounded bg-destructive px-2 py-1 text-[10px] font-medium text-destructive-foreground">
+              <div className="flex items-center gap-1 rounded bg-amber-500/15 px-2 py-1 text-[10px] font-medium text-amber-700 dark:text-amber-400">
                 <AlertTriangle className="h-3 w-3 shrink-0" />
                 <span className="line-clamp-1">
                   {semCategoria && semFornecedor

@@ -84,6 +84,9 @@ type Variante = {
   nome_variante: string | null;
   codigo_variante: string | null;
   foto_url: string | null;
+  enderecos?: { rua: string; prateleira: string }[] | null;
+  rua?: string | null;
+  prateleira?: string | null;
 };
 
 type Cor = { id: string; nome: string };
@@ -187,18 +190,13 @@ function TecidoDetail() {
       const { error } = await supabase.from("artigos").update(payload).eq("id", artigoId);
       if (error) throw error;
 
-      // Sync junction
-      const { error: delErr } = await supabase
-        .from("artigo_categorias_tecido")
-        .delete()
-        .eq("artigo_id", artigoId);
-      if (delErr) throw delErr;
-      if (catIds.length > 0) {
-        const { error: insErr } = await supabase
-          .from("artigo_categorias_tecido")
-          .insert(catIds.map((cid) => ({ artigo_id: artigoId, categoria_tecido_id: cid })));
-        if (insErr) throw insErr;
-      }
+      // Junção de categorias, ATÔMICA (RPC): evita o tecido ficar sem nenhuma categoria caso o
+      // insert falhasse após o delete (antes era delete-all + insert em 2 passos no cliente).
+      const { error: catErr } = await supabase.rpc("set_artigo_categorias" as any, {
+        _artigo_id: artigoId,
+        _cat_ids: catIds,
+      });
+      if (catErr) throw catErr;
     },
     onSuccess: () => {
       toast.success("Tecido atualizado.");
@@ -214,12 +212,13 @@ function TecidoDetail() {
   const [confirmDel, setConfirmDel] = useState(false);
   const excluirMut = useMutation({
     mutationFn: async () => {
-      const { data: vars } = await supabase.from("variantes_tecido").select("foto_url").eq("artigo_id", artigoId);
-      await supabase.from("variantes_tecido").delete().eq("artigo_id", artigoId);
-      const { error } = await supabase.from("artigos").delete().eq("id", artigoId);
+      // RPC com GUARDA: bloqueia se o tecido estiver em uso (OC/estoque/modelo/CAD/ordem de saída)
+      // e só então apaga (o delete do artigo cascateia variantes+categorias). Retorna as fotos p/
+      // limpar o storage DEPOIS do delete confirmado.
+      const { data, error } = await supabase.rpc("excluir_tecido" as any, { _artigo_id: artigoId });
       if (error) throw error;
-      const paths = ((vars ?? []) as any[]).map((v) => v.foto_url).filter(Boolean) as string[];
-      if (paths.length) await supabase.storage.from("tecido-variantes").remove(paths);
+      const paths = (((data as any)?.fotos ?? []) as string[]).filter(Boolean);
+      if (paths.length) await supabase.storage.from(VARIANT_BUCKET).remove(paths);
     },
     onSuccess: () => {
       toast.success("Tecido excluído.");
@@ -268,9 +267,13 @@ function TecidoDetail() {
         </div>
         <div className="flex items-center gap-2 max-sm:hidden">
           {!readOnly && (
-            <Button variant="destructive" onClick={() => setConfirmDel(true)} disabled={excluirMut.isPending}>
-              <Trash2 className="h-4 w-4 mr-1" /> Excluir
-            </Button>
+            <>
+              <Button variant="destructive" onClick={() => setConfirmDel(true)} disabled={excluirMut.isPending}>
+                <Trash2 className="h-4 w-4 mr-1" /> Excluir
+              </Button>
+              {/* separador p/ o destrutivo não colar no primário (Salvar) */}
+              <div className="w-px h-6 bg-border mx-1" aria-hidden />
+            </>
           )}
           <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
             <Save className="h-4 w-4 mr-1" />
@@ -605,11 +608,12 @@ function VariantesSection({ artigoId, readOnly }: { artigoId: string; readOnly: 
 
   const removeVarMut = useMutation({
     mutationFn: async (v: Variante) => {
-      if (v.foto_url) {
-        await supabase.storage.from(VARIANT_BUCKET).remove([v.foto_url]);
-      }
-      const { error } = await supabase.from("variantes_tecido").delete().eq("id", v.id);
+      // RPC com GUARDA: bloqueia se a cor estiver em uso. A foto do storage só sai DEPOIS do delete
+      // OK (antes era removida ANTES — se o delete falhasse, sobrava thumbnail órfão).
+      const { data, error } = await supabase.rpc("excluir_variante_tecido" as any, { _variante_id: v.id });
       if (error) throw error;
+      const foto = (data as any)?.foto_url as string | null;
+      if (foto) await supabase.storage.from(VARIANT_BUCKET).remove([foto]);
     },
     onSuccess: () => {
       setRemoveTarget(null);
@@ -763,9 +767,9 @@ function VariantRow({
   const [corId, setCorId] = useState(variante.cor_id ?? "");
   const [apelidoId, setApelidoId] = useState(variante.cor_apelido_id ?? "");
   const [enderecos, setEnderecos] = useState<{ rua: string; prateleira: string }[]>(() => {
-    const e = (variante as any).enderecos;
+    const e = variante.enderecos;
     if (Array.isArray(e) && e.length > 0) return e.map((x: any) => ({ rua: x?.rua ?? "", prateleira: x?.prateleira ?? "" }));
-    const r = (variante as any).rua, p = (variante as any).prateleira;
+    const r = variante.rua, p = variante.prateleira;
     return r || p ? [{ rua: r ?? "", prateleira: p ?? "" }] : [];
   });
   const [uploading, setUploading] = useState(false);
@@ -833,10 +837,10 @@ function VariantRow({
             {variante.codigo_variante || variante.nome_variante || "Sem código"}
           </p>
         </div>
-        <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}>
+        <Button variant="ghost" size="icon" aria-label={expanded ? "Recolher" : "Expandir"} aria-expanded={expanded} onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}>
           {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
         </Button>
-        <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); onRemove(); }} disabled={readOnly}>
+        <Button variant="ghost" size="icon" aria-label="Remover variante" onClick={(e) => { e.stopPropagation(); onRemove(); }} disabled={readOnly}>
           <Trash2 className="h-4 w-4 text-destructive" />
         </Button>
       </div>
@@ -919,7 +923,7 @@ function VariantRow({
                     value={end.rua}
                     readOnly={readOnly}
                     onChange={(e) => setEnderecos((prev) => prev.map((x, j) => (j === i ? { ...x, rua: e.target.value } : x)))}
-                    onBlur={() => saveMut.mutate({ enderecos } as any)}
+                    onBlur={() => saveMut.mutate({ enderecos })}
                   />
                   <Input
                     className="flex-1"
@@ -927,17 +931,17 @@ function VariantRow({
                     value={end.prateleira}
                     readOnly={readOnly}
                     onChange={(e) => setEnderecos((prev) => prev.map((x, j) => (j === i ? { ...x, prateleira: e.target.value } : x)))}
-                    onBlur={() => saveMut.mutate({ enderecos } as any)}
+                    onBlur={() => saveMut.mutate({ enderecos })}
                   />
                   {!readOnly && (
-                    <Button size="icon" variant="ghost" onClick={() => { const next = enderecos.filter((_, j) => j !== i); setEnderecos(next); saveMut.mutate({ enderecos: next } as any); }} aria-label="Remover endereço">
+                    <Button size="icon" variant="ghost" onClick={() => { const next = enderecos.filter((_, j) => j !== i); setEnderecos(next); saveMut.mutate({ enderecos: next }); }} aria-label="Remover endereço">
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   )}
                 </div>
               ))}
               {!readOnly && (
-                <Button size="sm" variant="outline" onClick={() => { const next = [...enderecos, { rua: "", prateleira: "" }]; setEnderecos(next); saveMut.mutate({ enderecos: next } as any); }}>
+                <Button size="sm" variant="outline" onClick={() => { const next = [...enderecos, { rua: "", prateleira: "" }]; setEnderecos(next); saveMut.mutate({ enderecos: next }); }}>
                   <Plus className="h-3.5 w-3.5 mr-1" /> Endereço
                 </Button>
               )}
