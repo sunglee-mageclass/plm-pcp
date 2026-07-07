@@ -111,7 +111,6 @@ type Modelo = {
   mes_id: string | null;
   ano_id: string | null;
   categoria_principal_id: string | null;
-  categoria_secundaria_id: string | null;
   subcategoria1_id: string | null;
   status_planejamento: string | null;
   fotos_modelo: string[] | null;
@@ -267,7 +266,7 @@ function PlanejamentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, estilista_id, linha_id, colecao, colecao_id, subcolecao, semana, mes_id, ano_id, categoria_principal_id, categoria_secundaria_id, subcategoria1_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, origem")
+        .select("id, nome, estilista_id, linha_id, colecao, colecao_id, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, origem")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as Modelo[];
@@ -767,7 +766,6 @@ type Draft = {
   mes_id: string | null;
   ano_id: string | null;
   categoria_principal_id: string | null;
-  categoria_secundaria_id: string | null;
   subcategoria1_id: string | null;
   subcategoria2_id: string | null;
   origem: string;
@@ -785,7 +783,7 @@ type Draft = {
 };
 const emptyDraft = (): Draft => ({
   nome: "", estilista_id: null, linha_id: null, colecao: "", colecao_id: null, subcolecao: "", semana: "", mes_id: null, ano_id: null,
-  categoria_principal_id: null, categoria_secundaria_id: null,
+  categoria_principal_id: null,
   subcategoria1_id: null, subcategoria2_id: null, origem: "interno", preco_venda: null, data_lancamento: null,
   tecidos_planejados: [],
   status_planejamento: "em_planejamento", croqui_url: "", desenho_tecnico_url: "", fotos_modelo: [], fotos_referencia: [],
@@ -943,7 +941,6 @@ function ModeloDialog({
           mes_id: data.mes_id,
           ano_id: data.ano_id,
           categoria_principal_id: data.categoria_principal_id,
-          categoria_secundaria_id: data.categoria_secundaria_id,
           subcategoria1_id: (data as any).subcategoria1_id ?? null,
           subcategoria2_id: (data as any).subcategoria2_id ?? null,
           origem: (data as any).origem ?? "interno",

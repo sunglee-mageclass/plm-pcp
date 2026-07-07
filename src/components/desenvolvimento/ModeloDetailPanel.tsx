@@ -260,6 +260,9 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const [grades, setGrades] = useState<GradeRow[]>([]);
   const [uploading, setUploading] = useState(false);
   const [confirmEnviarCad, setConfirmEnviarCad] = useState(false);
+  // Confirmação (AlertDialog) antes de descartar grade preenchida ao trocar/remover
+  // o Tecido 1. Guarda a ação adiada até o usuário confirmar.
+  const [confirmGrade, setConfirmGrade] = useState<{ msg: string; onConfirm: () => void } | null>(null);
   // Trava por SEGURANÇA após enviar ao CAD: só edita ao clicar "Editar", e o
   // Salvar volta a travar. Reseta ao abrir outro modelo.
   const [editing, setEditing] = useState(false);
@@ -687,6 +690,22 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     if (patch.consumo !== undefined || patch.loss_percent !== undefined) setConsumoAlterado(true);
     const target = blocks[idx];
     const isTecido1 = target?.tipo === "tecido" && target?.numero === 1;
+    const applyPatch = () => {
+      setBlocks((bs) => bs.map((b, i) => {
+        if (i !== idx) return b;
+        let merged = { ...b, ...patch };
+        // Ao remover um substituto (forro), descarta variantes que pertenciam a
+        // ele — ficariam órfãs (fora do pool de variantes do bloco).
+        if (patch.artigoIdsExtra !== undefined) {
+          const pool = new Set<string>([merged.artigo_id, ...merged.artigoIdsExtra].filter(Boolean) as string[]);
+          const variantes = merged.variantes.map((v) =>
+            v && varianteArtigoMap[v] && !pool.has(varianteArtigoMap[v]) ? null : v,
+          );
+          merged = { ...merged, variantes };
+        }
+        return recomputeBlock(merged, artigoMap, varianteArtigoMap);
+      }));
+    };
     // Trocar o artigo do Tecido 1 zera suas variantes; a grade é indexada por
     // essas variantes, então ficaria órfã (somada no total e copiada ao CAD).
     // Confirma antes de descartar grade preenchida e limpa-a junto.
@@ -694,30 +713,41 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       const hasGrade = grades.some(
         (g) => g.grade_total > 0 || Object.values(g.grades || {}).some((v) => (v ?? 0) > 0),
       );
-      if (hasGrade && !window.confirm("Trocar o Tecido 1 vai apagar a grade preenchida. Continuar?")) {
+      if (hasGrade) {
+        setConfirmGrade({
+          msg: "Trocar o Tecido 1 vai apagar a grade preenchida. Continuar?",
+          onConfirm: () => { setGrades([]); applyPatch(); },
+        });
         return;
       }
       setGrades([]);
     }
-    setBlocks((bs) => bs.map((b, i) => {
-      if (i !== idx) return b;
-      let merged = { ...b, ...patch };
-      // Ao remover um substituto (forro), descarta variantes que pertenciam a
-      // ele — ficariam órfãs (fora do pool de variantes do bloco).
-      if (patch.artigoIdsExtra !== undefined) {
-        const pool = new Set<string>([merged.artigo_id, ...merged.artigoIdsExtra].filter(Boolean) as string[]);
-        const variantes = merged.variantes.map((v) =>
-          v && varianteArtigoMap[v] && !pool.has(varianteArtigoMap[v]) ? null : v,
-        );
-        merged = { ...merged, variantes };
-      }
-      return recomputeBlock(merged, artigoMap, varianteArtigoMap);
-    }));
+    applyPatch();
   };
   const updateBlockVariante = (idx: number, vIdx: number, value: string | null) => {
     setConsumoAlterado(true);
     const target = blocks[idx];
     const isTecido1 = target?.tipo === "tecido" && target?.numero === 1;
+    const applyChange = () => {
+      setBlocks((bs) => bs.map((b, i) => {
+        if (i !== idx) return b;
+        const variantes = [...b.variantes];
+        const oc_links = (b.oc_links ?? []).map((a) => [...(a ?? [])]);
+        while (oc_links.length < 10) oc_links.push([]);
+        const prev = variantes[vIdx];
+        variantes[vIdx] = value;
+        if (!value) {
+          oc_links[vIdx] = [];
+          for (let k = vIdx + 1; k < variantes.length; k++) { variantes[k] = null; oc_links[k] = []; }
+        } else if (prev !== value) {
+          // variante mudou: invalida os vínculos de OC (eram de outra variante)
+          oc_links[vIdx] = [];
+        }
+        // Recalcula: o custo usa o maior preço entre os artigos das variantes
+        // escolhidas (substitutos podem ter preços diferentes).
+        return recomputeBlock({ ...b, variantes, oc_links }, artigoMap, varianteArtigoMap);
+      }));
+    };
     if (isTecido1 && !value) {
       // Verifica se há grade preenchida nesta variante ou nas que serão removidas em cascata
       const affected: number[] = [];
@@ -732,28 +762,17 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         const msg = affected.length === 1
           ? `A ${lista} possui grade preenchida. Remover mesmo assim?`
           : `As variantes ${lista} possuem grade preenchida. Remover mesmo assim?`;
-        if (!window.confirm(msg)) return;
-        setGrades((gs) => gs.filter((g) => !affected.includes(g.variante_numero)));
+        setConfirmGrade({
+          msg,
+          onConfirm: () => {
+            setGrades((gs) => gs.filter((g) => !affected.includes(g.variante_numero)));
+            applyChange();
+          },
+        });
+        return;
       }
     }
-    setBlocks((bs) => bs.map((b, i) => {
-      if (i !== idx) return b;
-      const variantes = [...b.variantes];
-      const oc_links = (b.oc_links ?? []).map((a) => [...(a ?? [])]);
-      while (oc_links.length < 10) oc_links.push([]);
-      const prev = variantes[vIdx];
-      variantes[vIdx] = value;
-      if (!value) {
-        oc_links[vIdx] = [];
-        for (let k = vIdx + 1; k < variantes.length; k++) { variantes[k] = null; oc_links[k] = []; }
-      } else if (prev !== value) {
-        // variante mudou: invalida os vínculos de OC (eram de outra variante)
-        oc_links[vIdx] = [];
-      }
-      // Recalcula: o custo usa o maior preço entre os artigos das variantes
-      // escolhidas (substitutos podem ter preços diferentes).
-      return recomputeBlock({ ...b, variantes, oc_links }, artigoMap, varianteArtigoMap);
-    }));
+    applyChange();
   };
   const updateBlockOcLinks = (idx: number, vIdx: number, allocs: OcAlloc[]) => {
     setBlocks((bs) => bs.map((b, i) => {
@@ -1088,6 +1107,24 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
             <AlertDialogCancel>Não, quero fazer uma revisão antes</AlertDialogCancel>
             <AlertDialogAction onClick={() => { setConfirmEnviarCad(false); enviarCad.mutate(); }}>
               Sim
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!confirmGrade} onOpenChange={(o) => { if (!o) setConfirmGrade(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Apagar grade preenchida?</AlertDialogTitle>
+            <AlertDialogDescription>{confirmGrade?.msg}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { confirmGrade?.onConfirm(); setConfirmGrade(null); }}
+            >
+              Continuar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

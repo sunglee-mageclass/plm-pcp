@@ -262,9 +262,9 @@ export function ColecaoSheet({
     queryKey: ["otb-colecao-modelos", colecaoId],
     enabled: !!colecaoId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("modelos").select("id, linha_id, preco_venda").eq("colecao_id", colecaoId!);
+      const { data, error } = await supabase.from("modelos").select("id, linha_id, preco_venda, status_planejamento").eq("colecao_id", colecaoId!);
       if (error) throw error;
-      return data as { id: string; linha_id: string | null; preco_venda: number | null }[];
+      return data as { id: string; linha_id: string | null; preco_venda: number | null; status_planejamento: string | null }[];
     },
   });
   // Todos os cards da coleção (p/ achar os "não classificados" — fora de qualquer bucket).
@@ -330,6 +330,9 @@ export function ColecaoSheet({
   const linhaMarkupMap = Object.fromEntries(linhas.map((l) => [l.id, l.markup]));
 
   const resumo = computeColecaoResumo(modelos, custoMap as any, gradeMap as any, linhaMarkupMap as any);
+  // Contagens p/ o diálogo de exclusão: modelos planejados bloqueiam; os demais são apagados.
+  const nPlanejado = modelos.filter((m) => m.status_planejamento === "planejado").length;
+  const nExcluir = modelos.length - nPlanejado;
   const orc = orcamento === "" ? null : Number(orcamento);
   const saldo = orc != null ? orc - resumo.previsto : null;
   const pct = orc && orc > 0 ? resumo.previsto / orc : 0;
@@ -605,8 +608,17 @@ export function ColecaoSheet({
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir a coleção “{nome}”?</AlertDialogTitle>
             <AlertDialogDescription>
-              Exclui a coleção, suas semanas e os modelos vinculados que ainda estão <strong>em planejamento</strong> (ou reprovados).
-              Se houver algum modelo já <strong>planejado</strong>, a exclusão é <strong>bloqueada</strong>. Esta ação não pode ser desfeita.
+              {nPlanejado > 0 ? (
+                <>
+                  Esta coleção tem <strong>{nPlanejado}</strong> modelo(s) já <strong>planejado(s)</strong>, então a exclusão será{" "}
+                  <strong>bloqueada</strong>. Remova ou reprove esses modelos antes de excluir a coleção.
+                </>
+              ) : (
+                <>
+                  Exclui a coleção, suas semanas e <strong>{nExcluir}</strong> modelo(s) vinculado(s) que ainda estão{" "}
+                  <strong>em planejamento</strong> (ou reprovados) — <strong>inclusive os já preenchidos</strong>. Esta ação não pode ser desfeita.
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -614,7 +626,7 @@ export function ColecaoSheet({
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={(e) => { e.preventDefault(); excluir.mutate(); }}
-              disabled={excluir.isPending}
+              disabled={excluir.isPending || nPlanejado > 0}
             >
               {excluir.isPending ? "Excluindo…" : "Excluir"}
             </AlertDialogAction>

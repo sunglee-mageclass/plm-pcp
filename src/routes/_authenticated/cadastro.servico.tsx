@@ -724,7 +724,7 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
                       value={form.novaEmpresa}
                       onChange={(e) => setForm({ ...form, novaEmpresa: e.target.value })}
                     />
-                    <CategoriasFornecedorMultiSelect
+                    <CategoriasMultiSelect
                       options={catsFornecedor}
                       value={form.novaEmpresaCategorias}
                       onChange={(v) => setForm({ ...form, novaEmpresaCategorias: v })}
@@ -805,11 +805,11 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
   );
 }
 
-// ============ Categorias Fornecedor Multi-Select ============
+// ============ Categorias Multi-Select (material E serviço) ============
 
 type CatOption = { id: string; nome: string };
 
-function CategoriasFornecedorMultiSelect({
+function CategoriasMultiSelect({
   options,
   value,
   onChange,
@@ -1402,7 +1402,7 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
                 <span className="text-destructive">*</span>
               </Label>
               {form.tipo === "servico" ? (
-                <CategoriasTerceirizadoMultiSelect
+                <CategoriasMultiSelect
                   options={catsServico.map((c) => ({
                     id: c.id,
                     nome: `${c.nome} (${c.etapa === "pos_costura" ? "Pós" : "Pré"})`,
@@ -1412,7 +1412,7 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
                   placeholder="Categorias de serviço…"
                 />
               ) : (
-                <CategoriasFornecedorMultiSelect
+                <CategoriasMultiSelect
                   options={catsFornecedor}
                   value={form.cats}
                   onChange={(v) => setForm((f) => ({ ...f, cats: v }))}
@@ -1488,60 +1488,3 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
   );
 }
 
-// ============ Categorias de Serviço Multi-Select ============
-// (reusado no editor de Empresa do tipo serviço)
-
-function CategoriasTerceirizadoMultiSelect({
-  options,
-  value,
-  onChange,
-  placeholder = "Selecione categorias…",
-}: {
-  options: CatOption[];
-  value: string[];
-  onChange: (v: string[]) => void;
-  placeholder?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const selectedLabels = options.filter((o) => value.includes(o.id)).map((o) => o.nome);
-  const toggle = (id: string) => {
-    if (value.includes(id)) onChange(value.filter((v) => v !== id));
-    else onChange([...value, id]);
-  };
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button type="button" variant="outline" className="w-full justify-between font-normal">
-          <span className="truncate text-left">
-            {selectedLabels.length === 0
-              ? placeholder
-              : selectedLabels.length <= 2
-                ? selectedLabels.join(", ")
-                : `${selectedLabels.length} categorias`}
-          </span>
-          <ChevronsUpDown className="h-4 w-4 opacity-50 shrink-0 ml-2" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-72 p-2" align="start">
-        <div className="max-h-64 overflow-y-auto space-y-1">
-          {options.length === 0 ? (
-            <div className="text-sm text-muted-foreground p-2">Nenhuma categoria cadastrada.</div>
-          ) : (
-            options.map((o) => (
-              <label
-                key={o.id}
-                className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer"
-              >
-                <Checkbox
-                  checked={value.includes(o.id)}
-                  onCheckedChange={() => toggle(o.id)}
-                />
-                <span className="text-sm">{o.nome}</span>
-              </label>
-            ))
-          )}
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
