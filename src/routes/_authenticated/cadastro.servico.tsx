@@ -539,22 +539,13 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
         if (!nome) throw new Error("Informe o nome da nova empresa.");
         if (form.novaEmpresaCategorias.length === 0)
           throw new Error("Selecione ao menos uma categoria do fornecedor.");
-        const { data: empresa, error: errE } = await supabase
-          .from("empresas")
-          .insert({ nome_fantasia: nome })
-          .select("id")
-          .single();
+        // Cria a empresa (material) + categorias atomicamente via RPC.
+        const { data: newId, error: errE } = await supabase.rpc("set_empresa_categorias" as any, {
+          _empresa: { tipo: "material", nome_fantasia: nome },
+          _cats: form.novaEmpresaCategorias,
+        });
         if (errE) throw errE;
-        empresaId = empresa.id;
-        const { error: errLink } = await supabase
-          .from("empresa_categorias_fornecedor")
-          .insert(
-            form.novaEmpresaCategorias.map((cid) => ({
-              empresa_id: empresaId!,
-              categoria_fornecedor_id: cid,
-            })),
-          );
-        if (errLink) throw errLink;
+        empresaId = newId as string;
       }
 
       const payload = {
@@ -1083,83 +1074,28 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
             : "Selecione ao menos uma categoria do fornecedor.",
         );
 
-      const payload = {
-        tipo: form.tipo,
-        nome_fantasia: nome,
-        // CNPJ NÃO é obrigatório (serviço interno / pessoa física pode não ter).
-        cnpj: form.cnpj ? cleanCnpj(form.cnpj) : null,
-        razao_social: form.razao_social || null,
-        logradouro: form.logradouro || null,
-        cep: form.cep || null,
-        municipio: form.municipio || null,
-        uf: form.uf || null,
-        telefone: form.telefone || null,
-        email: form.email || null,
-        situacao_cadastral: form.situacao_cadastral || null,
-        contato: form.contato || null,
-        observacoes: form.observacoes || null,
-      };
-
-      let empresaId = editingId;
-      if (editingId) {
-        const { error } = await supabase
-          .from("empresas")
-          .update(payload)
-          .eq("id", editingId);
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase
-          .from("empresas")
-          .insert(payload)
-          .select("id")
-          .single();
-        if (error) throw error;
-        empresaId = data.id;
-      }
-
-      // Sincroniza a junction do tipo certo via delete-all + insert. Também limpa a
-      // junction do OUTRO tipo (caso o tipo tenha mudado numa criação/edição destravada).
-      const otherTable =
-        form.tipo === "servico"
-          ? "empresa_categorias_fornecedor"
-          : "empresa_categorias_servico";
-      const { error: delOther } = await supabase
-        .from(otherTable)
-        .delete()
-        .eq("empresa_id", empresaId!);
-      if (delOther) throw delOther;
-
-      if (form.tipo === "servico") {
-        const { error: delErr } = await supabase
-          .from("empresa_categorias_servico")
-          .delete()
-          .eq("empresa_id", empresaId!);
-        if (delErr) throw delErr;
-        const { error: insErr } = await supabase
-          .from("empresa_categorias_servico")
-          .insert(
-            form.cats.map((cid) => ({
-              empresa_id: empresaId!,
-              categoria_terceirizado_id: cid,
-            })),
-          );
-        if (insErr) throw insErr;
-      } else {
-        const { error: delErr } = await supabase
-          .from("empresa_categorias_fornecedor")
-          .delete()
-          .eq("empresa_id", empresaId!);
-        if (delErr) throw delErr;
-        const { error: insErr } = await supabase
-          .from("empresa_categorias_fornecedor")
-          .insert(
-            form.cats.map((cid) => ({
-              empresa_id: empresaId!,
-              categoria_fornecedor_id: cid,
-            })),
-          );
-        if (insErr) throw insErr;
-      }
+      // Upsert da empresa + sincronização das duas junctions numa transação só
+      // (RPC atômica). CNPJ NÃO é obrigatório (serviço interno / PF pode não ter).
+      const { error } = await supabase.rpc("set_empresa_categorias" as any, {
+        _empresa: {
+          id: editingId,
+          tipo: form.tipo,
+          nome_fantasia: nome,
+          cnpj: form.cnpj ? cleanCnpj(form.cnpj) : null,
+          razao_social: form.razao_social || null,
+          logradouro: form.logradouro || null,
+          cep: form.cep || null,
+          municipio: form.municipio || null,
+          uf: form.uf || null,
+          telefone: form.telefone || null,
+          email: form.email || null,
+          situacao_cadastral: form.situacao_cadastral || null,
+          contato: form.contato || null,
+          observacoes: form.observacoes || null,
+        },
+        _cats: form.cats,
+      });
+      if (error) throw error;
     },
     onSuccess: () => {
       toast.success(editingId ? "Empresa atualizada." : "Empresa criada.");
