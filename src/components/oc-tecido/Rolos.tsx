@@ -476,11 +476,11 @@ export function RolosList() {
                     </TableCell>
                     <TableCell data-label="Ações">
                       <div className="flex">
-                        <Button variant="ghost" size="icon" className="h-8 w-8"
+                        <Button variant="ghost" size="iconSm"
                           onClick={() => setEditing(r)} aria-label="Editar">
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8"
+                        <Button variant="ghost" size="iconSm"
                           onClick={() => setDeleting(r)}>
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
@@ -743,7 +743,7 @@ export function AjustesList() {
                 <TableCell data-label="Motivo" className="text-muted-foreground">{a.motivo || "—"}</TableCell>
                 <TableCell data-label="Por" className="text-muted-foreground">{a.por}</TableCell>
                 <TableCell data-label="Ações">
-                  <Button variant="ghost" size="icon" className="h-8 w-8" title="Desfazer"
+                  <Button variant="ghost" size="iconSm" title="Desfazer"
                     onClick={() => setConfirmar(a)}>
                     <Undo2 className="h-4 w-4" />
                   </Button>

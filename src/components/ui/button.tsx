@@ -22,6 +22,9 @@ const buttonVariants = cva(
         sm: "h-8 rounded-md px-3 text-xs",
         lg: "h-10 rounded-md px-8 max-md:h-11",
         icon: "h-9 w-9 max-md:h-11 max-md:w-11",
+        // Ícone compacto p/ AÇÕES DENTRO DE TABELAS (editar/excluir na linha): 32px em
+        // todos os tamanhos, pra a linha ficar na altura do texto (padrão "compacto").
+        iconSm: "h-8 w-8",
       },
     },
     defaultVariants: {

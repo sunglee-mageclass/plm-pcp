@@ -301,7 +301,7 @@ function OcAviamentoPage() {
                     <TableCell><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status="encomendado" /></TableCell>
                     <TableCell>
                       <Button
-                        size="icon"
+                        size="iconSm"
                         variant="ghost"
                         className="text-muted-foreground hover:text-destructive"
                         onClick={(e) => { e.stopPropagation(); setDeleting(o); }}
@@ -863,7 +863,7 @@ function OcDialog({
                           </label>
                         )}
                         {!isReadOnlyRecebimento && (
-                          <Button size="icon" variant="ghost" onClick={() => removeItem(i.tempId)}>
+                          <Button size="iconSm" variant="ghost" onClick={() => removeItem(i.tempId)}>
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         )}

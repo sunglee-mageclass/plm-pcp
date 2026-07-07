@@ -148,7 +148,7 @@ export function OcTecidoList({
                   <TableCell>
                     {onDelete && (
                       <Button
-                        size="icon"
+                        size="iconSm"
                         variant="ghost"
                         className="text-muted-foreground hover:text-destructive"
                         onClick={(e) => { e.stopPropagation(); onDelete(o); }}
