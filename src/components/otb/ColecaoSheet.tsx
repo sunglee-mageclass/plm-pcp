@@ -17,6 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NumberInput } from "@/components/shared/NumberInput";
+import { DateField } from "@/components/shared/DateField";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { computeColecaoResumo } from "./otb-resumo";
@@ -28,8 +29,10 @@ type Grupo = { id: string; nome: string };
 type Categoria = { id: string; nome: string; grupo_id: string | null };
 // semana → (categoria_id → qtd)
 type CatDist = Record<string, Record<string, number>>;
-// Um bloco de subcoleção no editor: nome + semanas (semana→qtd) + distribuição por categoria.
-type SubBlock = { id: string | null; nome: string; weeks: Record<string, number | null>; cats: CatDist };
+// semana → { texto livre, data } (campos por semana, além da qtd)
+type WeekMeta = Record<string, { texto: string; data: string }>;
+// Um bloco de subcoleção no editor: nome + semanas (semana→qtd) + texto/data + distribuição por categoria.
+type SubBlock = { id: string | null; nome: string; weeks: Record<string, number | null>; meta: WeekMeta; cats: CatDist };
 
 const somaCats = (m?: Record<string, number>) => Object.values(m ?? {}).reduce((a, b) => a + (b || 0), 0);
 
@@ -92,9 +95,10 @@ function CategoriaDistribuicaoDialog({
 // Editor das 5 semanas (reutilizado no modo simples e em cada subcoleção). Cada semana
 // ligada tem qtd + botão de categorias (distribui a qtd por categoria).
 function WeeksEditor({
-  value, onChange, cats, onCatsChange, grupos, categorias,
+  value, onChange, meta, onMetaChange, cats, onCatsChange, grupos, categorias,
 }: {
   value: Record<string, number | null>; onChange: (w: Record<string, number | null>) => void;
+  meta: WeekMeta; onMetaChange: (m: WeekMeta) => void;
   cats: CatDist; onCatsChange: (c: CatDist) => void;
   grupos: Grupo[]; categorias: Categoria[];
 }) {
@@ -106,10 +110,15 @@ function WeeksEditor({
         const total = value[s] ?? 0;
         const dist = somaCats(cats[s]);
         const distFecha = dist <= total; // parcial é ok (resto = sem categoria); vermelho só se passar
+        const m = meta[s] ?? { texto: "", data: "" };
+        const setMeta = (patch: Partial<{ texto: string; data: string }>) =>
+          onMetaChange({ ...meta, [s]: { ...m, ...patch } });
         return (
-          <div key={s} className="flex items-center gap-3">
+          <div key={s} className="flex items-center gap-2 flex-wrap">
             <Checkbox checked={on} onCheckedChange={(v) => { const n = { ...value }; if (v) n[s] = n[s] ?? null; else delete n[s]; onChange(n); }} />
             <span className="w-16 text-sm">Semana {s}</span>
+            {on && <Input className="h-8 w-32" placeholder="Texto" value={m.texto} onChange={(e) => setMeta({ texto: e.target.value })} />}
+            {on && <div className="w-36"><DateField value={m.data} onChange={(e) => setMeta({ data: e.target.value })} /></div>}
             {on && <div className="w-24"><NumberInput integer placeholder="0" value={value[s] == null ? "" : String(value[s])} onChange={(e) => onChange({ ...value, [s]: e.target.value === "" ? null : Number(e.target.value) })} /></div>}
             {on && total > 0 && (
               <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setDlgWeek(s)}>
@@ -203,6 +212,7 @@ export function ColecaoSheet({
   const [mesId, setMesId] = useState<string | null>(null);
   const [orcamento, setOrcamento] = useState<string>("");
   const [weeks, setWeeks] = useState<Record<string, number | null>>({}); // modo simples (sem subcoleção)
+  const [weeksMeta, setWeeksMeta] = useState<WeekMeta>({}); // texto/data por semana (modo simples)
   const [weekCats, setWeekCats] = useState<CatDist>({}); // distribuição por categoria (modo simples)
   const [subs, setSubs] = useState<SubBlock[]>([]); // subcoleções, cada uma com suas semanas
   const [confirmDel, setConfirmDel] = useState(false);
@@ -221,7 +231,7 @@ export function ColecaoSheet({
     enabled: !!colecaoId,
     queryFn: async () => {
       const { data: col, error } = await supabase.from("colecoes")
-        .select("*, colecao_semanas(semana, qtd_planejada, subcolecao_id), colecao_subcolecoes(id, nome, ordem), colecao_semana_categorias(subcolecao_id, semana, categoria_id, qtd)")
+        .select("*, colecao_semanas(semana, qtd_planejada, subcolecao_id, texto, data), colecao_subcolecoes(id, nome, ordem), colecao_semana_categorias(subcolecao_id, semana, categoria_id, qtd)")
         .eq("id", colecaoId!).single();
       if (error) throw error;
       return col as any;
@@ -233,17 +243,23 @@ export function ColecaoSheet({
     setAnoId(data.ano_id ?? null);
     setMesId(data.mes_id ?? null);
     setOrcamento(data.orcamento != null ? String(data.orcamento) : "");
-    const allSem = (data.colecao_semanas ?? []) as { semana: string; qtd_planejada: number; subcolecao_id: string | null }[];
+    const allSem = (data.colecao_semanas ?? []) as { semana: string; qtd_planejada: number; subcolecao_id: string | null; texto: string | null; data: string | null }[];
     const allCat = (data.colecao_semana_categorias ?? []) as { subcolecao_id: string | null; semana: string; categoria_id: string; qtd: number }[];
     const catsFor = (subId: string | null): CatDist => {
       const out: CatDist = {};
       for (const c of allCat) if ((c.subcolecao_id ?? null) === subId) (out[c.semana] ??= {})[c.categoria_id] = c.qtd;
       return out;
     };
+    const metaFor = (subId: string | null): WeekMeta => {
+      const out: WeekMeta = {};
+      for (const s of allSem) if ((s.subcolecao_id ?? null) === subId) out[s.semana] = { texto: s.texto ?? "", data: s.data ?? "" };
+      return out;
+    };
     // Semanas de nível coleção (modo simples).
     const flat: Record<string, number | null> = {};
     for (const s of allSem) if (!s.subcolecao_id) flat[s.semana] = s.qtd_planejada > 0 ? s.qtd_planejada : null;
     setWeeks(flat);
+    setWeeksMeta(metaFor(null));
     setWeekCats(catsFor(null));
     // Subcoleções ordenadas, cada uma com as suas semanas + distribuição por categoria.
     const subList = ((data.colecao_subcolecoes ?? []) as { id: string; nome: string; ordem: number }[])
@@ -252,7 +268,7 @@ export function ColecaoSheet({
       .map((sc) => {
         const wk: Record<string, number | null> = {};
         for (const s of allSem) if (s.subcolecao_id === sc.id) wk[s.semana] = s.qtd_planejada > 0 ? s.qtd_planejada : null;
-        return { id: sc.id, nome: sc.nome, weeks: wk, cats: catsFor(sc.id) } as SubBlock;
+        return { id: sc.id, nome: sc.nome, weeks: wk, meta: metaFor(sc.id), cats: catsFor(sc.id) } as SubBlock;
       });
     setSubs(subList);
   }, [data]);
@@ -370,9 +386,10 @@ export function ColecaoSheet({
         ano_id: anoId,
         mes_id: mesId,
         orcamento: orcamento === "" ? null : Number(orcamento),
-        subs: cleanSubs.map((s) => ({ id: s.id ?? null, nome: s.nome, weeks: s.weeks, cats: s.cats })),
+        subs: cleanSubs.map((s) => ({ id: s.id ?? null, nome: s.nome, weeks: s.weeks, meta: s.meta, cats: s.cats })),
         weeks,
         weekCats,
+        weeksMeta,
       },
     });
     if (error) throw error;
@@ -469,14 +486,14 @@ export function ColecaoSheet({
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <Label className="block">Subcoleções e Modelos por Semana</Label>
-              <Button type="button" variant="outline" size="sm" onClick={() => setSubs((p) => [...p, { id: null, nome: "", weeks: {}, cats: {} }])}>
+              <Button type="button" variant="outline" size="sm" onClick={() => setSubs((p) => [...p, { id: null, nome: "", weeks: {}, meta: {}, cats: {} }])}>
                 <Plus className="h-4 w-4 mr-1" /> Subcoleção
               </Button>
             </div>
             {subs.length === 0 ? (
               <div className="rounded-lg border p-3 space-y-2">
                 <p className="text-xs text-muted-foreground">Sem subcoleção: informe os modelos por semana da coleção. Ou clique em “Subcoleção” para dividir a coleção.</p>
-                <WeeksEditor value={weeks} onChange={setWeeks} cats={weekCats} onCatsChange={setWeekCats} grupos={grupos} categorias={categorias} />
+                <WeeksEditor value={weeks} onChange={setWeeks} meta={weeksMeta} onMetaChange={setWeeksMeta} cats={weekCats} onCatsChange={setWeekCats} grupos={grupos} categorias={categorias} />
               </div>
             ) : (
               <div className="space-y-3">
@@ -493,6 +510,8 @@ export function ColecaoSheet({
                     <WeeksEditor
                       value={s.weeks}
                       onChange={(w) => setSubs((p) => p.map((x, j) => (j === i ? { ...x, weeks: w } : x)))}
+                      meta={s.meta}
+                      onMetaChange={(mm) => setSubs((p) => p.map((x, j) => (j === i ? { ...x, meta: mm } : x)))}
                       cats={s.cats}
                       onCatsChange={(c) => setSubs((p) => p.map((x, j) => (j === i ? { ...x, cats: c } : x)))}
                       grupos={grupos}
