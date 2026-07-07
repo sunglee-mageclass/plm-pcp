@@ -246,7 +246,7 @@ function AviamentosGallery() {
       qc.invalidateQueries({ queryKey: ["aviamentos"] });
     },
     onError: (e: any) =>
-      toast.error(e?.code === "23503" ? "Aviamento em uso (OC, CAD ou material). Remova de lá antes." : mensagemErro(e, "Erro ao excluir.")),
+      toast.error(e?.code === "23503" ? "Aviamento em uso (OC, modelo, CAD ou ordem de saída). Remova de lá antes." : mensagemErro(e, "Erro ao excluir.")),
   });
 
 
@@ -262,7 +262,7 @@ function AviamentosGallery() {
             </p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+        <div className="flex flex-wrap items-center justify-end gap-2 w-full sm:w-auto">
 
           <SearchToggle value={search} onChange={setSearch} placeholder="Buscar por código/nome…" />
           <Select value={sort} onValueChange={setSort}>
@@ -293,24 +293,19 @@ function AviamentosGallery() {
       </header>
 
       <div className="flex items-center gap-2">
-        <div className="hidden lg:flex items-center gap-2">
-          <LayoutGrid className="h-4 w-4 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground">Colunas:</span>
-          {COLUMN_OPTIONS.map((n) => (
-            <Button
-              key={n}
-              size="sm"
-              variant={cols === n ? "default" : "outline"}
-              onClick={() => setCols(n)}
-              className="h-7 w-9 px-0"
-            >
-              {n}
-            </Button>
-          ))}
-        </div>
-        <span className="ml-auto text-xs text-muted-foreground">
-          <Badge variant="secondary">{filtered.length}</Badge> aviamento(s)
+        <span className="text-xs text-muted-foreground">
+          <Badge variant="secondary">{filtered.length}</Badge> {filtered.length === 1 ? "aviamento" : "aviamentos"}
         </span>
+        <div className="hidden lg:flex items-center gap-1.5 ml-auto">
+          <LayoutGrid className="h-4 w-4 text-muted-foreground" />
+          <Label className="text-xs text-muted-foreground">Colunas</Label>
+          <Select value={String(cols)} onValueChange={(v) => setCols(Number(v))}>
+            <SelectTrigger className="h-8 w-16"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {COLUMN_OPTIONS.map((n) => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {isLoading ? (
@@ -319,8 +314,25 @@ function AviamentosGallery() {
           Carregando…
         </div>
       ) : filtered.length === 0 ? (
-        <div className="py-12 text-center text-muted-foreground">
-          Nenhum aviamento cadastrado.
+        <div className="py-12 text-center text-muted-foreground space-y-3">
+          {aviamentos.length === 0 ? (
+            <>
+              <p>Nenhum aviamento cadastrado.</p>
+              <Button onClick={() => setCreateOpen(true)} disabled={readOnly}>
+                <Plus className="h-4 w-4 mr-1" /> Novo aviamento
+              </Button>
+            </>
+          ) : (
+            <>
+              <p>Nenhum aviamento encontrado para os filtros.</p>
+              <Button
+                variant="outline"
+                onClick={() => { setSearch(""); setSort("nome"); setFCat("all"); setFSub("all"); setFMat("all"); setFLarg("all"); setFVaz("all"); setFEmp("all"); }}
+              >
+                Limpar filtros
+              </Button>
+            </>
+          )}
         </div>
       ) : (
         <div ref={gridRef} className={GRID_COLS_CLASS[cols]}>
@@ -331,7 +343,6 @@ function AviamentosGallery() {
               categoria={a.categoria_aviamento_id ? catMap.get(a.categoria_aviamento_id) ?? null : null}
               fornecedor={a.empresa_id ? empresasMap.get(a.empresa_id) ?? null : null}
               onEdit={() => setEditing(a)}
-              onDelete={() => setDeleting(a)}
               compact={compact}
               readOnly={readOnly}
             />
@@ -399,7 +410,6 @@ function AviamentoCard({
   categoria,
   fornecedor,
   onEdit,
-  onDelete,
   compact,
   readOnly,
 }: {
@@ -407,7 +417,6 @@ function AviamentoCard({
   categoria: string | null;
   fornecedor: string | null;
   onEdit: () => void;
-  onDelete: () => void;
   compact?: boolean;
   readOnly?: boolean;
 }) {
@@ -434,7 +443,7 @@ function AviamentoCard({
       <div className="p-3 space-y-1">
         <h3 className="font-medium leading-tight line-clamp-1">{aviamento.codigo_nome}</h3>
         {(!categoria || !fornecedor) && (
-          <div className="flex items-center gap-1 rounded bg-destructive px-2 py-1 text-[10px] font-medium text-destructive-foreground">
+          <div className="flex items-center gap-1 rounded bg-amber-500/15 px-2 py-1 text-[10px] font-medium text-amber-700 dark:text-amber-400">
             <AlertTriangle className="h-3 w-3 shrink-0" />
             <span className="line-clamp-1">
               {!categoria && !fornecedor
@@ -813,7 +822,7 @@ function AviamentoModal({
             </Button>
           )}
           {!readOnly && (
-            <Button className="max-sm:ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+            <Button className="ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
               {saveMut.isPending ? "Salvando…" : "Salvar"}
             </Button>
           )}
