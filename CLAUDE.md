@@ -149,6 +149,12 @@ e verifique** — o repo muda rápido.
 4. **Estoque** — físico = recebido − baixa POR ITEM; baixa **sempre** no ledger
    `estoque_tecido_baixas` (nunca subtrair de coluna agregada). Reserva por `grade_total`/
    `variante_numero`. "- Metragem" = baixa de ajuste; zerar libera reserva.
+   ⚠️ Excluir tecido/cor (Cadastro > Tecidos) é **só via RPC com guarda** `excluir_tecido`/
+   `excluir_variante_tecido` (contam uso em OC/estoque/modelo/CAD/ordem e bloqueiam; senão
+   apagam e devolvem as fotos p/ limpar storage DEPOIS). `estoque_tecido_baixas.variante_tecido_id`
+   é **NO ACTION** de propósito (era CASCADE — apagava o ledger em silêncio); NÃO voltar p/ CASCADE.
+   Índice único parcial `(artigo,cor,apelido)` barra variante duplicada; categorias via
+   `set_artigo_categorias` (atômico).
 5. **Rolos** — `ocs_tecido.is_rolo` (estoque físico por rolo); RPC `criar_rolo`; separar =
    baixa `separacao_rolo` (reversível); `modo_oc_rolo` filtra o que aparece no Desenvolvimento.
 6. **CQ** — `salvar_cq`/`desmarcar_cq` fazem status + `cq_variantes` + grade real numa txn.
