@@ -177,7 +177,21 @@ function EtiquetasPage() {
             ) : sorted.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
-                  Nenhuma etiqueta encontrada.
+                  {etiquetas.length === 0 ? (
+                    <div className="space-y-3">
+                      <p>Nenhuma etiqueta cadastrada ainda.</p>
+                      <Button size="sm" onClick={openCreate} disabled={readOnly}>
+                        <Plus className="h-4 w-4 mr-1" /> Nova etiqueta
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <p>Nenhuma etiqueta encontrada para a busca.</p>
+                      <Button size="sm" variant="outline" onClick={() => setSearch("")}>
+                        Limpar busca
+                      </Button>
+                    </div>
+                  )}
                 </TableCell>
               </TableRow>
             ) : (
@@ -207,7 +221,7 @@ function EtiquetasPage() {
       </div>
 
       <div className="text-xs text-muted-foreground">
-        <Badge variant="secondary">{filtered.length}</Badge> registro(s)
+        <Badge variant="secondary">{filtered.length}</Badge> {filtered.length === 1 ? "etiqueta" : "etiquetas"}
       </div>
 
       {/* Criar / editar */}
