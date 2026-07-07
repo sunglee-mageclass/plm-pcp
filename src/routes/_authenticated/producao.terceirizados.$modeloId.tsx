@@ -222,9 +222,8 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
     },
   });
 
-  // Empresas de serviço (tipo='servico') com suas categorias e representantes.
-  // Substituem os "terceirizados" na seleção do responsável (ramo PL). O gatilho
-  // no banco preenche `terceirizado_id` a partir de `empresas.origem_terceirizado_id`.
+  // Empresas de serviço (tipo='servico') com suas categorias e representantes —
+  // a fonte única do responsável (ramo PL). Grava empresa_id direto no bloco.
   const { data: empresasServico = [] } = useQuery({
     queryKey: ["empresas-servico-sel"],
     queryFn: async () => {

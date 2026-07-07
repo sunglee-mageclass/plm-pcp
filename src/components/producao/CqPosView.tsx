@@ -69,14 +69,14 @@ export const CqPosView = forwardRef<CqPosHandle, {
     queryFn: async () => {
       const { data } = await supabase
         .from("producao_terceirizados")
-        .select("id, ativo, categorias_terceirizado(nome, etapa), terceirizado:terceirizado_id(nome_responsavel), colaborador:colaborador_id(nome)")
+        .select("id, ativo, categorias_terceirizado(nome, etapa), empresa:empresa_id(nome_fantasia), colaborador:colaborador_id(nome)")
         .eq("cad_id", cadId);
       return (data ?? [])
         .filter((t: any) => t.ativo !== false && (t.categorias_terceirizado?.etapa ?? "ate_costura") === "pos_costura")
         .map((t: any) => ({
           id: t.id as string,
           categoria: t.categorias_terceirizado?.nome ?? "Serviço",
-          responsavel: t.terceirizado?.nome_responsavel ?? t.colaborador?.nome ?? "—",
+          responsavel: t.empresa?.nome_fantasia ?? t.colaborador?.nome ?? "—",
         }));
     },
   });

@@ -854,6 +854,61 @@ export type Database = {
           },
         ]
       }
+      colecao_semana_categorias: {
+        Row: {
+          categoria_id: string
+          colecao_id: string
+          created_at: string
+          id: string
+          qtd: number
+          semana: string
+          subcolecao_id: string | null
+          tenant_id: string | null
+        }
+        Insert: {
+          categoria_id: string
+          colecao_id: string
+          created_at?: string
+          id?: string
+          qtd?: number
+          semana: string
+          subcolecao_id?: string | null
+          tenant_id?: string | null
+        }
+        Update: {
+          categoria_id?: string
+          colecao_id?: string
+          created_at?: string
+          id?: string
+          qtd?: number
+          semana?: string
+          subcolecao_id?: string | null
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "colecao_semana_categorias_categoria_id_fkey"
+            columns: ["categoria_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_produto"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "colecao_semana_categorias_colecao_id_fkey"
+            columns: ["colecao_id"]
+            isOneToOne: false
+            referencedRelation: "colecoes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "colecao_semana_categorias_subcolecao_id_fkey"
+            columns: ["subcolecao_id"]
+            isOneToOne: false
+            referencedRelation: "colecao_subcolecoes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       colecao_semanas: {
         Row: {
           colecao_id: string
@@ -889,54 +944,6 @@ export type Database = {
           },
           {
             foreignKeyName: "colecao_semanas_subcolecao_id_fkey"
-            columns: ["subcolecao_id"]
-            isOneToOne: false
-            referencedRelation: "colecao_subcolecoes"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      colecao_semana_categorias: {
-        Row: {
-          categoria_id: string
-          colecao_id: string
-          created_at: string
-          id: string
-          qtd: number
-          semana: string
-          subcolecao_id: string | null
-          tenant_id: string | null
-        }
-        Insert: {
-          categoria_id: string
-          colecao_id: string
-          created_at?: string
-          id?: string
-          qtd?: number
-          semana: string
-          subcolecao_id?: string | null
-          tenant_id?: string | null
-        }
-        Update: {
-          categoria_id?: string
-          colecao_id?: string
-          created_at?: string
-          id?: string
-          qtd?: number
-          semana?: string
-          subcolecao_id?: string | null
-          tenant_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "colecao_semana_categorias_colecao_id_fkey"
-            columns: ["colecao_id"]
-            isOneToOne: false
-            referencedRelation: "colecoes"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "colecao_semana_categorias_subcolecao_id_fkey"
             columns: ["subcolecao_id"]
             isOneToOne: false
             referencedRelation: "colecao_subcolecoes"
@@ -1398,19 +1405,19 @@ export type Database = {
       empresa_categorias_servico: {
         Row: {
           categoria_terceirizado_id: string
-          created_at: string
+          created_at: string | null
           empresa_id: string
           tenant_id: string | null
         }
         Insert: {
           categoria_terceirizado_id: string
-          created_at?: string
+          created_at?: string | null
           empresa_id: string
           tenant_id?: string | null
         }
         Update: {
           categoria_terceirizado_id?: string
-          created_at?: string
+          created_at?: string | null
           empresa_id?: string
           tenant_id?: string | null
         }
@@ -1444,7 +1451,6 @@ export type Database = {
           municipio: string | null
           nome_fantasia: string
           observacoes: string | null
-          origem_terceirizado_id: string | null
           razao_social: string | null
           situacao_cadastral: string | null
           telefone: string | null
@@ -1464,7 +1470,6 @@ export type Database = {
           municipio?: string | null
           nome_fantasia: string
           observacoes?: string | null
-          origem_terceirizado_id?: string | null
           razao_social?: string | null
           situacao_cadastral?: string | null
           telefone?: string | null
@@ -1484,7 +1489,6 @@ export type Database = {
           municipio?: string | null
           nome_fantasia?: string
           observacoes?: string | null
-          origem_terceirizado_id?: string | null
           razao_social?: string | null
           situacao_cadastral?: string | null
           telefone?: string | null
@@ -2397,6 +2401,7 @@ export type Database = {
           parcelas_recebimento: Json
           prazo_pagamento: string | null
           quantidade_prazos: number | null
+          representante_id: string | null
           responsavel_nome: string | null
           status: string | null
           tenant_id: string | null
@@ -2413,6 +2418,7 @@ export type Database = {
           parcelas_recebimento?: Json
           prazo_pagamento?: string | null
           quantidade_prazos?: number | null
+          representante_id?: string | null
           responsavel_nome?: string | null
           status?: string | null
           tenant_id?: string | null
@@ -2429,6 +2435,7 @@ export type Database = {
           parcelas_recebimento?: Json
           prazo_pagamento?: string | null
           quantidade_prazos?: number | null
+          representante_id?: string | null
           responsavel_nome?: string | null
           status?: string | null
           tenant_id?: string | null
@@ -2439,6 +2446,13 @@ export type Database = {
             columns: ["empresa_id"]
             isOneToOne: false
             referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_aviamento_representante_id_fkey"
+            columns: ["representante_id"]
+            isOneToOne: false
+            referencedRelation: "representantes"
             referencedColumns: ["id"]
           },
           {
@@ -2517,6 +2531,7 @@ export type Database = {
           parcelas_recebimento: Json
           prazo_pagamento: string | null
           quantidade_prazos: number | null
+          representante_id: string | null
           responsavel_id: string | null
           responsavel_nome: string | null
           rolo_codigo: string | null
@@ -2549,6 +2564,7 @@ export type Database = {
           parcelas_recebimento?: Json
           prazo_pagamento?: string | null
           quantidade_prazos?: number | null
+          representante_id?: string | null
           responsavel_id?: string | null
           responsavel_nome?: string | null
           rolo_codigo?: string | null
@@ -2581,6 +2597,7 @@ export type Database = {
           parcelas_recebimento?: Json
           prazo_pagamento?: string | null
           quantidade_prazos?: number | null
+          representante_id?: string | null
           responsavel_id?: string | null
           responsavel_nome?: string | null
           rolo_codigo?: string | null
@@ -2598,6 +2615,13 @@ export type Database = {
             columns: ["empresa_id"]
             isOneToOne: false
             referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ocs_tecido_representante_id_fkey"
+            columns: ["representante_id"]
+            isOneToOne: false
+            referencedRelation: "representantes"
             referencedColumns: ["id"]
           },
           {
@@ -3120,13 +3144,6 @@ export type Database = {
             referencedRelation: "tenants"
             referencedColumns: ["id"]
           },
-          {
-            foreignKeyName: "producao_oficina_terceirizado_id_fkey"
-            columns: ["terceirizado_id"]
-            isOneToOne: false
-            referencedRelation: "terceirizados"
-            referencedColumns: ["id"]
-          },
         ]
       }
       producao_terceirizados: {
@@ -3142,6 +3159,7 @@ export type Database = {
           data_enviado: string | null
           data_prevista: string | null
           desconto_total: number
+          empresa_id: string | null
           id: string
           interno: boolean
           multa_total: number
@@ -3151,10 +3169,10 @@ export type Database = {
           quantidade_defeito: number | null
           quantidade_enviada: number | null
           quantidade_recebida: number | null
+          representante_id: string | null
           status: string | null
           tecidos_enviados: Json | null
           tenant_id: string | null
-          terceirizado_id: string | null
         }
         Insert: {
           aprovado?: boolean
@@ -3168,6 +3186,7 @@ export type Database = {
           data_enviado?: string | null
           data_prevista?: string | null
           desconto_total?: number
+          empresa_id?: string | null
           id?: string
           interno?: boolean
           multa_total?: number
@@ -3177,10 +3196,10 @@ export type Database = {
           quantidade_defeito?: number | null
           quantidade_enviada?: number | null
           quantidade_recebida?: number | null
+          representante_id?: string | null
           status?: string | null
           tecidos_enviados?: Json | null
           tenant_id?: string | null
-          terceirizado_id?: string | null
         }
         Update: {
           aprovado?: boolean
@@ -3194,6 +3213,7 @@ export type Database = {
           data_enviado?: string | null
           data_prevista?: string | null
           desconto_total?: number
+          empresa_id?: string | null
           id?: string
           interno?: boolean
           multa_total?: number
@@ -3203,10 +3223,10 @@ export type Database = {
           quantidade_defeito?: number | null
           quantidade_enviada?: number | null
           quantidade_recebida?: number | null
+          representante_id?: string | null
           status?: string | null
           tecidos_enviados?: Json | null
           tenant_id?: string | null
-          terceirizado_id?: string | null
         }
         Relationships: [
           {
@@ -3231,17 +3251,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "producao_terceirizados_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "producao_terceirizados_representante_id_fkey"
+            columns: ["representante_id"]
+            isOneToOne: false
+            referencedRelation: "representantes"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "producao_terceirizados_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "producao_terceirizados_terceirizado_id_fkey"
-            columns: ["terceirizado_id"]
-            isOneToOne: false
-            referencedRelation: "terceirizados"
             referencedColumns: ["id"]
           },
         ]
@@ -3603,84 +3630,6 @@ export type Database = {
         }
         Relationships: []
       }
-      terceirizado_categorias: {
-        Row: {
-          categoria_terceirizado_id: string
-          created_at: string
-          id: string
-          tenant_id: string | null
-          terceirizado_id: string
-        }
-        Insert: {
-          categoria_terceirizado_id: string
-          created_at?: string
-          id?: string
-          tenant_id?: string | null
-          terceirizado_id: string
-        }
-        Update: {
-          categoria_terceirizado_id?: string
-          created_at?: string
-          id?: string
-          tenant_id?: string | null
-          terceirizado_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "terceirizado_categorias_categoria_terceirizado_id_fkey"
-            columns: ["categoria_terceirizado_id"]
-            isOneToOne: false
-            referencedRelation: "categorias_terceirizado"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "terceirizado_categorias_terceirizado_id_fkey"
-            columns: ["terceirizado_id"]
-            isOneToOne: false
-            referencedRelation: "terceirizados"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      terceirizados: {
-        Row: {
-          categoria_terceirizado_id: string | null
-          created_at: string | null
-          id: string
-          nome_responsavel: string
-          tenant_id: string | null
-        }
-        Insert: {
-          categoria_terceirizado_id?: string | null
-          created_at?: string | null
-          id?: string
-          nome_responsavel: string
-          tenant_id?: string | null
-        }
-        Update: {
-          categoria_terceirizado_id?: string | null
-          created_at?: string | null
-          id?: string
-          nome_responsavel?: string
-          tenant_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "terceirizados_categoria_terceirizado_id_fkey"
-            columns: ["categoria_terceirizado_id"]
-            isOneToOne: false
-            referencedRelation: "categorias_terceirizado"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "terceirizados_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       tipos_colaborador: {
         Row: {
           categoria_terceirizado_id: string | null
@@ -3828,8 +3777,8 @@ export type Database = {
         Row: {
           artigo_id: string | null
           codigo_variante: string | null
-          cor_id: string | null
           cor_apelido_id: string | null
+          cor_id: string | null
           created_at: string | null
           enderecos: Json
           foto_url: string | null
@@ -3842,8 +3791,8 @@ export type Database = {
         Insert: {
           artigo_id?: string | null
           codigo_variante?: string | null
-          cor_id?: string | null
           cor_apelido_id?: string | null
+          cor_id?: string | null
           created_at?: string | null
           enderecos?: Json
           foto_url?: string | null
@@ -3856,8 +3805,8 @@ export type Database = {
         Update: {
           artigo_id?: string | null
           codigo_variante?: string | null
-          cor_id?: string | null
           cor_apelido_id?: string | null
+          cor_id?: string | null
           created_at?: string | null
           enderecos?: Json
           foto_url?: string | null
@@ -3876,17 +3825,17 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "variantes_tecido_cor_id_fkey"
-            columns: ["cor_id"]
-            isOneToOne: false
-            referencedRelation: "cores"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "variantes_tecido_cor_apelido_id_fkey"
             columns: ["cor_apelido_id"]
             isOneToOne: false
             referencedRelation: "cores_apelido"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "variantes_tecido_cor_id_fkey"
+            columns: ["cor_id"]
+            isOneToOne: false
+            referencedRelation: "cores"
             referencedColumns: ["id"]
           },
           {
@@ -4162,6 +4111,8 @@ export type Database = {
       }
       estoque_tecido_por_artigo: { Args: never; Returns: Json }
       excluir_loja: { Args: { _tenant_id: string }; Returns: undefined }
+      excluir_tecido: { Args: { _artigo_id: string }; Returns: Json }
+      excluir_variante_tecido: { Args: { _variante_id: string }; Returns: Json }
       forcar_logout: { Args: { _user_id: string }; Returns: undefined }
       get_user_tenant_id: { Args: never; Returns: string }
       has_role: {
@@ -4197,8 +4148,14 @@ export type Database = {
         Returns: Json
       }
       ocs_para_rolo: { Args: never; Returns: Json }
+      otb_atribuir_card: {
+        Args: { _modelo_id: string; _semana: string; _subcolecao_id: string }
+        Returns: undefined
+      }
       otb_confirmar: { Args: { _colecao_id: string }; Returns: Json }
+      otb_excluir_colecao: { Args: { _colecao_id: string }; Returns: undefined }
       otb_importar_colecoes: { Args: never; Returns: Json }
+      otb_salvar_colecao: { Args: { _payload: Json }; Returns: string }
       proximo_codigo_rolo: { Args: { _artigo_id?: string }; Returns: string }
       ranking_oficinas: {
         Args: { p_categoria_produto?: string }
@@ -4220,6 +4177,10 @@ export type Database = {
           _oc_tecido_item_id: string
         }
         Returns: string
+      }
+      renomear_tipo_colaborador: {
+        Args: { _categoria_id?: string; _id: string; _novo_nome: string }
+        Returns: undefined
       }
       reset_loja: { Args: { _tenant_id: string }; Returns: undefined }
       reverter_ajuste_estoque: {
@@ -4289,6 +4250,14 @@ export type Database = {
       }
       servico_aprovacao_por_modelo: { Args: { _ids: string[] }; Returns: Json }
       servicos_financeiro: { Args: never; Returns: Json }
+      set_artigo_categorias: {
+        Args: { _artigo_id: string; _cat_ids: string[] }
+        Returns: undefined
+      }
+      set_empresa_categorias: {
+        Args: { _cats: string[]; _empresa: Json }
+        Returns: string
+      }
       tenant_module_enabled: { Args: { _module: string }; Returns: boolean }
       trocar_rolo: {
         Args: { _nova_metragem?: number; _rolo_id: string }
