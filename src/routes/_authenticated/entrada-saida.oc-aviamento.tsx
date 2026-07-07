@@ -299,7 +299,7 @@ function OcAviamentoPage() {
                     <TableCell>{fmtDate(o.data_prevista_entrega)}</TableCell>
                     <TableCell>{fmtMoney(itemsByOC[o.id]?.previsto ?? 0)}</TableCell>
                     <TableCell><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status="encomendado" /></TableCell>
-                    <TableCell>
+                    <TableCell className="w-10 py-0 text-right">
                       <Button
                         size="iconSm"
                         variant="ghost"
