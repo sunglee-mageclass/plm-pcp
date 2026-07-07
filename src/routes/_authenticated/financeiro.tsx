@@ -115,10 +115,10 @@ function FinanceiroPage() {
           : Promise.resolve({ data: [], error: null } as const),
 
         tecidoIds.length
-          ? supabase.from("ocs_tecido").select("id, numero_pedido, valor_real_total, ocs_tecido_itens!oc_tecido_id(cq_alerta_status, cancelado)").in("id", tecidoIds)
+          ? supabase.from("ocs_tecido").select("id, numero_pedido, valor_real_total, representante:representante_id(nome), ocs_tecido_itens!oc_tecido_id(cq_alerta_status, cancelado)").in("id", tecidoIds)
           : Promise.resolve({ data: [], error: null } as const),
         aviamentoIds.length
-          ? supabase.from("ocs_aviamento").select("id,numero_pedido").in("id", aviamentoIds)
+          ? supabase.from("ocs_aviamento").select("id,numero_pedido, representante:representante_id(nome)").in("id", aviamentoIds)
           : Promise.resolve({ data: [], error: null } as const),
       ]);
       if (empresasRes.error) throw empresasRes.error;
@@ -128,6 +128,9 @@ function FinanceiroPage() {
       const empMap = new Map((empresasRes.data ?? []).map((e: any) => [e.id, e.nome_fantasia as string]));
       const tecMap = new Map((tecidoRes.data ?? []).map((o: any) => [o.id, o.numero_pedido as string | null]));
       const aviMap = new Map((aviamentoRes.data ?? []).map((o: any) => [o.id, o.numero_pedido as string | null]));
+      // Representante da OC (se houver): o financeiro paga o rep — distingue "via representante".
+      const tecRepMap = new Map((tecidoRes.data ?? []).map((o: any) => [o.id, (o.representante?.nome ?? null) as string | null]));
+      const aviRepMap = new Map((aviamentoRes.data ?? []).map((o: any) => [o.id, (o.representante?.nome ?? null) as string | null]));
       // Badge de alerta (troca/cancelamento/etc.) por OC de tecido.
       const tecBadge = new Map(
         (tecidoRes.data ?? []).map((o: any) => [o.id, alertaBadge((o.ocs_tecido_itens ?? []).map((it: any) => it.cq_alerta_status))]),
@@ -142,13 +145,17 @@ function FinanceiroPage() {
 
       return list
         .filter((p) => !(p.oc_tecido_id && ocCancelada.has(p.oc_tecido_id)))
-        .map((p) => ({
+        .map((p) => {
+        const empNome = p.empresa_id ? (empMap.get(p.empresa_id) ?? "—") : null;
+        const repNome = p.oc_tecido_id ? tecRepMap.get(p.oc_tecido_id) : p.oc_aviamento_id ? aviRepMap.get(p.oc_aviamento_id) : null;
+        return {
         ...p,
-        empresas: p.empresa_id ? { nome: empMap.get(p.empresa_id) ?? "—" } : null,
+        empresas: empNome ? { nome: repNome ? `${empNome} · via ${repNome}` : empNome } : null,
         ocs_tecido: p.oc_tecido_id ? { numero_pedido: tecMap.get(p.oc_tecido_id) ?? null } : null,
         ocs_aviamento: p.oc_aviamento_id ? { numero_pedido: aviMap.get(p.oc_aviamento_id) ?? null } : null,
         ocBadge: p.oc_tecido_id ? tecBadge.get(p.oc_tecido_id) ?? null : null,
-      }));
+        };
+      });
     },
   });
 
