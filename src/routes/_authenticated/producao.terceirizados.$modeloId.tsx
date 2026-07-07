@@ -37,6 +37,10 @@ type Bloco = {
   categoria_nome?: string;
   interno: boolean;
   terceirizado_id: string | null;
+  // Nova seleção do responsável (ramo PL): empresa de serviço + representante opcional.
+  // O gatilho no banco deriva `terceirizado_id` de `empresa_id` ao salvar.
+  empresa_id: string | null;
+  representante_id: string | null;
   colaborador_id: string | null;
   preco_metro_unidade: number;
   aprovado: boolean;
@@ -220,23 +224,26 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
     },
   });
 
-  const { data: terceirizados = [] } = useQuery({
-    queryKey: ["terceirizados-all"],
+  // Empresas de serviço (tipo='servico') com suas categorias e representantes.
+  // Substituem os "terceirizados" na seleção do responsável (ramo PL). O gatilho
+  // no banco preenche `terceirizado_id` a partir de `empresas.origem_terceirizado_id`.
+  const { data: empresasServico = [] } = useQuery({
+    queryKey: ["empresas-servico-sel"],
     queryFn: async () => {
       const { data } = await supabase
-        .from("terceirizados")
-        .select("id, nome_responsavel, categoria_terceirizado_id, terceirizado_categorias(categoria_terceirizado_id)");
-      return (data ?? []).map((t: any) => ({
-        ...t,
-        categorias_ids: [
-          ...(Array.isArray(t.terceirizado_categorias)
-            ? t.terceirizado_categorias.map((j: any) => j.categoria_terceirizado_id)
-            : []),
-          ...(t.categoria_terceirizado_id ? [t.categoria_terceirizado_id] : []),
-        ].filter((v, i, a) => a.indexOf(v) === i),
-      }));
+        .from("empresas")
+        .select(
+          "id, nome_fantasia, empresa_categorias_servico!inner(categoria_terceirizado_id), representantes(id, nome)",
+        )
+        .eq("tipo", "servico");
+      return (data ?? []) as any[];
     },
   });
+  // Filtra empresas pela categoria do bloco (mesmo padrão do filtro por categoria de hoje).
+  const empresasDaCategoria = (catId: string) =>
+    (empresasServico as any[]).filter((e) =>
+      (e.empresa_categorias_servico ?? []).some((c: any) => c.categoria_terceirizado_id === catId),
+    );
 
   const { data: aviamentosModelo = [] } = useQuery({
     queryKey: ["modelo-aviamentos", modeloId],
@@ -310,13 +317,21 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
       }
       return null;
     };
+    // Nome da empresa + " (via {rep})" quando há representante; "direto" quando não.
+    const empresaLabel = (empresaId: string | null, repId: string | null) => {
+      const emp = (empresasServico as any[]).find((e) => e.id === empresaId);
+      if (!emp) return "—";
+      const rep = repId ? (emp.representantes ?? []).find((r: any) => r.id === repId) : null;
+      return rep ? `${emp.nome_fantasia} (via ${rep.nome})` : `${emp.nome_fantasia} (direto)`;
+    };
     return blocos
-      .filter((b) => (b.interno ? b.colaborador_id : b.terceirizado_id))
+      // defensivo: bloco antigo com empresa_id ainda null (pré-backfill) não some da OS.
+      .filter((b) => (b.interno ? b.colaborador_id : (b.empresa_id || b.terceirizado_id)))
       .map((b) => ({
         servico: (categorias as any[]).find((c) => c.id === b.categoria_terceirizado_id)?.nome ?? "—",
         responsavel: b.interno
           ? (colaboradores.find((c) => c.id === b.colaborador_id)?.nome ?? "—")
-          : ((terceirizados as any[]).find((t) => t.id === b.terceirizado_id)?.nome_responsavel ?? "—"),
+          : empresaLabel(b.empresa_id, b.representante_id),
         interno: b.interno,
         quantidade: Number(b.quantidade_enviada ?? 0),
         dataEnviado: b.data_enviado,
@@ -325,7 +340,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
         aviamentos: (b.aviamentos_enviados ?? []).map(aviLabel).filter(Boolean) as string[],
         tecidos: (b.tecidos_enviados ?? []).map(tecLabel).filter(Boolean) as string[],
       }));
-  }, [blocos, categorias, colaboradores, terceirizados, aviamentosModelo, tecidosModelo]);
+  }, [blocos, categorias, colaboradores, empresasServico, aviamentosModelo, tecidosModelo]);
   const [hydrated, setHydrated] = useState(false);
   // Trava por segurança quando o serviço está Finalizado: só edita ao clicar
   // "Editar", e o Salvar volta a travar.
@@ -381,6 +396,8 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
         categoria_terceirizado_id: r.categoria_terceirizado_id,
         interno: Boolean((r as any).interno),
         terceirizado_id: r.terceirizado_id,
+        empresa_id: (r as any).empresa_id ?? null,
+        representante_id: (r as any).representante_id ?? null,
         colaborador_id: (r as any).colaborador_id ?? null,
         preco_metro_unidade: Number(r.preco_metro_unidade ?? 0),
         aprovado: Boolean((r as any).aprovado),
@@ -418,6 +435,8 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
         categoria_nome: catNome,
         interno: false,
         terceirizado_id: null,
+        empresa_id: null,
+        representante_id: null,
         colaborador_id: null,
         preco_metro_unidade: 0,
         aprovado: false,
@@ -486,6 +505,10 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
         id: b.id ?? null,
         categoria_terceirizado_id: b.categoria_terceirizado_id,
         interno: b.interno,
+        // Grava empresa + representante; o gatilho no banco deriva terceirizado_id
+        // a partir de empresa_id (empresas.origem_terceirizado_id).
+        empresa_id: b.interno ? null : b.empresa_id,
+        representante_id: b.interno ? null : b.representante_id,
         terceirizado_id: b.interno ? null : b.terceirizado_id,
         colaborador_id: b.interno ? b.colaborador_id : null,
         ativo: true,
@@ -718,7 +741,9 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
       {blocos.map((b, idx) => {
         if (catEtapa(b.categoria_terceirizado_id) !== tabEtapa) return null;
         const catNome = (categorias as any[]).find((c) => c.id === b.categoria_terceirizado_id)?.nome ?? "—";
-        const responsaveis = (terceirizados as any[]).filter((t) => (t.categorias_ids ?? []).includes(b.categoria_terceirizado_id));
+        const empresasCat = empresasDaCategoria(b.categoria_terceirizado_id);
+        const empresaSel = (empresasServico as any[]).find((e) => e.id === b.empresa_id);
+        const repsDaEmpresa = (empresaSel?.representantes ?? []) as { id: string; nome: string | null }[];
         const colabsCat = colaboradoresDaCategoria(b.categoria_terceirizado_id);
         // SLA do serviço: dias entre enviado e entregue (calculado das datas).
         const slaBloco =
@@ -740,7 +765,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
                 <div className="flex rounded-md border overflow-hidden text-xs font-medium">
                   <button
                     type="button"
-                    onClick={() => updateBloco(idx, { interno: true, terceirizado_id: null })}
+                    onClick={() => updateBloco(idx, { interno: true, terceirizado_id: null, empresa_id: null, representante_id: null })}
                     className={cn(
                       "px-2.5 py-1 transition-colors",
                       b.interno ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted",
@@ -775,9 +800,9 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
             </div>
 
             <div className="grid gap-4 md:grid-cols-3">
-              <div>
-                <Label className="text-xs">Responsável</Label>
-                {b.interno ? (
+              {b.interno ? (
+                <div>
+                  <Label className="text-xs">Responsável</Label>
                   <Select
                     value={b.colaborador_id ?? ""}
                     onValueChange={(v) => updateBloco(idx, { colaborador_id: v || null })}
@@ -795,23 +820,49 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
                       ))}
                     </SelectContent>
                   </Select>
-                ) : (
-                  <Select
-                    value={b.terceirizado_id ?? ""}
-                    onValueChange={(v) => updateBloco(idx, { terceirizado_id: v || null })}
-                  >
-                    <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
-                    <SelectContent>
-                      {responsaveis.length === 0 && (
-                        <div className="p-2 text-xs text-muted-foreground">Nenhum cadastrado nesta categoria.</div>
-                      )}
-                      {responsaveis.map((t) => (
-                        <SelectItem key={t.id} value={t.id}>{t.nome_responsavel}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <Label className="text-xs">Empresa</Label>
+                    <Select
+                      value={b.empresa_id ?? ""}
+                      onValueChange={(v) =>
+                        // Trocar a empresa limpa o representante (reps são daquela empresa).
+                        updateBloco(idx, { empresa_id: v || null, representante_id: null })
+                      }
+                    >
+                      <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                      <SelectContent>
+                        {empresasCat.length === 0 && (
+                          <div className="p-2 text-xs text-muted-foreground">Nenhuma empresa cadastrada nesta categoria.</div>
+                        )}
+                        {empresasCat.map((e: any) => (
+                          <SelectItem key={e.id} value={e.id}>{e.nome_fantasia}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Representante (opcional)</Label>
+                    <Select
+                      value={b.representante_id ?? "__direto__"}
+                      onValueChange={(v) =>
+                        updateBloco(idx, { representante_id: v === "__direto__" ? null : v })
+                      }
+                      disabled={!b.empresa_id}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Direto na empresa" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__direto__">Direto na empresa</SelectItem>
+                        {repsDaEmpresa.map((r) => (
+                          <SelectItem key={r.id} value={r.id}>{r.nome ?? "—"}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              )}
               {!b.interno && (
                 <div>
                   <Label className="text-xs">Preço por metro/unidade</Label>
