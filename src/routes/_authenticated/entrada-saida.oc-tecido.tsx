@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fmtNum } from "@/lib/format";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -960,8 +960,17 @@ function OcDialog({
     return missing;
   };
 
+  // Guarda anti-duplo-clique: o ref é SÍNCRONO (isPending/disabled só atualizam no
+  // re-render, então num clique-duplo rápido os dois passariam — e no INSERT criariam 2 OCs).
+  const savingRef = useRef(false);
+  const handleSave = () => {
+    if (savingRef.current || saveMutation.isPending) return;
+    savingRef.current = true;
+    saveMutation.mutate(false, { onSettled: () => { savingRef.current = false; } });
+  };
+
   const handleMarkReceived = () => {
-    if (saveMutation.isPending) return; // evita duplo-clique duplicar itens/parcelas
+    if (savingRef.current || saveMutation.isPending) return; // anti-duplo-clique (ref síncrono)
     if (!canMarkReceived) {
       const missing = getMissingRequirements();
       toast.error("Não é possível marcar como recebido:", {
@@ -969,7 +978,8 @@ function OcDialog({
       });
       return;
     }
-    saveMutation.mutate(true);
+    savingRef.current = true;
+    saveMutation.mutate(true, { onSettled: () => { savingRef.current = false; } });
   };
 
   return (
@@ -1066,7 +1076,7 @@ function OcDialog({
                 </Button>
               )
             )}
-            <Button onClick={() => saveMutation.mutate(false)} disabled={saveMutation.isPending}>
+            <Button onClick={handleSave} disabled={saveMutation.isPending}>
               Salvar
             </Button>
           </div>
