@@ -558,11 +558,9 @@ function ParcelaDetailDialog({
           {temRep && (
             <div><span className="text-muted-foreground">Representante:</span> <b>{parcela.representanteNome}</b></div>
           )}
-          {payeeCnpj && (
-            <div>
-              <span className="text-muted-foreground">CNPJ{temRep ? " (representante)" : ""}:</span> {payeeCnpj}
-            </div>
-          )}
+          <div>
+            <span className="text-muted-foreground">CNPJ{temRep ? " (representante)" : ""}:</span> {payeeCnpj ?? "—"}
+          </div>
           <div className="flex items-center gap-2"><span className="text-muted-foreground">Origem:</span> {tipoLabel} · Nº {ocNumero}
             {parcela.ocBadge && <Badge className={parcela.ocBadge.cls}>{parcela.ocBadge.label}</Badge>}</div>
           <div><span className="text-muted-foreground">Parcela:</span> {parcela.numero_parcela}</div>
@@ -1230,9 +1228,7 @@ function ServicoDetailDialog({
           {temRep && (
             <div><span className="text-muted-foreground">Representante:</span> <b>{row.representante_nome}</b></div>
           )}
-          {payeeCnpj && (
-            <div><span className="text-muted-foreground">CNPJ{temRep ? " (representante)" : ""}:</span> {payeeCnpj}</div>
-          )}
+          <div><span className="text-muted-foreground">CNPJ{temRep ? " (representante)" : ""}:</span> {payeeCnpj ?? "—"}</div>
           <div className="mt-2 border-t pt-2 grid grid-cols-2 gap-x-4 gap-y-1">
             <div><span className="text-muted-foreground">Bruto:</span> {brl(Number(row.custo_bruto))}</div>
             <div><span className="text-muted-foreground">Desconto:</span> {brl(Number(row.desconto))}</div>
