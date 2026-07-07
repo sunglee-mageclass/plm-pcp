@@ -115,6 +115,84 @@ describe.skipIf(!hasDb)("OTB — importar coleções existentes", () => {
   });
 });
 
+describe.skipIf(!hasDb)("OTB — otb_salvar_colecao (persistência atômica)", () => {
+  it("cria com subcoleções (semanas+categorias) e re-salva removendo uma sub", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await c.query(`update tenant_config set modules = coalesce(modules,'{}'::jsonb) || '{"otb":true}'::jsonb where tenant_id=$1`, [TENANT_TESTE]);
+      const cat = await um<{ id: string }>(c, `select id from categorias_produto where tenant_id=$1 limit 1`, [TENANT_TESTE]);
+
+      // CRIA: 2 subcoleções (SubA: sem1=10,sem2=5 + cat sem1=4 ; SubB: sem3=7)
+      const p1 = {
+        nome: "C-SALVAR",
+        subs: [
+          { nome: "SubA", weeks: { "1": 10, "2": 5 }, cats: { "1": { [cat.id]: 4 } } },
+          { nome: "SubB", weeks: { "3": 7 }, cats: {} },
+        ],
+      };
+      const created = await um<{ id: string }>(c, `select public.otb_salvar_colecao($1::jsonb) as id`, [JSON.stringify(p1)]);
+      const chk = await um<{ n_sub: string; n_sem: string; n_cat: string; tenant: string }>(
+        c,
+        `select (select count(*) from colecao_subcolecoes where colecao_id=$1)::text n_sub,
+                (select count(*) from colecao_semanas where colecao_id=$1)::text n_sem,
+                (select count(*) from colecao_semana_categorias where colecao_id=$1)::text n_cat,
+                (select tenant_id::text from colecao_semanas where colecao_id=$1 limit 1) tenant`,
+        [created.id],
+      );
+      expect(chk.n_sub).toBe("2");
+      expect(chk.n_sem).toBe("3");
+      expect(chk.n_cat).toBe("1");
+      expect(chk.tenant).toBe(TENANT_TESTE); // tenant vem por trigger
+
+      // RE-SALVA: mantém só SubA renomeada (sem1=20) → remove SubB + regrava semanas
+      const suba = await um<{ id: string }>(c, `select id from colecao_subcolecoes where colecao_id=$1 and nome='SubA'`, [created.id]);
+      const p2 = { id: created.id, nome: "C-SALVAR-2", subs: [{ id: suba.id, nome: "SubA2", weeks: { "1": 20 }, cats: {} }] };
+      await c.query(`select public.otb_salvar_colecao($1::jsonb)`, [JSON.stringify(p2)]);
+      const chk2 = await um<{ n_sub: string; nome: string; sem: string; n_cat: string }>(
+        c,
+        `select (select count(*) from colecao_subcolecoes where colecao_id=$1)::text n_sub,
+                (select nome from colecao_subcolecoes where id=$2) nome,
+                (select string_agg(semana||':'||qtd_planejada,',') from colecao_semanas where colecao_id=$1) sem,
+                (select count(*) from colecao_semana_categorias where colecao_id=$1)::text n_cat`,
+        [created.id, suba.id],
+      );
+      expect(chk2.n_sub).toBe("1"); // SubB removida
+      expect(chk2.nome).toBe("SubA2");
+      expect(chk2.sem).toBe("1:20");
+      expect(chk2.n_cat).toBe("0"); // cats regravadas (SubA agora sem distribuição)
+    });
+  });
+
+  it("caminho sem subcoleções grava no nível coleção", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await c.query(`update tenant_config set modules = coalesce(modules,'{}'::jsonb) || '{"otb":true}'::jsonb where tenant_id=$1`, [TENANT_TESTE]);
+      const cat = await um<{ id: string }>(c, `select id from categorias_produto where tenant_id=$1 limit 1`, [TENANT_TESTE]);
+      const p = { nome: "C-SIMPLES", weeks: { "1": 8, "2": 3 }, weekCats: { "1": { [cat.id]: 2 } } };
+      const created = await um<{ id: string }>(c, `select public.otb_salvar_colecao($1::jsonb) as id`, [JSON.stringify(p)]);
+      const chk = await um<{ n_sub: string; n_sem: string; n_cat: string }>(
+        c,
+        `select (select count(*) from colecao_subcolecoes where colecao_id=$1)::text n_sub,
+                (select count(*) from colecao_semanas where colecao_id=$1 and subcolecao_id is null)::text n_sem,
+                (select count(*) from colecao_semana_categorias where colecao_id=$1)::text n_cat`,
+        [created.id],
+      );
+      expect(chk.n_sub).toBe("0");
+      expect(chk.n_sem).toBe("2");
+      expect(chk.n_cat).toBe("1");
+    });
+  });
+
+  it("bloqueia quando o módulo otb está desligado", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await c.query(`delete from user_roles where user_id=$1 and role='super_admin'`, [USER_TESTE]);
+      await c.query(`update tenant_config set modules = coalesce(modules,'{}'::jsonb) || '{"otb":false}'::jsonb where tenant_id=$1`, [TENANT_TESTE]);
+      await expect(c.query(`select public.otb_salvar_colecao($1::jsonb)`, [JSON.stringify({ nome: "X" })])).rejects.toThrow();
+    });
+  });
+});
+
 describe.skipIf(!hasDb)("OTB — otb_excluir_colecao", () => {
   it("exclui a coleção + modelos em planejamento/reprovado", async () => {
     await withTx(async (c) => {

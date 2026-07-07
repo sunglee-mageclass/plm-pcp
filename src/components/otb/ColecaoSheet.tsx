@@ -359,76 +359,24 @@ export function ColecaoSheet({
     if (cleanSubs.length > 0) cleanSubs.forEach((s) => validarCats(s.weeks, s.cats, `Subcoleção "${s.nome}" · `));
     else validarCats(weeks, weekCats, "");
 
-    const payload = { nome: nome.trim(), ano_id: anoId, mes_id: mesId, orcamento: orcamento === "" ? null : Number(orcamento) };
-    let id = colecaoId;
-    if (id) {
-      const { error } = await supabase.from("colecoes").update(payload).eq("id", id);
-      if (error) throw error;
-    } else {
-      const { data: ins, error } = await supabase.from("colecoes").insert(payload).select("id").single();
-      if (error) throw error;
-      id = (ins as any).id;
-    }
-
-    // Regrava as semanas de um (coleção, subcoleção): apaga todas e insere as marcadas.
-    const saveWeeks = async (subId: string | null, wk: Record<string, number | null>) => {
-      let del = supabase.from("colecao_semanas").delete().eq("colecao_id", id!);
-      del = subId ? del.eq("subcolecao_id", subId) : (del.is as any)("subcolecao_id", null);
-      { const { error } = await del; if (error) throw error; }
-      const marked = WEEKS.filter((s) => s in wk);
-      if (marked.length) {
-        const { error } = await supabase.from("colecao_semanas")
-          .insert(marked.map((s) => ({ colecao_id: id!, subcolecao_id: subId, semana: s, qtd_planejada: wk[s] ?? 0 })) as any);
-        if (error) throw error;
-      }
-    };
-    // Regrava a distribuição por categoria de um (coleção, subcoleção): só das semanas ligadas.
-    const saveCats = async (subId: string | null, wk: Record<string, number | null>, cats: CatDist) => {
-      let del = supabase.from("colecao_semana_categorias").delete().eq("colecao_id", id!);
-      del = subId ? del.eq("subcolecao_id", subId) : (del.is as any)("subcolecao_id", null);
-      { const { error } = await del; if (error) throw error; }
-      const rows: any[] = [];
-      for (const s of WEEKS) {
-        if (!(s in wk)) continue;
-        const m = cats[s]; if (!m) continue;
-        for (const [catId, q] of Object.entries(m)) if (q > 0) rows.push({ colecao_id: id!, subcolecao_id: subId, semana: s, categoria_id: catId, qtd: q });
-      }
-      if (rows.length) { const { error } = await supabase.from("colecao_semana_categorias").insert(rows); if (error) throw error; }
-    };
-
-    if (cleanSubs.length > 0) {
-      // Com subcoleções: zera as semanas/categorias de nível coleção (modo simples desligado).
-      await saveWeeks(null, {});
-      await saveCats(null, {}, {});
-      // Remove subcoleções que sumiram (cascade apaga as semanas/categorias delas).
-      const keptIds = cleanSubs.map((s) => s.id).filter(Boolean) as string[];
-      let delSub = supabase.from("colecao_subcolecoes").delete().eq("colecao_id", id!);
-      // uuid no filtro `in` vai SEM aspas (aspas quebram o cast → 22P02).
-      if (keptIds.length) delSub = delSub.not("id", "in", `(${keptIds.join(",")})`);
-      { const { error } = await delSub; if (error) throw error; }
-      // Insere/atualiza cada subcoleção + regrava as suas semanas e distribuição.
-      for (let i = 0; i < cleanSubs.length; i++) {
-        const s = cleanSubs[i];
-        let subId = s.id;
-        if (subId) {
-          const { error } = await supabase.from("colecao_subcolecoes").update({ nome: s.nome, ordem: i } as any).eq("id", subId);
-          if (error) throw error;
-        } else {
-          const { data: insSub, error } = await supabase.from("colecao_subcolecoes")
-            .insert({ colecao_id: id!, nome: s.nome, ordem: i } as any).select("id").single();
-          if (error) throw error;
-          subId = (insSub as any).id;
-        }
-        await saveWeeks(subId, s.weeks);
-        await saveCats(subId, s.weeks, s.cats);
-      }
-    } else {
-      // Sem subcoleções: apaga todas (cascade suas semanas/categorias) e grava as da coleção.
-      { const { error } = await supabase.from("colecao_subcolecoes").delete().eq("colecao_id", id!); if (error) throw error; }
-      await saveWeeks(null, weeks);
-      await saveCats(null, weeks, weekCats);
-    }
-    return id!;
+    // Persiste a coleção inteira (colecoes + subcoleções + semanas + distribuição por
+    // categoria) numa transação só (RPC atômica): sem ela, uma falha no meio dos ~10
+    // delete/insert deixava semanas/categorias meio-gravadas e o total OTB furava.
+    // O front só valida e monta o payload; ter subcoleções liga o modo com-subs no banco.
+    const { data: id, error } = await supabase.rpc("otb_salvar_colecao" as any, {
+      _payload: {
+        id: colecaoId,
+        nome: nome.trim(),
+        ano_id: anoId,
+        mes_id: mesId,
+        orcamento: orcamento === "" ? null : Number(orcamento),
+        subs: cleanSubs.map((s) => ({ id: s.id ?? null, nome: s.nome, weeks: s.weeks, cats: s.cats })),
+        weeks,
+        weekCats,
+      },
+    });
+    if (error) throw error;
+    return id as string;
   };
 
   const isConfirmada = data?.status === "confirmada";
