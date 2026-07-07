@@ -40,6 +40,10 @@ Hoje a tela "Fornecedores" (`/cadastro/servico`) tem 3 entidades separadas: **Em
 ### Fase 2 — Tela Fornecedores nova
 - Aba **Empresas** ganha `tipo`; empresa de serviço mostra categorias de serviço (pré/pós). Some a aba "Serviços".
 - Aba **Representantes** passa a ser usada; guarda de exclusão (rep em uso).
+- **Notas do review da F1 (resolver na F2):**
+  - **Re-sincronizar no início da F2**: a tela "Serviços" segue escrevendo só em `terceirizados` até a F2. Ao reorganizar, (a) re-rodar a F1 (idempotente) p/ pegar serviços criados no intervalo e (b) trocar o caminho de escrita p/ `empresas`/`empresa_categorias_servico` (com DELETE de categoria removida — o insert-only da F1 deixaria fantasma). Nada quebra antes disso pq nada lê `empresa_id`/`empresa_categorias_servico` até a F3.
+  - **Renome + proveniência**: as 6 empresas migradas têm nome de FUNÇÃO/pessoa ("Bordador", "Caseador", "Edson"…). A F2 deve mostrar "migrado de Serviço" (via `origem_terceirizado_id`) e pedir pro dono revisar nome + preencher CNPJ antes de virarem payee.
+  - **Select de empresa do Representante** (`cadastro.servico.tsx:280`, key `["empresas-options"]`): por design lista empresas de qualquer tipo (rep serve material E serviço) — deixar distinguível (tipo) na F2.
 
 ### Fase 3 — Seleção empresa + representante
 - Produção Serviços + OC Tecido/Aviamento: seletor por categoria → empresa + rep opcional, com "direto" vs "via rep" distinguível. (Oficina roda em producao_terceirizados.)

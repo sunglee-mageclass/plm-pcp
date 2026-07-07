@@ -1402,6 +1402,7 @@ export type Database = {
           id: string
           nome_fantasia: string
           tenant_id: string | null
+          tipo: string
         }
         Insert: {
           categoria_fornecedor_id?: string | null
@@ -1409,6 +1410,7 @@ export type Database = {
           id?: string
           nome_fantasia: string
           tenant_id?: string | null
+          tipo?: string
         }
         Update: {
           categoria_fornecedor_id?: string | null
@@ -1416,6 +1418,7 @@ export type Database = {
           id?: string
           nome_fantasia?: string
           tenant_id?: string | null
+          tipo?: string
         }
         Relationships: [
           {

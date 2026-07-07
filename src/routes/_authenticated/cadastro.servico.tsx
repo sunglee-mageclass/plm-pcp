@@ -853,9 +853,12 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
   const { data: empresas = [], isLoading } = useQuery({
     queryKey: ["empresas-multi"],
     queryFn: async () => {
+      // Só empresas de MATERIAL nesta aba (fornecedores). As de serviço (migradas de
+      // terceirizados na F1) ficam de fora até a F2 reorganizar a tela por tipo.
       const { data, error } = await supabase
         .from("empresas")
         .select("id, nome_fantasia")
+        .eq("tipo", "material")
         .order("nome_fantasia");
       if (error) throw error;
       return (data ?? []) as EmpresaRow[];

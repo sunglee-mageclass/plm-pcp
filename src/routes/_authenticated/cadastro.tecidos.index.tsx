@@ -116,11 +116,13 @@ function TecidosGallery() {
   });
 
   const { data: empresas = [] } = useQuery({
-    queryKey: ["empresas-options"],
+    // chave própria "material" (não colide com o select de empresa do Representante) + só material.
+    queryKey: ["empresas-options", "material"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("empresas")
         .select("id,nome_fantasia")
+        .eq("tipo", "material")
         .order("nome_fantasia");
       if (error) throw error;
       return (data ?? []) as Empresa[];
