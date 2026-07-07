@@ -1395,30 +1395,102 @@ export type Database = {
           },
         ]
       }
+      empresa_categorias_servico: {
+        Row: {
+          categoria_terceirizado_id: string
+          created_at: string
+          empresa_id: string
+          tenant_id: string | null
+        }
+        Insert: {
+          categoria_terceirizado_id: string
+          created_at?: string
+          empresa_id: string
+          tenant_id?: string | null
+        }
+        Update: {
+          categoria_terceirizado_id?: string
+          created_at?: string
+          empresa_id?: string
+          tenant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "empresa_categorias_servico_categoria_terceirizado_id_fkey"
+            columns: ["categoria_terceirizado_id"]
+            isOneToOne: false
+            referencedRelation: "categorias_terceirizado"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "empresa_categorias_servico_empresa_id_fkey"
+            columns: ["empresa_id"]
+            isOneToOne: false
+            referencedRelation: "empresas"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       empresas: {
         Row: {
           categoria_fornecedor_id: string | null
+          cep: string | null
+          cnpj: string | null
+          contato: string | null
           created_at: string | null
+          email: string | null
           id: string
+          logradouro: string | null
+          municipio: string | null
           nome_fantasia: string
+          observacoes: string | null
+          origem_terceirizado_id: string | null
+          razao_social: string | null
+          situacao_cadastral: string | null
+          telefone: string | null
           tenant_id: string | null
           tipo: string
+          uf: string | null
         }
         Insert: {
           categoria_fornecedor_id?: string | null
+          cep?: string | null
+          cnpj?: string | null
+          contato?: string | null
           created_at?: string | null
+          email?: string | null
           id?: string
+          logradouro?: string | null
+          municipio?: string | null
           nome_fantasia: string
+          observacoes?: string | null
+          origem_terceirizado_id?: string | null
+          razao_social?: string | null
+          situacao_cadastral?: string | null
+          telefone?: string | null
           tenant_id?: string | null
           tipo?: string
+          uf?: string | null
         }
         Update: {
           categoria_fornecedor_id?: string | null
+          cep?: string | null
+          cnpj?: string | null
+          contato?: string | null
           created_at?: string | null
+          email?: string | null
           id?: string
+          logradouro?: string | null
+          municipio?: string | null
           nome_fantasia?: string
+          observacoes?: string | null
+          origem_terceirizado_id?: string | null
+          razao_social?: string | null
+          situacao_cadastral?: string | null
+          telefone?: string | null
           tenant_id?: string | null
           tipo?: string
+          uf?: string | null
         }
         Relationships: [
           {

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Wrench,
@@ -59,7 +59,6 @@ import {
 } from "@/components/ui/table";
 
 import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
-import { useTenantModules } from "@/hooks/useTenantModules";
 import { useSort, SortHead } from "@/components/shared/sort";
 export const Route = createFileRoute("/_authenticated/cadastro/servico")({
   component: () => (
@@ -69,11 +68,12 @@ export const Route = createFileRoute("/_authenticated/cadastro/servico")({
   ),
 });
 
-// Terceirizado now supports multiple categorias via terceirizado_categorias junction;
-// see TerceirizadosMultiCatTab below.
+// Empresas agora englobam material E serviço (reestrutura "serviço vira empresa"):
+// um GATILHO no banco espelha empresa(servico) → terceirizados. O front SÓ mexe em
+// empresas / empresa_categorias_servico / empresa_categorias_fornecedor.
 
 
-type SectionKey = "empresa" | "representante" | "terceirizado";
+type SectionKey = "empresa" | "representante";
 
 const SECTIONS: {
   value: SectionKey;
@@ -83,7 +83,6 @@ const SECTIONS: {
 }[] = [
   { value: "empresa", label: "Empresa", table: "empresas", plural: "Empresas" },
   { value: "representante", label: "Representante", table: "representantes", plural: "Representantes" },
-  { value: "terceirizado", label: "Serviço", table: "terceirizados", plural: "Serviços" },
 ];
 
 function useItemCount(table: string) {
@@ -111,11 +110,7 @@ function useReportFiltered(n: number, cb?: (n: number) => void) {
 }
 
 function ServicoPage() {
-  const { isStockOnly } = useTenantModules();
-  // No modo só-estoque, Terceirizado (produção) não faz sentido — some da lista.
-  const visibleSections = isStockOnly
-    ? SECTIONS.filter((s) => s.value !== "terceirizado")
-    : SECTIONS;
+  const visibleSections = SECTIONS;
   const [selected, setSelected] = useState<SectionKey>("empresa");
   const selectedSection =
     visibleSections.find((s) => s.value === selected) ?? visibleSections[0];
@@ -134,7 +129,7 @@ function ServicoPage() {
         <div>
           <h1 className="text-2xl font-bold">Fornecedores</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {isStockOnly ? "Empresas e representantes." : "Empresas, representantes e serviços."}
+            Empresas (material e serviço) e representantes.
           </p>
         </div>
       </header>
@@ -191,13 +186,12 @@ function ServicoPage() {
             <Badge variant="secondary" className="shrink-0">
               {countLoading
                 ? "…"
-                : `${filteredN ?? count ?? 0} de ${count ?? 0} ${(count ?? 0) === 1 ? "item" : "itens"}`}
+                : `${filteredN ?? count ?? 0} de ${count ?? 0} ${(count ?? 0) === 1 ? selectedSection.label.toLowerCase() : selectedSection.plural.toLowerCase()}`}
             </Badge>
           </div>
 
           {selected === "empresa" && <EmpresasMultiCatTab onFilteredCount={setFilteredN} />}
           {selected === "representante" && <RepresentantesTab onFilteredCount={setFilteredN} />}
-          {selected === "terceirizado" && !isStockOnly && <TerceirizadosMultiCatTab onFilteredCount={setFilteredN} />}
         </div>
       </div>
     </div>
@@ -223,7 +217,7 @@ type Representante = {
   observacoes: string | null;
 };
 
-type Empresa = { id: string; nome_fantasia: string };
+type Empresa = { id: string; nome_fantasia: string; tipo?: string };
 
 const emptyForm = {
   id: null as string | null,
@@ -255,6 +249,188 @@ function isSituacaoAtiva(s: string | null | undefined) {
   return (s ?? "").toUpperCase().includes("ATIV");
 }
 
+// ============ Campos fiscais compartilhados (Representante × Empresa) ============
+
+/** Subconjunto dos campos fiscais preenchidos por CNPJ, compartilhado entre o
+ *  editor de Representante e o de Empresa. */
+type FiscalFields = {
+  cnpj: string;
+  razao_social: string;
+  logradouro: string;
+  cep: string;
+  municipio: string;
+  uf: string;
+  telefone: string;
+  email: string;
+  situacao_cadastral: string;
+  contato: string;
+  observacoes: string;
+};
+
+/** Busca dados na BrasilAPI (Receita) e devolve os campos fiscais preenchidos,
+ *  mantendo os valores atuais (`prev`) quando a API não trouxer o campo. */
+async function lookupCnpjFields(cnpjRaw: string, prev: FiscalFields): Promise<FiscalFields> {
+  const cnpj = cleanCnpj(cnpjRaw);
+  if (cnpj.length !== 14) throw new Error("CNPJ deve ter 14 dígitos.");
+  const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
+  if (!res.ok) throw new Error("CNPJ não encontrado.");
+  const data = await res.json();
+  // Rua/número/bairro vão no "logradouro"; CEP/município/UF em campos próprios.
+  const ruaParts = [data.logradouro, data.numero, data.complemento, data.bairro].filter(Boolean);
+  // Telefone da empresa: ddd_telefone_1 vem como dígitos (ex.: "1140044828").
+  const telBruto = String(data.ddd_telefone_1 ?? "").replace(/\D/g, "");
+  const telFmt = telBruto.length >= 10
+    ? `(${telBruto.slice(0, 2)}) ${telBruto.slice(2, telBruto.length - 4)}-${telBruto.slice(-4)}`
+    : telBruto;
+  return {
+    ...prev,
+    razao_social: data.razao_social ?? data.nome ?? prev.razao_social,
+    logradouro: ruaParts.join(", ") || prev.logradouro,
+    cep: (data.cep ? String(data.cep).replace(/\D/g, "").replace(/^(\d{5})(\d)/, "$1-$2") : "") || prev.cep,
+    municipio: data.municipio ?? prev.municipio,
+    uf: data.uf ?? prev.uf,
+    telefone: telFmt || prev.telefone,
+    email: (data.email ?? "").toLowerCase() || prev.email,
+    situacao_cadastral: data.descricao_situacao_cadastral ?? data.situacao_cadastral ?? prev.situacao_cadastral,
+  };
+}
+
+/** Campos fiscais reutilizados no editor de Representante e de Empresa: CNPJ +
+ *  botão "Buscar" (Receita via BrasilAPI), razão social, situação cadastral (badge),
+ *  endereço, contato e observações. O `nomeSlot` permite ao chamador injetar o campo
+ *  de nome (representante/empresa) ao lado do CNPJ na mesma grade. */
+function EmpresaFiscalFields({
+  value,
+  onChange,
+  nomeSlot,
+}: {
+  value: FiscalFields;
+  onChange: (patch: Partial<FiscalFields>) => void;
+  nomeSlot?: ReactNode;
+}) {
+  const [lookupLoading, setLookupLoading] = useState(false);
+
+  const doLookup = async () => {
+    setLookupLoading(true);
+    try {
+      const next = await lookupCnpjFields(value.cnpj, value);
+      onChange(next);
+      toast.success("Dados preenchidos.");
+    } catch (e: any) {
+      toast.error(mensagemErro(e, "Erro ao buscar CNPJ."));
+    } finally {
+      setLookupLoading(false);
+    }
+  };
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2">
+      <div className="space-y-1.5">
+        <Label>CNPJ</Label>
+        <div className="flex gap-2">
+          <Input
+            value={formatCNPJ(value.cnpj)}
+            onChange={(e) => onChange({ cnpj: cleanCnpj(e.target.value) })}
+            placeholder="00.000.000/0000-00"
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            className="shrink-0"
+            onClick={doLookup}
+            disabled={lookupLoading}
+            title="Buscar dados da empresa pelo CNPJ (Receita)"
+          >
+            {lookupLoading ? (
+              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+            ) : (
+              <Search className="h-4 w-4 mr-1" />
+            )}
+            {lookupLoading ? "Buscando…" : "Buscar"}
+          </Button>
+        </div>
+      </div>
+      {nomeSlot}
+      <div className="space-y-1.5 sm:col-span-2">
+        <Label>Razão Social</Label>
+        <Input
+          value={value.razao_social}
+          onChange={(e) => onChange({ razao_social: e.target.value })}
+        />
+      </div>
+      {value.situacao_cadastral && (
+        <div className="space-y-1.5 sm:col-span-2">
+          <Label>Situação cadastral</Label>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge className={isSituacaoAtiva(value.situacao_cadastral)
+              ? "bg-emerald-500 hover:bg-emerald-500"
+              : "bg-red-500 hover:bg-red-500"}>
+              {value.situacao_cadastral}
+            </Badge>
+            {!isSituacaoAtiva(value.situacao_cadastral) && (
+              <span className="text-xs text-red-600">
+                Empresa não está ATIVA na Receita — confira antes de operar.
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+      <div className="space-y-1.5 sm:col-span-2">
+        <Label>Logradouro</Label>
+        <Input
+          value={value.logradouro}
+          onChange={(e) => onChange({ logradouro: e.target.value })}
+          placeholder="Rua, número, bairro"
+        />
+      </div>
+      <div className="space-y-1.5 sm:col-span-2">
+        <div className="grid grid-cols-[1.2fr_2fr_0.8fr] gap-2">
+          <div className="space-y-1.5">
+            <Label>CEP</Label>
+            <Input value={value.cep} onChange={(e) => onChange({ cep: e.target.value })} placeholder="00000-000" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Município</Label>
+            <Input value={value.municipio} onChange={(e) => onChange({ municipio: e.target.value })} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>UF</Label>
+            <Input value={value.uf} onChange={(e) => onChange({ uf: e.target.value.toUpperCase().slice(0, 2) })} maxLength={2} />
+          </div>
+        </div>
+      </div>
+      <div className="space-y-1.5 sm:col-span-2">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label>Telefone da empresa</Label>
+            <Input value={value.telefone} onChange={(e) => onChange({ telefone: e.target.value })} placeholder="(00) 0000-0000" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>E-mail da empresa</Label>
+            <Input type="email" value={value.email} onChange={(e) => onChange({ email: e.target.value })} placeholder="empresa@dominio.com" />
+          </div>
+        </div>
+      </div>
+      <div className="space-y-1.5 sm:col-span-2">
+        <Label>Contato</Label>
+        <Input
+          value={value.contato}
+          onChange={(e) => onChange({ contato: e.target.value })}
+          placeholder="Pessoa de contato, telefone, e-mail…"
+        />
+      </div>
+      <div className="space-y-1.5 sm:col-span-2">
+        <Label>Observações</Label>
+        <Textarea
+          rows={3}
+          value={value.observacoes}
+          onChange={(e) => onChange({ observacoes: e.target.value })}
+        />
+      </div>
+    </div>
+  );
+}
+
 function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) => void }) {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
@@ -262,7 +438,6 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
   const [form, setForm] = useState<typeof emptyForm>(emptyForm);
   const [open, setOpen] = useState(false);
   const [deleteRow, setDeleteRow] = useState<Representante | null>(null);
-  const [lookupLoading, setLookupLoading] = useState(false);
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["representantes"],
@@ -281,7 +456,7 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
     queryFn: async () => {
       const { data, error } = await supabase
         .from("empresas")
-        .select("id, nome_fantasia")
+        .select("id, nome_fantasia, tipo")
         .order("nome_fantasia");
       if (error) throw error;
       return (data ?? []) as Empresa[];
@@ -324,43 +499,6 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
         r.empresa_id ? empresasMap.get(r.empresa_id) ?? "" : "",
     },
   });
-
-  const lookupCnpj = async () => {
-    const cnpj = cleanCnpj(form.cnpj);
-    if (cnpj.length !== 14) {
-      toast.error("CNPJ deve ter 14 dígitos.");
-      return;
-    }
-    setLookupLoading(true);
-    try {
-      const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${cnpj}`);
-      if (!res.ok) throw new Error("CNPJ não encontrado.");
-      const data = await res.json();
-      // Rua/número/bairro vão no "logradouro"; CEP/município/UF em campos próprios.
-      const ruaParts = [data.logradouro, data.numero, data.complemento, data.bairro].filter(Boolean);
-      // Telefone da empresa: ddd_telefone_1 vem como dígitos (ex.: "1140044828").
-      const telBruto = String(data.ddd_telefone_1 ?? "").replace(/\D/g, "");
-      const telFmt = telBruto.length >= 10
-        ? `(${telBruto.slice(0, 2)}) ${telBruto.slice(2, telBruto.length - 4)}-${telBruto.slice(-4)}`
-        : telBruto;
-      setForm((f) => ({
-        ...f,
-        razao_social: data.razao_social ?? data.nome ?? f.razao_social,
-        logradouro: ruaParts.join(", ") || f.logradouro,
-        cep: (data.cep ? String(data.cep).replace(/\D/g, "").replace(/^(\d{5})(\d)/, "$1-$2") : "") || f.cep,
-        municipio: data.municipio ?? f.municipio,
-        uf: data.uf ?? f.uf,
-        telefone: telFmt || f.telefone,
-        email: (data.email ?? "").toLowerCase() || f.email,
-        situacao_cadastral: data.descricao_situacao_cadastral ?? data.situacao_cadastral ?? f.situacao_cadastral,
-      }));
-      toast.success("Dados preenchidos.");
-    } catch (e: any) {
-      toast.error(mensagemErro(e, "Erro ao buscar CNPJ."));
-    } finally {
-      setLookupLoading(false);
-    }
-  };
 
   const openCreate = () => {
     setForm(emptyForm);
@@ -531,7 +669,7 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
                     <Button size="icon" variant="ghost" onClick={() => openEdit(r)} aria-label="Editar">
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button size="icon" variant="ghost" onClick={() => setDeleteRow(r)} disabled={readOnly}>
+                    <Button size="icon" variant="ghost" onClick={() => setDeleteRow(r)} disabled={readOnly} aria-label="Excluir">
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </TableCell>
@@ -544,12 +682,12 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
 
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
+          <DialogHeader className="max-sm:shrink-0">
             <DialogTitle>{form.id ? "Editar representante" : "Novo representante"}</DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-4 py-2">
+          <div className="space-y-4 py-2 max-sm:min-h-0 max-sm:overflow-y-auto">
             <div className="space-y-1.5">
               <Label>Empresa</Label>
               <div className="flex gap-2">
@@ -566,6 +704,7 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
                         {empresas.map((e) => (
                           <SelectItem key={e.id} value={e.id}>
                             {e.nome_fantasia}
+                            {e.tipo === "servico" ? " (Serviço)" : e.tipo === "material" ? " (Material)" : ""}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -606,119 +745,22 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
               </div>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label>CNPJ</Label>
-                <div className="flex gap-2">
+            <EmpresaFiscalFields
+              value={form}
+              onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
+              nomeSlot={
+                <div className="space-y-1.5">
+                  <Label>Nome do representante</Label>
                   <Input
-                    value={formatCNPJ(form.cnpj)}
-                    onChange={(e) => setForm({ ...form, cnpj: cleanCnpj(e.target.value) })}
-                    placeholder="00.000.000/0000-00"
+                    value={form.nome}
+                    onChange={(e) => setForm({ ...form, nome: e.target.value })}
                   />
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="shrink-0"
-                    onClick={lookupCnpj}
-                    disabled={lookupLoading}
-                    title="Buscar dados da empresa pelo CNPJ (Receita)"
-                  >
-                    {lookupLoading ? (
-                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                    ) : (
-                      <Search className="h-4 w-4 mr-1" />
-                    )}
-                    Buscar
-                  </Button>
                 </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Nome do representante</Label>
-                <Input
-                  value={form.nome}
-                  onChange={(e) => setForm({ ...form, nome: e.target.value })}
-                />
-              </div>
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label>Razão Social</Label>
-                <Input
-                  value={form.razao_social}
-                  onChange={(e) => setForm({ ...form, razao_social: e.target.value })}
-                />
-              </div>
-              {form.situacao_cadastral && (
-                <div className="space-y-1.5 sm:col-span-2">
-                  <Label>Situação cadastral</Label>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge className={isSituacaoAtiva(form.situacao_cadastral)
-                      ? "bg-emerald-500 hover:bg-emerald-500"
-                      : "bg-red-500 hover:bg-red-500"}>
-                      {form.situacao_cadastral}
-                    </Badge>
-                    {!isSituacaoAtiva(form.situacao_cadastral) && (
-                      <span className="text-xs text-red-600">
-                        Empresa não está ATIVA na Receita — confira antes de operar.
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label>Logradouro</Label>
-                <Input
-                  value={form.logradouro}
-                  onChange={(e) => setForm({ ...form, logradouro: e.target.value })}
-                  placeholder="Rua, número, bairro"
-                />
-              </div>
-              <div className="space-y-1.5 sm:col-span-2">
-                <div className="grid grid-cols-[1.2fr_2fr_0.8fr] gap-2">
-                  <div className="space-y-1.5">
-                    <Label>CEP</Label>
-                    <Input value={form.cep} onChange={(e) => setForm({ ...form, cep: e.target.value })} placeholder="00000-000" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>Município</Label>
-                    <Input value={form.municipio} onChange={(e) => setForm({ ...form, municipio: e.target.value })} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>UF</Label>
-                    <Input value={form.uf} onChange={(e) => setForm({ ...form, uf: e.target.value.toUpperCase().slice(0, 2) })} maxLength={2} />
-                  </div>
-                </div>
-              </div>
-              <div className="space-y-1.5 sm:col-span-2">
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <div className="space-y-1.5">
-                    <Label>Telefone da empresa</Label>
-                    <Input value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} placeholder="(00) 0000-0000" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label>E-mail da empresa</Label>
-                    <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="empresa@dominio.com" />
-                  </div>
-                </div>
-              </div>
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label>Contato do representante</Label>
-                <Input
-                  value={form.contato}
-                  onChange={(e) => setForm({ ...form, contato: e.target.value })}
-                  placeholder="Pessoa de contato, telefone, e-mail…"
-                />
-              </div>
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label>Observações</Label>
-                <Textarea
-                  rows={3}
-                  value={form.observacoes}
-                  onChange={(e) => setForm({ ...form, observacoes: e.target.value })}
-                />
-              </div>
-            </div>
+              }
+            />
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
             <Button variant="outline" onClick={() => setOpen(false)}>
               Cancelar
             </Button>
@@ -832,33 +874,61 @@ function CategoriasFornecedorMultiSelect({
   );
 }
 
-// ============ Empresas (multi-categoria) ============
+// ============ Empresas (material E serviço, type-aware) ============
+
+type EmpresaTipo = "material" | "servico";
 
 type EmpresaRow = {
   id: string;
   nome_fantasia: string;
+  tipo: EmpresaTipo;
+  cnpj: string | null;
+  origem_terceirizado_id: string | null;
+};
+
+type CatTercOption = { id: string; nome: string; etapa: string };
+
+/** Empresa migrada de Serviço que ainda não teve dados fiscais revisados. */
+function isMigradoServico(row: { origem_terceirizado_id: string | null; cnpj: string | null }) {
+  return !!row.origem_terceirizado_id && !row.cnpj;
+}
+
+/** Estado do editor de empresa: campos fiscais + tipo + categorias. */
+const emptyEmpresaForm = {
+  tipo: "material" as EmpresaTipo,
+  nome_fantasia: "",
+  cnpj: "",
+  razao_social: "",
+  logradouro: "",
+  cep: "",
+  municipio: "",
+  uf: "",
+  telefone: "",
+  email: "",
+  situacao_cadastral: "",
+  contato: "",
+  observacoes: "",
+  cats: [] as string[],
+  origem_terceirizado_id: null as string | null,
 };
 
 function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number) => void }) {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
   const [search, setSearch] = useState("");
+  const [tipoFilter, setTipoFilter] = useState<"todos" | EmpresaTipo>("todos");
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [nome, setNome] = useState("");
-  const [cats, setCats] = useState<string[]>([]);
+  const [form, setForm] = useState<typeof emptyEmpresaForm>(emptyEmpresaForm);
   const [deleteRow, setDeleteRow] = useState<EmpresaRow | null>(null);
   const [deleteUsage, setDeleteUsage] = useState<number | null>(null);
 
   const { data: empresas = [], isLoading } = useQuery({
     queryKey: ["empresas-multi"],
     queryFn: async () => {
-      // Só empresas de MATERIAL nesta aba (fornecedores). As de serviço (migradas de
-      // terceirizados na F1) ficam de fora até a F2 reorganizar a tela por tipo.
       const { data, error } = await supabase
         .from("empresas")
-        .select("id, nome_fantasia")
-        .eq("tipo", "material")
+        .select("id, nome_fantasia, tipo, cnpj, origem_terceirizado_id")
         .order("nome_fantasia");
       if (error) throw error;
       return (data ?? []) as EmpresaRow[];
@@ -877,7 +947,19 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
     },
   });
 
-  const { data: links = [] } = useQuery({
+  const { data: catsServico = [] } = useQuery({
+    queryKey: ["cat-terceirizado-options"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("categorias_terceirizado")
+        .select("id, nome, etapa")
+        .order("nome");
+      if (error) throw error;
+      return (data ?? []) as CatTercOption[];
+    },
+  });
+
+  const { data: linksForn = [] } = useQuery({
     queryKey: ["empresa-categorias-links"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -888,37 +970,67 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
     },
   });
 
-  const linksByEmpresa = useMemo(() => {
+  const { data: linksServ = [] } = useQuery({
+    queryKey: ["empresa-categorias-servico-links"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("empresa_categorias_servico")
+        .select("empresa_id, categoria_terceirizado_id");
+      if (error) throw error;
+      return (data ?? []) as { empresa_id: string; categoria_terceirizado_id: string }[];
+    },
+  });
+
+  const fornByEmpresa = useMemo(() => {
     const m = new Map<string, string[]>();
-    links.forEach((l) => {
+    linksForn.forEach((l) => {
       const arr = m.get(l.empresa_id) ?? [];
       arr.push(l.categoria_fornecedor_id);
       m.set(l.empresa_id, arr);
     });
     return m;
-  }, [links]);
+  }, [linksForn]);
 
-  const catsMap = useMemo(() => {
+  const servByEmpresa = useMemo(() => {
+    const m = new Map<string, string[]>();
+    linksServ.forEach((l) => {
+      const arr = m.get(l.empresa_id) ?? [];
+      arr.push(l.categoria_terceirizado_id);
+      m.set(l.empresa_id, arr);
+    });
+    return m;
+  }, [linksServ]);
+
+  const catsFornMap = useMemo(() => {
     const m = new Map<string, string>();
     catsFornecedor.forEach((c) => m.set(c.id, c.nome));
     return m;
   }, [catsFornecedor]);
 
+  const catsServMap = useMemo(() => {
+    const m = new Map<string, CatTercOption>();
+    catsServico.forEach((c) => m.set(c.id, c));
+    return m;
+  }, [catsServico]);
+
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
-    if (!s) return empresas;
-    return empresas.filter((e) =>
-      e.nome_fantasia.toLowerCase().includes(s),
-    );
-  }, [empresas, search]);
+    return empresas.filter((e) => {
+      if (tipoFilter !== "todos" && e.tipo !== tipoFilter) return false;
+      if (!s) return true;
+      return (
+        e.nome_fantasia.toLowerCase().includes(s) ||
+        (e.cnpj ?? "").toLowerCase().includes(s)
+      );
+    });
+  }, [empresas, search, tipoFilter]);
   useReportFiltered(filtered.length, onFilteredCount);
 
   const sort = useSort(filtered, { key: "nome_fantasia" });
 
   const resetForm = () => {
     setEditingId(null);
-    setNome("");
-    setCats([]);
+    setForm(emptyEmpresaForm);
   };
 
   const openCreate = () => {
@@ -926,62 +1038,153 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
     setOpen(true);
   };
 
-  const openEdit = (e: EmpresaRow) => {
+  const openEdit = async (e: EmpresaRow) => {
     setEditingId(e.id);
-    setNome(e.nome_fantasia);
-    setCats(linksByEmpresa.get(e.id) ?? []);
+    // Traz os campos fiscais completos da empresa (a lista só tem os essenciais).
+    const { data, error } = await supabase
+      .from("empresas")
+      .select(
+        "nome_fantasia, tipo, cnpj, razao_social, logradouro, cep, municipio, uf, telefone, email, situacao_cadastral, contato, observacoes, origem_terceirizado_id",
+      )
+      .eq("id", e.id)
+      .single();
+    if (error) {
+      toast.error(mensagemErro(error, "Erro ao carregar empresa."));
+      return;
+    }
+    const tipo = (data.tipo as EmpresaTipo) ?? "material";
+    setForm({
+      tipo,
+      nome_fantasia: data.nome_fantasia ?? "",
+      cnpj: data.cnpj ?? "",
+      razao_social: data.razao_social ?? "",
+      logradouro: data.logradouro ?? "",
+      cep: data.cep ?? "",
+      municipio: data.municipio ?? "",
+      uf: data.uf ?? "",
+      telefone: data.telefone ?? "",
+      email: data.email ?? "",
+      situacao_cadastral: data.situacao_cadastral ?? "",
+      contato: data.contato ?? "",
+      observacoes: data.observacoes ?? "",
+      cats: (tipo === "servico" ? servByEmpresa.get(e.id) : fornByEmpresa.get(e.id)) ?? [],
+      origem_terceirizado_id: data.origem_terceirizado_id ?? null,
+    });
     setOpen(true);
   };
 
+  // Em EDIÇÃO travamos o tipo se a empresa já tem categorias vinculadas (trocar tipo
+  // limpa as categorias e trocaria a junction).
+  const editingHasCats = !!editingId && form.cats.length > 0;
+
   const saveMut = useMutation({
     mutationFn: async () => {
-      const v = nome.trim();
-      if (!v) throw new Error("Informe o nome fantasia.");
-      if (cats.length === 0)
-        throw new Error("Selecione ao menos uma categoria do fornecedor.");
+      const nome = form.nome_fantasia.trim();
+      if (!nome) throw new Error("Informe o nome fantasia.");
+      if (form.cats.length === 0)
+        throw new Error(
+          form.tipo === "servico"
+            ? "Selecione ao menos uma categoria de serviço."
+            : "Selecione ao menos uma categoria do fornecedor.",
+        );
+
+      const payload = {
+        tipo: form.tipo,
+        nome_fantasia: nome,
+        // CNPJ NÃO é obrigatório (serviço interno / pessoa física pode não ter).
+        cnpj: form.cnpj ? cleanCnpj(form.cnpj) : null,
+        razao_social: form.razao_social || null,
+        logradouro: form.logradouro || null,
+        cep: form.cep || null,
+        municipio: form.municipio || null,
+        uf: form.uf || null,
+        telefone: form.telefone || null,
+        email: form.email || null,
+        situacao_cadastral: form.situacao_cadastral || null,
+        contato: form.contato || null,
+        observacoes: form.observacoes || null,
+      };
 
       let empresaId = editingId;
       if (editingId) {
         const { error } = await supabase
           .from("empresas")
-          .update({ nome_fantasia: v })
+          .update(payload)
           .eq("id", editingId);
         if (error) throw error;
       } else {
         const { data, error } = await supabase
           .from("empresas")
-          .insert({ nome_fantasia: v })
+          .insert(payload)
           .select("id")
           .single();
         if (error) throw error;
         empresaId = data.id;
       }
 
-      // Reset junction
-      const { error: delErr } = await supabase
-        .from("empresa_categorias_fornecedor")
+      // Sincroniza a junction do tipo certo via delete-all + insert. Também limpa a
+      // junction do OUTRO tipo (caso o tipo tenha mudado numa criação/edição destravada).
+      const otherTable =
+        form.tipo === "servico"
+          ? "empresa_categorias_fornecedor"
+          : "empresa_categorias_servico";
+      const { error: delOther } = await supabase
+        .from(otherTable)
         .delete()
         .eq("empresa_id", empresaId!);
-      if (delErr) throw delErr;
+      if (delOther) throw delOther;
 
-      const { error: insErr } = await supabase
-        .from("empresa_categorias_fornecedor")
-        .insert(
-          cats.map((cid) => ({
-            empresa_id: empresaId!,
-            categoria_fornecedor_id: cid,
-          })),
-        );
-      if (insErr) throw insErr;
+      if (form.tipo === "servico") {
+        const { error: delErr } = await supabase
+          .from("empresa_categorias_servico")
+          .delete()
+          .eq("empresa_id", empresaId!);
+        if (delErr) throw delErr;
+        const { error: insErr } = await supabase
+          .from("empresa_categorias_servico")
+          .insert(
+            form.cats.map((cid) => ({
+              empresa_id: empresaId!,
+              categoria_terceirizado_id: cid,
+            })),
+          );
+        if (insErr) throw insErr;
+      } else {
+        const { error: delErr } = await supabase
+          .from("empresa_categorias_fornecedor")
+          .delete()
+          .eq("empresa_id", empresaId!);
+        if (delErr) throw delErr;
+        const { error: insErr } = await supabase
+          .from("empresa_categorias_fornecedor")
+          .insert(
+            form.cats.map((cid) => ({
+              empresa_id: empresaId!,
+              categoria_fornecedor_id: cid,
+            })),
+          );
+        if (insErr) throw insErr;
+      }
     },
     onSuccess: () => {
       toast.success(editingId ? "Empresa atualizada." : "Empresa criada.");
+      const wasServico = form.tipo === "servico";
       setOpen(false);
       resetForm();
       qc.invalidateQueries({ queryKey: ["empresas-multi"] });
       qc.invalidateQueries({ queryKey: ["empresa-categorias-links"] });
+      qc.invalidateQueries({ queryKey: ["empresa-categorias-servico-links"] });
       qc.invalidateQueries({ queryKey: ["empresas-options"] });
       qc.invalidateQueries({ queryKey: ["servico-count", "empresas"] });
+      if (wasServico) {
+        // O gatilho do banco espelha empresa(servico) → terceirizados. Invalida as
+        // queryKeys que a Produção usa p/ ler serviço, senão os seletores mostram
+        // dado velho.
+        qc.invalidateQueries({ queryKey: ["terceirizados-all"] });
+        qc.invalidateQueries({ queryKey: ["terc-cat"] });
+        qc.invalidateQueries({ queryKey: ["terceirizados-multi"] });
+        qc.invalidateQueries({ queryKey: ["terceirizado-categorias-links"] });
+      }
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar.")),
   });
@@ -990,19 +1193,25 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
     setDeleteRow(row);
     setDeleteUsage(null);
     let total = 0;
-    const refs: { table: string; column: string }[] = [
-      { table: "representantes", column: "empresa_id" },
-      { table: "aviamentos", column: "empresa_id" },
-      { table: "ocs_tecido", column: "empresa_id" },
-      { table: "ocs_aviamento", column: "empresa_id" },
-      { table: "parcelas", column: "empresa_id" },
-      { table: "artigos", column: "empresa_id" },
+    const refs: { table: string; column: string; value: string }[] = [
+      { table: "representantes", column: "empresa_id", value: row.id },
+      { table: "aviamentos", column: "empresa_id", value: row.id },
+      { table: "ocs_tecido", column: "empresa_id", value: row.id },
+      { table: "ocs_aviamento", column: "empresa_id", value: row.id },
+      { table: "parcelas", column: "empresa_id", value: row.id },
+      { table: "artigos", column: "empresa_id", value: row.id },
+      // empresa de serviço em uso na Produção (por empresa_id e pelo espelho terceirizado_id).
+      { table: "producao_terceirizados", column: "empresa_id", value: row.id },
     ];
+    if (row.tipo === "servico" && row.origem_terceirizado_id) {
+      refs.push({ table: "producao_terceirizados", column: "terceirizado_id", value: row.origem_terceirizado_id });
+      refs.push({ table: "producao_oficina", column: "terceirizado_id", value: row.origem_terceirizado_id });
+    }
     for (const r of refs) {
       const { count } = await supabase
         .from(r.table as any)
         .select("*", { count: "exact", head: true })
-        .eq(r.column, row.id);
+        .eq(r.column, r.value);
       total += count ?? 0;
     }
     setDeleteUsage(total);
@@ -1015,16 +1224,34 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
     },
     onSuccess: () => {
       toast.success("Excluído.");
+      const wasServico = deleteRow?.tipo === "servico";
       setDeleteRow(null);
       setDeleteUsage(null);
       qc.invalidateQueries({ queryKey: ["empresas-multi"] });
       qc.invalidateQueries({ queryKey: ["servico-count", "empresas"] });
+      if (wasServico) {
+        qc.invalidateQueries({ queryKey: ["terceirizados-all"] });
+        qc.invalidateQueries({ queryKey: ["terc-cat"] });
+        qc.invalidateQueries({ queryKey: ["terceirizados-multi"] });
+      }
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir.")),
   });
 
+  const anyMigradoPendente = useMemo(
+    () => empresas.some((e) => isMigradoServico(e)),
+    [empresas],
+  );
+
+  const formMigradoPendente = isMigradoServico(form);
+
   return (
     <div className="space-y-4">
+      {anyMigradoPendente && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Há empresas <strong>migradas de Serviço</strong> sem CNPJ — revise nome e dados fiscais (marcadas em âmbar abaixo).
+        </div>
+      )}
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -1035,6 +1262,16 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
             className="pl-9"
           />
         </div>
+        <Select value={tipoFilter} onValueChange={(v) => setTipoFilter(v as "todos" | EmpresaTipo)}>
+          <SelectTrigger className="w-36 shrink-0">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todos">Todos</SelectItem>
+            <SelectItem value="material">Material</SelectItem>
+            <SelectItem value="servico">Serviço</SelectItem>
+          </SelectContent>
+        </Select>
         <Button onClick={openCreate} disabled={readOnly} className="max-sm:hidden">
           <Plus className="h-4 w-4 mr-1" /> Novo
         </Button>
@@ -1045,48 +1282,81 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
           <TableHeader>
             <TableRow>
               <SortHead label="Nome Fantasia" sortKey="nome_fantasia" sortState={sort} />
-              <TableHead>Categorias do Fornecedor</TableHead>
+              <TableHead className="w-28">Tipo</TableHead>
+              <TableHead>Categorias</TableHead>
               <TableHead className="w-32 text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
                   Carregando…
                 </TableCell>
               </TableRow>
             ) : filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
                   Nenhuma empresa encontrada.
                 </TableCell>
               </TableRow>
             ) : (
               sort.sorted.map((row) => {
-                const ids = linksByEmpresa.get(row.id) ?? [];
+                const isServ = row.tipo === "servico";
+                const catIds = (isServ ? servByEmpresa.get(row.id) : fornByEmpresa.get(row.id)) ?? [];
+                const migrado = isMigradoServico(row);
                 return (
                   <TableRow key={row.id}>
                     <TableCell>
-                      <button
-                        type="button"
-                        className="text-left hover:underline"
-                        onClick={() => openEdit(row)}
-                      >
-                        {row.nome_fantasia}
-                      </button>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          className="text-left hover:underline"
+                          onClick={() => openEdit(row)}
+                        >
+                          {row.nome_fantasia}
+                        </button>
+                        {migrado && (
+                          <Badge
+                            className="bg-amber-500 hover:bg-amber-500 text-white"
+                            title="Migrado de Serviço — revise nome e CNPJ"
+                          >
+                            Migrado
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
-                    <TableCell data-label="Categorias do Fornecedor">
-                      {ids.length === 0 ? (
+                    <TableCell data-label="Tipo">
+                      <Badge variant={isServ ? "default" : "secondary"}>
+                        {isServ ? "Serviço" : "Material"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell data-label="Categorias">
+                      {catIds.length === 0 ? (
                         <span className="text-muted-foreground">—</span>
                       ) : (
                         <div className="flex flex-wrap gap-1">
-                          {ids.map((cid) => (
-                            <Badge key={cid} variant="secondary">
-                              {catsMap.get(cid) ?? "—"}
-                            </Badge>
-                          ))}
+                          {catIds.map((cid) => {
+                            if (isServ) {
+                              const c = catsServMap.get(cid);
+                              return (
+                                <Badge key={cid} variant="secondary" className="gap-1">
+                                  {c?.nome ?? "—"}
+                                  {c && (
+                                    <span className="text-[10px] opacity-70">
+                                      {c.etapa === "pos_costura" ? "Pós" : "Pré"}
+                                    </span>
+                                  )}
+                                </Badge>
+                              );
+                            }
+                            return (
+                              <Badge key={cid} variant="secondary">
+                                {catsFornMap.get(cid) ?? "—"}
+                              </Badge>
+                            );
+                          })}
                         </div>
                       )}
                     </TableCell>
@@ -1094,7 +1364,7 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
                       <Button size="icon" variant="ghost" onClick={() => openEdit(row)} aria-label="Editar">
                         <Pencil className="h-4 w-4" />
                       </Button>
-                      <Button size="icon" variant="ghost" onClick={() => startDelete(row)} disabled={readOnly}>
+                      <Button size="icon" variant="ghost" onClick={() => startDelete(row)} disabled={readOnly} aria-label="Excluir">
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </TableCell>
@@ -1108,31 +1378,83 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
 
 
       <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) resetForm(); }}>
-        <DialogContent>
-          <DialogHeader>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
+          <DialogHeader className="max-sm:shrink-0">
             <DialogTitle>{editingId ? "Editar empresa" : "Nova empresa"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div className="space-y-1.5">
-              <Label>Nome fantasia</Label>
-              <Input
-                autoFocus
-                value={nome}
-                onChange={(e) => setNome(e.target.value)}
-              />
+          <div className="space-y-4 py-2 max-sm:min-h-0 max-sm:overflow-y-auto">
+            {formMigradoPendente && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                <strong>Migrado de Serviço</strong> — revise nome e CNPJ.
+              </div>
+            )}
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Tipo</Label>
+                <Select
+                  value={form.tipo}
+                  onValueChange={(v) =>
+                    setForm((f) => ({ ...f, tipo: v as EmpresaTipo, cats: [] }))
+                  }
+                  disabled={editingHasCats}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="material">Material</SelectItem>
+                    <SelectItem value="servico">Serviço</SelectItem>
+                  </SelectContent>
+                </Select>
+                {editingHasCats && (
+                  <p className="text-xs text-muted-foreground">
+                    Tipo travado — remova as categorias para poder trocar (trocar o tipo limpa as categorias).
+                  </p>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <Label>
+                  Nome fantasia <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  autoFocus
+                  value={form.nome_fantasia}
+                  onChange={(e) => setForm((f) => ({ ...f, nome_fantasia: e.target.value }))}
+                />
+              </div>
             </div>
+
+            <EmpresaFiscalFields
+              value={form}
+              onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
+            />
+
             <div className="space-y-1.5">
               <Label>
-                Categorias do Fornecedor <span className="text-destructive">*</span>
+                {form.tipo === "servico" ? "Categorias de Serviço" : "Categorias do Fornecedor"}{" "}
+                <span className="text-destructive">*</span>
               </Label>
-              <CategoriasFornecedorMultiSelect
-                options={catsFornecedor}
-                value={cats}
-                onChange={setCats}
-              />
+              {form.tipo === "servico" ? (
+                <CategoriasTerceirizadoMultiSelect
+                  options={catsServico.map((c) => ({
+                    id: c.id,
+                    nome: `${c.nome} (${c.etapa === "pos_costura" ? "Pós" : "Pré"})`,
+                  }))}
+                  value={form.cats}
+                  onChange={(v) => setForm((f) => ({ ...f, cats: v }))}
+                  placeholder="Categorias de serviço…"
+                />
+              ) : (
+                <CategoriasFornecedorMultiSelect
+                  options={catsFornecedor}
+                  value={form.cats}
+                  onChange={(v) => setForm((f) => ({ ...f, cats: v }))}
+                />
+              )}
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
             <Button variant="outline" onClick={() => setOpen(false)}>
               Cancelar
             </Button>
@@ -1200,12 +1522,8 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
   );
 }
 
-// ============ Terceirizados (multi-categoria) ============
-
-type TerceirizadoRow = {
-  id: string;
-  nome_responsavel: string;
-};
+// ============ Categorias de Serviço Multi-Select ============
+// (reusado no editor de Empresa do tipo serviço)
 
 function CategoriasTerceirizadoMultiSelect({
   options,
@@ -1261,356 +1579,3 @@ function CategoriasTerceirizadoMultiSelect({
     </Popover>
   );
 }
-
-function TerceirizadosMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number) => void }) {
-  const qc = useQueryClient();
-  const readOnly = useReadOnly();
-  const [search, setSearch] = useState("");
-  const [open, setOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [nome, setNome] = useState("");
-  const [cats, setCats] = useState<string[]>([]);
-  const [deleteRow, setDeleteRow] = useState<TerceirizadoRow | null>(null);
-  const [deleteUsage, setDeleteUsage] = useState<number | null>(null);
-
-  const { data: terceirizados = [], isLoading } = useQuery({
-    queryKey: ["terceirizados-multi"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("terceirizados")
-        .select("id, nome_responsavel")
-        .order("nome_responsavel");
-      if (error) throw error;
-      return (data ?? []) as TerceirizadoRow[];
-    },
-  });
-
-  const { data: catsTerc = [] } = useQuery({
-    queryKey: ["cat-terceirizado-options"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("categorias_terceirizado")
-        .select("id, nome")
-        .order("nome");
-      if (error) throw error;
-      return (data ?? []) as CatOption[];
-    },
-  });
-
-  const { data: links = [] } = useQuery({
-    queryKey: ["terceirizado-categorias-links"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("terceirizado_categorias")
-        .select("terceirizado_id, categoria_terceirizado_id");
-      if (error) throw error;
-      return (data ?? []) as { terceirizado_id: string; categoria_terceirizado_id: string }[];
-    },
-  });
-
-  const linksByTerc = useMemo(() => {
-    const m = new Map<string, string[]>();
-    links.forEach((l) => {
-      const arr = m.get(l.terceirizado_id) ?? [];
-      arr.push(l.categoria_terceirizado_id);
-      m.set(l.terceirizado_id, arr);
-    });
-    return m;
-  }, [links]);
-
-  const catsMap = useMemo(() => {
-    const m = new Map<string, string>();
-    catsTerc.forEach((c) => m.set(c.id, c.nome));
-    return m;
-  }, [catsTerc]);
-
-  const filtered = useMemo(() => {
-    const s = search.trim().toLowerCase();
-    if (!s) return terceirizados;
-    return terceirizados.filter((t) => t.nome_responsavel.toLowerCase().includes(s));
-  }, [terceirizados, search]);
-  useReportFiltered(filtered.length, onFilteredCount);
-
-  const sort = useSort(filtered, { key: "nome_responsavel" });
-
-  const resetForm = () => {
-    setEditingId(null);
-    setNome("");
-    setCats([]);
-  };
-
-  const openCreate = () => {
-    resetForm();
-    setOpen(true);
-  };
-
-  const openEdit = (t: TerceirizadoRow) => {
-    setEditingId(t.id);
-    setNome(t.nome_responsavel);
-    setCats(linksByTerc.get(t.id) ?? []);
-    setOpen(true);
-  };
-
-  const saveMut = useMutation({
-    mutationFn: async () => {
-      const v = nome.trim();
-      if (!v) throw new Error("Informe o nome do responsável.");
-      if (cats.length === 0)
-        throw new Error("Selecione ao menos uma categoria do serviço.");
-
-      let tercId = editingId;
-      if (editingId) {
-        const { error } = await supabase
-          .from("terceirizados")
-          .update({
-            nome_responsavel: v,
-            // Mantém a primeira categoria também na coluna legada para compatibilidade
-            categoria_terceirizado_id: cats[0],
-          })
-          .eq("id", editingId);
-        if (error) throw error;
-      } else {
-        const { data, error } = await supabase
-          .from("terceirizados")
-          .insert({ nome_responsavel: v, categoria_terceirizado_id: cats[0] })
-          .select("id")
-          .single();
-        if (error) throw error;
-        tercId = data.id;
-      }
-
-      const { error: delErr } = await supabase
-        .from("terceirizado_categorias")
-        .delete()
-        .eq("terceirizado_id", tercId!);
-      if (delErr) throw delErr;
-
-      const { error: insErr } = await supabase
-        .from("terceirizado_categorias")
-        .insert(
-          cats.map((cid) => ({
-            terceirizado_id: tercId!,
-            categoria_terceirizado_id: cid,
-          })),
-        );
-      if (insErr) throw insErr;
-    },
-    onSuccess: () => {
-      toast.success(editingId ? "Serviço atualizado." : "Serviço criado.");
-      setOpen(false);
-      resetForm();
-      qc.invalidateQueries({ queryKey: ["terceirizados-multi"] });
-      qc.invalidateQueries({ queryKey: ["terceirizado-categorias-links"] });
-      qc.invalidateQueries({ queryKey: ["terceirizados-all"] });
-      qc.invalidateQueries({ queryKey: ["servico-count", "terceirizados"] });
-    },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar.")),
-  });
-
-  const startDelete = async (row: TerceirizadoRow) => {
-    setDeleteRow(row);
-    setDeleteUsage(null);
-    let total = 0;
-    const refs: { table: string; column: string }[] = [
-      { table: "producao_terceirizados", column: "terceirizado_id" },
-      { table: "producao_oficina", column: "terceirizado_id" },
-    ];
-    for (const r of refs) {
-      const { count } = await supabase
-        .from(r.table as any)
-        .select("*", { count: "exact", head: true })
-        .eq(r.column, row.id);
-      total += count ?? 0;
-    }
-    setDeleteUsage(total);
-  };
-
-  const deleteMut = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("terceirizados").delete().eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success("Excluído.");
-      setDeleteRow(null);
-      setDeleteUsage(null);
-      qc.invalidateQueries({ queryKey: ["terceirizados-multi"] });
-      qc.invalidateQueries({ queryKey: ["servico-count", "terceirizados"] });
-    },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir.")),
-  });
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Buscar serviços…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
-        </div>
-        <Button onClick={openCreate} disabled={readOnly} className="max-sm:hidden">
-          <Plus className="h-4 w-4 mr-1" /> Novo
-        </Button>
-      </div>
-
-      <div className="rounded-lg border">
-        <Table className="card-table">
-          <TableHeader>
-            <TableRow>
-              <SortHead label="Nome do Responsável" sortKey="nome_responsavel" sortState={sort} />
-              <TableHead>Categorias do Serviço</TableHead>
-              <TableHead className="w-32 text-right">Ações</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
-              <TableRow>
-                <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
-                  Carregando…
-                </TableCell>
-              </TableRow>
-            ) : filtered.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
-                  Nenhum serviço encontrado.
-                </TableCell>
-              </TableRow>
-            ) : (
-              sort.sorted.map((row) => {
-                const ids = linksByTerc.get(row.id) ?? [];
-                return (
-                  <TableRow key={row.id}>
-                    <TableCell>
-                      <button
-                        type="button"
-                        className="text-left hover:underline"
-                        onClick={() => openEdit(row)}
-                      >
-                        {row.nome_responsavel}
-                      </button>
-                    </TableCell>
-                    <TableCell data-label="Categorias do Serviço">
-                      {ids.length === 0 ? (
-                        <span className="text-muted-foreground">—</span>
-                      ) : (
-                        <div className="flex flex-wrap gap-1">
-                          {ids.map((cid) => (
-                            <Badge key={cid} variant="secondary">
-                              {catsMap.get(cid) ?? "—"}
-                            </Badge>
-                          ))}
-                        </div>
-                      )}
-                    </TableCell>
-                    <TableCell data-label="Ações" className="text-right">
-                      <Button size="icon" variant="ghost" onClick={() => openEdit(row)} aria-label="Editar">
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button size="icon" variant="ghost" onClick={() => startDelete(row)} disabled={readOnly}>
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
-      </div>
-
-
-      <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) resetForm(); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingId ? "Editar serviço" : "Novo serviço"}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div className="space-y-1.5">
-              <Label>Nome do responsável</Label>
-              <Input autoFocus value={nome} onChange={(e) => setNome(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>
-                Categorias do Serviço <span className="text-destructive">*</span>
-              </Label>
-              <CategoriasTerceirizadoMultiSelect
-                options={catsTerc}
-                value={cats}
-                onChange={setCats}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>
-              Cancelar
-            </Button>
-            {!readOnly && (
-              <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
-                {saveMut.isPending ? "Salvando…" : "Salvar"}
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <AlertDialog
-        open={!!deleteRow}
-        onOpenChange={(o) => {
-          if (!o) {
-            setDeleteRow(null);
-            setDeleteUsage(null);
-          }
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Excluir serviço?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {deleteUsage === null ? (
-                <span className="flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Verificando uso…
-                </span>
-              ) : deleteUsage > 0 ? (
-                <>
-                  Este serviço está em uso em <strong>{deleteUsage}</strong> registro(s).
-                  Deseja excluir mesmo assim?
-                </>
-              ) : (
-                <>
-                  Tem certeza que deseja excluir <strong>{deleteRow?.nome_responsavel}</strong>?
-                </>
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                e.preventDefault();
-                if (deleteRow) deleteMut.mutate(deleteRow.id);
-              }}
-              disabled={deleteUsage === null || deleteMut.isPending}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Excluir
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <MobileActionBar>
-        <Button onClick={openCreate} disabled={readOnly} className="ml-auto">
-          <Plus className="h-4 w-4 mr-1" /> Novo
-        </Button>
-      </MobileActionBar>
-    </div>
-  );
-}
-
-

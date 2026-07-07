@@ -37,7 +37,9 @@ Hoje a tela "Fornecedores" (`/cadastro/servico`) tem 3 entidades separadas: **Em
 - **Guarda tipo↔categoria**: trigger/CHECK impedindo `empresa_categorias_servico` em empresa tipo material (e vice-versa no fornecedor). A regra "material XOR serviço" passa a valer no banco, não só na UI.
 - Atualizar RPCs de leitura pra usar empresa_id (dashboards, custo, cq_oficina, ranking, servicos_financeiro).
 
-### Fase 2 — Tela Fornecedores nova
+### Fase 2 — Tela Fornecedores nova ✅ FEITA (schema `220000`+`230000`, front rework; review architect/domain/code-reviewer/ui-ux incorporado)
+**Deferido (hardening menor, não bloqueia):** saveMut de categorias não-atômico (mesmo padrão pré-existente; virar RPC `set_empresa_categorias` numa fase de hardening); ícone de cadeado no tipo travado; empty-state com CTA. **Feito:** aba Serviços removida; Empresas type-aware (tipo/fiscais/categorias-por-tipo/badge migrado); EmpresaFiscalFields extraído; representante mostra tipo; guarda de exclusão conta Produção; editores full-screen no mobile + rodapé fixo; delete de empresa serviço limpa o espelho terceirizado.
+
 - Aba **Empresas** ganha `tipo`; empresa de serviço mostra categorias de serviço (pré/pós). Some a aba "Serviços".
 - Aba **Representantes** passa a ser usada; guarda de exclusão (rep em uso).
 - **Notas do review da F1 (resolver na F2):**
