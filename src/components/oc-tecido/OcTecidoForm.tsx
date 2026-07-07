@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { FileField } from "./FileField";
 import { TecidoGroup } from "./TecidoGroup";
+import { RepresentanteSelect } from "@/components/shared/RepresentanteSelect";
 import type { Artigo, Colab, Draft, Empresa, ItemDraft, ParcelaRecebimento, Variante } from "./shared";
 
 export function OcTecidoForm({
@@ -48,13 +49,20 @@ export function OcTecidoForm({
         </div>
         <div className="grid gap-1">
           <Label>Fornecedor</Label>
-          <Select value={draft.empresa_id ?? ""} onValueChange={(v) => setDraft((d) => ({ ...d, empresa_id: v }))}>
+          {/* Trocar o fornecedor limpa o representante (reps são daquela empresa). */}
+          <Select value={draft.empresa_id ?? ""} onValueChange={(v) => setDraft((d) => ({ ...d, empresa_id: v, representante_id: null }))}>
             <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
             <SelectContent>
               {empresas.map((e) => <SelectItem key={e.id} value={e.id}>{e.nome_fantasia}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
+
+        <RepresentanteSelect
+          empresa={draft.empresa_id ? empresas.find((e) => e.id === draft.empresa_id) : null}
+          value={draft.representante_id}
+          onChange={(v) => setDraft((d) => ({ ...d, representante_id: v }))}
+        />
 
         <div className="grid gap-1">
           <Label>Responsável</Label>

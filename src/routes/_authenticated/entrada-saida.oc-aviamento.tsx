@@ -41,6 +41,7 @@ import { RequirePermission } from "@/components/RequirePermission";
 import { FilterButton } from "@/components/shared/filters";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
+import { RepresentanteSelect } from "@/components/shared/RepresentanteSelect";
 import { useSort, SortHead } from "@/components/shared/sort";
 export const Route = createFileRoute("/_authenticated/entrada-saida/oc-aviamento")({
   component: () => (
@@ -53,7 +54,12 @@ export const Route = createFileRoute("/_authenticated/entrada-saida/oc-aviamento
 const BUCKET = "oc-aviamento";
 
 type OCStatus = "encomendado" | "recebido";
-type Empresa = { id: string; nome_fantasia: string };
+type Empresa = {
+  id: string;
+  nome_fantasia: string;
+  // Embed to-many (FK sem UNIQUE): representantes da empresa p/ o Select opcional.
+  representantes?: { id: string; nome: string | null }[] | null;
+};
 type Colab = { id: string; nome: string; tipo: string };
 type Aviamento = { id: string; codigo_nome: string; empresa_id: string | null; preco: number | null };
 
@@ -123,14 +129,15 @@ function OcAviamentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("empresas")
-        .select("id, nome_fantasia, empresa_categorias_fornecedor!inner(categorias_fornecedor!inner(nome))")
+        .select("id, nome_fantasia, representantes(id, nome), empresa_categorias_fornecedor!inner(categorias_fornecedor!inner(nome))")
         .eq("empresa_categorias_fornecedor.categorias_fornecedor.nome", "Aviamento")
         .order("nome_fantasia");
       if (error) throw error;
       const seen = new Set<string>();
-      return ((data ?? []) as Array<{ id: string; nome_fantasia: string }>)
+      // dedup por id (o !inner pode multiplicar linhas) preservando o embed de representantes.
+      return ((data ?? []) as Array<{ id: string; nome_fantasia: string; representantes?: { id: string; nome: string | null }[] | null }>)
         .filter((e) => (seen.has(e.id) ? false : (seen.add(e.id), true)))
-        .map(({ id, nome_fantasia }) => ({ id, nome_fantasia })) as Empresa[];
+        .map(({ id, nome_fantasia, representantes }) => ({ id, nome_fantasia, representantes: representantes ?? [] })) as Empresa[];
     },
   });
   const { data: estilistas = [] } = useQuery({
@@ -431,6 +438,7 @@ type Draft = {
   responsavel_nome: string;
   responsavel_id: string | null;
   empresa_id: string | null;
+  representante_id: string | null;
   data_pedido: string;
   data_prevista_entrega: string;
   data_entrega: string;
@@ -445,6 +453,7 @@ function emptyDraft(): Draft {
     responsavel_nome: "",
     responsavel_id: null,
     empresa_id: null,
+    representante_id: null,
     data_pedido: format(new Date(), "yyyy-MM-dd"),
     data_prevista_entrega: "",
     data_entrega: "",
@@ -489,6 +498,7 @@ function OcDialog({
           responsavel_nome: oc.responsavel_nome ?? "",
           responsavel_id: null,
           empresa_id: oc.empresa_id,
+          representante_id: (oc as any).representante_id ?? null,
           data_pedido: oc.data_pedido ?? "",
           data_prevista_entrega: oc.data_prevista_entrega ?? "",
           data_entrega: oc.data_entrega ?? "",
@@ -572,6 +582,7 @@ function OcDialog({
           ? (draft.responsavel_id ? (estilistas.find((e) => e.id === draft.responsavel_id)?.nome ?? null) : null)
           : (draft.responsavel_nome || null),
         empresa_id: draft.empresa_id,
+        representante_id: draft.representante_id,
         data_pedido: draft.data_pedido || null,
         data_prevista_entrega: draft.data_prevista_entrega || null,
         data_entrega: markReceived ? (lastDate || null) : (draft.data_entrega || null),
@@ -697,13 +708,20 @@ function OcDialog({
             </div>
             <div className="grid gap-1">
               <Label>Fornecedor</Label>
-              <Select value={draft.empresa_id ?? ""} onValueChange={(v) => setDraft((d) => ({ ...d, empresa_id: v }))}>
+              {/* Trocar o fornecedor limpa o representante (reps são daquela empresa). */}
+              <Select value={draft.empresa_id ?? ""} onValueChange={(v) => setDraft((d) => ({ ...d, empresa_id: v, representante_id: null }))}>
                 <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
                 <SelectContent>
                   {empresas.map((e) => <SelectItem key={e.id} value={e.id}>{e.nome_fantasia}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
+
+            <RepresentanteSelect
+              empresa={draft.empresa_id ? empresas.find((e) => e.id === draft.empresa_id) : null}
+              value={draft.representante_id}
+              onChange={(v) => setDraft((d) => ({ ...d, representante_id: v }))}
+            />
 
             <div className="grid gap-1">
               <Label>Responsável</Label>

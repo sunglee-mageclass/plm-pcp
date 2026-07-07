@@ -10,7 +10,12 @@ export const labelVariante = labelVarianteRow;
 
 export type OCStatus = "encomendado" | "recebido";
 
-export type Empresa = { id: string; nome_fantasia: string };
+export type Empresa = {
+  id: string;
+  nome_fantasia: string;
+  // Embed to-many (FK sem UNIQUE): representantes da empresa p/ o Select opcional.
+  representantes?: { id: string; nome: string | null }[] | null;
+};
 export type Colab = { id: string; nome: string; tipo: string };
 export type Artigo = {
   id: string; nome: string; empresa_id: string | null;
@@ -40,6 +45,7 @@ export type OC = {
   responsavel_id: string | null;
   responsavel_nome: string | null;
   empresa_id: string | null;
+  representante_id: string | null;
   data_pedido: string | null;
   data_prevista_entrega: string | null;
   data_entrega: string | null;
@@ -65,6 +71,7 @@ export type Draft = {
   responsavel_id: string | null;
   responsavel_nome: string;
   empresa_id: string | null;
+  representante_id: string | null;
   data_pedido: string;
   data_prevista_entrega: string;
   prazo_pagamento: string;
@@ -114,6 +121,7 @@ export function emptyDraft(): Draft {
     responsavel_id: null,
     responsavel_nome: "",
     empresa_id: null,
+    representante_id: null,
     data_pedido: format(new Date(), "yyyy-MM-dd"),
     data_prevista_entrega: "",
     prazo_pagamento: "",

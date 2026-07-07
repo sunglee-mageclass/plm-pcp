@@ -89,16 +89,18 @@ function OcTecidoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("empresas")
-        .select("id, nome_fantasia, empresa_categorias_fornecedor!inner(categorias_fornecedor!inner(nome))")
+        .select("id, nome_fantasia, representantes(id, nome), empresa_categorias_fornecedor!inner(categorias_fornecedor!inner(nome))")
         .in("empresa_categorias_fornecedor.categorias_fornecedor.nome", ["Tecido", "Forro", "Entretela"])
         .order("nome_fantasia");
       if (error) throw error;
       const seen = new Set<string>();
       const out: Empresa[] = [];
-      for (const e of (data ?? []) as Array<{ id: string; nome_fantasia: string }>) {
+      // O !inner de categorias multiplica a linha por categoria (Tecido/Forro/Entretela);
+      // dedup por id preservando o embed de representantes (to-many, vem igual em toda linha).
+      for (const e of (data ?? []) as Array<{ id: string; nome_fantasia: string; representantes?: { id: string; nome: string | null }[] | null }>) {
         if (seen.has(e.id)) continue;
         seen.add(e.id);
-        out.push({ id: e.id, nome_fantasia: e.nome_fantasia });
+        out.push({ id: e.id, nome_fantasia: e.nome_fantasia, representantes: e.representantes ?? [] });
       }
       return out;
     },
@@ -356,6 +358,7 @@ function OcDialog({
           responsavel_id: oc.responsavel_id,
           responsavel_nome: oc.responsavel_nome ?? "",
           empresa_id: oc.empresa_id,
+          representante_id: (oc as any).representante_id ?? null,
           data_pedido: oc.data_pedido ?? "",
           data_prevista_entrega: oc.data_prevista_entrega ?? "",
           prazo_pagamento: oc.prazo_pagamento ?? "",
@@ -594,6 +597,7 @@ function OcDialog({
         responsavel_id: respMode === "select" ? draft.responsavel_id : null,
         responsavel_nome: respMode === "text" ? (draft.responsavel_nome || null) : null,
         empresa_id: draft.empresa_id,
+        representante_id: draft.representante_id,
         data_pedido: draft.data_pedido || null,
         data_prevista_entrega: draft.data_prevista_entrega || null,
         prazo_pagamento: draft.prazo_pagamento || null,
