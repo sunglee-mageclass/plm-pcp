@@ -438,6 +438,7 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
   const [form, setForm] = useState<typeof emptyForm>(emptyForm);
   const [open, setOpen] = useState(false);
   const [deleteRow, setDeleteRow] = useState<Representante | null>(null);
+  const [deleteUsage, setDeleteUsage] = useState<number | null>(null);
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["representantes"],
@@ -600,6 +601,27 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir.")),
   });
 
+  // Antes de excluir, conta uso do representante nos pedidos (FK NO ACTION → excluir em
+  // uso daria erro cru; melhor bloquear e avisar, como no editor de Empresa).
+  const startDelete = async (row: Representante) => {
+    setDeleteRow(row);
+    setDeleteUsage(null);
+    const refs = [
+      { table: "ocs_tecido", column: "representante_id" },
+      { table: "ocs_aviamento", column: "representante_id" },
+      { table: "producao_terceirizados", column: "representante_id" },
+    ] as const;
+    let total = 0;
+    for (const r of refs) {
+      const { count } = await supabase
+        .from(r.table as any)
+        .select("*", { count: "exact", head: true })
+        .eq(r.column, row.id);
+      total += count ?? 0;
+    }
+    setDeleteUsage(total);
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
@@ -660,7 +682,7 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
                     <Button size="icon" variant="ghost" onClick={() => openEdit(r)} aria-label="Editar">
                       <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button size="icon" variant="ghost" onClick={() => setDeleteRow(r)} disabled={readOnly} aria-label="Excluir">
+                    <Button size="icon" variant="ghost" onClick={() => startDelete(r)} disabled={readOnly} aria-label="Excluir">
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </TableCell>
@@ -764,12 +786,26 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={!!deleteRow} onOpenChange={(o) => !o && setDeleteRow(null)}>
+      <AlertDialog open={!!deleteRow} onOpenChange={(o) => { if (!o) { setDeleteRow(null); setDeleteUsage(null); } }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir representante?</AlertDialogTitle>
             <AlertDialogDescription>
-              Tem certeza que deseja excluir <strong>{deleteRow?.nome}</strong>?
+              {deleteUsage === null ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Verificando uso…
+                </span>
+              ) : deleteUsage > 0 ? (
+                <>
+                  <strong>{deleteRow?.nome}</strong> está em uso em <strong>{deleteUsage}</strong> registro(s)
+                  (OC de tecido/aviamento ou serviço) e não pode ser excluído.
+                </>
+              ) : (
+                <>
+                  Tem certeza que deseja excluir <strong>{deleteRow?.nome}</strong>?
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -779,6 +815,7 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
                 e.preventDefault();
                 if (deleteRow) deleteMut.mutate(deleteRow.id);
               }}
+              disabled={deleteUsage === null || deleteUsage > 0 || deleteMut.isPending}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Excluir
@@ -1389,8 +1426,8 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
                 </span>
               ) : deleteUsage > 0 ? (
                 <>
-                  Esta empresa está em uso em <strong>{deleteUsage}</strong> registro(s).
-                  Deseja excluir mesmo assim?
+                  Esta empresa está em uso em <strong>{deleteUsage}</strong> registro(s) e não pode
+                  ser excluída. Remova-a dos pedidos/serviços antes.
                 </>
               ) : (
                 <>
@@ -1406,7 +1443,7 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
                 e.preventDefault();
                 if (deleteRow) deleteMut.mutate(deleteRow.id);
               }}
-              disabled={deleteUsage === null || deleteMut.isPending}
+              disabled={deleteUsage === null || deleteUsage > 0 || deleteMut.isPending}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Excluir

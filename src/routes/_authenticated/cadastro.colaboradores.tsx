@@ -35,6 +35,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
+import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { cn } from "@/lib/utils";
 
 import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
@@ -287,12 +288,12 @@ function ColaboradoresPage() {
             ))}
           </SelectContent>
         </Select>
-        {/* Kebab único: gerencia os tipos (Novo sempre; Editar/Excluir só em tipo custom).
-            No desktop essas ações ficam na lista lateral; no mobile não existiam. */}
-        {!readOnly && (
+        {/* Kebab só para Editar/Excluir o tipo custom selecionado (mobile). "Novo tipo"
+            vive na MobileActionBar (mobile) e na lista lateral (desktop). */}
+        {!readOnly && selected.custom && (
           <Popover open={typeMenuOpen} onOpenChange={setTypeMenuOpen}>
             <PopoverTrigger asChild>
-              <Button type="button" variant="outline" size="icon" aria-label="Gerenciar tipos">
+              <Button type="button" variant="outline" size="icon" aria-label="Gerenciar tipo">
                 <MoreVertical className="h-4 w-4" />
               </Button>
             </PopoverTrigger>
@@ -300,28 +301,17 @@ function ColaboradoresPage() {
               <button
                 type="button"
                 className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
-                onClick={() => { setTypeMenuOpen(false); openCreate(); }}
+                onClick={() => { setTypeMenuOpen(false); openEdit(selected); }}
               >
-                <Plus className="h-4 w-4" /> Novo tipo
+                <Pencil className="h-4 w-4" /> Editar tipo
               </button>
-              {selected.custom && (
-                <>
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted"
-                    onClick={() => { setTypeMenuOpen(false); openEdit(selected); }}
-                  >
-                    <Pencil className="h-4 w-4" /> Editar tipo
-                  </button>
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10"
-                    onClick={() => { setTypeMenuOpen(false); setDelTab(selected); }}
-                  >
-                    <Trash2 className="h-4 w-4" /> Excluir tipo
-                  </button>
-                </>
-              )}
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-destructive hover:bg-destructive/10"
+                onClick={() => { setTypeMenuOpen(false); setDelTab(selected); }}
+              >
+                <Trash2 className="h-4 w-4" /> Excluir tipo
+              </button>
             </PopoverContent>
           </Popover>
         )}
@@ -425,11 +415,11 @@ function ColaboradoresPage() {
           if (!o) { setEditTab(null); setNovoTipo(""); setNovaCategoria(""); }
         }}
       >
-        <DialogContent>
-          <DialogHeader>
+        <DialogContent className="max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
+          <DialogHeader className="max-sm:shrink-0">
             <DialogTitle>{editTab ? "Editar tipo de colaborador" : "Novo tipo de colaborador"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3 py-2">
+          <div className="space-y-3 py-2 max-sm:min-h-0 max-sm:overflow-y-auto">
             <div className="space-y-1.5">
               <Label>Nome do tipo</Label>
               <Input
@@ -462,7 +452,7 @@ function ColaboradoresPage() {
               </p>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="max-sm:shrink-0 max-sm:border-t max-sm:bg-background max-sm:-mx-6 max-sm:-mb-6 max-sm:px-6 max-sm:py-3">
             <Button variant="outline" onClick={() => setAddOpen(false)}>Cancelar</Button>
             {!readOnly && (
               <Button onClick={submitType} disabled={addType.isPending || editType.isPending}>
@@ -498,6 +488,12 @@ function ColaboradoresPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <MobileActionBar>
+        <Button onClick={openCreate} disabled={readOnly} className="ml-auto">
+          <Plus className="h-4 w-4 mr-1" /> Novo tipo
+        </Button>
+      </MobileActionBar>
     </div>
   );
 }

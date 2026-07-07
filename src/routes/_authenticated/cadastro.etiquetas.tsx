@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/table";
 import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
 import { useSort, SortHead } from "@/components/shared/sort";
+import { EmptyState } from "@/components/shared/EmptyState";
 
 export const Route = createFileRoute("/_authenticated/cadastro/etiquetas")({
   component: () => (
@@ -176,21 +177,23 @@ function EtiquetasPage() {
               </TableRow>
             ) : sorted.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={3} className="p-0">
                   {etiquetas.length === 0 ? (
-                    <div className="space-y-3">
-                      <p>Nenhuma etiqueta cadastrada ainda.</p>
-                      <Button size="sm" onClick={openCreate} disabled={readOnly}>
-                        <Plus className="h-4 w-4 mr-1" /> Nova etiqueta
-                      </Button>
-                    </div>
+                    <EmptyState
+                      icon={Tag}
+                      title="Nenhuma etiqueta cadastrada"
+                      description="Cadastre tags / etiquetas e atrele um tamanho para calcular a quantidade pela grade no CAD."
+                      action={readOnly ? undefined : { label: "Nova etiqueta", onClick: openCreate }}
+                      className="border-0 bg-transparent"
+                    />
                   ) : (
-                    <div className="space-y-3">
-                      <p>Nenhuma etiqueta encontrada para a busca.</p>
-                      <Button size="sm" variant="outline" onClick={() => setSearch("")}>
-                        Limpar busca
-                      </Button>
-                    </div>
+                    <EmptyState
+                      icon={Search}
+                      title="Nenhuma etiqueta encontrada"
+                      description="Nenhuma etiqueta corresponde à busca atual."
+                      action={{ label: "Limpar busca", onClick: () => setSearch("") }}
+                      className="border-0 bg-transparent"
+                    />
                   )}
                 </TableCell>
               </TableRow>
@@ -226,11 +229,11 @@ function EtiquetasPage() {
 
       {/* Criar / editar */}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogHeader>
+        <DialogContent className="max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
+          <DialogHeader className="max-sm:shrink-0">
             <DialogTitle>{editing ? "Editar etiqueta" : "Nova etiqueta"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3 py-2">
+          <div className="space-y-3 py-2 max-sm:min-h-0 max-sm:overflow-y-auto">
             <div className="space-y-1.5">
               <Label>Nome</Label>
               <Input
@@ -256,7 +259,7 @@ function EtiquetasPage() {
               </p>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="max-sm:shrink-0 max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
             <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
             {!readOnly && (
               <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>

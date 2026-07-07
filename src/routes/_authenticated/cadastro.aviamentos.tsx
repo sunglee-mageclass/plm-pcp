@@ -54,6 +54,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
+import { EmptyState } from "@/components/shared/EmptyState";
 
 import { RequirePermission } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/cadastro/aviamentos")({
@@ -314,26 +315,24 @@ function AviamentosGallery() {
           Carregando…
         </div>
       ) : filtered.length === 0 ? (
-        <div className="py-12 text-center text-muted-foreground space-y-3">
-          {aviamentos.length === 0 ? (
-            <>
-              <p>Nenhum aviamento cadastrado.</p>
-              <Button onClick={() => setCreateOpen(true)} disabled={readOnly}>
-                <Plus className="h-4 w-4 mr-1" /> Novo aviamento
-              </Button>
-            </>
-          ) : (
-            <>
-              <p>Nenhum aviamento encontrado para os filtros.</p>
-              <Button
-                variant="outline"
-                onClick={() => { setSearch(""); setSort("nome"); setFCat("all"); setFSub("all"); setFMat("all"); setFLarg("all"); setFVaz("all"); setFEmp("all"); }}
-              >
-                Limpar filtros
-              </Button>
-            </>
-          )}
-        </div>
+        aviamentos.length === 0 ? (
+          <EmptyState
+            icon={Package}
+            title="Nenhum aviamento cadastrado"
+            description="Cadastre o primeiro aviamento para começar a montar sua galeria."
+            action={readOnly ? undefined : { label: "Novo aviamento", onClick: () => setCreateOpen(true) }}
+          />
+        ) : (
+          <EmptyState
+            icon={Search}
+            title="Nenhum aviamento encontrado"
+            description="Nenhum aviamento corresponde aos filtros aplicados."
+            action={{
+              label: "Limpar filtros",
+              onClick: () => { setSearch(""); setSort("nome"); setFCat("all"); setFSub("all"); setFMat("all"); setFLarg("all"); setFVaz("all"); setFEmp("all"); },
+            }}
+          />
+        )
       ) : (
         <div ref={gridRef} className={GRID_COLS_CLASS[cols]}>
           {filtered.map((a) => (

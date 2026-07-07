@@ -90,24 +90,26 @@ export function BulkEditDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader><DialogTitle>Definir em massa · {ids.length} card(s)</DialogTitle></DialogHeader>
-        <p className="text-xs text-muted-foreground">Só os campos que você mudar de "Não alterar" são aplicados.</p>
-        <div className="grid sm:grid-cols-2 gap-3">
-          {otbOn && field("Coleção", colecaoId, setColecaoId, colecoes)}
-          {field("Grupo (filtra categoria)", grupo, (v) => { setGrupo(v); setCategoria(NONE); setS1(NONE); setS2(NONE); }, grupos)}
-          {field("Categoria", categoria, (v) => { setCategoria(v); setS1(NONE); setS2(NONE); }, catOpts)}
-          {field("Subcategoria 1", s1, setS1, s1Opts)}
-          {field("Subcategoria 2", s2, setS2, s2Opts)}
-          {field("Estilista", estilista, setEstilista, estilistas)}
-          {field("Linha", linha, setLinha, linhas)}
-          {field("Origem", origem, setOrigem, [{ id: "interno", nome: "Interno" }, { id: "revenda", nome: "Revenda" }])}
-          {field("Semana", semana, setSemana, ["1","2","3","4","5"].map((s) => ({ id: s, nome: s })))}
-          {field("Mês", mes, setMes, meses)}
-          {field("Ano", ano, setAno, anos)}
-          {field("Status", status, setStatus, statusOpts)}
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
+        <DialogHeader className="max-sm:shrink-0"><DialogTitle>Definir em massa · {ids.length} card(s)</DialogTitle></DialogHeader>
+        <div className="space-y-3 max-sm:min-h-0 max-sm:overflow-y-auto">
+          <p className="text-xs text-muted-foreground">Só os campos que você mudar de "Não alterar" são aplicados.</p>
+          <div className="grid sm:grid-cols-2 gap-3">
+            {otbOn && field("Coleção", colecaoId, setColecaoId, colecoes)}
+            {field("Grupo (filtra categoria)", grupo, (v) => { setGrupo(v); setCategoria(NONE); setS1(NONE); setS2(NONE); }, grupos)}
+            {field("Categoria", categoria, (v) => { setCategoria(v); setS1(NONE); setS2(NONE); }, catOpts)}
+            {field("Subcategoria 1", s1, setS1, s1Opts)}
+            {field("Subcategoria 2", s2, setS2, s2Opts)}
+            {field("Estilista", estilista, setEstilista, estilistas)}
+            {field("Linha", linha, setLinha, linhas)}
+            {field("Origem", origem, setOrigem, [{ id: "interno", nome: "Interno" }, { id: "revenda", nome: "Revenda" }])}
+            {field("Semana", semana, setSemana, ["1","2","3","4","5"].map((s) => ({ id: s, nome: s })))}
+            {field("Mês", mes, setMes, meses)}
+            {field("Ano", ano, setAno, anos)}
+            {field("Status", status, setStatus, statusOpts)}
+          </div>
         </div>
-        <DialogFooter>
+        <DialogFooter className="max-sm:shrink-0 max-sm:border-t max-sm:bg-background max-sm:-mx-6 max-sm:-mb-6 max-sm:px-6 max-sm:py-3">
           <Button variant="ghost" onClick={onClose}>Cancelar</Button>
           <Button onClick={() => apply.mutate()} disabled={apply.isPending}>
             {apply.isPending ? "Aplicando…" : "Aplicar"}

@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/dialog";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
+import { EmptyState } from "@/components/shared/EmptyState";
 
 export const Route = createFileRoute("/_authenticated/cadastro/tecidos/")({
   component: TecidosGallery,
@@ -291,26 +292,24 @@ function TecidosGallery() {
           Carregando…
         </div>
       ) : filtered.length === 0 ? (
-        <div className="py-12 text-center text-muted-foreground space-y-3">
-          {artigos.length === 0 ? (
-            <>
-              <p>Nenhum tecido cadastrado ainda.</p>
-              <Button onClick={() => setCreateOpen(true)} disabled={readOnly}>
-                <Plus className="h-4 w-4 mr-1" /> Novo tecido
-              </Button>
-            </>
-          ) : (
-            <>
-              <p>Nenhum tecido encontrado para os filtros.</p>
-              <Button
-                variant="outline"
-                onClick={() => { setSearch(""); setEmpresaFilter("all"); setCatFilter("all"); setSort("nome"); }}
-              >
-                Limpar filtros
-              </Button>
-            </>
-          )}
-        </div>
+        artigos.length === 0 ? (
+          <EmptyState
+            icon={Layers}
+            title="Nenhum tecido cadastrado ainda"
+            description="Cadastre o primeiro tecido para começar a montar sua galeria."
+            action={readOnly ? undefined : { label: "Novo tecido", onClick: () => setCreateOpen(true) }}
+          />
+        ) : (
+          <EmptyState
+            icon={Search}
+            title="Nenhum tecido encontrado"
+            description="Nenhum tecido corresponde aos filtros aplicados."
+            action={{
+              label: "Limpar filtros",
+              onClick: () => { setSearch(""); setEmpresaFilter("all"); setCatFilter("all"); setSort("nome"); },
+            }}
+          />
+        )
       ) : (
         <div ref={gridRef} className={GRID_COLS_CLASS[cols]}>
           {filtered.map((a) => (
