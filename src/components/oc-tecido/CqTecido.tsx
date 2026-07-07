@@ -296,8 +296,11 @@ export function AlertasList() {
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao resolver alerta do rolo")),
   });
   // Troca/cancela de rolo afeta estoque, consumo, listas de OC/rolo e os alertas —
-  // invalida tudo para os valores atualizarem em todas as telas.
-  const invalidarRolo = () => qc.invalidateQueries();
+  // invalida as chaves dessas telas (rolo não tem financeiro, então sem parcelas).
+  const invalidarRolo = () => {
+    ["cq-tecido", "cq-oc", "estoque-tecidos", "dash-estoque", "consumo-por-oc", "ocs_tecido", "rolos"]
+      .forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+  };
   // Cancelar SÓ aquele rolo: marca o item do rolo como cancelado (sai do estoque),
   // sem recalcular financeiro (rolo não tem parcela).
   const cancelRoloMut = useMutation({
