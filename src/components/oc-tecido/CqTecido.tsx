@@ -370,9 +370,15 @@ export function AlertasList() {
 
               <div className="flex flex-wrap items-center gap-2 pl-6">
                 {resolvido ? (
-                  <Button size="sm" variant="outline" onClick={() => it.is_rolo ? reabrirRoloMut.mutate(it.oc_id!) : resol.mutate({ item_id: it.id, acao: "reabrir" })}>
-                    <RotateCcw className="h-4 w-4 mr-1" /> Reabrir
-                  </Button>
+                  !it.is_rolo && it.cq_alerta_status === "trocado" ? (
+                    // Troca concluída (reposição recebida): não dá p/ reabrir sem estornar
+                    // o recebimento — o botão erraria. Mostra o estado final.
+                    <span className="text-xs text-muted-foreground">Troca concluída (reposição recebida).</span>
+                  ) : (
+                    <Button size="sm" variant="outline" onClick={() => it.is_rolo ? reabrirRoloMut.mutate(it.oc_id!) : resol.mutate({ item_id: it.id, acao: "reabrir" })}>
+                      <RotateCcw className="h-4 w-4 mr-1" /> Reabrir
+                    </Button>
+                  )
                 ) : it.cq_alerta_status === "troca_pendente" ? (
                   <>
                     <Button size="sm" onClick={() => setReceber(it)}>
