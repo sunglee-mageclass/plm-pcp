@@ -570,6 +570,29 @@ function AviamentoModal({
     (s) => !form.categoria_aviamento_id || s.categoria_aviamento_id === form.categoria_aviamento_id,
   );
 
+  // O fornecedor salvo pode não estar entre os fornecedores da categoria "Aviamento" (ex.: a
+  // categoria dele mudou depois). Busca o atual p/ garantir que apareça no Select (senão ficava
+  // em branco mesmo com valor salvo).
+  const { data: empresaInicial } = useQuery({
+    queryKey: ["empresa-por-id", initial?.empresa_id],
+    enabled: open && !!initial?.empresa_id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("empresas")
+        .select("id,nome_fantasia")
+        .eq("id", initial!.empresa_id!)
+        .maybeSingle();
+      return data as Empresa | null;
+    },
+  });
+  const empresaOpts = useMemo(() => {
+    const list = empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }));
+    if (empresaInicial && !list.some((o) => o.id === empresaInicial.id)) {
+      list.push({ id: empresaInicial.id, nome: empresaInicial.nome_fantasia });
+    }
+    return list;
+  }, [empresas, empresaInicial]);
+
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
 
@@ -640,7 +663,12 @@ function AviamentoModal({
       toast.success(initial ? "Aviamento atualizado." : "Aviamento criado.");
       onSaved();
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar.")),
+    onError: (e: any) =>
+      toast.error(
+        e?.code === "23505"
+          ? "Este código já existe neste fornecedor."
+          : mensagemErro(e, "Erro ao salvar."),
+      ),
   });
 
   const handleOpenChange = (o: boolean) => {
@@ -713,7 +741,7 @@ function AviamentoModal({
               <SelectField
                 value={form.empresa_id}
                 onChange={(v) => set("empresa_id", v)}
-                options={empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))}
+                options={empresaOpts}
                 placeholder="Selecione"
               />
             </Field>

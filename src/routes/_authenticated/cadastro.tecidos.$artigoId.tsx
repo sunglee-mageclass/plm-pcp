@@ -134,7 +134,7 @@ function TecidoDetail() {
     if (catLinks) setCatIds(catLinks);
   }, [catLinks]);
 
-  const { data: empresas = [] } = useQuery({
+  const { data: empresasBase = [] } = useQuery({
     queryKey: ["empresas-options", "tecido-forro-entretela"],
     queryFn: async () => {
       const { data } = await supabase
@@ -150,6 +150,25 @@ function TecidoDetail() {
       });
     },
   });
+  // O fornecedor salvo pode não ser da categoria Tecido/Forro/Entretela (ex.: mudou de categoria
+  // depois). Busca o atual p/ garantir que apareça no Select — senão ficava em branco com valor salvo.
+  const { data: empresaAtual } = useQuery({
+    queryKey: ["empresa-por-id", artigo?.empresa_id],
+    enabled: !!artigo?.empresa_id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("empresas")
+        .select("id,nome_fantasia")
+        .eq("id", artigo!.empresa_id!)
+        .maybeSingle();
+      return data as { id: string; nome_fantasia: string } | null;
+    },
+  });
+  const empresas = useMemo(() => {
+    const list = [...empresasBase];
+    if (empresaAtual && !list.some((e) => e.id === empresaAtual.id)) list.push(empresaAtual);
+    return list;
+  }, [empresasBase, empresaAtual]);
   const { data: categorias = [] } = useQuery({
     queryKey: ["cat-tecido-options"],
     queryFn: async () => {
