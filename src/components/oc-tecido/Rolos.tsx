@@ -474,7 +474,7 @@ export function RolosList() {
                     <TableCell data-label="Origem" className="text-muted-foreground">
                       {r.rolo_origem_item_id ? "Separado de OC" : "Avulso"}
                     </TableCell>
-                    <TableCell data-label="Ações">
+                    <TableCell data-label="Ações" className="sm:py-0">
                       <div className="flex">
                         <Button variant="ghost" size="iconSm"
                           onClick={() => setEditing(r)} aria-label="Editar">
