@@ -749,48 +749,46 @@ function OcDialog({
         }
       }
 
-      // Modo só-rolo: gera os rolos a partir do destrinchamento. criar_rolo separa
-      // da OC recebida (baixa separacao_rolo) e converte kg→metros — sem duplicar
-      // estoque. Best-effort: se falhar, a OC já está recebida (não bloqueia).
+      // Modo só-rolo: gera os rolos a partir do destrinchamento. A RPC gerar_rolos_recebimento
+      // cria TODOS numa transação (tudo-ou-nada) — sem rolos parciais se um estourar o saldo.
+      // criar_rolo separa da OC recebida (baixa separacao_rolo) e converte kg→metros aqui.
+      // Best-effort no fluxo: se falhar, a OC já está recebida (não bloqueia) e re-salvar gera.
       if (modoOcRolo !== "oc" && finalStatus === "recebido" && ocIdLocal && Object.keys(rolosPorItem).length > 0) {
-        try {
-          const { data: savedItems } = await supabase
-            .from("ocs_tecido_itens").select("id, variante_tecido_id, artigo_id").eq("oc_tecido_id", ocIdLocal);
-          const itemByVar = new Map((savedItems ?? []).map((it: any) => [it.variante_tecido_id, it]));
-          for (const [tempId, rolls] of Object.entries(rolosPorItem)) {
-            const di = items.find((x) => x.tempId === tempId);
-            if (!di?.variante_tecido_id || di.cancelado) continue;
-            const saved = itemByVar.get(di.variante_tecido_id);
-            if (!saved) continue;
-            const a = di.artigo_id ? artigoMap[di.artigo_id] : null;
-            const isKg = a?.unidade_medida === "kg";
-            const rend = Number(di.rendimento ?? a?.rendimento ?? 0);
-            for (const entry of rolls) {
-              if (entry.roloId) continue; // já existe (recarregado) — não recriar p/ não duplicar
-              const qtd = Number(String(entry.qtd).replace(",", "."));
-              if (!qtd || qtd <= 0) continue;
-              const metros = isKg && rend > 0 ? qtd * rend : qtd;
-              const { data: codigo } = await supabase.rpc("proximo_codigo_rolo" as any, { _artigo_id: di.artigo_id });
-              const { data: novoRoloId, error: rErr } = await supabase.rpc("criar_rolo" as any, {
-                _codigo: codigo, _artigo_id: di.artigo_id,
-                _variantes: [{ variante_tecido_id: di.variante_tecido_id, metragem: metros }],
-                _origem_item_id: saved.id,
-              });
-              if (rErr) throw rErr;
-              // Aplica observação/CQ PLANEJADOS (entrados no encomendado) ao item do
-              // rolo recém-criado.
-              if (novoRoloId && (entry.obs || entry.cq_ok || entry.cq_alerta)) {
-                await supabase.from("ocs_tecido_itens").update({
-                  cq_observacao: entry.obs || null,
-                  cq_ok: !!entry.cq_ok,
-                  cq_alerta_status: entry.cq_alerta ? "alertado" : "sem_alerta",
-                } as any).eq("oc_tecido_id", novoRoloId as any);
-              }
-            }
+        const { data: savedItems } = await supabase
+          .from("ocs_tecido_itens").select("id, variante_tecido_id, artigo_id").eq("oc_tecido_id", ocIdLocal);
+        const itemByVar = new Map((savedItems ?? []).map((it: any) => [it.variante_tecido_id, it]));
+        const rolosPayload: any[] = [];
+        for (const [tempId, rolls] of Object.entries(rolosPorItem)) {
+          const di = items.find((x) => x.tempId === tempId);
+          if (!di?.variante_tecido_id || di.cancelado) continue;
+          const saved = itemByVar.get(di.variante_tecido_id);
+          if (!saved) continue;
+          const a = di.artigo_id ? artigoMap[di.artigo_id] : null;
+          const isKg = a?.unidade_medida === "kg";
+          const rend = Number(di.rendimento ?? a?.rendimento ?? 0);
+          for (const entry of rolls) {
+            if (entry.roloId) continue; // já existe (recarregado) — envia só os novos
+            const qtd = Number(String(entry.qtd).replace(",", "."));
+            if (!qtd || qtd <= 0) continue;
+            rolosPayload.push({
+              origem_item_id: saved.id,
+              artigo_id: di.artigo_id,
+              variante_tecido_id: di.variante_tecido_id,
+              metragem: isKg && rend > 0 ? qtd * rend : qtd,
+              obs: entry.obs || null,
+              cq_ok: !!entry.cq_ok,
+              cq_alerta: !!entry.cq_alerta,
+            });
           }
-        } catch (e: any) {
-          console.warn("gerar rolos no recebimento:", e?.message);
-          toast.warning("OC recebida, mas houve erro ao gerar os rolos: " + (e?.message ?? ""));
+        }
+        if (rolosPayload.length > 0) {
+          const { error: rErr } = await supabase.rpc("gerar_rolos_recebimento" as any, {
+            _oc_id: ocIdLocal, _rolos: rolosPayload,
+          });
+          if (rErr) {
+            console.warn("gerar rolos no recebimento:", rErr.message);
+            toast.warning("OC recebida, mas nenhum rolo foi gerado: " + mensagemErro(rErr, "") + " Re-salve para gerar.");
+          }
         }
       }
     },
