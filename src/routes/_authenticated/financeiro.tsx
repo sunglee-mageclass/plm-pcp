@@ -162,7 +162,7 @@ function FinanceiroPage() {
         const repCnpj = p.oc_tecido_id ? tecRepCnpjMap.get(p.oc_tecido_id) : p.oc_aviamento_id ? aviRepCnpjMap.get(p.oc_aviamento_id) : null;
         return {
         ...p,
-        empresas: empNome ? { nome: repNome ? `${empNome} · via ${repNome}` : empNome } : null,
+        empresas: empNome ? { nome: empNome } : null,
         // Campos crus p/ o card/detalhe: empresa e representante separados + o CNPJ certo.
         // payee = representante (se houver), senão a empresa.
         empresaNome: empNome,
@@ -190,9 +190,7 @@ function FinanceiroPage() {
         .map((r) => {
           // Payee p/ o rótulo do calendário: empresa + (representante se houver),
           // com fallback ao `responsavel` legado.
-          const payee = r.representante_nome
-            ? `${r.empresa_nome ?? "—"} · via ${r.representante_nome}`
-            : (r.empresa_nome ?? r.responsavel ?? "—");
+          const payee = r.representante_nome ?? r.empresa_nome ?? r.responsavel ?? "—";
           return {
           id: r.parcela_id,
           data_vencimento: r.data_vencimento,
@@ -383,7 +381,7 @@ function CalendarioView({ parcelas, loading }: { parcelas: Parcela[]; loading: b
                       onClick={() => (p as any)._servico ? toast.info("Serviço — pague/edite na aba Serviços") : setDetalheId(p.id)}
                       className={cn("w-full text-left px-1.5 py-0.5 rounded truncate hover:ring-1 hover:ring-primary", color)}
                     >
-                      {p.empresas?.nome ?? "—"} · {brl(Number(p.valor))}
+                      {(p.representanteNome ?? p.empresaNome ?? p.empresas?.nome ?? "—")} · {brl(Number(p.valor))}
                     </button>
                   );
                 })}
@@ -423,7 +421,7 @@ function CalendarioView({ parcelas, loading }: { parcelas: Parcela[]; loading: b
                       className="flex w-full items-center gap-3 px-3 py-3 text-left active:bg-muted/50"
                     >
                       <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full", dot)} />
-                      <span className="min-w-0 flex-1 truncate text-sm">{p.empresas?.nome ?? "—"}</span>
+                      <span className="min-w-0 flex-1 truncate text-sm">{p.representanteNome ?? p.empresaNome ?? p.empresas?.nome ?? "—"}</span>
                       <span className="shrink-0 text-sm font-medium">{brl(Number(p.valor))}</span>
                     </button>
                   );
@@ -556,7 +554,7 @@ function ParcelaDetailDialog({
       <DialogContent>
         <DialogHeader><DialogTitle>Detalhes da Parcela</DialogTitle></DialogHeader>
         <div className="space-y-2 text-sm">
-          <div><span className="text-muted-foreground">Fornecedor:</span> <b>{parcela.empresaNome ?? parcela.empresas?.nome ?? "—"}</b></div>
+          <div><span className="text-muted-foreground">Empresa:</span> <b>{parcela.empresaNome ?? parcela.empresas?.nome ?? "—"}</b></div>
           {temRep && (
             <div><span className="text-muted-foreground">Representante:</span> <b>{parcela.representanteNome}</b></div>
           )}
@@ -843,7 +841,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
           <table className="w-full text-sm card-table">
             <thead className="text-left text-muted-foreground">
               <tr className="border-b">
-                <SortTh label="Fornecedor" sortKey="fornecedor" sortState={sortState} className="py-2 pr-3" />
+                <SortTh label="Empresa / Representante" sortKey="fornecedor" sortState={sortState} className="py-2 pr-3" />
                 <SortTh label="Nº Pedido" sortKey="oc" sortState={sortState} className="py-2 pr-3" />
                 <SortTh label="Parcela" sortKey="parcela" sortState={sortState} className="py-2 pr-3" />
                 <SortTh label="Valor" sortKey="valor" sortState={sortState} className="py-2 pr-3 text-right" align="right" />
@@ -871,7 +869,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
                     }}
                     className={`border-b last:border-0 transition-colors cursor-pointer hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary ${p.id === highlightId ? "bg-primary/10" : ""}`}
                   >
-                    <td className="py-2 pr-3">{p.empresas?.nome ?? "—"}</td>
+                    <td className="py-2 pr-3">{p.representanteNome ?? p.empresaNome ?? p.empresas?.nome ?? "—"}</td>
                     <td className="py-2 pr-3" data-label="Nº Pedido">
                       <span className="inline-flex items-center gap-2">
                         {(p.oc_tecido_id || p.oc_aviamento_id) ? (
@@ -1112,12 +1110,7 @@ function ServicosView() {
                   >
                     <td className="py-2 pr-3">{r.servico}{r.ref ? ` · ${r.ref}` : ""}</td>
                     <td className="py-2 pr-3" data-label="Empresa / Representante">
-                      <div className="flex flex-col">
-                        <span>{r.empresa_nome ?? r.responsavel ?? "—"}</span>
-                        {r.representante_nome && (
-                          <span className="text-xs text-muted-foreground">via {r.representante_nome}</span>
-                        )}
-                      </div>
+                      {r.representante_nome ?? r.empresa_nome ?? r.responsavel ?? "—"}
                     </td>
                     <td className="py-2 pr-3" data-label="Parcela">{r.numero_parcela}/{r.numero_parcelas}</td>
                     <td className="py-2 pr-3 text-right font-medium" data-label="Valor parcela">{brl(Number(r.valor_parcela))}</td>
