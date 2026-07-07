@@ -888,11 +888,6 @@ type EmpresaRow = {
 
 type CatTercOption = { id: string; nome: string; etapa: string };
 
-/** Empresa migrada de Serviço que ainda não teve dados fiscais revisados. */
-function isMigradoServico(row: { origem_terceirizado_id: string | null; cnpj: string | null }) {
-  return !!row.origem_terceirizado_id && !row.cnpj;
-}
-
 /** Estado do editor de empresa: campos fiscais + tipo + categorias. */
 const emptyEmpresaForm = {
   tipo: "material" as EmpresaTipo,
@@ -1238,20 +1233,8 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir.")),
   });
 
-  const anyMigradoPendente = useMemo(
-    () => empresas.some((e) => isMigradoServico(e)),
-    [empresas],
-  );
-
-  const formMigradoPendente = isMigradoServico(form);
-
   return (
     <div className="space-y-4">
-      {anyMigradoPendente && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          Há empresas <strong>migradas de Serviço</strong> sem CNPJ — revise nome e dados fiscais (marcadas em âmbar abaixo).
-        </div>
-      )}
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -1305,27 +1288,16 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
               sort.sorted.map((row) => {
                 const isServ = row.tipo === "servico";
                 const catIds = (isServ ? servByEmpresa.get(row.id) : fornByEmpresa.get(row.id)) ?? [];
-                const migrado = isMigradoServico(row);
                 return (
                   <TableRow key={row.id}>
                     <TableCell>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <button
-                          type="button"
-                          className="text-left hover:underline"
-                          onClick={() => openEdit(row)}
-                        >
-                          {row.nome_fantasia}
-                        </button>
-                        {migrado && (
-                          <Badge
-                            className="bg-amber-500 hover:bg-amber-500 text-white"
-                            title="Migrado de Serviço — revise nome e CNPJ"
-                          >
-                            Migrado
-                          </Badge>
-                        )}
-                      </div>
+                      <button
+                        type="button"
+                        className="text-left hover:underline"
+                        onClick={() => openEdit(row)}
+                      >
+                        {row.nome_fantasia}
+                      </button>
                     </TableCell>
                     <TableCell data-label="Tipo">
                       <Badge variant={isServ ? "default" : "secondary"}>
@@ -1383,12 +1355,6 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
             <DialogTitle>{editingId ? "Editar empresa" : "Nova empresa"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2 max-sm:min-h-0 max-sm:overflow-y-auto">
-            {formMigradoPendente && (
-              <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                <strong>Migrado de Serviço</strong> — revise nome e CNPJ.
-              </div>
-            )}
-
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>Tipo</Label>
