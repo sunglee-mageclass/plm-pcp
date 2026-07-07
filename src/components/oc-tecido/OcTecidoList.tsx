@@ -145,7 +145,7 @@ export function OcTecidoList({
                   <TableCell>{fmtDate(o.data_prevista_entrega)}</TableCell>
                   <TableCell>{fmtMoney(o.valor_previsto_total ?? 0)}</TableCell>
                   <TableCell><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status="encomendado" /></TableCell>
-                  <TableCell>
+                  <TableCell className="w-10 py-0 text-right">
                     {onDelete && (
                       <Button
                         size="iconSm"
