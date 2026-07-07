@@ -17,20 +17,18 @@ describe.skipIf(!hasDb)("set_empresa_categorias — upsert empresa + junctions a
         `select set_empresa_categorias($1::jsonb, $2::uuid[]) as id`,
         [JSON.stringify({ tipo: "servico", nome_fantasia: "ITEST Servico" }), [catS.id]],
       );
-      const chk = await um<{ tipo: string; n_serv: string; n_forn: string; tenant: string; esp: string }>(
+      const chk = await um<{ tipo: string; n_serv: string; n_forn: string; tenant: string }>(
         c,
         `select (select tipo from empresas where id=$1) tipo,
                 (select count(*) from empresa_categorias_servico where empresa_id=$1) n_serv,
                 (select count(*) from empresa_categorias_fornecedor where empresa_id=$1) n_forn,
-                (select tenant_id::text from empresa_categorias_servico where empresa_id=$1) tenant,
-                (select count(*) from terceirizados where nome_responsavel='ITEST Servico' and tenant_id=$2) esp`,
-        [created.id, TENANT_TESTE],
+                (select tenant_id::text from empresa_categorias_servico where empresa_id=$1) tenant`,
+        [created.id],
       );
       expect(chk.tipo).toBe("servico");
       expect(Number(chk.n_serv)).toBe(1);
       expect(Number(chk.n_forn)).toBe(0);
       expect(chk.tenant).toBe(TENANT_TESTE); // tenant vem por trigger na junction
-      expect(Number(chk.esp)).toBe(1); // espelho empresa(servico)→terceirizados
 
       // ATUALIZA (renomeia, mantém serviço e a mesma categoria)
       await c.query(`select set_empresa_categorias($1::jsonb, $2::uuid[])`, [

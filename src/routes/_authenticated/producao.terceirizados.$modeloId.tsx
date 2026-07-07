@@ -36,9 +36,7 @@ type Bloco = {
   categoria_terceirizado_id: string;
   categoria_nome?: string;
   interno: boolean;
-  terceirizado_id: string | null;
-  // Nova seleção do responsável (ramo PL): empresa de serviço + representante opcional.
-  // O gatilho no banco deriva `terceirizado_id` de `empresa_id` ao salvar.
+  // Seleção do responsável (ramo PL): empresa de serviço + representante opcional.
   empresa_id: string | null;
   representante_id: string | null;
   colaborador_id: string | null;
@@ -325,8 +323,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
       return rep ? `${emp.nome_fantasia} (via ${rep.nome})` : `${emp.nome_fantasia} (direto)`;
     };
     return blocos
-      // defensivo: bloco antigo com empresa_id ainda null (pré-backfill) não some da OS.
-      .filter((b) => (b.interno ? b.colaborador_id : (b.empresa_id || b.terceirizado_id)))
+      .filter((b) => (b.interno ? b.colaborador_id : b.empresa_id))
       .map((b) => ({
         servico: (categorias as any[]).find((c) => c.id === b.categoria_terceirizado_id)?.nome ?? "—",
         responsavel: b.interno
@@ -395,7 +392,6 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
         id: r.id,
         categoria_terceirizado_id: r.categoria_terceirizado_id,
         interno: Boolean((r as any).interno),
-        terceirizado_id: r.terceirizado_id,
         empresa_id: (r as any).empresa_id ?? null,
         representante_id: (r as any).representante_id ?? null,
         colaborador_id: (r as any).colaborador_id ?? null,
@@ -434,7 +430,6 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
         categoria_terceirizado_id: catId,
         categoria_nome: catNome,
         interno: false,
-        terceirizado_id: null,
         empresa_id: null,
         representante_id: null,
         colaborador_id: null,
@@ -505,11 +500,9 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
         id: b.id ?? null,
         categoria_terceirizado_id: b.categoria_terceirizado_id,
         interno: b.interno,
-        // Grava empresa + representante; o gatilho no banco deriva terceirizado_id
-        // a partir de empresa_id (empresas.origem_terceirizado_id).
+        // Grava empresa + representante (empresa_id é a fonte única do responsável PL).
         empresa_id: b.interno ? null : b.empresa_id,
         representante_id: b.interno ? null : b.representante_id,
-        terceirizado_id: b.interno ? null : b.terceirizado_id,
         colaborador_id: b.interno ? b.colaborador_id : null,
         ativo: true,
         preco_metro_unidade: b.interno ? 0 : b.preco_metro_unidade,
@@ -765,7 +758,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
                 <div className="flex rounded-md border overflow-hidden text-xs font-medium">
                   <button
                     type="button"
-                    onClick={() => updateBloco(idx, { interno: true, terceirizado_id: null, empresa_id: null, representante_id: null })}
+                    onClick={() => updateBloco(idx, { interno: true, empresa_id: null, representante_id: null })}
                     className={cn(
                       "px-2.5 py-1 transition-colors",
                       b.interno ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted",

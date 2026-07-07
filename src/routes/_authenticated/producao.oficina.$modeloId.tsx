@@ -67,9 +67,14 @@ function OficinaDetailPage() {
     },
   });
 
+  // Editor de oficina legado (producao_oficina está fora do menu; oficina viva roda em
+  // Serviços). Lê empresas de serviço (o espelho terceirizados foi removido).
   const { data: terceirizados = [] } = useQuery({
-    queryKey: ["terceirizados-all"],
-    queryFn: async () => (await supabase.from("terceirizados").select("id, nome_responsavel")).data ?? [],
+    queryKey: ["oficina-empresas-servico"],
+    queryFn: async () => {
+      const { data } = await supabase.from("empresas").select("id, nome_fantasia").eq("tipo", "servico");
+      return (data ?? []).map((e: any) => ({ id: e.id, nome_responsavel: e.nome_fantasia }));
+    },
   });
 
   const { data: tenantCfg } = useQuery({

@@ -911,7 +911,6 @@ type EmpresaRow = {
   nome_fantasia: string;
   tipo: EmpresaTipo;
   cnpj: string | null;
-  origem_terceirizado_id: string | null;
 };
 
 type CatTercOption = { id: string; nome: string; etapa: string };
@@ -932,7 +931,6 @@ const emptyEmpresaForm = {
   contato: "",
   observacoes: "",
   cats: [] as string[],
-  origem_terceirizado_id: null as string | null,
 };
 
 function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number) => void }) {
@@ -951,7 +949,7 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
     queryFn: async () => {
       const { data, error } = await supabase
         .from("empresas")
-        .select("id, nome_fantasia, tipo, cnpj, origem_terceirizado_id")
+        .select("id, nome_fantasia, tipo, cnpj")
         .order("nome_fantasia");
       if (error) throw error;
       return (data ?? []) as EmpresaRow[];
@@ -1067,7 +1065,7 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
     const { data, error } = await supabase
       .from("empresas")
       .select(
-        "nome_fantasia, tipo, cnpj, razao_social, logradouro, cep, municipio, uf, telefone, email, situacao_cadastral, contato, observacoes, origem_terceirizado_id",
+        "nome_fantasia, tipo, cnpj, razao_social, logradouro, cep, municipio, uf, telefone, email, situacao_cadastral, contato, observacoes",
       )
       .eq("id", e.id)
       .single();
@@ -1091,7 +1089,6 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
       contato: data.contato ?? "",
       observacoes: data.observacoes ?? "",
       cats: (tipo === "servico" ? servByEmpresa.get(e.id) : fornByEmpresa.get(e.id)) ?? [],
-      origem_terceirizado_id: data.origem_terceirizado_id ?? null,
     });
     setOpen(true);
   };
@@ -1136,7 +1133,6 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
     },
     onSuccess: () => {
       toast.success(editingId ? "Empresa atualizada." : "Empresa criada.");
-      const wasServico = form.tipo === "servico";
       setOpen(false);
       resetForm();
       qc.invalidateQueries({ queryKey: ["empresas-multi"] });
@@ -1144,15 +1140,8 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
       qc.invalidateQueries({ queryKey: ["empresa-categorias-servico-links"] });
       qc.invalidateQueries({ queryKey: ["empresas-options"] });
       qc.invalidateQueries({ queryKey: ["servico-count", "empresas"] });
-      if (wasServico) {
-        // O gatilho do banco espelha empresa(servico) → terceirizados. Invalida as
-        // queryKeys que a Produção usa p/ ler serviço, senão os seletores mostram
-        // dado velho.
-        qc.invalidateQueries({ queryKey: ["terceirizados-all"] });
-        qc.invalidateQueries({ queryKey: ["terc-cat"] });
-        qc.invalidateQueries({ queryKey: ["terceirizados-multi"] });
-        qc.invalidateQueries({ queryKey: ["terceirizado-categorias-links"] });
-      }
+      // Atualiza o seletor de empresa de serviço da Produção.
+      qc.invalidateQueries({ queryKey: ["empresas-servico-sel"] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar.")),
   });
@@ -1168,13 +1157,9 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
       { table: "ocs_aviamento", column: "empresa_id", value: row.id },
       { table: "parcelas", column: "empresa_id", value: row.id },
       { table: "artigos", column: "empresa_id", value: row.id },
-      // empresa de serviço em uso na Produção (por empresa_id e pelo espelho terceirizado_id).
+      // empresa de serviço em uso na Produção (por empresa_id — fonte única).
       { table: "producao_terceirizados", column: "empresa_id", value: row.id },
     ];
-    if (row.tipo === "servico" && row.origem_terceirizado_id) {
-      refs.push({ table: "producao_terceirizados", column: "terceirizado_id", value: row.origem_terceirizado_id });
-      refs.push({ table: "producao_oficina", column: "terceirizado_id", value: row.origem_terceirizado_id });
-    }
     for (const r of refs) {
       const { count } = await supabase
         .from(r.table as any)
@@ -1192,16 +1177,11 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
     },
     onSuccess: () => {
       toast.success("Excluído.");
-      const wasServico = deleteRow?.tipo === "servico";
       setDeleteRow(null);
       setDeleteUsage(null);
       qc.invalidateQueries({ queryKey: ["empresas-multi"] });
       qc.invalidateQueries({ queryKey: ["servico-count", "empresas"] });
-      if (wasServico) {
-        qc.invalidateQueries({ queryKey: ["terceirizados-all"] });
-        qc.invalidateQueries({ queryKey: ["terc-cat"] });
-        qc.invalidateQueries({ queryKey: ["terceirizados-multi"] });
-      }
+      qc.invalidateQueries({ queryKey: ["empresas-servico-sel"] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir.")),
   });
