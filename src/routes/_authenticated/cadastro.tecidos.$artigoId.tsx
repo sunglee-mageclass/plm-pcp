@@ -19,7 +19,7 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { varianteLabel } from "@/lib/variante";
 
 import { supabase } from "@/integrations/supabase/client";
-import { EnderecoLista, useEnderecosRollup, fmtEndereco, type EnderecoRollup } from "@/components/tecido/EnderecoEditor";
+import { EnderecoConsolidadoEditor, useEnderecosRollup, type EnderecoRollup } from "@/components/tecido/EnderecoEditor";
 import { useSignedUrl, VARIANT_BUCKET } from "@/hooks/useSignedUrl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -727,7 +727,7 @@ function VariantesSection({ artigoId, readOnly }: { artigoId: string; readOnly: 
                 apelidoLabel={v.cor_apelido_id ? apelidosMap.get(v.cor_apelido_id) ?? null : null}
                 cores={cores}
                 apelidos={apelidos}
-                enderecosOutros={(rollup?.get(v.id) ?? []).filter((e) => e.origem !== "manual")}
+                enderecosDaVariante={rollup?.get(v.id) ?? []}
                 onRemove={() => setRemoveTarget(v)}
                 readOnly={readOnly}
               />
@@ -772,7 +772,7 @@ function VariantRow({
   apelidoLabel,
   cores,
   apelidos,
-  enderecosOutros,
+  enderecosDaVariante,
   onRemove,
   readOnly,
 }: {
@@ -781,7 +781,7 @@ function VariantRow({
   apelidoLabel: string | null;
   cores: Cor[];
   apelidos: Apelido[];
-  enderecosOutros: EnderecoRollup[];
+  enderecosDaVariante: EnderecoRollup[];
   onRemove: () => void;
   readOnly: boolean;
 }) {
@@ -930,17 +930,9 @@ function VariantRow({
           </div>
           <div className="space-y-1.5 md:col-span-3">
             <Label>Endereços</Label>
-            <EnderecoLista varianteId={variante.id} readOnly={readOnly} />
-            {enderecosOutros.length > 0 && (
-              <div className="pt-1 space-y-0.5">
-                <p className="text-xs font-medium text-muted-foreground">Também em (por OC/rolo)</p>
-                {enderecosOutros.map((e, i) => (
-                  <p key={i} className="text-xs text-muted-foreground">
-                    📍 {fmtEndereco(e)} — {e.origem_label}
-                  </p>
-                ))}
-              </div>
-            )}
+            {/* Editor CONSOLIDADO: edita manual + por OC + por rolo aqui mesmo (cada um vai
+                pro store certo). Rótulo da origem (OC/Rolo) sob a linha. */}
+            <EnderecoConsolidadoEditor varianteId={variante.id} rows={enderecosDaVariante} readOnly={readOnly} />
           </div>
           <div className="space-y-1.5">
             <Label>Foto</Label>

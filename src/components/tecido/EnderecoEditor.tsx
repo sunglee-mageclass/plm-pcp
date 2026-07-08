@@ -17,6 +17,8 @@ export type EnderecoRow = { id: string; rua: string | null; prateleira: string |
 
 export type EnderecoRollup = {
   variante_tecido_id: string;
+  endereco_id: string | null; // linha em enderecamento_tecido (manual/OC) — p/ editar
+  rolo_id: string | null; // ocs_tecido do rolo — p/ editar as colunas rolo_*
   rua: string | null;
   prateleira: string | null;
   origem: "manual" | "oc" | "rolo";
@@ -161,6 +163,135 @@ export function EnderecoLista({
               <Button size="iconSm" variant="ghost" onClick={() => delMut.mutate(r.id)} aria-label="Remover endereço">
                 <Trash2 className="h-4 w-4 text-destructive" />
               </Button>
+            )}
+          </div>
+        );
+      })}
+      {!readOnly && (
+        <Button size="sm" variant="outline" onClick={() => addMut.mutate()} disabled={addMut.isPending}>
+          <Plus className="h-3.5 w-3.5 mr-1" /> Endereço
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/** Editor CONSOLIDADO (Cadastro): edita TODOS os endereços de uma variante — manual, por OC
+ *  e por rolo — cada um roteado para o store certo (linha da tabela p/ manual+OC, colunas
+ *  ocs_tecido.rolo_* p/ rolo). Recebe as linhas do rollup (com endereco_id/rolo_id). Remover
+ *  um rolo = LIMPA as colunas (não apaga o rolo). "+ Endereço" cria um manual. */
+export function EnderecoConsolidadoEditor({
+  varianteId,
+  rows,
+  readOnly,
+}: {
+  varianteId: string;
+  rows: EnderecoRollup[];
+  readOnly?: boolean;
+}) {
+  const qc = useQueryClient();
+  const [draft, setDraft] = useState<Record<string, { rua: string; prateleira: string }>>({});
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["end-tecido-rollup"] });
+    qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
+    qc.invalidateQueries({ queryKey: ["rolos"] });
+    qc.invalidateQueries({ queryKey: ["end-tecido"] });
+  };
+
+  const rowKey = (r: EnderecoRollup) => r.endereco_id ?? r.rolo_id ?? "";
+
+  const addMut = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase
+        .from("enderecamento_tecido" as any)
+        .insert({ variante_tecido_id: varianteId, rua: "", prateleira: "" });
+      if (error) throw error;
+    },
+    onSuccess: invalidate,
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao adicionar endereço.")),
+  });
+
+  const saveMut = useMutation({
+    mutationFn: async (r: EnderecoRollup & { _rua: string; _prat: string }) => {
+      if (r.endereco_id) {
+        const { error } = await supabase
+          .from("enderecamento_tecido" as any)
+          .update({ rua: r._rua, prateleira: r._prat })
+          .eq("id", r.endereco_id);
+        if (error) throw error;
+      } else if (r.rolo_id) {
+        const { error } = await supabase
+          .from("ocs_tecido")
+          .update({ rolo_rua: r._rua.trim() || null, rolo_prateleira: r._prat.trim() || null })
+          .eq("id", r.rolo_id);
+        if (error) throw error;
+      }
+    },
+    onSuccess: invalidate,
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar endereço.")),
+  });
+
+  const delMut = useMutation({
+    mutationFn: async (r: EnderecoRollup) => {
+      if (r.endereco_id) {
+        const { error } = await supabase.from("enderecamento_tecido" as any).delete().eq("id", r.endereco_id);
+        if (error) throw error;
+      } else if (r.rolo_id) {
+        // remover endereço do rolo = limpar as colunas (NÃO apaga o rolo)
+        const { error } = await supabase
+          .from("ocs_tecido")
+          .update({ rolo_rua: null, rolo_prateleira: null })
+          .eq("id", r.rolo_id);
+        if (error) throw error;
+      }
+    },
+    onSuccess: invalidate,
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao remover endereço.")),
+  });
+
+  const val = (r: EnderecoRollup) => draft[rowKey(r)] ?? { rua: r.rua ?? "", prateleira: r.prateleira ?? "" };
+  const setVal = (k: string, patch: Partial<{ rua: string; prateleira: string }>) =>
+    setDraft((d) => ({ ...d, [k]: { ...(d[k] ?? { rua: "", prateleira: "" }), ...patch } }));
+  const commit = (r: EnderecoRollup) => {
+    const v = val(r);
+    if (v.rua !== (r.rua ?? "") || v.prateleira !== (r.prateleira ?? ""))
+      saveMut.mutate({ ...r, _rua: v.rua, _prat: v.prateleira });
+  };
+
+  return (
+    <div className="space-y-1.5">
+      {rows.length === 0 && <p className="text-xs text-muted-foreground">Sem endereço.</p>}
+      {rows.map((r) => {
+        const k = rowKey(r);
+        const v = val(r);
+        return (
+          <div key={k}>
+            <div className="flex items-center gap-2">
+              <Input
+                className="flex-1"
+                placeholder="Rua"
+                value={v.rua}
+                readOnly={readOnly}
+                onChange={(e) => setVal(k, { rua: e.target.value })}
+                onBlur={() => commit(r)}
+              />
+              <Input
+                className="flex-1"
+                placeholder="Prateleira"
+                value={v.prateleira}
+                readOnly={readOnly}
+                onChange={(e) => setVal(k, { prateleira: e.target.value })}
+                onBlur={() => commit(r)}
+              />
+              {!readOnly && (
+                <Button size="iconSm" variant="ghost" onClick={() => delMut.mutate(r)} aria-label="Remover endereço">
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              )}
+            </div>
+            {r.origem !== "manual" && r.origem_label && (
+              <p className="ml-1 mt-0.5 text-[11px] text-muted-foreground">{r.origem_label}</p>
             )}
           </div>
         );
