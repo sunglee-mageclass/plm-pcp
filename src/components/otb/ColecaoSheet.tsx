@@ -171,7 +171,7 @@ function NaoClassificados({
       <div className="text-sm font-medium flex items-center justify-between">
         <span>Não classificados</span><Badge variant="secondary">{cards.length}</Badge>
       </div>
-      <p className="text-xs text-muted-foreground">Cards desta coleção sem semana/subcoleção. Atribua para eles entrarem na contagem do plano.</p>
+      <p className="text-xs text-muted-foreground">Cards desta coleção sem subcoleção (inclui os já planejados antes de dividir em subcoleções) ou sem semana. Atribua para eles entrarem numa subcoleção do plano.</p>
       <div className="space-y-2">
         {cards.map((c) => {
           const s = sel[c.id] ?? { sub: null, sem: "" };
@@ -299,7 +299,12 @@ export function ColecaoSheet({
   // refetchar/clobbar o editor. Card fora de qualquer bucket local = não classificado.
   const naoClassificados = useMemo(() => {
     const bucketKeys = new Set<string>();
-    for (const w of Object.keys(weeks)) bucketKeys.add(`||${w}`);
+    // Ao ADICIONAR subcoleção, a coleção vira "com subcoleções" e o modo simples é abandonado
+    // (o otb_salvar_colecao apaga as semanas de nível-coleção). Então NÃO contamos os buckets
+    // simples aqui — assim os cards já planejados sem subcoleção viram "não classificados" na
+    // hora e podem ser movidos pra uma subcoleção AQUI no OTB (antes sumiam da tela, só dava
+    // pra reatribuir pelo Planejamento). Sem subcoleção, o modo simples conta normalmente.
+    if (subs.length === 0) for (const w of Object.keys(weeks)) bucketKeys.add(`||${w}`);
     for (const sub of subs) for (const w of Object.keys(sub.weeks)) bucketKeys.add(`${sub.nome.trim()}||${w}`);
     // Exclui cards já atribuídos localmente (pendentes de salvar) + os que já caem num bucket.
     return colecaoCards.filter((c) => !pendingAssign[c.id] && !bucketKeys.has(`${(c.subcolecao ?? "").trim()}||${c.semana ?? ""}`));
