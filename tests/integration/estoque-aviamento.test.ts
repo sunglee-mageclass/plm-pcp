@@ -18,7 +18,9 @@ describe.skipIf(!hasDb)("estoque_aviamento (fonte canônica)", () => {
     pedida: number, recebida: number | null, cancelado: boolean,
   ) => {
     const oc = {
-      numero_pedido: "ITEST-EST", empresa_id: emp, data_prevista_entrega: "2026-07-01",
+      // numero_pedido null: o teste cria várias OCs e o índice único (tenant, numero_pedido)
+      // barra número repetido — o número não importa aqui.
+      numero_pedido: null, empresa_id: emp, data_prevista_entrega: "2026-07-01",
       prazo_pagamento: "30", quantidade_prazos: 1, parcelas_recebimento: [], status,
     };
     const itens = [{ id: null, aviamento_id: avi, quantidade_pedida: pedida, quantidade_recebida: recebida, cancelado }];
