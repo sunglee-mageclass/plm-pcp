@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { corApelidoLabel, varianteLabel } from "@/lib/variante";
-import { Trash2, Pencil, Undo2, Printer } from "lucide-react";
+import { Trash2, Pencil, Undo2, Printer, MapPin } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { fmtNum } from "@/lib/format";
@@ -366,6 +366,7 @@ export function RolosList() {
   const [deleting, setDeleting] = useState<RoloRow | null>(null);
   const [editing, setEditing] = useState<RoloRow | null>(null);
   const [sel, setSel] = useState<Set<string>>(new Set());
+  const [enderecando, setEnderecando] = useState(false);
   const logo = useTenantLogo();
 
   const { data: rolos = [] } = useQuery({
@@ -430,10 +431,17 @@ export function RolosList() {
     <div className="space-y-4">
       {rolos.length > 0 && (
         <div className="flex items-center justify-between gap-2 max-md:hidden">
-          <span className="text-sm text-muted-foreground">{sel.size > 0 ? `${sel.size} rolo(s) selecionado(s)` : "Selecione rolos para imprimir etiquetas"}</span>
-          <Button size="sm" variant="outline" disabled={sel.size === 0} onClick={imprimirEtiquetas}>
-            <Printer className="h-4 w-4 mr-1" /> Imprimir etiquetas{sel.size > 0 ? ` (${sel.size})` : ""}
-          </Button>
+          <span className="text-sm text-muted-foreground">{sel.size > 0 ? `${sel.size} rolo(s) selecionado(s)` : "Selecione rolos para imprimir etiquetas ou endereçar"}</span>
+          <div className="flex gap-2">
+            {sel.size > 0 && (
+              <Button size="sm" variant="outline" onClick={() => setEnderecando(true)}>
+                <MapPin className="h-4 w-4 mr-1" /> Endereçar ({sel.size})
+              </Button>
+            )}
+            <Button size="sm" variant="outline" disabled={sel.size === 0} onClick={imprimirEtiquetas}>
+              <Printer className="h-4 w-4 mr-1" /> Imprimir etiquetas{sel.size > 0 ? ` (${sel.size})` : ""}
+            </Button>
+          </div>
         </div>
       )}
       {rolos.length === 0 ? (
@@ -496,6 +504,14 @@ export function RolosList() {
 
       {editing && (
         <RoloEditDialog rolo={editing} onClose={() => setEditing(null)} />
+      )}
+
+      {enderecando && (
+        <EnderecarEmMassaDialog
+          ids={[...sel]}
+          onClose={() => setEnderecando(false)}
+          onSaved={() => { setEnderecando(false); setSel(new Set()); }}
+        />
       )}
 
       <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
@@ -581,6 +597,65 @@ function RoloEditDialog({ rolo, onClose }: { rolo: RoloRow; onClose: () => void 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
           <Button onClick={() => salvar.mutate()} disabled={salvar.isPending}>Salvar</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ───────────────────── Endereçar em massa (rolos selecionados) ─────────────────────
+function EnderecarEmMassaDialog({ ids, onClose, onSaved }: { ids: string[]; onClose: () => void; onSaved: () => void }) {
+  const qc = useQueryClient();
+  const [rua, setRua] = useState("");
+  const [prateleira, setPrateleira] = useState("");
+  const n = ids.length;
+
+  const salvar = useMutation({
+    mutationFn: async () => {
+      // Mesmas colunas que o RoloEditDialog grava (rolo_rua / rolo_prateleira).
+      const { error } = await supabase
+        .from("ocs_tecido")
+        .update({
+          rolo_rua: rua || null,
+          rolo_prateleira: prateleira || null,
+        } as never)
+        .in("id", ids);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success(`${n} rolos endereçados.`);
+      // Mesmas keys da edição individual + rollup do Cadastro e Estoque de tecido.
+      qc.invalidateQueries({ queryKey: ["rolos"] });
+      qc.invalidateQueries({ queryKey: ["consumo-por-oc"] });
+      qc.invalidateQueries({ queryKey: ["end-tecido-rollup"] });
+      qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
+      onSaved();
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao endereçar rolos")),
+  });
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader><DialogTitle>Endereçar rolos</DialogTitle></DialogHeader>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label>Rua</Label>
+              <Input value={rua} onChange={(e) => setRua(e.target.value)} placeholder="Endereço (rua)" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Prateleira</Label>
+              <Input value={prateleira} onChange={(e) => setPrateleira(e.target.value)} placeholder="Endereço (prateleira)" />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Isto sobrescreve o endereço atual dos {n} rolos selecionados.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={() => salvar.mutate()} disabled={salvar.isPending}>Endereçar ({n})</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

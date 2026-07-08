@@ -18,6 +18,7 @@ import { fmtNum } from "@/lib/format";
 import { labelVarianteRow } from "@/lib/variante";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { useSort, SortTh } from "@/components/shared/sort";
+import { useEnderecosRollup, fmtEndereco, type EnderecoRollup } from "@/components/tecido/EnderecoEditor";
 
 import { RequirePermission } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/entrada-saida/estoque")({
@@ -30,8 +31,6 @@ export const Route = createFileRoute("/_authenticated/entrada-saida/estoque")({
 
 const num = (v: any) => Number(v ?? 0) || 0;
 const fmt = (v: number) => fmtNum(v);
-const fmtEnd = (e: any) => [e?.rua && `Rua ${e.rua}`, e?.prateleira && `Prat. ${e.prateleira}`].filter(Boolean).join(" ") || "—";
-const endCompact = (e: any) => `${e?.rua || "?"}/${e?.prateleira || "?"}`;
 
 
 function EstoquePage() {
@@ -71,11 +70,15 @@ function TecidosTab() {
   const [categoria, setCategoria] = useState<string>("all");
   const [estoqueFilter, setEstoqueFilter] = useState<string>("all");
 
+  // Endereços agora vêm do rollup consolidado (tabela enderecamento_tecido + colunas
+  // do rolo), não mais do jsonb da variante. Chave = variante_tecido_id (= row.varId).
+  const { data: rollup } = useEnderecosRollup();
+
   const { data, isLoading, error } = useQuery({
     queryKey: ["estoque-tecidos"],
     queryFn: async () => {
       const [variantesRes, ocItensRes, baixasRes, modTecRes, modTecVarRes, modelosRes, modGradesRes, osItensRes] = await Promise.all([
-        supabase.from("variantes_tecido").select("id, artigo_id, nome_variante, codigo_variante, rua, prateleira, enderecos, cores(nome), apelido:cor_apelido_id(nome), artigos(id, nome, unidade_medida, rendimento, empresa_id, categoria_tecido_id, empresas(nome_fantasia), categorias_tecido(nome))"),
+        supabase.from("variantes_tecido").select("id, artigo_id, nome_variante, codigo_variante, cores(nome), apelido:cor_apelido_id(nome), artigos(id, nome, unidade_medida, rendimento, empresa_id, categoria_tecido_id, empresas(nome_fantasia), categorias_tecido(nome))"),
         (supabase.from("ocs_tecido_itens") as any).select("id, artigo_id, variante_tecido_id, quantidade_pedida, quantidade_recebida, cancelado, estoque_zerado, substitui_item_id, oc_tecido_id, ocs_tecido!oc_tecido_id!inner(status, is_rolo, rolo_origem_item_id)"),
         // Baixa real = ledger estoque_tecido_baixas (consumo de estoque RECEBIDO no
         // corte, capado no saldo) — fonte única de baixa, por ITEM de OC.
@@ -223,9 +226,6 @@ function TecidosTab() {
         return {
           varId: v.id,
           nomeVariante: labelVarianteRow(v),
-          enderecos: (Array.isArray(v.enderecos) && v.enderecos.length > 0)
-            ? v.enderecos
-            : ((v.rua || v.prateleira) ? [{ rua: v.rua, prateleira: v.prateleira }] : []),
           artigoId: v.artigo_id,
           artigoNome: a?.nome ?? "—",
           fornecedor: a?.empresas?.nome_fantasia ?? "—",
@@ -355,7 +355,7 @@ function TecidosTab() {
               </thead>
               <tbody>
                 {g.rows.map((r: any) => (
-                  <VarianteRow key={r.varId} row={r} />
+                  <VarianteRow key={r.varId} row={r} enderecos={rollup?.get(r.varId) ?? []} />
                 ))}
               </tbody>
             </table>
@@ -363,7 +363,7 @@ function TecidosTab() {
           {/* Mobile: cards por variante (some o scroll horizontal) */}
           <div className="md:hidden space-y-2">
             {g.rows.map((r: any) => (
-              <VarianteCard key={r.varId} row={r} />
+              <VarianteCard key={r.varId} row={r} enderecos={rollup?.get(r.varId) ?? []} />
             ))}
           </div>
         </Card>
@@ -428,7 +428,7 @@ function useEstoqueVarianteDetalhe(varId: string, open: boolean, reservadoTotal:
   return { ocRows, reservaSemOc, isLoading };
 }
 
-function VarianteRow({ row }: { row: any }) {
+function VarianteRow({ row, enderecos }: { row: any; enderecos: EnderecoRollup[] }) {
   const [open, setOpen] = useState(false);
   const { ocRows, reservaSemOc, isLoading } = useEstoqueVarianteDetalhe(row.varId, open, row.reservado);
   const loadingPend = false;
@@ -440,9 +440,9 @@ function VarianteRow({ row }: { row: any }) {
         <td className="py-2 pr-3">
           {row.nomeVariante}
           <span className="ml-1 text-[10px] text-muted-foreground">[{row.isKg ? "kg→m" : "m"}]</span>
-          {row.enderecos.length > 0 && (
-            <span className="ml-2 text-[10px] text-muted-foreground whitespace-nowrap" title={row.enderecos.map(fmtEnd).join(" | ")}>
-              📍 {endCompact(row.enderecos[0])}{row.enderecos.length > 1 ? ` +${row.enderecos.length - 1}` : ""}
+          {enderecos.length > 0 && (
+            <span className="ml-2 text-[10px] text-muted-foreground whitespace-nowrap" title={enderecos.map((e) => `${fmtEndereco(e)} (${e.origem_label})`).join(" | ")}>
+              📍 {fmtEndereco(enderecos[0])}{enderecos.length > 1 ? ` +${enderecos.length - 1}` : ""}
             </span>
           )}
         </td>
@@ -472,8 +472,8 @@ function VarianteRow({ row }: { row: any }) {
           <td colSpan={6} className="py-2 pr-3 space-y-2">
             <div className="text-xs flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className="font-semibold text-muted-foreground">Endereços:</span>
-              {row.enderecos.length > 0
-                ? row.enderecos.map((e: any, i: number) => <span key={i} className="whitespace-nowrap">📍 {fmtEnd(e)}</span>)
+              {enderecos.length > 0
+                ? enderecos.map((e, i) => <span key={i} className="whitespace-nowrap" title={e.origem_label}>📍 {fmtEndereco(e)}</span>)
                 : <span className="text-muted-foreground">—</span>}
             </div>
             <p className="text-xs font-semibold text-muted-foreground">Estoque por OC</p>
@@ -533,7 +533,7 @@ function VarianteRow({ row }: { row: any }) {
 }
 
 // Card mobile da variante (mesma fonte de dados do VarianteRow, via hook).
-function VarianteCard({ row }: { row: any }) {
+function VarianteCard({ row, enderecos }: { row: any; enderecos: EnderecoRollup[] }) {
   const [open, setOpen] = useState(false);
   const { ocRows, reservaSemOc, isLoading } = useEstoqueVarianteDetalhe(row.varId, open, row.reservado);
   return (
@@ -544,9 +544,9 @@ function VarianteCard({ row }: { row: any }) {
             <div className="font-medium truncate">
               {row.nomeVariante} <span className="text-[10px] text-muted-foreground">[{row.isKg ? "kg→m" : "m"}]</span>
             </div>
-            {row.enderecos.length > 0 && (
+            {enderecos.length > 0 && (
               <div className="text-[10px] text-muted-foreground truncate">
-                📍 {endCompact(row.enderecos[0])}{row.enderecos.length > 1 ? ` +${row.enderecos.length - 1}` : ""}
+                📍 {fmtEndereco(enderecos[0])}{enderecos.length > 1 ? ` +${enderecos.length - 1}` : ""}
               </div>
             )}
           </div>
@@ -569,7 +569,7 @@ function VarianteCard({ row }: { row: any }) {
         <div className="mt-2 space-y-2 border-t pt-2">
           <div className="text-xs">
             <span className="font-semibold text-muted-foreground">Endereços: </span>
-            {row.enderecos.length > 0 ? row.enderecos.map((e: any) => fmtEnd(e)).join(" · ") : "—"}
+            {enderecos.length > 0 ? enderecos.map((e) => fmtEndereco(e)).join(" · ") : "—"}
           </div>
           <p className="text-xs font-semibold text-muted-foreground">Estoque por OC</p>
           {isLoading && <p className="text-xs text-muted-foreground">Carregando…</p>}

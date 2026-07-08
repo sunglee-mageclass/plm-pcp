@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { artigoLabel, unidadeSufixo } from "@/lib/artigo-label";
 import { cn } from "@/lib/utils";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
+import { EnderecoPopover } from "@/components/tecido/EnderecoEditor";
 import { fmtMoney, labelVariante, type Artigo, type ItemDraft, type RoloEntry, type Variante } from "./shared";
 
 // Quantidade EDITÁVEL de um rolo já criado: controlado (mostra o valor salvo) e só
@@ -215,6 +216,14 @@ export function OcTecidoCalculos({
                           {sufixo}
                         </span>
                       )}
+                    </div>
+                  )}
+                  {/* Endereçamento por LOTE (item de OC recebido): só faz sentido quando o
+                      item existe fisicamente (OC recebida + id persistido do ocs_tecido_itens).
+                      Rolo tem endereço próprio (colunas rolo_*), por isso fora do modoRolo. */}
+                  {status === "recebido" && !modoRolo && !i.cancelado && i.id && i.variante_tecido_id && (
+                    <div className="mt-1.5">
+                      <EnderecoPopover varianteId={i.variante_tecido_id} ocItemId={i.id} readOnly={readOnly} />
                     </div>
                   )}
                 </TableCell>

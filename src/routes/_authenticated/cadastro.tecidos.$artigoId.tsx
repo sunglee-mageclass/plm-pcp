@@ -13,13 +13,13 @@ import {
   ChevronUp,
   ChevronsUpDown,
   Plus,
-  MapPin,
 } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { varianteLabel } from "@/lib/variante";
 
 import { supabase } from "@/integrations/supabase/client";
+import { EnderecoLista, useEnderecosRollup, fmtEndereco, type EnderecoRollup } from "@/components/tecido/EnderecoEditor";
 import { useSignedUrl, VARIANT_BUCKET } from "@/hooks/useSignedUrl";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -604,6 +604,9 @@ function VariantesSection({ artigoId, readOnly }: { artigoId: string; readOnly: 
     },
   });
 
+  // Rollup consolidado (manual + por-OC + rolo) p/ mostrar a seção read-only "Também em".
+  const { data: rollup } = useEnderecosRollup();
+
   const coresMap = useMemo(() => new Map(cores.map((c) => [c.id, c.nome])), [cores]);
   const apelidosMap = useMemo(() => new Map(apelidos.map((a) => [a.id, a.nome])), [apelidos]);
   const apelidoBase = useMemo(() => new Map(apelidos.map((a) => [a.id, a.cor_base_id])), [apelidos]);
@@ -724,6 +727,7 @@ function VariantesSection({ artigoId, readOnly }: { artigoId: string; readOnly: 
                 apelidoLabel={v.cor_apelido_id ? apelidosMap.get(v.cor_apelido_id) ?? null : null}
                 cores={cores}
                 apelidos={apelidos}
+                enderecosOutros={(rollup?.get(v.id) ?? []).filter((e) => e.origem !== "manual")}
                 onRemove={() => setRemoveTarget(v)}
                 readOnly={readOnly}
               />
@@ -768,6 +772,7 @@ function VariantRow({
   apelidoLabel,
   cores,
   apelidos,
+  enderecosOutros,
   onRemove,
   readOnly,
 }: {
@@ -776,6 +781,7 @@ function VariantRow({
   apelidoLabel: string | null;
   cores: Cor[];
   apelidos: Apelido[];
+  enderecosOutros: EnderecoRollup[];
   onRemove: () => void;
   readOnly: boolean;
 }) {
@@ -785,12 +791,6 @@ function VariantRow({
   const [codigo, setCodigo] = useState(variante.codigo_variante ?? "");
   const [corId, setCorId] = useState(variante.cor_id ?? "");
   const [apelidoId, setApelidoId] = useState(variante.cor_apelido_id ?? "");
-  const [enderecos, setEnderecos] = useState<{ rua: string; prateleira: string }[]>(() => {
-    const e = variante.enderecos;
-    if (Array.isArray(e) && e.length > 0) return e.map((x: any) => ({ rua: x?.rua ?? "", prateleira: x?.prateleira ?? "" }));
-    const r = variante.rua, p = variante.prateleira;
-    return r || p ? [{ rua: r ?? "", prateleira: p ?? "" }] : [];
-  });
   const [uploading, setUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const photoUrl = useSignedUrl(variante.foto_url);
@@ -929,42 +929,18 @@ function VariantRow({
             />
           </div>
           <div className="space-y-1.5 md:col-span-3">
-            <Label className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" /> Endereços</Label>
-            <div className="space-y-1.5">
-              {enderecos.length === 0 && (
-                <p className="text-xs text-muted-foreground">Sem endereço. Adicione um local de estoque.</p>
-              )}
-              {enderecos.map((end, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <Input
-                    className="flex-1"
-                    placeholder="Rua"
-                    value={end.rua}
-                    readOnly={readOnly}
-                    onChange={(e) => setEnderecos((prev) => prev.map((x, j) => (j === i ? { ...x, rua: e.target.value } : x)))}
-                    onBlur={() => saveMut.mutate({ enderecos })}
-                  />
-                  <Input
-                    className="flex-1"
-                    placeholder="Prateleira"
-                    value={end.prateleira}
-                    readOnly={readOnly}
-                    onChange={(e) => setEnderecos((prev) => prev.map((x, j) => (j === i ? { ...x, prateleira: e.target.value } : x)))}
-                    onBlur={() => saveMut.mutate({ enderecos })}
-                  />
-                  {!readOnly && (
-                    <Button size="icon" variant="ghost" onClick={() => { const next = enderecos.filter((_, j) => j !== i); setEnderecos(next); saveMut.mutate({ enderecos: next }); }} aria-label="Remover endereço">
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  )}
-                </div>
-              ))}
-              {!readOnly && (
-                <Button size="sm" variant="outline" onClick={() => { const next = [...enderecos, { rua: "", prateleira: "" }]; setEnderecos(next); saveMut.mutate({ enderecos: next }); }}>
-                  <Plus className="h-3.5 w-3.5 mr-1" /> Endereço
-                </Button>
-              )}
-            </div>
+            <Label>Endereços</Label>
+            <EnderecoLista varianteId={variante.id} readOnly={readOnly} />
+            {enderecosOutros.length > 0 && (
+              <div className="pt-1 space-y-0.5">
+                <p className="text-xs font-medium text-muted-foreground">Também em (por OC/rolo)</p>
+                {enderecosOutros.map((e, i) => (
+                  <p key={i} className="text-xs text-muted-foreground">
+                    📍 {fmtEndereco(e)} — {e.origem_label}
+                  </p>
+                ))}
+              </div>
+            )}
           </div>
           <div className="space-y-1.5">
             <Label>Foto</Label>
