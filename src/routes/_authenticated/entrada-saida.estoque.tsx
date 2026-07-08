@@ -76,153 +76,28 @@ function TecidosTab() {
   const { data, isLoading, error } = useQuery({
     queryKey: ["estoque-tecidos"],
     queryFn: async () => {
-      const [variantesRes, ocItensRes, baixasRes, modTecRes, modTecVarRes, modelosRes, modGradesRes, osItensRes] = await Promise.all([
+      // Fonte ÚNICA: RPC canônica estoque_tecido (mesma definição do dashboard). Antes eram
+      // 8 queries + agregação no cliente (pesado e com risco de divergir do dashboard). Aqui
+      // só metadados da variante (1 query) + os números da RPC. fisico já vem clampado >=0;
+      // kg é derivado = metros/rendimento.
+      const [varsRes, estRes] = await Promise.all([
         supabase.from("variantes_tecido").select("id, artigo_id, nome_variante, codigo_variante, cores(nome), apelido:cor_apelido_id(nome), artigos(id, nome, unidade_medida, rendimento, empresa_id, categoria_tecido_id, empresas(nome_fantasia), categorias_tecido(nome))"),
-        (supabase.from("ocs_tecido_itens") as any).select("id, artigo_id, variante_tecido_id, quantidade_pedida, quantidade_recebida, cancelado, estoque_zerado, substitui_item_id, oc_tecido_id, ocs_tecido!oc_tecido_id!inner(status, is_rolo, rolo_origem_item_id)"),
-        // Baixa real = ledger estoque_tecido_baixas (consumo de estoque RECEBIDO no
-        // corte, capado no saldo) — fonte única de baixa, por ITEM de OC.
-        supabase.from("estoque_tecido_baixas" as any).select("oc_tecido_item_id, variante_tecido_id, quantidade"),
-        supabase.from("modelo_tecidos").select("id, modelo_id, artigo_id, consumo, loss_percent"),
-        supabase.from("modelo_tecido_variantes").select("variante_tecido_id, modelo_tecido_id, ordem, multiplicador"),
-        supabase.from("modelos").select("id, status_desenvolvimento, cad(enviado_corte)"),
-        supabase.from("modelo_grades").select("modelo_id, variante_numero, grade_total"),
-        // OS Tecido (baixa manual do modo só-estoque): somada ao motor de estoque.
-        supabase.from("ordens_saida_tecido_itens" as any).select("variante_tecido_id, reserva, baixa, ordens_saida_tecido!inner(baixado)"),
+        supabase.rpc("estoque_tecido" as any),
       ]);
-
-      for (const r of [variantesRes, ocItensRes, baixasRes, modTecRes, modTecVarRes, modelosRes, modGradesRes, osItensRes]) {
-        if (r.error) throw r.error;
-      }
-
-      const variantes = variantesRes.data ?? [];
-      const ocItens = ocItensRes.data ?? [];
-      const baixas = (baixasRes.data ?? []) as any[];
-      const modTec = modTecRes.data ?? [];
-      const modTecVar = modTecVarRes.data ?? [];
-      const modelos = modelosRes.data ?? [];
-      const modGrades = modGradesRes.data ?? [];
-      const osTecItens = (osItensRes.data ?? []) as any[];
-
-      // 1ª reserva: vale desde o Desenvolvimento (BOM preenchido), exceto reprovados,
-      // e persiste até o corte ser confirmado (enviado_corte) — depois vira baixa.
-      const modeloReservavel = new Set(
-        modelos
-          .filter((m: any) =>
-            (m.status_desenvolvimento ?? "").toLowerCase() !== "reprovado" &&
-            !((m.cad ?? []) as any[]).some((c: any) => c.enviado_corte),
-          )
-          .map((m: any) => m.id),
-      );
-      const modTecById = new Map((modTec).map((m: any) => [m.id, m]));
-
-      const gradeByModeloVar = new Map<string, number>();
-      for (const g of modGrades as any[]) {
-        if (!g.modelo_id || g.variante_numero == null) continue;
-        const k = `${g.modelo_id}::${g.variante_numero}`;
-        gradeByModeloVar.set(k, (gradeByModeloVar.get(k) ?? 0) + num(g.grade_total));
-      }
-
-      // Build artById from embedded artigos on variantes
+      if (varsRes.error) throw varsRes.error;
+      if (estRes.error) throw estRes.error;
+      const variantes = varsRes.data ?? [];
+      const estByVar = new Map<string, any>(((estRes.data ?? []) as any[]).map((e) => [e.variante_tecido_id, e]));
       const artById = new Map<string, any>();
-      for (const v of variantes as any[]) {
-        if (v.artigos && v.artigo_id) artById.set(v.artigo_id, v.artigos);
-      }
-
-      type Acc = { prevReceb: number; recebido: number; baixa: number; reservado: number };
-      const byVar = new Map<string, Acc>();
-      const get = (id: string) => {
-        if (!byVar.has(id)) byVar.set(id, { prevReceb: 0, recebido: 0, baixa: 0, reservado: 0 });
-        return byVar.get(id)!;
-      };
-
-      const toMetros = (a: any, qtd: number) =>
-        a?.unidade_medida === "kg" ? qtd * num(a.rendimento) : qtd;
-
-      // Baixa (ledger) por ITEM de OC.
-      const baixaByItem = new Map<string, number>();
-      for (const b of baixas) {
-        if (!b.oc_tecido_item_id) continue;
-        baixaByItem.set(b.oc_tecido_item_id, (baixaByItem.get(b.oc_tecido_item_id) ?? 0) + num(b.quantidade));
-      }
-
-      // Variantes com algum item zerado → liberam a reserva (decisão: zerar = resolvido).
-      const variantesZeradas = new Set<string>();
-
-      // Itens de OC já DESTRINCHADOS em rolos NÃO contam no estoque — só os rolos contam
-      // (a OC vira só registro do pedido). Evita "duplicar" OC + rolos e independe da
-      // baixa de separação estar exata (órfãos não inflam o físico pela OC).
-      const origemComRolos = new Set<string>();
-      for (const it of ocItens) {
-        const oc = (it as any).ocs_tecido;
-        if (oc?.is_rolo && oc?.rolo_origem_item_id) origemComRolos.add(oc.rolo_origem_item_id);
-      }
-
-      for (const it of ocItens) {
-        if (!it.variante_tecido_id) continue;
-        if ((it as any).cancelado) continue;
-        if (origemComRolos.has((it as any).id)) continue; // origem destrinchada: conta só os rolos
-        const art: any = it.artigo_id ? artById.get(it.artigo_id) : undefined;
-        const acc = get(it.variante_tecido_id);
-        if ((it as any).ocs_tecido?.status === "encomendado") {
-          acc.prevReceb += num(it.quantidade_pedida);
-        }
-        if ((it as any).ocs_tecido?.status === "recebido") {
-          // Item "estoque zerado": fica FORA do físico (recebido E baixa dele),
-          // assim a sobra/negativo some sem afetar itens não-zerados da mesma variante.
-          if ((it as any).estoque_zerado) { variantesZeradas.add(it.variante_tecido_id); continue; }
-          // quantidade_recebida null = recebeu o pedido cheio (COALESCE(recebida, pedida)).
-          // EXCEÇÃO: item substituto de troca (substitui_item_id) ainda a receber
-          // (recebida null) conta 0 no físico — não é estoque-fantasma antes de chegar.
-          acc.recebido += toMetros(art, num(it.quantidade_recebida ?? ((it as any).substitui_item_id ? 0 : it.quantidade_pedida)));
-          // Baixa do próprio item (ledger), capada no saldo recebido → físico do item ≥ 0.
-          acc.baixa += num(baixaByItem.get((it as any).id) ?? 0);
-        }
-      }
-
-      const variantesByModTec = new Map<string, { ordem: number; varId: string; mult: number }[]>();
-      for (const mv of modTecVar as any[]) {
-        if (!mv.variante_tecido_id || !mv.modelo_tecido_id) continue;
-        const arr = variantesByModTec.get(mv.modelo_tecido_id) ?? [];
-        arr.push({ ordem: num(mv.ordem), varId: mv.variante_tecido_id, mult: num(mv.multiplicador) || 1 });
-        variantesByModTec.set(mv.modelo_tecido_id, arr);
-      }
-      for (const [mtId, vars] of variantesByModTec) {
-        const mt: any = modTecById.get(mtId);
-        if (!mt || !modeloReservavel.has(mt.modelo_id)) continue;
-        const consumoComLoss = num(mt.consumo) * (1 + num(mt.loss_percent) / 100);
-        const sorted = [...vars].sort((a, b) => a.ordem - b.ordem);
-        sorted.forEach((v, idx) => {
-          const numeroVariante = v.ordem > 0 ? v.ordem : idx + 1;
-          const gradeTotal = gradeByModeloVar.get(`${mt.modelo_id}::${numeroVariante}`) ?? 0;
-          get(v.varId).reservado += consumoComLoss * gradeTotal * (v.mult || 1);
-        });
-      }
-
-      // OS Tecido: baixado → soma em baixa (reduz físico); aberta → soma em reservado.
-      for (const oi of osTecItens) {
-        if (!oi.variante_tecido_id) continue;
-        if (oi.ordens_saida_tecido?.baixado) get(oi.variante_tecido_id).baixa += num(oi.baixa);
-        else get(oi.variante_tecido_id).reservado += num(oi.reserva);
-      }
+      for (const v of variantes as any[]) if (v.artigos && v.artigo_id) artById.set(v.artigo_id, v.artigos);
 
       const rows = (variantes as any[]).map((v: any) => {
         const a: any = v.artigos ?? artById.get(v.artigo_id);
-        const acc = byVar.get(v.id) ?? { prevReceb: 0, recebido: 0, baixa: 0, reservado: 0 };
-        // Artigo em kg: estoque/reserva/baixa trabalham em METROS (× rendimento).
-        // acc.prevReceb está na unidade do artigo (kg p/ kg); acc.recebido já em metros.
+        const e: any = estByVar.get(v.id) ?? { prev_receb_m: 0, recebido_m: 0, baixa: 0, reservado: 0, fisico: 0, previsto: 0 };
         const isKg = a?.unidade_medida === "kg";
         const rend = num(a?.rendimento) || 1;
-        const prevRecebKg = acc.prevReceb;
-        const prevRecebM = isKg ? acc.prevReceb * rend : acc.prevReceb;
-        const recebidoM = acc.recebido;
-        const recebidoKg = isKg && rend ? acc.recebido / rend : acc.recebido;
-        // Físico por item (recebido − baixa, com itens zerados fora). Clampa ≥0: uma OS de
-        // tecido que baixe mais que o recebido não deve mostrar físico negativo (nem
-        // contaminar o previsto). O físico físico de fato não é negativo.
-        const fisico = Math.max(0, recebidoM - acc.baixa);
-        // Variante zerada libera a reserva (não mostra previsto negativo por reserva).
-        const reservado = variantesZeradas.has(v.id) ? 0 : acc.reservado;
-        const previsto = fisico + prevRecebM - reservado;
+        const prevRecebM = num(e.prev_receb_m);
+        const recebidoM = num(e.recebido_m);
         return {
           varId: v.id,
           nomeVariante: labelVarianteRow(v),
@@ -233,14 +108,14 @@ function TecidosTab() {
           categoria: a?.categorias_tecido?.nome ?? "—",
           categoriaId: a?.categoria_tecido_id ?? null,
           isKg,
-          prevRecebKg,
+          prevRecebKg: isKg && rend ? prevRecebM / rend : prevRecebM,
           prevRecebM,
-          recebidoKg,
+          recebidoKg: isKg && rend ? recebidoM / rend : recebidoM,
           recebidoM,
-          baixa: acc.baixa,
-          reservado,
-          fisico,
-          previsto,
+          baixa: num(e.baixa),
+          reservado: num(e.reservado),
+          fisico: num(e.fisico),
+          previsto: num(e.previsto),
         };
       });
 
