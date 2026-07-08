@@ -378,7 +378,7 @@ export function AlertasList() {
                     // o recebimento — o botão erraria. Mostra o estado final.
                     <span className="text-xs text-muted-foreground">Troca concluída (reposição recebida).</span>
                   ) : (
-                    <Button size="sm" variant="outline" onClick={() => it.is_rolo ? reabrirRoloMut.mutate(it.oc_id!) : resol.mutate({ item_id: it.id, acao: "reabrir" })}>
+                    <Button size="sm" variant="outline" disabled={resol.isPending || reabrirRoloMut.isPending} onClick={() => it.is_rolo ? reabrirRoloMut.mutate(it.oc_id!) : resol.mutate({ item_id: it.id, acao: "reabrir" })}>
                       <RotateCcw className="h-4 w-4 mr-1" /> Reabrir
                     </Button>
                   )
@@ -387,13 +387,13 @@ export function AlertasList() {
                     <Button size="sm" onClick={() => setReceber(it)}>
                       <Check className="h-4 w-4 mr-1" /> Receber reposição
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => resol.mutate({ item_id: it.id, acao: "reabrir" })}>
+                    <Button size="sm" variant="outline" disabled={resol.isPending} onClick={() => resol.mutate({ item_id: it.id, acao: "reabrir" })}>
                       <RotateCcw className="h-4 w-4 mr-1" /> Desfazer troca
                     </Button>
                   </>
                 ) : (
                   <>
-                    <Button size="sm" variant="outline" onClick={() => it.is_rolo ? resolRolo.mutate({ id: it.id, status: "estilo_ok" }) : resol.mutate({ item_id: it.id, acao: "estilo_ok" })}>
+                    <Button size="sm" variant="outline" disabled={resol.isPending || resolRolo.isPending} onClick={() => it.is_rolo ? resolRolo.mutate({ id: it.id, status: "estilo_ok" }) : resol.mutate({ item_id: it.id, acao: "estilo_ok" })}>
                       <Check className="h-4 w-4 mr-1" /> Estilo OK
                     </Button>
                     {/* Rolo: troca/cancelar próprios (sem financeiro). OC: fluxo normal.
@@ -434,7 +434,7 @@ export function AlertasList() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Voltar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { if (confirmCancel) { confirmCancel.is_rolo ? cancelRoloMut.mutate(confirmCancel.oc_id!) : resol.mutate({ item_id: confirmCancel.id, acao: "cancelar" }); } setConfirmCancel(null); }}>
+            <AlertDialogAction disabled={resol.isPending || cancelRoloMut.isPending} onClick={() => { if (confirmCancel) { confirmCancel.is_rolo ? cancelRoloMut.mutate(confirmCancel.oc_id!) : resol.mutate({ item_id: confirmCancel.id, acao: "cancelar" }); } setConfirmCancel(null); }}>
               {confirmCancel?.is_rolo ? "Cancelar rolo" : "Cancelar variante"}
             </AlertDialogAction>
           </AlertDialogFooter>
