@@ -256,50 +256,24 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
       const itens = fItens.filter((i) => i.itemId);
       if (itens.length === 0) throw new Error(`Adicione ao menos um ${cfg.itemLabel.toLowerCase()}.`);
 
-      // número é editável no formulário; vazio = auto-incrementa na criação.
+      // RPC atômica: header + itens numa só transação (número vazio auto-incrementa na RPC).
       const numeroVal = fNumero.trim() ? Math.trunc(Number(fNumero)) : null;
-      const headerPayload: any = {
+      const header = {
+        numero: numeroVal != null && Number.isFinite(numeroVal) ? numeroVal : null,
         responsavel: fResponsavel.trim() || null,
         data_solicitacao: fSolicitacao || null,
         data_corte: fCorte || null,
         destino_id: fDestino === "none" ? null : fDestino,
         observacao: fObs.trim() || null,
       };
-      if (numeroVal != null && Number.isFinite(numeroVal)) headerPayload.numero = numeroVal;
-
-      let osId: string;
-      if (editing) {
-        const { error } = await supabase.from(cfg.headerTable as any).update(headerPayload).eq("id", editing.id);
-        if (error) throw error;
-        osId = editing.id;
-        // substitui os itens (OS não é referenciada por mais nada).
-        const { error: delErr } = await supabase.from(cfg.itensTable as any).delete().eq("ordem_saida_id", osId);
-        if (delErr) throw delErr;
-      } else {
-        if (headerPayload.numero == null) {
-          // numero sequencial por loja (fallback quando deixado em branco).
-          const { data: last } = await supabase
-            .from(cfg.headerTable as any)
-            .select("numero")
-            .order("numero", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          headerPayload.numero = (Number((last as any)?.numero) || 0) + 1;
-        }
-        const { data: ins, error } = await supabase.from(cfg.headerTable as any).insert(headerPayload).select("id").single();
-        if (error) throw error;
-        osId = (ins as any).id;
-      }
-
-      const itensPayload = itens.map((i) => ({
-        ordem_saida_id: osId,
-        [cfg.itemFk]: i.itemId,
-        reserva: num(i.reserva),
-        // preserva baixa existente na edição (caso já tenha sido baixado parcialmente — normalmente 0 aqui).
-        baixa: 0,
-      }));
-      const { error: itErr } = await supabase.from(cfg.itensTable as any).insert(itensPayload);
-      if (itErr) throw itErr;
+      const itensPayload = itens.map((i) => ({ itemId: i.itemId, reserva: num(i.reserva) }));
+      const { error } = await supabase.rpc("salvar_os" as any, {
+        _tipo: tipo,
+        _os_id: editing ? editing.id : null,
+        _header: header,
+        _itens: itensPayload,
+      });
+      if (error) throw error;
     },
     onSuccess: () => {
       toast.success(editing ? "OS atualizada." : "OS criada.");
@@ -315,18 +289,16 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
   const baixaMut = useMutation({
     mutationFn: async () => {
       if (!baixaOS) return;
-      // grava o utilizado de cada item como baixa, e marca a OS como baixada.
-      for (const it of baixaOS.itens ?? []) {
-        const u = num(utilizado[it.id] ?? it.reserva ?? 0);
-        // Trava de saldo (aviamento): não deixa baixar acima do disponível (evita estoque negativo).
-        const disp = saldoDisp(it);
-        if (disp != null && u > disp + 1e-9) {
-          throw new Error(`Baixa acima do estoque disponível (${fmtNum(disp)} ${unidadeQtd}). Ajuste o utilizado.`);
-        }
-        const { error } = await supabase.from(cfg.itensTable as any).update({ baixa: u }).eq("id", it.id);
-        if (error) throw error;
-      }
-      const { error } = await supabase.from(cfg.headerTable as any).update({ baixado: true }).eq("id", baixaOS.id);
+      // RPC atômica: grava baixa de cada item + marca a OS como baixada numa transação.
+      // A trava de saldo (aviamento) é feita no SERVIDOR (baixar_os); a UI já bloqueia
+      // via algumExcede p/ feedback imediato.
+      const utilizadoPayload: Record<string, number> = {};
+      for (const it of baixaOS.itens ?? []) utilizadoPayload[it.id] = num(utilizado[it.id] ?? it.reserva ?? 0);
+      const { error } = await supabase.rpc("baixar_os" as any, {
+        _tipo: tipo,
+        _os_id: baixaOS.id,
+        _utilizado: utilizadoPayload,
+      });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -342,10 +314,9 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
   // o que devolve o estoque físico e reativa a reserva. Simétrico à baixaMut.
   const desmarcarMut = useMutation({
     mutationFn: async (os: OSRow) => {
-      const { error: e1 } = await supabase.from(cfg.itensTable as any).update({ baixa: 0 }).eq("ordem_saida_id", os.id);
-      if (e1) throw e1;
-      const { error: e2 } = await supabase.from(cfg.headerTable as any).update({ baixado: false }).eq("id", os.id);
-      if (e2) throw e2;
+      // RPC atômica: zera baixa dos itens + volta a OS a não-baixada numa transação.
+      const { error } = await supabase.rpc("desmarcar_os" as any, { _tipo: tipo, _os_id: os.id });
+      if (error) throw error;
     },
     onSuccess: () => {
       toast.success("Baixa desmarcada. Estoque restaurado.");
