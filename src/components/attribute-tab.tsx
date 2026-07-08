@@ -44,6 +44,8 @@ import { Badge } from "@/components/ui/badge";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { useReadOnly } from "@/components/RequirePermission";
 import { useSort, SortHead } from "@/components/shared/sort";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useAuth } from "@/hooks/useAuth";
 
 export type UsageRef = { table: string; column: string };
 
@@ -97,11 +99,15 @@ export function AttributeTab({
   const [newExtra, setNewExtra] = useState<string>("");
   const [newExtraNum, setNewExtraNum] = useState<string>("");
   const [newEnum, setNewEnum] = useState<string>("");
-  const colCount = 2 + (config.extra ? 1 : 0) + (config.extraNumber ? 1 : 0) + (config.extraEnum ? 1 : 0);
+  const { isAdmin } = useAuth(); // exclusão em massa é só p/ admin+ (tenant_admin ou super_admin)
+  const colCount = (isAdmin ? 3 : 2) + (config.extra ? 1 : 0) + (config.extraNumber ? 1 : 0) + (config.extraEnum ? 1 : 0);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [deleteRow, setDeleteRow] = useState<Row | null>(null);
   const [deleteUsage, setDeleteUsage] = useState<number | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set()); // seleção p/ exclusão em massa
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const listKey = ["attr", config.table, config.fixedFilter?.value ?? ""];
 
@@ -314,6 +320,35 @@ export function AttributeTab({
     setDeleteUsage(total);
   };
 
+  // Exclusão em MASSA: só linhas não-protegidas; pula as em uso (conta config.usage) e reporta.
+  const selectableIds = useMemo(() => sorted.filter((r) => !isProtected(r)).map((r) => r.id), [sorted, protectedSet]);
+  const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(selectableIds));
+  const toggleOne = (id: string) =>
+    setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const bulkDelete = async () => {
+    setBulkBusy(true);
+    let ok = 0, emUso = 0;
+    for (const id of Array.from(selected)) {
+      let usage = 0;
+      for (const ref of config.usage) {
+        const { count } = await supabase.from(ref.table as any).select("*", { count: "exact", head: true }).eq(ref.column, id);
+        usage += count ?? 0;
+      }
+      if (usage > 0) { emUso++; continue; }
+      const { error } = await supabase.from(config.table as any).delete().eq("id", id);
+      if (error) { emUso++; continue; }
+      ok++;
+    }
+    setBulkBusy(false);
+    setBulkOpen(false);
+    setSelected(new Set());
+    qc.invalidateQueries({ queryKey: listKey });
+    onChanged?.();
+    if (ok > 0) toast.success(`${ok} excluído(s).${emUso > 0 ? ` ${emUso} em uso (não excluído(s)).` : ""}`);
+    else toast.error(`Nenhum excluído${emUso > 0 ? ` — ${emUso} em uso` : ""}.`);
+  };
+
   const startEdit = (row: Row) => {
     setEditingId(row.id);
     setEditValue(String(row[config.nameField] ?? ""));
@@ -331,6 +366,11 @@ export function AttributeTab({
             className="pl-9"
           />
         </div>
+        {isAdmin && selected.size > 0 && !readOnly && (
+          <Button variant="destructive" onClick={() => setBulkOpen(true)}>
+            <Trash2 className="h-4 w-4 mr-1" /> Excluir ({selected.size})
+          </Button>
+        )}
         <Button className="max-sm:hidden" onClick={() => setCreateOpen(true)} disabled={readOnly}>
           <Plus className="h-4 w-4 mr-1" />
           Novo
@@ -341,6 +381,13 @@ export function AttributeTab({
         <Table>
           <TableHeader>
             <TableRow>
+              {isAdmin && (
+                <TableHead className="w-10">
+                  {selectableIds.length > 0 && !readOnly && (
+                    <Checkbox checked={allSelected} onCheckedChange={toggleAll} aria-label="Selecionar todos" />
+                  )}
+                </TableHead>
+              )}
               <SortHead label="Nome" sortKey={config.nameField} sortState={sortState} />
               {config.extra && (
                 <SortHead label={config.extra.label} sortKey={config.extra.field} sortState={sortState} />
@@ -370,7 +417,14 @@ export function AttributeTab({
               </TableRow>
             ) : (
               sorted.map((row) => (
-                <TableRow key={row.id}>
+                <TableRow key={row.id} data-state={selected.has(row.id) ? "selected" : undefined}>
+                  {isAdmin && (
+                    <TableCell className="w-10">
+                      {!isProtected(row) && !readOnly && (
+                        <Checkbox checked={selected.has(row.id)} onCheckedChange={() => toggleOne(row.id)} aria-label="Selecionar" />
+                      )}
+                    </TableCell>
+                  )}
                   <TableCell>
                     {editingId === row.id ? (
                       <div className="flex items-center gap-2">
@@ -608,6 +662,28 @@ export function AttributeTab({
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Exclusão em massa (só admin — ver gate no render da coluna/checkbox). */}
+      <AlertDialog open={bulkOpen} onOpenChange={(o) => { if (!o && !bulkBusy) setBulkOpen(false); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir {selected.size} selecionado(s)?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Itens EM USO em outros registros são pulados (não excluídos). Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkBusy}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); bulkDelete(); }}
+              disabled={bulkBusy}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {bulkBusy ? "Excluindo…" : `Excluir ${selected.size}`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -22,9 +22,11 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
 import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
 import { useSort, SortHead } from "@/components/shared/sort";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { useAuth } from "@/hooks/useAuth";
 
 export const Route = createFileRoute("/_authenticated/cadastro/etiquetas")({
   component: () => (
@@ -49,12 +51,17 @@ function EtiquetasPage() {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
   const tenantId = useActiveTenantId();
+  const { isAdmin } = useAuth(); // exclusão em massa é só p/ admin+ (tenant_admin ou super_admin)
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Etiqueta | null>(null);
   const [formNome, setFormNome] = useState("");
   const [formTamanho, setFormTamanho] = useState("");
   const [deleteRow, setDeleteRow] = useState<Etiqueta | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set()); // seleção p/ exclusão em massa
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const colCount = isAdmin ? 4 : 3;
 
   const { data: etiquetas = [], isLoading } = useQuery({
     queryKey: ["etiquetas-cadastro"],
@@ -132,6 +139,29 @@ function EtiquetasPage() {
       toast.error(e?.code === "23503" ? "Etiqueta em uso em algum CAD. Remova de lá antes." : mensagemErro(e, "Erro ao excluir.")),
   });
 
+  // Exclusão em MASSA (só admin): tenta apagar cada selecionada; a FK NO ACTION (23503)
+  // barra as em uso — essas são puladas/contadas, sem abortar as demais.
+  const selectableIds = useMemo(() => sorted.map((e) => e.id), [sorted]);
+  const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(selectableIds));
+  const toggleOne = (id: string) =>
+    setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const bulkDelete = async () => {
+    setBulkBusy(true);
+    let ok = 0, emUso = 0;
+    for (const id of Array.from(selected)) {
+      const { error } = await supabase.from("etiquetas" as any).delete().eq("id", id);
+      if (error) { emUso++; continue; } // 23503 (em uso) ou qualquer outro erro: pula
+      ok++;
+    }
+    setBulkBusy(false);
+    setBulkOpen(false);
+    setSelected(new Set());
+    invalidate();
+    if (ok > 0) toast.success(`${ok} excluída(s).${emUso > 0 ? ` ${emUso} em uso (não excluída(s)).` : ""}`);
+    else toast.error(`Nenhuma excluída${emUso > 0 ? ` — ${emUso} em uso` : ""}.`);
+  };
+
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
       <header className="flex items-start gap-3">
@@ -154,6 +184,11 @@ function EtiquetasPage() {
             className="pl-9"
           />
         </div>
+        {isAdmin && selected.size > 0 && !readOnly && (
+          <Button variant="destructive" onClick={() => setBulkOpen(true)}>
+            <Trash2 className="h-4 w-4 mr-1" /> Excluir ({selected.size})
+          </Button>
+        )}
         <Button onClick={openCreate} className="max-sm:hidden" disabled={readOnly}>
           <Plus className="h-4 w-4 mr-1" /> Novo
         </Button>
@@ -163,6 +198,13 @@ function EtiquetasPage() {
         <Table>
           <TableHeader>
             <TableRow>
+              {isAdmin && (
+                <TableHead className="w-10">
+                  {selectableIds.length > 0 && !readOnly && (
+                    <Checkbox checked={allSelected} onCheckedChange={toggleAll} aria-label="Selecionar todos" />
+                  )}
+                </TableHead>
+              )}
               <SortHead label="Nome" sortKey="nome" sortState={sortState} />
               <SortHead label="Tamanho" sortKey="tamanho" sortState={sortState} />
               <TableHead className="w-32 text-right">Ações</TableHead>
@@ -171,13 +213,13 @@ function EtiquetasPage() {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={colCount} className="text-center py-8 text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin inline mr-2" /> Carregando…
                 </TableCell>
               </TableRow>
             ) : sorted.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={3} className="p-0">
+                <TableCell colSpan={colCount} className="p-0">
                   {etiquetas.length === 0 ? (
                     <EmptyState
                       icon={Tag}
@@ -199,7 +241,14 @@ function EtiquetasPage() {
               </TableRow>
             ) : (
               sorted.map((e) => (
-                <TableRow key={e.id}>
+                <TableRow key={e.id} data-state={selected.has(e.id) ? "selected" : undefined}>
+                  {isAdmin && (
+                    <TableCell className="w-10">
+                      {!readOnly && (
+                        <Checkbox checked={selected.has(e.id)} onCheckedChange={() => toggleOne(e.id)} aria-label="Selecionar" />
+                      )}
+                    </TableCell>
+                  )}
                   <TableCell>
                     <button type="button" className="text-left hover:underline" onClick={() => openEdit(e)}>
                       {e.nome}
@@ -285,6 +334,28 @@ function EtiquetasPage() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Exclusão em massa (só admin — ver gate no botão/coluna de checkbox). */}
+      <AlertDialog open={bulkOpen} onOpenChange={(o) => { if (!o && !bulkBusy) setBulkOpen(false); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir {selected.size} etiqueta(s)?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Etiquetas em uso em algum CAD são puladas (não excluídas). Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkBusy}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); bulkDelete(); }}
+              disabled={bulkBusy}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {bulkBusy ? "Excluindo…" : `Excluir ${selected.size}`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -60,6 +60,7 @@ import {
 
 import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
 import { useSort, SortHead } from "@/components/shared/sort";
+import { useAuth } from "@/hooks/useAuth";
 export const Route = createFileRoute("/_authenticated/cadastro/servico")({
   component: () => (
     <RequirePermission page="cadastro_servico">
@@ -434,11 +435,15 @@ function EmpresaFiscalFields({
 function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) => void }) {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
+  const { isAdmin } = useAuth(); // exclusão em massa é só p/ admin+ (tenant_admin ou super_admin)
   const [search, setSearch] = useState("");
   const [form, setForm] = useState<typeof emptyForm>(emptyForm);
   const [open, setOpen] = useState(false);
   const [deleteRow, setDeleteRow] = useState<Representante | null>(null);
   const [deleteUsage, setDeleteUsage] = useState<number | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set()); // seleção p/ exclusão em massa
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["representantes"],
@@ -622,6 +627,41 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
     setDeleteUsage(total);
   };
 
+  // Exclusão em MASSA (só admin+): pula os em uso (mesma contagem do startDelete) e reporta.
+  const selectableIds = useMemo(() => sort.sorted.map((r) => r.id), [sort.sorted]);
+  const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(selectableIds));
+  const toggleOne = (id: string) =>
+    setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const bulkDelete = async () => {
+    setBulkBusy(true);
+    const refs = [
+      { table: "ocs_tecido", column: "representante_id" },
+      { table: "ocs_aviamento", column: "representante_id" },
+      { table: "producao_terceirizados", column: "representante_id" },
+    ] as const;
+    let ok = 0, emUso = 0;
+    for (const id of Array.from(selected)) {
+      let usage = 0;
+      for (const r of refs) {
+        const { count } = await supabase.from(r.table as any).select("*", { count: "exact", head: true }).eq(r.column, id);
+        usage += count ?? 0;
+      }
+      if (usage > 0) { emUso++; continue; }
+      const { error } = await supabase.from("representantes").delete().eq("id", id);
+      if (error) { emUso++; continue; }
+      ok++;
+    }
+    setBulkBusy(false);
+    setBulkOpen(false);
+    setSelected(new Set());
+    qc.invalidateQueries({ queryKey: ["representantes"] });
+    qc.invalidateQueries({ queryKey: ["servico-count", "representantes"] });
+    qc.invalidateQueries({ queryKey: ["empresas-servico-sel"] });
+    if (ok > 0) toast.success(`${ok} excluído(s).${emUso > 0 ? ` ${emUso} em uso (não excluído(s)).` : ""}`);
+    else toast.error(`Nenhum excluído${emUso > 0 ? ` — ${emUso} em uso` : ""}.`);
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
@@ -634,6 +674,11 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
             className="pl-9"
           />
         </div>
+        {isAdmin && selected.size > 0 && !readOnly && (
+          <Button variant="destructive" onClick={() => setBulkOpen(true)}>
+            <Trash2 className="h-4 w-4 mr-1" /> Excluir ({selected.size})
+          </Button>
+        )}
         <Button onClick={openCreate} disabled={readOnly} className="max-sm:hidden">
           <Plus className="h-4 w-4 mr-1" /> Novo
         </Button>
@@ -643,6 +688,13 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
         <Table className="card-table">
           <TableHeader>
             <TableRow>
+              {isAdmin && (
+                <TableHead className="w-10">
+                  {selectableIds.length > 0 && !readOnly && (
+                    <Checkbox checked={allSelected} onCheckedChange={toggleAll} aria-label="Selecionar todos" />
+                  )}
+                </TableHead>
+              )}
               <SortHead label="Empresa" sortKey="empresa" sortState={sort} />
               <SortHead label="Representante" sortKey="nome" sortState={sort} />
               <SortHead label="Contato" sortKey="contato" sortState={sort} />
@@ -653,20 +705,27 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={isAdmin ? 6 : 5} className="text-center py-8 text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
                   Carregando…
                 </TableCell>
               </TableRow>
             ) : filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={isAdmin ? 6 : 5} className="text-center py-8 text-muted-foreground">
                   Nenhum representante encontrado.
                 </TableCell>
               </TableRow>
             ) : (
               sort.sorted.map((r) => (
-                <TableRow key={r.id}>
+                <TableRow key={r.id} data-state={selected.has(r.id) ? "selected" : undefined}>
+                  {isAdmin && (
+                    <TableCell className="w-10">
+                      {!readOnly && (
+                        <Checkbox checked={selected.has(r.id)} onCheckedChange={() => toggleOne(r.id)} aria-label="Selecionar" />
+                      )}
+                    </TableCell>
+                  )}
                   <TableCell>{r.empresa_id ? empresasMap.get(r.empresa_id) ?? "—" : "—"}</TableCell>
                   <TableCell data-label="Representante">
                     <button
@@ -824,6 +883,29 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Exclusão em massa (só admin — ver gate na coluna/checkbox). */}
+      <AlertDialog open={bulkOpen} onOpenChange={(o) => { if (!o && !bulkBusy) setBulkOpen(false); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir {selected.size} selecionado(s)?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Itens EM USO em outros registros (OC de tecido/aviamento ou serviço) são pulados
+              (não excluídos). Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkBusy}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); bulkDelete(); }}
+              disabled={bulkBusy}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {bulkBusy ? "Excluindo…" : `Excluir ${selected.size}`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <MobileActionBar>
         <Button onClick={openCreate} disabled={readOnly} className="ml-auto">
           <Plus className="h-4 w-4 mr-1" /> Novo
@@ -936,6 +1018,7 @@ const emptyEmpresaForm = {
 function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number) => void }) {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
+  const { isAdmin } = useAuth(); // exclusão em massa é só p/ admin+ (tenant_admin ou super_admin)
   const [search, setSearch] = useState("");
   const [tipoFilter, setTipoFilter] = useState<"todos" | EmpresaTipo>("todos");
   const [open, setOpen] = useState(false);
@@ -943,6 +1026,9 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
   const [form, setForm] = useState<typeof emptyEmpresaForm>(emptyEmpresaForm);
   const [deleteRow, setDeleteRow] = useState<EmpresaRow | null>(null);
   const [deleteUsage, setDeleteUsage] = useState<number | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set()); // seleção p/ exclusão em massa
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const { data: empresas = [], isLoading } = useQuery({
     queryKey: ["empresas-multi"],
@@ -1186,6 +1272,45 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir.")),
   });
 
+  // Exclusão em MASSA (só admin+): pula os em uso (mesma contagem do startDelete) e reporta.
+  const selectableIds = useMemo(() => sort.sorted.map((r) => r.id), [sort.sorted]);
+  const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(selectableIds));
+  const toggleOne = (id: string) =>
+    setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const bulkDelete = async () => {
+    setBulkBusy(true);
+    const refs = [
+      { table: "representantes", column: "empresa_id" },
+      { table: "aviamentos", column: "empresa_id" },
+      { table: "ocs_tecido", column: "empresa_id" },
+      { table: "ocs_aviamento", column: "empresa_id" },
+      { table: "parcelas", column: "empresa_id" },
+      { table: "artigos", column: "empresa_id" },
+      { table: "producao_terceirizados", column: "empresa_id" },
+    ] as const;
+    let ok = 0, emUso = 0;
+    for (const id of Array.from(selected)) {
+      let usage = 0;
+      for (const r of refs) {
+        const { count } = await supabase.from(r.table as any).select("*", { count: "exact", head: true }).eq(r.column, id);
+        usage += count ?? 0;
+      }
+      if (usage > 0) { emUso++; continue; }
+      const { error } = await supabase.from("empresas").delete().eq("id", id);
+      if (error) { emUso++; continue; }
+      ok++;
+    }
+    setBulkBusy(false);
+    setBulkOpen(false);
+    setSelected(new Set());
+    qc.invalidateQueries({ queryKey: ["empresas-multi"] });
+    qc.invalidateQueries({ queryKey: ["servico-count", "empresas"] });
+    qc.invalidateQueries({ queryKey: ["empresas-servico-sel"] });
+    if (ok > 0) toast.success(`${ok} excluído(s).${emUso > 0 ? ` ${emUso} em uso (não excluído(s)).` : ""}`);
+    else toast.error(`Nenhum excluído${emUso > 0 ? ` — ${emUso} em uso` : ""}.`);
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
@@ -1198,6 +1323,11 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
             className="pl-9"
           />
         </div>
+        {isAdmin && selected.size > 0 && !readOnly && (
+          <Button variant="destructive" onClick={() => setBulkOpen(true)}>
+            <Trash2 className="h-4 w-4 mr-1" /> Excluir ({selected.size})
+          </Button>
+        )}
         <Select value={tipoFilter} onValueChange={(v) => setTipoFilter(v as "todos" | EmpresaTipo)}>
           <SelectTrigger className="w-36 shrink-0">
             <SelectValue />
@@ -1217,6 +1347,13 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
         <Table className="card-table">
           <TableHeader>
             <TableRow>
+              {isAdmin && (
+                <TableHead className="w-10">
+                  {selectableIds.length > 0 && !readOnly && (
+                    <Checkbox checked={allSelected} onCheckedChange={toggleAll} aria-label="Selecionar todos" />
+                  )}
+                </TableHead>
+              )}
               <SortHead label="Nome Fantasia" sortKey="nome_fantasia" sortState={sort} />
               <TableHead className="w-28">Tipo</TableHead>
               <TableHead>Categorias</TableHead>
@@ -1226,14 +1363,14 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={isAdmin ? 5 : 4} className="text-center py-8 text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
                   Carregando…
                 </TableCell>
               </TableRow>
             ) : filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={isAdmin ? 5 : 4} className="text-center py-8 text-muted-foreground">
                   Nenhuma empresa encontrada.
                 </TableCell>
               </TableRow>
@@ -1242,7 +1379,14 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
                 const isServ = row.tipo === "servico";
                 const catIds = (isServ ? servByEmpresa.get(row.id) : fornByEmpresa.get(row.id)) ?? [];
                 return (
-                  <TableRow key={row.id}>
+                  <TableRow key={row.id} data-state={selected.has(row.id) ? "selected" : undefined}>
+                    {isAdmin && (
+                      <TableCell className="w-10">
+                        {!readOnly && (
+                          <Checkbox checked={selected.has(row.id)} onCheckedChange={() => toggleOne(row.id)} aria-label="Selecionar" />
+                        )}
+                      </TableCell>
+                    )}
                     <TableCell>
                       <button
                         type="button"
@@ -1427,6 +1571,29 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Exclusão em massa (só admin — ver gate na coluna/checkbox). */}
+      <AlertDialog open={bulkOpen} onOpenChange={(o) => { if (!o && !bulkBusy) setBulkOpen(false); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir {selected.size} selecionada(s)?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Empresas EM USO em outros registros (pedidos, serviços, representantes…) são puladas
+              (não excluídas). Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkBusy}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); bulkDelete(); }}
+              disabled={bulkBusy}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {bulkBusy ? "Excluindo…" : `Excluir ${selected.size}`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
