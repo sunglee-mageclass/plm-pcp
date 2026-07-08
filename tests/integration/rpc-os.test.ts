@@ -90,4 +90,30 @@ describe.skipIf(!hasDb)("RPCs atômicas de Ordem de Saída", () => {
       await c.query("ROLLBACK TO SAVEPOINT sp2");
     });
   });
+
+  it("tecido: baixar_os TRAVA saldo (acima do físico) e piso 0 (utilizado negativo → baixa 0)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const av = await um<{ art: string; var: string } | undefined>(
+        c, `select a.id art, v.id var from variantes_tecido v join artigos a on a.id=v.artigo_id
+            where a.tenant_id=$1 and coalesce(a.unidade_medida,'metro')<>'kg' limit 1`, [TENANT_TESTE]);
+      if (!av) return;
+      const fis = Number((await um<{ f: string }>(c,
+        `select coalesce(fisico,0) f from public._estoque_tecido_core($1) where variante_tecido_id=$2`, [TENANT_TESTE, av.var]))?.f ?? 0);
+
+      const os = (await um<{ id: string }>(c, `select public.salvar_os('tecido', null, $1::jsonb, $2::jsonb) id`,
+        [JSON.stringify({ responsavel: "t" }), JSON.stringify([{ itemId: av.var, reserva: 5 }])])).id;
+      const it = (await um<{ id: string }>(c, `select id from ordens_saida_tecido_itens where ordem_saida_id=$1`, [os])).id;
+
+      // trava: baixar acima do físico → bloqueia (antes tecido não travava)
+      await c.query("SAVEPOINT sp");
+      await expect(c.query(`select public.baixar_os('tecido',$1,$2::jsonb)`, [os, JSON.stringify({ [it]: fis + 9999 })]))
+        .rejects.toThrow(/acima do estoque/i);
+      await c.query("ROLLBACK TO SAVEPOINT sp");
+
+      // piso 0: utilizado negativo NÃO infla o estoque (grava 0, não -50)
+      await c.query(`select public.baixar_os('tecido',$1,$2::jsonb)`, [os, JSON.stringify({ [it]: -50 })]);
+      expect(Number((await um<{ b: string }>(c, `select baixa b from ordens_saida_tecido_itens where id=$1`, [it])).b)).toBe(0);
+    });
+  });
 });

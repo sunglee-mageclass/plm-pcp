@@ -77,6 +77,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
   const [formOpen, setFormOpen] = useState(false);
   const [baixaOS, setBaixaOS] = useState<OSRow | null>(null);
   const [deleteRow, setDeleteRow] = useState<OSRow | null>(null);
+  const [confirmDesmarcar, setConfirmDesmarcar] = useState<OSRow | null>(null);
 
   // form state (criar/editar)
   const [editing, setEditing] = useState<OSRow | null>(null);
@@ -156,32 +157,35 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
   // digitar kg num campo que é lido como metros.
   const unidadeQtd = tipo === "tecido" ? "m" : "un";
 
-  // Saldo disponível por aviamento para TRAVAR baixa acima do estoque (C1: sem isto
-  // dava pra baixar mais do que existe e o físico ficava negativo). Usa a fonte ÚNICA
-  // `estoque_aviamento` (mesma do dashboard e da tela de Estoque): `fisico` já é o
-  // disponível (recebido − CAD − OS já baixadas; a OS atual ainda não está baixada, então
-  // não entra). Só aviamento; tecido usa seu próprio motor. Falha aberta (saldo
-  // desconhecido → não bloqueia) p/ nunca travar baixa legítima por erro de query.
-  const { data: dispAvi = {} as Record<string, number> } = useQuery({
-    queryKey: ["os-avi-saldo", baixaOS?.id],
-    enabled: tipo === "aviamento" && !!baixaOS,
+  // Saldo disponível por item para TRAVAR baixa acima do estoque: sem isto dá pra baixar
+  // mais do que existe e o físico fica negativo (corrompendo o estoque). Usa a fonte ÚNICA
+  // (`estoque_tecido`/`estoque_aviamento`, mesma do dashboard e da tela de Estoque): `fisico`
+  // já é o disponível (a OS atual ainda não está baixada, então não entra). Aviamento por
+  // aviamento_id; tecido por variante_tecido_id. Falha aberta (saldo desconhecido → não
+  // bloqueia) p/ nunca travar baixa legítima por erro de query. O servidor (baixar_os) é a
+  // trava autoritativa (agregada por variante/aviamento); aqui é feedback imediato.
+  const { data: dispSaldo = {} as Record<string, number> } = useQuery({
+    queryKey: ["os-saldo", tipo, baixaOS?.id],
+    enabled: !!baixaOS,
     queryFn: async () => {
       const ids = new Set(
         (baixaOS!.itens ?? []).map((it: any) => it[cfg.itemFk]).filter(Boolean) as string[],
       );
       if (ids.size === 0) return {} as Record<string, number>;
-      const { data, error } = await supabase.rpc("estoque_aviamento" as any);
+      const { data, error } = await supabase.rpc((tipo === "tecido" ? "estoque_tecido" : "estoque_aviamento") as any);
       if (error) throw error;
       const disp: Record<string, number> = {};
-      for (const r of (data ?? []) as any[]) if (ids.has(r.id)) disp[r.id] = num(r.fisico);
+      for (const r of (data ?? []) as any[]) {
+        const k = tipo === "tecido" ? r.variante_tecido_id : r.id;
+        if (ids.has(k)) disp[k] = num(r.fisico);
+      }
       return disp;
     },
   });
 
   const saldoDisp = (it: any): number | null => {
-    if (tipo !== "aviamento") return null;
-    const avId = it[cfg.itemFk];
-    return avId in dispAvi ? dispAvi[avId] : null;
+    const k = it[cfg.itemFk];
+    return k in dispSaldo ? dispSaldo[k] : null;
   };
   const excedeSaldo = (it: any): boolean => {
     const disp = saldoDisp(it);
@@ -221,6 +225,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
     // o motor de estoque passa a somar a OS — refaz as posições.
     qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
     qc.invalidateQueries({ queryKey: ["estoque-aviamentos"] });
+    qc.invalidateQueries({ queryKey: ["dash-estoque"] });
   };
 
   const openCreate = () => {
@@ -266,7 +271,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
         destino_id: fDestino === "none" ? null : fDestino,
         observacao: fObs.trim() || null,
       };
-      const itensPayload = itens.map((i) => ({ itemId: i.itemId, reserva: num(i.reserva) }));
+      const itensPayload = itens.map((i) => ({ itemId: i.itemId, reserva: Math.max(0, num(i.reserva)) }));
       const { error } = await supabase.rpc("salvar_os" as any, {
         _tipo: tipo,
         _os_id: editing ? editing.id : null,
@@ -293,7 +298,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
       // A trava de saldo (aviamento) é feita no SERVIDOR (baixar_os); a UI já bloqueia
       // via algumExcede p/ feedback imediato.
       const utilizadoPayload: Record<string, number> = {};
-      for (const it of baixaOS.itens ?? []) utilizadoPayload[it.id] = num(utilizado[it.id] ?? it.reserva ?? 0);
+      for (const it of baixaOS.itens ?? []) utilizadoPayload[it.id] = Math.max(0, num(utilizado[it.id] ?? it.reserva ?? 0));
       const { error } = await supabase.rpc("baixar_os" as any, {
         _tipo: tipo,
         _os_id: baixaOS.id,
@@ -406,7 +411,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
                   </TableCell>
                   <TableCell data-label="Ações" className="text-right whitespace-nowrap">
                     {o.baixado ? (
-                      <Button size="icon" variant="outline" onClick={() => desmarcarMut.mutate(o)} disabled={desmarcarMut.isPending} aria-label="Desmarcar baixa" title="Desmarcar baixa">
+                      <Button size="icon" variant="outline" onClick={() => setConfirmDesmarcar(o)} disabled={desmarcarMut.isPending} aria-label="Desmarcar baixa" title="Desmarcar baixa">
                         <RotateCcw className="h-4 w-4" />
                       </Button>
                     ) : (
@@ -580,10 +585,31 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
+              disabled={delMut.isPending}
               onClick={(e) => { e.preventDefault(); if (deleteRow) delMut.mutate(deleteRow.id); }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!confirmDesmarcar} onOpenChange={(o) => !o && setConfirmDesmarcar(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Desmarcar a baixa?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A baixa da OS #{confirmDesmarcar?.numero ?? ""} é revertida: o estoque físico volta e a reserva é reativada.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={desmarcarMut.isPending}
+              onClick={(e) => { e.preventDefault(); if (confirmDesmarcar) { desmarcarMut.mutate(confirmDesmarcar); setConfirmDesmarcar(null); } }}
+            >
+              Desmarcar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
