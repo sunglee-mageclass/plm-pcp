@@ -155,43 +155,59 @@ function NaoClassificados({
   subs: { key: string; nome: string }[]; // subcoleções LOCAIS (inclui não-salvas), por key estável
   onAssign: (cardId: string, subKey: string | null, semana: string) => void;
 }) {
-  const [sel, setSel] = useState<Record<string, { sub: string | null; sem: string }>>({});
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [bulkSub, setBulkSub] = useState<string | null>(null);
+  const [bulkSem, setBulkSem] = useState("");
   const hasSubs = subs.length > 0;
-  // Atribuição ADIADA (local): sem gravar no banco — o Save aplica tudo de uma vez.
-  const assign = (cardId: string) => {
-    const s = sel[cardId] ?? { sub: null, sem: "" };
-    if (!s.sem) { toast.error("Escolha a semana"); return; }
-    if (hasSubs && !s.sub) { toast.error("Escolha a subcoleção"); return; }
-    onAssign(cardId, hasSubs ? s.sub : null, s.sem);
-    setSel((p) => { const n = { ...p }; delete n[cardId]; return n; });
-    toast.success("Atribuído — salve para gravar.");
+
+  const toggle = (id: string) => setChecked((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const allChecked = cards.length > 0 && cards.every((c) => checked.has(c.id));
+  const toggleAll = () => setChecked(allChecked ? new Set() : new Set(cards.map((c) => c.id)));
+
+  // Atribuição EM MASSA + ADIADA (local): sem gravar no banco — o Save aplica tudo de uma vez.
+  // Seleciona os cards, escolhe a subcoleção/semana uma vez e atribui todos juntos.
+  const atribuir = () => {
+    if (checked.size === 0) return;
+    if (!bulkSem) { toast.error("Escolha a semana"); return; }
+    if (hasSubs && !bulkSub) { toast.error("Escolha a subcoleção"); return; }
+    const n = checked.size;
+    for (const id of checked) onAssign(id, hasSubs ? bulkSub : null, bulkSem);
+    setChecked(new Set());
+    toast.success(`${n} atribuído(s) — salve para gravar.`);
   };
+
   return (
     <div className="rounded-lg border p-3 space-y-2">
       <div className="text-sm font-medium flex items-center justify-between">
         <span>Não classificados</span><Badge variant="secondary">{cards.length}</Badge>
       </div>
-      <p className="text-xs text-muted-foreground">Cards desta coleção sem subcoleção (inclui os já planejados antes de dividir em subcoleções) ou sem semana. Atribua para eles entrarem numa subcoleção do plano.</p>
-      <div className="space-y-2">
-        {cards.map((c) => {
-          const s = sel[c.id] ?? { sub: null, sem: "" };
-          return (
-            <div key={c.id} className="flex flex-wrap items-center gap-2 text-sm">
-              <span className="flex-1 min-w-[110px] truncate">{c.nome || "Sem nome"}{c.categorias_produto?.nome ? ` · ${c.categorias_produto.nome}` : ""}</span>
-              {hasSubs && (
-                <Select value={s.sub ?? ""} onValueChange={(v) => setSel((p) => ({ ...p, [c.id]: { ...s, sub: v } }))}>
-                  <SelectTrigger className="w-32 h-8"><SelectValue placeholder="Subcoleção" /></SelectTrigger>
-                  <SelectContent>{subs.map((sc) => <SelectItem key={sc.key} value={sc.key}>{sc.nome}</SelectItem>)}</SelectContent>
-                </Select>
-              )}
-              <Select value={s.sem} onValueChange={(v) => setSel((p) => ({ ...p, [c.id]: { ...s, sem: v } }))}>
-                <SelectTrigger className="w-24 h-8"><SelectValue placeholder="Semana" /></SelectTrigger>
-                <SelectContent>{WEEKS.map((w) => <SelectItem key={w} value={w}>Semana {w}</SelectItem>)}</SelectContent>
-              </Select>
-              <Button size="sm" className="h-8" onClick={() => assign(c.id)}>Atribuir</Button>
-            </div>
-          );
-        })}
+      <p className="text-xs text-muted-foreground">Cards desta coleção sem subcoleção (inclui os já planejados antes de dividir em subcoleções) ou sem semana. Selecione e atribua (em massa) para eles entrarem numa subcoleção do plano.</p>
+      {/* Barra de atribuição em massa: seleciona-todos + destino (subcoleção/semana) + Atribuir. */}
+      <div className="flex flex-wrap items-center gap-2 rounded-md bg-muted/40 p-2">
+        <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+          <Checkbox checked={allChecked} onCheckedChange={toggleAll} aria-label="Selecionar todos" /> Todos
+        </label>
+        <span className="text-xs text-muted-foreground">{checked.size} selecionado(s)</span>
+        <div className="flex-1" />
+        {hasSubs && (
+          <Select value={bulkSub ?? ""} onValueChange={setBulkSub}>
+            <SelectTrigger className="w-32 h-8"><SelectValue placeholder="Subcoleção" /></SelectTrigger>
+            <SelectContent>{subs.map((sc) => <SelectItem key={sc.key} value={sc.key}>{sc.nome}</SelectItem>)}</SelectContent>
+          </Select>
+        )}
+        <Select value={bulkSem} onValueChange={setBulkSem}>
+          <SelectTrigger className="w-24 h-8"><SelectValue placeholder="Semana" /></SelectTrigger>
+          <SelectContent>{WEEKS.map((w) => <SelectItem key={w} value={w}>Semana {w}</SelectItem>)}</SelectContent>
+        </Select>
+        <Button size="sm" className="h-8" disabled={checked.size === 0} onClick={atribuir}>Atribuir ({checked.size})</Button>
+      </div>
+      <div className="space-y-1">
+        {cards.map((c) => (
+          <label key={c.id} className="flex items-center gap-2 text-sm cursor-pointer rounded px-1 py-0.5 hover:bg-muted/40">
+            <Checkbox checked={checked.has(c.id)} onCheckedChange={() => toggle(c.id)} aria-label="Selecionar" />
+            <span className="flex-1 min-w-0 truncate">{c.nome || "Sem nome"}{c.categorias_produto?.nome ? ` · ${c.categorias_produto.nome}` : ""}</span>
+          </label>
+        ))}
       </div>
     </div>
   );
