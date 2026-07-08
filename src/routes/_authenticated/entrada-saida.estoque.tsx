@@ -615,113 +615,37 @@ function AviamentosTab() {
   const { data, isLoading, error } = useQuery({
     queryKey: ["estoque-aviamentos"],
     queryFn: async () => {
-      const [aviamentosRes, ocItensRes, cadAvRes, modAvRes, modelosRes, modGradesRes, osItensRes] = await Promise.all([
-        supabase.from("aviamentos").select("id, codigo_nome, empresa_id, categoria_aviamento_id, empresas(nome_fantasia), categorias_aviamento(nome)"),
-        supabase.from("ocs_aviamento_itens").select("aviamento_id, quantidade_pedida, quantidade_recebida, cancelado, oc_aviamento_id, ocs_aviamento!inner(status)"),
-        supabase.from("cad_aviamentos").select("aviamento_id, quantidade_enviar, quantidade_separar, cad!inner(enviado_corte)"),
-        supabase.from("modelo_aviamentos").select("modelo_id, aviamento_id, consumo"),
-        supabase.from("modelos").select("id, status_desenvolvimento, cad(enviado_corte)"),
-        supabase.from("modelo_grades").select("modelo_id, grade_total"),
-        // OS Aviamento (baixa manual do modo só-estoque).
-        supabase.from("ordens_saida_aviamento_itens" as any).select("aviamento_id, reserva, baixa, ordens_saida_aviamento!inner(baixado)"),
-      ]);
-
-      for (const r of [aviamentosRes, ocItensRes, cadAvRes, modAvRes, modelosRes, modGradesRes, osItensRes]) {
-        if (r.error) throw r.error;
-      }
-
-      const aviamentos = aviamentosRes;
-      const ocItens = ocItensRes;
-      const cadAv = cadAvRes;
-      const modAv = modAvRes;
-      const modelos = modelosRes;
-      const modGrades = modGradesRes;
-      const osItens = osItensRes;
-
-      const aprovadoNaoCad = new Set(
-        (modelos.data ?? [])
-          .filter((m: any) =>
-            (m.status_desenvolvimento ?? "").toLowerCase() !== "reprovado" &&
-            !((m.cad ?? []) as any[]).some((c: any) => c.enviado_corte),
-          )
-          .map((m: any) => m.id),
-      );
-      const gradeByModelo = new Map<string, number>();
-      for (const g of (modGrades.data ?? []) as any[]) {
-        if (!g.modelo_id) continue;
-        gradeByModelo.set(g.modelo_id, (gradeByModelo.get(g.modelo_id) ?? 0) + num(g.grade_total));
-      }
-
-      type Acc = { prevReceb: number; recebido: number; baixa: number; reservado: number };
-      const byAv = new Map<string, Acc>();
-      const get = (id: string) => {
-        if (!byAv.has(id)) byAv.set(id, { prevReceb: 0, recebido: 0, baixa: 0, reservado: 0 });
-        return byAv.get(id)!;
-      };
-
-      for (const it of ocItens.data ?? []) {
-        if (!it.aviamento_id) continue;
-        if ((it as any).cancelado) continue;
-        const acc = get(it.aviamento_id);
-        if ((it as any).ocs_aviamento?.status === "encomendado") acc.prevReceb += num(it.quantidade_pedida);
-        // quantidade_recebida null = recebeu o pedido cheio (igual ao financeiro). 0 fica 0.
-        if ((it as any).ocs_aviamento?.status === "recebido") acc.recebido += num(it.quantidade_recebida ?? it.quantidade_pedida);
-      }
-      for (const c of cadAv.data ?? []) {
-        if (!c.aviamento_id) continue;
-        if (!(c as any).cad?.enviado_corte) continue;
-        const separar = num((c as any).quantidade_separar);
-        const baixa = separar > 0 ? separar : num(c.quantidade_enviar);
-        get(c.aviamento_id).baixa += baixa;
-      }
-      for (const m of (modAv.data ?? []) as any[]) {
-        if (!m.aviamento_id || !m.modelo_id || !aprovadoNaoCad.has(m.modelo_id)) continue;
-        const gt = gradeByModelo.get(m.modelo_id) ?? 0;
-        get(m.aviamento_id).reservado += num(m.consumo) * gt;
-      }
-
-      // OS Aviamento: baixado → baixa; aberta → reservado.
-      for (const oi of (osItens.data ?? []) as any[]) {
-        if (!oi.aviamento_id) continue;
-        if (oi.ordens_saida_aviamento?.baixado) get(oi.aviamento_id).baixa += num(oi.baixa);
-        else get(oi.aviamento_id).reservado += num(oi.reserva);
-      }
-
-      const rows = (aviamentos.data ?? []).map((a: any) => {
-        const acc = byAv.get(a.id) ?? { prevReceb: 0, recebido: 0, baixa: 0, reservado: 0 };
-        // Físico não pode ser negativo (estoque físico de unidades). O clamp protege
-        // a exibição e o "previsto" caso alguma baixa antiga tenha ultrapassado o
-        // recebido; a trava real contra baixar acima do saldo está na OS (OrdemSaidaPage).
-        const fisico = Math.max(0, acc.recebido - acc.baixa);
-        const previsto = fisico + acc.prevReceb - acc.reservado;
-        return {
-          id: a.id,
-          nome: a.codigo_nome,
-          fornecedor: a.empresas?.nome_fantasia ?? "—",
-          fornecedorId: a.empresa_id,
-          categoria: a.categorias_aviamento?.nome ?? "—",
-          categoriaId: a.categoria_aviamento_id,
-          prevReceb: acc.prevReceb,
-          recebido: acc.recebido,
-          baixa: acc.baixa,
-          reservado: acc.reservado,
-          fisico,
-          previsto,
-        };
-      });
-
-      return { rows, aviamentos: aviamentos.data ?? [] };
+      // Fonte ÚNICA: RPC canônica estoque_aviamento (mesma definição do dashboard e da
+      // trava de saldo da OS). Antes eram 7 queries + agregação no cliente, que divergia
+      // do dashboard (M2). fisico já vem clampado >=0; previsto = fisico + prev - reserva.
+      const { data, error } = await supabase.rpc("estoque_aviamento" as any);
+      if (error) throw error;
+      const rows = ((data ?? []) as any[]).map((r) => ({
+        id: r.id,
+        nome: r.nome,
+        fornecedor: r.fornecedor ?? "—",
+        fornecedorId: r.fornecedor_id,
+        categoria: r.categoria ?? "—",
+        categoriaId: r.categoria_id,
+        prevReceb: Number(r.prev_receb ?? 0),
+        recebido: Number(r.recebido ?? 0),
+        baixa: Number(r.baixa ?? 0),
+        reservado: Number(r.reservado ?? 0),
+        fisico: Number(r.fisico ?? 0),
+        previsto: Number(r.previsto ?? 0),
+      }));
+      return { rows };
     },
   });
 
   const fornecedores = useMemo(() => {
     const m = new Map<string, string>();
-    for (const a of (data?.aviamentos ?? []) as any[]) if (a.empresa_id) m.set(a.empresa_id, a.empresas?.nome_fantasia ?? "—");
+    for (const r of (data?.rows ?? []) as any[]) if (r.fornecedorId) m.set(r.fornecedorId, r.fornecedor ?? "—");
     return Array.from(m, ([id, nome]) => ({ id, nome }));
   }, [data]);
   const categorias = useMemo(() => {
     const m = new Map<string, string>();
-    for (const a of (data?.aviamentos ?? []) as any[]) if (a.categoria_aviamento_id) m.set(a.categoria_aviamento_id, a.categorias_aviamento?.nome ?? "—");
+    for (const r of (data?.rows ?? []) as any[]) if (r.categoriaId) m.set(r.categoriaId, r.categoria ?? "—");
     return Array.from(m, ([id, nome]) => ({ id, nome }));
   }, [data]);
 

@@ -157,38 +157,23 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
   const unidadeQtd = tipo === "tecido" ? "m" : "un";
 
   // Saldo disponível por aviamento para TRAVAR baixa acima do estoque (C1: sem isto
-  // dava pra baixar mais do que existe e o físico ficava negativo). Réplica da
-  // definição canônica de físico do estoque de aviamento (entrada-saida.estoque.tsx):
-  // físico = recebido(OC recebida, não cancelado) − baixa(CAD enviado ao corte + OS já
-  // baixadas, exceto a atual). Só aviamento; tecido usa seu próprio motor. Falha aberta
-  // (saldo desconhecido → não bloqueia) p/ nunca travar baixa legítima por erro de query.
+  // dava pra baixar mais do que existe e o físico ficava negativo). Usa a fonte ÚNICA
+  // `estoque_aviamento` (mesma do dashboard e da tela de Estoque): `fisico` já é o
+  // disponível (recebido − CAD − OS já baixadas; a OS atual ainda não está baixada, então
+  // não entra). Só aviamento; tecido usa seu próprio motor. Falha aberta (saldo
+  // desconhecido → não bloqueia) p/ nunca travar baixa legítima por erro de query.
   const { data: dispAvi = {} as Record<string, number> } = useQuery({
     queryKey: ["os-avi-saldo", baixaOS?.id],
     enabled: tipo === "aviamento" && !!baixaOS,
     queryFn: async () => {
-      const ids = Array.from(
-        new Set((baixaOS!.itens ?? []).map((it: any) => it[cfg.itemFk]).filter(Boolean)),
-      ) as string[];
-      if (ids.length === 0) return {} as Record<string, number>;
-      const [rec, cad, os] = await Promise.all([
-        supabase.from("ocs_aviamento_itens")
-          .select("aviamento_id, quantidade_pedida, quantidade_recebida, ocs_aviamento!inner(status)")
-          .in("aviamento_id", ids).eq("ocs_aviamento.status", "recebido").eq("cancelado" as any, false),
-        supabase.from("cad_aviamentos")
-          .select("aviamento_id, quantidade_enviar, quantidade_separar, cad!inner(enviado_corte)")
-          .in("aviamento_id", ids).eq("cad.enviado_corte", true),
-        supabase.from("ordens_saida_aviamento_itens" as any)
-          .select("aviamento_id, baixa, ordem_saida_id, ordens_saida_aviamento!inner(baixado)")
-          .in("aviamento_id", ids).eq("ordens_saida_aviamento.baixado", true).neq("ordem_saida_id", baixaOS!.id),
-      ]);
-      if (rec.error) throw rec.error;
-      if (cad.error) throw cad.error;
-      if (os.error) throw os.error;
+      const ids = new Set(
+        (baixaOS!.itens ?? []).map((it: any) => it[cfg.itemFk]).filter(Boolean) as string[],
+      );
+      if (ids.size === 0) return {} as Record<string, number>;
+      const { data, error } = await supabase.rpc("estoque_aviamento" as any);
+      if (error) throw error;
       const disp: Record<string, number> = {};
-      for (const id of ids) disp[id] = 0;
-      for (const r of (rec.data ?? []) as any[]) disp[r.aviamento_id] += num(r.quantidade_recebida ?? r.quantidade_pedida);
-      for (const c of (cad.data ?? []) as any[]) { const sep = num(c.quantidade_separar); disp[c.aviamento_id] -= sep > 0 ? sep : num(c.quantidade_enviar); }
-      for (const o of (os.data ?? []) as any[]) disp[o.aviamento_id] -= num(o.baixa);
+      for (const r of (data ?? []) as any[]) if (ids.has(r.id)) disp[r.id] = num(r.fisico);
       return disp;
     },
   });
