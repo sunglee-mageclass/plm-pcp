@@ -150,7 +150,7 @@ function NaoClassificados({
 }: {
   cards: any[];
   subcolecoes: { id: string; nome: string }[];
-  onChanged: () => void;
+  onChanged: (subId: string | null, semana: string) => void;
 }) {
   const [sel, setSel] = useState<Record<string, { sub: string | null; sem: string }>>({});
   const [busy, setBusy] = useState<string | null>(null);
@@ -166,7 +166,7 @@ function NaoClassificados({
     setBusy(null);
     if (error) { toast.error(mensagemErro(error, "Erro ao atribuir")); return; }
     toast.success("Card atribuído");
-    onChanged();
+    onChanged(hasSubs ? s.sub : null, s.sem);
   };
   return (
     <div className="rounded-lg border p-3 space-y-2">
@@ -294,19 +294,20 @@ export function ColecaoSheet({
       return (data ?? []) as any[];
     },
   });
-  // Buckets salvos (subcoleção-nome, semana). Card fora de qualquer bucket = não classificado.
+  // Bucket = (subcoleção-nome, semana) LIGADO no editor AGORA (estado local, não o banco) —
+  // assim reflete as edições não-salvas e o card sai da lista assim que é atribuído, sem
+  // refetchar/clobbar o editor. Card fora de qualquer bucket local = não classificado.
   const naoClassificados = useMemo(() => {
-    if (!data) return [] as any[];
-    const subName = new Map<string, string>(((data.colecao_subcolecoes ?? []) as any[]).map((s) => [s.id, s.nome]));
     const bucketKeys = new Set<string>();
-    for (const cs of (data.colecao_semanas ?? []) as any[]) {
-      const sn = cs.subcolecao_id ? subName.get(cs.subcolecao_id) ?? "" : "";
-      bucketKeys.add(`${sn}||${cs.semana}`);
-    }
-    return colecaoCards.filter((c) => !bucketKeys.has(`${c.subcolecao ?? ""}||${c.semana ?? ""}`));
-  }, [data, colecaoCards]);
-  const onCardAtribuido = () => {
-    qc.invalidateQueries({ queryKey: ["otb-colecao", colecaoId] });
+    for (const w of Object.keys(weeks)) bucketKeys.add(`||${w}`);
+    for (const sub of subs) for (const w of Object.keys(sub.weeks)) bucketKeys.add(`${sub.nome.trim()}||${w}`);
+    return colecaoCards.filter((c) => !bucketKeys.has(`${(c.subcolecao ?? "").trim()}||${c.semana ?? ""}`));
+  }, [weeks, subs, colecaoCards]);
+  // Ao atribuir um card: soma +1 na semana LOCAL (o bucket/qtd batem com o banco que o gatilho
+  // já subiu) — sem invalidar otb-colecao (que re-hidrataria o editor e apagaria as edições).
+  const onCardAtribuido = (subId: string | null, semana: string) => {
+    if (subId) setSubs((p) => p.map((x) => (x.id === subId ? { ...x, weeks: { ...x.weeks, [semana]: (x.weeks[semana] ?? 0) + 1 } } : x)));
+    else setWeeks((w) => ({ ...w, [semana]: (w[semana] ?? 0) + 1 }));
     qc.invalidateQueries({ queryKey: ["otb-colecao-cards", colecaoId] });
     qc.invalidateQueries({ queryKey: ["otb-colecao-modelos", colecaoId] });
     qc.invalidateQueries({ queryKey: ["otb-colecoes"] });
