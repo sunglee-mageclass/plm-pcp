@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
+import { useNavigate } from "@tanstack/react-router";
 import { Store } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -16,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 export function TenantSwitcher() {
   const { user, isSuperAdmin } = useAuth();
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const callSet = useServerFn(setActiveTenant);
 
   const { data: tenants = [] } = useQuery({
@@ -61,6 +63,10 @@ export function TenantSwitcher() {
       clearTenantPrefixCache();
       await qc.refetchQueries({ queryKey: ["active-tenant-id"] });
       qc.invalidateQueries();
+      // Sai de qualquer CARD/detalhe: a URL podia apontar p/ um registro da loja
+      // ANTERIOR (ex.: /cadastro/tecidos/<id>), que não existe na loja nova — ficava
+      // preso mostrando dado velho até dar F5. Volta pro centro (/home).
+      navigate({ to: "/home" });
     },
     onError: () => {
       qc.invalidateQueries({ queryKey: ["tenant-switcher", "current"] });

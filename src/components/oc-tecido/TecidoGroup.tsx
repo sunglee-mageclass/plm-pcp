@@ -85,8 +85,8 @@ export function TecidoGroup({
                       {labelVariante(v)}
                     </span>
                     <div className="relative w-32">
-                      <NumberInput type="number" step="0.01" className={sufixo ? "pr-10" : ""}
-                        value={i.quantidade_pedida}
+                      <NumberInput type="number" step="0.01" placeholder="0" className={sufixo ? "pr-10" : ""}
+                        value={i.quantidade_pedida || undefined}
                         onChange={(e) => setQtd(i.tempId, "quantidade_pedida", Number(e.target.value))} />
                       {sufixo && (
                         <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">

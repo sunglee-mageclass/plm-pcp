@@ -854,7 +854,7 @@ function OcDialog({
                       </Select>
                     </TableCell>
                     <TableCell data-label="Qtd Pedida">
-                      <NumberInput type="number" step="0.01" value={i.quantidade_pedida}
+                      <NumberInput type="number" step="0.01" placeholder="0" value={i.quantidade_pedida || undefined}
                         disabled={i.cancelado || isReadOnlyRecebimento}
                         onChange={(e) => updateItem(i.tempId, { quantidade_pedida: Number(e.target.value) })} />
                     </TableCell>
