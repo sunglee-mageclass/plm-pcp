@@ -42,7 +42,7 @@ export function CadExplosaoSection({ aviamentos, gradeTotalGeral, updateAvi }: P
                   <td className="px-2 py-1">{a.aviamento_nome ?? "—"}</td>
                   <td className="px-2 py-1" data-label="Consumo">
                     <NumberInput type="number" step="0.0001" className="max-md:w-28" value={a.consumo}
-                      onChange={(e) => updateAvi(i, { consumo: Number(e.target.value), quantidade_enviar: Number((Number(e.target.value) * gradeTotalGeral).toFixed(4)) })} />
+                      onChange={(e) => { const c = Math.max(0, Number(e.target.value)); updateAvi(i, { consumo: c, quantidade_enviar: Number((c * gradeTotalGeral).toFixed(4)) }); }} />
                   </td>
                   <td className="px-2 py-1 text-center text-muted-foreground" data-label="Preço (R$)">{fmtNum(a.preco)}</td>
                   <td className="px-2 py-1 text-center font-medium" data-label="Custo CAD (R$)">{fmtNum(a.custo_cad)}</td>
@@ -50,7 +50,7 @@ export function CadExplosaoSection({ aviamentos, gradeTotalGeral, updateAvi }: P
                   <td className="px-2 py-1 text-center font-medium" data-label="Qtd Planejada">{fmtNum(a.quantidade_enviar)}</td>
                   <td className="px-2 py-1" data-label="Qtd a Enviar">
                     <NumberInput type="number" step="0.01" className="max-md:w-28" value={a.quantidade_separar}
-                      onChange={(e) => updateAvi(i, { quantidade_separar: Number(e.target.value) })} />
+                      onChange={(e) => updateAvi(i, { quantidade_separar: Math.max(0, Number(e.target.value)) })} />
                   </td>
                 </tr>
               ))}

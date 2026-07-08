@@ -71,6 +71,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
   const [consumoAlterado, setConsumoAlterado] = useState(false);
   const [aviamentoAlterado, setAviamentoAlterado] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
+  const [confirmDesmarcarOpen, setConfirmDesmarcarOpen] = useState(false);
 
   // --- queries ---
   const { data: modelo } = useQuery({
@@ -658,6 +659,8 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
       qc.invalidateQueries({ queryKey: ["producao-cad-list"] });
       qc.invalidateQueries({ queryKey: ["cad-row", modeloId] });
       qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
+      qc.invalidateQueries({ queryKey: ["dash-estoque"] });
+      qc.invalidateQueries({ queryKey: ["consumo-por-oc"] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro")),
   });
@@ -677,14 +680,12 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
       qc.invalidateQueries({ queryKey: ["producao-cad-list"] });
       qc.invalidateQueries({ queryKey: ["cad-row", modeloId] });
       qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
+      qc.invalidateQueries({ queryKey: ["dash-estoque"] });
+      qc.invalidateQueries({ queryKey: ["consumo-por-oc"] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desmarcar")),
   });
-  const handleDesmarcar = () => {
-    if (window.confirm("Desmarcar o envio ao corte? A baixa de estoque será revertida e o CAD volta a ficar editável.")) {
-      desmarcarEnvio.mutate();
-    }
-  };
+  const handleDesmarcar = () => setConfirmDesmarcarOpen(true);
 
   const tamanhosConfig = useMemo<string[]>(() => {
     const raw = (tenantCfg as any)?.tamanhos_grade;
@@ -799,14 +800,16 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
 
   const excluirCad = useMutation({
     mutationFn: async () => {
-      // Apaga o CAD (cad_tecidos/grades/aviamentos e etapas de produção caem por
-      // ON DELETE CASCADE; trava se houver lançamentos) e devolve o modelo ao Dev.
+      // RPC com guarda: bloqueia se o CAD já foi ao corte (baixou estoque — reverta antes) ou
+      // tem lançamentos; senão apaga o CAD e devolve o modelo ao Dev. Antes era um .delete()
+      // cru que cascateava o ledger de estoque em silêncio (físico fantasma).
       if (cadRow?.id) {
-        const { error } = await supabase.from("cad").delete().eq("id", cadRow.id);
+        const { error } = await supabase.rpc("excluir_cad" as any, { _cad_id: cadRow.id });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("modelos").update({ enviado_cad: false }).eq("id", modeloId);
         if (error) throw error;
       }
-      const { error: e2 } = await supabase.from("modelos").update({ enviado_cad: false }).eq("id", modeloId);
-      if (e2) throw e2;
     },
     onSuccess: () => {
       toast.success("CAD excluído. O modelo voltou para o Desenvolvimento.");
@@ -984,17 +987,39 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
             <AlertDialogDescription>
               Remove o CAD (tecidos, grade, aviamentos e etapas de produção vinculadas) e
               devolve o modelo ao <strong>Desenvolvimento</strong>, onde poderá ser enviado ao
-              CAD novamente. Não é possível excluir se já houver lançamentos. Esta ação não pode
-              ser desfeita.
+              CAD novamente. Não é possível excluir se já foi <strong>enviado ao corte</strong>
+              (reverta o corte antes) ou se houver lançamentos. Esta ação não pode ser desfeita.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
+              disabled={excluirCad.isPending}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => { setConfirmDel(false); excluirCad.mutate(); }}
             >
               Excluir CAD
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmDesmarcarOpen} onOpenChange={setConfirmDesmarcarOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Desmarcar o envio ao corte?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A baixa de estoque deste CAD é revertida (o físico volta e a reserva é reativada) e
+              o CAD volta a ficar editável.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={desmarcarEnvio.isPending}
+              onClick={() => { setConfirmDesmarcarOpen(false); desmarcarEnvio.mutate(); }}
+            >
+              Desmarcar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

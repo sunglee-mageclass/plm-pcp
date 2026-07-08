@@ -103,7 +103,7 @@ export function CadGradeSection({
                       <NumberInput
                         type="number"
                         value={g.grades[t] ?? 0}
-                        onChange={(e) => updateGradeCell(gi, t, Number(e.target.value))}
+                        onChange={(e) => updateGradeCell(gi, t, Math.max(0, Number(e.target.value)))}
                       />
                     </td>
                   ))}
@@ -122,7 +122,7 @@ export function CadGradeSection({
                     type="number"
                     className="h-9 border-0 text-center"
                     value={g.grades[t] ?? 0}
-                    onChange={(e) => updateGradeCell(gi, t, Number(e.target.value))}
+                    onChange={(e) => updateGradeCell(gi, t, Math.max(0, Number(e.target.value)))}
                   />
                 </div>
               ))}
