@@ -191,6 +191,31 @@ describe.skipIf(!hasDb)("OTB — otb_salvar_colecao (persistência atômica)", (
       await expect(c.query(`select public.otb_salvar_colecao($1::jsonb)`, [JSON.stringify({ nome: "X" })])).rejects.toThrow();
     });
   });
+
+  it("atribuição adiada: salva sub nova + atribui card no mesmo Save, sem contar 2×", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await c.query(`update tenant_config set modules = coalesce(modules,'{}'::jsonb) || '{"otb":true}'::jsonb where tenant_id=$1`, [TENANT_TESTE]);
+      const col = await um<{ id: string }>(c, `insert into colecoes (nome, status) values ('C-ASG','rascunho') returning id`, []);
+      const card = await um<{ id: string }>(c, `insert into modelos (colecao_id, nome, status_planejamento, versao) values ($1,'Card','em_planejamento',1) returning id`, [col.id]);
+      // Save: subcoleção NOVA "Praia" (semana 3, qtd=1 = editor somou +1) + atribuição do card
+      await c.query(`select public.otb_salvar_colecao($1::jsonb)`, [JSON.stringify({
+        id: col.id, nome: "C-ASG",
+        subs: [{ nome: "Praia", weeks: { "3": 1 }, cats: {}, meta: {} }],
+        assignments: [{ modelo_id: card.id, sub_nome: "Praia", semana: "3" }],
+      })]);
+      const m = await um<{ sub: string; sem: string }>(c, `select subcolecao sub, semana sem from modelos where id=$1`, [card.id]);
+      expect(m.sub).toBe("Praia");
+      expect(m.sem).toBe("3");
+      const q = await um<{ q: string }>(
+        c,
+        `select cs.qtd_planejada::text q from colecao_semanas cs join colecao_subcolecoes sc on sc.id=cs.subcolecao_id
+         where cs.colecao_id=$1 and sc.nome='Praia' and cs.semana='3'`,
+        [col.id],
+      );
+      expect(q.q).toBe("1"); // 1 card, não 2 (trava GUC evitou o gatilho re-incrementar)
+    });
+  });
 });
 
 describe.skipIf(!hasDb)("OTB — otb_excluir_colecao", () => {

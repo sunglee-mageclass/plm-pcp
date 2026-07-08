@@ -31,8 +31,11 @@ type Categoria = { id: string; nome: string; grupo_id: string | null };
 type CatDist = Record<string, Record<string, number>>;
 // semana → { texto livre, data } (campos por semana, além da qtd)
 type WeekMeta = Record<string, { texto: string; data: string }>;
-// Um bloco de subcoleção no editor: nome + semanas (semana→qtd) + texto/data + distribuição por categoria.
-type SubBlock = { id: string | null; nome: string; weeks: Record<string, number | null>; meta: WeekMeta; cats: CatDist };
+// Um bloco de subcoleção no editor: key local ESTÁVEL (p/ atribuição adiada referenciar subs
+// ainda não salvas) + id (banco, null se nova) + nome + semanas + texto/data + distribuição.
+type SubBlock = { key: string; id: string | null; nome: string; weeks: Record<string, number | null>; meta: WeekMeta; cats: CatDist };
+// Atribuição de card feita no editor mas ainda NÃO salva: card → (subcoleção local, semana).
+type PendingAssign = Record<string, { subKey: string | null; sem: string }>;
 
 const somaCats = (m?: Record<string, number>) => Object.values(m ?? {}).reduce((a, b) => a + (b || 0), 0);
 
@@ -146,27 +149,22 @@ function WeeksEditor({
 // Cards da coleção que não estão em nenhum bucket (sem semana/subcoleção): atribui direto
 // aqui — sobe a qtd da semana (e a categoria, se o card tiver), pra OTB e Planejamento baterem.
 function NaoClassificados({
-  cards, subcolecoes, onChanged,
+  cards, subs, onAssign,
 }: {
   cards: any[];
-  subcolecoes: { id: string; nome: string }[];
-  onChanged: (subId: string | null, semana: string) => void;
+  subs: { key: string; nome: string }[]; // subcoleções LOCAIS (inclui não-salvas), por key estável
+  onAssign: (cardId: string, subKey: string | null, semana: string) => void;
 }) {
   const [sel, setSel] = useState<Record<string, { sub: string | null; sem: string }>>({});
-  const [busy, setBusy] = useState<string | null>(null);
-  const hasSubs = subcolecoes.length > 0;
-  const assign = async (cardId: string) => {
+  const hasSubs = subs.length > 0;
+  // Atribuição ADIADA (local): sem gravar no banco — o Save aplica tudo de uma vez.
+  const assign = (cardId: string) => {
     const s = sel[cardId] ?? { sub: null, sem: "" };
     if (!s.sem) { toast.error("Escolha a semana"); return; }
     if (hasSubs && !s.sub) { toast.error("Escolha a subcoleção"); return; }
-    setBusy(cardId);
-    const { error } = await supabase.rpc("otb_atribuir_card" as any, {
-      _modelo_id: cardId, _subcolecao_id: hasSubs ? s.sub : null, _semana: s.sem,
-    });
-    setBusy(null);
-    if (error) { toast.error(mensagemErro(error, "Erro ao atribuir")); return; }
-    toast.success("Card atribuído");
-    onChanged(hasSubs ? s.sub : null, s.sem);
+    onAssign(cardId, hasSubs ? s.sub : null, s.sem);
+    setSel((p) => { const n = { ...p }; delete n[cardId]; return n; });
+    toast.success("Atribuído — salve para gravar.");
   };
   return (
     <div className="rounded-lg border p-3 space-y-2">
@@ -183,14 +181,14 @@ function NaoClassificados({
               {hasSubs && (
                 <Select value={s.sub ?? ""} onValueChange={(v) => setSel((p) => ({ ...p, [c.id]: { ...s, sub: v } }))}>
                   <SelectTrigger className="w-32 h-8"><SelectValue placeholder="Subcoleção" /></SelectTrigger>
-                  <SelectContent>{subcolecoes.map((sc) => <SelectItem key={sc.id} value={sc.id}>{sc.nome}</SelectItem>)}</SelectContent>
+                  <SelectContent>{subs.map((sc) => <SelectItem key={sc.key} value={sc.key}>{sc.nome}</SelectItem>)}</SelectContent>
                 </Select>
               )}
               <Select value={s.sem} onValueChange={(v) => setSel((p) => ({ ...p, [c.id]: { ...s, sem: v } }))}>
                 <SelectTrigger className="w-24 h-8"><SelectValue placeholder="Semana" /></SelectTrigger>
                 <SelectContent>{WEEKS.map((w) => <SelectItem key={w} value={w}>Semana {w}</SelectItem>)}</SelectContent>
               </Select>
-              <Button size="sm" className="h-8" disabled={busy === c.id} onClick={() => assign(c.id)}>Atribuir</Button>
+              <Button size="sm" className="h-8" onClick={() => assign(c.id)}>Atribuir</Button>
             </div>
           );
         })}
@@ -215,6 +213,7 @@ export function ColecaoSheet({
   const [weeksMeta, setWeeksMeta] = useState<WeekMeta>({}); // texto/data por semana (modo simples)
   const [weekCats, setWeekCats] = useState<CatDist>({}); // distribuição por categoria (modo simples)
   const [subs, setSubs] = useState<SubBlock[]>([]); // subcoleções, cada uma com suas semanas
+  const [pendingAssign, setPendingAssign] = useState<PendingAssign>({}); // atribuições feitas no editor, gravadas no Save
   const [confirmDel, setConfirmDel] = useState(false);
 
   const { data: grupos = [] } = useQuery({
@@ -268,9 +267,10 @@ export function ColecaoSheet({
       .map((sc) => {
         const wk: Record<string, number | null> = {};
         for (const s of allSem) if (s.subcolecao_id === sc.id) wk[s.semana] = s.qtd_planejada > 0 ? s.qtd_planejada : null;
-        return { id: sc.id, nome: sc.nome, weeks: wk, meta: metaFor(sc.id), cats: catsFor(sc.id) } as SubBlock;
+        return { key: crypto.randomUUID(), id: sc.id, nome: sc.nome, weeks: wk, meta: metaFor(sc.id), cats: catsFor(sc.id) } as SubBlock;
       });
     setSubs(subList);
+    setPendingAssign({}); // recarregou do banco → zera atribuições pendentes (já refletidas)
   }, [data]);
 
   // Queries para painel de resumo (só quando editando coleção existente)
@@ -301,18 +301,16 @@ export function ColecaoSheet({
     const bucketKeys = new Set<string>();
     for (const w of Object.keys(weeks)) bucketKeys.add(`||${w}`);
     for (const sub of subs) for (const w of Object.keys(sub.weeks)) bucketKeys.add(`${sub.nome.trim()}||${w}`);
-    return colecaoCards.filter((c) => !bucketKeys.has(`${(c.subcolecao ?? "").trim()}||${c.semana ?? ""}`));
-  }, [weeks, subs, colecaoCards]);
-  // Ao atribuir um card: soma +1 na semana LOCAL (o bucket/qtd batem com o banco que o gatilho
-  // já subiu) — sem invalidar otb-colecao (que re-hidrataria o editor e apagaria as edições).
-  const onCardAtribuido = (subId: string | null, semana: string) => {
-    if (subId) setSubs((p) => p.map((x) => (x.id === subId ? { ...x, weeks: { ...x.weeks, [semana]: (x.weeks[semana] ?? 0) + 1 } } : x)));
+    // Exclui cards já atribuídos localmente (pendentes de salvar) + os que já caem num bucket.
+    return colecaoCards.filter((c) => !pendingAssign[c.id] && !bucketKeys.has(`${(c.subcolecao ?? "").trim()}||${c.semana ?? ""}`));
+  }, [weeks, subs, colecaoCards, pendingAssign]);
+  // Atribuição ADIADA: registra localmente (card → subcoleção local/semana) + soma +1 na semana
+  // local. NADA é gravado até o Save (que aplica via otb_salvar_colecao, com a trava GUC pra não
+  // contar 2×). Fechar sem salvar = descarta. Assim dá p/ usar subcoleção ainda não salva.
+  const onAssign = (cardId: string, subKey: string | null, semana: string) => {
+    setPendingAssign((p) => ({ ...p, [cardId]: { subKey, sem: semana } }));
+    if (subKey) setSubs((p) => p.map((x) => (x.key === subKey ? { ...x, weeks: { ...x.weeks, [semana]: (x.weeks[semana] ?? 0) + 1 } } : x)));
     else setWeeks((w) => ({ ...w, [semana]: (w[semana] ?? 0) + 1 }));
-    qc.invalidateQueries({ queryKey: ["otb-colecao-cards", colecaoId] });
-    qc.invalidateQueries({ queryKey: ["otb-colecao-modelos", colecaoId] });
-    qc.invalidateQueries({ queryKey: ["otb-colecoes"] });
-    qc.invalidateQueries({ queryKey: ["otb-semanas-todas"] });
-    qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
   };
 
   const modeloIds = modelos.map((m) => m.id).sort();
@@ -391,6 +389,13 @@ export function ColecaoSheet({
         weeks,
         weekCats,
         weeksMeta,
+        // Atribuições feitas no editor (adiadas): a RPC grava subcolecao/semana no modelo (GUC
+        // evita contar 2×). subKey → nome da subcoleção local; null = nível coleção.
+        assignments: Object.entries(pendingAssign).map(([modeloId, a]) => ({
+          modelo_id: modeloId,
+          sub_nome: a.subKey ? (subs.find((s) => s.key === a.subKey)?.nome.trim() || null) : null,
+          semana: a.sem,
+        })),
       },
     });
     if (error) throw error;
@@ -487,7 +492,7 @@ export function ColecaoSheet({
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <Label className="block">Subcoleções e Modelos por Semana</Label>
-              <Button type="button" variant="outline" size="sm" onClick={() => setSubs((p) => [...p, { id: null, nome: "", weeks: {}, meta: {}, cats: {} }])}>
+              <Button type="button" variant="outline" size="sm" onClick={() => setSubs((p) => [...p, { key: crypto.randomUUID(), id: null, nome: "", weeks: {}, meta: {}, cats: {} }])}>
                 <Plus className="h-4 w-4 mr-1" /> Subcoleção
               </Button>
             </div>
@@ -526,8 +531,8 @@ export function ColecaoSheet({
           {colecaoId && naoClassificados.length > 0 && (
             <NaoClassificados
               cards={naoClassificados}
-              subcolecoes={((data?.colecao_subcolecoes ?? []) as any[]).map((s) => ({ id: s.id, nome: s.nome }))}
-              onChanged={onCardAtribuido}
+              subs={subs.filter((s) => s.nome.trim() !== "").map((s) => ({ key: s.key, nome: s.nome.trim() }))}
+              onAssign={onAssign}
             />
           )}
           <div className="rounded-lg border p-3 space-y-1 text-sm">
