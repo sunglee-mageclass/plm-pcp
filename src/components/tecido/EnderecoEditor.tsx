@@ -227,3 +227,73 @@ export function EnderecoPopover({
     </Popover>
   );
 }
+
+/** Gatilho 📍 (Popover) para o endereço de UM ROLO (colunas ocs_tecido.rolo_rua/prateleira).
+ *  Usado no recebimento por rolo e onde se endereça um rolo individual. Salva no blur. */
+export function RoloEnderecoPopover({ roloId, readOnly }: { roloId: string; readOnly?: boolean }) {
+  const qc = useQueryClient();
+  const [rua, setRua] = useState<string | null>(null);
+  const [prat, setPrat] = useState<string | null>(null);
+
+  const { data: rolo } = useQuery({
+    queryKey: ["rolo-endereco", roloId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("ocs_tecido")
+        .select("rolo_rua, rolo_prateleira")
+        .eq("id", roloId)
+        .maybeSingle();
+      if (error) throw error;
+      return (data ?? { rolo_rua: null, rolo_prateleira: null }) as { rolo_rua: string | null; rolo_prateleira: string | null };
+    },
+  });
+
+  const ruaV = rua ?? rolo?.rolo_rua ?? "";
+  const pratV = prat ?? rolo?.rolo_prateleira ?? "";
+
+  const saveMut = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase
+        .from("ocs_tecido")
+        .update({ rolo_rua: ruaV.trim() || null, rolo_prateleira: pratV.trim() || null })
+        .eq("id", roloId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["rolo-endereco", roloId] });
+      qc.invalidateQueries({ queryKey: ["end-tecido-rollup"] });
+      qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
+      qc.invalidateQueries({ queryKey: ["rolos"] });
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao endereçar rolo.")),
+  });
+
+  const filled = (rolo?.rolo_rua ?? "").trim() || (rolo?.rolo_prateleira ?? "").trim();
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="h-7 gap-1 text-xs">
+          <MapPin className="h-3 w-3" />
+          {filled ? (
+            fmtEndereco({ rua: rolo?.rolo_rua, prateleira: rolo?.rolo_prateleira })
+          ) : (
+            <span className="text-muted-foreground">Endereço</span>
+          )}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64" align="start">
+        <p className="text-xs font-medium mb-2 flex items-center gap-1">
+          <MapPin className="h-3.5 w-3.5" /> Endereço do rolo
+        </p>
+        <div className="flex items-center gap-2">
+          <Input className="flex-1" placeholder="Rua" value={ruaV} readOnly={readOnly}
+            onChange={(e) => setRua(e.target.value)}
+            onBlur={() => { if (ruaV !== (rolo?.rolo_rua ?? "") || pratV !== (rolo?.rolo_prateleira ?? "")) saveMut.mutate(); }} />
+          <Input className="flex-1" placeholder="Prateleira" value={pratV} readOnly={readOnly}
+            onChange={(e) => setPrat(e.target.value)}
+            onBlur={() => { if (ruaV !== (rolo?.rolo_rua ?? "") || pratV !== (rolo?.rolo_prateleira ?? "")) saveMut.mutate(); }} />
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}

@@ -10,7 +10,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { artigoLabel, unidadeSufixo } from "@/lib/artigo-label";
 import { cn } from "@/lib/utils";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
-import { EnderecoPopover } from "@/components/tecido/EnderecoEditor";
+import { EnderecoPopover, RoloEnderecoPopover } from "@/components/tecido/EnderecoEditor";
+import { useReadOnly } from "@/components/RequirePermission";
 import { fmtMoney, labelVariante, type Artigo, type ItemDraft, type RoloEntry, type Variante } from "./shared";
 
 // Quantidade EDITÁVEL de um rolo já criado: controlado (mostra o valor salvo) e só
@@ -58,6 +59,10 @@ export function OcTecidoCalculos({
   onRoloCancelar?: (roloId: string, cancel: boolean) => void;
   onRoloAjuste?: (roloId: string, novaQtd: number) => void;
 }) {
+  // Endereçar é uma ação SEMPRE permitida (gate só de permissão da página), independente do
+  // travamento pós-recebimento (readOnly/isReadOnlyRecebimento, que trava só a qtd recebida).
+  const enderecoReadOnly = useReadOnly();
+
   // Atualiza os rolos de um item e reflete a SOMA no quantidade_recebida.
   const aplicarRolos = (tempId: string, novos: RoloEntry[]) => {
     setRolos?.((prev) => ({ ...prev, [tempId]: novos }));
@@ -194,6 +199,10 @@ export function OcTecidoCalculos({
                                   Cancelar rolo
                                 </label>
                               )}
+                              {/* Endereço do rolo (colunas rolo_*) — só depois de criado (roloId). */}
+                              {entry.roloId && (
+                                <RoloEnderecoPopover roloId={entry.roloId} readOnly={enderecoReadOnly} />
+                              )}
                             </div>
                           </div>
                         </div>
@@ -220,10 +229,11 @@ export function OcTecidoCalculos({
                   )}
                   {/* Endereçamento por LOTE (item de OC recebido): só faz sentido quando o
                       item existe fisicamente (OC recebida + id persistido do ocs_tecido_itens).
-                      Rolo tem endereço próprio (colunas rolo_*), por isso fora do modoRolo. */}
+                      No modo rolo o endereço é por ROLO (colunas rolo_*) — ver o 📍 por rolo acima.
+                      Usa enderecoReadOnly (permissão), não readOnly (que trava a qtd no recebido). */}
                   {status === "recebido" && !modoRolo && !i.cancelado && i.id && i.variante_tecido_id && (
                     <div className="mt-1.5">
-                      <EnderecoPopover varianteId={i.variante_tecido_id} ocItemId={i.id} readOnly={readOnly} />
+                      <EnderecoPopover varianteId={i.variante_tecido_id} ocItemId={i.id} readOnly={enderecoReadOnly} />
                     </div>
                   )}
                 </TableCell>
