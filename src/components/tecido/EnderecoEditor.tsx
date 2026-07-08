@@ -33,6 +33,21 @@ export function fmtEndereco(e: { rua?: string | null; prateleira?: string | null
   return r || p || "—";
 }
 
+/** Agrupa endereços iguais (mesmo rua/prateleira) numa entrada, juntando as origens —
+ *  para EXIBIR sem repetir o mesmo vão (o Cadastro já edita agrupado). */
+export function agruparEnderecos(
+  rows: { rua?: string | null; prateleira?: string | null; origem_label?: string }[],
+): { label: string; origens: string[] }[] {
+  const map = new Map<string, { label: string; origens: string[] }>();
+  for (const e of rows) {
+    const label = fmtEndereco(e);
+    const g = map.get(label) ?? { label, origens: [] };
+    if (e.origem_label && !g.origens.includes(e.origem_label)) g.origens.push(e.origem_label);
+    map.set(label, g);
+  }
+  return Array.from(map.values());
+}
+
 /** Rollup consolidado (tabela manual+OC UNION colunas do rolo) por variante — leitura. */
 export function useEnderecosRollup() {
   return useQuery({

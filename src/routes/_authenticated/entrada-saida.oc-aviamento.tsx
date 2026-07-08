@@ -160,6 +160,8 @@ function OcAviamentoPage() {
       setDeleting(null);
       qc.invalidateQueries({ queryKey: ["ocs_aviamento"] });
       qc.invalidateQueries({ queryKey: ["oc-avi"] });
+      qc.invalidateQueries({ queryKey: ["estoque-aviamentos"] });
+      qc.invalidateQueries({ queryKey: ["dash-estoque"] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir.")),
   });
@@ -626,6 +628,8 @@ function OcDialog({
       qc.invalidateQueries({ queryKey: ["ocs-avi-totals"] });
       qc.invalidateQueries({ queryKey: ["oc-avi"] });
       qc.invalidateQueries({ queryKey: ["parcelas"] });
+      qc.invalidateQueries({ queryKey: ["estoque-aviamentos"] });
+      qc.invalidateQueries({ queryKey: ["dash-estoque"] });
       onSaved();
       onClose();
     },
@@ -655,6 +659,8 @@ function OcDialog({
       qc.invalidateQueries({ queryKey: ["ocs-avi-totals"] });
       qc.invalidateQueries({ queryKey: ["oc-avi"] });
       qc.invalidateQueries({ queryKey: ["parcelas"] });
+      qc.invalidateQueries({ queryKey: ["estoque-aviamentos"] });
+      qc.invalidateQueries({ queryKey: ["dash-estoque"] });
       onSaved();
       onClose();
     },

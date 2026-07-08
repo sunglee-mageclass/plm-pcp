@@ -1,15 +1,14 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Boxes, ArrowLeft, Search, Printer } from "lucide-react";
+import { Boxes, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { printWithImages } from "@/lib/print";
 import { RelatorioPrint } from "@/components/shared/RelatorioPrint";
@@ -18,7 +17,7 @@ import { fmtNum } from "@/lib/format";
 import { labelVarianteRow } from "@/lib/variante";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { useSort, SortTh } from "@/components/shared/sort";
-import { useEnderecosRollup, fmtEndereco, type EnderecoRollup } from "@/components/tecido/EnderecoEditor";
+import { useEnderecosRollup, agruparEnderecos, type EnderecoRollup } from "@/components/tecido/EnderecoEditor";
 
 import { RequirePermission } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/entrada-saida/estoque")({
@@ -217,9 +216,10 @@ function TecidosTab() {
         const prevRecebM = isKg ? acc.prevReceb * rend : acc.prevReceb;
         const recebidoM = acc.recebido;
         const recebidoKg = isKg && rend ? acc.recebido / rend : acc.recebido;
-        // Físico por item (recebido − baixa, com itens zerados fora) → nunca negativo
-        // por causa de sobra/zerado; baixa de OS pode reduzir.
-        const fisico = recebidoM - acc.baixa;
+        // Físico por item (recebido − baixa, com itens zerados fora). Clampa ≥0: uma OS de
+        // tecido que baixe mais que o recebido não deve mostrar físico negativo (nem
+        // contaminar o previsto). O físico físico de fato não é negativo.
+        const fisico = Math.max(0, recebidoM - acc.baixa);
         // Variante zerada libera a reserva (não mostra previsto negativo por reserva).
         const reservado = variantesZeradas.has(v.id) ? 0 : acc.reservado;
         const previsto = fisico + prevRecebM - reservado;
@@ -440,11 +440,15 @@ function VarianteRow({ row, enderecos }: { row: any; enderecos: EnderecoRollup[]
         <td className="py-2 pr-3">
           {row.nomeVariante}
           <span className="ml-1 text-[10px] text-muted-foreground">[{row.isKg ? "kg→m" : "m"}]</span>
-          {enderecos.length > 0 && (
-            <span className="ml-2 text-[10px] text-muted-foreground whitespace-nowrap" title={enderecos.map((e) => `${fmtEndereco(e)} (${e.origem_label})`).join(" | ")}>
-              📍 {fmtEndereco(enderecos[0])}{enderecos.length > 1 ? ` +${enderecos.length - 1}` : ""}
-            </span>
-          )}
+          {(() => {
+            const g = agruparEnderecos(enderecos);
+            if (g.length === 0) return null;
+            return (
+              <span className="ml-2 text-[10px] text-muted-foreground whitespace-nowrap" title={g.map((x) => `${x.label}${x.origens.length ? ` (${x.origens.join(", ")})` : ""}`).join(" | ")}>
+                📍 {g[0].label}{g.length > 1 ? ` +${g.length - 1}` : ""}
+              </span>
+            );
+          })()}
         </td>
         <td className="py-2 pr-3 text-right">
           {row.isKg ? (
@@ -473,7 +477,7 @@ function VarianteRow({ row, enderecos }: { row: any; enderecos: EnderecoRollup[]
             <div className="text-xs flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className="font-semibold text-muted-foreground">Endereços:</span>
               {enderecos.length > 0
-                ? enderecos.map((e, i) => <span key={i} className="whitespace-nowrap" title={e.origem_label}>📍 {fmtEndereco(e)}</span>)
+                ? agruparEnderecos(enderecos).map((g, i) => <span key={i} className="whitespace-nowrap" title={g.origens.join(", ")}>📍 {g.label}</span>)
                 : <span className="text-muted-foreground">—</span>}
             </div>
             <p className="text-xs font-semibold text-muted-foreground">Estoque por OC</p>
@@ -544,11 +548,15 @@ function VarianteCard({ row, enderecos }: { row: any; enderecos: EnderecoRollup[
             <div className="font-medium truncate">
               {row.nomeVariante} <span className="text-[10px] text-muted-foreground">[{row.isKg ? "kg→m" : "m"}]</span>
             </div>
-            {enderecos.length > 0 && (
-              <div className="text-[10px] text-muted-foreground truncate">
-                📍 {fmtEndereco(enderecos[0])}{enderecos.length > 1 ? ` +${enderecos.length - 1}` : ""}
-              </div>
-            )}
+            {(() => {
+              const g = agruparEnderecos(enderecos);
+              if (g.length === 0) return null;
+              return (
+                <div className="text-[10px] text-muted-foreground truncate">
+                  📍 {g[0].label}{g.length > 1 ? ` +${g.length - 1}` : ""}
+                </div>
+              );
+            })()}
           </div>
           <div className="shrink-0 text-right">
             <div className="text-lg font-semibold leading-none">
@@ -569,7 +577,7 @@ function VarianteCard({ row, enderecos }: { row: any; enderecos: EnderecoRollup[
         <div className="mt-2 space-y-2 border-t pt-2">
           <div className="text-xs">
             <span className="font-semibold text-muted-foreground">Endereços: </span>
-            {enderecos.length > 0 ? enderecos.map((e) => fmtEndereco(e)).join(" · ") : "—"}
+            {enderecos.length > 0 ? agruparEnderecos(enderecos).map((g) => g.label).join(" · ") : "—"}
           </div>
           <p className="text-xs font-semibold text-muted-foreground">Estoque por OC</p>
           {isLoading && <p className="text-xs text-muted-foreground">Carregando…</p>}
