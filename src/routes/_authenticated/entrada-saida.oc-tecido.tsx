@@ -203,7 +203,6 @@ function OcTecidoPage() {
                         { id: "troca_pendente", nome: "Troca pendente" },
                         { id: "trocado", nome: "Trocado" },
                         { id: "estilo_ok", nome: "Estilo OK" },
-                        { id: "devolucao", nome: "Devolução" },
                         { id: "cancelado", nome: "Cancelado" },
                       ] }]
                     : []),

@@ -21,7 +21,8 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-export type CqStatus = "sem_alerta" | "alertado" | "troca_pendente" | "trocado" | "estilo_ok" | "cancelado" | "devolucao";
+// 'devolucao' existe no enum do banco mas nunca é escrito (estado morto) — fora da UI.
+export type CqStatus = "sem_alerta" | "alertado" | "troca_pendente" | "trocado" | "estilo_ok" | "cancelado";
 
 type CqItem = {
   id: string;
@@ -37,7 +38,7 @@ type CqItem = {
 };
 
 const PENDENTES: CqStatus[] = ["alertado", "troca_pendente"];
-const RESOLVIDOS: CqStatus[] = ["estilo_ok", "trocado", "cancelado", "devolucao"];
+const RESOLVIDOS: CqStatus[] = ["estilo_ok", "trocado", "cancelado"];
 
 const STATUS_BADGE: Record<CqStatus, { label: string; cls: string } | null> = {
   sem_alerta: null,
@@ -46,7 +47,6 @@ const STATUS_BADGE: Record<CqStatus, { label: string; cls: string } | null> = {
   trocado: { label: "Trocado", cls: "bg-blue-500 hover:bg-blue-500" },
   estilo_ok: { label: "Estilo OK", cls: "bg-emerald-500 hover:bg-emerald-500" },
   cancelado: { label: "Cancelado", cls: "bg-zinc-500 hover:bg-zinc-500" },
-  devolucao: { label: "Devolução", cls: "bg-red-500 hover:bg-red-500" },
 };
 
 const SELECT_COLS =
@@ -59,7 +59,7 @@ export function alertaBadge(statuses: string[]): { label: string; cls: string } 
   if (statuses.includes("alertado")) return { label: "Alerta", cls: "bg-amber-500 hover:bg-amber-500" };
   if (statuses.includes("troca_pendente")) return { label: "Troca", cls: "bg-orange-500 hover:bg-orange-500" };
   if (statuses.includes("trocado")) return { label: "Trocado", cls: "bg-blue-600 hover:bg-blue-600" };
-  if (statuses.some((s) => s === "cancelado" || s === "devolucao")) return { label: "Cancelado", cls: "bg-zinc-500 hover:bg-zinc-500" };
+  if (statuses.includes("cancelado")) return { label: "Cancelado", cls: "bg-zinc-500 hover:bg-zinc-500" };
   if (statuses.includes("estilo_ok")) return { label: "Estilo OK", cls: "bg-emerald-500 hover:bg-emerald-500" };
   return null;
 }
@@ -240,7 +240,7 @@ function CqItemCard({ item, showOc = true }: { item: CqItem; showOc?: boolean })
           Alertar estilo
         </label>
         {alertado && (
-          <span className="text-xs text-muted-foreground">Resolução (Estilo OK / troca / devolução / cancelar) na página Alertas.</span>
+          <span className="text-xs text-muted-foreground">Resolução (Estilo OK / troca / cancelar) na página Alertas.</span>
         )}
       </div>
     </Card>
@@ -330,6 +330,7 @@ export function AlertasList() {
   });
   const [aba, setAba] = useState<"pendentes" | "resolvidos">("pendentes");
   const [confirmCancel, setConfirmCancel] = useState<CqItem | null>(null);
+  const [confirmReabrir, setConfirmReabrir] = useState<CqItem | null>(null);
   const [troca, setTroca] = useState<CqItem | null>(null);
   const [receber, setReceber] = useState<CqItem | null>(null);
   const [trocaRolo, setTrocaRolo] = useState<CqItem | null>(null);
@@ -378,7 +379,7 @@ export function AlertasList() {
                     // o recebimento — o botão erraria. Mostra o estado final.
                     <span className="text-xs text-muted-foreground">Troca concluída (reposição recebida).</span>
                   ) : (
-                    <Button size="sm" variant="outline" disabled={resol.isPending || reabrirRoloMut.isPending} onClick={() => it.is_rolo ? reabrirRoloMut.mutate(it.oc_id!) : resol.mutate({ item_id: it.id, acao: "reabrir" })}>
+                    <Button size="sm" variant="outline" disabled={resol.isPending || reabrirRoloMut.isPending} onClick={() => setConfirmReabrir(it)}>
                       <RotateCcw className="h-4 w-4 mr-1" /> Reabrir
                     </Button>
                   )
@@ -387,7 +388,7 @@ export function AlertasList() {
                     <Button size="sm" onClick={() => setReceber(it)}>
                       <Check className="h-4 w-4 mr-1" /> Receber reposição
                     </Button>
-                    <Button size="sm" variant="outline" disabled={resol.isPending} onClick={() => resol.mutate({ item_id: it.id, acao: "reabrir" })}>
+                    <Button size="sm" variant="outline" disabled={resol.isPending} onClick={() => setConfirmReabrir(it)}>
                       <RotateCcw className="h-4 w-4 mr-1" /> Desfazer troca
                     </Button>
                   </>
@@ -436,6 +437,29 @@ export function AlertasList() {
             <AlertDialogCancel>Voltar</AlertDialogCancel>
             <AlertDialogAction disabled={resol.isPending || cancelRoloMut.isPending} onClick={() => { if (confirmCancel) { confirmCancel.is_rolo ? cancelRoloMut.mutate(confirmCancel.oc_id!) : resol.mutate({ item_id: confirmCancel.id, acao: "cancelar" }); } setConfirmCancel(null); }}>
               {confirmCancel?.is_rolo ? "Cancelar rolo" : "Cancelar variante"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!confirmReabrir} onOpenChange={(o) => !o && setConfirmReabrir(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirmReabrir?.cq_alerta_status === "troca_pendente" ? "Desfazer esta troca?" : "Reabrir este alerta?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmReabrir?.cq_alerta_status === "troca_pendente"
+                ? <>A reposição a receber é descartada e a entrada correspondente sai do cronograma de recebimento da OC {confirmReabrir?.oc_numero ?? "—"}. O item "{confirmReabrir?.variante}" volta para o alerta.</>
+                : <>O item "{confirmReabrir?.variante}" volta para o alerta (sai do estado resolvido) e é recalculado.</>}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={resol.isPending || reabrirRoloMut.isPending}
+              onClick={() => { if (confirmReabrir) { confirmReabrir.is_rolo ? reabrirRoloMut.mutate(confirmReabrir.oc_id!) : resol.mutate({ item_id: confirmReabrir.id, acao: "reabrir" }); } setConfirmReabrir(null); }}>
+              {confirmReabrir?.cq_alerta_status === "troca_pendente" ? "Desfazer troca" : "Reabrir"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
