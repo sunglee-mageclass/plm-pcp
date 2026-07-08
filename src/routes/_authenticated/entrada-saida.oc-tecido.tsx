@@ -632,8 +632,6 @@ function OcDialog({
           .map((x) => ({ qtd: x.q, obs: x.e.obs || null, cq_ok: !!x.e.cq_ok, cq_alerta: !!x.e.cq_alerta }));
         return out.length ? out : null;
       };
-      const roloPlanPatch = (tempId: string) =>
-        modoOcRolo !== "oc" ? { rolos_planejados: roloPlan(tempId) } : {};
       // Soma dos rolos digitados (na unidade do artigo).
       const roloSoma = (tempId: string): number | null => {
         const arr = rolosPorItem[tempId];
@@ -647,107 +645,27 @@ function OcDialog({
       const recebidaDe = (tempId: string, fallback: number | null) =>
         (modoOcRolo !== "oc" && markReceived) ? (roloSoma(tempId) ?? fallback) : fallback;
 
-      if (isEdit && ocIdLocal) {
-        // Diff: UPDATE (com id), INSERT (sem id), DELETE só dos removidos.
-        const currentIds = new Set(
-          validItems.map((i) => i.id).filter((x): x is string => !!x),
-        );
-        const toDelete = originalItemIds.filter((id) => !currentIds.has(id));
-        const toUpdate = validItems.filter((i) => i.id);
-        const toInsert = validItems.filter((i) => !i.id);
-
-        if (toDelete.length > 0) {
-          const { error } = await supabase
-            .from("ocs_tecido_itens").delete().in("id", toDelete);
-          if (error) throw error;
-        }
-        for (const it of toUpdate) {
-          const { error } = await supabase
-            .from("ocs_tecido_itens")
-            .update({
-              artigo_id: it.artigo_id,
-              artigo_numero: it.artigo_numero,
-              variante_tecido_id: it.variante_tecido_id,
-              quantidade_pedida: it.quantidade_pedida,
-              quantidade_recebida: recebidaDe(it.tempId, it.quantidade_recebida),
-              rendimento: it.rendimento,
-              cancelado: it.cancelado,
-              ...roloPlanPatch(it.tempId),
-            } as any)
-            .eq("id", it.id!);
-          if (error) throw error;
-        }
-        if (toInsert.length > 0) {
-          const { error } = await supabase
-            .from("ocs_tecido_itens")
-            .insert(toInsert.map((i) => ({
-              oc_tecido_id: ocIdLocal,
-              artigo_id: i.artigo_id,
-              artigo_numero: i.artigo_numero,
-              variante_tecido_id: i.variante_tecido_id,
-              quantidade_pedida: i.quantidade_pedida,
-              quantidade_recebida: recebidaDe(i.tempId, i.quantidade_recebida),
-              rendimento: i.rendimento,
-              cancelado: i.cancelado,
-              ...roloPlanPatch(i.tempId),
-            })) as any);
-          if (error) throw error;
-        }
-
-        // 2) Depois UPDATE da OC (dispara o trigger já com itens/valor corretos)
-        const { error } = await supabase.from("ocs_tecido").update(payload).eq("id", ocIdLocal);
-        if (error) throw error;
-      } else {
-        // INSERT: forçar 'encomendado' para não disparar trigger; inserir itens;
-        // se necessário, atualizar para 'recebido' depois.
-        const insertPayload = { ...payload, status: "encomendado" };
-        const { data, error } = await supabase.from("ocs_tecido").insert(insertPayload).select("id").single();
-        if (error) throw error;
-        ocIdLocal = data.id;
-
-        if (validItems.length > 0) {
-          const { error: itErr } = await supabase
-            .from("ocs_tecido_itens")
-            .insert(validItems.map((i) => ({
-              oc_tecido_id: ocIdLocal,
-              artigo_id: i.artigo_id,
-              artigo_numero: i.artigo_numero,
-              variante_tecido_id: i.variante_tecido_id,
-              quantidade_pedida: i.quantidade_pedida,
-              quantidade_recebida: recebidaDe(i.tempId, i.quantidade_recebida),
-              rendimento: i.rendimento,
-              cancelado: i.cancelado,
-              ...roloPlanPatch(i.tempId),
-            })) as any);
-          if (itErr) throw itErr;
-        }
-
-        if (finalStatus === "recebido") {
-          const { error: upErr } = await supabase
-            .from("ocs_tecido")
-            .update({ status: "recebido" })
-            .eq("id", ocIdLocal);
-          if (upErr) throw upErr;
-        }
-      }
-
-      // Quando a OC fica recebida, recalcula as parcelas. O trigger
-      // gerar_parcelas_oc_tecido NÃO regenera se já existir parcela (ex.: ao
-      // re-receber depois de desmarcar mantendo uma parcela paga, as demais
-      // somem). recalcular_parcelas preserva as pagas e recria as restantes.
-      if (finalStatus === "recebido" && ocIdLocal) {
-        const { error: recErr } = await supabase.rpc("recalcular_parcelas", {
-          _oc_id: ocIdLocal,
-          _tipo: "tecido",
-        });
-        // Best-effort: o status já foi gravado e o trigger já gera as parcelas
-        // no primeiro recebimento. Não bloqueia o save se a RPC falhar (hoje
-        // exige admin — pode ser liberado a qualquer membro do tenant numa migration futura).
-        if (recErr) {
-          console.warn("recalcular_parcelas (tecido) falhou:", recErr.message);
-          toast.warning("OC salva, mas o recálculo de parcelas falhou — confira as contas a pagar desta OC.");
-        }
-      }
+      // Save ATÔMICO: header + diff de itens (preserva cq_*/estoque_zerado) + recálculo de
+      // parcelas numa ÚNICA transação (RPC salvar_oc_tecido). Acaba com a janela de falha
+      // parcial das 6-8 chamadas que isto era no cliente.
+      const itensPayload = validItems.map((i) => ({
+        id: i.id ?? null,
+        artigo_id: i.artigo_id,
+        artigo_numero: i.artigo_numero,
+        variante_tecido_id: i.variante_tecido_id,
+        quantidade_pedida: i.quantidade_pedida,
+        quantidade_recebida: recebidaDe(i.tempId, i.quantidade_recebida),
+        rendimento: i.rendimento,
+        cancelado: i.cancelado,
+        rolos_planejados: modoOcRolo !== "oc" ? roloPlan(i.tempId) : null,
+      }));
+      const { data: savedOcId, error: saveErr } = await supabase.rpc("salvar_oc_tecido" as any, {
+        _oc_id: isEdit ? ocId : null,
+        _oc: payload,
+        _itens: itensPayload,
+      });
+      if (saveErr) throw saveErr;
+      ocIdLocal = savedOcId as string;
 
       // Modo só-rolo: gera os rolos a partir do destrinchamento. A RPC gerar_rolos_recebimento
       // cria TODOS numa transação (tudo-ou-nada) — sem rolos parciais se um estourar o saldo.
