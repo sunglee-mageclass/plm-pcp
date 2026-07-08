@@ -173,10 +173,14 @@ e verifique** — o repo muda rápido.
    (`parcelas_servico` + RPC `servicos_financeiro`); oficina entra após CQ confirmado.
 9. **Segurança / RPC** — padrão **wrapper + `_core`**: o wrapper checa
    `user_can_view(_pagina)` (dashboards) ou `tenant_module_enabled(_module)` (módulos
-   desligáveis) e o `_core` tem EXECUTE revogado de anon+authenticated. ⚠️ **`REVOKE … FROM PUBLIC`
-   NÃO basta** — o default ACL do Supabase concede EXECUTE a `anon`/`authenticated` em toda função
-   nova; use **`REVOKE EXECUTE … FROM anon, authenticated`** no `_core` (senão dá pra chamar o `_core`
-   direto e furar o gate de módulo — regressão real pega na revisão do CQ Pós). Loja inativa = suspensão real
+   desligáveis) e o `_core` tem EXECUTE revogado. ⚠️ **Revogue dos TRÊS: `REVOKE EXECUTE ON FUNCTION
+   public._xxx_core(...) FROM PUBLIC, anon, authenticated;`**. O default ACL do Postgres concede EXECUTE a
+   **PUBLIC** (`proacl = {=X/…}`), e `anon`/`authenticated` **HERDAM de PUBLIC** — revogar só de
+   anon/authenticated é INÓCUO (o PUBLIC continua). Confira sempre com
+   `has_function_privilege('anon'|'authenticated','_xxx_core(args)','EXECUTE') = false`. Pior quando o `_core`
+   recebe o tenant/id por **parâmetro** e não valida o chamador (fura módulo E multi-tenant). Regressão real:
+   `_estoque_aviamento_core` do M2 revogou só anon/authenticated, PUBLIC ficou → IDOR de leitura cross-tenant
+   por anon (corrigido em `20260708170000`; era o CQ Pós de novo, agora documentado certo). Loja inativa = suspensão real
    (sentinela nil → RLS bloqueia + RPCs dão RAISE). `reset_loja`/`excluir_loja` são
    super_admin-only; `_wipe_tenant_core` usa `session_replication_role=replica` (FKs p/
    `tenants` são NO ACTION); super_admins nunca são apagados.
