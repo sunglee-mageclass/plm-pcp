@@ -103,13 +103,13 @@ function OtbPage() {
     for (const s of semanas) definido[s.colecao_id] = (definido[s.colecao_id] ?? 0) + Number(s.qtd_planejada ?? 0);
     const byCol: Record<string, typeof modelosLink> = {};
     for (const m of modelosLink) (byCol[m.colecao_id] ??= []).push(m);
-    const out: Record<string, { definido: number; planejados: number; previsto: number; real: number }> = {};
+    const out: Record<string, { definido: number; planejados: number; previsto: number; real: number; poder: number }> = {};
     for (const c of colecoes) {
       const ms = byCol[c.id] ?? [];
       const resumo = computeColecaoResumo(ms as any, custoMap as any, gradeMap as any, linhaMarkupMap as any);
       const planejados = ms.filter((m) => m.status_planejamento === "planejado").length;
       // "custo comprometido" = real (que já cai no previsto quando não há CAD no corte).
-      out[c.id] = { definido: definido[c.id] ?? 0, planejados, previsto: resumo.previsto, real: resumo.real };
+      out[c.id] = { definido: definido[c.id] ?? 0, planejados, previsto: resumo.previsto, real: resumo.real, poder: resumo.poder };
     }
     return out;
   }, [semanas, modelosLink, colecoes, custoMap, gradeMap, linhaMarkupMap]);
@@ -162,7 +162,7 @@ function OtbPage() {
             const anoNome = c.ano_id ? (anos.find((a) => a.id === c.ano_id)?.nome ?? null) : null;
             const mesNome = c.mes_id ? (meses.find((m) => m.id === c.mes_id)?.nome ?? null) : null;
             const periodoLabel = [mesNome, anoNome].filter(Boolean).join(" / ");
-            const st = statsByColecao[c.id] ?? { definido: 0, planejados: 0, previsto: 0, real: 0 };
+            const st = statsByColecao[c.id] ?? { definido: 0, planejados: 0, previsto: 0, real: 0, poder: 0 };
             const orc = c.orcamento != null ? Number(c.orcamento) : null;
             const temOrc = orc != null && orc > 0;
             const fora = temOrc && st.real > (orc as number);
@@ -183,6 +183,7 @@ function OtbPage() {
                 {periodoLabel && <div className="text-xs text-muted-foreground mt-0.5">{periodoLabel}</div>}
                 <div className="text-sm text-muted-foreground mt-1">Orçamento: {c.orcamento != null ? brl(Number(c.orcamento)) : "—"}</div>
                 <div className="text-sm text-muted-foreground">Custo comprometido: {brl(st.real)}</div>
+                <div className="text-sm font-medium">Poder de venda: {brl(st.poder)}</div>
                 <div className="mt-1">
                   <span className="text-xs text-muted-foreground tabular-nums" title="Modelos em status planejado / quantidade definida no OTB">
                     {st.definido > 0 ? `${st.planejados}/${st.definido} planejados` : `${st.planejados} ${st.planejados === 1 ? "planejado" : "planejados"}`}
