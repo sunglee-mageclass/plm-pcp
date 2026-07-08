@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles, Plus, Upload, Trash2, ArrowLeft } from "lucide-react";
@@ -159,12 +159,14 @@ function OcAviamentoPage() {
       toast.success("OC excluída.");
       setDeleting(null);
       qc.invalidateQueries({ queryKey: ["ocs_aviamento"] });
+      qc.invalidateQueries({ queryKey: ["oc-avi"] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir.")),
   });
 
-  // Compute valores per OC via separate query
-  const ocIds = ocs.map((o) => o.id);
+  // Compute valores per OC via separate query. useMemo p/ a ref do array ser estável
+  // (é dep da queryKey ["ocs-avi-totals", ocIds]; recriar a cada render é frágil).
+  const ocIds = useMemo(() => ocs.map((o) => o.id), [ocs]);
   const { data: itemsByOC = {} } = useQuery({
     queryKey: ["ocs-avi-totals", ocIds],
     enabled: ocIds.length > 0,
@@ -564,8 +566,13 @@ function OcDialog({
     } catch (e: any) { toast.error(mensagemErro(e)); }
   };
 
+  // Guarda SÍNCRONA contra duplo-clique (isPending só atualiza no re-render; 2 cliques
+  // rápidos disparam 2 saves = 2 OCs). Espelha o padrão da OC Tecido.
+  const savingRef = useRef(false);
+
   const saveMutation = useMutation({
     mutationFn: async (markReceived: boolean) => {
+      if (!draft.empresa_id) throw new Error("Informe o Fornecedor.");
       if (!draft.data_prevista_entrega) throw new Error("Informe a Data Prevista de Entrega.");
       if (!draft.prazo_pagamento?.trim()) throw new Error("Informe o Prazo de Pagamento.");
       const selecionados = items.filter((i) => i.aviamento_id);
@@ -617,6 +624,7 @@ function OcDialog({
       toast.success("OC salva");
       qc.invalidateQueries({ queryKey: ["ocs_aviamento"] });
       qc.invalidateQueries({ queryKey: ["ocs-avi-totals"] });
+      qc.invalidateQueries({ queryKey: ["oc-avi"] });
       qc.invalidateQueries({ queryKey: ["parcelas"] });
       onSaved();
       onClose();
@@ -645,6 +653,7 @@ function OcDialog({
       setConfirmUnmark(false);
       qc.invalidateQueries({ queryKey: ["ocs_aviamento"] });
       qc.invalidateQueries({ queryKey: ["ocs-avi-totals"] });
+      qc.invalidateQueries({ queryKey: ["oc-avi"] });
       qc.invalidateQueries({ queryKey: ["parcelas"] });
       onSaved();
       onClose();
@@ -681,8 +690,14 @@ function OcDialog({
     return m;
   };
 
+  const handleSave = () => {
+    if (savingRef.current || saveMutation.isPending) return; // guarda síncrona contra duplo-clique
+    savingRef.current = true;
+    saveMutation.mutate(false, { onSettled: () => { savingRef.current = false; } });
+  };
+
   const handleMarkReceived = () => {
-    if (saveMutation.isPending) return; // evita duplo-clique duplicar itens/parcelas
+    if (savingRef.current || saveMutation.isPending) return; // guarda síncrona contra duplo-clique
     if (!canMarkReceived) {
       const missing = getMissingRequirements();
       toast.error("Não é possível marcar como recebido", {
@@ -690,7 +705,8 @@ function OcDialog({
       });
       return;
     }
-    saveMutation.mutate(true);
+    savingRef.current = true;
+    saveMutation.mutate(true, { onSettled: () => { savingRef.current = false; } });
   };
 
   return (
@@ -708,8 +724,10 @@ function OcDialog({
             </div>
             <div className="grid gap-1">
               <Label>Fornecedor</Label>
-              {/* Trocar o fornecedor limpa o representante (reps são daquela empresa). */}
-              <Select value={draft.empresa_id ?? ""} onValueChange={(v) => setDraft((d) => ({ ...d, empresa_id: v, representante_id: null }))}>
+              {/* Trocar o fornecedor limpa o representante (reps são daquela empresa) E os
+                  itens: aviamentos são por empresa; itens de outra empresa virariam órfãos
+                  (some da UI mas gravavam com preço 0). Só dispara em interação do usuário. */}
+              <Select value={draft.empresa_id ?? ""} onValueChange={(v) => { setDraft((d) => ({ ...d, empresa_id: v, representante_id: null })); setItems([]); }}>
                 <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
                 <SelectContent>
                   {empresas.map((e) => <SelectItem key={e.id} value={e.id}>{e.nome_fantasia}</SelectItem>)}
@@ -844,7 +862,7 @@ function OcDialog({
                       <TableCell data-label="Qtd Recebida">
                         <NumberInput type="number" step="0.01" value={i.quantidade_recebida ?? ""}
                           disabled={i.cancelado}
-                          onChange={(e) => updateItem(i.tempId, { quantidade_recebida: e.target.value === "" ? null : Number(e.target.value) })} />
+                          onChange={(e) => updateItem(i.tempId, { quantidade_recebida: e.target.value === "" ? null : Math.max(0, Number(e.target.value)) })} />
                       </TableCell>
                     )}
                     <TableCell data-label="Valor Prev." className="text-sm">{fmtMoney(valorPrev(i))}</TableCell>
@@ -984,7 +1002,7 @@ function OcDialog({
                 </Button>
               )
             )}
-            <Button onClick={() => saveMutation.mutate(false)} disabled={saveMutation.isPending}>
+            <Button onClick={handleSave} disabled={saveMutation.isPending}>
               Salvar
             </Button>
           </div>

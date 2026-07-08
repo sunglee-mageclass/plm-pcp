@@ -689,7 +689,10 @@ function AviamentosTab() {
 
       const rows = (aviamentos.data ?? []).map((a: any) => {
         const acc = byAv.get(a.id) ?? { prevReceb: 0, recebido: 0, baixa: 0, reservado: 0 };
-        const fisico = acc.recebido - acc.baixa;
+        // Físico não pode ser negativo (estoque físico de unidades). O clamp protege
+        // a exibição e o "previsto" caso alguma baixa antiga tenha ultrapassado o
+        // recebido; a trava real contra baixar acima do saldo está na OS (OrdemSaidaPage).
+        const fisico = Math.max(0, acc.recebido - acc.baixa);
         const previsto = fisico + acc.prevReceb - acc.reservado;
         return {
           id: a.id,
@@ -874,7 +877,8 @@ function useEstoqueAviamentoDetalhe(aviamentoId: string, open: boolean) {
         .from("ocs_aviamento_itens")
         .select("id, quantidade_recebida, ocs_aviamento!inner(numero_pedido, data_entrega, status, empresas(nome_fantasia))")
         .eq("aviamento_id", aviamentoId)
-        .eq("ocs_aviamento.status", "recebido");
+        .eq("ocs_aviamento.status", "recebido")
+        .eq("cancelado" as any, false);
       if (error) throw error;
       return (data ?? []) as any[];
     },

@@ -156,6 +156,55 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
   // digitar kg num campo que é lido como metros.
   const unidadeQtd = tipo === "tecido" ? "m" : "un";
 
+  // Saldo disponível por aviamento para TRAVAR baixa acima do estoque (C1: sem isto
+  // dava pra baixar mais do que existe e o físico ficava negativo). Réplica da
+  // definição canônica de físico do estoque de aviamento (entrada-saida.estoque.tsx):
+  // físico = recebido(OC recebida, não cancelado) − baixa(CAD enviado ao corte + OS já
+  // baixadas, exceto a atual). Só aviamento; tecido usa seu próprio motor. Falha aberta
+  // (saldo desconhecido → não bloqueia) p/ nunca travar baixa legítima por erro de query.
+  const { data: dispAvi = {} as Record<string, number> } = useQuery({
+    queryKey: ["os-avi-saldo", baixaOS?.id],
+    enabled: tipo === "aviamento" && !!baixaOS,
+    queryFn: async () => {
+      const ids = Array.from(
+        new Set((baixaOS!.itens ?? []).map((it: any) => it[cfg.itemFk]).filter(Boolean)),
+      ) as string[];
+      if (ids.length === 0) return {} as Record<string, number>;
+      const [rec, cad, os] = await Promise.all([
+        supabase.from("ocs_aviamento_itens")
+          .select("aviamento_id, quantidade_pedida, quantidade_recebida, ocs_aviamento!inner(status)")
+          .in("aviamento_id", ids).eq("ocs_aviamento.status", "recebido").eq("cancelado" as any, false),
+        supabase.from("cad_aviamentos")
+          .select("aviamento_id, quantidade_enviar, quantidade_separar, cad!inner(enviado_corte)")
+          .in("aviamento_id", ids).eq("cad.enviado_corte", true),
+        supabase.from("ordens_saida_aviamento_itens" as any)
+          .select("aviamento_id, baixa, ordem_saida_id, ordens_saida_aviamento!inner(baixado)")
+          .in("aviamento_id", ids).eq("ordens_saida_aviamento.baixado", true).neq("ordem_saida_id", baixaOS!.id),
+      ]);
+      if (rec.error) throw rec.error;
+      if (cad.error) throw cad.error;
+      if (os.error) throw os.error;
+      const disp: Record<string, number> = {};
+      for (const id of ids) disp[id] = 0;
+      for (const r of (rec.data ?? []) as any[]) disp[r.aviamento_id] += num(r.quantidade_recebida ?? r.quantidade_pedida);
+      for (const c of (cad.data ?? []) as any[]) { const sep = num(c.quantidade_separar); disp[c.aviamento_id] -= sep > 0 ? sep : num(c.quantidade_enviar); }
+      for (const o of (os.data ?? []) as any[]) disp[o.aviamento_id] -= num(o.baixa);
+      return disp;
+    },
+  });
+
+  const saldoDisp = (it: any): number | null => {
+    if (tipo !== "aviamento") return null;
+    const avId = it[cfg.itemFk];
+    return avId in dispAvi ? dispAvi[avId] : null;
+  };
+  const excedeSaldo = (it: any): boolean => {
+    const disp = saldoDisp(it);
+    if (disp == null) return false; // saldo desconhecido → não bloqueia
+    return num(utilizado[it.id] ?? it.reserva ?? 0) > disp + 1e-9;
+  };
+  const algumExcede = (baixaOS?.itens ?? []).some(excedeSaldo);
+
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
     if (!s) return ordens;
@@ -284,6 +333,11 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
       // grava o utilizado de cada item como baixa, e marca a OS como baixada.
       for (const it of baixaOS.itens ?? []) {
         const u = num(utilizado[it.id] ?? it.reserva ?? 0);
+        // Trava de saldo (aviamento): não deixa baixar acima do disponível (evita estoque negativo).
+        const disp = saldoDisp(it);
+        if (disp != null && u > disp + 1e-9) {
+          throw new Error(`Baixa acima do estoque disponível (${fmtNum(disp)} ${unidadeQtd}). Ajuste o utilizado.`);
+        }
         const { error } = await supabase.from(cfg.itensTable as any).update({ baixa: u }).eq("id", it.id);
         if (error) throw error;
       }
@@ -525,11 +579,17 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
                 <div key={it.id} className="flex items-center justify-between gap-3 p-2">
                   <div className="min-w-0 flex-1">
                     <div className="text-sm truncate">{itemLabelById.get(it[cfg.itemFk]) ?? "—"}</div>
-                    <div className="text-xs text-muted-foreground">Reserva: {fmtNum(num(it.reserva))} {unidadeQtd}</div>
+                    <div className="text-xs text-muted-foreground">
+                      Reserva: {fmtNum(num(it.reserva))} {unidadeQtd}
+                      {saldoDisp(it) != null && <> · Disponível: {fmtNum(saldoDisp(it)!)} {unidadeQtd}</>}
+                    </div>
+                    {excedeSaldo(it) && (
+                      <div className="text-xs text-destructive">Acima do disponível.</div>
+                    )}
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
                     <Input
-                      className="w-24"
+                      className={excedeSaldo(it) ? "w-24 border-destructive" : "w-24"}
                       inputMode="decimal"
                       placeholder="Utilizado"
                       value={utilizado[it.id] ?? ""}
@@ -546,7 +606,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
             <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={() => { setBaixaOS(null); setUtilizado({}); }}>
               <ArrowLeft className="h-4 w-4" />
             </Button>
-            <Button className="max-sm:ml-auto" onClick={() => baixaMut.mutate()} disabled={baixaMut.isPending}>
+            <Button className="max-sm:ml-auto" onClick={() => baixaMut.mutate()} disabled={baixaMut.isPending || algumExcede}>
               {baixaMut.isPending ? "Baixando…" : "Confirmar baixa"}
             </Button>
           </DialogFooter>
