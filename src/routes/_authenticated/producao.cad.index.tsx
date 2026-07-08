@@ -86,7 +86,7 @@ function CadListPage() {
   const { data: meses = [] } = useQuery({
     queryKey: ["opt", "meses"],
     queryFn: async () => {
-      const { data } = await supabase.from("meses").select("id, nome:mes").order("mes");
+      const { data } = await supabase.from("meses").select("id, nome:mes").order("ordem");
       return data ?? [];
     },
   });

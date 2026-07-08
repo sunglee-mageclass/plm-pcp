@@ -179,7 +179,7 @@ function TecidoDetail() {
   const { data: meses = [] } = useQuery({
     queryKey: ["meses-options"],
     queryFn: async () => {
-      const { data } = await supabase.from("meses").select("id,mes").order("mes");
+      const { data } = await supabase.from("meses").select("id,mes").order("ordem");
       return (data ?? []) as { id: string; mes: string }[];
     },
   });

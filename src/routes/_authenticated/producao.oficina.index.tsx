@@ -53,7 +53,7 @@ function OficinaListPage() {
 
   const { data: meses = [] } = useQuery({
     queryKey: ["opt", "meses"],
-    queryFn: async () => (await supabase.from("meses").select("id, nome:mes").order("mes")).data ?? [],
+    queryFn: async () => (await supabase.from("meses").select("id, nome:mes").order("ordem")).data ?? [],
   });
   const { data: anos = [] } = useQuery({
     queryKey: ["opt", "anos"],

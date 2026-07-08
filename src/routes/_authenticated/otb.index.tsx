@@ -26,7 +26,7 @@ export const Route = createFileRoute("/_authenticated/otb/")({
 
 function useOpts(table: string, key = "nome") {
   return useQuery({ queryKey: ["opt", table], queryFn: async () => {
-    const { data } = await supabase.from(table as any).select(`id, ${key}`).order(key);
+    const { data } = await supabase.from(table as any).select(`id, ${key}`).order(table === "meses" ? "ordem" : key);
     return ((data ?? []) as any[]).map((r) => ({ id: r.id, nome: r[key] }));
   }});
 }

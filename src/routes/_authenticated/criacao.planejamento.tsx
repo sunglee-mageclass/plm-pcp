@@ -152,7 +152,7 @@ function useOpts(table: string, key = "nome") {
   return useQuery({
     queryKey: ["opt", table, key],
     queryFn: async () => {
-      const { data, error } = await supabase.from(table as any).select(`id, ${key}`).order(key);
+      const { data, error } = await supabase.from(table as any).select(`id, ${key}`).order(table === "meses" ? "ordem" : key);
       if (error) throw error;
       return (data ?? []).map((r: any) => ({ id: r.id, nome: r[key] })) as Opt[];
     },

@@ -92,6 +92,10 @@ const ATTRIBUTES: AttributeItem[] = [
       nameField: "mes",
       singular: "Mês",
       plural: "Meses",
+      // Os 12 meses são fixos: dá pra renomear a nomenclatura (01/Jan/JAN/Janeiro),
+      // mas não criar nem excluir; a ordem cronológica vem da coluna `ordem`.
+      fixed: true,
+      orderField: "ordem",
       usage: [
         { table: "artigos", column: "mes_id" },
         { table: "modelos", column: "mes_id" },

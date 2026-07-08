@@ -244,7 +244,7 @@ function ConsumoOcPage() {
   const { data: mesMap = {} } = useQuery({
     queryKey: ["meses-map"],
     queryFn: async () => {
-      const { data } = await supabase.from("meses").select("id, mes");
+      const { data } = await supabase.from("meses").select("id, mes").order("ordem");
       const m: Record<string, string> = {};
       for (const r of (data ?? []) as any[]) m[r.id] = r.mes;
       return m;

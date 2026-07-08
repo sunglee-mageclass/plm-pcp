@@ -76,6 +76,10 @@ export type AttributeTabConfig = {
   fixedFilter?: { field: string; value: string };
   /** Nomes fixos do sistema (case-insensitive) que NÃO podem ser editados/excluídos. */
   protectedNames?: string[];
+  /** Conjunto FIXO (ex.: os 12 meses): não dá pra criar nem excluir, só renomear. */
+  fixed?: boolean;
+  /** Coluna de ordenação da lista e dos dropdowns (ex.: "ordem"). Default: nameField. */
+  orderField?: string;
 };
 
 type Row = Record<string, any>;
@@ -100,7 +104,9 @@ export function AttributeTab({
   const [newExtraNum, setNewExtraNum] = useState<string>("");
   const [newEnum, setNewEnum] = useState<string>("");
   const { isAdmin } = useAuth(); // exclusão em massa é só p/ admin+ (tenant_admin ou super_admin)
-  const colCount = (isAdmin ? 3 : 2) + (config.extra ? 1 : 0) + (config.extraNumber ? 1 : 0) + (config.extraEnum ? 1 : 0);
+  // Conjunto fixo (meses): sem criar/excluir/seleção em massa — só renomear.
+  const showCheck = isAdmin && !config.fixed;
+  const colCount = 2 + (showCheck ? 1 : 0) + (config.extra ? 1 : 0) + (config.extraNumber ? 1 : 0) + (config.extraEnum ? 1 : 0);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [deleteRow, setDeleteRow] = useState<Row | null>(null);
@@ -123,7 +129,7 @@ export function AttributeTab({
   const { data: rows = [], isLoading } = useQuery({
     queryKey: listKey,
     queryFn: async () => {
-      let q = supabase.from(config.table as any).select("*").order(config.nameField);
+      let q = supabase.from(config.table as any).select("*").order(config.orderField ?? config.nameField);
       if (config.fixedFilter) {
         q = q.eq(config.fixedFilter.field, config.fixedFilter.value);
       }
@@ -183,7 +189,11 @@ export function AttributeTab({
   }, [config.extra, extraMap]);
 
   const sortState = useSort(filtered, { key: config.nameField, accessors: sortAccessors });
-  const sorted = sortState.sorted;
+  // Conjunto fixo (meses): ordem cronológica estável pela coluna `orderField`, ignorando o
+  // clique de ordenação — a listagem tem que sair sempre na ordem certa.
+  const sorted = config.fixed && config.orderField
+    ? [...filtered].sort((a, b) => Number(a[config.orderField!] ?? 0) - Number(b[config.orderField!] ?? 0))
+    : sortState.sorted;
 
   const createMut = useMutation({
     mutationFn: async () => {
@@ -366,29 +376,35 @@ export function AttributeTab({
             className="pl-9"
           />
         </div>
-        {isAdmin && selected.size > 0 && !readOnly && (
+        {showCheck && selected.size > 0 && !readOnly && (
           <Button variant="destructive" onClick={() => setBulkOpen(true)}>
             <Trash2 className="h-4 w-4 mr-1" /> Excluir ({selected.size})
           </Button>
         )}
-        <Button className="max-sm:hidden" onClick={() => setCreateOpen(true)} disabled={readOnly}>
-          <Plus className="h-4 w-4 mr-1" />
-          Novo
-        </Button>
+        {!config.fixed && (
+          <Button className="max-sm:hidden" onClick={() => setCreateOpen(true)} disabled={readOnly}>
+            <Plus className="h-4 w-4 mr-1" />
+            Novo
+          </Button>
+        )}
       </div>
 
       <div className="rounded-lg border">
         <Table>
           <TableHeader>
             <TableRow>
-              {isAdmin && (
+              {showCheck && (
                 <TableHead className="w-10">
                   {selectableIds.length > 0 && !readOnly && (
                     <Checkbox checked={allSelected} onCheckedChange={toggleAll} aria-label="Selecionar todos" />
                   )}
                 </TableHead>
               )}
-              <SortHead label="Nome" sortKey={config.nameField} sortState={sortState} />
+              {config.fixed ? (
+                <TableHead>Nome</TableHead>
+              ) : (
+                <SortHead label="Nome" sortKey={config.nameField} sortState={sortState} />
+              )}
               {config.extra && (
                 <SortHead label={config.extra.label} sortKey={config.extra.field} sortState={sortState} />
               )}
@@ -418,7 +434,7 @@ export function AttributeTab({
             ) : (
               sorted.map((row) => (
                 <TableRow key={row.id} data-state={selected.has(row.id) ? "selected" : undefined}>
-                  {isAdmin && (
+                  {showCheck && (
                     <TableCell className="w-10">
                       {!isProtected(row) && !readOnly && (
                         <Checkbox checked={selected.has(row.id)} onCheckedChange={() => toggleOne(row.id)} aria-label="Selecionar" />
@@ -530,9 +546,11 @@ export function AttributeTab({
                         <Button size="icon" variant="ghost" onClick={() => startEdit(row)} disabled={readOnly}>
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button size="icon" variant="ghost" onClick={() => startDelete(row)} disabled={readOnly}>
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
+                        {!config.fixed && (
+                          <Button size="icon" variant="ghost" onClick={() => startDelete(row)} disabled={readOnly}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
                       </>
                     )}
                   </TableCell>
@@ -690,12 +708,14 @@ export function AttributeTab({
       </AlertDialog>
 
       {/* Mobile: o "+ Novo" desce pra barra fixa, com o nome do atributo selecionado. */}
-      <MobileActionBar>
-        <Button className="ml-auto" onClick={() => setCreateOpen(true)} disabled={readOnly}>
-          <Plus className="h-4 w-4 mr-1" />
-          Novo
-        </Button>
-      </MobileActionBar>
+      {!config.fixed && (
+        <MobileActionBar>
+          <Button className="ml-auto" onClick={() => setCreateOpen(true)} disabled={readOnly}>
+            <Plus className="h-4 w-4 mr-1" />
+            Novo
+          </Button>
+        </MobileActionBar>
+      )}
     </div>
   );
 }
