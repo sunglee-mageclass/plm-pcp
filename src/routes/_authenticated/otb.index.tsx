@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -147,6 +147,7 @@ function OtbPage() {
             { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...anos] },
             { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
           ]} />
+          <Button variant="ghost" size="sm" asChild className="text-muted-foreground"><Link to="/otb-beta">🧪 Fluxo por meta (beta)</Link></Button>
           <Button variant="outline" className="max-sm:hidden" onClick={() => importar.mutate()} disabled={importar.isPending}>Importar coleções existentes</Button>
           <Button className="max-sm:hidden" onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /> Nova coleção</Button>
         </div>
