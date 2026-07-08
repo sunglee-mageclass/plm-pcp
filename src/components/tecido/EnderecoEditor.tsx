@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { MapPin, Plus, Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -199,7 +199,36 @@ export function EnderecoConsolidadoEditor({
     qc.invalidateQueries({ queryKey: ["end-tecido"] });
   };
 
-  const rowKey = (r: EnderecoRollup) => r.endereco_id ?? r.rolo_id ?? "";
+  // Agrupa por ENDEREÇO (rua|prateleira). Mesmo vão com vários rolos/OCs vira UMA linha com
+  // as origens listadas embaixo (em vez de repetir a linha). Endereços vazios (linha recém
+  // adicionada) ficam individuais p/ poder digitar. Editar/remover age em TODOS os membros.
+  type Grupo = { id: string; membros: EnderecoRollup[]; rua: string; prateleira: string; origens: string[] };
+  const grupos: Grupo[] = useMemo(() => {
+    const porEndereco = new Map<string, EnderecoRollup[]>();
+    const vazios: EnderecoRollup[] = [];
+    for (const r of rows) {
+      const rua = (r.rua ?? "").trim();
+      const prat = (r.prateleira ?? "").trim();
+      if (!rua && !prat) { vazios.push(r); continue; }
+      const k = `${rua}|${prat}`;
+      porEndereco.set(k, [...(porEndereco.get(k) ?? []), r]);
+    }
+    const idDe = (ms: EnderecoRollup[]) => ms.map((m) => m.endereco_id ?? m.rolo_id ?? "").sort().join(",");
+    const out: Grupo[] = [];
+    for (const membros of porEndereco.values()) {
+      out.push({
+        id: idDe(membros),
+        membros,
+        rua: membros[0].rua ?? "",
+        prateleira: membros[0].prateleira ?? "",
+        origens: Array.from(new Set(membros.filter((m) => m.origem !== "manual" && m.origem_label).map((m) => m.origem_label))),
+      });
+    }
+    for (const v of vazios) {
+      out.push({ id: v.endereco_id ?? v.rolo_id ?? "", membros: [v], rua: v.rua ?? "", prateleira: v.prateleira ?? "", origens: [] });
+    }
+    return out;
+  }, [rows]);
 
   const addMut = useMutation({
     mutationFn: async () => {
@@ -212,20 +241,19 @@ export function EnderecoConsolidadoEditor({
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao adicionar endereço.")),
   });
 
+  // Grava/remove em TODOS os membros do grupo (a mesma rua/prateleira física).
   const saveMut = useMutation({
-    mutationFn: async (r: EnderecoRollup & { _rua: string; _prat: string }) => {
-      if (r.endereco_id) {
-        const { error } = await supabase
-          .from("enderecamento_tecido" as any)
-          .update({ rua: r._rua, prateleira: r._prat })
-          .eq("id", r.endereco_id);
-        if (error) throw error;
-      } else if (r.rolo_id) {
-        const { error } = await supabase
-          .from("ocs_tecido")
-          .update({ rolo_rua: r._rua.trim() || null, rolo_prateleira: r._prat.trim() || null })
-          .eq("id", r.rolo_id);
-        if (error) throw error;
+    mutationFn: async (p: { membros: EnderecoRollup[]; rua: string; prat: string }) => {
+      for (const m of p.membros) {
+        if (m.endereco_id) {
+          const { error } = await supabase.from("enderecamento_tecido" as any)
+            .update({ rua: p.rua, prateleira: p.prat }).eq("id", m.endereco_id);
+          if (error) throw error;
+        } else if (m.rolo_id) {
+          const { error } = await supabase.from("ocs_tecido")
+            .update({ rolo_rua: p.rua.trim() || null, rolo_prateleira: p.prat.trim() || null }).eq("id", m.rolo_id);
+          if (error) throw error;
+        }
       }
     },
     onSuccess: invalidate,
@@ -233,65 +261,51 @@ export function EnderecoConsolidadoEditor({
   });
 
   const delMut = useMutation({
-    mutationFn: async (r: EnderecoRollup) => {
-      if (r.endereco_id) {
-        const { error } = await supabase.from("enderecamento_tecido" as any).delete().eq("id", r.endereco_id);
-        if (error) throw error;
-      } else if (r.rolo_id) {
-        // remover endereço do rolo = limpar as colunas (NÃO apaga o rolo)
-        const { error } = await supabase
-          .from("ocs_tecido")
-          .update({ rolo_rua: null, rolo_prateleira: null })
-          .eq("id", r.rolo_id);
-        if (error) throw error;
+    mutationFn: async (membros: EnderecoRollup[]) => {
+      for (const m of membros) {
+        if (m.endereco_id) {
+          const { error } = await supabase.from("enderecamento_tecido" as any).delete().eq("id", m.endereco_id);
+          if (error) throw error;
+        } else if (m.rolo_id) {
+          // remover endereço do rolo = limpar as colunas (NÃO apaga o rolo)
+          const { error } = await supabase.from("ocs_tecido")
+            .update({ rolo_rua: null, rolo_prateleira: null }).eq("id", m.rolo_id);
+          if (error) throw error;
+        }
       }
     },
     onSuccess: invalidate,
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao remover endereço.")),
   });
 
-  const val = (r: EnderecoRollup) => draft[rowKey(r)] ?? { rua: r.rua ?? "", prateleira: r.prateleira ?? "" };
-  const setVal = (k: string, patch: Partial<{ rua: string; prateleira: string }>) =>
-    setDraft((d) => ({ ...d, [k]: { ...(d[k] ?? { rua: "", prateleira: "" }), ...patch } }));
-  const commit = (r: EnderecoRollup) => {
-    const v = val(r);
-    if (v.rua !== (r.rua ?? "") || v.prateleira !== (r.prateleira ?? ""))
-      saveMut.mutate({ ...r, _rua: v.rua, _prat: v.prateleira });
+  const val = (g: Grupo) => draft[g.id] ?? { rua: g.rua, prateleira: g.prateleira };
+  const setVal = (id: string, patch: Partial<{ rua: string; prateleira: string }>) =>
+    setDraft((d) => ({ ...d, [id]: { ...(d[id] ?? { rua: "", prateleira: "" }), ...patch } }));
+  const commit = (g: Grupo) => {
+    const v = val(g);
+    if (v.rua !== g.rua || v.prateleira !== g.prateleira) saveMut.mutate({ membros: g.membros, rua: v.rua, prat: v.prateleira });
   };
 
   return (
     <div className="space-y-1.5">
-      {rows.length === 0 && <p className="text-xs text-muted-foreground">Sem endereço.</p>}
-      {rows.map((r) => {
-        const k = rowKey(r);
-        const v = val(r);
+      {grupos.length === 0 && <p className="text-xs text-muted-foreground">Sem endereço.</p>}
+      {grupos.map((g) => {
+        const v = val(g);
         return (
-          <div key={k}>
+          <div key={g.id}>
             <div className="flex items-center gap-2">
-              <Input
-                className="flex-1"
-                placeholder="Rua"
-                value={v.rua}
-                readOnly={readOnly}
-                onChange={(e) => setVal(k, { rua: e.target.value })}
-                onBlur={() => commit(r)}
-              />
-              <Input
-                className="flex-1"
-                placeholder="Prateleira"
-                value={v.prateleira}
-                readOnly={readOnly}
-                onChange={(e) => setVal(k, { prateleira: e.target.value })}
-                onBlur={() => commit(r)}
-              />
+              <Input className="flex-1" placeholder="Rua" value={v.rua} readOnly={readOnly}
+                onChange={(e) => setVal(g.id, { rua: e.target.value })} onBlur={() => commit(g)} />
+              <Input className="flex-1" placeholder="Prateleira" value={v.prateleira} readOnly={readOnly}
+                onChange={(e) => setVal(g.id, { prateleira: e.target.value })} onBlur={() => commit(g)} />
               {!readOnly && (
-                <Button size="iconSm" variant="ghost" onClick={() => delMut.mutate(r)} aria-label="Remover endereço">
+                <Button size="iconSm" variant="ghost" onClick={() => delMut.mutate(g.membros)} aria-label="Remover endereço">
                   <Trash2 className="h-4 w-4 text-destructive" />
                 </Button>
               )}
             </div>
-            {r.origem !== "manual" && r.origem_label && (
-              <p className="ml-1 mt-0.5 text-[11px] text-muted-foreground">{r.origem_label}</p>
+            {g.origens.length > 0 && (
+              <p className="ml-1 mt-0.5 text-[11px] text-muted-foreground">{g.origens.join(" · ")}</p>
             )}
           </div>
         );
