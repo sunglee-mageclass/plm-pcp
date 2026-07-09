@@ -148,6 +148,7 @@ function PadraoMixPage() {
               <Save className="h-4 w-4 mr-1" /> {dirty ? "Salvar" : "Salvo"}
             </Button>
           )}
+          <Button variant="outline" size="sm" asChild><Link to="/otb-beta-colecao">Coleção (maquete) →</Link></Button>
           <Button variant="ghost" size="sm" asChild className="text-muted-foreground"><Link to="/otb"><ArrowLeft className="h-4 w-4 mr-1" /> OTB</Link></Button>
         </div>
       </header>
