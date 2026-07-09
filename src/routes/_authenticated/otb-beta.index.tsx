@@ -1,43 +1,56 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { brl } from "@/lib/format";
-import { Layers, ArrowLeft, Plus, Trash2, ChevronRight, Pencil } from "lucide-react";
+import { Layers, ArrowLeft, Plus, Trash2, ChevronRight, Pencil, Save } from "lucide-react";
 
 /**
- * "Padrão do mix" (beta) — MAQUETE (só front, nada é salvo).
- * Template de defaults que uma coleção por PODER DE VENDA herda ao ser criada:
- *   • por LINHA (dropdown do cadastro → markup automático): % do mix, prof/cor, cores;
- *   • por CATEGORIA+SUB (dropdowns do cadastro): preço mín/máx (→ custo mín/máx pelo markup).
- * Dá pra ter VÁRIOS padrões (Verão, Inverno…) e escolher qual herdar ao criar a coleção.
- * Aqui NÃO tem mês/semana/qty/meta — isso é da coleção, não do padrão.
+ * "Padrão do mix" — template de defaults que uma coleção por PODER DE VENDA herda.
+ * Vários por loja. Por LINHA (dropdown do cadastro → markup automático): % do mix,
+ * prof/cor, cores. Por CATEGORIA+SUB (dropdowns do cadastro): preço mín/máx (→ custo).
+ * Persiste em mix_padroes/mix_padrao_linhas/mix_padrao_categorias via salvar_mix_padrao.
  */
 
 type Sub = { id: string; catId: string; subId: string; min: number; max: number };
 type LinhaMix = { id: string; linhaId: string; pct: number; profCor: number; cores: number; subs: Sub[] };
-type Padrao = { id: string; nome: string; linhas: LinhaMix[] };
+type Draft = { nome: string; linhas: LinhaMix[] };
 
 let _seq = 0;
 const nid = (p: string) => `${p}-${++_seq}`;
 const num = (v: string) => (v === "" ? 0 : Number(v.replace(",", ".")) || 0);
-const int = (n: number) => Math.round(n).toLocaleString("pt-BR");
 const pct1 = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
-
+const novaSub = (): Sub => ({ id: nid("s"), catId: "", subId: "", min: 0, max: 0 });
 const novaLinha = (): LinhaMix => ({ id: nid("l"), linhaId: "", pct: 0, profCor: 64, cores: 3, subs: [novaSub()] });
-function novaSub(): Sub { return { id: nid("s"), catId: "", subId: "", min: 0, max: 0 }; }
-const SEED: Padrao[] = [
-  { id: "verao", nome: "Padrão Verão", linhas: [novaLinha(), novaLinha()] },
-];
+
+function mapFromDb(p: any): Draft {
+  const linhas = [...(p.linhas ?? [])].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0)).map((l: any) => ({
+    id: l.id,
+    linhaId: l.linha_id ?? "",
+    pct: Number(l.pct) || 0,
+    profCor: Number(l.prof_cor) || 0,
+    cores: Number(l.cores) || 0,
+    subs: [...(l.categorias ?? [])].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0)).map((c: any) => ({
+      id: c.id,
+      catId: c.categoria_id ?? "",
+      subId: c.subcategoria1_id ?? "",
+      min: Number(c.preco_min) || 0,
+      max: Number(c.preco_max) || 0,
+    })),
+  }));
+  return { nome: p.nome, linhas };
+}
 
 export const Route = createFileRoute("/_authenticated/otb-beta/")({ component: PadraoMixPage });
 
 function PadraoMixPage() {
-  // Dropdowns REAIS do cadastro.
+  const qc = useQueryClient();
   const { data: linhaOpts = [] } = useQuery({
     queryKey: ["padrao-linhas"],
     queryFn: async () => (await supabase.from("linhas").select("id, nome, markup").order("nome")).data ?? [],
@@ -50,31 +63,76 @@ function PadraoMixPage() {
     queryKey: ["padrao-subs"],
     queryFn: async () => (await supabase.from("subcategorias1_produto").select("id, nome, categoria_id").order("nome")).data ?? [],
   });
+  const { data: padroes = [] } = useQuery({
+    queryKey: ["mix-padroes"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("mix_padroes" as any)
+        .select("id, nome, linhas:mix_padrao_linhas(id, linha_id, pct, prof_cor, cores, ordem, categorias:mix_padrao_categorias(id, categoria_id, subcategoria1_id, preco_min, preco_max, ordem))")
+        .order("nome");
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+
   const markupDe = (linhaId: string) => Number((linhaOpts as any[]).find((l) => l.id === linhaId)?.markup) || 0;
   const subsDaCat = (catId: string) => (subOpts as any[]).filter((s) => s.categoria_id === catId);
 
-  const [padroes, setPadroes] = useState<Padrao[]>(() => SEED.map((p) => ({ ...p, linhas: p.linhas.map((l) => ({ ...l, subs: l.subs.map((s) => ({ ...s })) })) })));
-  const [selId, setSelId] = useState(SEED[0].id);
-  const [editNomeId, setEditNomeId] = useState<string | null>(null);
+  const [selId, setSelId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Draft>({ nome: "", linhas: [] });
+  const [draftFor, setDraftFor] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const [editNome, setEditNome] = useState(false);
   const [aberta, setAberta] = useState<Record<string, boolean>>({});
 
-  const sel = padroes.find((p) => p.id === selId) ?? null;
-  const setLinhas = (fn: (ls: LinhaMix[]) => LinhaMix[]) =>
-    setPadroes((ps) => ps.map((p) => (p.id === selId ? { ...p, linhas: fn(p.linhas) } : p)));
-  const patchLinha = (lid: string, patch: Partial<LinhaMix>) => setLinhas((ls) => ls.map((l) => (l.id === lid ? { ...l, ...patch } : l)));
-  const patchSub = (lid: string, sid: string, patch: Partial<Sub>) =>
-    setLinhas((ls) => ls.map((l) => (l.id === lid ? { ...l, subs: l.subs.map((s) => (s.id === sid ? { ...s, ...patch } : s)) } : l)));
+  useEffect(() => { if (!selId && padroes.length) setSelId(padroes[0].id); }, [padroes, selId]);
+  useEffect(() => {
+    if (selId && selId !== draftFor) {
+      const p = padroes.find((x) => x.id === selId);
+      if (p) { setDraft(mapFromDb(p)); setDraftFor(selId); setDirty(false); }
+    }
+  }, [selId, padroes, draftFor]);
+
+  const upd = (fn: (d: Draft) => Draft) => { setDraft(fn); setDirty(true); };
+  const setLinhas = (fn: (ls: LinhaMix[]) => LinhaMix[]) => upd((d) => ({ ...d, linhas: fn(d.linhas) }));
+  const patchLinha = (lid: string, p: Partial<LinhaMix>) => setLinhas((ls) => ls.map((l) => (l.id === lid ? { ...l, ...p } : l)));
+  const patchSub = (lid: string, sid: string, p: Partial<Sub>) => setLinhas((ls) => ls.map((l) => (l.id === lid ? { ...l, subs: l.subs.map((s) => (s.id === sid ? { ...s, ...p } : s)) } : l)));
   const addLinha = () => setLinhas((ls) => [...ls, novaLinha()]);
   const delLinha = (lid: string) => setLinhas((ls) => ls.filter((l) => l.id !== lid));
   const addSub = (lid: string) => setLinhas((ls) => ls.map((l) => (l.id === lid ? { ...l, subs: [...l.subs, novaSub()] } : l)));
   const delSub = (lid: string, sid: string) => setLinhas((ls) => ls.map((l) => (l.id === lid ? { ...l, subs: l.subs.filter((s) => s.id !== sid) } : l)));
 
-  const addPadrao = () => { const id = nid("p"); setPadroes((ps) => [...ps, { id, nome: `Padrão ${ps.length + 1}`, linhas: [novaLinha()] }]); setSelId(id); setEditNomeId(id); };
-  const delPadrao = (id: string) => setPadroes((ps) => { const r = ps.filter((p) => p.id !== id); if (id === selId) setSelId(r[0]?.id ?? ""); return r; });
-  const renomear = (id: string, nome: string) => setPadroes((ps) => ps.map((p) => (p.id === id ? { ...p, nome } : p)));
+  const salvar = useMutation({
+    mutationFn: async () => {
+      const payload = draft.linhas.map((l) => ({
+        linha_id: l.linhaId || null, pct: l.pct, prof_cor: l.profCor, cores: l.cores,
+        categorias: l.subs.map((s) => ({ categoria_id: s.catId || null, subcategoria1_id: s.subId || null, preco_min: s.min, preco_max: s.max })),
+      }));
+      const { data, error } = await supabase.rpc("salvar_mix_padrao" as any, { _id: selId, _nome: draft.nome.trim(), _linhas: payload });
+      if (error) throw error;
+      return data as string;
+    },
+    onSuccess: () => { toast.success("Padrão salvo."); setDirty(false); qc.invalidateQueries({ queryKey: ["mix-padroes"] }); },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar o padrão.")),
+  });
+  const criar = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.rpc("salvar_mix_padrao" as any, { _id: null, _nome: `Padrão ${padroes.length + 1}`, _linhas: [] });
+      if (error) throw error;
+      return data as string;
+    },
+    onSuccess: (id) => { qc.invalidateQueries({ queryKey: ["mix-padroes"] }); setSelId(id); setDraftFor(null); },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao criar o padrão.")),
+  });
+  const excluir = useMutation({
+    mutationFn: async (id: string) => { const { error } = await supabase.rpc("excluir_mix_padrao" as any, { _id: id }); if (error) throw error; },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["mix-padroes"] }); setSelId(null); setDraftFor(null); },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir o padrão.")),
+  });
 
-  const somaPct = useMemo(() => (sel?.linhas ?? []).reduce((s, l) => s + (Number(l.pct) || 0), 0), [sel]);
+  const somaPct = useMemo(() => draft.linhas.reduce((s, l) => s + (Number(l.pct) || 0), 0), [draft.linhas]);
   const fieldCls = "h-8 rounded-md border border-input bg-background px-2 text-sm";
+  const temSel = !!selId && !!padroes.find((p) => p.id === selId);
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-4 max-sm:pb-24">
@@ -84,50 +142,65 @@ function PadraoMixPage() {
           <h1 className="text-2xl font-bold">Padrão do mix</h1>
           <Badge variant="secondary">beta</Badge>
         </div>
-        <Button variant="ghost" size="sm" asChild className="text-muted-foreground"><Link to="/otb"><ArrowLeft className="h-4 w-4 mr-1" /> OTB</Link></Button>
+        <div className="flex items-center gap-2">
+          {temSel && (
+            <Button size="sm" onClick={() => salvar.mutate()} disabled={!dirty || salvar.isPending}>
+              <Save className="h-4 w-4 mr-1" /> {dirty ? "Salvar" : "Salvo"}
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" asChild className="text-muted-foreground"><Link to="/otb"><ArrowLeft className="h-4 w-4 mr-1" /> OTB</Link></Button>
+        </div>
       </header>
 
       <p className="text-sm text-muted-foreground">
-        Defaults que uma coleção por <strong>Poder de Venda</strong> já herda ao ser criada. Aqui você define,
-        por linha, o % do mix, profundidade/cor e cores; e por categoria+subcategoria, a faixa de preço mín–máx.
+        Defaults que uma coleção por <strong>Poder de Venda</strong> herda. Por linha: % do mix, profundidade/cor
+        e cores (markup vem do cadastro). Por categoria+subcategoria: a faixa de preço mín–máx.
       </p>
 
       {/* Seletor de padrões */}
       <div className="flex flex-wrap items-center gap-2">
-        {padroes.map((p) => (
-          <div key={p.id} className={`flex items-center gap-1 rounded-full border px-1 ${p.id === selId ? "border-primary bg-primary/5" : ""}`}>
-            {editNomeId === p.id ? (
-              <Input autoFocus value={p.nome} onChange={(e) => renomear(p.id, e.target.value)} onBlur={() => setEditNomeId(null)}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") setEditNomeId(null); }} className="h-7 w-32" />
-            ) : (
-              <button className="px-2 py-1 text-sm font-medium" onClick={() => setSelId(p.id)}>{p.nome}</button>
-            )}
-            {p.id === selId && (
-              <>
-                <Button variant="ghost" size="iconSm" className="h-6 w-6" onClick={() => setEditNomeId(p.id)}><Pencil className="h-3.5 w-3.5 text-muted-foreground" /></Button>
-                {padroes.length > 1 && <Button variant="ghost" size="iconSm" className="h-6 w-6" onClick={() => delPadrao(p.id)}><Trash2 className="h-3.5 w-3.5 text-muted-foreground" /></Button>}
-              </>
-            )}
-          </div>
-        ))}
-        <Button variant="outline" size="sm" onClick={addPadrao}><Plus className="h-4 w-4 mr-1" /> Padrão</Button>
+        {padroes.map((p) => {
+          const isSel = p.id === selId;
+          return (
+            <div key={p.id} className={`flex items-center gap-1 rounded-full border px-1 ${isSel ? "border-primary bg-primary/5" : ""}`}>
+              {isSel && editNome ? (
+                <Input autoFocus value={draft.nome} onChange={(e) => upd((d) => ({ ...d, nome: e.target.value }))}
+                  onBlur={() => setEditNome(false)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") setEditNome(false); }} className="h-7 w-36" />
+              ) : (
+                <button className="px-2 py-1 text-sm font-medium" onClick={() => setSelId(p.id)}>
+                  {isSel ? draft.nome : p.nome}{isSel && dirty && <span className="ml-1 text-amber-600" title="não salvo">•</span>}
+                </button>
+              )}
+              {isSel && (
+                <>
+                  <Button variant="ghost" size="iconSm" className="h-6 w-6" onClick={() => setEditNome(true)}><Pencil className="h-3.5 w-3.5 text-muted-foreground" /></Button>
+                  <Button variant="ghost" size="iconSm" className="h-6 w-6" onClick={() => excluir.mutate(p.id)}><Trash2 className="h-3.5 w-3.5 text-muted-foreground" /></Button>
+                </>
+              )}
+            </div>
+          );
+        })}
+        <Button variant="outline" size="sm" onClick={() => criar.mutate()} disabled={criar.isPending}><Plus className="h-4 w-4 mr-1" /> Padrão</Button>
       </div>
 
       {linhaOpts.length === 0 && (
         <div className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-          Nenhuma linha cadastrada ainda — cadastre em <strong>Cadastro › Atributos › Linha</strong> pra aparecer aqui.
+          Nenhuma linha cadastrada — cadastre em <strong>Cadastro › Atributos › Linha</strong> pra escolher aqui.
         </div>
       )}
 
-      {/* Linhas do padrão selecionado */}
-      {sel && (
+      {!temSel ? (
+        <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+          Nenhum padrão ainda. Clique em <strong>+ Padrão</strong> pra criar o primeiro.
+        </div>
+      ) : (
         <div className="space-y-2">
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Mix de modelos por linha</span>
             <span className={`tabular-nums ${Math.abs(somaPct - 100) > 0.5 ? "text-amber-600" : "text-muted-foreground"}`}>Σ % = {pct1(somaPct)}</span>
           </div>
 
-          {sel.linhas.map((l) => {
+          {draft.linhas.map((l) => {
             const open = aberta[l.id] ?? true;
             const mk = markupDe(l.linhaId);
             return (
