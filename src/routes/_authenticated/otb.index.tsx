@@ -48,11 +48,29 @@ function OtbPage() {
   const { data: colecoes = [] } = useQuery({
     queryKey: ["otb-colecoes"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("colecoes").select("id, nome, status, orcamento, mes_id, ano_id, tipo").order("created_at", { ascending: false });
+      const { data, error } = await supabase.from("colecoes").select("id, nome, status, orcamento, mes_id, ano_id, tipo, poder_venda_meta").order("created_at", { ascending: false });
       if (error) throw error;
       return data as any[];
     },
   });
+
+  // Poder de venda PLANEJADO por coleção PV (Σ qtd × prof × cores × valor médio da faixa).
+  const { data: pvItens = [] } = useQuery({
+    queryKey: ["otb-pv-poder"],
+    queryFn: async () => {
+      const { data } = await supabase.from("colecao_pv_itens" as any).select("colecao_id, prof_cor, cores, preco_min, preco_max, qtd_semanas");
+      return (data ?? []) as any[];
+    },
+  });
+  const poderPVMap = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const it of pvItens as any[]) {
+      const tot = Object.values(it.qtd_semanas ?? {}).reduce((s: number, v: any) => s + (Number(v) || 0), 0);
+      const vm = (Number(it.preco_min) + Number(it.preco_max)) / 2;
+      m[it.colecao_id] = (m[it.colecao_id] || 0) + tot * (Number(it.prof_cor) || 0) * (Number(it.cores) || 0) * vm;
+    }
+    return m;
+  }, [pvItens]);
 
   // Aggregate data for xx/yy modelos + badge
   const { data: semanas = [] } = useQuery({
@@ -188,9 +206,24 @@ function OtbPage() {
                   </div>
                 </div>
                 {periodoLabel && <div className="text-xs text-muted-foreground mt-0.5">{periodoLabel}</div>}
-                <div className="text-sm text-muted-foreground mt-1">Orçamento: {c.orcamento != null ? brl(Number(c.orcamento)) : "—"}</div>
-                <div className="text-sm text-muted-foreground">Custo comprometido: {brl(st.real)}</div>
-                <div className="text-sm font-medium">Poder de venda: {brl(st.poder)}</div>
+                {c.tipo === "poder_venda" ? (() => {
+                  const pvMeta = Number(c.poder_venda_meta) || 0;
+                  const pvPoder = poderPVMap[c.id] || 0;
+                  const pvPct = pvMeta > 0 ? (pvPoder / pvMeta) * 100 : 0;
+                  return (
+                    <div className="mt-1 space-y-1">
+                      <div className="text-sm"><span className="text-muted-foreground">Poder de venda:</span> {brl(pvPoder)} <span className="text-muted-foreground">de {pvMeta > 0 ? brl(pvMeta) : "—"}</span></div>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted"><div className={`h-full ${pvPct >= 100 ? "bg-emerald-500" : "bg-primary"}`} style={{ width: `${Math.min(100, pvPct)}%` }} /></div>
+                      {pvMeta > 0 && <div className="text-right text-xs font-semibold text-primary">{Math.round(pvPct)}% da meta</div>}
+                    </div>
+                  );
+                })() : (
+                  <>
+                    <div className="text-sm text-muted-foreground mt-1">Orçamento: {c.orcamento != null ? brl(Number(c.orcamento)) : "—"}</div>
+                    <div className="text-sm text-muted-foreground">Custo comprometido: {brl(st.real)}</div>
+                    <div className="text-sm font-medium">Poder de venda: {brl(st.poder)}</div>
+                  </>
+                )}
                 <div className="mt-1">
                   <span className="text-xs text-muted-foreground tabular-nums" title="Modelos em status planejado / quantidade definida no OTB">
                     {st.definido > 0 ? `${st.planejados}/${st.definido} planejados` : `${st.planejados} ${st.planejados === 1 ? "planejado" : "planejados"}`}
