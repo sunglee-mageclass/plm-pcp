@@ -176,9 +176,9 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
                         <option value="">— linha —</option>{(linhaOpts as any[]).map((o) => <option key={o.id} value={o.id}>{o.nome}</option>)}
                       </select>
                       <span className="text-xs text-muted-foreground">markup <b className="tabular-nums text-foreground">{mk ? `${mk.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}×` : "—"}</b></span>
-                      <Lbl t="% mix"><Input className="h-8 w-16 px-1 text-right tabular-nums" inputMode="decimal" value={l.pct} onChange={(e) => patchLinha(l.id, { pct: num(e.target.value) })} /></Lbl>
-                      <Lbl t="prof/cor"><Input className="h-8 w-14 px-1 text-right tabular-nums" inputMode="numeric" value={l.profCor} onChange={(e) => patchLinha(l.id, { profCor: Math.max(0, Math.round(num(e.target.value))) })} /></Lbl>
-                      <Lbl t="cores"><Input className="h-8 w-12 px-1 text-right tabular-nums" inputMode="numeric" value={l.cores} onChange={(e) => patchLinha(l.id, { cores: Math.max(0, Math.round(num(e.target.value))) })} /></Lbl>
+                      <Lbl t="% mix"><Input className="h-8 w-16 px-1 text-left tabular-nums" inputMode="decimal" value={l.pct} onChange={(e) => patchLinha(l.id, { pct: num(e.target.value) })} /></Lbl>
+                      <Lbl t="prof/cor"><Input className="h-8 w-14 px-1 text-left tabular-nums" inputMode="numeric" value={l.profCor} onChange={(e) => patchLinha(l.id, { profCor: Math.max(0, Math.round(num(e.target.value))) })} /></Lbl>
+                      <Lbl t="cores"><Input className="h-8 w-12 px-1 text-left tabular-nums" inputMode="numeric" value={l.cores} onChange={(e) => patchLinha(l.id, { cores: Math.max(0, Math.round(num(e.target.value))) })} /></Lbl>
                       <Button variant="ghost" size="iconSm" className="ml-auto max-sm:h-11 max-sm:w-11" onClick={() => delLinha(l.id)}><Trash2 className="h-4 w-4 text-muted-foreground" /></Button>
                     </div>
 
@@ -187,7 +187,7 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
                         <div className="overflow-x-auto">
                           <table className="w-full text-sm card-table">
                             <thead className="text-xs text-muted-foreground">
-                              <tr className="[&>th]:px-2 [&>th]:py-1 [&>th]:font-medium [&>th]:text-right [&>th:first-child]:text-left [&>th:nth-child(2)]:text-left">
+                              <tr className="[&>th]:px-2 [&>th]:py-1 [&>th]:font-medium [&>th]:text-left">
                                 <th className="min-w-[9rem]">Categoria</th><th className="min-w-[9rem]">Subcategoria</th>
                                 <th>Preço mín</th><th>Preço máx</th>
                                 <th className="text-muted-foreground/70">Custo mín</th><th className="text-muted-foreground/70">Custo máx</th><th />
@@ -195,7 +195,7 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
                             </thead>
                             <tbody>
                               {l.subs.map((s) => (
-                                <tr key={s.id} className="border-t border-border/50 [&>td]:px-2 [&>td]:py-1 [&>td]:text-right [&>td:first-child]:text-left [&>td:nth-child(2)]:text-left">
+                                <tr key={s.id} className="border-t border-border/50 [&>td]:px-2 [&>td]:py-1 [&>td]:text-left">
                                   <td>
                                     <select className={`${fieldCls} min-w-[9rem] max-sm:w-full`} value={s.catId} onChange={(e) => patchSub(l.id, s.id, { catId: e.target.value, subId: "" })}>
                                       <option value="">— categoria —</option>{(catOpts as any[]).map((o) => <option key={o.id} value={o.id}>{o.nome}</option>)}
@@ -206,8 +206,8 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
                                       <option value="">{s.catId ? "— subcategoria —" : "escolha a categoria"}</option>{subsDaCat(s.catId).map((o: any) => <option key={o.id} value={o.id}>{o.nome}</option>)}
                                     </select>
                                   </td>
-                                  <td data-label="Preço mín"><Input className="h-8 w-20 max-sm:h-9 px-1 text-right tabular-nums" inputMode="decimal" value={s.min} onChange={(e) => patchSub(l.id, s.id, { min: num(e.target.value) })} /></td>
-                                  <td data-label="Preço máx"><Input className="h-8 w-20 max-sm:h-9 px-1 text-right tabular-nums" inputMode="decimal" value={s.max} onChange={(e) => patchSub(l.id, s.id, { max: num(e.target.value) })} /></td>
+                                  <td data-label="Preço mín"><Input className="h-8 w-20 max-sm:h-9 px-1 text-left tabular-nums" inputMode="decimal" value={s.min} onChange={(e) => patchSub(l.id, s.id, { min: num(e.target.value) })} /></td>
+                                  <td data-label="Preço máx"><Input className="h-8 w-20 max-sm:h-9 px-1 text-left tabular-nums" inputMode="decimal" value={s.max} onChange={(e) => patchSub(l.id, s.id, { max: num(e.target.value) })} /></td>
                                   <td data-label="Custo mín" className="tabular-nums text-muted-foreground/70">{mk ? brl(s.min / mk) : "—"}</td>
                                   <td data-label="Custo máx" className="tabular-nums text-muted-foreground/70">{mk ? brl(s.max / mk) : "—"}</td>
                                   <td data-label=""><Button variant="ghost" size="iconSm" onClick={() => delSub(l.id, s.id)}><Trash2 className="h-4 w-4 text-muted-foreground" /></Button></td>

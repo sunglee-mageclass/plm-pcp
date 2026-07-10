@@ -277,14 +277,14 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
                                   <option value="">— linha —</option>{(linhaOpts as any[]).map((o) => <option key={o.id} value={o.id}>{o.nome}</option>)}
                                 </select>
                                 <span className="text-xs text-muted-foreground">markup <b className="text-foreground tabular-nums">{mk ? `${mk.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}×` : "—"}</b></span>
-                                <Lbl t="prof/cor"><Input className="h-8 w-14 px-1 text-right tabular-nums" inputMode="numeric" value={l.profCor} onChange={(e) => patchLinha(s.id, l.id, { profCor: Math.max(0, Math.round(num(e.target.value))) })} /></Lbl>
-                                <Lbl t="cores"><Input className="h-8 w-12 px-1 text-right tabular-nums" inputMode="numeric" value={l.cores} onChange={(e) => patchLinha(s.id, l.id, { cores: Math.max(0, Math.round(num(e.target.value))) })} /></Lbl>
+                                <Lbl t="prof/cor"><Input className="h-8 w-14 px-1 text-left tabular-nums" inputMode="numeric" value={l.profCor} onChange={(e) => patchLinha(s.id, l.id, { profCor: Math.max(0, Math.round(num(e.target.value))) })} /></Lbl>
+                                <Lbl t="cores"><Input className="h-8 w-12 px-1 text-left tabular-nums" inputMode="numeric" value={l.cores} onChange={(e) => patchLinha(s.id, l.id, { cores: Math.max(0, Math.round(num(e.target.value))) })} /></Lbl>
                                 <Button variant="ghost" size="iconSm" className="ml-auto max-sm:h-11 max-sm:w-11" onClick={() => delLinha(s.id, l.id)}><Trash2 className="h-4 w-4 text-muted-foreground" /></Button>
                               </div>
                               <div className="overflow-x-auto">
                                 <table className="w-full text-sm card-table">
                                   <thead className="text-xs text-muted-foreground">
-                                    <tr className="[&>th]:px-2 [&>th]:py-1 [&>th]:font-medium [&>th]:text-right [&>th:first-child]:text-left [&>th:nth-child(2)]:text-left">
+                                    <tr className="[&>th]:px-2 [&>th]:py-1 [&>th]:font-medium [&>th]:text-left">
                                       <th className="min-w-[8rem]">Categoria</th><th className="min-w-[8rem]">Sub</th><th>Mín</th><th>Máx</th>
                                       {s.semanas.map((w) => <th key={w}>Sem {w}</th>)}<th>Total</th><th>Poder</th><th />
                                     </tr>
@@ -293,13 +293,13 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
                                     {l.cats.map((c) => {
                                       const tot = totCat(c, s.semanas); const vm = (c.min + c.max) / 2; const pod = tot * l.profCor * l.cores * vm;
                                       return (
-                                        <tr key={c.id} className="border-t border-border/50 [&>td]:px-2 [&>td]:py-1 [&>td]:text-right [&>td:first-child]:text-left [&>td:nth-child(2)]:text-left">
+                                        <tr key={c.id} className="border-t border-border/50 [&>td]:px-2 [&>td]:py-1 [&>td]:text-left">
                                           <td><select className={`${fieldCls} min-w-[8rem] max-sm:w-full`} value={c.catId} onChange={(e) => patchCat(s.id, l.id, c.id, { catId: e.target.value, subId: "" })}><option value="">— categoria —</option>{(catOpts as any[]).map((o) => <option key={o.id} value={o.id}>{o.nome}</option>)}</select></td>
                                           <td data-label="Subcategoria"><select className={`${fieldCls} min-w-[8rem] max-sm:w-full`} value={c.subId} disabled={!c.catId} onChange={(e) => patchCat(s.id, l.id, c.id, { subId: e.target.value })}><option value="">{c.catId ? "—" : "cat. antes"}</option>{subsDaCat(c.catId).map((o: any) => <option key={o.id} value={o.id}>{o.nome}</option>)}</select></td>
-                                          <td data-label="Preço mín"><Input className="h-8 w-20 max-sm:h-9 px-1 text-right tabular-nums" inputMode="decimal" value={c.min} onChange={(e) => patchCat(s.id, l.id, c.id, { min: num(e.target.value) })} /></td>
-                                          <td data-label="Preço máx"><Input className="h-8 w-20 max-sm:h-9 px-1 text-right tabular-nums" inputMode="decimal" value={c.max} onChange={(e) => patchCat(s.id, l.id, c.id, { max: num(e.target.value) })} /></td>
+                                          <td data-label="Preço mín"><Input className="h-8 w-20 max-sm:h-9 px-1 text-left tabular-nums" inputMode="decimal" value={c.min} onChange={(e) => patchCat(s.id, l.id, c.id, { min: num(e.target.value) })} /></td>
+                                          <td data-label="Preço máx"><Input className="h-8 w-20 max-sm:h-9 px-1 text-left tabular-nums" inputMode="decimal" value={c.max} onChange={(e) => patchCat(s.id, l.id, c.id, { max: num(e.target.value) })} /></td>
                                           {s.semanas.map((w) => (
-                                            <td key={w} data-label={`Sem ${w}`}><Input className="h-8 w-12 max-sm:h-9 max-sm:w-16 px-1 text-right tabular-nums" inputMode="numeric" value={c.q[String(w)] ?? 0} onChange={(e) => setQ(s.id, l.id, c.id, w, Math.max(0, Math.round(num(e.target.value))))} /></td>
+                                            <td key={w} data-label={`Sem ${w}`}><Input className="h-8 w-12 max-sm:h-9 max-sm:w-16 px-1 text-left tabular-nums" inputMode="numeric" value={c.q[String(w)] ?? 0} onChange={(e) => setQ(s.id, l.id, c.id, w, Math.max(0, Math.round(num(e.target.value))))} /></td>
                                           ))}
                                           <td data-label="Total" className="font-semibold tabular-nums">{int(tot)}</td>
                                           <td data-label="Poder" className="tabular-nums text-muted-foreground">{brl(pod)}</td>
