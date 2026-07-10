@@ -36,7 +36,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
   const { data: padroes = [] } = useQuery({
     queryKey: ["mix-padroes", "opts"],
     queryFn: async () => (await supabase.from("mix_padroes" as any)
-      .select("id, nome, linhas:mix_padrao_linhas(linha_id, prof_cor, cores, ordem, categorias:mix_padrao_categorias(categoria_id, subcategoria1_id, preco_min, preco_max, ordem))").order("nome")).data ?? [] as any[],
+      .select("id, nome, linhas:mix_padrao_linhas(linha_id, pct, prof_cor, cores, ordem, categorias:mix_padrao_categorias(categoria_id, subcategoria1_id, preco_min, preco_max, ordem))").order("nome")).data ?? [] as any[],
   });
   const { data: meses = [] } = useQuery({ queryKey: ["opt", "meses"], queryFn: async () => (await supabase.from("meses").select("id, mes").order("ordem")).data ?? [] });
   const { data: anos = [] } = useQuery({ queryKey: ["opt", "anos"], queryFn: async () => (await supabase.from("anos").select("id, ano").order("ano")).data ?? [] });
@@ -45,6 +45,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
   const { data: subOpts = [] } = useQuery({ queryKey: ["padrao-subs"], queryFn: async () => (await supabase.from("subcategorias1_produto").select("id, nome, categoria_id")).data ?? [] });
 
   const markupDe = (id: string) => Number((linhaOpts as any[]).find((l) => l.id === id)?.markup) || 0;
+  const nomeLinha = (id: string) => (linhaOpts as any[]).find((l) => l.id === id)?.nome ?? "—";
   const subsDaCat = (catId: string) => (subOpts as any[]).filter((s) => s.categoria_id === catId);
 
   const [savedId, setSavedId] = useState<string | null>(colecaoId);
@@ -154,6 +155,22 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
     return { poder, custo, modelos, desconto: (poder * perda) / 100, pvFinal: poder - (poder * perda) / 100, atingido: meta > 0 ? (poder / meta) * 100 : 0 };
   }, [subs, perda, meta, linhaOpts]);
 
+  // % REAL do mix por linha (modelos da linha ÷ total da coleção) vs a meta do padrão (pct).
+  const mixLinha = useMemo(() => {
+    const perLinha: Record<string, number> = {}; let total = 0;
+    for (const s of subs) for (const l of s.linhas) {
+      const mod = l.cats.reduce((a, c) => a + totCat(c, s.semanas), 0);
+      perLinha[l.linhaId || ""] = (perLinha[l.linhaId || ""] || 0) + mod; total += mod;
+    }
+    const p = (padroes as any[]).find((x) => x.id === padraoId);
+    const metaPct: Record<string, number> = {};
+    for (const pl of (p?.linhas ?? [])) if (pl.linha_id) metaPct[pl.linha_id] = Number(pl.pct) || 0;
+    const rows = Object.entries(perLinha).filter(([, m]) => m > 0).map(([lid, mod]) => ({
+      linhaId: lid, modelos: mod, real: total > 0 ? (mod / total) * 100 : 0, meta: lid in metaPct ? metaPct[lid] : null,
+    })).sort((a, b) => b.modelos - a.modelos);
+    return { rows, total };
+  }, [subs, padroes, padraoId]);
+
   const fieldCls = "h-9 rounded-md border border-input bg-background px-2 text-sm";
   const temPadrao = !!padraoId && !!(padroes as any[]).find((p) => p.id === padraoId);
 
@@ -169,8 +186,8 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           <Card className="p-4">
-            <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
-              <label className="space-y-1 sm:col-span-2"><span className="text-xs font-medium text-muted-foreground">Nome</span>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              <label className="space-y-1 col-span-2"><span className="text-xs font-medium text-muted-foreground">Nome</span>
                 <Input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="ex.: Alto Verão 26" /></label>
               <label className="space-y-1"><span className="text-xs font-medium text-muted-foreground">Padrão do mix</span>
                 <select className={`${fieldCls} w-full`} value={padraoId} onChange={(e) => setPadraoId(e.target.value)}>
@@ -180,19 +197,44 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
                 <select className={`${fieldCls} w-full`} value={mesId} onChange={(e) => setMesId(e.target.value)}><option value="">—</option>{(meses as any[]).map((m) => <option key={m.id} value={m.id}>{m.mes}</option>)}</select></label>
               <label className="space-y-1"><span className="text-xs font-medium text-muted-foreground">Ano</span>
                 <select className={`${fieldCls} w-full`} value={anoId} onChange={(e) => setAnoId(e.target.value)}><option value="">—</option>{(anos as any[]).map((a) => <option key={a.id} value={a.id}>{a.ano}</option>)}</select></label>
-              <label className="space-y-1 sm:col-span-2"><span className="text-xs font-medium text-muted-foreground">Poder de venda meta</span>
+              <label className="space-y-1 col-span-2"><span className="text-xs font-medium text-muted-foreground">Poder de venda meta</span>
                 <Input inputMode="decimal" value={meta} onChange={(e) => setMeta(num(e.target.value))} /></label>
               <label className="space-y-1"><span className="text-xs font-medium text-muted-foreground">Perda markup</span>
                 <div className="flex items-center gap-1"><Input inputMode="decimal" value={perda} onChange={(e) => setPerda(num(e.target.value))} /><span className="text-muted-foreground">%</span></div></label>
             </div>
-            {meta > 0 && (
-              <div className="mt-3 space-y-1">
-                <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Poder de venda planejado</span>
-                  <span className="tabular-nums font-medium">{brl(d.poder)} <span className="text-muted-foreground">de {brl(meta)}</span></span></div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-muted"><div className="h-full bg-primary transition-all" style={{ width: `${Math.min(100, d.atingido)}%` }} /></div>
-                <div className="flex justify-between text-xs text-muted-foreground"><span>{int(d.modelos)} modelos · custo {brl(d.custo)} · desconto {brl(d.desconto)} · PV final {brl(d.pvFinal)}</span><span className="font-semibold text-primary">{pct1(d.atingido)} da meta</span></div>
+            <div className="mt-3 space-y-2">
+              {meta > 0 && (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Poder de venda planejado</span>
+                    <span className="tabular-nums font-medium">{brl(d.poder)} <span className="text-muted-foreground">de {brl(meta)}</span></span></div>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted"><div className="h-full bg-primary transition-all" style={{ width: `${Math.min(100, d.atingido)}%` }} /></div>
+                  <div className="text-right text-xs font-semibold text-primary">{pct1(d.atingido)} da meta</div>
+                </div>
+              )}
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                <span>{int(d.modelos)} modelos</span>
+                <span>Orçamento (custo): <b className="text-foreground tabular-nums">{brl(d.custo)}</b></span>
+                <span>Poder de venda: <b className="text-foreground tabular-nums">{brl(d.poder)}</b></span>
+                <span>Desconto: <span className="tabular-nums">{brl(d.desconto)}</span></span>
+                <span>PV final: <b className="text-foreground tabular-nums">{brl(d.pvFinal)}</b></span>
               </div>
-            )}
+              {mixLinha.rows.length > 0 && (
+                <div className="border-t pt-2">
+                  <div className="mb-1 text-xs font-medium text-muted-foreground">Mix por linha — % real vs meta do padrão</div>
+                  <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2">
+                    {mixLinha.rows.map((r) => {
+                      const off = r.meta != null && Math.abs(r.real - r.meta) > 3;
+                      return (
+                        <div key={r.linhaId} className="flex items-center justify-between text-sm">
+                          <span>{r.linhaId ? nomeLinha(r.linhaId) : "— sem linha —"} <span className="text-xs text-muted-foreground">· {int(r.modelos)} mod</span></span>
+                          <span className={`tabular-nums ${off ? "text-amber-600" : "text-foreground"}`}>{pct1(r.real)}{r.meta != null && <span className="text-muted-foreground"> / meta {pct1(r.meta)}</span>}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
           </Card>
 
           {!temPadrao ? (

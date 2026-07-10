@@ -227,7 +227,7 @@ function OtbPage() {
                   const pvPct = pvMeta > 0 ? (pvPoder / pvMeta) * 100 : 0;
                   return (
                     <div className="mt-1 space-y-1">
-                      <div className="text-sm text-muted-foreground">Orçamento (calc.): {orc != null ? brl(orc) : "—"}</div>
+                      <div className="text-sm text-muted-foreground">Orçamento: {orc != null ? brl(orc) : "—"}</div>
                       <div className="text-sm text-muted-foreground">Custo comprometido: {brl(st.real)}</div>
                       <div className="text-sm mt-1"><span className="text-muted-foreground">Poder de venda:</span> {brl(pvPoder)} <span className="text-muted-foreground">de {pvMeta > 0 ? brl(pvMeta) : "—"}</span></div>
                       <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted"><div className={`h-full ${pvPct >= 100 ? "bg-emerald-500" : "bg-primary"}`} style={{ width: `${Math.min(100, pvPct)}%` }} /></div>
