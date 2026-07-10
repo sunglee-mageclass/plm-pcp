@@ -1,13 +1,15 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { brl } from "@/lib/format";
-import { Target, ArrowLeft, Plus, Trash2, ChevronRight } from "lucide-react";
+import { Target, ArrowLeft, Plus, Trash2, ChevronRight, Save } from "lucide-react";
 
 /**
  * MAQUETE (só front) da coleção por PODER DE VENDA. Herda um "Padrão do mix" real
@@ -26,7 +28,15 @@ const int = (n: number) => Math.round(n).toLocaleString("pt-BR");
 const pct1 = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
 const somaQ = (a: number[]) => a.reduce((s, n) => s + (Number(n) || 0), 0);
 
-export const Route = createFileRoute("/_authenticated/otb-beta-colecao/")({ component: ColecaoPVMaquete });
+export const Route = createFileRoute("/_authenticated/otb-beta-colecao/")({
+  validateSearch: (s: Record<string, unknown>) => ({ id: typeof s.id === "string" ? s.id : undefined }),
+  component: ColecaoPVMaquete,
+});
+
+// jsonb {"1":n,...} → array por índice de semana; e o inverso.
+const semanasToArr = (o: any, n: number) => Array.from({ length: n }, (_, i) => Number(o?.[String(i + 1)]) || 0);
+const arrToSemanas = (a: number[]) => { const o: Record<string, number> = {}; a.forEach((v, i) => { if (v) o[String(i + 1)] = v; }); return o; };
+const maxSemana = (itens: any[]) => Math.max(4, ...itens.map((it) => Math.max(0, ...Object.keys(it.qtd_semanas ?? {}).map(Number))));
 
 function ColecaoPVMaquete() {
   const { data: padroes = [] } = useQuery({
@@ -56,6 +66,69 @@ function ColecaoPVMaquete() {
   const [semanas, setSemanas] = useState(4);
   const [subs, setSubs] = useState<Subcolecao[]>([]);
   const [aberta, setAberta] = useState<Record<string, boolean>>({});
+
+  const { id } = Route.useSearch();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const [hydratedFor, setHydratedFor] = useState<string | null>(null);
+
+  const { data: loaded } = useQuery({
+    queryKey: ["colecao-pv", id],
+    enabled: !!id,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("colecoes" as any)
+        .select("id, nome, mes_id, ano_id, mix_padrao_id, poder_venda_meta, perda_markup, subcolecoes:colecao_subcolecoes(id, nome, ordem), itens:colecao_pv_itens(id, subcolecao_id, linha_id, prof_cor, cores, categoria_id, subcategoria1_id, preco_min, preco_max, qtd_semanas, ordem)")
+        .eq("id", id).single();
+      if (error) throw error;
+      return data as any;
+    },
+  });
+
+  useEffect(() => {
+    if (!id || !loaded || hydratedFor === id) return;
+    const c = loaded;
+    const nSem = maxSemana(c.itens ?? []);
+    setNome(c.nome ?? ""); setMesId(c.mes_id ?? ""); setAnoId(c.ano_id ?? "");
+    setPadraoId(c.mix_padrao_id ?? ""); setMeta(Number(c.poder_venda_meta) || 0);
+    setPerda(Number(c.perda_markup) || 25); setSemanas(nSem);
+    const bySub: Record<string, any[]> = {};
+    for (const it of (c.itens ?? [])) (bySub[it.subcolecao_id] ??= []).push(it);
+    const mapped: Subcolecao[] = [...(c.subcolecoes ?? [])].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0)).map((sc: any) => {
+      const its = [...(bySub[sc.id] ?? [])].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0));
+      const lm: Record<string, LinhaSub> = {}; const ordem: string[] = [];
+      for (const it of its) {
+        const k = `${it.linha_id ?? ""}|${it.prof_cor}|${it.cores}`;
+        if (!lm[k]) { lm[k] = { id: nid("l"), linhaId: it.linha_id ?? "", profCor: Number(it.prof_cor) || 0, cores: Number(it.cores) || 0, cats: [] }; ordem.push(k); }
+        lm[k].cats.push({ id: nid("c"), catId: it.categoria_id ?? "", subId: it.subcategoria1_id ?? "", min: Number(it.preco_min) || 0, max: Number(it.preco_max) || 0, q: semanasToArr(it.qtd_semanas, nSem) });
+      }
+      return { id: nid("s"), nome: sc.nome, linhas: ordem.map((k) => lm[k]) };
+    });
+    setSubs(mapped); setHydratedFor(id);
+  }, [id, loaded, hydratedFor]);
+
+  const salvar = useMutation({
+    mutationFn: async () => {
+      const _header = { nome, mes_id: mesId || null, ano_id: anoId || null, mix_padrao_id: padraoId || null, poder_venda_meta: meta || null, perda_markup: perda };
+      const _subcolecoes = subs.map((s) => ({
+        nome: s.nome,
+        itens: s.linhas.flatMap((l) => l.cats.map((c) => ({
+          linha_id: l.linhaId || null, prof_cor: l.profCor, cores: l.cores,
+          categoria_id: c.catId || null, subcategoria1_id: c.subId || null,
+          preco_min: c.min, preco_max: c.max, qtd_semanas: arrToSemanas(c.q),
+        }))),
+      }));
+      const { data, error } = await supabase.rpc("salvar_colecao_pv" as any, { _id: id ?? null, _header, _subcolecoes });
+      if (error) throw error;
+      return data as string;
+    },
+    onSuccess: (newId) => {
+      toast.success("Coleção salva.");
+      qc.invalidateQueries({ queryKey: ["colecao-pv"] });
+      qc.invalidateQueries({ queryKey: ["otb-colecoes"] });
+      if (!id) { setHydratedFor(newId); navigate({ to: "/otb-beta-colecao", search: { id: newId } }); }
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar a coleção.")),
+  });
 
   const cloneDoPadrao = (): LinhaSub[] => {
     const p = (padroes as any[]).find((x) => x.id === padraoId);
@@ -109,17 +182,18 @@ function ColecaoPVMaquete() {
         <div className="flex items-center gap-3">
           <Target className="h-7 w-7 text-primary shrink-0" />
           <h1 className="text-2xl font-bold">Coleção por Poder de Venda</h1>
-          <Badge variant="secondary">maquete</Badge>
+          <Badge variant="secondary">beta</Badge>
         </div>
         <div className="flex items-center gap-2">
+          <Button size="sm" onClick={() => salvar.mutate()} disabled={!nome.trim() || salvar.isPending}><Save className="h-4 w-4 mr-1" /> Salvar</Button>
           <Button variant="ghost" size="sm" asChild className="text-muted-foreground"><Link to="/otb-beta"><ArrowLeft className="h-4 w-4 mr-1" /> Padrão do mix</Link></Button>
           <Button variant="ghost" size="sm" asChild className="text-muted-foreground"><Link to="/otb">OTB</Link></Button>
         </div>
       </header>
 
       <div className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-        🧪 Maquete — nada é salvo ainda. Escolha um <strong>Padrão do mix</strong> pra herdar a estrutura; ao adicionar
-        uma subcoleção, ela já vem com as linhas e categorias do padrão. Você lança a quantidade por semana.
+        Escolha um <strong>Padrão do mix</strong> pra herdar a estrutura; ao adicionar uma subcoleção, ela já vem
+        com as linhas e categorias do padrão (tudo editável). Lance a quantidade por semana e clique em <strong>Salvar</strong>.
       </div>
 
       {/* Cabeçalho da coleção */}

@@ -1,5 +1,7 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Target as TargetIcon, Wallet } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -33,8 +35,12 @@ function useOpts(table: string, key = "nome") {
 
 function OtbPage() {
   const { isModuleEnabled } = useTenantModules();
+  const navigate = useNavigate();
   const [openId, setOpenId] = useState<string | null>(null);
   const [openNew, setOpenNew] = useState(false);
+  const [tipoOpen, setTipoOpen] = useState(false);
+  const abrirColecao = (c: any) =>
+    c.tipo === "poder_venda" ? navigate({ to: "/otb-beta-colecao", search: { id: c.id } }) : setOpenId(c.id);
   const [fAno, setFAno] = useState("all");
   const [fMes, setFMes] = useState("all");
   const { data: meses = [] } = useOpts("meses", "mes");
@@ -42,7 +48,7 @@ function OtbPage() {
   const { data: colecoes = [] } = useQuery({
     queryKey: ["otb-colecoes"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("colecoes").select("id, nome, status, orcamento, mes_id, ano_id").order("created_at", { ascending: false });
+      const { data, error } = await supabase.from("colecoes").select("id, nome, status, orcamento, mes_id, ano_id, tipo").order("created_at", { ascending: false });
       if (error) throw error;
       return data as any[];
     },
@@ -149,7 +155,7 @@ function OtbPage() {
           ]} />
           <Button variant="outline" size="sm" asChild><Link to="/otb-beta">Padrão do mix</Link></Button>
           <Button variant="outline" className="max-sm:hidden" onClick={() => importar.mutate()} disabled={importar.isPending}>Importar coleções existentes</Button>
-          <Button className="max-sm:hidden" onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /> Nova coleção</Button>
+          <Button className="max-sm:hidden" onClick={() => setTipoOpen(true)}><Plus className="h-4 w-4 mr-1" /> Nova coleção</Button>
         </div>
       </header>
       {colecoesFiltradas.length === 0 ? (
@@ -172,11 +178,12 @@ function OtbPage() {
             const borderCor = !temOrc ? "border-l-amber-500" : fora ? "border-l-red-500" : "border-l-emerald-500";
             const orcTitle = !temOrc ? "Sem orçamento" : `${fora ? "Acima do" : "Dentro do"} orçamento — ${pctUso}% usado`;
             return (
-              <button key={c.id} onClick={() => setOpenId(c.id)} title={orcTitle} className={`text-left rounded-lg border border-l-4 ${borderCor} p-3 hover:bg-muted`}>
+              <button key={c.id} onClick={() => abrirColecao(c)} title={orcTitle} className={`text-left rounded-lg border border-l-4 ${borderCor} p-3 hover:bg-muted`}>
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-semibold truncate">{c.nome}</span>
                   <div className="flex shrink-0 items-center gap-2">
                     <span className="text-xs text-muted-foreground tabular-nums" title={orcTitle} aria-label={orcTitle}>{temOrc ? `${pctUso}%` : "—"}</span>
+                    {c.tipo === "poder_venda" && <Badge variant="outline" className="text-[10px]" title="Poder de Venda">PV</Badge>}
                     <Badge variant={c.status === "confirmada" ? "secondary" : "outline"}>{c.status === "confirmada" ? "Confirmada" : "Rascunho"}</Badge>
                   </div>
                 </div>
@@ -200,8 +207,35 @@ function OtbPage() {
       )}
       <MobileActionBar>
         <Button variant="outline" aria-label="Importar coleções existentes" onClick={() => importar.mutate()} disabled={importar.isPending}>Importar</Button>
-        <Button className="ml-auto" onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /> Nova coleção</Button>
+        <Button className="ml-auto" onClick={() => setTipoOpen(true)}><Plus className="h-4 w-4 mr-1" /> Nova coleção</Button>
       </MobileActionBar>
+
+      <Dialog open={tipoOpen} onOpenChange={setTipoOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Nova coleção</DialogTitle>
+            <DialogDescription>Como você quer montar esta coleção?</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <button
+              className="flex flex-col items-start gap-1 rounded-lg border p-4 text-left hover:bg-muted"
+              onClick={() => { setTipoOpen(false); setOpenNew(true); }}
+            >
+              <Wallet className="h-6 w-6 text-primary" />
+              <span className="font-semibold">Por Orçamento</span>
+              <span className="text-xs text-muted-foreground">Subcoleções, semanas e categorias, mirando o orçamento de custo.</span>
+            </button>
+            <button
+              className="flex flex-col items-start gap-1 rounded-lg border p-4 text-left hover:bg-muted"
+              onClick={() => { setTipoOpen(false); navigate({ to: "/otb-beta-colecao", search: { id: undefined } }); }}
+            >
+              <TargetIcon className="h-6 w-6 text-primary" />
+              <span className="font-semibold">Por Poder de Venda</span>
+              <span className="text-xs text-muted-foreground">Herda um Padrão do mix e mira a meta de poder de venda.</span>
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
