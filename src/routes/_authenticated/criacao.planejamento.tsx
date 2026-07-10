@@ -19,6 +19,7 @@ import { DateField } from "@/components/shared/DateField";
 import { ResumoVenda } from "@/components/shared/ResumoVenda";
 import { useCursorTip } from "@/components/shared/CursorTip";
 import { precoInfo } from "@/lib/preco";
+import { cqLiberado } from "@/lib/cq-status";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -915,12 +916,16 @@ function ModeloDialog({
     enabled: !!modeloId,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("cad").select("id, controle_qualidade(status)").eq("modelo_id", modeloId!).maybeSingle();
+        .from("cad")
+        .select("id, controle_qualidade(status, status_pos), producao_terceirizados(ativo, categorias_terceirizado(etapa))")
+        .eq("modelo_id", modeloId!).maybeSingle();
       if (error) throw error;
       return data;
     },
   });
-  const cqConfirmado = (((cqInfo as any)?.controle_qualidade ?? [])[0]?.status) === "confirmado";
+  // Lançar exige Pré confirmado E (se há serviço pós-costura) Pós confirmado — mesmo
+  // gate do Direcionamento (predicado único em @/lib/cq-status).
+  const cqConfirmado = cqLiberado(cqInfo as any);
 
   useQuery({
     queryKey: ["modelo", modeloId],

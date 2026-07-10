@@ -6,6 +6,7 @@ import { Compass, Search } from "lucide-react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { DirecionamentoDetail } from "@/routes/_authenticated/producao.direcionamento.$modeloId";
 import { supabase } from "@/integrations/supabase/client";
+import { cqLiberado } from "@/lib/cq-status";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { RevisaoErroBadge } from "@/components/producao/RevisaoErro";
 import { Card } from "@/components/ui/card";
@@ -42,13 +43,7 @@ function DirListPage() {
       // Só aparece após o CQ ser Confirmado: o Pré sempre; e o Pós também quando o
       // modelo tem serviço de acabamento (pós-costura).
       return (data ?? [])
-        .filter((m: any) => {
-          const cq = m.cad?.[0]?.controle_qualidade?.[0];
-          if ((cq?.status ?? "pendente") !== "confirmado") return false;
-          const tercs = (m.cad?.[0]?.producao_terceirizados ?? []).filter((t: any) => t.ativo !== false);
-          const temPos = tercs.some((t: any) => (t.categorias_terceirizado?.etapa ?? "ate_costura") === "pos_costura");
-          return !temPos || (cq?.status_pos ?? "pendente") === "confirmado";
-        })
+        .filter((m: any) => cqLiberado(m.cad?.[0]))
         .map((m: any) => ({
           modelo_id: m.id, ref: m.ref, versao: m.versao, nome: m.nome, colecao: m.colecao,
           mes_id: m.mes_id, ano_id: m.ano_id, linha_id: m.linha_id, revisao_pendente: m.revisao_pendente,

@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { DateField } from "@/components/shared/DateField";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { MatrizGradeResponsiva } from "@/components/shared/MatrizGradeResponsiva";
+import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
@@ -328,6 +329,18 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
     return out;
   }, [grades, variantList, tamanhos]);
 
+  // A Grade Real (Recebimento − Defeito) é o que segue p/ o Direcionamento. Alerta
+  // quando ela diverge da grade planejada no CAD — pega inclusive o caso em que o
+  // recebimento bateu mas os defeitos deixaram a grade curta (o recebDivergente não vê).
+  const realDivergente = useMemo(() => {
+    return variantList.some(({ num }) => {
+      const recebTotal = Object.values(grades.recebimento[num]?.grades ?? {}).reduce((s: number, x: any) => s + Number(x || 0), 0);
+      if (recebTotal === 0) return false; // ainda sem contagem → não sinaliza
+      const real = realByNum[num]?.grades ?? {};
+      return tamanhos.some((t) => Number(real[t] ?? 0) !== Number(cadGradeByNum[num]?.grades?.[t] ?? 0));
+    });
+  }, [realByNum, grades, variantList, tamanhos, cadGradeByNum]);
+
   // Monta os dados do CQ (controle_qualidade + cq_variantes + grade real) para o RPC.
   const buildCqData = () => {
     const cq = {
@@ -385,6 +398,18 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
     if (error) throw error;
   };
 
+  // Confirmar/desmarcar/editar o CQ mexe na Grade Real (cad_grades.grade_total_real) e no
+  // gate de Lançar/Direcionar — invalida todos os consumidores downstream.
+  const invalidateDownstream = async () => {
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ["producao-cq-list"] }),
+      qc.invalidateQueries({ queryKey: ["dir-list"] }),
+      qc.invalidateQueries({ queryKey: ["lancamentos-cards"] }),
+      qc.invalidateQueries({ queryKey: ["cad-grades", cad?.id] }),
+      qc.invalidateQueries({ queryKey: ["plan-cq"] }),
+    ]);
+  };
+
   const saveMut = useMutation({
     mutationFn: () => saveCq(false),
     onSuccess: async () => {
@@ -393,6 +418,9 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
       // Busca os dados frescos ANTES de liberar a hidratação (senão re-hidrata do
       // cache antigo/vazio e zera os números).
       await qc.invalidateQueries({ queryKey: ["cq", cad?.id] });
+      // Editar um CQ já confirmado regrava a Grade Real (o _core reescreve cad_grades
+      // enquanto o status segue 'confirmado') — propaga p/ downstream.
+      if (confirmado) await invalidateDownstream();
       await refetchCq();
       await refetchVars();
       setHydrated(false);
@@ -406,8 +434,7 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
       toast.success("Controle de Qualidade confirmado — enviado ao Direcionamento");
       setStatus("confirmado");
       await qc.invalidateQueries({ queryKey: ["cq", cad?.id] });
-      await qc.invalidateQueries({ queryKey: ["producao-cq-list"] });
-      await qc.invalidateQueries({ queryKey: ["dir-list"] });
+      await invalidateDownstream();
       await refetchCq();
       await refetchVars();
       setHydrated(false);
@@ -425,12 +452,77 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
       toast.success("Confirmação desmarcada — CQ voltou a editável");
       setStatus("pendente");
       await qc.invalidateQueries({ queryKey: ["cq", cad?.id] });
-      await qc.invalidateQueries({ queryKey: ["producao-cq-list"] });
-      await qc.invalidateQueries({ queryKey: ["dir-list"] });
+      await invalidateDownstream();
       await refetchCq();
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desmarcar")),
   });
+
+  // Botões de ação (Pré/Pós) — renderizados na barra do topo (desktop) E na
+  // MobileActionBar (portal no body). O mesmo fragmento serve os dois; sem duplicar lógica.
+  const backButton = onClose ? (
+    <Button type="button" variant="outline" size="icon" className="mr-auto" onClick={onClose} aria-label="Voltar">
+      <ArrowLeft className="h-4 w-4" />
+    </Button>
+  ) : (
+    <Button asChild variant="outline" size="icon" className="mr-auto" aria-label="Voltar">
+      <Link to="/producao/cq"><ArrowLeft className="h-4 w-4" /></Link>
+    </Button>
+  );
+  const actionButtons = (
+    <>
+      {view === "pre" && (!confirmado ? (
+        <>
+          <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly}>
+            <Save className="h-4 w-4 mr-2" /> Salvar
+          </Button>
+          <Button onClick={() => confirmMut.mutate()} disabled={confirmMut.isPending || saveMut.isPending || permReadOnly || !cad?.id}>
+            <CheckCircle2 className="h-4 w-4 mr-2" /> Confirmar Controle de Qualidade
+          </Button>
+        </>
+      ) : editing ? (
+        <>
+          <Button variant="ghost" onClick={() => { setEditing(false); setHydrated(false); }} disabled={saveMut.isPending}>
+            Cancelar
+          </Button>
+          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly}>
+            <Save className="h-4 w-4 mr-2" /> Salvar
+          </Button>
+        </>
+      ) : (
+        <>
+          <Button variant="outline" size="icon" onClick={() => setEditing(true)} disabled={permReadOnly} aria-label="Editar">
+            <Pencil className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || permReadOnly}>
+            <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar confirmação
+          </Button>
+        </>
+      ))}
+      {view === "pos" && (posBtn.confirmado && !posBtn.editing ? (
+        <>
+          <Button variant="outline" size="icon" onClick={() => cqPosRef.current?.edit()} disabled={permReadOnly} aria-label="Editar">
+            <Pencil className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" onClick={() => cqPosRef.current?.desmarcar()} disabled={permReadOnly || posBtn.pending}>
+            <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar confirmação
+          </Button>
+        </>
+      ) : (
+        <>
+          {posBtn.editing && (
+            <Button variant="ghost" onClick={() => cqPosRef.current?.cancel()} disabled={posBtn.pending}>Cancelar</Button>
+          )}
+          <Button variant="outline" onClick={() => cqPosRef.current?.save(false)} disabled={permReadOnly || posBtn.pending}>
+            <Save className="h-4 w-4 mr-2" /> Salvar
+          </Button>
+          <Button onClick={() => cqPosRef.current?.save(true)} disabled={permReadOnly || posBtn.pending || !posBtn.hasServicos}>
+            <CheckCircle2 className="h-4 w-4 mr-2" /> Confirmar CQ Pós
+          </Button>
+        </>
+      ))}
+    </>
+  );
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
@@ -453,66 +545,10 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
             </Button>
           )}
         </div>
-        <div className="flex items-center gap-2 max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-40 max-sm:justify-end max-sm:border-t max-sm:bg-background max-sm:p-3 max-sm:shadow-lg">
-          {onClose ? (
-            <Button type="button" variant="outline" size="icon" className="sm:hidden mr-auto" onClick={onClose} aria-label="Voltar">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          ) : (
-            <Button asChild variant="outline" size="icon" className="sm:hidden mr-auto" aria-label="Voltar">
-              <Link to="/producao/cq"><ArrowLeft className="h-4 w-4" /></Link>
-            </Button>
-          )}
-          {view === "pre" && (!confirmado ? (
-            <>
-              <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly}>
-                <Save className="h-4 w-4 mr-2" /> Salvar
-              </Button>
-              <Button onClick={() => confirmMut.mutate()} disabled={confirmMut.isPending || saveMut.isPending || permReadOnly || !cad?.id}>
-                <CheckCircle2 className="h-4 w-4 mr-2" /> Confirmar Controle de Qualidade
-              </Button>
-            </>
-          ) : editing ? (
-            <>
-              <Button variant="ghost" onClick={() => { setEditing(false); setHydrated(false); }} disabled={saveMut.isPending}>
-                Cancelar
-              </Button>
-              <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly}>
-                <Save className="h-4 w-4 mr-2" /> Salvar
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button variant="outline" size="icon" onClick={() => setEditing(true)} disabled={permReadOnly} aria-label="Editar">
-                <Pencil className="h-4 w-4" />
-              </Button>
-              <Button variant="outline" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || permReadOnly}>
-                <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar confirmação
-              </Button>
-            </>
-          ))}
-          {view === "pos" && (posBtn.confirmado && !posBtn.editing ? (
-            <>
-              <Button variant="outline" size="icon" onClick={() => cqPosRef.current?.edit()} disabled={permReadOnly} aria-label="Editar">
-                <Pencil className="h-4 w-4" />
-              </Button>
-              <Button variant="outline" onClick={() => cqPosRef.current?.desmarcar()} disabled={permReadOnly || posBtn.pending}>
-                <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar confirmação
-              </Button>
-            </>
-          ) : (
-            <>
-              {posBtn.editing && (
-                <Button variant="ghost" onClick={() => cqPosRef.current?.cancel()} disabled={posBtn.pending}>Cancelar</Button>
-              )}
-              <Button variant="outline" onClick={() => cqPosRef.current?.save(false)} disabled={permReadOnly || posBtn.pending}>
-                <Save className="h-4 w-4 mr-2" /> Salvar
-              </Button>
-              <Button onClick={() => cqPosRef.current?.save(true)} disabled={permReadOnly || posBtn.pending || !posBtn.hasServicos}>
-                <CheckCircle2 className="h-4 w-4 mr-2" /> Confirmar CQ Pós
-              </Button>
-            </>
-          ))}
+        {/* Desktop: ações na barra do topo. Mobile: MobileActionBar (portal no body,
+            imune ao containing block do Sheet — o max-sm:fixed inline descolava). */}
+        <div className="flex items-center gap-2 max-sm:hidden">
+          {actionButtons}
         </div>
       </div>
 
@@ -582,6 +618,7 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
       {/* Seção 1 - Recebimento (datas vêm de Serviços, read-only) */}
       <EtapaSection
         title="1. Recebimento"
+        hint="Tudo que voltou da produção — inclusive as peças com defeito. A Grade Real (abaixo) desconta os defeitos."
         etapa="recebimento"
         datas={[
           { label: "Data Enviado Oficina", value: oficina.enviado },
@@ -677,6 +714,11 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
           <h3 className="font-semibold text-lg">Grade Real</h3>
           <span className="text-xs text-muted-foreground">Recebimento − Defeito · usada no Direcionamento</span>
         </div>
+        {realDivergente && (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+            ⚠ A Grade Real está diferente da grade planejada no CAD — é ela (com os defeitos descontados) que seguirá para o Direcionamento.
+          </div>
+        )}
         <MatrizGradeResponsiva
           tamanhos={tamanhos}
           variantes={variantList.map((v) => ({ num: v.num, label: v.label }))}
@@ -731,6 +773,11 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
       </Card>
       </fieldset>
       )}
+
+      <MobileActionBar>
+        {backButton}
+        {actionButtons}
+      </MobileActionBar>
     </div>
   );
 }
@@ -742,6 +789,7 @@ type DataReadOnly = { key?: undefined; label: string; value: string };
 
 function EtapaSection(props: {
   title: string;
+  hint?: string;
   etapa: Etapa;
   datas: (DataEditavel | DataReadOnly)[];
   readOnlyDatas?: boolean;
@@ -754,10 +802,13 @@ function EtapaSection(props: {
   setQtd: (etapa: Etapa, num: number, tam: string, qtd: number) => void;
   overFn?: (num: number, tam: string, val: number) => boolean;
 }) {
-  const { title, etapa, datas, readOnlyDatas, form, setForm, tamanhos, variantList, labelByNumero, grades, setQtd, overFn } = props;
+  const { title, hint, etapa, datas, readOnlyDatas, form, setForm, tamanhos, variantList, labelByNumero, grades, setQtd, overFn } = props;
   return (
     <Card className="p-5 space-y-4">
-      <h3 className="font-semibold text-lg">{title}</h3>
+      <div>
+        <h3 className="font-semibold text-lg">{title}</h3>
+        {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      </div>
       <div className="grid gap-4 md:grid-cols-3">
         {datas.map((d) => (
           <div key={d.label}>
@@ -813,7 +864,7 @@ function GradeMatrix(props: {
         return (
           <NumberInput
             integer
-            className={`h-8 w-full border-0 text-center ${over ? "text-destructive font-semibold" : ""}`}
+            className={`h-8 max-md:h-11 w-full border-0 text-center ${over ? "text-destructive font-semibold" : ""}`}
             value={row?.grades?.[t] ?? ""}
             onChange={(e) => setQtd(etapa, num, t, Number(e.target.value) || 0)}
           />

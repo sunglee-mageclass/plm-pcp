@@ -7,6 +7,7 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { brl } from "@/lib/format";
 import { varianteLabel } from "@/lib/variante";
 import { precoInfo } from "@/lib/preco";
+import { cqLiberado } from "@/lib/cq-status";
 import { ResumoVenda } from "@/components/shared/ResumoVenda";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -101,14 +102,14 @@ function LancamentosPage() {
       // Produtos: enviados ao CAD + CQ CONFIRMADO + LANÇADOS (gate explícito no card).
       const { data: modelos, error } = await supabase
         .from("modelos")
-        .select("id, ref, nome, colecao, subcolecao, mes_id, ano_id, linha_id, versao, preco_venda, revisao_pendente, fotos_modelo, categoria_principal_id, subcategoria1_id, linha:linha_id(nome, markup), categorias_produto:categoria_principal_id(nome, grupo_id, grupo:grupo_id(nome)), subcategorias1_produto:subcategoria1_id(nome), cad(id, controle_qualidade(id, status, fotografado_variantes))")
+        .select("id, ref, nome, colecao, subcolecao, mes_id, ano_id, linha_id, versao, preco_venda, revisao_pendente, fotos_modelo, categoria_principal_id, subcategoria1_id, linha:linha_id(nome, markup), categorias_produto:categoria_principal_id(nome, grupo_id, grupo:grupo_id(nome)), subcategorias1_produto:subcategoria1_id(nome), cad(id, controle_qualidade(id, status, status_pos, fotografado_variantes), producao_terceirizados(ativo, categorias_terceirizado(etapa)))")
         .eq("enviado_cad", true)
         .eq("lancado", true);
       if (error) throw error;
 
-      const list = (modelos ?? []).filter(
-        (m: any) => m.cad?.[0]?.id && (m.cad[0].controle_qualidade?.[0]?.status ?? "pendente") === "confirmado",
-      );
+      // CQ liberado = Pré confirmado + (se há pós-costura) Pós confirmado, igual ao
+      // Direcionamento (@/lib/cq-status). Antes exigia só o Pré.
+      const list = (modelos ?? []).filter((m: any) => m.cad?.[0]?.id && cqLiberado(m.cad[0]));
       const modeloIds = list.map((m: any) => m.id);
       const cadIds = list.map((m: any) => m.cad[0].id);
 

@@ -178,6 +178,9 @@ export const CqPosView = forwardRef<CqPosHandle, {
       await qc.invalidateQueries({ queryKey: ["cqpos-itens"] });
       await qc.invalidateQueries({ queryKey: ["producao-cq-list"] });
       await qc.invalidateQueries({ queryKey: ["dir-list"] });
+      // O Pós agora também é gate de Lançar (Pré E, se há pós, Pós) — propaga.
+      await qc.invalidateQueries({ queryKey: ["lancamentos-cards"] });
+      await qc.invalidateQueries({ queryKey: ["plan-cq"] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
   });
@@ -194,6 +197,8 @@ export const CqPosView = forwardRef<CqPosHandle, {
       await qc.invalidateQueries({ queryKey: ["cqpos-cq", cadId] });
       await qc.invalidateQueries({ queryKey: ["producao-cq-list"] });
       await qc.invalidateQueries({ queryKey: ["dir-list"] });
+      await qc.invalidateQueries({ queryKey: ["lancamentos-cards"] });
+      await qc.invalidateQueries({ queryKey: ["plan-cq"] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desmarcar")),
   });
@@ -257,7 +262,7 @@ export const CqPosView = forwardRef<CqPosHandle, {
                   renderCell={(num, t) => (
                     <NumberInput
                       integer
-                      className="h-8 w-full border-0 text-center"
+                      className="h-8 max-md:h-11 w-full border-0 text-center"
                       value={rowOf(sv.id, et, num).grades?.[t] ?? ""}
                       onChange={(e) => setQtd(sv.id, et, num, t, Number(e.target.value) || 0)}
                     />
