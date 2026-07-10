@@ -17,6 +17,8 @@ import {
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { varianteLabel } from "@/lib/variante";
+import { empresaTemCategoria, FABRIC_TOKENS } from "@/lib/fornecedor-categoria";
+import { FornecedorSelect } from "@/components/shared/FornecedorSelect";
 
 import { supabase } from "@/integrations/supabase/client";
 import { EnderecoConsolidadoEditor, useEnderecosRollup, type EnderecoRollup } from "@/components/tecido/EnderecoEditor";
@@ -64,6 +66,7 @@ type Artigo = {
   id: string;
   nome: string;
   empresa_id: string | null;
+  representante_id: string | null;
   largura_estimada: number | null;
   categoria_tecido_id: string | null;
   composicao: string | null;
@@ -137,17 +140,16 @@ function TecidoDetail() {
   const { data: empresasBase = [] } = useQuery({
     queryKey: ["empresas-options", "tecido-forro-entretela"],
     queryFn: async () => {
+      // Fornecedores de material + representantes + categorias; casa por TOKEN flexível
+      // no cliente (o nome da categoria varia por loja — ver @/lib/fornecedor-categoria).
       const { data } = await supabase
         .from("empresas")
-        .select("id,nome_fantasia,empresa_categorias_fornecedor!inner(categorias_fornecedor!inner(nome))")
-        .in("empresa_categorias_fornecedor.categorias_fornecedor.nome", ["Tecido", "Forro", "Entretela"])
+        .select("id,nome_fantasia,representantes(id, nome),empresa_categorias_fornecedor(categorias_fornecedor(nome))")
+        .eq("tipo", "material")
         .order("nome_fantasia");
-      const seen = new Set<string>();
-      return ((data ?? []) as { id: string; nome_fantasia: string }[]).filter((e) => {
-        if (seen.has(e.id)) return false;
-        seen.add(e.id);
-        return true;
-      });
+      return ((data ?? []) as any[])
+        .filter((e) => empresaTemCategoria(e, FABRIC_TOKENS))
+        .map((e) => ({ id: e.id as string, nome_fantasia: e.nome_fantasia as string, representantes: e.representantes ?? [] }));
     },
   });
   // O fornecedor salvo pode não ser da categoria Tecido/Forro/Entretela (ex.: mudou de categoria
@@ -158,10 +160,12 @@ function TecidoDetail() {
     queryFn: async () => {
       const { data } = await supabase
         .from("empresas")
-        .select("id,nome_fantasia")
+        .select("id,nome_fantasia,representantes(id, nome)")
         .eq("id", artigo!.empresa_id!)
         .maybeSingle();
-      return data as { id: string; nome_fantasia: string } | null;
+      return data
+        ? { id: data.id as string, nome_fantasia: data.nome_fantasia as string, representantes: ((data as any).representantes ?? []) as { id: string; nome: string | null }[] }
+        : null;
     },
   });
   const empresas = useMemo(() => {
@@ -197,6 +201,7 @@ function TecidoDetail() {
       const payload: any = {
         nome: form.nome,
         empresa_id: form.empresa_id || null,
+        representante_id: form.representante_id || null,
         largura_estimada: form.largura_estimada ?? null,
         categoria_tecido_id: catIds[0] || null,
         composicao: form.composicao || null,
@@ -351,21 +356,13 @@ function TecidoDetail() {
           </Field>
 
           <Field label="Fornecedor">
-            <Select
-              value={form.empresa_id ?? ""}
-              onValueChange={(v) => setForm({ ...form, empresa_id: v || null })}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Selecione…" />
-              </SelectTrigger>
-              <SelectContent>
-                {empresas.map((e) => (
-                  <SelectItem key={e.id} value={e.id}>
-                    {e.nome_fantasia}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {/* Dropdown único: empresa (direto) OU empresa via representante. */}
+            <FornecedorSelect
+              empresas={empresas}
+              empresaId={form.empresa_id}
+              representanteId={form.representante_id}
+              onChange={(empresa_id, representante_id) => setForm({ ...form, empresa_id, representante_id })}
+            />
           </Field>
 
           <Field label="Largura Estimada (mtr)">

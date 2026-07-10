@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Scissors, Plus, Minus, ArrowLeft, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { empresaTemCategoria, FABRIC_TOKENS } from "@/lib/fornecedor-categoria";
 
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -87,22 +88,17 @@ function OcTecidoPage() {
     queryKey: ["empresas-options", "tecido-forro-entretela"],
     staleTime: 5 * 60 * 1000, // dados de referência: não revalidar a cada abertura
     queryFn: async () => {
+      // Fornecedores de material + representantes + categorias; casa por TOKEN flexível
+      // no cliente (o nome da categoria varia por loja — ver @/lib/fornecedor-categoria).
       const { data, error } = await supabase
         .from("empresas")
-        .select("id, nome_fantasia, representantes(id, nome), empresa_categorias_fornecedor!inner(categorias_fornecedor!inner(nome))")
-        .in("empresa_categorias_fornecedor.categorias_fornecedor.nome", ["Tecido", "Forro", "Entretela"])
+        .select("id, nome_fantasia, representantes(id, nome), empresa_categorias_fornecedor(categorias_fornecedor(nome))")
+        .eq("tipo", "material")
         .order("nome_fantasia");
       if (error) throw error;
-      const seen = new Set<string>();
-      const out: Empresa[] = [];
-      // O !inner de categorias multiplica a linha por categoria (Tecido/Forro/Entretela);
-      // dedup por id preservando o embed de representantes (to-many, vem igual em toda linha).
-      for (const e of (data ?? []) as Array<{ id: string; nome_fantasia: string; representantes?: { id: string; nome: string | null }[] | null }>) {
-        if (seen.has(e.id)) continue;
-        seen.add(e.id);
-        out.push({ id: e.id, nome_fantasia: e.nome_fantasia, representantes: e.representantes ?? [] });
-      }
-      return out;
+      return ((data ?? []) as any[])
+        .filter((e) => empresaTemCategoria(e, FABRIC_TOKENS))
+        .map((e) => ({ id: e.id as string, nome_fantasia: e.nome_fantasia as string, representantes: e.representantes ?? [] })) as Empresa[];
     },
   });
 

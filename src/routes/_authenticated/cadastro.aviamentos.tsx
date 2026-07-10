@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { empresaTemCategoria, AVIAMENTO_TOKENS } from "@/lib/fornecedor-categoria";
+import { FornecedorSelect } from "@/components/shared/FornecedorSelect";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
@@ -69,6 +71,7 @@ type Aviamento = {
   id: string;
   codigo_nome: string;
   empresa_id: string | null;
+  representante_id: string | null;
   categoria_aviamento_id: string | null;
   subcategoria_aviamento_id: string | null;
   material_aviamento_id: string | null;
@@ -84,7 +87,7 @@ type Aviamento = {
 };
 
 type Option = { id: string; nome: string };
-type Empresa = { id: string; nome_fantasia: string };
+type Empresa = { id: string; nome_fantasia: string; representantes?: { id: string; nome: string | null }[] | null };
 type Subcategoria = { id: string; nome: string; categoria_aviamento_id: string };
 
 const COLUMN_OPTIONS = GRID_COLS_OPTIONS;
@@ -126,7 +129,7 @@ function AviamentosGallery() {
       const { data, error } = await supabase
         .from("aviamentos")
         .select(
-          "id,codigo_nome,empresa_id,categoria_aviamento_id,subcategoria_aviamento_id,material_aviamento_id,composicao,preco,intervalo_largura_id,largura_exata,intervalo_vazado_id,largura_exata_vazado,foto_url,observacoes,created_at",
+          "id,codigo_nome,empresa_id,representante_id,categoria_aviamento_id,subcategoria_aviamento_id,material_aviamento_id,composicao,preco,intervalo_largura_id,largura_exata,intervalo_vazado_id,largura_exata_vazado,foto_url,observacoes,created_at",
         );
       if (error) throw error;
       return (data ?? []) as Aviamento[];
@@ -136,18 +139,17 @@ function AviamentosGallery() {
   const { data: empresas = [] } = useQuery({
     queryKey: ["empresas-options", "aviamento"],
     queryFn: async () => {
+      // Fornecedores de material + representantes + categorias; casa por TOKEN flexível
+      // no cliente (o nome da categoria varia por loja — ver @/lib/fornecedor-categoria).
       const { data, error } = await supabase
         .from("empresas")
-        .select("id,nome_fantasia,empresa_categorias_fornecedor!inner(categorias_fornecedor!inner(nome))")
-        .eq("empresa_categorias_fornecedor.categorias_fornecedor.nome", "Aviamento")
+        .select("id,nome_fantasia,representantes(id, nome),empresa_categorias_fornecedor(categorias_fornecedor(nome))")
+        .eq("tipo", "material")
         .order("nome_fantasia");
       if (error) throw error;
-      const seen = new Set<string>();
-      return ((data ?? []) as Empresa[]).filter((e) => {
-        if (seen.has(e.id)) return false;
-        seen.add(e.id);
-        return true;
-      });
+      return ((data ?? []) as any[])
+        .filter((e) => empresaTemCategoria(e, AVIAMENTO_TOKENS))
+        .map((e) => ({ id: e.id as string, nome_fantasia: e.nome_fantasia as string, representantes: e.representantes ?? [] }));
     },
   });
 
@@ -465,6 +467,7 @@ function AviamentoCard({
 type FormState = {
   codigo_nome: string;
   empresa_id: string;
+  representante_id: string;
   categoria_aviamento_id: string;
   subcategoria_aviamento_id: string;
   material_aviamento_id: string;
@@ -481,6 +484,7 @@ type FormState = {
 const emptyForm: FormState = {
   codigo_nome: "",
   empresa_id: "",
+  representante_id: "",
   categoria_aviamento_id: "",
   subcategoria_aviamento_id: "",
   material_aviamento_id: "",
@@ -543,6 +547,7 @@ function AviamentoModal({
       setForm({
         codigo_nome: initial.codigo_nome ?? "",
         empresa_id: initial.empresa_id ?? "",
+        representante_id: initial.representante_id ?? "",
         categoria_aviamento_id: initial.categoria_aviamento_id ?? "",
         subcategoria_aviamento_id: initial.subcategoria_aviamento_id ?? "",
         material_aviamento_id: initial.material_aviamento_id ?? "",
@@ -578,17 +583,17 @@ function AviamentoModal({
     queryFn: async () => {
       const { data } = await supabase
         .from("empresas")
-        .select("id,nome_fantasia")
+        .select("id,nome_fantasia,representantes(id, nome)")
         .eq("id", initial!.empresa_id!)
         .maybeSingle();
       return data as Empresa | null;
     },
   });
-  const empresaOpts = useMemo(() => {
-    const list = empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }));
-    if (empresaInicial && !list.some((o) => o.id === empresaInicial.id)) {
-      list.push({ id: empresaInicial.id, nome: empresaInicial.nome_fantasia });
-    }
+  // Lista p/ o FornecedorSelect: fornecedores da categoria + o salvo (mesmo fora da
+  // categoria), cada um com seus representantes.
+  const empresasFornecedor = useMemo<Empresa[]>(() => {
+    const list = [...empresas];
+    if (empresaInicial && !list.some((e) => e.id === empresaInicial.id)) list.push(empresaInicial);
     return list;
   }, [empresas, empresaInicial]);
 
@@ -635,6 +640,7 @@ function AviamentoModal({
       const payload = {
         codigo_nome: nome,
         empresa_id: form.empresa_id || null,
+        representante_id: form.representante_id || null,
         categoria_aviamento_id: form.categoria_aviamento_id || null,
         subcategoria_aviamento_id: form.subcategoria_aviamento_id || null,
         material_aviamento_id: form.material_aviamento_id || null,
@@ -737,10 +743,14 @@ function AviamentoModal({
             </Field>
 
             <Field label="Fornecedor">
-              <SelectField
-                value={form.empresa_id}
-                onChange={(v) => set("empresa_id", v)}
-                options={empresaOpts}
+              {/* Dropdown único: empresa (direto) OU empresa via representante. */}
+              <FornecedorSelect
+                empresas={empresasFornecedor}
+                empresaId={form.empresa_id || null}
+                representanteId={form.representante_id || null}
+                onChange={(empresa_id, representante_id) =>
+                  setForm((f) => ({ ...f, empresa_id: empresa_id ?? "", representante_id: representante_id ?? "" }))
+                }
                 placeholder="Selecione"
               />
             </Field>

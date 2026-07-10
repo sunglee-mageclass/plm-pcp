@@ -118,6 +118,7 @@ export type Database = {
           preco: number | null
           preco_por_metro: number | null
           rendimento: number | null
+          representante_id: string | null
           sem_etiqueta_lavagem: boolean
           tenant_id: string | null
           unidade_medida: string
@@ -137,6 +138,7 @@ export type Database = {
           preco?: number | null
           preco_por_metro?: number | null
           rendimento?: number | null
+          representante_id?: string | null
           sem_etiqueta_lavagem?: boolean
           tenant_id?: string | null
           unidade_medida?: string
@@ -156,6 +158,7 @@ export type Database = {
           preco?: number | null
           preco_por_metro?: number | null
           rendimento?: number | null
+          representante_id?: string | null
           sem_etiqueta_lavagem?: boolean
           tenant_id?: string | null
           unidade_medida?: string
@@ -256,6 +259,7 @@ export type Database = {
           material_aviamento_id: string | null
           observacoes: string | null
           preco: number | null
+          representante_id: string | null
           subcategoria_aviamento_id: string | null
           tenant_id: string | null
         }
@@ -274,6 +278,7 @@ export type Database = {
           material_aviamento_id?: string | null
           observacoes?: string | null
           preco?: number | null
+          representante_id?: string | null
           subcategoria_aviamento_id?: string | null
           tenant_id?: string | null
         }
@@ -292,6 +297,7 @@ export type Database = {
           material_aviamento_id?: string | null
           observacoes?: string | null
           preco?: number | null
+          representante_id?: string | null
           subcategoria_aviamento_id?: string | null
           tenant_id?: string | null
         }

@@ -5,6 +5,7 @@ import { Sparkles, Plus, Upload, Trash2, ArrowLeft } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { empresaTemCategoria, AVIAMENTO_TOKENS } from "@/lib/fornecedor-categoria";
 
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -41,7 +42,7 @@ import { RequirePermission } from "@/components/RequirePermission";
 import { FilterButton } from "@/components/shared/filters";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
-import { RepresentanteSelect } from "@/components/shared/RepresentanteSelect";
+import { FornecedorSelect } from "@/components/shared/FornecedorSelect";
 import { useSort, SortHead } from "@/components/shared/sort";
 export const Route = createFileRoute("/_authenticated/entrada-saida/oc-aviamento")({
   component: () => (
@@ -127,17 +128,17 @@ function OcAviamentoPage() {
   const { data: empresas = [] } = useQuery({
     queryKey: ["empresas-aviamento"],
     queryFn: async () => {
+      // Fornecedores de material + representantes + categorias; casa por TOKEN flexível
+      // no cliente (o nome da categoria varia por loja — ver @/lib/fornecedor-categoria).
       const { data, error } = await supabase
         .from("empresas")
-        .select("id, nome_fantasia, representantes(id, nome), empresa_categorias_fornecedor!inner(categorias_fornecedor!inner(nome))")
-        .eq("empresa_categorias_fornecedor.categorias_fornecedor.nome", "Aviamento")
+        .select("id, nome_fantasia, representantes(id, nome), empresa_categorias_fornecedor(categorias_fornecedor(nome))")
+        .eq("tipo", "material")
         .order("nome_fantasia");
       if (error) throw error;
-      const seen = new Set<string>();
-      // dedup por id (o !inner pode multiplicar linhas) preservando o embed de representantes.
-      return ((data ?? []) as Array<{ id: string; nome_fantasia: string; representantes?: { id: string; nome: string | null }[] | null }>)
-        .filter((e) => (seen.has(e.id) ? false : (seen.add(e.id), true)))
-        .map(({ id, nome_fantasia, representantes }) => ({ id, nome_fantasia, representantes: representantes ?? [] })) as Empresa[];
+      return ((data ?? []) as any[])
+        .filter((e) => empresaTemCategoria(e, AVIAMENTO_TOKENS))
+        .map((e) => ({ id: e.id as string, nome_fantasia: e.nome_fantasia as string, representantes: e.representantes ?? [] })) as Empresa[];
     },
   });
   const { data: estilistas = [] } = useQuery({
@@ -730,22 +731,19 @@ function OcDialog({
             </div>
             <div className="grid gap-1">
               <Label>Fornecedor</Label>
-              {/* Trocar o fornecedor limpa o representante (reps são daquela empresa) E os
-                  itens: aviamentos são por empresa; itens de outra empresa virariam órfãos
-                  (some da UI mas gravavam com preço 0). Só dispara em interação do usuário. */}
-              <Select value={draft.empresa_id ?? ""} onValueChange={(v) => { setDraft((d) => ({ ...d, empresa_id: v, representante_id: null })); setItems([]); }}>
-                <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
-                <SelectContent>
-                  {empresas.map((e) => <SelectItem key={e.id} value={e.id}>{e.nome_fantasia}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              {/* Dropdown único: empresa (direto) OU empresa via representante. Trocar de
+                  EMPRESA limpa os itens (aviamentos são por empresa; itens de outra empresa
+                  virariam órfãos). Trocar só o representante (mesma empresa) mantém os itens. */}
+              <FornecedorSelect
+                empresas={empresas}
+                empresaId={draft.empresa_id}
+                representanteId={draft.representante_id}
+                onChange={(empresa_id, representante_id) => {
+                  if (empresa_id !== draft.empresa_id) setItems([]);
+                  setDraft((d) => ({ ...d, empresa_id, representante_id }));
+                }}
+              />
             </div>
-
-            <RepresentanteSelect
-              empresa={draft.empresa_id ? empresas.find((e) => e.id === draft.empresa_id) : null}
-              value={draft.representante_id}
-              onChange={(v) => setDraft((d) => ({ ...d, representante_id: v }))}
-            />
 
             <div className="grid gap-1">
               <Label>Responsável</Label>
