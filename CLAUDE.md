@@ -113,14 +113,19 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   `2f25249`). Herda um **"Padrão do mix"** (`mix_padroes`/`mix_padrao_linhas`, VÁRIOS por loja; markup lido do cadastro
   `linhas`, nunca copiado) via `salvar_mix_padrao`. Por linha no padrão: **`num_modelos`** (a **% é DERIVADA** = nº÷Σ das
   normais; NÃO existe mais coluna `pct`), **`a_parte`** (linha "à parte" = 100% sozinha, ex.: Acessórios; as demais somam
-  100%), `prof_cor`, `cores`, faixa `preco_min`/`preco_max`. (`mix_padrao_categorias` foi DROPADA.) Itens em
-  `colecao_pv_itens` (1 por **subcoleção×linha**, com prof/cor+cores+preço+`qtd_semanas` jsonb; SEM `categoria_id`/
-  `subcategoria1_id`); RPC `salvar_colecao_pv`. Árvore **Subcoleção ▸ Linha × Semana 1–5** (1 mês dos atributos + semanas),
-  tudo EDITÁVEL em cima do padrão; poder de venda = Σ(preço médio × prof×cor × qtd) POR LINHA; "mix % real vs meta"
-  respeita o à-parte. **Confirmar = `otb_confirmar_pv`**: bucket=(**subcoleção×linha×semana**), target=SOMA das qtd/semana,
-  mesma reconciliação/órfãos/guarda `app.otb_reconciling`; cada card nasce com linha/subcoleção/semana, **preço E categoria
-  em branco** (categoria vira decisão do Planejamento). Trigger `enforce_pv_itens_tenant` NÃO referencia mais cat/sub.
-  Telas em `/otb-beta` (Padrão do mix) e `/otb-beta-colecao` (editor PV) — ainda rotuladas "beta".
+  100%), `prof_cor`, `cores`, faixa `preco_min`/`preco_max`. (`mix_padrao_categorias` foi DROPADA.) **Cada linha só 1×
+  no padrão** (dropdown esconde as usadas + `salvar_mix_padrao` barra duplicata). Itens em `colecao_pv_itens` (1 por
+  **subcoleção×linha**, com prof/cor+cores+preço+**`a_parte`**+`qtd_semanas` jsonb; SEM `categoria_id`/`subcategoria1_id`);
+  RPC `salvar_colecao_pv`. Árvore **Subcoleção ▸ Linha × Semana 1–5** (1 mês dos atributos + semanas), tudo EDITÁVEL em
+  cima do padrão; **o `num_modelos` do padrão é DISTRIBUÍDO** ÷ nº de subcoleções e repartido nas semanas de cada uma
+  (`splitEven`; recalcula ao add/remover subcoleção e trocar semanas); **"à parte" é editável POR LINHA na coleção**
+  (`colecao_pv_itens.a_parte`); poder de venda = Σ(preço médio × prof×cor × qtd) POR LINHA; "mix % real vs meta" respeita
+  o à-parte. **Data de lançamento é POR SEMANA** (`colecao_subcolecoes.datas_semanas` jsonb {semana:data}; semanas do
+  CALENDÁRIO seg–dom derivadas do mês/ano via `date-fns`, editáveis; `data_lancamento` single vira fallback). **Confirmar
+  = `otb_confirmar_pv`**: bucket=(**subcoleção×linha×semana**), target=SOMA das qtd/semana, mesma reconciliação/órfãos/
+  guarda `app.otb_reconciling`; cada card nasce com linha/subcoleção/semana + **a data da SUA semana** (datas_semanas->>
+  semana), **preço E categoria em branco** (categoria vira decisão do Planejamento). Trigger `enforce_pv_itens_tenant` NÃO
+  referencia mais cat/sub. Telas em `/otb-beta` (Padrão do mix) e `/otb-beta-colecao` (editor PV) — ainda rotuladas "beta".
 - **cadastro**: atributos (categorias tecido/aviamento/material/subcategoria, linhas,
   categorias de serviço fixas Corte/Oficina), colaboradores, servicos, tecidos
   (+variantes), aviamentos. **Fornecedor** (cadastro Tecido/Aviamento + OC Tecido/Aviamento):
