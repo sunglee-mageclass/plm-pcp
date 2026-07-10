@@ -90,14 +90,27 @@ cria `qtd` linhas em `modelos`, cada card com:
 - `colecao_id`, `subcolecao` (nome), `semana`, `linha_id`,
 - `categoria_principal_id`, `subcategoria1_id`,
 - `preco_venda = NULL` (**nasce em branco** — definido depois no Planejamento),
-- faixa `preco_min`/`preco_max` como **referência** (decisão: coluna de referência em
-  `modelos`, ex. `preco_ref_min`/`preco_ref_max`, OU só exibida a partir do vínculo OTB —
-  a resolver no plano),
+- faixa `preco_min`/`preco_max` como **referência** — **DECIDIDO:** fica em
+  `colecao_pv_itens` (NÃO se adicionou coluna em `modelos`); Planejamento pode exibir via
+  join se quiser depois,
 - `status_planejamento = 'em_planejamento'`.
 
 Reconciliação/limpeza de órfãos segue o padrão do `otb_confirmar` atual (ver CLAUDE.md,
-bloco OTB) — mudar a qtd no OTB acerta os cards; apagar card decrementa a qtd (gatilhos
-`fn_otb_sync_semana`/`trg_otb_dec_semana` — avaliar reuso vs. par novo para o tipo PV).
+bloco OTB). **DECIDIDO:** RPC SEPARADA `otb_confirmar_pv` (não se estendeu `otb_confirmar`),
+bucket = (subcoleção × linha × categoria × sub × semana), target = SOMA das qtd por semana.
+
+## Status de implementação (2026-07-10) — ENTREGUE
+
+- Fase 1 (`577c3a0`): `mix_padroes`/`mix_padrao_linhas`/`mix_padrao_categorias` +
+  `salvar_mix_padrao`/`excluir_mix_padrao`; tela `/otb-beta` ("Padrão do mix") persiste.
+- Fase 2 (`f79ad03`+`d53d78c`): colunas em `colecoes` + `colecao_pv_itens` +
+  `salvar_colecao_pv`; editor `/otb-beta-colecao` (herda padrão, tudo editável em cima,
+  semanas 1–5, salva/reabre por `?id`); seletor de TIPO no "+ Nova Coleção".
+- Fase 3 (`a5a816f`): `otb_confirmar_pv` gera os cards (idempotente, preço em branco).
+
+**Follow-up (não bloqueia):** tirar o rótulo "beta" e dar lar definitivo às 2 telas;
+mostrar a faixa mín–máx de referência no card do Planejamento; regenerar `types.ts` (as
+tabelas novas usam `as any` no front).
 
 ## Decisões travadas (com o dono)
 

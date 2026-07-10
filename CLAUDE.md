@@ -104,6 +104,16 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   Desenvolvimento vira **dropdown das subcoleções da coleção** quando OTB ligado (senão texto livre). Preenchimento
   em massa no Planejamento (`BulkEditDialog`). O Planejamento abre **sempre com 5 colunas** (`useGridCols(...,5,true)`
   — não persiste); card mostra coleção→subcoleção→semana→mês/ano.
+  **2º fluxo — Por Poder de Venda** (top-down, jul/2026; escolhido num seletor de TIPO no "+ Nova Coleção"):
+  `colecoes.tipo ∈ {orcamento,poder_venda}`. Herda um **"Padrão do mix"** (`mix_padroes`/`mix_padrao_linhas`/
+  `mix_padrao_categorias`, VÁRIOS por loja; markup sempre lido do cadastro `linhas`, nunca copiado) via
+  `salvar_mix_padrao`. Itens em `colecao_pv_itens` (subcoleção×linha×categoria+sub, `qtd_semanas` jsonb, total=Σ);
+  RPC `salvar_colecao_pv`. Árvore **Subcoleção ▸ Linha ▸ Categoria+Sub × Semana 1–5** (1 mês dos atributos + semanas),
+  tudo EDITÁVEL em cima do padrão. **Confirmar = `otb_confirmar_pv`** (irmã do `otb_confirmar`, NÃO estende ele):
+  bucket=(subcoleção×linha×cat×sub×semana), target=**SOMA** das qtd/semana, mesma reconciliação/órfãos/guarda
+  `app.otb_reconciling`; cada card nasce com linha/cat/sub/subcoleção/semana e **preço em branco** (faixa mín–máx
+  fica em `colecao_pv_itens`, NÃO virou coluna em `modelos`). Telas em `/otb-beta` (Padrão do mix) e `/otb-beta-colecao`
+  (editor PV) — ainda rotuladas "beta". Ver spec em `docs/superpowers/specs/2026-07-08-otb-poder-de-venda-design.md`.
 - **cadastro**: atributos (categorias tecido/aviamento/material/subcategoria, linhas,
   categorias de serviço fixas Corte/Oficina), colaboradores, servicos, tecidos
   (+variantes), aviamentos
