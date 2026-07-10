@@ -168,7 +168,8 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
     const rows = Object.entries(perLinha).filter(([, m]) => m > 0).map(([lid, mod]) => ({
       linhaId: lid, modelos: mod, real: total > 0 ? (mod / total) * 100 : 0, meta: lid in metaPct ? metaPct[lid] : null,
     })).sort((a, b) => b.modelos - a.modelos);
-    return { rows, total };
+    const sumMeta = rows.reduce((a, r) => a + (r.meta ?? 0), 0);
+    return { rows, total, sumReal: rows.reduce((a, r) => a + r.real, 0), sumMeta };
   }, [subs, padroes, padraoId]);
 
   const fieldCls = "h-9 rounded-md border border-input bg-background px-2 text-sm";
@@ -231,6 +232,10 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
                         </div>
                       );
                     })}
+                    <div className="flex items-center justify-between border-t pt-1 text-sm font-semibold sm:col-span-2">
+                      <span>Total <span className="text-xs font-normal text-muted-foreground">· {int(mixLinha.total)} mod</span></span>
+                      <span className="tabular-nums">{pct1(mixLinha.sumReal)}{mixLinha.sumMeta > 0 && <span className="font-normal text-muted-foreground"> / meta {pct1(mixLinha.sumMeta)}</span>}</span>
+                    </div>
                   </div>
                 </div>
               )}
