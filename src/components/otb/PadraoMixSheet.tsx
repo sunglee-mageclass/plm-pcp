@@ -44,7 +44,7 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
   const { data: catOpts = [] } = useQuery({ queryKey: ["padrao-cats"], queryFn: async () => (await supabase.from("categorias_produto").select("id, nome").order("nome")).data ?? [] });
   const { data: subOpts = [] } = useQuery({ queryKey: ["padrao-subs"], queryFn: async () => (await supabase.from("subcategorias1_produto").select("id, nome, categoria_id").order("nome")).data ?? [] });
   const { data: padroes = [] } = useQuery({
-    queryKey: ["mix-padroes"],
+    queryKey: ["mix-padroes", "full"],
     queryFn: async () => {
       const { data, error } = await supabase.from("mix_padroes" as any)
         .select("id, nome, linhas:mix_padrao_linhas(id, linha_id, pct, prof_cor, cores, ordem, categorias:mix_padrao_categorias(id, categoria_id, subcategoria1_id, preco_min, preco_max, ordem))").order("nome");
@@ -136,8 +136,8 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
                   )}
                   {isSel && (
                     <>
-                      <Button variant="ghost" size="iconSm" className="h-6 w-6" onClick={() => setEditNome(true)}><Pencil className="h-3.5 w-3.5 text-muted-foreground" /></Button>
-                      <Button variant="ghost" size="iconSm" className="h-6 w-6" onClick={() => excluir.mutate(p.id)}><Trash2 className="h-3.5 w-3.5 text-muted-foreground" /></Button>
+                      <Button variant="ghost" size="iconSm" className="h-8 w-8" onClick={() => setEditNome(true)}><Pencil className="h-3.5 w-3.5 text-muted-foreground" /></Button>
+                      <Button variant="ghost" size="iconSm" className="h-8 w-8" onClick={() => excluir.mutate(p.id)}><Trash2 className="h-3.5 w-3.5 text-muted-foreground" /></Button>
                     </>
                   )}
                 </div>
@@ -169,7 +169,7 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
                 return (
                   <Card key={l.id} className="overflow-hidden">
                     <div className="flex flex-wrap items-center gap-2 px-3 py-2">
-                      <button onClick={() => setAberta((a) => ({ ...a, [l.id]: !open }))}>
+                      <button className="p-1 -m-1" onClick={() => setAberta((a) => ({ ...a, [l.id]: !open }))}>
                         <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
                       </button>
                       <select className={`${fieldCls} min-w-[10rem]`} value={l.linhaId} onChange={(e) => patchLinha(l.id, { linhaId: e.target.value })}>

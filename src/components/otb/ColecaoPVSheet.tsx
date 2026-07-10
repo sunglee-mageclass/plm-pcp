@@ -34,7 +34,7 @@ const totCat = (c: Cat, semanas: number[]) => semanas.reduce((s, w) => s + (Numb
 export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: string | null; onClose: () => void; onSaved?: () => void }) {
   const qc = useQueryClient();
   const { data: padroes = [] } = useQuery({
-    queryKey: ["mix-padroes"],
+    queryKey: ["mix-padroes", "opts"],
     queryFn: async () => (await supabase.from("mix_padroes" as any)
       .select("id, nome, linhas:mix_padrao_linhas(linha_id, prof_cor, cores, ordem, categorias:mix_padrao_categorias(categoria_id, subcategoria1_id, preco_min, preco_max, ordem))").order("nome")).data ?? [] as any[],
   });
@@ -106,7 +106,14 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
   const addSub = () => { const sid = nid("s"); setSubs((xs) => [...xs, { id: sid, nome: `Subcoleção ${xs.length + 1}`, semanas: [1, 2, 3, 4], dataLanc: "", linhas: cloneDoPadrao() }]); setAberta((a) => ({ ...a, [sid]: true })); };
   const delSub = (sid: string) => setSubs((xs) => xs.filter((s) => s.id !== sid));
   const patchSub = (sid: string, p: Partial<Subcolecao>) => setSubs((xs) => xs.map((s) => (s.id === sid ? { ...s, ...p } : s)));
-  const toggleSemana = (sid: string, w: number) => setSubs((xs) => xs.map((s) => s.id !== sid ? s : { ...s, semanas: s.semanas.includes(w) ? s.semanas.filter((x) => x !== w) : [...s.semanas, w].sort((a, b) => a - b) }));
+  const toggleSemana = (sid: string, w: number) => setSubs((xs) => xs.map((s) => {
+    if (s.id !== sid) return s;
+    const tem = s.semanas.includes(w);
+    const semanas = tem ? s.semanas.filter((x) => x !== w) : [...s.semanas, w].sort((a, b) => a - b);
+    // Desmarcar a semana zera a qtd dela (o estado local casa com o que é salvo/confirmado).
+    const linhas = tem ? s.linhas.map((l) => ({ ...l, cats: l.cats.map((c) => { const q = { ...c.q }; delete q[String(w)]; return { ...c, q }; }) })) : s.linhas;
+    return { ...s, semanas, linhas };
+  }));
   const mapLinha = (sid: string, lid: string, fn: (l: LinhaSub) => LinhaSub) => setSubs((xs) => xs.map((s) => s.id !== sid ? s : { ...s, linhas: s.linhas.map((l) => (l.id === lid ? fn(l) : l)) }));
   const patchLinha = (sid: string, lid: string, p: Partial<LinhaSub>) => mapLinha(sid, lid, (l) => ({ ...l, ...p }));
   const patchCat = (sid: string, lid: string, cid: string, p: Partial<Cat>) => mapLinha(sid, lid, (l) => ({ ...l, cats: l.cats.map((c) => (c.id === cid ? { ...c, ...p } : c)) }));
@@ -166,7 +173,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
               <label className="space-y-1 sm:col-span-2"><span className="text-xs font-medium text-muted-foreground">Nome</span>
                 <Input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="ex.: Alto Verão 26" /></label>
               <label className="space-y-1"><span className="text-xs font-medium text-muted-foreground">Padrão do mix</span>
-                <select className={`${fieldCls} w-full`} value={padraoId} onChange={(e) => { setPadraoId(e.target.value); setSubs([]); }}>
+                <select className={`${fieldCls} w-full`} value={padraoId} onChange={(e) => setPadraoId(e.target.value)}>
                   <option value="">— escolher —</option>{(padroes as any[]).map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
                 </select></label>
               <label className="space-y-1"><span className="text-xs font-medium text-muted-foreground">Mês</span>
@@ -197,16 +204,16 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
                 return (
                   <Card key={s.id} className="overflow-hidden">
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
-                      <button onClick={() => setAberta((a) => ({ ...a, [s.id]: !open }))}><ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} /></button>
-                      <Input className="h-8 w-48 font-medium" value={s.nome} onChange={(e) => patchSub(s.id, { nome: e.target.value })} />
+                      <button className="p-1 -m-1" onClick={() => setAberta((a) => ({ ...a, [s.id]: !open }))}><ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} /></button>
+                      <Input className="h-8 w-48 max-sm:w-full font-medium" value={s.nome} onChange={(e) => patchSub(s.id, { nome: e.target.value })} />
                       <span className="flex items-center gap-1 text-xs text-muted-foreground">Semanas:
                         {SEMANAS.map((w) => (
                           <button key={w} onClick={() => toggleSemana(s.id, w)}
-                            className={`h-6 w-6 rounded border text-xs tabular-nums ${s.semanas.includes(w) ? "border-primary bg-primary/10 font-semibold text-foreground" : "text-muted-foreground"}`}>{w}</button>
+                            className={`h-8 w-8 rounded border text-xs tabular-nums ${s.semanas.includes(w) ? "border-primary bg-primary/10 font-semibold text-foreground" : "text-muted-foreground"}`}>{w}</button>
                         ))}
                       </span>
                       <span className="flex items-center gap-1 text-xs text-muted-foreground">Lançamento
-                        <span className="w-32"><DateField value={s.dataLanc} onChange={(e) => patchSub(s.id, { dataLanc: e.target.value })} /></span>
+                        <span className="w-32 max-sm:w-40"><DateField value={s.dataLanc} onChange={(e) => patchSub(s.id, { dataLanc: e.target.value })} /></span>
                       </span>
                       <Button variant="ghost" size="iconSm" className="ml-auto" onClick={() => delSub(s.id)}><Trash2 className="h-4 w-4 text-muted-foreground" /></Button>
                     </div>
@@ -278,8 +285,8 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
           <Button variant="secondary" onClick={() => salvar.mutate()} disabled={!nome.trim() || salvar.isPending} className="shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Salvar">
             <Save className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">{salvar.isPending ? "Salvando…" : "Salvar"}</span>
           </Button>
-          <Button onClick={() => confirmar.mutate()} disabled={!nome.trim() || confirmar.isPending || salvar.isPending} className="shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Confirmar">
-            <Check className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Confirmar</span>
+          <Button onClick={() => confirmar.mutate()} disabled={!nome.trim() || confirmar.isPending || salvar.isPending} className="shrink-0">
+            <Check className="h-4 w-4 mr-1" /> Confirmar
           </Button>
         </div>
       </SheetContent>
