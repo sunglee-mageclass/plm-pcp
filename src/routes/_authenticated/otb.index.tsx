@@ -216,7 +216,7 @@ function OtbPage() {
                   <span className="font-semibold truncate">{c.nome}</span>
                   <div className="flex shrink-0 items-center gap-2">
                     <span className="text-xs text-muted-foreground tabular-nums" title={orcTitle} aria-label={orcTitle}>{temOrc ? `${pctUso}%` : "—"}</span>
-                    {c.tipo === "poder_venda" && <Badge variant="outline" className="text-[10px]" title="Poder de Venda">PV</Badge>}
+                    <Badge variant="outline" className="text-[10px]" title={c.tipo === "poder_venda" ? "Poder de Venda" : "Orçamento"}>{c.tipo === "poder_venda" ? "PV" : "Orç."}</Badge>
                     <Badge variant={c.status === "confirmada" ? "secondary" : "outline"}>{c.status === "confirmada" ? "Confirmada" : "Rascunho"}</Badge>
                   </div>
                 </div>
@@ -235,11 +235,17 @@ function OtbPage() {
                     </div>
                   );
                 })() : (
-                  <>
-                    <div className="text-sm text-muted-foreground mt-1">Orçamento: {c.orcamento != null ? brl(Number(c.orcamento)) : "—"}</div>
+                  <div className="mt-1 space-y-1">
+                    <div className="text-sm text-muted-foreground">Orçamento: {c.orcamento != null ? brl(Number(c.orcamento)) : "—"}</div>
                     <div className="text-sm text-muted-foreground">Custo comprometido: {brl(st.real)}</div>
+                    {temOrc && (
+                      <>
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted"><div className={`h-full ${fora ? "bg-red-500" : "bg-emerald-500"}`} style={{ width: `${Math.min(100, pctUso ?? 0)}%` }} /></div>
+                        <div className={`text-right text-xs font-semibold ${fora ? "text-red-600" : "text-emerald-600"}`}>{pctUso}% do orçamento</div>
+                      </>
+                    )}
                     <div className="text-sm font-medium">Poder de venda: {brl(st.poder)}</div>
-                  </>
+                  </div>
                 )}
                 <div className="mt-1">
                   <span className="text-xs text-muted-foreground tabular-nums" title="Modelos em status planejado / quantidade definida no OTB">
