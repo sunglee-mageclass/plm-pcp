@@ -170,12 +170,20 @@ e verifique** — o repo muda rápido.
 6. **CQ** — `salvar_cq`/`desmarcar_cq` fazem status + `cq_variantes` + grade real numa txn.
    `salvar_cad_completo` PRESERVA a grade real quando o CQ do CAD está confirmado. CQ de
    tecido em `ocs_tecido_itens.cq_*` + página Alertas (`cq_alerta_status`: troca/cancelar).
+   **Regras do `_salvar_cq_core`/`_desmarcar_cq_core` (jul/2026, `7ab1b1c`):** [C1] NÃO confirma
+   com Σ da grade real = 0 (não dá pra "confirmar" sem contar peça); [Σ] `grade_total`
+   (`cq_variantes` + `cad_grades` planejada/real) é DERIVADO no servidor da soma do mapa de
+   grades — nunca confia no escalar do cliente (alimenta custo real e dashboards); [M2] desmarcar
+   o Pré REBAIXA o Pós (`status_pos` confirmado→pendente), que se apoiava naquela grade real.
    **CQ Pré/Pós (Fase 3):** 2 visões DENTRO do item. **Pré** = o de sempre (status, `cq_variantes`,
    grade real → `cad_grades`). **Pós** (acabamento) = `controle_qualidade.status_pos` + tabela
    `cq_pos_variantes` (serviço pós-costura × variante × etapa), RPCs `salvar_cq_pos`/`desmarcar_cq_pos`
-   que **NÃO** tocam `cad_grades` (só exibem a grade real do Pré). Gates: Pré abre com pré finalizado;
-   Pós com pós finalizado; **Direcionamento exige Pré E (se há pós) Pós confirmados.** "Sem acabamento"
-   = `cad.sem_acabamento` (Pré finalizado vira Finalizado sem pós).
+   que **NÃO** tocam `cad_grades` (só exibem a grade real do Pré) — wrappers com EXECUTE revogado de
+   PUBLIC/anon (só authenticated), igual ao Pré. Gates: Pré abre com pré finalizado; Pós com pós
+   finalizado. **Gate downstream ÚNICO `cqLiberado()` (`@/lib/cq-status`)** = Pré confirmado E (se há
+   serviço pós-costura ativo) Pós confirmado; consumido por **Direcionamento, "Lançar" (Planejamento) e
+   Lançamentos** — não duplicar o predicado. "Sem acabamento" = `cad.sem_acabamento` (Pré finalizado
+   vira Finalizado sem pós).
 7. **1 CAD por modelo** — garantido por TRIGGER `enforce_unique_fk` (NÃO por UNIQUE, ver
    "O que NÃO fazer"). Enviar ao corte (`baixar_estoque_tecido_corte`) é atômico e retorna
    `deficit[]` por variante.
