@@ -61,7 +61,7 @@ function OtbPage() {
   const { data: pvItens = [] } = useQuery({
     queryKey: ["otb-pv-poder"],
     queryFn: async () => {
-      const { data } = await supabase.from("colecao_pv_itens" as any).select("colecao_id, prof_cor, cores, preco_min, preco_max, qtd_semanas");
+      const { data } = await supabase.from("colecao_pv_itens" as any).select("colecao_id, linha_id, prof_cor, cores, preco_min, preco_max, qtd_semanas");
       return (data ?? []) as any[];
     },
   });
