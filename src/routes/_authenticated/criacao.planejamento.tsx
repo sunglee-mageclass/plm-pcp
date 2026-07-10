@@ -530,24 +530,25 @@ function PlanejamentoPage() {
               { label: "Repetição", value: fRep, onChange: setFRep, options: [{ id: "all", nome: "Todos" }, { id: "rep", nome: "Repetidos" }, { id: "uni", nome: "Únicos" }] },
             ]}
           />
+          {/* Seleção (mão do dono: fica no header, ao lado das ações). Ativa mostra Todos /
+              contagem / Definir em massa, tudo aqui mesmo. */}
+          <Button variant={selMode ? "default" : "outline"} onClick={() => { setSelMode((v) => !v); clearSel(); }} aria-label="Selecionar">
+            <CheckSquare className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Selecionar</span>
+          </Button>
+          {selMode && (
+            <>
+              <Button variant="ghost" onClick={selectAllFiltered}>Todos ({sorted.length})</Button>
+              <span className="text-xs text-muted-foreground">{selected.size} selecionado(s)</span>
+              <Button disabled={selected.size === 0} onClick={() => setOpenBulk(true)}>Definir em massa</Button>
+            </>
+          )}
           <Button className="max-sm:hidden" variant="outline" onClick={() => setOpenBatch(true)} aria-label="Vários Cards"><Layers className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Vários Cards</span></Button>
           <Button className="max-sm:hidden" onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /><span className="sm:hidden">Novo</span><span className="hidden sm:inline">Novo Modelo</span></Button>
         </div>
       </header>
 
-      {/* mobile: Selecionar + Ordenar por na 1ª linha; resumo total na 2ª (w-full);
-          borda inferior separa do que vem abaixo. */}
+      {/* Seleção migrou pro header (acima). Aqui ficam só o resumo de venda e a ordenação. */}
       <div className="flex items-center gap-2 flex-wrap max-sm:border-b max-sm:pb-3">
-        <Button size="sm" variant={selMode ? "default" : "outline"} onClick={() => { setSelMode((v) => !v); clearSel(); }}>
-          <CheckSquare className="h-4 w-4 mr-1" /> Selecionar
-        </Button>
-        {selMode && (
-          <>
-            <Button size="sm" variant="ghost" onClick={selectAllFiltered}>Todos ({sorted.length})</Button>
-            <span className="text-xs text-muted-foreground">{selected.size} selecionado(s)</span>
-            <Button size="sm" disabled={selected.size === 0} onClick={() => setOpenBulk(true)}>Definir em massa</Button>
-          </>
-        )}
         <ResumoVenda {...resumo} className="max-sm:order-last max-sm:w-full" />
         <div className="flex items-center gap-1.5 ml-auto">
           <Label className="text-xs text-muted-foreground">Ordenar por</Label>
