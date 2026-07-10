@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DateField } from "@/components/shared/DateField";
 import { NumberInput } from "@/components/shared/NumberInput";
+import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
@@ -374,6 +375,9 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["terc-cad", modeloId] });
       qc.invalidateQueries({ queryKey: ["producao-terc-list"] });
+      // "Sem acabamento" muda o gate do Direcionamento e o Status Geral no CQ.
+      qc.invalidateQueries({ queryKey: ["producao-cq-list"] });
+      qc.invalidateQueries({ queryKey: ["dir-list"] });
     },
   });
 
@@ -533,6 +537,9 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
       await qc.invalidateQueries({ queryKey: ["producao-terc", cad?.id] });
       await qc.invalidateQueries({ queryKey: ["terc-cad", modeloId] });
       await qc.invalidateQueries({ queryKey: ["producao-terc-list"] });
+      // salvar mexe em preço/desconto/multa/datas/parcelas → o Financeiro (Serviços/
+      // calendário) e a Home consomem servicos_financeiro; mantê-los em sincronia.
+      qc.invalidateQueries({ queryKey: ["servicos-financeiro"] });
       await refetch();
       setHydrated(false);
       setMoldeHydrated(false);
@@ -585,16 +592,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
             <ArrowLeft className="h-4 w-4" /> Voltar
           </Link>
         )}
-        <div className="flex items-center gap-2 max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-40 max-sm:justify-end max-sm:border-t max-sm:bg-background max-sm:p-3 max-sm:shadow-lg">
-          {onClose ? (
-            <Button type="button" variant="outline" size="icon" className="sm:hidden mr-auto" onClick={onClose} aria-label="Voltar">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          ) : (
-            <Button asChild variant="outline" size="icon" className="sm:hidden mr-auto" aria-label="Voltar">
-              <Link to="/producao/terceirizados"><ArrowLeft className="h-4 w-4" /></Link>
-            </Button>
-          )}
+        <div className="flex items-center gap-2 max-sm:hidden">
           <Button variant="outline" className="hidden md:inline-flex" onClick={() => { setPrintTarget("ficha"); printWithImages(); }} disabled={!cad?.id}>
             <FileText className="h-4 w-4 mr-2" /> Ficha Técnica
           </Button>
@@ -612,6 +610,20 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
           )}
         </div>
       </div>
+
+      {/* Mobile: barra fixa via portal (não o max-sm:fixed inline, que descola dentro do Sheet). */}
+      <MobileActionBar>
+        {onClose ? (
+          <Button type="button" variant="outline" size="icon" className="mr-auto" onClick={onClose} aria-label="Voltar"><ArrowLeft className="h-4 w-4" /></Button>
+        ) : (
+          <Button asChild variant="outline" size="icon" className="mr-auto" aria-label="Voltar"><Link to="/producao/terceirizados"><ArrowLeft className="h-4 w-4" /></Link></Button>
+        )}
+        {locked ? (
+          <Button variant="outline" size="icon" onClick={() => setEditingTab((m) => ({ ...m, [tabEtapa]: true }))} disabled={readOnly} aria-label="Editar"><Pencil className="h-4 w-4" /></Button>
+        ) : (
+          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}><Save className="h-4 w-4 mr-2" /> Salvar</Button>
+        )}
+      </MobileActionBar>
 
       {/* Abas Pré/Pós — FORA do fieldset: travar uma aba não pode impedir trocar de aba. */}
       <div className="flex rounded-md border p-0.5 w-fit">
@@ -652,7 +664,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
       </header>
 
       {/* Status geral */}
-      <Card className="p-4 grid gap-4 md:grid-cols-3 lg:grid-cols-6">
+      <Card className="p-4 grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
         <div>
           <Label className="text-xs text-muted-foreground">Grade Total Geral</Label>
           <div className="mt-1 text-sm font-semibold">{fmtNum(gradeTotalGeral)}</div>
@@ -759,7 +771,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
                     type="button"
                     onClick={() => updateBloco(idx, { interno: true, empresa_id: null, representante_id: null })}
                     className={cn(
-                      "px-2.5 py-1 transition-colors",
+                      "px-2.5 py-1 max-sm:py-2 transition-colors",
                       b.interno ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted",
                     )}
                   >
@@ -769,7 +781,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
                     type="button"
                     onClick={() => updateBloco(idx, { interno: false })}
                     className={cn(
-                      "px-2.5 py-1 transition-colors border-l",
+                      "px-2.5 py-1 max-sm:py-2 transition-colors border-l",
                       !b.interno ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted",
                     )}
                   >
