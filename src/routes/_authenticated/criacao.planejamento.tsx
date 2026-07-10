@@ -21,6 +21,7 @@ import { useCursorTip } from "@/components/shared/CursorTip";
 import { precoInfo } from "@/lib/preco";
 import { cqLiberado } from "@/lib/cq-status";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -1098,6 +1099,10 @@ function ModeloDialog({
     onError: (e: any) => toast.error(mensagemErro(e)),
   });
 
+  // Condições que faltam p/ Enviar a Ordem de Criação (mostradas no tooltip do botão).
+  const enviarBloqueios: string[] = [];
+  if (draft.status_planejamento !== "planejado") enviarBloqueios.push('Defina o Status como "Planejado".');
+
   return (
     <Sheet open onOpenChange={(o) => !o && onClose()}>
       <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] flex flex-col gap-0 p-0 max-sm:[&>button]:hidden">
@@ -1209,6 +1214,15 @@ function ModeloDialog({
               </div>
               <FieldSelect label="Mês de Planejamento" value={draft.mes_id} onChange={(v) => setDraft((d) => ({ ...d, mes_id: v }))} options={meses} />
               <FieldSelect label="Ano" value={draft.ano_id} onChange={(v) => setDraft((d) => ({ ...d, ano_id: v }))} options={anos} />
+              {/* Data de Lançamento: vem do OTB (por subcoleção) e é editável aqui — sempre
+                  visível (a ação "Lançar" fica no setor Lançamento, liberada após o CQ). */}
+              <div className="grid gap-1">
+                <Label>Data de Lançamento</Label>
+                <DateField
+                  value={draft.data_lancamento ?? ""}
+                  onChange={(e) => setDraft((d) => ({ ...d, data_lancamento: e.target.value || null }))}
+                />
+              </div>
             </div>
           </Secao>
 
@@ -1275,10 +1289,8 @@ function ModeloDialog({
                 <div className="flex flex-wrap items-end gap-3">
                   <div className="grid gap-1 flex-1 min-w-[180px]">
                     <Label>Data de Lançamento</Label>
-                    <DateField
-                      value={draft.data_lancamento ?? ""}
-                      onChange={(e) => setDraft((d) => ({ ...d, data_lancamento: e.target.value || null }))}
-                    />
+                    {/* Editada no setor Coleção; aqui só confirma o que vai ser lançado. */}
+                    <DateField value={draft.data_lancamento ?? ""} readOnly className="bg-muted" />
                   </div>
                   {lancado ? (
                     <Button variant="outline" onClick={() => lancar.mutate(false)} disabled={lancar.isPending}>
@@ -1326,16 +1338,32 @@ function ModeloDialog({
               Cancelar Envio
             </Button>
           ) : (
-            <Button
-              variant="secondary"
-              className="max-sm:ml-auto"
-              onClick={() => enviar.mutate(true)}
-              disabled={enviar.isPending || draft.status_planejamento !== "planejado"}
-              title={draft.status_planejamento !== "planejado" ? "Defina o status como Planejado primeiro" : undefined}
-            >
-              <span className="sm:hidden">Enviar Ordem</span>
-              <span className="hidden sm:inline">Enviar Ordem de Criação</span>
-            </Button>
+            <TooltipProvider>
+              <Tooltip>
+                {/* Botão desabilitado não dispara title nativo — o span recebe o hover
+                    e o tooltip lista o que falta para enviar. */}
+                <TooltipTrigger asChild>
+                  <span className="max-sm:ml-auto inline-flex">
+                    <Button
+                      variant="secondary"
+                      onClick={() => enviar.mutate(true)}
+                      disabled={enviar.isPending || enviarBloqueios.length > 0}
+                    >
+                      <span className="sm:hidden">Enviar Ordem</span>
+                      <span className="hidden sm:inline">Enviar Ordem de Criação</span>
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                {enviarBloqueios.length > 0 && (
+                  <TooltipContent className="max-w-[260px]">
+                    <p className="font-medium">Para enviar a Ordem de Criação, falta:</p>
+                    <ul className="mt-1 list-disc pl-4">
+                      {enviarBloqueios.map((b) => <li key={b}>{b}</li>)}
+                    </ul>
+                  </TooltipContent>
+                )}
+              </Tooltip>
+            </TooltipProvider>
           ))}
           <Button className="max-sm:ml-auto shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Salvar" onClick={() => save.mutate()} disabled={save.isPending}>
             <Save className="h-4 w-4 sm:hidden" />
