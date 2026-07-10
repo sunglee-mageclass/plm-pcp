@@ -79,6 +79,9 @@ const fmtProporcoes = (p: Record<string, any> | null | undefined) => {
   return parts.length ? parts.join("  ") : "—";
 };
 const recebidoItem = (oc: OC, it: Item) => (oc.status === "recebido" ? num(it.recebido_m) : num(it.pedido_m));
+// O "Consumido/Sobra" do que ainda NÃO foi cortado é o previsto do BOM, SEM perda; o corte
+// baixa COM perda (%loss). Logo a Sobra prevista é otimista e "salta" quando o modelo é cortado.
+const TIP_PREVISTO = "Previsto SEM perda (consumo do BOM) para o que ainda não foi cortado; o que já foi cortado usa a baixa real. O corte baixa COM perda (%loss), então a Sobra prevista tende a ser otimista.";
 
 function agruparPorTecido(oc: OC, keep: (id: string) => boolean, anyFilter: boolean, precoMap: Record<string, number>): Tecido[] {
   const byArtigo = new Map<string, Item[]>();
@@ -244,9 +247,9 @@ function ConsumoOcPage() {
   const { data: mesMap = {} } = useQuery({
     queryKey: ["meses-map"],
     queryFn: async () => {
-      const { data } = await supabase.from("meses").select("id, mes").order("ordem");
-      const m: Record<string, string> = {};
-      for (const r of (data ?? []) as any[]) m[r.id] = r.mes;
+      const { data } = await supabase.from("meses").select("id, mes, ordem").order("ordem");
+      const m: Record<string, { mes: string; ordem: number }> = {};
+      for (const r of (data ?? []) as any[]) m[r.id] = { mes: r.mes, ordem: r.ordem ?? 99 };
       return m;
     },
     staleTime: 60 * 60 * 1000,
@@ -272,8 +275,8 @@ function ConsumoOcPage() {
     }
     return {
       colecaoOpts: [{ id: "all", nome: "Todas as coleções" }, ...[...cols].sort().map((c) => ({ id: c, nome: c }))],
-      mesOpts: [{ id: "all", nome: "Todos os meses" }, ...[...meses].map((id) => ({ id, nome: mesMap[id] ?? id }))],
-      anoOpts: [{ id: "all", nome: "Todos os anos" }, ...[...anos].map((id) => ({ id, nome: anoMap[id] ?? id }))],
+      mesOpts: [{ id: "all", nome: "Todos os meses" }, ...[...meses].sort((a, b) => ((mesMap as any)[a]?.ordem ?? 99) - ((mesMap as any)[b]?.ordem ?? 99)).map((id) => ({ id, nome: (mesMap as any)[id]?.mes ?? id }))],
+      anoOpts: [{ id: "all", nome: "Todos os anos" }, ...[...anos].sort((a, b) => Number(anoMap[b] ?? 0) - Number(anoMap[a] ?? 0)).map((id) => ({ id, nome: anoMap[id] ?? id }))],
     };
   }, [modeloInfo, mesMap, anoMap]);
 
@@ -306,6 +309,14 @@ function ConsumoOcPage() {
       return true;
     });
   }, [ocs, search, anyFilter, fColecao, fMes, fAno, modeloInfo, cats, artigoBucket, roloView]);
+
+  // Agrupamento por tecido memoizado (antes rodava a cada render, por OC aberta).
+  const agrupadoPorOc = useMemo(() => {
+    const map = new Map<string, Tecido[]>();
+    for (const oc of filtered) map.set(oc.oc_id, agruparPorTecido(oc, keepModel, anyFilter, precoMap).filter((t) => catKeep(t.artigo_id)));
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered, anyFilter, fColecao, fMes, fAno, modeloInfo, cats, artigoBucket, precoMap]);
 
   const toggle = (id: string) => setExpanded((prev) => {
     const n = new Set(prev);
@@ -422,16 +433,16 @@ function ConsumoOcPage() {
                   onClick={isOpen ? (e) => e.stopPropagation() : undefined}
                 >
                   {isOpen ? (
-                    agruparPorTecido(oc, keepModel, anyFilter, precoMap).filter((t) => catKeep(t.artigo_id)).map((t) => {
+                    (agrupadoPorOc.get(oc.oc_id) ?? []).map((t) => {
                       const sobraClass = t.sobra < 0 ? "text-destructive" : t.sobra <= t.recebido * 0.05 ? "text-emerald-600" : "text-foreground";
                       return (
                         <div key={t.artigo_id} className="space-y-3">
                           <div className="flex items-center justify-between gap-3 flex-wrap border-b pb-2">
                             <div className="font-medium text-sm">{t.artigo_nome}</div>
-                            <div className="flex items-center gap-4 text-sm tabular-nums">
+                            <div className="flex items-center gap-4 text-sm tabular-nums max-sm:w-full max-sm:flex-col max-sm:items-start max-sm:gap-1">
                               <span className="text-muted-foreground">{oc.status === "recebido" ? "Recebido" : "Pedido"}: <strong className="text-foreground">{fmt2(t.recebido)} m</strong></span>
-                              <span className="text-muted-foreground">Consumido: <strong className="text-foreground">{fmt2(t.consumido)} m</strong></span>
-                              <span className="text-muted-foreground">Sobra: <strong className={sobraClass}>{fmt2(t.sobra)} m</strong></span>
+                              <span className="text-muted-foreground cursor-help" title={TIP_PREVISTO}>Consumido<span className="text-muted-foreground/70"> (prev. s/ perda)</span>: <strong className="text-foreground">{fmt2(t.consumido)} m</strong></span>
+                              <span className="text-muted-foreground cursor-help" title={TIP_PREVISTO}>Sobra: <strong className={sobraClass}>{fmt2(t.sobra)} m</strong></span>
                             </div>
                           </div>
                           {t.modelos.length === 0 ? (
@@ -502,21 +513,21 @@ function ResumoVariantes({ oc, keep, onToggleZerar }: { oc: OC; keep: (id: strin
         const sobraClass = sobra < 0 ? "text-destructive" : sobra <= recebido * 0.05 ? "text-emerald-600" : "text-foreground";
         return (
           <div key={it.oc_tecido_item_id} className="flex items-center justify-between gap-3 flex-wrap px-3 py-2">
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1 truncate">
               <span className="font-medium">{it.artigo_nome ?? "—"}</span>
               <span className="text-muted-foreground"> · {it.variante ?? "—"}</span>
             </div>
-            <div className="flex items-center gap-3 tabular-nums">
+            <div className="flex items-center gap-3 tabular-nums max-sm:w-full max-sm:justify-between">
               <Badge variant="secondary">{modelos.length} modelo{modelos.length === 1 ? "" : "s"}</Badge>
               <span className="text-muted-foreground">{oc.status === "recebido" ? "Receb." : "Ped."}: <strong className="text-foreground">{fmt2(recebido)} m</strong></span>
-              <span className="text-muted-foreground">Sobra: {zerado
+              <span className="text-muted-foreground cursor-help" title={TIP_PREVISTO}>Sobra: {zerado
                 ? <strong className="text-emerald-600">zerado</strong>
                 : <strong className={sobraClass}>{fmt2(sobra)} m</strong>}</span>
               <Button
                 type="button"
                 size="sm"
                 variant={zerado ? "default" : "outline"}
-                className={"h-7 " + (zerado ? "bg-emerald-500 hover:bg-emerald-600" : "")}
+                className={"h-7 max-sm:h-9 " + (zerado ? "bg-emerald-500 hover:bg-emerald-600" : "")}
                 disabled={!zerado && !podeZerar}
                 onClick={(e) => { e.stopPropagation(); onToggleZerar(it.oc_tecido_item_id, zerado); }}
                 title={!zerado && !podeZerar
