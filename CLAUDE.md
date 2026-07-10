@@ -202,6 +202,20 @@ e verifique** — o repo muda rápido.
    (sentinela nil → RLS bloqueia + RPCs dão RAISE). `reset_loja`/`excluir_loja` são
    super_admin-only; `_wipe_tenant_core` usa `session_replication_role=replica` (FKs p/
    `tenants` são NO ACTION); super_admins nunca são apagados.
+10. **Direcionamento** — split da Grade Real em E-commerce (digitado) + Loja Física.
+    O split é **derivado e travado no SERVIDOR** (`_salvar_direcionamento_core`): lê a
+    grade real autoritativa de `cad_grades.grades_reais` (ignora real/loja_fisica/totais
+    do cliente), garante `ecommerce ≤ real` por tamanho (`salvar_direcionamento`=rascunho
+    clampa; `confirmar_direcionamento`=RAISE) e recomputa `loja_fisica`+totais por soma —
+    invariante `Σec + Σloja = Σreal`. **Confirmar é atômico** (`confirmar_direcionamento`
+    = save strict + `cad.direcionamento_status='separado'` numa txn; NÃO fazer save+update
+    separados no front). **Grade real defasada rebaixa**: trigger `trg_rebaixa_direcionamento_grade`
+    em `cad_grades` — se a grade real muda (CQ confirmar/desmarcar/reconfirmar) e o
+    Direcionamento estava 'separado', volta a 'pendente' + acende `#Erro` na etapa
+    `direcionamento` (espelha o M2 do CQ). 2º lote NÃO entra no split (a grade real já o
+    desconta). ⚠️ A queryKey `["cad-grades", cad?.id]` é **compartilhada** por Direcionamento
+    (sufixo `"reais"`) e Oficina (`"full"`) com `select` de colunas diferentes — sufixo por
+    consumidor evita shape errado; o CQ invalida por prefixo (casa ambos).
 
 **Docs de referência LOCAIS (gitignored, manter atualizados — papel do agente `docs-keeper`):**
 `docs/mapeamento-campos-calculos.md` (campos×campos, fórmulas, etapas),
