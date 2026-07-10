@@ -121,7 +121,8 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   (`splitEven`; recalcula ao add/remover subcoleção e trocar semanas); **"à parte" é editável POR LINHA na coleção**
   (`colecao_pv_itens.a_parte`); poder de venda = Σ(preço médio × prof×cor × qtd) POR LINHA; "mix % real vs meta" respeita
   o à-parte. **Data de lançamento é POR SEMANA** (`colecao_subcolecoes.datas_semanas` jsonb {semana:data}; semanas do
-  CALENDÁRIO seg–dom derivadas do mês/ano via `date-fns`, editáveis; `data_lancamento` single vira fallback). **Confirmar
+  CALENDÁRIO seg–dom derivadas do mês/ano via `date-fns`, editáveis; **bidirecional**: dá pra definir a DATA e o sistema
+  retorna a semana (`semanaDaData`); **subcoleção nova nasce SEM semanas** selecionadas; `data_lancamento` single vira fallback). **Confirmar
   = `otb_confirmar_pv`**: bucket=(**subcoleção×linha×semana**), target=SOMA das qtd/semana, mesma reconciliação/órfãos/
   guarda `app.otb_reconciling`; cada card nasce com linha/subcoleção/semana + **a data da SUA semana** (datas_semanas->>
   semana), **preço E categoria em branco** (categoria vira decisão do Planejamento). Trigger `enforce_pv_itens_tenant` NÃO
