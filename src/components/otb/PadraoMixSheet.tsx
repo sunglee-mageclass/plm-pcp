@@ -9,32 +9,29 @@ import { Card } from "@/components/ui/card";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { brl } from "@/lib/format";
-import { Plus, Trash2, ChevronRight, Pencil, Save, ArrowLeft } from "lucide-react";
+import { Plus, Trash2, Pencil, Save, ArrowLeft } from "lucide-react";
 
 /**
  * "Padrão do mix" em MODAL (Sheet lateral). Template de defaults que a coleção por Poder
  * de Venda herda. Vários por loja. Por LINHA (dropdown do cadastro → markup automático):
- * % do mix, prof/cor, cores. Por CATEGORIA+SUB: preço mín/máx (→ custo). Persiste em
- * mix_padroes/mix_padrao_linhas/mix_padrao_categorias via salvar_mix_padrao.
+ * nº de modelos (→ % derivada), toggle "à parte" (Acessórios = 100% sozinha, as demais
+ * somam 100%), prof/cor, cores, faixa de preço mín/máx. SEM categoria/subcategoria.
+ * Persiste em mix_padroes/mix_padrao_linhas via salvar_mix_padrao.
  */
 
-type Sub = { id: string; catId: string; subId: string; min: number; max: number };
-type LinhaMix = { id: string; linhaId: string; pct: number; profCor: number; cores: number; subs: Sub[] };
+type LinhaMix = { id: string; linhaId: string; numModelos: number; aParte: boolean; profCor: number; cores: number; min: number; max: number };
 type Draft = { nome: string; linhas: LinhaMix[] };
 
 let _seq = 0;
 const nid = (p: string) => `${p}-${++_seq}`;
 const num = (v: string) => (v === "" ? 0 : Number(v.replace(",", ".")) || 0);
 const pct1 = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
-const novaSub = (): Sub => ({ id: nid("s"), catId: "", subId: "", min: 0, max: 0 });
-const novaLinha = (): LinhaMix => ({ id: nid("l"), linhaId: "", pct: 0, profCor: 64, cores: 3, subs: [novaSub()] });
+const novaLinha = (): LinhaMix => ({ id: nid("l"), linhaId: "", numModelos: 0, aParte: false, profCor: 64, cores: 3, min: 0, max: 0 });
 
 function mapFromDb(p: any): Draft {
   const linhas = [...(p.linhas ?? [])].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0)).map((l: any) => ({
-    id: l.id, linhaId: l.linha_id ?? "", pct: Number(l.pct) || 0, profCor: Number(l.prof_cor) || 0, cores: Number(l.cores) || 0,
-    subs: [...(l.categorias ?? [])].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0)).map((c: any) => ({
-      id: c.id, catId: c.categoria_id ?? "", subId: c.subcategoria1_id ?? "", min: Number(c.preco_min) || 0, max: Number(c.preco_max) || 0,
-    })),
+    id: l.id, linhaId: l.linha_id ?? "", numModelos: Number(l.num_modelos) || 0, aParte: !!l.a_parte,
+    profCor: Number(l.prof_cor) || 0, cores: Number(l.cores) || 0, min: Number(l.preco_min) || 0, max: Number(l.preco_max) || 0,
   }));
   return { nome: p.nome, linhas };
 }
@@ -42,27 +39,23 @@ function mapFromDb(p: any): Draft {
 export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
   const { data: linhaOpts = [] } = useQuery({ queryKey: ["padrao-linhas"], queryFn: async () => (await supabase.from("linhas").select("id, nome, markup").order("nome")).data ?? [] });
-  const { data: catOpts = [] } = useQuery({ queryKey: ["padrao-cats"], queryFn: async () => (await supabase.from("categorias_produto").select("id, nome").order("nome")).data ?? [] });
-  const { data: subOpts = [] } = useQuery({ queryKey: ["padrao-subs"], queryFn: async () => (await supabase.from("subcategorias1_produto").select("id, nome, categoria_id").order("nome")).data ?? [] });
   const { data: padroes = [] } = useQuery({
     queryKey: ["mix-padroes", "full"],
     queryFn: async () => {
       const { data, error } = await supabase.from("mix_padroes" as any)
-        .select("id, nome, linhas:mix_padrao_linhas(id, linha_id, pct, prof_cor, cores, ordem, categorias:mix_padrao_categorias(id, categoria_id, subcategoria1_id, preco_min, preco_max, ordem))").order("nome");
+        .select("id, nome, linhas:mix_padrao_linhas(id, linha_id, num_modelos, a_parte, prof_cor, cores, preco_min, preco_max, ordem)").order("nome");
       if (error) throw error;
       return (data ?? []) as any[];
     },
   });
 
   const markupDe = (linhaId: string) => Number((linhaOpts as any[]).find((l) => l.id === linhaId)?.markup) || 0;
-  const subsDaCat = (catId: string) => (subOpts as any[]).filter((s) => s.categoria_id === catId);
 
   const [selId, setSelId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>({ nome: "", linhas: [] });
   const [draftFor, setDraftFor] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [editNome, setEditNome] = useState(false);
-  const [aberta, setAberta] = useState<Record<string, boolean>>({});
 
   useEffect(() => { if (!selId && padroes.length) setSelId(padroes[0].id); }, [padroes, selId]);
   useEffect(() => {
@@ -75,17 +68,14 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
   const upd = (fn: (d: Draft) => Draft) => { setDraft(fn); setDirty(true); };
   const setLinhas = (fn: (ls: LinhaMix[]) => LinhaMix[]) => upd((d) => ({ ...d, linhas: fn(d.linhas) }));
   const patchLinha = (lid: string, p: Partial<LinhaMix>) => setLinhas((ls) => ls.map((l) => (l.id === lid ? { ...l, ...p } : l)));
-  const patchSub = (lid: string, sid: string, p: Partial<Sub>) => setLinhas((ls) => ls.map((l) => (l.id === lid ? { ...l, subs: l.subs.map((s) => (s.id === sid ? { ...s, ...p } : s)) } : l)));
   const addLinha = () => setLinhas((ls) => [...ls, novaLinha()]);
   const delLinha = (lid: string) => setLinhas((ls) => ls.filter((l) => l.id !== lid));
-  const addSub = (lid: string) => setLinhas((ls) => ls.map((l) => (l.id === lid ? { ...l, subs: [...l.subs, novaSub()] } : l)));
-  const delSub = (lid: string, sid: string) => setLinhas((ls) => ls.map((l) => (l.id === lid ? { ...l, subs: l.subs.filter((s) => s.id !== sid) } : l)));
 
   const salvar = useMutation({
     mutationFn: async () => {
       const payload = draft.linhas.map((l) => ({
-        linha_id: l.linhaId || null, pct: l.pct, prof_cor: l.profCor, cores: l.cores,
-        categorias: l.subs.map((s) => ({ categoria_id: s.catId || null, subcategoria1_id: s.subId || null, preco_min: s.min, preco_max: s.max })),
+        linha_id: l.linhaId || null, num_modelos: l.numModelos, a_parte: l.aParte,
+        prof_cor: l.profCor, cores: l.cores, preco_min: l.min, preco_max: l.max,
       }));
       const { data, error } = await supabase.rpc("salvar_mix_padrao" as any, { _id: selId, _nome: draft.nome.trim(), _linhas: payload });
       if (error) throw error;
@@ -105,7 +95,11 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir o padrão.")),
   });
 
-  const somaPct = useMemo(() => draft.linhas.reduce((s, l) => s + (Number(l.pct) || 0), 0), [draft.linhas]);
+  // % derivada do nº de modelos: linhas normais dividem 100% pelo total delas; linha
+  // "à parte" (ex.: Acessórios) fica 100% sozinha (não entra no total das demais).
+  const totalMix = useMemo(() => draft.linhas.filter((l) => !l.aParte).reduce((s, l) => s + (Number(l.numModelos) || 0), 0), [draft.linhas]);
+  const totalApart = useMemo(() => draft.linhas.filter((l) => l.aParte).reduce((s, l) => s + (Number(l.numModelos) || 0), 0), [draft.linhas]);
+  const pctDe = (l: LinhaMix) => (l.aParte ? 100 : totalMix > 0 ? ((Number(l.numModelos) || 0) / totalMix) * 100 : 0);
   const temSel = !!selId && !!padroes.find((p) => p.id === selId);
 
   return (
@@ -117,8 +111,9 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           <p className="text-sm text-muted-foreground">
-            Defaults que uma coleção por <strong>Poder de Venda</strong> herda. Por linha: % do mix, profundidade/cor
-            e cores (markup vem do cadastro). Por categoria+subcategoria: a faixa de preço mín–máx.
+            Defaults que uma coleção por <strong>Poder de Venda</strong> herda. Por linha: o <strong>nº de modelos</strong>
+            {" "}(a <strong>%</strong> é calculada), profundidade/cor, cores e a faixa de preço mín–máx (markup vem do cadastro).
+            Marque <strong>"à parte"</strong> a linha que soma 100% sozinha (ex.: Acessórios).
           </p>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -160,65 +155,36 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Mix de modelos por linha</span>
-                <span className={`tabular-nums ${Math.abs(somaPct - 100) > 0.5 ? "text-amber-600" : "text-muted-foreground"}`}>Σ % = {pct1(somaPct)}</span>
+                <span className="tabular-nums text-muted-foreground">
+                  {totalMix} modelo{totalMix === 1 ? "" : "s"} no mix (100%){totalApart > 0 ? ` · +${totalApart} à parte` : ""}
+                </span>
               </div>
 
               {draft.linhas.map((l) => {
-                const open = aberta[l.id] ?? true;
                 const mk = markupDe(l.linhaId);
                 return (
-                  <Card key={l.id} className="overflow-hidden">
-                    <div className="flex flex-wrap items-center gap-2 px-3 py-2">
-                      <button className="p-2 -m-2" onClick={() => setAberta((a) => ({ ...a, [l.id]: !open }))}>
-                        <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
-                      </button>
-                      <Sel value={l.linhaId} onChange={(v) => patchLinha(l.id, { linhaId: v })} placeholder="— linha —" className="min-w-[10rem]">
-                        {(linhaOpts as any[]).map((o) => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
-                      </Sel>
-                      <span className="text-xs text-muted-foreground">markup <b className="tabular-nums text-foreground">{mk ? `${mk.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}×` : "—"}</b></span>
-                      <Lbl t="% mix"><Input className="h-8 w-16 px-1 text-left tabular-nums" inputMode="decimal" value={l.pct} onChange={(e) => patchLinha(l.id, { pct: num(e.target.value) })} /></Lbl>
-                      <Lbl t="prof/cor"><Input className="h-8 w-14 px-1 text-left tabular-nums" inputMode="numeric" value={l.profCor} onChange={(e) => patchLinha(l.id, { profCor: Math.max(0, Math.round(num(e.target.value))) })} /></Lbl>
-                      <Lbl t="cores"><Input className="h-8 w-12 px-1 text-left tabular-nums" inputMode="numeric" value={l.cores} onChange={(e) => patchLinha(l.id, { cores: Math.max(0, Math.round(num(e.target.value))) })} /></Lbl>
-                      <Button variant="ghost" size="iconSm" className="ml-auto max-sm:h-11 max-sm:w-11" onClick={() => delLinha(l.id)}><Trash2 className="h-4 w-4 text-muted-foreground" /></Button>
-                    </div>
-
-                    {open && (
-                      <div className="border-t bg-muted/10 px-3 py-2">
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-sm card-table">
-                            <thead className="text-xs text-muted-foreground">
-                              <tr className="[&>th]:px-2 [&>th]:py-1 [&>th]:font-medium [&>th]:text-left">
-                                <th className="min-w-[9rem]">Categoria</th><th className="min-w-[9rem]">Subcategoria</th>
-                                <th>Preço mín</th><th>Preço máx</th>
-                                <th className="text-muted-foreground/70">Custo mín</th><th className="text-muted-foreground/70">Custo máx</th><th />
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {l.subs.map((s) => (
-                                <tr key={s.id} className="border-t border-border/50 [&>td]:px-2 [&>td]:py-1 [&>td]:text-left">
-                                  <td>
-                                    <Sel value={s.catId} onChange={(v) => patchSub(l.id, s.id, { catId: v, subId: "" })} placeholder="— categoria —" className="min-w-[9rem] max-sm:w-full">
-                                      {(catOpts as any[]).map((o) => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
-                                    </Sel>
-                                  </td>
-                                  <td data-label="Subcategoria">
-                                    <Sel value={s.subId} onChange={(v) => patchSub(l.id, s.id, { subId: v })} disabled={!s.catId} placeholder={s.catId ? "— subcategoria —" : "escolha a categoria"} className="min-w-[9rem] max-sm:w-full">
-                                      {subsDaCat(s.catId).map((o: any) => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
-                                    </Sel>
-                                  </td>
-                                  <td data-label="Preço mín"><Input className="h-8 w-20 max-sm:h-9 px-1 text-left tabular-nums" inputMode="decimal" value={s.min} onChange={(e) => patchSub(l.id, s.id, { min: num(e.target.value) })} /></td>
-                                  <td data-label="Preço máx"><Input className="h-8 w-20 max-sm:h-9 px-1 text-left tabular-nums" inputMode="decimal" value={s.max} onChange={(e) => patchSub(l.id, s.id, { max: num(e.target.value) })} /></td>
-                                  <td data-label="Custo mín" className="tabular-nums text-muted-foreground/70">{mk ? brl(s.min / mk) : "—"}</td>
-                                  <td data-label="Custo máx" className="tabular-nums text-muted-foreground/70">{mk ? brl(s.max / mk) : "—"}</td>
-                                  <td data-label=""><Button variant="ghost" size="iconSm" onClick={() => delSub(l.id, s.id)}><Trash2 className="h-4 w-4 text-muted-foreground" /></Button></td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                        <Button variant="ghost" size="sm" className="mt-1" onClick={() => addSub(l.id)}><Plus className="h-4 w-4 mr-1" /> Categoria</Button>
-                      </div>
-                    )}
+                  <Card key={l.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
+                    <Sel value={l.linhaId} onChange={(v) => patchLinha(l.id, { linhaId: v })} placeholder="— linha —" className="min-w-[9rem]">
+                      {(linhaOpts as any[]).map((o) => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
+                    </Sel>
+                    <Lbl t="nº modelos">
+                      <Input className="h-8 w-16 max-sm:h-9 px-1 text-left tabular-nums" inputMode="numeric" value={l.numModelos}
+                        onChange={(e) => patchLinha(l.id, { numModelos: Math.max(0, Math.round(num(e.target.value))) })} />
+                    </Lbl>
+                    <span className="text-sm">= <b className="tabular-nums">{pct1(pctDe(l))}</b></span>
+                    <Button variant={l.aParte ? "default" : "outline"} size="sm" className="max-sm:h-9"
+                      onClick={() => patchLinha(l.id, { aParte: !l.aParte })} title="Linha à parte: soma 100% sozinha (ex.: Acessórios)">
+                      à parte
+                    </Button>
+                    <Lbl t="prof/cor"><Input className="h-8 w-14 max-sm:h-9 px-1 text-left tabular-nums" inputMode="numeric" value={l.profCor} onChange={(e) => patchLinha(l.id, { profCor: Math.max(0, Math.round(num(e.target.value))) })} /></Lbl>
+                    <Lbl t="cores"><Input className="h-8 w-12 max-sm:h-9 px-1 text-left tabular-nums" inputMode="numeric" value={l.cores} onChange={(e) => patchLinha(l.id, { cores: Math.max(0, Math.round(num(e.target.value))) })} /></Lbl>
+                    <Lbl t="preço mín"><Input className="h-8 w-20 max-sm:h-9 px-1 text-left tabular-nums" inputMode="decimal" value={l.min} onChange={(e) => patchLinha(l.id, { min: num(e.target.value) })} /></Lbl>
+                    <Lbl t="preço máx"><Input className="h-8 w-20 max-sm:h-9 px-1 text-left tabular-nums" inputMode="decimal" value={l.max} onChange={(e) => patchLinha(l.id, { max: num(e.target.value) })} /></Lbl>
+                    <span className="text-xs text-muted-foreground/70">
+                      markup {mk ? `${mk.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}×` : "—"}
+                      {mk ? ` · custo ${brl(l.min / mk)}–${brl(l.max / mk)}` : ""}
+                    </span>
+                    <Button variant="ghost" size="iconSm" className="ml-auto max-sm:h-11 max-sm:w-11" onClick={() => delLinha(l.id)}><Trash2 className="h-4 w-4 text-muted-foreground" /></Button>
                   </Card>
                 );
               })}
