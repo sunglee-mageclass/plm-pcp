@@ -12,6 +12,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { NumberInput } from "@/components/shared/NumberInput";
+import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { useReadOnly } from "@/components/RequirePermission";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { VerificarRevisao } from "@/components/producao/RevisaoErro";
@@ -60,7 +61,10 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
   });
 
   const { data: cadGrades = [], isFetched: gradesFetched, isFetching: gradesFetching } = useQuery({
-    queryKey: ["cad-grades", cad?.id],
+    // Sufixo "reais": esta tela lê só variante_numero+grades_reais. A Oficina usa a
+    // mesma raiz com colunas diferentes ("full") — sufixo evita shape errado no cache.
+    // O CQ invalida por prefixo ["cad-grades", cad?.id], que casa ambos.
+    queryKey: ["cad-grades", cad?.id, "reais"],
     enabled: !!cad?.id,
     queryFn: async () => {
       const { data } = await supabase
@@ -170,34 +174,16 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
     }));
   };
 
+  // O servidor deriva loja_fisica/totais da Grade Real (cad_grades) e trava ec≤real;
+  // o front só manda variante + ecommerce (o resto é ignorado/recomputado no banco).
+  const buildRows = () =>
+    Object.values(state).map((v) => ({ variante_numero: v.variante_numero, ecommerce: v.ecommerce }));
+
   const saveMut = useMutation({
     mutationFn: async () => {
       if (!cad?.id) throw new Error("CAD não encontrado.");
-      const _rows = Object.values(state).map((v) => {
-        const lojaFisica: Record<string, number> = {};
-        tamanhos.forEach((t) => {
-          const real = Number(v.real?.[t] ?? 0);
-          const ec = Number(v.ecommerce?.[t] ?? 0);
-          lojaFisica[t] = Math.max(0, real - ec);
-        });
-        const ecTotal = tamanhos.reduce((s, t) => s + Number(v.ecommerce?.[t] ?? 0), 0);
-        const lfTotal = tamanhos.reduce((s, t) => s + lojaFisica[t], 0);
-        const realTotal = tamanhos.reduce((s, t) => s + Number(v.real?.[t] ?? 0), 0);
-        return {
-          variante_numero: v.variante_numero,
-          ecommerce: v.ecommerce,
-          ecommerce_total: ecTotal,
-          loja_fisica: lojaFisica,
-          loja_fisica_total: lfTotal,
-          // Snapshot da grade real usada no cálculo, p/ o registro ser autocontido
-          // e permitir detectar divergência se a grade real mudar depois.
-          real: v.real,
-          grade_real_total: realTotal,
-        };
-      });
-      // RPC transacional com diff por (cad_id, variante_numero): preserva as linhas
-      // das variantes mantidas; atômico.
-      const { error } = await supabase.rpc("salvar_direcionamento" as any, { _cad_id: cad.id, _rows });
+      // Rascunho: a RPC clampa ec≤real e recomputa o split (diff por cad_id+variante).
+      const { error } = await supabase.rpc("salvar_direcionamento" as any, { _cad_id: cad.id, _rows: buildRows() });
       if (error) throw error;
     },
     onSuccess: async () => {
@@ -214,20 +200,21 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
 
   const confirmMut = useMutation({
     mutationFn: async () => {
-      await saveMut.mutateAsync();
       if (!cad?.id) throw new Error("CAD não encontrado.");
-      const { error } = await supabase
-        .from("cad")
-        .update({ direcionamento_status: "separado", direcionamento_confirmado_at: new Date().toISOString() } as any)
-        .eq("id", cad.id);
+      // RPC ATÔMICA: salva (strict — RAISE se ec>real) + marca 'separado' na MESMA
+      // transação. Um roundtrip, um toast (antes era save + update separados).
+      const { error } = await supabase.rpc("confirmar_direcionamento" as any, { _cad_id: cad.id, _rows: buildRows() });
       if (error) throw error;
     },
     onSuccess: async () => {
       toast.success("Direcionamento confirmado — Separado");
       setStatus("separado");
       setEditing(false);
+      await qc.invalidateQueries({ queryKey: ["direcionamento", cad?.id] });
       await qc.invalidateQueries({ queryKey: ["dir-cad", modeloId] });
       await qc.invalidateQueries({ queryKey: ["dir-list"] });
+      await refetch();
+      setHydrated(false);
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao confirmar")),
   });
@@ -254,6 +241,49 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
   const confirmado = status === "separado";
   const locked = confirmado && !editing;
   const variantes = Object.values(state).sort((a, b) => a.variante_numero - b.variante_numero);
+  // Algum tamanho com e-commerce acima da Grade Real? O servidor trava no Confirmar
+  // (RAISE); aqui desabilita o botão p/ dar o feedback antes de tentar.
+  const hasOver = variantes.some((v) => tamanhos.some((t) => Number(v.ecommerce?.[t] ?? 0) > Number(v.real?.[t] ?? 0)));
+
+  // Botões renderizados na barra do topo (desktop) E na MobileActionBar (portal no
+  // body) — o mesmo fragmento serve os dois, sem duplicar a lógica de estado.
+  const backButton = onClose ? (
+    <Button type="button" variant="outline" size="icon" className="mr-auto" onClick={onClose} aria-label="Voltar">
+      <ArrowLeft className="h-4 w-4" />
+    </Button>
+  ) : (
+    <Button asChild variant="outline" size="icon" className="mr-auto" aria-label="Voltar">
+      <Link to="/producao/direcionamento"><ArrowLeft className="h-4 w-4" /></Link>
+    </Button>
+  );
+  const actionButtons = !confirmado ? (
+    <>
+      <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
+        <Save className="h-4 w-4 mr-2" /> Salvar
+      </Button>
+      <Button onClick={() => confirmMut.mutate()} disabled={confirmMut.isPending || saveMut.isPending || readOnly || !cad?.id || hasOver}>
+        <CheckCircle2 className="h-4 w-4 mr-2" /> Confirmar Direcionamento
+      </Button>
+    </>
+  ) : editing ? (
+    <>
+      <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
+        <Save className="h-4 w-4 mr-2" /> Salvar
+      </Button>
+      <Button variant="ghost" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || readOnly}>
+        <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar
+      </Button>
+    </>
+  ) : (
+    <>
+      <Button variant="outline" size="icon" onClick={() => setEditing(true)} disabled={readOnly} aria-label="Editar">
+        <Pencil className="h-4 w-4" />
+      </Button>
+      <Button variant="ghost" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || readOnly}>
+        <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar
+      </Button>
+    </>
+  );
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
@@ -274,47 +304,13 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
             <ArrowLeft className="h-4 w-4" /> Voltar
           </Link>
         )}
-        <div className="flex items-center gap-2 max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-40 max-sm:justify-end max-sm:border-t max-sm:bg-background max-sm:p-3 max-sm:shadow-lg">
-          {onClose ? (
-            <Button type="button" variant="outline" size="icon" className="sm:hidden mr-auto" onClick={onClose} aria-label="Voltar">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          ) : (
-            <Button asChild variant="outline" size="icon" className="sm:hidden mr-auto" aria-label="Voltar">
-              <Link to="/producao/direcionamento"><ArrowLeft className="h-4 w-4" /></Link>
-            </Button>
-          )}
+        {/* Desktop: ações na barra do topo. Mobile: MobileActionBar (portal no body —
+            o max-sm:fixed inline descolava dentro do Sheet da lista). */}
+        <div className="flex items-center gap-2 max-sm:hidden">
           <Button variant="outline" className="hidden md:inline-flex" onClick={() => printWithImages()} disabled={variantes.length === 0}>
             <Printer className="h-4 w-4 mr-2" /> Imprimir Romaneio
           </Button>
-          {!confirmado ? (
-            <>
-              <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
-                <Save className="h-4 w-4 mr-2" /> Salvar
-              </Button>
-              <Button onClick={() => confirmMut.mutate()} disabled={confirmMut.isPending || saveMut.isPending || readOnly || !cad?.id}>
-                <CheckCircle2 className="h-4 w-4 mr-2" /> Confirmar Direcionamento
-              </Button>
-            </>
-          ) : editing ? (
-            <>
-              <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
-                <Save className="h-4 w-4 mr-2" /> Salvar
-              </Button>
-              <Button variant="ghost" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || readOnly}>
-                <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button variant="outline" size="icon" onClick={() => setEditing(true)} disabled={readOnly} aria-label="Editar">
-                <Pencil className="h-4 w-4" />
-              </Button>
-              <Button variant="ghost" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || readOnly}>
-                <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar
-              </Button>
-            </>
-          )}
+          {actionButtons}
         </div>
       </div>
       <fieldset disabled={readOnly || locked} className="contents">
@@ -383,7 +379,7 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
                         <td key={t} className="border p-0">
                           <NumberInput
                             integer min={0} max={real}
-                            className={`h-8 border-0 bg-transparent text-center ${over ? "text-destructive" : ""}`}
+                            className={`h-8 max-md:h-11 border-0 bg-transparent text-center ${over ? "text-destructive" : ""}`}
                             value={v.ecommerce?.[t] ?? ""}
                             onChange={(e) => setEcommerce(v.variante_numero, t, Math.max(0, Number(e.target.value) || 0))}
                           />
@@ -424,7 +420,7 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
                       <span className="text-xs text-muted-foreground">E-commerce</span>
                       <NumberInput
                         integer min={0} max={real}
-                        className={`h-9 text-center ${over ? "border-destructive text-destructive" : ""}`}
+                        className={`h-9 max-md:h-11 text-center ${over ? "border-destructive text-destructive" : ""}`}
                         value={v.ecommerce?.[t] ?? ""}
                         onChange={(e) => setEcommerce(v.variante_numero, t, Math.max(0, Number(e.target.value) || 0))}
                       />
@@ -452,9 +448,18 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
         tamanhos={tamanhos}
         variantes={variantes}
         confirmado={confirmado}
-        dataStr={new Date().toLocaleDateString("pt-BR")}
+        // Romaneio confirmado carimba a data da SEPARAÇÃO (direcionamento_confirmado_at),
+        // não o momento da impressão — senão reimprimir amanhã mostra data errada.
+        dataStr={new Date(
+          (confirmado && (cad as any)?.direcionamento_confirmado_at) || Date.now(),
+        ).toLocaleDateString("pt-BR")}
         labelByNumero={labelByNumero}
       />
+
+      <MobileActionBar>
+        {backButton}
+        {actionButtons}
+      </MobileActionBar>
     </div>
   );
 }

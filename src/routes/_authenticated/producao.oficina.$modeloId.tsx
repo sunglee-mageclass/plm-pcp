@@ -85,7 +85,10 @@ function OficinaDetailPage() {
   const oficinaInterna = Boolean((tenantCfg as any)?.oficina_interna);
 
   const { data: grades = [] } = useQuery({
-    queryKey: ["cad-grades", cad?.id],
+    // Sufixo "full": esta tela lê o superset (planejada+real+totais). O Direcionamento
+    // usa a mesma raiz com só grades_reais ("reais") — sufixo evita shape errado no
+    // cache. O CQ invalida por prefixo ["cad-grades", cad?.id], que casa ambos.
+    queryKey: ["cad-grades", cad?.id, "full"],
     enabled: !!cad?.id,
     queryFn: async () => {
       const { data } = await supabase
