@@ -1,7 +1,9 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Target as TargetIcon, Wallet } from "lucide-react";
+import { ColecaoPVSheet } from "@/components/otb/ColecaoPVSheet";
+import { PadraoMixSheet } from "@/components/otb/PadraoMixSheet";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -35,12 +37,13 @@ function useOpts(table: string, key = "nome") {
 
 function OtbPage() {
   const { isModuleEnabled } = useTenantModules();
-  const navigate = useNavigate();
   const [openId, setOpenId] = useState<string | null>(null);
   const [openNew, setOpenNew] = useState(false);
   const [tipoOpen, setTipoOpen] = useState(false);
+  const [pvOpen, setPvOpen] = useState<{ id: string | null } | null>(null);
+  const [padraoOpen, setPadraoOpen] = useState(false);
   const abrirColecao = (c: any) =>
-    c.tipo === "poder_venda" ? navigate({ to: "/otb-beta-colecao", search: { id: c.id } }) : setOpenId(c.id);
+    c.tipo === "poder_venda" ? setPvOpen({ id: c.id }) : setOpenId(c.id);
   const [fAno, setFAno] = useState("all");
   const [fMes, setFMes] = useState("all");
   const { data: meses = [] } = useOpts("meses", "mes");
@@ -171,7 +174,7 @@ function OtbPage() {
             { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...anos] },
             { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
           ]} />
-          <Button variant="outline" size="sm" asChild><Link to="/otb-beta">Padrão do mix</Link></Button>
+          <Button variant="outline" size="sm" onClick={() => setPadraoOpen(true)}>Padrão do mix</Button>
           <Button variant="outline" className="max-sm:hidden" onClick={() => importar.mutate()} disabled={importar.isPending}>Importar coleções existentes</Button>
           <Button className="max-sm:hidden" onClick={() => setTipoOpen(true)}><Plus className="h-4 w-4 mr-1" /> Nova coleção</Button>
         </div>
@@ -238,6 +241,12 @@ function OtbPage() {
         <ColecaoSheet colecaoId={openId} meses={meses} anos={anos}
           onClose={() => { setOpenNew(false); setOpenId(null); }} onSaved={() => {}} />
       )}
+      {pvOpen && (
+        <ColecaoPVSheet colecaoId={pvOpen.id}
+          onClose={() => setPvOpen(null)}
+          onSaved={() => { qc.invalidateQueries({ queryKey: ["otb-colecoes"] }); qc.invalidateQueries({ queryKey: ["otb-pv-poder"] }); }} />
+      )}
+      {padraoOpen && <PadraoMixSheet onClose={() => setPadraoOpen(false)} />}
       <MobileActionBar>
         <Button variant="outline" aria-label="Importar coleções existentes" onClick={() => importar.mutate()} disabled={importar.isPending}>Importar</Button>
         <Button className="ml-auto" onClick={() => setTipoOpen(true)}><Plus className="h-4 w-4 mr-1" /> Nova coleção</Button>
@@ -260,7 +269,7 @@ function OtbPage() {
             </button>
             <button
               className="flex flex-col items-start gap-1 rounded-lg border p-4 text-left hover:bg-muted"
-              onClick={() => { setTipoOpen(false); navigate({ to: "/otb-beta-colecao", search: { id: undefined } }); }}
+              onClick={() => { setTipoOpen(false); setPvOpen({ id: null }); }}
             >
               <TargetIcon className="h-6 w-6 text-primary" />
               <span className="font-semibold">Por Poder de Venda</span>

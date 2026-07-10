@@ -24,7 +24,6 @@ import { Route as AuthenticatedCadastroRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedAdminRouteRouteImport } from './routes/_authenticated/admin/route'
 import { Route as AuthenticatedProducaoIndexRouteImport } from './routes/_authenticated/producao.index'
 import { Route as AuthenticatedOtbIndexRouteImport } from './routes/_authenticated/otb.index'
-import { Route as AuthenticatedOtbBetaIndexRouteImport } from './routes/_authenticated/otb-beta.index'
 import { Route as AuthenticatedEntradaSaidaIndexRouteImport } from './routes/_authenticated/entrada-saida.index'
 import { Route as AuthenticatedCriacaoIndexRouteImport } from './routes/_authenticated/criacao.index'
 import { Route as AuthenticatedCadastroIndexRouteImport } from './routes/_authenticated/cadastro.index'
@@ -147,12 +146,6 @@ const AuthenticatedOtbIndexRoute = AuthenticatedOtbIndexRouteImport.update({
   path: '/otb/',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
-const AuthenticatedOtbBetaIndexRoute =
-  AuthenticatedOtbBetaIndexRouteImport.update({
-    id: '/otb-beta/',
-    path: '/otb-beta/',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
 const AuthenticatedEntradaSaidaIndexRoute =
   AuthenticatedEntradaSaidaIndexRouteImport.update({
     id: '/',
@@ -460,7 +453,6 @@ export interface FileRoutesByFullPath {
   '/cadastro/': typeof AuthenticatedCadastroIndexRoute
   '/criacao/': typeof AuthenticatedCriacaoIndexRoute
   '/entrada-saida/': typeof AuthenticatedEntradaSaidaIndexRoute
-  '/otb-beta/': typeof AuthenticatedOtbBetaIndexRoute
   '/otb/': typeof AuthenticatedOtbIndexRoute
   '/producao/': typeof AuthenticatedProducaoIndexRoute
   '/cadastro/tecidos/$artigoId': typeof AuthenticatedCadastroTecidosArtigoIdRoute
@@ -510,7 +502,6 @@ export interface FileRoutesByTo {
   '/cadastro': typeof AuthenticatedCadastroIndexRoute
   '/criacao': typeof AuthenticatedCriacaoIndexRoute
   '/entrada-saida': typeof AuthenticatedEntradaSaidaIndexRoute
-  '/otb-beta': typeof AuthenticatedOtbBetaIndexRoute
   '/otb': typeof AuthenticatedOtbIndexRoute
   '/producao': typeof AuthenticatedProducaoIndexRoute
   '/cadastro/tecidos/$artigoId': typeof AuthenticatedCadastroTecidosArtigoIdRoute
@@ -573,7 +564,6 @@ export interface FileRoutesById {
   '/_authenticated/cadastro/': typeof AuthenticatedCadastroIndexRoute
   '/_authenticated/criacao/': typeof AuthenticatedCriacaoIndexRoute
   '/_authenticated/entrada-saida/': typeof AuthenticatedEntradaSaidaIndexRoute
-  '/_authenticated/otb-beta/': typeof AuthenticatedOtbBetaIndexRoute
   '/_authenticated/otb/': typeof AuthenticatedOtbIndexRoute
   '/_authenticated/producao/': typeof AuthenticatedProducaoIndexRoute
   '/_authenticated/cadastro/tecidos/$artigoId': typeof AuthenticatedCadastroTecidosArtigoIdRoute
@@ -636,7 +626,6 @@ export interface FileRouteTypes {
     | '/cadastro/'
     | '/criacao/'
     | '/entrada-saida/'
-    | '/otb-beta/'
     | '/otb/'
     | '/producao/'
     | '/cadastro/tecidos/$artigoId'
@@ -686,7 +675,6 @@ export interface FileRouteTypes {
     | '/cadastro'
     | '/criacao'
     | '/entrada-saida'
-    | '/otb-beta'
     | '/otb'
     | '/producao'
     | '/cadastro/tecidos/$artigoId'
@@ -748,7 +736,6 @@ export interface FileRouteTypes {
     | '/_authenticated/cadastro/'
     | '/_authenticated/criacao/'
     | '/_authenticated/entrada-saida/'
-    | '/_authenticated/otb-beta/'
     | '/_authenticated/otb/'
     | '/_authenticated/producao/'
     | '/_authenticated/cadastro/tecidos/$artigoId'
@@ -877,13 +864,6 @@ declare module '@tanstack/react-router' {
       path: '/otb'
       fullPath: '/otb/'
       preLoaderRoute: typeof AuthenticatedOtbIndexRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/otb-beta/': {
-      id: '/_authenticated/otb-beta/'
-      path: '/otb-beta'
-      fullPath: '/otb-beta/'
-      preLoaderRoute: typeof AuthenticatedOtbBetaIndexRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/entrada-saida/': {
@@ -1445,7 +1425,6 @@ interface AuthenticatedRouteChildren {
   AuthenticatedFinanceiroRoute: typeof AuthenticatedFinanceiroRoute
   AuthenticatedHomeRoute: typeof AuthenticatedHomeRoute
   AuthenticatedProducaoRoute: typeof AuthenticatedProducaoRouteWithChildren
-  AuthenticatedOtbBetaIndexRoute: typeof AuthenticatedOtbBetaIndexRoute
   AuthenticatedOtbIndexRoute: typeof AuthenticatedOtbIndexRoute
 }
 
@@ -1459,7 +1438,6 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedFinanceiroRoute: AuthenticatedFinanceiroRoute,
   AuthenticatedHomeRoute: AuthenticatedHomeRoute,
   AuthenticatedProducaoRoute: AuthenticatedProducaoRouteWithChildren,
-  AuthenticatedOtbBetaIndexRoute: AuthenticatedOtbBetaIndexRoute,
   AuthenticatedOtbIndexRoute: AuthenticatedOtbIndexRoute,
 }
 
