@@ -29,6 +29,9 @@ type Subcolecao = { id: string; nome: string; semanas: number[]; datasSemanas: R
 let _seq = 0;
 const nid = (p: string) => `${p}-${++_seq}`;
 const num = (v: string) => (v === "" ? 0 : Number(v.replace(",", ".")) || 0);
+// Parse pt-BR: ponto = milhar (removido), vírgula = decimal.
+const parseBR = (v: string) => { const n = Number(v.replace(/\./g, "").replace(",", ".")); return Number.isFinite(n) ? n : 0; };
+const milhar = (n: number) => n.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
 const int = (n: number) => Math.round(n).toLocaleString("pt-BR");
 const pct1 = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
 const totLinha = (l: LinhaSub, semanas: number[]) => semanas.reduce((s, w) => s + (Number(l.q[String(w)]) || 0), 0);
@@ -64,6 +67,9 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
   const [subs, setSubs] = useState<Subcolecao[]>([]);
   const [aberta, setAberta] = useState<Record<string, boolean>>({});
   const [hydrated, setHydrated] = useState(false);
+  // Campo "meta" com separador de milhar: formatado quando sem foco, cru (pt-BR) ao editar.
+  const [metaFocus, setMetaFocus] = useState(false);
+  const [metaText, setMetaText] = useState("");
 
   const mesOrdem = useMemo(() => Number((meses as any[]).find((m) => m.id === mesId)?.ordem) || 0, [meses, mesId]);
   const anoNum = useMemo(() => Number((anos as any[]).find((a) => a.id === anoId)?.ano) || 0, [anos, anoId]);
@@ -258,7 +264,11 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
               <label className="space-y-1"><span className="text-xs font-medium text-muted-foreground">Ano</span>
                 <Sel value={anoId} onChange={setAnoId} placeholder="—" className="w-full">{(anos as any[]).map((a) => <SelectItem key={a.id} value={a.id}>{a.ano}</SelectItem>)}</Sel></label>
               <label className="space-y-1 col-span-2"><span className="text-xs font-medium text-muted-foreground">Poder de venda meta</span>
-                <Input inputMode="decimal" value={meta} onChange={(e) => setMeta(num(e.target.value))} /></label>
+                <Input inputMode="decimal"
+                  value={metaFocus ? metaText : (meta ? milhar(meta) : "")}
+                  onFocus={() => { setMetaFocus(true); setMetaText(meta ? String(meta).replace(".", ",") : ""); }}
+                  onChange={(e) => { setMetaText(e.target.value); setMeta(parseBR(e.target.value)); }}
+                  onBlur={() => setMetaFocus(false)} /></label>
               <label className="space-y-1"><span className="text-xs font-medium text-muted-foreground">Perda markup</span>
                 <div className="flex items-center gap-1"><Input inputMode="decimal" value={perda} onChange={(e) => setPerda(num(e.target.value))} /><span className="text-muted-foreground">%</span></div></label>
             </div>
