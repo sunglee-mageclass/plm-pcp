@@ -23,6 +23,7 @@ export type DateFieldProps = {
   id?: string;
   min?: string; // ISO
   max?: string; // ISO
+  defaultMonth?: string; // ISO — mês que o calendário abre quando o campo está vazio
   required?: boolean;
   className?: string;
   "aria-label"?: string;
@@ -63,6 +64,7 @@ export function DateField({
   id,
   min,
   max,
+  defaultMonth,
   required,
   className,
   "aria-label": ariaLabel,
@@ -128,7 +130,7 @@ export function DateField({
           <Calendar
             mode="single"
             selected={selected}
-            defaultMonth={selected ?? new Date()}
+            defaultMonth={selected ?? isoToDate(defaultMonth ?? "") ?? new Date()}
             disabled={[
               ...(minDate ? [{ before: minDate }] : []),
               ...(maxDate ? [{ after: maxDate }] : []),

@@ -19,7 +19,7 @@ import { Plus, Trash2, ChevronRight, Save, Check, ArrowLeft } from "lucide-react
  * Subcoleção ▸ Linha × Semana (SEM categoria/sub). Por linha: prof/cor, cores, preço,
  * toggle "à parte" (Acessórios = 100% sozinha). O nº de modelos do padrão é DISTRIBUÍDO
  * automaticamente ÷ subcoleções e repartido nas semanas. Data de lançamento POR SEMANA
- * (semanas do calendário seg–dom, derivada do mês/ano, editável). Confirmar gera os cards.
+ * (semanas do calendário dom–sáb, derivada do mês/ano, editável). Confirmar gera os cards.
  */
 
 const SEMANAS = [1, 2, 3, 4, 5];
@@ -76,11 +76,11 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
 
   const mesOrdem = useMemo(() => Number((meses as any[]).find((m) => m.id === mesId)?.ordem) || 0, [meses, mesId]);
   const anoNum = useMemo(() => Number((anos as any[]).find((a) => a.id === anoId)?.ano) || 0, [anos, anoId]);
-  // Semana N do mês = a N-ª semana do calendário (seg–dom) que toca o mês.
+  // Semana N do mês = a N-ª semana do calendário (dom–sáb) que toca o mês.
   const semanaRange = (w: number) => {
     if (!anoNum || !mesOrdem) return null;
     const first = new Date(anoNum, mesOrdem - 1, 1);
-    const mon = addWeeks(startOfWeek(first, { weekStartsOn: 1 }), w - 1);
+    const mon = addWeeks(startOfWeek(first, { weekStartsOn: 0 }), w - 1);
     return { inicio: mon, fim: addDays(mon, 6), first };
   };
   const dataDefault = (w: number) => {
@@ -90,13 +90,15 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
   };
   const rangeLabel = (w: number) => { const r = semanaRange(w); return r ? `${format(r.inicio, "dd/MM")}–${format(r.fim, "dd/MM")}` : ""; };
   const dataSemana = (s: Subcolecao, w: number) => s.datasSemanas[String(w)] ?? dataDefault(w);
+  // Mês/ano da coleção em ISO — o calendário do DateField abre nele (o mês já está escolhido).
+  const colMesIso = anoNum && mesOrdem ? format(new Date(anoNum, mesOrdem - 1, 1), "yyyy-MM-dd") : "";
   // Inverso: dada uma data, qual semana (1–5) do mês/ano da coleção ela cai? null = fora.
   const semanaDaData = (dateStr: string): number | null => {
     if (!dateStr || !anoNum || !mesOrdem) return null;
     const d = new Date(`${dateStr}T00:00:00`);
     if (Number.isNaN(d.getTime())) return null;
-    const week1 = startOfWeek(new Date(anoNum, mesOrdem - 1, 1), { weekStartsOn: 1 });
-    const diff = Math.round((startOfWeek(d, { weekStartsOn: 1 }).getTime() - week1.getTime()) / (7 * 24 * 3600 * 1000));
+    const week1 = startOfWeek(new Date(anoNum, mesOrdem - 1, 1), { weekStartsOn: 0 });
+    const diff = Math.round((startOfWeek(d, { weekStartsOn: 0 }).getTime() - week1.getTime()) / (7 * 24 * 3600 * 1000));
     const n = diff + 1;
     return n >= 1 && n <= 5 ? n : null;
   };
@@ -382,7 +384,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
                               <Sel value={String(w)} onChange={(v) => moverSemana(s.id, w, Number(v))} className="w-32">
                                 {SEMANAS.map((x) => <SelectItem key={x} value={String(x)} disabled={x !== w && s.semanas.includes(x)}>Semana {x}</SelectItem>)}
                               </Sel>
-                              <span className="w-32 inline-block"><DateField value={dataSemana(s, w)} onChange={(e) => onDataChange(s.id, w, e.target.value)} /></span>
+                              <span className="w-32 inline-block"><DateField value={dataSemana(s, w)} defaultMonth={colMesIso} onChange={(e) => onDataChange(s.id, w, e.target.value)} /></span>
                               {rangeLabel(w) && <span className="text-xs text-muted-foreground/70">{rangeLabel(w)}</span>}
                               <Button variant="ghost" size="iconSm" onClick={() => removerSemana(s.id, w)}><Trash2 className="h-4 w-4 text-muted-foreground" /></Button>
                             </div>
