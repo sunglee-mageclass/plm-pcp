@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { DateField } from "@/components/shared/DateField";
 import { brl } from "@/lib/format";
 import { Plus, Trash2, ChevronRight, Save, Check, ArrowLeft } from "lucide-react";
@@ -172,7 +173,6 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
     return { rows, total, sumReal: rows.reduce((a, r) => a + r.real, 0), sumMeta };
   }, [subs, padroes, padraoId]);
 
-  const fieldCls = "h-9 rounded-md border border-input bg-background px-2 text-sm";
   const temPadrao = !!padraoId && !!(padroes as any[]).find((p) => p.id === padraoId);
 
   return (
@@ -191,13 +191,13 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
               <label className="space-y-1 col-span-2"><span className="text-xs font-medium text-muted-foreground">Nome</span>
                 <Input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="ex.: Alto Verão 26" /></label>
               <label className="space-y-1"><span className="text-xs font-medium text-muted-foreground">Padrão do mix</span>
-                <select className={`${fieldCls} w-full`} value={padraoId} onChange={(e) => setPadraoId(e.target.value)}>
-                  <option value="">— escolher —</option>{(padroes as any[]).map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
-                </select></label>
+                <Sel value={padraoId} onChange={setPadraoId} placeholder="— escolher —" className="w-full">
+                  {(padroes as any[]).map((p) => <SelectItem key={p.id} value={p.id}>{p.nome}</SelectItem>)}
+                </Sel></label>
               <label className="space-y-1"><span className="text-xs font-medium text-muted-foreground">Mês</span>
-                <select className={`${fieldCls} w-full`} value={mesId} onChange={(e) => setMesId(e.target.value)}><option value="">—</option>{(meses as any[]).map((m) => <option key={m.id} value={m.id}>{m.mes}</option>)}</select></label>
+                <Sel value={mesId} onChange={setMesId} placeholder="—" className="w-full">{(meses as any[]).map((m) => <SelectItem key={m.id} value={m.id}>{m.mes}</SelectItem>)}</Sel></label>
               <label className="space-y-1"><span className="text-xs font-medium text-muted-foreground">Ano</span>
-                <select className={`${fieldCls} w-full`} value={anoId} onChange={(e) => setAnoId(e.target.value)}><option value="">—</option>{(anos as any[]).map((a) => <option key={a.id} value={a.id}>{a.ano}</option>)}</select></label>
+                <Sel value={anoId} onChange={setAnoId} placeholder="—" className="w-full">{(anos as any[]).map((a) => <SelectItem key={a.id} value={a.id}>{a.ano}</SelectItem>)}</Sel></label>
               <label className="space-y-1 col-span-2"><span className="text-xs font-medium text-muted-foreground">Poder de venda meta</span>
                 <Input inputMode="decimal" value={meta} onChange={(e) => setMeta(num(e.target.value))} /></label>
               <label className="space-y-1"><span className="text-xs font-medium text-muted-foreground">Perda markup</span>
@@ -273,9 +273,9 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
                           return (
                             <div key={l.id} className="rounded-md border bg-background p-2">
                               <div className="mb-2 flex flex-wrap items-center gap-2">
-                                <select className={`${fieldCls} min-w-[9rem]`} value={l.linhaId} onChange={(e) => patchLinha(s.id, l.id, { linhaId: e.target.value })}>
-                                  <option value="">— linha —</option>{(linhaOpts as any[]).map((o) => <option key={o.id} value={o.id}>{o.nome}</option>)}
-                                </select>
+                                <Sel value={l.linhaId} onChange={(v) => patchLinha(s.id, l.id, { linhaId: v })} placeholder="— linha —" className="min-w-[9rem]">
+                                  {(linhaOpts as any[]).map((o) => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
+                                </Sel>
                                 <span className="text-xs text-muted-foreground">markup <b className="text-foreground tabular-nums">{mk ? `${mk.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}×` : "—"}</b></span>
                                 <Lbl t="prof/cor"><Input className="h-8 w-14 px-1 text-left tabular-nums" inputMode="numeric" value={l.profCor} onChange={(e) => patchLinha(s.id, l.id, { profCor: Math.max(0, Math.round(num(e.target.value))) })} /></Lbl>
                                 <Lbl t="cores"><Input className="h-8 w-12 px-1 text-left tabular-nums" inputMode="numeric" value={l.cores} onChange={(e) => patchLinha(s.id, l.id, { cores: Math.max(0, Math.round(num(e.target.value))) })} /></Lbl>
@@ -294,8 +294,8 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
                                       const tot = totCat(c, s.semanas); const vm = (c.min + c.max) / 2; const pod = tot * l.profCor * l.cores * vm;
                                       return (
                                         <tr key={c.id} className="border-t border-border/50 [&>td]:px-2 [&>td]:py-1 [&>td]:text-left">
-                                          <td><select className={`${fieldCls} min-w-[8rem] max-sm:w-full`} value={c.catId} onChange={(e) => patchCat(s.id, l.id, c.id, { catId: e.target.value, subId: "" })}><option value="">— categoria —</option>{(catOpts as any[]).map((o) => <option key={o.id} value={o.id}>{o.nome}</option>)}</select></td>
-                                          <td data-label="Subcategoria"><select className={`${fieldCls} min-w-[8rem] max-sm:w-full`} value={c.subId} disabled={!c.catId} onChange={(e) => patchCat(s.id, l.id, c.id, { subId: e.target.value })}><option value="">{c.catId ? "—" : "cat. antes"}</option>{subsDaCat(c.catId).map((o: any) => <option key={o.id} value={o.id}>{o.nome}</option>)}</select></td>
+                                          <td><Sel value={c.catId} onChange={(v) => patchCat(s.id, l.id, c.id, { catId: v, subId: "" })} placeholder="— categoria —" className="min-w-[8rem] max-sm:w-full">{(catOpts as any[]).map((o) => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}</Sel></td>
+                                          <td data-label="Subcategoria"><Sel value={c.subId} onChange={(v) => patchCat(s.id, l.id, c.id, { subId: v })} disabled={!c.catId} placeholder={c.catId ? "—" : "cat. antes"} className="min-w-[8rem] max-sm:w-full">{subsDaCat(c.catId).map((o: any) => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}</Sel></td>
                                           <td data-label="Preço mín"><Input className="h-8 w-20 max-sm:h-9 px-1 text-left tabular-nums" inputMode="decimal" value={c.min} onChange={(e) => patchCat(s.id, l.id, c.id, { min: num(e.target.value) })} /></td>
                                           <td data-label="Preço máx"><Input className="h-8 w-20 max-sm:h-9 px-1 text-left tabular-nums" inputMode="decimal" value={c.max} onChange={(e) => patchCat(s.id, l.id, c.id, { max: num(e.target.value) })} /></td>
                                           {s.semanas.map((w) => (
@@ -343,4 +343,15 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
 
 function Lbl({ t, children }: { t: string; children: React.ReactNode }) {
   return <span className="flex items-center gap-1 text-xs text-muted-foreground">{t} {children}</span>;
+}
+
+function Sel({ value, onChange, placeholder, disabled, className, children }: {
+  value: string; onChange: (v: string) => void; placeholder?: string; disabled?: boolean; className?: string; children: React.ReactNode;
+}) {
+  return (
+    <Select value={value || undefined} onValueChange={onChange} disabled={disabled}>
+      <SelectTrigger className={className}><SelectValue placeholder={placeholder ?? "—"} /></SelectTrigger>
+      <SelectContent>{children}</SelectContent>
+    </Select>
+  );
 }

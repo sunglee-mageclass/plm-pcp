@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { brl } from "@/lib/format";
 import { Plus, Trash2, ChevronRight, Pencil, Save, ArrowLeft } from "lucide-react";
 
@@ -105,7 +106,6 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
   });
 
   const somaPct = useMemo(() => draft.linhas.reduce((s, l) => s + (Number(l.pct) || 0), 0), [draft.linhas]);
-  const fieldCls = "h-8 rounded-md border border-input bg-background px-2 text-sm";
   const temSel = !!selId && !!padroes.find((p) => p.id === selId);
 
   return (
@@ -172,9 +172,9 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
                       <button className="p-2 -m-2" onClick={() => setAberta((a) => ({ ...a, [l.id]: !open }))}>
                         <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
                       </button>
-                      <select className={`${fieldCls} min-w-[10rem]`} value={l.linhaId} onChange={(e) => patchLinha(l.id, { linhaId: e.target.value })}>
-                        <option value="">— linha —</option>{(linhaOpts as any[]).map((o) => <option key={o.id} value={o.id}>{o.nome}</option>)}
-                      </select>
+                      <Sel value={l.linhaId} onChange={(v) => patchLinha(l.id, { linhaId: v })} placeholder="— linha —" className="min-w-[10rem]">
+                        {(linhaOpts as any[]).map((o) => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
+                      </Sel>
                       <span className="text-xs text-muted-foreground">markup <b className="tabular-nums text-foreground">{mk ? `${mk.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}×` : "—"}</b></span>
                       <Lbl t="% mix"><Input className="h-8 w-16 px-1 text-left tabular-nums" inputMode="decimal" value={l.pct} onChange={(e) => patchLinha(l.id, { pct: num(e.target.value) })} /></Lbl>
                       <Lbl t="prof/cor"><Input className="h-8 w-14 px-1 text-left tabular-nums" inputMode="numeric" value={l.profCor} onChange={(e) => patchLinha(l.id, { profCor: Math.max(0, Math.round(num(e.target.value))) })} /></Lbl>
@@ -197,14 +197,14 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
                               {l.subs.map((s) => (
                                 <tr key={s.id} className="border-t border-border/50 [&>td]:px-2 [&>td]:py-1 [&>td]:text-left">
                                   <td>
-                                    <select className={`${fieldCls} min-w-[9rem] max-sm:w-full`} value={s.catId} onChange={(e) => patchSub(l.id, s.id, { catId: e.target.value, subId: "" })}>
-                                      <option value="">— categoria —</option>{(catOpts as any[]).map((o) => <option key={o.id} value={o.id}>{o.nome}</option>)}
-                                    </select>
+                                    <Sel value={s.catId} onChange={(v) => patchSub(l.id, s.id, { catId: v, subId: "" })} placeholder="— categoria —" className="min-w-[9rem] max-sm:w-full">
+                                      {(catOpts as any[]).map((o) => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
+                                    </Sel>
                                   </td>
                                   <td data-label="Subcategoria">
-                                    <select className={`${fieldCls} min-w-[9rem] max-sm:w-full`} value={s.subId} disabled={!s.catId} onChange={(e) => patchSub(l.id, s.id, { subId: e.target.value })}>
-                                      <option value="">{s.catId ? "— subcategoria —" : "escolha a categoria"}</option>{subsDaCat(s.catId).map((o: any) => <option key={o.id} value={o.id}>{o.nome}</option>)}
-                                    </select>
+                                    <Sel value={s.subId} onChange={(v) => patchSub(l.id, s.id, { subId: v })} disabled={!s.catId} placeholder={s.catId ? "— subcategoria —" : "escolha a categoria"} className="min-w-[9rem] max-sm:w-full">
+                                      {subsDaCat(s.catId).map((o: any) => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
+                                    </Sel>
                                   </td>
                                   <td data-label="Preço mín"><Input className="h-8 w-20 max-sm:h-9 px-1 text-left tabular-nums" inputMode="decimal" value={s.min} onChange={(e) => patchSub(l.id, s.id, { min: num(e.target.value) })} /></td>
                                   <td data-label="Preço máx"><Input className="h-8 w-20 max-sm:h-9 px-1 text-left tabular-nums" inputMode="decimal" value={s.max} onChange={(e) => patchSub(l.id, s.id, { max: num(e.target.value) })} /></td>
@@ -242,4 +242,15 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
 
 function Lbl({ t, children }: { t: string; children: React.ReactNode }) {
   return <span className="flex items-center gap-1 text-xs text-muted-foreground">{t} {children}</span>;
+}
+
+function Sel({ value, onChange, placeholder, disabled, className, children }: {
+  value: string; onChange: (v: string) => void; placeholder?: string; disabled?: boolean; className?: string; children: React.ReactNode;
+}) {
+  return (
+    <Select value={value || undefined} onValueChange={onChange} disabled={disabled}>
+      <SelectTrigger className={className}><SelectValue placeholder={placeholder ?? "—"} /></SelectTrigger>
+      <SelectContent>{children}</SelectContent>
+    </Select>
+  );
 }
