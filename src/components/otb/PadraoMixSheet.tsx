@@ -185,7 +185,7 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
                     {open && (
                       <div className="border-t bg-muted/10 px-3 py-2">
                         <div className="overflow-x-auto">
-                          <table className="w-full text-sm">
+                          <table className="w-full text-sm card-table">
                             <thead className="text-xs text-muted-foreground">
                               <tr className="[&>th]:px-2 [&>th]:py-1 [&>th]:font-medium [&>th]:text-right [&>th:first-child]:text-left [&>th:nth-child(2)]:text-left">
                                 <th className="min-w-[9rem]">Categoria</th><th className="min-w-[9rem]">Subcategoria</th>
@@ -197,20 +197,20 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
                               {l.subs.map((s) => (
                                 <tr key={s.id} className="border-t border-border/50 [&>td]:px-2 [&>td]:py-1 [&>td]:text-right [&>td:first-child]:text-left [&>td:nth-child(2)]:text-left">
                                   <td>
-                                    <select className={`${fieldCls} min-w-[9rem]`} value={s.catId} onChange={(e) => patchSub(l.id, s.id, { catId: e.target.value, subId: "" })}>
+                                    <select className={`${fieldCls} min-w-[9rem] max-sm:w-full`} value={s.catId} onChange={(e) => patchSub(l.id, s.id, { catId: e.target.value, subId: "" })}>
                                       <option value="">— categoria —</option>{(catOpts as any[]).map((o) => <option key={o.id} value={o.id}>{o.nome}</option>)}
                                     </select>
                                   </td>
-                                  <td>
-                                    <select className={`${fieldCls} min-w-[9rem]`} value={s.subId} disabled={!s.catId} onChange={(e) => patchSub(l.id, s.id, { subId: e.target.value })}>
+                                  <td data-label="Subcategoria">
+                                    <select className={`${fieldCls} min-w-[9rem] max-sm:w-full`} value={s.subId} disabled={!s.catId} onChange={(e) => patchSub(l.id, s.id, { subId: e.target.value })}>
                                       <option value="">{s.catId ? "— subcategoria —" : "escolha a categoria"}</option>{subsDaCat(s.catId).map((o: any) => <option key={o.id} value={o.id}>{o.nome}</option>)}
                                     </select>
                                   </td>
-                                  <td><Input className="h-8 w-20 px-1 text-right tabular-nums" inputMode="decimal" value={s.min} onChange={(e) => patchSub(l.id, s.id, { min: num(e.target.value) })} /></td>
-                                  <td><Input className="h-8 w-20 px-1 text-right tabular-nums" inputMode="decimal" value={s.max} onChange={(e) => patchSub(l.id, s.id, { max: num(e.target.value) })} /></td>
-                                  <td className="tabular-nums text-muted-foreground/70">{mk ? brl(s.min / mk) : "—"}</td>
-                                  <td className="tabular-nums text-muted-foreground/70">{mk ? brl(s.max / mk) : "—"}</td>
-                                  <td><Button variant="ghost" size="iconSm" onClick={() => delSub(l.id, s.id)}><Trash2 className="h-4 w-4 text-muted-foreground" /></Button></td>
+                                  <td data-label="Preço mín"><Input className="h-8 w-20 max-sm:h-9 px-1 text-right tabular-nums" inputMode="decimal" value={s.min} onChange={(e) => patchSub(l.id, s.id, { min: num(e.target.value) })} /></td>
+                                  <td data-label="Preço máx"><Input className="h-8 w-20 max-sm:h-9 px-1 text-right tabular-nums" inputMode="decimal" value={s.max} onChange={(e) => patchSub(l.id, s.id, { max: num(e.target.value) })} /></td>
+                                  <td data-label="Custo mín" className="tabular-nums text-muted-foreground/70">{mk ? brl(s.min / mk) : "—"}</td>
+                                  <td data-label="Custo máx" className="tabular-nums text-muted-foreground/70">{mk ? brl(s.max / mk) : "—"}</td>
+                                  <td data-label=""><Button variant="ghost" size="iconSm" onClick={() => delSub(l.id, s.id)}><Trash2 className="h-4 w-4 text-muted-foreground" /></Button></td>
                                 </tr>
                               ))}
                             </tbody>
