@@ -17,6 +17,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { NumberInput } from "@/components/shared/NumberInput";
 import { DateField } from "@/components/shared/DateField";
 import { ResumoVenda } from "@/components/shared/ResumoVenda";
+import { HeaderActions } from "@/components/shared/HeaderActions";
 import { useCursorTip } from "@/components/shared/CursorTip";
 import { precoInfo } from "@/lib/preco";
 import { cqLiberado } from "@/lib/cq-status";
@@ -495,6 +496,20 @@ function PlanejamentoPage() {
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
+      {/* Seleção múltipla no HEADER STICKY (portal), ao lado do nome do módulo. Ativa
+          mostra Todos / contagem / Definir em massa ali mesmo. */}
+      <HeaderActions>
+        <Button size="sm" variant={selMode ? "default" : "outline"} onClick={() => { setSelMode((v) => !v); clearSel(); }} aria-label="Selecionar">
+          <CheckSquare className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Selecionar</span>
+        </Button>
+        {selMode && (
+          <>
+            <Button size="sm" variant="ghost" onClick={selectAllFiltered}>Todos ({sorted.length})</Button>
+            <span className="whitespace-nowrap text-xs text-muted-foreground">{selected.size} selec.</span>
+            <Button size="sm" disabled={selected.size === 0} onClick={() => setOpenBulk(true)}>Definir em massa</Button>
+          </>
+        )}
+      </HeaderActions>
       <header className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-start gap-3">
           <Palette className="h-7 w-7 shrink-0 text-primary mt-0.5" />
@@ -530,18 +545,6 @@ function PlanejamentoPage() {
               { label: "Repetição", value: fRep, onChange: setFRep, options: [{ id: "all", nome: "Todos" }, { id: "rep", nome: "Repetidos" }, { id: "uni", nome: "Únicos" }] },
             ]}
           />
-          {/* Seleção (mão do dono: fica no header, ao lado das ações). Ativa mostra Todos /
-              contagem / Definir em massa, tudo aqui mesmo. */}
-          <Button variant={selMode ? "default" : "outline"} onClick={() => { setSelMode((v) => !v); clearSel(); }} aria-label="Selecionar">
-            <CheckSquare className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Selecionar</span>
-          </Button>
-          {selMode && (
-            <>
-              <Button variant="ghost" onClick={selectAllFiltered}>Todos ({sorted.length})</Button>
-              <span className="text-xs text-muted-foreground">{selected.size} selecionado(s)</span>
-              <Button disabled={selected.size === 0} onClick={() => setOpenBulk(true)}>Definir em massa</Button>
-            </>
-          )}
           <Button className="max-sm:hidden" variant="outline" onClick={() => setOpenBatch(true)} aria-label="Vários Cards"><Layers className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Vários Cards</span></Button>
           <Button className="max-sm:hidden" onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /><span className="sm:hidden">Novo</span><span className="hidden sm:inline">Novo Modelo</span></Button>
         </div>

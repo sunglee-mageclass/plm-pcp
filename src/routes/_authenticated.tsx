@@ -79,7 +79,10 @@ function AuthenticatedLayout() {
             <div className="ml-2 text-sm font-medium text-muted-foreground">
               {moduleLabel}
             </div>
-            <StoreClock className="ml-auto" />
+            {/* Slot p/ ações da PÁGINA no header sticky (ex.: seleção do Planejamento) —
+                preenchido via <HeaderActions> (portal). Fica ao lado do nome do módulo. */}
+            <div id="sticky-header-actions" className="flex min-w-0 items-center gap-1.5 overflow-x-auto" />
+            <StoreClock className="ml-auto shrink-0" />
           </header>
           <main className="flex-1 p-4 sm:p-6 overflow-x-hidden overflow-y-auto">
             <Outlet />
