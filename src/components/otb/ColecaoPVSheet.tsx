@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { startOfWeek, addWeeks, addDays, format } from "date-fns";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -14,15 +15,16 @@ import { brl } from "@/lib/format";
 import { Plus, Trash2, ChevronRight, Save, Check, ArrowLeft } from "lucide-react";
 
 /**
- * Editor da coleção por PODER DE VENDA, em MODAL (Sheet lateral, como o de Orçamento).
- * Herda um "Padrão do mix"; árvore Subcoleção ▸ Linha × Semana (SEM categoria/sub). Cada
- * subcoleção escolhe as semanas 1–5 + data de lançamento (vai pro card). Qtd por semana;
- * total = nº de cards. Confirmar gera os cards no Planejamento (preço/categoria em branco).
+ * Editor da coleção por PODER DE VENDA, em MODAL. Herda um "Padrão do mix"; árvore
+ * Subcoleção ▸ Linha × Semana (SEM categoria/sub). Por linha: prof/cor, cores, preço,
+ * toggle "à parte" (Acessórios = 100% sozinha). O nº de modelos do padrão é DISTRIBUÍDO
+ * automaticamente ÷ subcoleções e repartido nas semanas. Data de lançamento POR SEMANA
+ * (semanas do calendário seg–dom, derivada do mês/ano, editável). Confirmar gera os cards.
  */
 
 const SEMANAS = [1, 2, 3, 4, 5];
-type LinhaSub = { id: string; linhaId: string; profCor: number; cores: number; min: number; max: number; q: Record<string, number> };
-type Subcolecao = { id: string; nome: string; semanas: number[]; dataLanc: string; linhas: LinhaSub[] };
+type LinhaSub = { id: string; linhaId: string; aParte: boolean; profCor: number; cores: number; min: number; max: number; q: Record<string, number> };
+type Subcolecao = { id: string; nome: string; semanas: number[]; datasSemanas: Record<string, string>; linhas: LinhaSub[] };
 
 let _seq = 0;
 const nid = (p: string) => `${p}-${++_seq}`;
@@ -30,6 +32,12 @@ const num = (v: string) => (v === "" ? 0 : Number(v.replace(",", ".")) || 0);
 const int = (n: number) => Math.round(n).toLocaleString("pt-BR");
 const pct1 = (n: number) => `${n.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`;
 const totLinha = (l: LinhaSub, semanas: number[]) => semanas.reduce((s, w) => s + (Number(l.q[String(w)]) || 0), 0);
+// Reparte um inteiro igualmente em n baldes (o resto vai pros primeiros).
+const splitEven = (total: number, n: number): number[] => {
+  if (n <= 0) return [];
+  const base = Math.floor(total / n), rem = total - base * n;
+  return Array.from({ length: n }, (_, i) => base + (i < rem ? 1 : 0));
+};
 
 export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: string | null; onClose: () => void; onSaved?: () => void }) {
   const qc = useQueryClient();
@@ -38,7 +46,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
     queryFn: async () => (await supabase.from("mix_padroes" as any)
       .select("id, nome, linhas:mix_padrao_linhas(linha_id, num_modelos, a_parte, prof_cor, cores, preco_min, preco_max, ordem)").order("nome")).data ?? [] as any[],
   });
-  const { data: meses = [] } = useQuery({ queryKey: ["opt", "meses"], queryFn: async () => (await supabase.from("meses").select("id, mes").order("ordem")).data ?? [] });
+  const { data: meses = [] } = useQuery({ queryKey: ["opt", "meses"], queryFn: async () => (await supabase.from("meses").select("id, mes, ordem").order("ordem")).data ?? [] });
   const { data: anos = [] } = useQuery({ queryKey: ["opt", "anos"], queryFn: async () => (await supabase.from("anos").select("id, ano").order("ano")).data ?? [] });
   const { data: linhaOpts = [] } = useQuery({ queryKey: ["padrao-linhas"], queryFn: async () => (await supabase.from("linhas").select("id, nome, markup").order("nome")).data ?? [] });
 
@@ -57,12 +65,36 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
   const [aberta, setAberta] = useState<Record<string, boolean>>({});
   const [hydrated, setHydrated] = useState(false);
 
+  const mesOrdem = useMemo(() => Number((meses as any[]).find((m) => m.id === mesId)?.ordem) || 0, [meses, mesId]);
+  const anoNum = useMemo(() => Number((anos as any[]).find((a) => a.id === anoId)?.ano) || 0, [anos, anoId]);
+  // Semana N do mês = a N-ª semana do calendário (seg–dom) que toca o mês.
+  const semanaRange = (w: number) => {
+    if (!anoNum || !mesOrdem) return null;
+    const first = new Date(anoNum, mesOrdem - 1, 1);
+    const mon = addWeeks(startOfWeek(first, { weekStartsOn: 1 }), w - 1);
+    return { inicio: mon, fim: addDays(mon, 6), first };
+  };
+  const dataDefault = (w: number) => {
+    const r = semanaRange(w);
+    if (!r) return "";
+    return format(r.inicio < r.first ? r.first : r.inicio, "yyyy-MM-dd"); // Sem1 clampa ao dia 1
+  };
+  const rangeLabel = (w: number) => { const r = semanaRange(w); return r ? `${format(r.inicio, "dd/MM")}–${format(r.fim, "dd/MM")}` : ""; };
+  const dataSemana = (s: Subcolecao, w: number) => s.datasSemanas[String(w)] ?? dataDefault(w);
+
+  const numByLinha = useMemo(() => {
+    const p = (padroes as any[]).find((x) => x.id === padraoId);
+    const m: Record<string, number> = {};
+    for (const l of (p?.linhas ?? [])) if (l.linha_id) m[l.linha_id] = Number(l.num_modelos) || 0;
+    return m;
+  }, [padroes, padraoId]);
+
   const { data: loaded } = useQuery({
     queryKey: ["colecao-pv", colecaoId],
     enabled: !!colecaoId,
     queryFn: async () => {
       const { data, error } = await supabase.from("colecoes" as any)
-        .select("id, nome, mes_id, ano_id, status, mix_padrao_id, poder_venda_meta, perda_markup, subcolecoes:colecao_subcolecoes(id, nome, ordem, semanas, data_lancamento), itens:colecao_pv_itens(id, subcolecao_id, linha_id, prof_cor, cores, preco_min, preco_max, qtd_semanas, ordem)")
+        .select("id, nome, mes_id, ano_id, status, mix_padrao_id, poder_venda_meta, perda_markup, subcolecoes:colecao_subcolecoes(id, nome, ordem, semanas, datas_semanas), itens:colecao_pv_itens(id, subcolecao_id, linha_id, a_parte, prof_cor, cores, preco_min, preco_max, qtd_semanas, ordem)")
         .eq("id", colecaoId).single();
       if (error) throw error;
       return data as any;
@@ -79,13 +111,12 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
     for (const it of (c.itens ?? [])) (bySub[it.subcolecao_id] ??= []).push(it);
     const mapped: Subcolecao[] = [...(c.subcolecoes ?? [])].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0)).map((sc: any) => {
       const its = [...(bySub[sc.id] ?? [])].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0));
-      // 1 item = 1 linha (sem categoria/sub agora).
       const linhas: LinhaSub[] = its.map((it) => ({
-        id: nid("l"), linhaId: it.linha_id ?? "", profCor: Number(it.prof_cor) || 0, cores: Number(it.cores) || 0,
+        id: nid("l"), linhaId: it.linha_id ?? "", aParte: !!it.a_parte, profCor: Number(it.prof_cor) || 0, cores: Number(it.cores) || 0,
         min: Number(it.preco_min) || 0, max: Number(it.preco_max) || 0, q: (it.qtd_semanas ?? {}) as Record<string, number>,
       }));
       const semanas: number[] = Array.isArray(sc.semanas) && sc.semanas.length ? sc.semanas.map(Number).sort((a: number, b: number) => a - b) : [1, 2, 3, 4];
-      return { id: nid("s"), nome: sc.nome, semanas, dataLanc: sc.data_lancamento ?? "", linhas };
+      return { id: nid("s"), nome: sc.nome, semanas, datasSemanas: (sc.datas_semanas ?? {}) as Record<string, string>, linhas };
     });
     setSubs(mapped); setHydrated(true);
   }, [colecaoId, loaded, hydrated]);
@@ -94,33 +125,69 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
     const p = (padroes as any[]).find((x) => x.id === padraoId);
     if (!p) return [];
     return [...(p.linhas ?? [])].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0)).map((l: any) => ({
-      id: nid("l"), linhaId: l.linha_id ?? "", profCor: Number(l.prof_cor) || 0, cores: Number(l.cores) || 0,
+      id: nid("l"), linhaId: l.linha_id ?? "", aParte: !!l.a_parte, profCor: Number(l.prof_cor) || 0, cores: Number(l.cores) || 0,
       min: Number(l.preco_min) || 0, max: Number(l.preco_max) || 0, q: {} as Record<string, number>,
     }));
   };
-  const addSub = () => { const sid = nid("s"); setSubs((xs) => [...xs, { id: sid, nome: `Subcoleção ${xs.length + 1}`, semanas: [1, 2, 3, 4], dataLanc: "", linhas: cloneDoPadrao() }]); setAberta((a) => ({ ...a, [sid]: true })); };
-  const delSub = (sid: string) => setSubs((xs) => xs.filter((s) => s.id !== sid));
+  // Reparte o nº de modelos do padrão: ÷ nº de subcoleções e, dentro de cada uma, ÷ semanas.
+  const redistribuir = (list: Subcolecao[]): Subcolecao[] => {
+    const N = list.length;
+    if (N === 0) return list;
+    return list.map((s, si) => ({
+      ...s,
+      linhas: s.linhas.map((l) => {
+        const total = numByLinha[l.linhaId];
+        if (total == null) return l; // linha fora do padrão: não mexe
+        const share = splitEven(total, N)[si];
+        const perW = splitEven(share, s.semanas.length);
+        const q: Record<string, number> = {};
+        s.semanas.forEach((w, j) => { q[String(w)] = perW[j] ?? 0; });
+        return { ...l, q };
+      }),
+    }));
+  };
+  const addSub = () => {
+    const sid = nid("s");
+    setSubs((xs) => redistribuir([...xs, { id: sid, nome: `Subcoleção ${xs.length + 1}`, semanas: [1, 2, 3, 4], datasSemanas: {}, linhas: cloneDoPadrao() }]));
+    setAberta((a) => ({ ...a, [sid]: true }));
+  };
+  const delSub = (sid: string) => setSubs((xs) => redistribuir(xs.filter((s) => s.id !== sid)));
   const patchSub = (sid: string, p: Partial<Subcolecao>) => setSubs((xs) => xs.map((s) => (s.id === sid ? { ...s, ...p } : s)));
-  const toggleSemana = (sid: string, w: number) => setSubs((xs) => xs.map((s) => {
-    if (s.id !== sid) return s;
-    const tem = s.semanas.includes(w);
-    const semanas = tem ? s.semanas.filter((x) => x !== w) : [...s.semanas, w].sort((a, b) => a - b);
-    // Desmarcar a semana zera a qtd dela (o estado local casa com o que é salvo/confirmado).
-    const linhas = tem ? s.linhas.map((l) => { const q = { ...l.q }; delete q[String(w)]; return { ...l, q }; }) : s.linhas;
-    return { ...s, semanas, linhas };
-  }));
+  const setDataSemana = (sid: string, w: number, v: string) => setSubs((xs) => xs.map((s) => (s.id === sid ? { ...s, datasSemanas: { ...s.datasSemanas, [String(w)]: v } } : s)));
+  const toggleSemana = (sid: string, w: number) => setSubs((xs) => {
+    const si = xs.findIndex((x) => x.id === sid); const N = xs.length;
+    return xs.map((s) => {
+      if (s.id !== sid) return s;
+      const tem = s.semanas.includes(w);
+      const semanas = tem ? s.semanas.filter((x) => x !== w) : [...s.semanas, w].sort((a, b) => a - b);
+      // Re-reparte só ESTA subcoleção nas novas semanas (o nº por subcoleção não muda).
+      const linhas = s.linhas.map((l) => {
+        const total = numByLinha[l.linhaId];
+        if (total == null) { const q = { ...l.q }; if (tem) delete q[String(w)]; return { ...l, q }; }
+        const share = splitEven(total, N)[si];
+        const perW = splitEven(share, semanas.length);
+        const q: Record<string, number> = {};
+        semanas.forEach((ww, j) => { q[String(ww)] = perW[j] ?? 0; });
+        return { ...l, q };
+      });
+      return { ...s, semanas, linhas };
+    });
+  });
   const mapLinha = (sid: string, lid: string, fn: (l: LinhaSub) => LinhaSub) => setSubs((xs) => xs.map((s) => s.id !== sid ? s : { ...s, linhas: s.linhas.map((l) => (l.id === lid ? fn(l) : l)) }));
   const patchLinha = (sid: string, lid: string, p: Partial<LinhaSub>) => mapLinha(sid, lid, (l) => ({ ...l, ...p }));
   const setQ = (sid: string, lid: string, w: number, v: number) => mapLinha(sid, lid, (l) => ({ ...l, q: { ...l.q, [String(w)]: v } }));
   const delLinha = (sid: string, lid: string) => setSubs((xs) => xs.map((s) => (s.id === sid ? { ...s, linhas: s.linhas.filter((l) => l.id !== lid) } : s)));
-  const addLinha = (sid: string) => setSubs((xs) => xs.map((s) => (s.id === sid ? { ...s, linhas: [...s.linhas, { id: nid("l"), linhaId: "", profCor: 64, cores: 3, min: 0, max: 0, q: {} }] } : s)));
+  const addLinha = (sid: string) => setSubs((xs) => xs.map((s) => (s.id === sid ? { ...s, linhas: [...s.linhas, { id: nid("l"), linhaId: "", aParte: false, profCor: 64, cores: 3, min: 0, max: 0, q: {} }] } : s)));
 
   const salvarRaw = async (): Promise<string> => {
     const _header = { nome, mes_id: mesId || null, ano_id: anoId || null, mix_padrao_id: padraoId || null, poder_venda_meta: meta || null, perda_markup: perda };
     const _subcolecoes = subs.map((s) => ({
-      nome: s.nome, data_lancamento: s.dataLanc || null, semanas: s.semanas,
+      nome: s.nome, semanas: s.semanas,
+      // Data resolvida (override ?? default do calendário) p/ cada semana marcada.
+      datas_semanas: Object.fromEntries(s.semanas.map((w) => [String(w), dataSemana(s, w)]).filter(([, v]) => v)),
+      data_lancamento: s.semanas.length ? dataSemana(s, s.semanas[0]) || null : null,
       itens: s.linhas.map((l) => ({
-        linha_id: l.linhaId || null, prof_cor: l.profCor, cores: l.cores, preco_min: l.min, preco_max: l.max,
+        linha_id: l.linhaId || null, a_parte: l.aParte, prof_cor: l.profCor, cores: l.cores, preco_min: l.min, preco_max: l.max,
         qtd_semanas: Object.fromEntries(s.semanas.map((w) => [String(w), Number(l.q[String(w)]) || 0]).filter(([, v]) => (v as number) > 0)),
       })),
     }));
@@ -146,22 +213,19 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
     return { poder, custo, modelos, desconto: (poder * perda) / 100, pvFinal: poder - (poder * perda) / 100, atingido: meta > 0 ? (poder / meta) * 100 : 0 };
   }, [subs, perda, meta, linhaOpts]);
 
-  // % REAL do mix por linha. Linhas normais dividem 100% pelo pool (exclui "à parte");
-  // linha "à parte" (Acessórios) = 100% sozinha. Meta = % derivada do padrão.
+  // % REAL do mix por linha. "À parte" (por linha na coleção) = 100% sozinha; as demais
+  // dividem 100% pelo pool. Meta = % derivada do padrão (num_modelos + a_parte do padrão).
   const mixLinha = useMemo(() => {
-    const perLinha: Record<string, number> = {};
-    for (const s of subs) for (const l of s.linhas) perLinha[l.linhaId || ""] = (perLinha[l.linhaId || ""] || 0) + totLinha(l, s.semanas);
+    const perLinha: Record<string, number> = {}; const aParteReal: Record<string, boolean> = {};
+    for (const s of subs) for (const l of s.linhas) { perLinha[l.linhaId || ""] = (perLinha[l.linhaId || ""] || 0) + totLinha(l, s.semanas); if (l.aParte) aParteReal[l.linhaId || ""] = true; }
     const p = (padroes as any[]).find((x) => x.id === padraoId);
-    const aParteDe: Record<string, boolean> = {}; const numDe: Record<string, number> = {}; let totalPadrao = 0;
-    for (const pl of (p?.linhas ?? [])) if (pl.linha_id) {
-      aParteDe[pl.linha_id] = !!pl.a_parte; numDe[pl.linha_id] = Number(pl.num_modelos) || 0;
-      if (!pl.a_parte) totalPadrao += Number(pl.num_modelos) || 0;
-    }
+    const numDe: Record<string, number> = {}; const apPad: Record<string, boolean> = {}; let totalPad = 0;
+    for (const pl of (p?.linhas ?? [])) if (pl.linha_id) { numDe[pl.linha_id] = Number(pl.num_modelos) || 0; apPad[pl.linha_id] = !!pl.a_parte; if (!pl.a_parte) totalPad += Number(pl.num_modelos) || 0; }
     let totalPool = 0;
-    for (const [lid, mod] of Object.entries(perLinha)) if (!aParteDe[lid]) totalPool += mod;
+    for (const [lid, mod] of Object.entries(perLinha)) if (!aParteReal[lid]) totalPool += mod;
     const rows = Object.entries(perLinha).filter(([, m]) => m > 0).map(([lid, mod]) => {
-      const ap = !!aParteDe[lid];
-      const meta = lid in numDe ? (ap ? 100 : (totalPadrao > 0 ? (numDe[lid] / totalPadrao) * 100 : 0)) : null;
+      const ap = !!aParteReal[lid];
+      const meta = lid in numDe ? (apPad[lid] ? 100 : (totalPad > 0 ? (numDe[lid] / totalPad) * 100 : 0)) : null;
       return { linhaId: lid, modelos: mod, aParte: ap, real: ap ? 100 : (totalPool > 0 ? (mod / totalPool) * 100 : 0), meta };
     }).sort((a, b) => Number(a.aParte) - Number(b.aParte) || b.modelos - a.modelos);
     const poolRows = rows.filter((r) => !r.aParte);
@@ -254,24 +318,33 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
                       <Input className="h-8 w-48 max-sm:w-full font-medium" value={s.nome} onChange={(e) => patchSub(s.id, { nome: e.target.value })} />
                       <span className="flex items-center gap-1 text-xs text-muted-foreground">Semanas:
                         {SEMANAS.map((w) => (
-                          <button key={w} onClick={() => toggleSemana(s.id, w)}
+                          <button key={w} onClick={() => toggleSemana(s.id, w)} title={rangeLabel(w) || undefined}
                             className={`h-8 w-8 rounded border text-xs tabular-nums ${s.semanas.includes(w) ? "border-primary bg-primary/10 font-semibold text-foreground" : "text-muted-foreground"}`}>{w}</button>
                         ))}
-                      </span>
-                      <span className="flex items-center gap-1 text-xs text-muted-foreground">Lançamento
-                        <span className="w-32 max-sm:w-40"><DateField value={s.dataLanc} onChange={(e) => patchSub(s.id, { dataLanc: e.target.value })} /></span>
                       </span>
                       <Button variant="ghost" size="iconSm" className="ml-auto max-sm:h-11 max-sm:w-11" onClick={() => delSub(s.id)}><Trash2 className="h-4 w-4 text-muted-foreground" /></Button>
                     </div>
 
                     {open && (
                       <div className="border-t bg-muted/10 px-3 py-2 space-y-2">
-                        {s.semanas.length === 0 && <p className="text-xs text-amber-600">Escolha ao menos uma semana acima.</p>}
+                        {s.semanas.length === 0 ? (
+                          <p className="text-xs text-amber-600">Escolha ao menos uma semana acima.</p>
+                        ) : (
+                          <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+                            {s.semanas.map((w) => (
+                              <div key={w} className="grid gap-0.5">
+                                <span className="text-xs text-muted-foreground">Lançamento Sem {w}{rangeLabel(w) && <span className="text-muted-foreground/70"> · {rangeLabel(w)}</span>}</span>
+                                <span className="w-32 inline-block"><DateField value={dataSemana(s, w)} onChange={(e) => setDataSemana(s.id, w, e.target.value)} /></span>
+                              </div>
+                            ))}
+                            {!mesOrdem && <span className="text-xs text-amber-600 self-center">Defina Mês e Ano acima pra calcular as datas.</span>}
+                          </div>
+                        )}
                         <div className="overflow-x-auto">
                           <table className="w-full text-sm card-table">
                             <thead className="text-xs text-muted-foreground">
                               <tr className="[&>th]:px-2 [&>th]:py-1 [&>th]:font-medium [&>th]:text-left">
-                                <th className="min-w-[9rem]">Linha</th><th>prof/cor</th><th>cores</th><th>Mín</th><th>Máx</th>
+                                <th className="min-w-[9rem]">Linha</th><th>à parte</th><th>prof/cor</th><th>cores</th><th>Mín</th><th>Máx</th>
                                 {s.semanas.map((w) => <th key={w}>Sem {w}</th>)}<th>Total</th><th>Poder</th><th />
                               </tr>
                             </thead>
@@ -284,6 +357,11 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
                                       <Sel value={l.linhaId} onChange={(v) => patchLinha(s.id, l.id, { linhaId: v })} placeholder="— linha —" className="min-w-[9rem] max-sm:w-full">
                                         {(linhaOpts as any[]).map((o) => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
                                       </Sel>
+                                    </td>
+                                    <td data-label="à parte">
+                                      <Button variant={l.aParte ? "default" : "outline"} size="sm" className="h-8 max-sm:h-9" onClick={() => patchLinha(s.id, l.id, { aParte: !l.aParte })} title="Linha à parte: 100% sozinha (ex.: Acessórios)">
+                                        {l.aParte ? "Sim" : "Não"}
+                                      </Button>
                                     </td>
                                     <td data-label="prof/cor"><Input className="h-8 w-14 max-sm:h-9 px-1 text-left tabular-nums" inputMode="numeric" value={l.profCor} onChange={(e) => patchLinha(s.id, l.id, { profCor: Math.max(0, Math.round(num(e.target.value))) })} /></td>
                                     <td data-label="cores"><Input className="h-8 w-12 max-sm:h-9 px-1 text-left tabular-nums" inputMode="numeric" value={l.cores} onChange={(e) => patchLinha(s.id, l.id, { cores: Math.max(0, Math.round(num(e.target.value))) })} /></td>

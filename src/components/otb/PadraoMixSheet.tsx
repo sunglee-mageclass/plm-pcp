@@ -165,7 +165,9 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
                 return (
                   <Card key={l.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
                     <Sel value={l.linhaId} onChange={(v) => patchLinha(l.id, { linhaId: v })} placeholder="— linha —" className="min-w-[9rem]">
-                      {(linhaOpts as any[]).map((o) => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
+                      {/* Cada linha só pode aparecer 1× no padrão: esconde as já usadas por outras linhas. */}
+                      {(linhaOpts as any[]).filter((o) => o.id === l.linhaId || !draft.linhas.some((x) => x.id !== l.id && x.linhaId === o.id))
+                        .map((o) => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
                     </Sel>
                     <Lbl t="nº modelos">
                       <Input className="h-8 w-16 max-sm:h-9 px-1 text-left tabular-nums" inputMode="numeric" value={l.numModelos}
