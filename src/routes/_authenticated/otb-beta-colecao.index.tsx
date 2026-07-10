@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { brl } from "@/lib/format";
-import { Target, ArrowLeft, Plus, Trash2, ChevronRight, Save } from "lucide-react";
+import { Target, ArrowLeft, Plus, Trash2, ChevronRight, Save, Check } from "lucide-react";
 
 /**
  * MAQUETE (só front) da coleção por PODER DE VENDA. Herda um "Padrão do mix" real
@@ -106,28 +106,40 @@ function ColecaoPVMaquete() {
     setSubs(mapped); setHydratedFor(id);
   }, [id, loaded, hydratedFor]);
 
+  const salvarRaw = async (): Promise<string> => {
+    const _header = { nome, mes_id: mesId || null, ano_id: anoId || null, mix_padrao_id: padraoId || null, poder_venda_meta: meta || null, perda_markup: perda };
+    const _subcolecoes = subs.map((s) => ({
+      nome: s.nome,
+      itens: s.linhas.flatMap((l) => l.cats.map((c) => ({
+        linha_id: l.linhaId || null, prof_cor: l.profCor, cores: l.cores,
+        categoria_id: c.catId || null, subcategoria1_id: c.subId || null,
+        preco_min: c.min, preco_max: c.max, qtd_semanas: arrToSemanas(c.q),
+      }))),
+    }));
+    const { data, error } = await supabase.rpc("salvar_colecao_pv" as any, { _id: id ?? null, _header, _subcolecoes });
+    if (error) throw error;
+    return data as string;
+  };
+  const goto = (cid: string) => { if (!id) { setHydratedFor(cid); navigate({ to: "/otb-beta-colecao", search: { id: cid } }); } };
+  const invalidar = () => { qc.invalidateQueries({ queryKey: ["colecao-pv"] }); qc.invalidateQueries({ queryKey: ["otb-colecoes"] }); };
+
   const salvar = useMutation({
-    mutationFn: async () => {
-      const _header = { nome, mes_id: mesId || null, ano_id: anoId || null, mix_padrao_id: padraoId || null, poder_venda_meta: meta || null, perda_markup: perda };
-      const _subcolecoes = subs.map((s) => ({
-        nome: s.nome,
-        itens: s.linhas.flatMap((l) => l.cats.map((c) => ({
-          linha_id: l.linhaId || null, prof_cor: l.profCor, cores: l.cores,
-          categoria_id: c.catId || null, subcategoria1_id: c.subId || null,
-          preco_min: c.min, preco_max: c.max, qtd_semanas: arrToSemanas(c.q),
-        }))),
-      }));
-      const { data, error } = await supabase.rpc("salvar_colecao_pv" as any, { _id: id ?? null, _header, _subcolecoes });
-      if (error) throw error;
-      return data as string;
-    },
-    onSuccess: (newId) => {
-      toast.success("Coleção salva.");
-      qc.invalidateQueries({ queryKey: ["colecao-pv"] });
-      qc.invalidateQueries({ queryKey: ["otb-colecoes"] });
-      if (!id) { setHydratedFor(newId); navigate({ to: "/otb-beta-colecao", search: { id: newId } }); }
-    },
+    mutationFn: salvarRaw,
+    onSuccess: (cid) => { toast.success("Coleção salva."); invalidar(); goto(cid); },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar a coleção.")),
+  });
+  const confirmar = useMutation({
+    mutationFn: async () => {
+      const cid = await salvarRaw();
+      const { data, error } = await supabase.rpc("otb_confirmar_pv" as any, { _colecao_id: cid });
+      if (error) throw error;
+      return { cid, res: data as { criados: number; removidos: number } };
+    },
+    onSuccess: ({ cid, res }) => {
+      toast.success(`${res.criados} card(s) gerados no Planejamento${res.removidos ? `, ${res.removidos} removido(s)` : ""}.`);
+      invalidar(); goto(cid);
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao confirmar a coleção.")),
   });
 
   const cloneDoPadrao = (): LinhaSub[] => {
@@ -185,7 +197,8 @@ function ColecaoPVMaquete() {
           <Badge variant="secondary">beta</Badge>
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" onClick={() => salvar.mutate()} disabled={!nome.trim() || salvar.isPending}><Save className="h-4 w-4 mr-1" /> Salvar</Button>
+          <Button variant="outline" size="sm" onClick={() => salvar.mutate()} disabled={!nome.trim() || salvar.isPending}><Save className="h-4 w-4 mr-1" /> Salvar</Button>
+          <Button size="sm" onClick={() => confirmar.mutate()} disabled={!nome.trim() || confirmar.isPending || salvar.isPending}><Check className="h-4 w-4 mr-1" /> Confirmar</Button>
           <Button variant="ghost" size="sm" asChild className="text-muted-foreground"><Link to="/otb-beta"><ArrowLeft className="h-4 w-4 mr-1" /> Padrão do mix</Link></Button>
           <Button variant="ghost" size="sm" asChild className="text-muted-foreground"><Link to="/otb">OTB</Link></Button>
         </div>
