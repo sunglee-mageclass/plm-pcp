@@ -43,6 +43,10 @@ unit + integração transacional de RPC — ver `tests/README.md`)
    de RPC (`BEGIN; SELECT set_config('request.jwt.claims', json_build_object('sub','…')::text, true); …; ROLLBACK;`).
    Ao alterar função existente, **diff-validar**: `pg_get_functiondef` antes/depois.
    Não é mais necessário entregar SQL pro Lovable. Frontend flui via `git push`.
+   ⚠️ **Migration DESTRUTIVA** (`DROP COLUMN`/`DELETE`/`DROP TABLE`/consolidação de dados):
+   envolva o arquivo em `BEGIN; … COMMIT;` — `psql -f` roda em autocommit por statement, então
+   uma falha no meio (ex.: trigger citando a coluna dropada) deixa o schema pela metade e comita a
+   perda. Escreva também idempotente (guards `IF EXISTS`/`IF NOT EXISTS`) pra poder reaplicar.
 
 2. **Auth é do próprio Supabase (NÃO mais do Lovable).** Verificado 25/06/2026:
    NÃO existe `src/integrations/lovable/` nem referência a `/~oauth/initiate` no
@@ -105,15 +109,18 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   em massa no Planejamento (`BulkEditDialog`). O Planejamento abre **sempre com 5 colunas** (`useGridCols(...,5,true)`
   — não persiste); card mostra coleção→subcoleção→semana→mês/ano.
   **2º fluxo — Por Poder de Venda** (top-down, jul/2026; escolhido num seletor de TIPO no "+ Nova Coleção"):
-  `colecoes.tipo ∈ {orcamento,poder_venda}`. Herda um **"Padrão do mix"** (`mix_padroes`/`mix_padrao_linhas`/
-  `mix_padrao_categorias`, VÁRIOS por loja; markup sempre lido do cadastro `linhas`, nunca copiado) via
-  `salvar_mix_padrao`. Itens em `colecao_pv_itens` (subcoleção×linha×categoria+sub, `qtd_semanas` jsonb, total=Σ);
-  RPC `salvar_colecao_pv`. Árvore **Subcoleção ▸ Linha ▸ Categoria+Sub × Semana 1–5** (1 mês dos atributos + semanas),
-  tudo EDITÁVEL em cima do padrão. **Confirmar = `otb_confirmar_pv`** (irmã do `otb_confirmar`, NÃO estende ele):
-  bucket=(subcoleção×linha×cat×sub×semana), target=**SOMA** das qtd/semana, mesma reconciliação/órfãos/guarda
-  `app.otb_reconciling`; cada card nasce com linha/cat/sub/subcoleção/semana e **preço em branco** (faixa mín–máx
-  fica em `colecao_pv_itens`, NÃO virou coluna em `modelos`). Telas em `/otb-beta` (Padrão do mix) e `/otb-beta-colecao`
-  (editor PV) — ainda rotuladas "beta". Ver spec em `docs/superpowers/specs/2026-07-08-otb-poder-de-venda-design.md`.
+  `colecoes.tipo ∈ {orcamento,poder_venda}`. **É POR LINHA — SEM categoria/subcategoria** (reestruturado jul/2026,
+  `2f25249`). Herda um **"Padrão do mix"** (`mix_padroes`/`mix_padrao_linhas`, VÁRIOS por loja; markup lido do cadastro
+  `linhas`, nunca copiado) via `salvar_mix_padrao`. Por linha no padrão: **`num_modelos`** (a **% é DERIVADA** = nº÷Σ das
+  normais; NÃO existe mais coluna `pct`), **`a_parte`** (linha "à parte" = 100% sozinha, ex.: Acessórios; as demais somam
+  100%), `prof_cor`, `cores`, faixa `preco_min`/`preco_max`. (`mix_padrao_categorias` foi DROPADA.) Itens em
+  `colecao_pv_itens` (1 por **subcoleção×linha**, com prof/cor+cores+preço+`qtd_semanas` jsonb; SEM `categoria_id`/
+  `subcategoria1_id`); RPC `salvar_colecao_pv`. Árvore **Subcoleção ▸ Linha × Semana 1–5** (1 mês dos atributos + semanas),
+  tudo EDITÁVEL em cima do padrão; poder de venda = Σ(preço médio × prof×cor × qtd) POR LINHA; "mix % real vs meta"
+  respeita o à-parte. **Confirmar = `otb_confirmar_pv`**: bucket=(**subcoleção×linha×semana**), target=SOMA das qtd/semana,
+  mesma reconciliação/órfãos/guarda `app.otb_reconciling`; cada card nasce com linha/subcoleção/semana, **preço E categoria
+  em branco** (categoria vira decisão do Planejamento). Trigger `enforce_pv_itens_tenant` NÃO referencia mais cat/sub.
+  Telas em `/otb-beta` (Padrão do mix) e `/otb-beta-colecao` (editor PV) — ainda rotuladas "beta".
 - **cadastro**: atributos (categorias tecido/aviamento/material/subcategoria, linhas,
   categorias de serviço fixas Corte/Oficina), colaboradores, servicos, tecidos
   (+variantes), aviamentos. **Fornecedor** (cadastro Tecido/Aviamento + OC Tecido/Aviamento):
