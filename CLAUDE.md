@@ -116,7 +116,13 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   (editor PV) — ainda rotuladas "beta". Ver spec em `docs/superpowers/specs/2026-07-08-otb-poder-de-venda-design.md`.
 - **cadastro**: atributos (categorias tecido/aviamento/material/subcategoria, linhas,
   categorias de serviço fixas Corte/Oficina), colaboradores, servicos, tecidos
-  (+variantes), aviamentos
+  (+variantes), aviamentos. **Fornecedor** (cadastro Tecido/Aviamento + OC Tecido/Aviamento):
+  dropdown ÚNICO `FornecedorSelect` (`src/components/shared`) lista **empresa (direto)** E cada
+  **representante** dela — grava `(empresa_id, representante_id)`. Filtra empresas por `tipo='material'`
+  + categoria de fornecedor casada por **TOKEN flexível** (`src/lib/fornecedor-categoria.ts`:
+  normaliza sem acento/minúsculo + substring; `FABRIC_TOKENS` inclui `artigo`) — NÃO casar o nome
+  exato da categoria (é texto livre por loja; hard-coded `["Tecido"...]` sumia quando a loja renomeava).
+  `artigos`/`aviamentos` têm `representante_id` (FK `representantes`)
 - **criacao**: planejamento, desenvolvimento (kanban dinâmico, ficha técnica, observações)
 - **entrada-saida**: oc-tecido, oc-aviamento, rolos, estoque
 - **producao**: cad, terceirizados=**Serviços** (abas pré/pós-costura por `categorias_terceirizado.etapa`),
