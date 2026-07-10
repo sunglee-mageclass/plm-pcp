@@ -204,7 +204,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
                 return (
                   <Card key={s.id} className="overflow-hidden">
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
-                      <button className="p-1 -m-1" onClick={() => setAberta((a) => ({ ...a, [s.id]: !open }))}><ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} /></button>
+                      <button className="p-2 -m-2" onClick={() => setAberta((a) => ({ ...a, [s.id]: !open }))}><ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} /></button>
                       <Input className="h-8 w-48 max-sm:w-full font-medium" value={s.nome} onChange={(e) => patchSub(s.id, { nome: e.target.value })} />
                       <span className="flex items-center gap-1 text-xs text-muted-foreground">Semanas:
                         {SEMANAS.map((w) => (
@@ -215,7 +215,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
                       <span className="flex items-center gap-1 text-xs text-muted-foreground">Lançamento
                         <span className="w-32 max-sm:w-40"><DateField value={s.dataLanc} onChange={(e) => patchSub(s.id, { dataLanc: e.target.value })} /></span>
                       </span>
-                      <Button variant="ghost" size="iconSm" className="ml-auto" onClick={() => delSub(s.id)}><Trash2 className="h-4 w-4 text-muted-foreground" /></Button>
+                      <Button variant="ghost" size="iconSm" className="ml-auto max-sm:h-11 max-sm:w-11" onClick={() => delSub(s.id)}><Trash2 className="h-4 w-4 text-muted-foreground" /></Button>
                     </div>
 
                     {open && (
@@ -232,7 +232,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
                                 <span className="text-xs text-muted-foreground">markup <b className="text-foreground tabular-nums">{mk ? `${mk.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}×` : "—"}</b></span>
                                 <Lbl t="prof/cor"><Input className="h-8 w-14 px-1 text-right tabular-nums" inputMode="numeric" value={l.profCor} onChange={(e) => patchLinha(s.id, l.id, { profCor: Math.max(0, Math.round(num(e.target.value))) })} /></Lbl>
                                 <Lbl t="cores"><Input className="h-8 w-12 px-1 text-right tabular-nums" inputMode="numeric" value={l.cores} onChange={(e) => patchLinha(s.id, l.id, { cores: Math.max(0, Math.round(num(e.target.value))) })} /></Lbl>
-                                <Button variant="ghost" size="iconSm" className="ml-auto" onClick={() => delLinha(s.id, l.id)}><Trash2 className="h-4 w-4 text-muted-foreground" /></Button>
+                                <Button variant="ghost" size="iconSm" className="ml-auto max-sm:h-11 max-sm:w-11" onClick={() => delLinha(s.id, l.id)}><Trash2 className="h-4 w-4 text-muted-foreground" /></Button>
                               </div>
                               <div className="overflow-x-auto">
                                 <table className="w-full text-sm card-table">

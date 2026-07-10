@@ -121,6 +121,18 @@ function OtbPage() {
     },
   });
   const linhaMarkupMap = Object.fromEntries(linhas.map((l) => [l.id, l.markup]));
+  // Orçamento (custo) de uma coleção PV = poder de venda ÷ markup (cálculo reverso), por linha.
+  const custoPVMap = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const it of pvItens as any[]) {
+      const tot = Object.values(it.qtd_semanas ?? {}).reduce((s: number, v: any) => s + (Number(v) || 0), 0);
+      const vm = (Number(it.preco_min) + Number(it.preco_max)) / 2;
+      const poder = tot * (Number(it.prof_cor) || 0) * (Number(it.cores) || 0) * vm;
+      const mk = Number(linhaMarkupMap[it.linha_id]) || 0;
+      m[it.colecao_id] = (m[it.colecao_id] || 0) + (mk > 0 ? poder / mk : 0);
+    }
+    return m;
+  }, [pvItens, linhaMarkupMap]);
 
   // Per-collection stats
   const statsByColecao = useMemo(() => {
@@ -190,7 +202,7 @@ function OtbPage() {
             const mesNome = c.mes_id ? (meses.find((m) => m.id === c.mes_id)?.nome ?? null) : null;
             const periodoLabel = [mesNome, anoNome].filter(Boolean).join(" / ");
             const st = statsByColecao[c.id] ?? { definido: 0, planejados: 0, previsto: 0, real: 0, poder: 0 };
-            const orc = c.orcamento != null ? Number(c.orcamento) : null;
+            const orc = c.tipo === "poder_venda" ? (custoPVMap[c.id] || null) : (c.orcamento != null ? Number(c.orcamento) : null);
             const temOrc = orc != null && orc > 0;
             const fora = temOrc && st.real > (orc as number);
             const pctUso = temOrc ? Math.round((st.real / (orc as number)) * 100) : null;
@@ -215,7 +227,9 @@ function OtbPage() {
                   const pvPct = pvMeta > 0 ? (pvPoder / pvMeta) * 100 : 0;
                   return (
                     <div className="mt-1 space-y-1">
-                      <div className="text-sm"><span className="text-muted-foreground">Poder de venda:</span> {brl(pvPoder)} <span className="text-muted-foreground">de {pvMeta > 0 ? brl(pvMeta) : "—"}</span></div>
+                      <div className="text-sm text-muted-foreground">Orçamento (calc.): {orc != null ? brl(orc) : "—"}</div>
+                      <div className="text-sm text-muted-foreground">Custo comprometido: {brl(st.real)}</div>
+                      <div className="text-sm mt-1"><span className="text-muted-foreground">Poder de venda:</span> {brl(pvPoder)} <span className="text-muted-foreground">de {pvMeta > 0 ? brl(pvMeta) : "—"}</span></div>
                       <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted"><div className={`h-full ${pvPct >= 100 ? "bg-emerald-500" : "bg-primary"}`} style={{ width: `${Math.min(100, pvPct)}%` }} /></div>
                       {pvMeta > 0 && <div className="text-right text-xs font-semibold text-primary">{Math.round(pvPct)}% da meta</div>}
                     </div>
