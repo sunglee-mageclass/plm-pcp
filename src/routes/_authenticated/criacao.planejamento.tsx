@@ -545,7 +545,7 @@ function PlanejamentoPage() {
               { label: "Repetição", value: fRep, onChange: setFRep, options: [{ id: "all", nome: "Todos" }, { id: "rep", nome: "Repetidos" }, { id: "uni", nome: "Únicos" }] },
             ]}
           />
-          <Button className="max-sm:hidden" variant="outline" onClick={() => setOpenBatch(true)} aria-label="Vários Cards"><Layers className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Vários Cards</span></Button>
+          <Button className="max-sm:hidden" variant="outline" onClick={() => setOpenBatch(true)} aria-label="Novos Cards"><Layers className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Novos Cards</span></Button>
           <Button className="max-sm:hidden" onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /><span className="sm:hidden">Novo</span><span className="hidden sm:inline">Novo Modelo</span></Button>
         </div>
       </header>
@@ -654,7 +654,7 @@ function PlanejamentoPage() {
       )}
 
       <MobileActionBar>
-        <Button variant="outline" onClick={() => setOpenBatch(true)}><Layers className="h-4 w-4 mr-1" /> Vários Cards</Button>
+        <Button variant="outline" onClick={() => setOpenBatch(true)}><Layers className="h-4 w-4 mr-1" /> Novos Cards</Button>
         <Button className="ml-auto" onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /> Novo Modelo</Button>
       </MobileActionBar>
     </div>
