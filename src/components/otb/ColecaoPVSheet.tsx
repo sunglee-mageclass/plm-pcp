@@ -70,6 +70,8 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
   // Campo "meta" com separador de milhar: formatado quando sem foco, cru (pt-BR) ao editar.
   const [metaFocus, setMetaFocus] = useState(false);
   const [metaText, setMetaText] = useState("");
+  // "Definir por data" (entrada data→semana), por subcoleção.
+  const [porData, setPorData] = useState<Record<string, string>>({});
 
   const mesOrdem = useMemo(() => Number((meses as any[]).find((m) => m.id === mesId)?.ordem) || 0, [meses, mesId]);
   const anoNum = useMemo(() => Number((anos as any[]).find((a) => a.id === anoId)?.ano) || 0, [anos, anoId]);
@@ -87,6 +89,16 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
   };
   const rangeLabel = (w: number) => { const r = semanaRange(w); return r ? `${format(r.inicio, "dd/MM")}–${format(r.fim, "dd/MM")}` : ""; };
   const dataSemana = (s: Subcolecao, w: number) => s.datasSemanas[String(w)] ?? dataDefault(w);
+  // Inverso: dada uma data, qual semana (1–5) do mês/ano da coleção ela cai? null = fora.
+  const semanaDaData = (dateStr: string): number | null => {
+    if (!dateStr || !anoNum || !mesOrdem) return null;
+    const d = new Date(`${dateStr}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return null;
+    const week1 = startOfWeek(new Date(anoNum, mesOrdem - 1, 1), { weekStartsOn: 1 });
+    const diff = Math.round((startOfWeek(d, { weekStartsOn: 1 }).getTime() - week1.getTime()) / (7 * 24 * 3600 * 1000));
+    const n = diff + 1;
+    return n >= 1 && n <= 5 ? n : null;
+  };
 
   const numByLinha = useMemo(() => {
     const p = (padroes as any[]).find((x) => x.id === padraoId);
@@ -121,7 +133,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
         id: nid("l"), linhaId: it.linha_id ?? "", aParte: !!it.a_parte, profCor: Number(it.prof_cor) || 0, cores: Number(it.cores) || 0,
         min: Number(it.preco_min) || 0, max: Number(it.preco_max) || 0, q: (it.qtd_semanas ?? {}) as Record<string, number>,
       }));
-      const semanas: number[] = Array.isArray(sc.semanas) && sc.semanas.length ? sc.semanas.map(Number).sort((a: number, b: number) => a - b) : [1, 2, 3, 4];
+      const semanas: number[] = Array.isArray(sc.semanas) ? sc.semanas.map(Number).sort((a: number, b: number) => a - b) : [];
       return { id: nid("s"), nome: sc.nome, semanas, datasSemanas: (sc.datas_semanas ?? {}) as Record<string, string>, linhas };
     });
     setSubs(mapped); setHydrated(true);
@@ -154,8 +166,32 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
   };
   const addSub = () => {
     const sid = nid("s");
-    setSubs((xs) => redistribuir([...xs, { id: sid, nome: `Subcoleção ${xs.length + 1}`, semanas: [1, 2, 3, 4], datasSemanas: {}, linhas: cloneDoPadrao() }]));
+    setSubs((xs) => redistribuir([...xs, { id: sid, nome: `Subcoleção ${xs.length + 1}`, semanas: [], datasSemanas: {}, linhas: cloneDoPadrao() }]));
     setAberta((a) => ({ ...a, [sid]: true }));
+  };
+  // Entrada por DATA: descobre a semana do calendário e a seleciona (com a data).
+  const definirPorData = (sid: string, dateStr: string) => {
+    setPorData((p) => ({ ...p, [sid]: dateStr }));
+    const n = semanaDaData(dateStr);
+    if (!n) return;
+    setSubs((xs) => {
+      const si = xs.findIndex((x) => x.id === sid); const N = xs.length;
+      return xs.map((s) => {
+        if (s.id !== sid) return s;
+        const semanas = s.semanas.includes(n) ? s.semanas : [...s.semanas, n].sort((a, b) => a - b);
+        const datasSemanas = { ...s.datasSemanas, [String(n)]: dateStr };
+        const linhas = s.linhas.map((l) => {
+          const total = numByLinha[l.linhaId];
+          if (total == null) return l;
+          const share = splitEven(total, N)[si];
+          const perW = splitEven(share, semanas.length);
+          const q: Record<string, number> = {};
+          semanas.forEach((ww, j) => { q[String(ww)] = perW[j] ?? 0; });
+          return { ...l, q };
+        });
+        return { ...s, semanas, datasSemanas, linhas };
+      });
+    });
   };
   const delSub = (sid: string) => setSubs((xs) => redistribuir(xs.filter((s) => s.id !== sid)));
   const patchSub = (sid: string, p: Partial<Subcolecao>) => setSubs((xs) => xs.map((s) => (s.id === sid ? { ...s, ...p } : s)));
@@ -337,17 +373,34 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
 
                     {open && (
                       <div className="border-t bg-muted/10 px-3 py-2 space-y-2">
+                        {/* Entrada por DATA → descobre e seleciona a semana (além de clicar 1–5 acima). */}
+                        <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+                          <div className="grid gap-0.5">
+                            <span className="text-xs text-muted-foreground">Definir por data → semana</span>
+                            <div className="flex items-center gap-2">
+                              <span className="w-32 inline-block"><DateField value={porData[s.id] ?? ""} onChange={(e) => definirPorData(s.id, e.target.value)} /></span>
+                              {porData[s.id] && (semanaDaData(porData[s.id]) ? <Badge variant="secondary">Semana {semanaDaData(porData[s.id])}</Badge> : <span className="text-xs text-amber-600">fora do mês</span>)}
+                            </div>
+                          </div>
+                          {!mesOrdem && <span className="text-xs text-amber-600 self-center">Defina Mês e Ano acima pra calcular as semanas.</span>}
+                        </div>
+
                         {s.semanas.length === 0 ? (
-                          <p className="text-xs text-amber-600">Escolha ao menos uma semana acima.</p>
+                          <p className="text-xs text-muted-foreground">Nenhuma semana ainda — clique em 1–5 acima ou defina por data.</p>
                         ) : (
                           <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
-                            {s.semanas.map((w) => (
-                              <div key={w} className="grid gap-0.5">
-                                <span className="text-xs text-muted-foreground">Lançamento Sem {w}{rangeLabel(w) && <span className="text-muted-foreground/70"> · {rangeLabel(w)}</span>}</span>
-                                <span className="w-32 inline-block"><DateField value={dataSemana(s, w)} onChange={(e) => setDataSemana(s.id, w, e.target.value)} /></span>
-                              </div>
-                            ))}
-                            {!mesOrdem && <span className="text-xs text-amber-600 self-center">Defina Mês e Ano acima pra calcular as datas.</span>}
+                            {s.semanas.map((w) => {
+                              const dw = semanaDaData(dataSemana(s, w));
+                              return (
+                                <div key={w} className="grid gap-0.5">
+                                  <span className="text-xs text-muted-foreground">Lançamento Sem {w}{rangeLabel(w) && <span className="text-muted-foreground/70"> · {rangeLabel(w)}</span>}</span>
+                                  <div className="flex items-center gap-1">
+                                    <span className="w-32 inline-block"><DateField value={dataSemana(s, w)} onChange={(e) => setDataSemana(s.id, w, e.target.value)} /></span>
+                                    {dw && dw !== w && <span className="text-xs text-amber-600" title="a data caiu em outra semana">→ Sem {dw}</span>}
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                         <div className="overflow-x-auto">
