@@ -467,10 +467,11 @@ function LeadtimeConfigCard({
   value: { key: string; tipo: "macro" | "kanban"; idealDias: number }[];
   onChange: (etapas: { key: string; tipo: "macro" | "kanban"; idealDias: number }[]) => void;
 }) {
-  // Lista ordenada de etapas disponíveis: macro fixas + colunas do kanban da loja.
+  // Lista ordenada de etapas disponíveis, na ORDEM DO FLUXO: Desenvolvimento (colunas do
+  // kanban) → Produção (macro). É esta ordem que a aba Leadtime herda ao salvar.
   const disponiveis: { key: string; tipo: "macro" | "kanban"; label: string }[] = [
-    ...LEADTIME_MACRO.map((m) => ({ ...m, tipo: "macro" as const })),
     ...statusKanban.map((label) => ({ key: "kanban:" + resolveStatusKey(label), tipo: "kanban" as const, label })),
+    ...LEADTIME_MACRO.map((m) => ({ ...m, tipo: "macro" as const })),
   ];
   const sel = new Map(value.map((e) => [e.key, e]));
 
@@ -503,15 +504,15 @@ function LeadtimeConfigCard({
       </CardHeader>
       <CardContent className="space-y-4">
         <LeadtimeGrupo
-          titulo="Etapas de produção"
-          itens={disponiveis.filter((d) => d.tipo === "macro")}
+          titulo="Desenvolvimento · colunas do kanban"
+          itens={disponiveis.filter((d) => d.tipo === "kanban")}
           sel={sel}
           onToggle={toggle}
           onIdeal={setIdeal}
         />
         <LeadtimeGrupo
-          titulo="Desenvolvimento · colunas do kanban"
-          itens={disponiveis.filter((d) => d.tipo === "kanban")}
+          titulo="Produção"
+          itens={disponiveis.filter((d) => d.tipo === "macro")}
           sel={sel}
           onToggle={toggle}
           onIdeal={setIdeal}

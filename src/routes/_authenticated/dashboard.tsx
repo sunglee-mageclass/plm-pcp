@@ -531,8 +531,7 @@ function ProducaoTab() {
   const [colecao, setColecao] = useState("all");
   const [linha, setLinha] = useState("all");
   const [servico, setServico] = useState("all");
-  // Timeline e SLA mostram só 5 por padrão (cabe em mobile e desktop); "ver mais" expande.
-  const [timelineAll, setTimelineAll] = useState(false);
+  // SLA mostra só 5 por padrão (cabe em mobile e desktop); "ver mais" expande.
   const [slaAll, setSlaAll] = useState(false);
   const ini = isoDate(periodo?.from), fim = isoDate(periodo?.to);
 
@@ -550,7 +549,6 @@ function ProducaoTab() {
     },
   });
 
-  const timeline = data?.timeline ?? [];
   const slaPorTerc = data?.slaPorTerc ?? [];
   // SLA por serviço: tipos disponíveis (p/ filtro), filtra e ordena.
   const slaTipos = useMemo<string[]>(
@@ -581,11 +579,6 @@ function ProducaoTab() {
     const a = defeitoMes as any[];
     return a.length ? a.reduce((s, d) => s + Number(d.taxa || 0), 0) / a.length : 0;
   }, [defeitoMes]);
-  // Oficina e Acabamento são subtipos de Serviço — não etapas próprias.
-  const etapas = ["CAD", "Serviço", "Controle de Qualidade", "Direcionamento", "Lançado"];
-  // Rótulo da timeline. "Lançado" = modelos.lancado (fonte única), a MESMA base do
-  // KPI "Lançados" da aba Coleção — consistentes desde jul/2026.
-  const etapaLabel: Record<string, string> = { "Lançado": "Em Lançamento" };
 
   const colecoes: string[] = data?.filtros?.colecoes ?? [];
   const linhas: Opt[] = data?.filtros?.linhas ?? [];
@@ -644,55 +637,8 @@ function ProducaoTab() {
         </div>
       </div>
 
-      <Card className="p-4">
-        <h3 className="font-semibold mb-3">Timeline por {fl("ref")}</h3>
-        <div className="overflow-x-auto">
-          {/* table-fixed + larguras explícitas: REF/Nome fixos e as colunas de etapa
-              todas com a MESMA largura (alinha as bolinhas). */}
-          <table className="w-full text-sm card-table sm:table-fixed">
-            <thead className="text-left text-muted-foreground">
-              <tr className="border-b">
-                <th className="py-2 pr-3 w-[16%]">{fl("ref")}</th>
-                <th className="py-2 pr-3 w-[24%]">Nome</th>
-                {etapas.map((e) => (
-                  <th key={e} className="py-2 px-2 text-center text-xs align-bottom" style={{ width: `${60 / etapas.length}%` }}>
-                    {etapaLabel[e] ?? e}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {(timelineAll ? timeline : timeline.slice(0, 5)).map((r: any) => {
-                // Oficina/Acabamento caem sob Serviço na timeline.
-                const etapaAtual = (r.etapa === "Oficina" || r.etapa === "Acabamento") ? "Serviço" : r.etapa;
-                const idx = etapas.indexOf(etapaAtual);
-                return (
-                  <tr key={r.id} className="border-b last:border-0">
-                    <td className="py-2 pr-3 font-medium">
-                      <span className="inline-flex items-center gap-1.5">
-                        {r.ref ?? "—"}
-                        {r.versao != null && <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">v{r.versao}</Badge>}
-                      </span>
-                    </td>
-                    <td className="py-2 pr-3" data-label="Nome">{r.nome}</td>
-                    {etapas.map((e, i) => (
-                      <td key={i} className="py-2 px-2 text-center" data-label={etapaLabel[e] ?? e}>
-                        <span className={"inline-block h-3 w-3 rounded-full " + (i < idx ? "bg-muted-foreground/30" : i === idx ? "bg-primary" : "bg-muted")}></span>
-                      </td>
-                    ))}
-                  </tr>
-                );
-              })}
-              {!isLoading && timeline.length === 0 && <tr><td colSpan={etapas.length + 2} className="py-4 text-center text-muted-foreground">Sem dados.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-        {timeline.length > 5 && (
-          <button type="button" onClick={() => setTimelineAll((v) => !v)} className="mt-3 text-sm text-primary hover:underline">
-            {timelineAll ? "Ver menos" : `Ver mais (${timeline.length - 5})`}
-          </button>
-        )}
-      </Card>
+      {/* "Timeline por REF" aposentada (jul/2026): a aba Leadtime a substitui — tempo por
+          etapa vs ideal, em vez de só a posição atual de cada REF. */}
 
       <Card className="p-4">
         <h3 className="font-semibold mb-3">Taxa de defeito por mês <span className="text-sm font-normal text-muted-foreground">· defeito ÷ recebido (entregas de Serviços)</span></h3>
@@ -1400,20 +1346,21 @@ function LeadtimeTab() {
         Configurações da Loja (em breve). Verde = dentro do ideal.
       </p>
 
-      {macro.length > 0 && (
-        <div>
-          <SecHeader icon={Factory}>Etapas de produção</SecHeader>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {macro.map((e) => <EtapaLeadCard key={e.etapa} label={e.label} e={e} />)}
-          </div>
-        </div>
-      )}
-
+      {/* Ordem do fluxo: Desenvolvimento (kanban) → Produção (marcos). */}
       {kanban.length > 0 && (
         <div>
           <SecHeader icon={Palette}>Desenvolvimento · por coluna do kanban</SecHeader>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {kanban.map((e) => <EtapaLeadCard key={e.etapa} label={LeadtimePretty(e.label)} e={e} />)}
+          </div>
+        </div>
+      )}
+
+      {macro.length > 0 && (
+        <div>
+          <SecHeader icon={Factory}>Produção</SecHeader>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {macro.map((e) => <EtapaLeadCard key={e.etapa} label={e.label} e={e} />)}
           </div>
         </div>
       )}
