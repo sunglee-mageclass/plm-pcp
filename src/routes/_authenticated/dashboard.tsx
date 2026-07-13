@@ -15,7 +15,7 @@ import { FilterButton } from "@/components/shared/filters";
 import { useSort, SortTh } from "@/components/shared/sort";
 import { Button } from "@/components/ui/button";
 import { printWithImages } from "@/lib/print";
-import { RelatorioPrint } from "@/components/shared/RelatorioPrint";
+import { RelatorioPrint, type RelSecao } from "@/components/shared/RelatorioPrint";
 import { PeriodoPicker, type Periodo } from "@/components/shared/PeriodoPicker";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
@@ -562,6 +562,8 @@ function ProducaoTab() {
   const slaSort = useSort<any>(slaFiltrado, { key: "nome" });
   const kpiPrazo = data?.kpiPrazo ?? { noPrazo: 0, atrasadas: 0, pct: 0 };
   const cortes = data?.cortesPorMes ?? [];
+  // Cortes só fazem sentido se a loja usa o serviço "Corte" (senão é PL, corte incluso).
+  const usaCorte = (data as any)?.usaCorte ?? false;
   const finalizadas = data?.finalizadasPorMes ?? [];
   const kanbanDev = data?.kanbanDev ?? [];
   const cortesFinalizados = useMemo(() => {
@@ -614,6 +616,7 @@ function ProducaoTab() {
         </Card>
       </div>
 
+      {usaCorte && (
       <div>
         <h2 className="text-sm font-semibold text-muted-foreground mb-2">Cortes por mês <span className="font-normal">· por data de entrega do corte</span></h2>
         <div className="grid gap-4 lg:grid-cols-2">
@@ -621,6 +624,7 @@ function ProducaoTab() {
           <MonthBarCard title="Grade total cortada" subtitle="peças" data={cortes} dataKey="grade" name="Grade total" color={PIE_COLORS[1]} empty="Sem cortes no período." loading={isLoading} />
         </div>
       </div>
+      )}
 
       <div>
         <h2 className="text-sm font-semibold text-muted-foreground mb-2">Produção finalizada por mês <span className="font-normal">· Serviços com status finalizado</span></h2>
@@ -818,7 +822,7 @@ function ProducaoTab() {
             colunas: [{ key: "nome", label: "Linha" }, { key: "modelos", label: "Modelos", align: "right" }, { key: "grade", label: "Grade total", align: "right" }, { key: "defeito", label: "Defeito", align: "right" }],
             linhas: (porLinha as any[]).map((c) => ({ nome: c.nome ?? "—", modelos: nfInt(c.modelos), grade: nfInt(c.grade), defeito: `${Number(c.defeito ?? 0)}%` })), zebra: true,
           },
-          {
+          ...(usaCorte ? ([{
             titulo: "Cortes por mês", icone: "▦",
             descricao: "Por data de entrega do corte",
             grafico: (cortes as any[]).length > 0 ? <PBar2
@@ -826,7 +830,7 @@ function ProducaoTab() {
               b={{ titulo: "Grade total cortada", node: <PBar data={cortes} xKey="mes" barKey="grade" color={PIE_COLORS[1]} width={320} height={160} fmtL={nfInt} /> }} /> : undefined,
             colunas: [{ key: "mes", label: "Mês" }, { key: "modelos", label: "Modelos", align: "right" }, { key: "grade", label: "Grade total", align: "right" }],
             linhas: (cortes as any[]).map((d) => ({ mes: d.mes, modelos: nfInt(d.modelos), grade: nfInt(d.grade) })), zebra: true,
-          },
+          }] as RelSecao[]) : []),
           {
             titulo: "Produção finalizada por mês", icone: "▦",
             descricao: "Serviços com status finalizado",
