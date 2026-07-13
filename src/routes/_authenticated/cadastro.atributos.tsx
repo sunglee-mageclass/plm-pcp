@@ -340,12 +340,13 @@ function AtributosPage() {
     () => ATTRIBUTES.find((a) => a.value === selectedValue) ?? ATTRIBUTES[0],
     [selectedValue],
   );
-  // Subcategoria 1 ganha o SLA médio de oficina (dias) — exceto no modo
-  // controle-de-estoque (não há produção/oficina lá).
+  // Subcategoria 1 ganha o SLA de Serviços (dias) — prazo da confecção (oficina/costura/
+  // PL). Coluna `sla_oficina` (nome herdado). Reaproveitado como prazo no Leadtime. Exceto
+  // no modo controle-de-estoque (não há produção lá).
   const activeConfig: AttributeTabConfig | undefined = !selected.config
     ? undefined
     : selected.config.table === "subcategorias1_produto" && !isStockOnly
-      ? { ...selected.config, extraNumber: { field: "sla_oficina", label: "SLA Oficina (dias)", placeholder: "dias" } }
+      ? { ...selected.config, extraNumber: { field: "sla_oficina", label: "SLA de Serviços (dias)", placeholder: "dias" } }
       : selected.config;
 
   const grouped = useMemo(() => {

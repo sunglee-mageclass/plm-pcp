@@ -1437,6 +1437,8 @@ function LeadtimeItens({ colunas }: { colunas: any[] }) {
     },
   });
   const itens: any[] = data?.itens ?? [];
+  // Etapa cujo prazo (por item) vem do "SLA de Serviços" da Subcategoria 1 (config da loja).
+  const slaServico: string | null = data?.slaServico ?? null;
 
   const uniq = (vals: any[]) => Array.from(new Set(vals.filter((v) => v != null && v !== ""))).sort();
   const colecoes = uniq(itens.map((i) => i.colecao));
@@ -1450,12 +1452,12 @@ function LeadtimeItens({ colunas }: { colunas: any[] }) {
       (semana === "all" || (i.semana ?? "") === semana),
   );
 
-  type Row = { key: string; label: string; sub?: string; versao?: number; n: number; dur: Record<string, number> };
+  type Row = { key: string; label: string; sub?: string; versao?: number; n: number; dur: Record<string, number>; sla?: number | null };
   let rows: Row[];
   if (agrupar === "none") {
     rows = filt.map((it) => ({
       key: it.modelo_id, label: it.ref || it.nome || "—",
-      sub: it.ref ? it.nome : undefined, versao: it.versao, n: 1, dur: it.duracoes ?? {},
+      sub: it.ref ? it.nome : undefined, versao: it.versao, n: 1, dur: it.duracoes ?? {}, sla: it.sub1_sla ?? null,
     }));
   } else {
     const keyOf = (it: any) =>
@@ -1502,7 +1504,9 @@ function LeadtimeItens({ colunas }: { colunas: any[] }) {
                 {colunas.map((c) => (
                   <th key={c.etapa} className="py-2 px-2 text-center text-xs whitespace-nowrap">
                     {c.tipo === "kanban" ? LeadtimePretty(c.label) : c.label}
-                    <span className="block font-normal text-[10px] text-muted-foreground/70">ideal {fmtNum(idealDe(c.etapa))}d</span>
+                    <span className="block font-normal text-[10px] text-muted-foreground/70">
+                      {c.etapa === slaServico ? "SLA da Subcat." : `ideal ${fmtNum(idealDe(c.etapa))}d`}
+                    </span>
                   </th>
                 ))}
               </tr>
@@ -1520,7 +1524,8 @@ function LeadtimeItens({ colunas }: { colunas: any[] }) {
                   </td>
                   {colunas.map((c) => {
                     const d = r.dur[c.etapa];
-                    const ideal = idealDe(c.etapa);
+                    // Na coluna do SLA, o prazo por item vem do SLA da Subcategoria (item mode).
+                    const ideal = c.etapa === slaServico && r.sla != null ? Number(r.sla) : idealDe(c.etapa);
                     const ok = d == null || ideal <= 0 || d <= ideal;
                     return (
                       <td

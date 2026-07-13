@@ -46,6 +46,7 @@ import {
 import { PAGES_CATALOG } from "@/lib/permissions-catalog";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { resolveStatusKey } from "@/lib/kanban-status";
+import { isServicoConfeccao } from "@/lib/servico-confeccao";
 import { RequisitosStatusButton } from "@/components/admin/RequisitosStatusDialog";
 
 export const Route = createFileRoute("/_authenticated/admin/configuracoes")({
@@ -98,7 +99,12 @@ const DEFAULTS = {
   kanban_requisitos: {} as Record<string, string[]>,
   // Leadtime: etapas acompanhadas na aba Leadtime do Dashboard + ideal (dias) de cada.
   // Vazio = a aba mostra TODAS as etapas com o default. Ordem = ordem de exibição.
-  leadtime: { etapas: [] as { key: string; tipo: "macro" | "kanban" | "servico"; idealDias: number }[] },
+  // slaServico = etapa cujo prazo (na matriz do Leadtime) vem do "SLA de Serviços" da
+  // Subcategoria 1 do item (servicos = bloco todo, ou servico_cat:<id> de confecção). null = off.
+  leadtime: {
+    etapas: [] as { key: string; tipo: "macro" | "kanban" | "servico"; idealDias: number }[],
+    slaServico: null as string | null,
+  },
 };
 
 type ConfigState = typeof DEFAULTS;
@@ -168,7 +174,7 @@ function ConfiguracoesLojaPage() {
           : DEFAULTS.kanban_requisitos,
       leadtime:
         (r as any).leadtime && Array.isArray((r as any).leadtime.etapas)
-          ? ((r as any).leadtime as ConfigState["leadtime"])
+          ? { etapas: (r as any).leadtime.etapas, slaServico: (r as any).leadtime.slaServico ?? null }
           : DEFAULTS.leadtime,
     });
   }, [data?.cfg]);
@@ -255,8 +261,8 @@ function ConfiguracoesLojaPage() {
       <LeadtimeConfigCard
         tenantId={data?.tenantId ?? null}
         statusKanban={cfg.status_kanban}
-        value={cfg.leadtime.etapas}
-        onChange={(etapas) => setCfg((c) => ({ ...c, leadtime: { etapas } }))}
+        value={cfg.leadtime}
+        onChange={(leadtime) => setCfg((c) => ({ ...c, leadtime }))}
       />
 
       <Card>
@@ -464,6 +470,7 @@ const LEADTIME_MACRO: { key: string; label: string }[] = [
 
 type LtTipo = "macro" | "kanban" | "servico";
 type LtEtapa = { key: string; tipo: LtTipo; idealDias: number };
+type LtConfig = { etapas: LtEtapa[]; slaServico: string | null };
 type LtItem = { key: string; tipo?: LtTipo; label?: string; indent?: boolean; caption?: string };
 
 function LeadtimeConfigCard({
@@ -474,8 +481,8 @@ function LeadtimeConfigCard({
 }: {
   tenantId: string | null;
   statusKanban: string[];
-  value: LtEtapa[];
-  onChange: (etapas: LtEtapa[]) => void;
+  value: LtConfig;
+  onChange: (leadtime: LtConfig) => void;
 }) {
   // Categorias de serviço da loja — p/ acompanhar Serviços "micro" (por categoria).
   const { data: servCats = [] } = useQuery({
@@ -512,11 +519,11 @@ function LeadtimeConfigCard({
     ...statusKanban.map((label) => ({ key: "kanban:" + resolveStatusKey(label), tipo: "kanban" as const, label })),
     ...producaoItens.filter((it) => !it.caption).map((it) => ({ key: it.key, tipo: it.tipo!, label: it.label! })),
   ];
-  const sel = new Map(value.map((e) => [e.key, e]));
+  const sel = new Map(value.etapas.map((e) => [e.key, e]));
 
-  // Reescreve a seleção sempre na ordem canônica da lista de disponíveis.
+  // Reescreve a seleção sempre na ordem canônica da lista de disponíveis (preserva slaServico).
   function commit(next: Map<string, LtEtapa>) {
-    onChange(disponiveis.filter((d) => next.has(d.key)).map((d) => next.get(d.key)!));
+    onChange({ ...value, etapas: disponiveis.filter((d) => next.has(d.key)).map((d) => next.get(d.key)!) });
   }
   function toggle(d: { key: string; tipo: LtTipo }, on: boolean) {
     const m = new Map(sel);
@@ -530,7 +537,9 @@ function LeadtimeConfigCard({
     commit(m);
   }
 
-  const nSel = value.length;
+  // Serviços de confecção (oficina/costura/PL) — opções p/ o SLA da Subcategoria medir contra.
+  const confeccao = (servCats as any[]).filter((c) => isServicoConfeccao(c.nome));
+  const nSel = value.etapas.length;
   return (
     <Card>
       <CardHeader>
@@ -564,6 +573,29 @@ function LeadtimeConfigCard({
           onToggle={toggle}
           onIdeal={setIdeal}
         />
+
+        {/* Prazo de Serviços vindo do "SLA de Serviços" da Subcategoria 1 do item (varia por
+            produto). Opções filtradas aos serviços de confecção (oficina/costura/PL). */}
+        <div className="rounded-md border p-3">
+          <p className="text-sm font-medium">Prazo de Serviços pelo SLA da Subcategoria</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            No detalhamento por item, o prazo (ideal) da etapa abaixo usa o <span className="font-medium">SLA
+            de Serviços</span> cadastrado na Subcategoria 1 do item, em vez do número fixo.
+          </p>
+          <Select
+            value={value.slaServico ?? "off"}
+            onValueChange={(v) => onChange({ ...value, slaServico: v === "off" ? null : v })}
+          >
+            <SelectTrigger className="mt-2 w-full sm:w-80"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="off">Não usar (prazo fixo da etapa)</SelectItem>
+              <SelectItem value="servicos">Bloco todo (Produção · Serviços)</SelectItem>
+              {confeccao.map((c) => (
+                <SelectItem key={c.id} value={"servico_cat:" + c.id}>{c.nome} (confecção)</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </CardContent>
     </Card>
   );
