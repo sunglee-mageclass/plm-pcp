@@ -233,4 +233,11 @@
   table.card-table > tbody > tr > td:not([data-label]) { justify-content: flex-start; font-weight: 600; }
   table.card-table > tbody > tr > td:not([data-label])::before,
   table.card-table > tbody > tr > td[data-label=""]::before { content: none; }
+
+  /* Financeiro: as células têm campos de DATA/badges/botões (mais altos que texto
+     simples), então as linhas do card precisam de mais respiro vertical — senão as
+     caixas de data empilhadas (Vencimento/Pagamento) e o badge de status colam/se
+     sobrepõem. Escopado a .fin-table p/ não mexer nas demais telas do .card-table. */
+  table.fin-table > tbody > tr { padding: 0.75rem; }
+  table.fin-table > tbody > tr > td { padding: 0.45rem 0; }
 }
