@@ -982,6 +982,7 @@ function ServicosView() {
   const [dataIni, setDataIni] = useState("");
   const [dataFim, setDataFim] = useState("");
   const [detalhe, setDetalhe] = useState<any | null>(null);
+  const [pagandoId, setPagandoId] = useState<string | null>(null);
 
   const stOf = (r: any) => {
     if (r.status === "pago" || r.data_pagamento) return "pago";
@@ -1128,8 +1129,11 @@ function ServicosView() {
                       {podeEditar && (st === "pago" ? (
                         <Button size="sm" variant="destructive" onClick={() => togglePago.mutate({ id: r.parcela_id, pago: false })} disabled={togglePago.isPending}>Desmarcar</Button>
                       ) : (
-                        <Button size="sm" onClick={() => togglePago.mutate({ id: r.parcela_id, pago: true })} disabled={togglePago.isPending}>Marcar pago</Button>
+                        <Button size="sm" onClick={() => setPagandoId(r.parcela_id)}>Marcar pago</Button>
                       ))}
+                      {r.comprovante_url && (
+                        <ComprovanteLink value={r.comprovante_url} label="comprovante" className="text-xs text-primary ml-2" />
+                      )}
                     </td>
                   </tr>
                 );
@@ -1151,9 +1155,19 @@ function ServicosView() {
         stVariant={detalhe ? (stOf(detalhe) === "pago" ? "default" : stOf(detalhe) === "vencido" ? "destructive" : "secondary") : "secondary"}
         fmtD={fmtD}
         canPay={podeEditar}
-        onTogglePago={(pago) => { if (detalhe) togglePago.mutate({ id: detalhe.parcela_id, pago }); }}
+        onTogglePago={(pago) => {
+          if (!detalhe) return;
+          if (pago) { setPagandoId(detalhe.parcela_id); setDetalhe(null); }
+          else togglePago.mutate({ id: detalhe.parcela_id, pago: false });
+        }}
         toggling={togglePago.isPending}
         onClose={() => setDetalhe(null)}
+      />
+      <PagarDialog
+        parcelaId={pagandoId}
+        table="parcelas_servico"
+        invalidateKey={["servicos-financeiro"]}
+        onClose={() => setPagandoId(null)}
       />
 
       <RelatorioPrint
@@ -1248,6 +1262,9 @@ function ServicoDetailDialog({
           </div>
           {row.data_pagamento && (
             <div><span className="text-muted-foreground">Pago em:</span> {fmtD(row.data_pagamento)}</div>
+          )}
+          {row.comprovante_url && (
+            <div><ComprovanteLink value={row.comprovante_url} label="Ver comprovante" className="text-primary" /></div>
           )}
         </div>
         <DialogFooter className="flex-row flex-wrap items-center justify-end gap-2">
@@ -1383,7 +1400,7 @@ function OcViewDialog({ view, onClose }: { view: { tipo: string; id: string } | 
   );
 }
 
-function PagarDialog({ parcelaId, onClose }: { parcelaId: string | null; onClose: () => void }) {
+function PagarDialog({ parcelaId, onClose, table = "parcelas", invalidateKey = ["parcelas"] }: { parcelaId: string | null; onClose: () => void; table?: string; invalidateKey?: (string | number)[] }) {
   const qc = useQueryClient();
   const podeEditar = usePodeEditarFinanceiro();
   const [dataPag, setDataPag] = useState(format(new Date(), "yyyy-MM-dd"));
@@ -1404,14 +1421,14 @@ function PagarDialog({ parcelaId, onClose }: { parcelaId: string | null; onClose
         if (upErr) throw upErr;
       }
       const { error } = await supabase
-        .from("parcelas")
+        .from(table as any)
         .update({ status: "pago", data_pagamento: dataPag, ...(path ? { comprovante_url: path } : {}) })
         .eq("id", parcelaId);
       if (error) throw error;
     },
     onSuccess: () => {
       toast.success("Parcela marcada como paga");
-      qc.invalidateQueries({ queryKey: ["parcelas"] });
+      qc.invalidateQueries({ queryKey: invalidateKey });
       setFile(null);
       onClose();
     },
