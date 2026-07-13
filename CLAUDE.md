@@ -149,7 +149,12 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   / `tenant_config.etapas_acabamento` (têm dado ou leitor vivo). Se um laudo/doc antigo cita "Acabamento", é
   histórico. Editor de Impressão REMOVIDO (Ficha de Corte usa sempre o cabeçalho padrão `FichaHeader`)
 - **financeiro**: calendário + lista + parcelas (a pagar) + serviços terceirizados
-- **dashboard**: 5 abas (coleção, estoque, produção, financeiro, custos)
+- **dashboard**: 7 abas (coleção, estoque, produção, financeiro, custos, **comercial**,
+  **leadtime**). *Comercial* = poder de venda/margem (Planejado vs Realizado, colunas
+  agrupadas). *Leadtime* = duração média real por etapa vs ideal (RPC `dashboard_leadtime`;
+  etapas MACRO dos marcos + Desenvolvimento por COLUNA do kanban via `modelo_kanban_historico`;
+  quais etapas + ideal em `tenant_config.leadtime`, editado em `/admin/configuracoes`; sem
+  config = todas com default 7d/5d). Cada aba é permissão própria (`dashboard_comercial`/`_leadtime`)
 - **admin**: lojas (criar/editar/reset/excluir), usuarios, usuarios-loja, configuracoes
   (módulos, modos, fuso, card de Integração ERP)
 
