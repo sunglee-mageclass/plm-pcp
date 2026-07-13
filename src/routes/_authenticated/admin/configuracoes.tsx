@@ -28,6 +28,7 @@ import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog";
@@ -95,6 +96,9 @@ const DEFAULTS = {
   modo_oc_rolo: "ambos" as "oc" | "rolo" | "ambos",
   // Requisitos de entrada por status do kanban: { status_key: [chave_condicao] }.
   kanban_requisitos: {} as Record<string, string[]>,
+  // Leadtime: etapas acompanhadas na aba Leadtime do Dashboard + ideal (dias) de cada.
+  // Vazio = a aba mostra TODAS as etapas com o default. Ordem = ordem de exibição.
+  leadtime: { etapas: [] as { key: string; tipo: "macro" | "kanban"; idealDias: number }[] },
 };
 
 type ConfigState = typeof DEFAULTS;
@@ -162,6 +166,10 @@ function ConfiguracoesLojaPage() {
         (r as any).kanban_requisitos && typeof (r as any).kanban_requisitos === "object" && !Array.isArray((r as any).kanban_requisitos)
           ? ((r as any).kanban_requisitos as Record<string, string[]>)
           : DEFAULTS.kanban_requisitos,
+      leadtime:
+        (r as any).leadtime && Array.isArray((r as any).leadtime.etapas)
+          ? ((r as any).leadtime as ConfigState["leadtime"])
+          : DEFAULTS.leadtime,
     });
   }, [data?.cfg]);
 
@@ -242,6 +250,12 @@ function ConfiguracoesLojaPage() {
             />
           );
         }}
+      />
+
+      <LeadtimeConfigCard
+        statusKanban={cfg.status_kanban}
+        value={cfg.leadtime.etapas}
+        onChange={(etapas) => setCfg((c) => ({ ...c, leadtime: { etapas } }))}
       />
 
       <Card>
@@ -427,6 +441,126 @@ function ConfiguracoesLojaPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  );
+}
+
+// Config do Leadtime: escolher quais etapas a aba Leadtime acompanha + o ideal (dias)
+// de cada. Etapas MACRO (fixas) + Desenvolvimento por COLUNA do kanban (da própria loja).
+// Nenhuma marcada = a aba mostra todas com o default. As keys casam com a RPC
+// dashboard_leadtime (macro: cad_corte/servicos/cq/direcionamento/lancamento;
+// kanban: "kanban:" + chave snake da coluna).
+const LEADTIME_MACRO: { key: string; label: string }[] = [
+  { key: "cad_corte", label: "CAD → Corte" },
+  { key: "servicos", label: "Produção (Serviços)" },
+  { key: "cq", label: "CQ" },
+  { key: "direcionamento", label: "Direcionamento" },
+  { key: "lancamento", label: "Lançamento" },
+];
+
+function LeadtimeConfigCard({
+  statusKanban,
+  value,
+  onChange,
+}: {
+  statusKanban: string[];
+  value: { key: string; tipo: "macro" | "kanban"; idealDias: number }[];
+  onChange: (etapas: { key: string; tipo: "macro" | "kanban"; idealDias: number }[]) => void;
+}) {
+  // Lista ordenada de etapas disponíveis: macro fixas + colunas do kanban da loja.
+  const disponiveis: { key: string; tipo: "macro" | "kanban"; label: string }[] = [
+    ...LEADTIME_MACRO.map((m) => ({ ...m, tipo: "macro" as const })),
+    ...statusKanban.map((label) => ({ key: "kanban:" + resolveStatusKey(label), tipo: "kanban" as const, label })),
+  ];
+  const sel = new Map(value.map((e) => [e.key, e]));
+
+  // Reescreve a seleção sempre na ordem canônica da lista de disponíveis.
+  function commit(next: Map<string, { key: string; tipo: "macro" | "kanban"; idealDias: number }>) {
+    onChange(disponiveis.filter((d) => next.has(d.key)).map((d) => next.get(d.key)!));
+  }
+  function toggle(d: { key: string; tipo: "macro" | "kanban" }, on: boolean) {
+    const m = new Map(sel);
+    if (on) m.set(d.key, { key: d.key, tipo: d.tipo, idealDias: sel.get(d.key)?.idealDias ?? (d.tipo === "kanban" ? 5 : 7) });
+    else m.delete(d.key);
+    commit(m);
+  }
+  function setIdeal(key: string, tipo: "macro" | "kanban", dias: number) {
+    const m = new Map(sel);
+    m.set(key, { key, tipo, idealDias: Math.max(0, dias || 0) });
+    commit(m);
+  }
+
+  const nSel = value.length;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Leadtime</CardTitle>
+        <CardDescription>
+          Quais etapas a aba <span className="font-medium">Leadtime</span> do Dashboard acompanha e o
+          tempo <span className="font-medium">ideal</span> (em dias) de cada. Marque para acompanhar.
+          {nSel === 0 && " Nenhuma marcada = a aba mostra todas as etapas com o padrão."}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <LeadtimeGrupo
+          titulo="Etapas de produção"
+          itens={disponiveis.filter((d) => d.tipo === "macro")}
+          sel={sel}
+          onToggle={toggle}
+          onIdeal={setIdeal}
+        />
+        <LeadtimeGrupo
+          titulo="Desenvolvimento · colunas do kanban"
+          itens={disponiveis.filter((d) => d.tipo === "kanban")}
+          sel={sel}
+          onToggle={toggle}
+          onIdeal={setIdeal}
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
+function LeadtimeGrupo({
+  titulo,
+  itens,
+  sel,
+  onToggle,
+  onIdeal,
+}: {
+  titulo: string;
+  itens: { key: string; tipo: "macro" | "kanban"; label: string }[];
+  sel: Map<string, { key: string; tipo: "macro" | "kanban"; idealDias: number }>;
+  onToggle: (d: { key: string; tipo: "macro" | "kanban" }, on: boolean) => void;
+  onIdeal: (key: string, tipo: "macro" | "kanban", dias: number) => void;
+}) {
+  if (itens.length === 0) return null;
+  return (
+    <div>
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{titulo}</p>
+      <div className="space-y-1.5">
+        {itens.map((d) => {
+          const on = sel.has(d.key);
+          return (
+            <div key={d.key} className="flex items-center gap-3 rounded-md border px-3 py-2">
+              <Switch checked={on} onCheckedChange={(v) => onToggle(d, v)} />
+              <span className="flex-1 truncate text-sm">{d.label}</span>
+              {on && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-muted-foreground">ideal</span>
+                  <NumberInput
+                    integer
+                    value={sel.get(d.key)!.idealDias}
+                    onChange={(e) => onIdeal(d.key, d.tipo, Number(e.target.value))}
+                    className="h-8 w-16 text-right"
+                  />
+                  <span className="text-xs text-muted-foreground">dias</span>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
