@@ -162,7 +162,7 @@ function LojasPage() {
           <div>
             <h1 className="text-2xl font-bold">Gerenciar Lojas</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Cadastre e administre todas as lojas (tenants) do sistema.
+              Cadastre e administre todas as lojas do sistema.
             </p>
           </div>
         </div>
