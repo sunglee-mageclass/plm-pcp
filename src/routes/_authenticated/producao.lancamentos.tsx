@@ -567,12 +567,17 @@ function LancamentoCard(props: { card: LancCard; markup: number | null; preco: n
                 <Camera className={"h-3.5 w-3.5 " + camColor} />
               </span>
             )}
-            {compact && card.ref && (
-              <span className="absolute inset-x-0 bottom-0 truncate bg-background/85 px-1 py-0.5 text-center font-mono text-[10px] text-primary">
-                {card.ref}
-              </span>
-            )}
           </div>
+
+          {compact && (
+            <div className="p-2 space-y-0.5">
+              <p className="font-mono text-primary text-[11px] truncate">{card.ref ?? "—"}</p>
+              {preco != null && <p className="text-[11px] font-medium truncate">{brl(preco)}</p>}
+              {preco != null && card.gradeTotal > 0 && (
+                <p className="text-[10px] text-muted-foreground truncate">PV: {brl(preco * card.gradeTotal)}</p>
+              )}
+            </div>
+          )}
 
           {!compact && (
             <div className="p-3 space-y-1 flex-1 text-xs">

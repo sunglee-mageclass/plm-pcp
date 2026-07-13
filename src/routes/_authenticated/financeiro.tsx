@@ -24,6 +24,8 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { useAuth } from "@/hooks/useAuth";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
+import { useStoreTimezone } from "@/hooks/useStoreTimezone";
+import { todayISOInStoreTZ } from "@/lib/timezone";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, CartesianGrid } from "recharts";
 
 import { RequirePermission } from "@/components/RequirePermission";
@@ -65,24 +67,18 @@ type Parcela = {
   ocBadge?: { label: string; cls: string } | null;
 };
 
-// Data de hoje no fuso local como "yyyy-MM-dd" (sem hora, sem UTC).
-function todayLocalISO(): string {
-  const t = new Date();
-  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
-}
-
 // Parse de "yyyy-MM-dd" como data LOCAL (parseISO trata date-only como UTC → shift de dia em BRT).
 function parseLocalDate(s: string | null | undefined): Date {
   const [y, m, d] = (s ?? "").slice(0, 10).split("-").map(Number);
   return new Date(y || 1970, (m || 1) - 1, d || 1);
 }
 
-function effectiveStatus(p: Parcela): "pago" | "vencido" | "a_pagar" {
+function effectiveStatus(p: Parcela, hoje: string): "pago" | "vencido" | "a_pagar" {
   if (p.status === "pago" || p.data_pagamento) return "pago";
-  // Comparação de strings "yyyy-MM-dd" (lexicográfica = cronológica) — robusta,
-  // sem depender de parseISO/fuso. Vencimento ANTES de hoje = vencido.
+  // Comparação de strings "yyyy-MM-dd" (lexicográfica = cronológica). `hoje` vem no
+  // FUSO DA LOJA (todayISOInStoreTZ), não do device — consistente com o resto do app.
   const venc = (p.data_vencimento ?? "").slice(0, 10);
-  if (venc && venc < todayLocalISO()) return "vencido";
+  if (venc && venc < hoje) return "vencido";
   return "a_pagar";
 }
 
@@ -292,6 +288,7 @@ function FinanceiroPage() {
 /* ============================ CALENDÁRIO ============================ */
 
 function CalendarioView({ parcelas, loading, onServico }: { parcelas: Parcela[]; loading: boolean; onServico?: () => void }) {
+  const hoje = todayISOInStoreTZ(useStoreTimezone());
   const [detalheId, setDetalheId] = useState<string | null>(null);
   const [pagandoId, setPagandoId] = useState<string | null>(null);
   const [ocView, setOcView] = useState<{ tipo: string; id: string } | null>(null);
@@ -367,7 +364,7 @@ function CalendarioView({ parcelas, loading, onServico }: { parcelas: Parcela[];
               <div className="text-right text-[11px] text-muted-foreground mb-1">{format(day, "d")}</div>
               <div className="space-y-1">
                 {items.slice(0, 3).map((p) => {
-                  const st = effectiveStatus(p);
+                  const st = effectiveStatus(p, hoje);
                   const venc = parseLocalDate(p.data_vencimento);
                   const diff = differenceInCalendarDays(venc, today);
                   let color = "bg-muted text-muted-foreground";
@@ -406,7 +403,7 @@ function CalendarioView({ parcelas, loading, onServico }: { parcelas: Parcela[];
               </div>
               <div className="divide-y">
                 {items.map((p) => {
-                  const st = effectiveStatus(p);
+                  const st = effectiveStatus(p, hoje);
                   const venc = parseLocalDate(p.data_vencimento);
                   const diff = differenceInCalendarDays(venc, today);
                   let dot = "bg-muted-foreground";
@@ -470,6 +467,7 @@ function ParcelaDetailDialog({
   const { isAdmin, isSuperAdmin, isTenantAdmin } = useAuth();
   const canRecalc = isAdmin || isSuperAdmin || isTenantAdmin;
   const podeEditar = usePodeEditarFinanceiro();
+  const hoje = todayISOInStoreTZ(useStoreTimezone());
 
   const desmarcarPagoMut = useMutation({
     mutationFn: async () => {
@@ -542,7 +540,7 @@ function ParcelaDetailDialog({
   });
 
   if (!parcela) return null;
-  const st = effectiveStatus(parcela);
+  const st = effectiveStatus(parcela, hoje);
   const ocNumero = parcela.ocs_tecido?.numero_pedido ?? parcela.ocs_aviamento?.numero_pedido ?? "—";
   const tipoLabel = parcela.tipo_oc === "tecido" ? "OC de Tecido" : parcela.tipo_oc === "aviamento" ? "OC de Aviamento" : parcela.tipo_oc;
   // O financeiro paga o REPRESENTANTE quando a OC foi via rep; senão, a empresa.
@@ -704,6 +702,7 @@ function VencimentoCell({ value, onSave, disabled }: { value: string; onSave: (v
 
 function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolean }) {
   const qc = useQueryClient();
+  const hoje = todayISOInStoreTZ(useStoreTimezone());
   const podeEditar = usePodeEditarFinanceiro();
   const [fornecedor, setFornecedor] = useState("all");
   const [status, setStatus] = useState("all");
@@ -767,7 +766,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
   const filtered = useMemo(() => {
     return parcelas.filter((p) => {
       if (fornecedor !== "all" && p.empresa_id !== fornecedor) return false;
-      if (status !== "all" && effectiveStatus(p) !== status) return false;
+      if (status !== "all" && effectiveStatus(p, hoje) !== status) return false;
       if (dataIni && p.data_vencimento < dataIni) return false;
       if (dataFim && p.data_vencimento > dataFim) return false;
       return true;
@@ -851,7 +850,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
             </thead>
             <tbody>
               {sorted.map((p) => {
-                const st = effectiveStatus(p);
+                const st = effectiveStatus(p, hoje);
                 // Impede que clicar/teclar num controle interno (botão, data, link) também
                 // abra o card da linha. Só o "espaço vazio" da linha abre o detalhe.
                 const stop = (e: SyntheticEvent) => e.stopPropagation();
@@ -933,8 +932,8 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
         dataStr={new Date().toLocaleDateString("pt-BR")}
         kpis={[
           { label: "Total", valor: brl(filtered.reduce((s, p) => s + Number(p.valor || 0), 0)) },
-          { label: "Vencido", valor: brl(filtered.filter((p) => effectiveStatus(p) === "vencido").reduce((s, p) => s + Number(p.valor || 0), 0)), cor: "#dc2626" },
-          { label: "Pago", valor: brl(filtered.filter((p) => effectiveStatus(p) === "pago").reduce((s, p) => s + Number(p.valor || 0), 0)), cor: "#16a34a" },
+          { label: "Vencido", valor: brl(filtered.filter((p) => effectiveStatus(p, hoje) === "vencido").reduce((s, p) => s + Number(p.valor || 0), 0)), cor: "#dc2626" },
+          { label: "Pago", valor: brl(filtered.filter((p) => effectiveStatus(p, hoje) === "pago").reduce((s, p) => s + Number(p.valor || 0), 0)), cor: "#16a34a" },
         ]}
         colunas={[
           { key: "fornecedor", label: "Fornecedor" },
@@ -951,7 +950,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
           parcela: p.numero_parcela,
           valor: brl(Number(p.valor)),
           vencimento: p.data_vencimento ? p.data_vencimento.slice(0, 10).split("-").reverse().join("/") : "—",
-          status: effectiveStatus(p) === "pago" ? "Pago" : effectiveStatus(p) === "vencido" ? "Vencido" : "A pagar",
+          status: effectiveStatus(p, hoje) === "pago" ? "Pago" : effectiveStatus(p, hoje) === "vencido" ? "Vencido" : "A pagar",
           pagamento: p.data_pagamento ? p.data_pagamento.slice(0, 10).split("-").reverse().join("/") : "—",
         }))}
         rodape={`Total: ${brl(filtered.reduce((s, p) => s + Number(p.valor || 0), 0))}`}
@@ -964,6 +963,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
 
 function ServicosView() {
   const qc = useQueryClient();
+  const hoje = todayISOInStoreTZ(useStoreTimezone());
   const podeEditar = usePodeEditarFinanceiro();
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["servicos-financeiro", "lista"],
@@ -986,7 +986,7 @@ function ServicosView() {
 
   const stOf = (r: any) => {
     if (r.status === "pago" || r.data_pagamento) return "pago";
-    if (r.data_vencimento && r.data_vencimento < todayLocalISO()) return "vencido";
+    if (r.data_vencimento && r.data_vencimento < hoje) return "vencido";
     return "a_pagar";
   };
   const fmtD = (d: string | null) => (d ? d.slice(0, 10).split("-").reverse().join("/") : "—");
@@ -1015,7 +1015,7 @@ function ServicosView() {
   });
   const togglePago = useMutation({
     mutationFn: async ({ id, pago }: { id: string; pago: boolean }) => {
-      const payload = pago ? { status: "pago", data_pagamento: todayLocalISO() } : { status: "a_pagar", data_pagamento: null };
+      const payload = pago ? { status: "pago", data_pagamento: hoje } : { status: "a_pagar", data_pagamento: null };
       const { error } = await supabase.from("parcelas_servico" as any).update(payload).eq("id", id);
       if (error) throw error;
     },
@@ -1403,7 +1403,7 @@ function OcViewDialog({ view, onClose }: { view: { tipo: string; id: string } | 
 function PagarDialog({ parcelaId, onClose, table = "parcelas", invalidateKey = ["parcelas"] }: { parcelaId: string | null; onClose: () => void; table?: string; invalidateKey?: (string | number)[] }) {
   const qc = useQueryClient();
   const podeEditar = usePodeEditarFinanceiro();
-  const [dataPag, setDataPag] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [dataPag, setDataPag] = useState(todayISOInStoreTZ(useStoreTimezone()));
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
 
@@ -1465,6 +1465,7 @@ function PagarDialog({ parcelaId, onClose, table = "parcelas", invalidateKey = [
 type StatusSel = "a_pagar" | "pago" | "vencido";
 
 function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Parcela[] }) {
+  const hoje = todayISOInStoreTZ(useStoreTimezone());
   const [fFornecedor, setFFornecedor] = useState("all");
   const [fMes, setFMes] = useState("");   // yyyy-MM
   const [fDe, setFDe] = useState("");
@@ -1498,7 +1499,7 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
     return true;
   }), [items, fOrigem, fFornecedor, fMes, fDe, fAte]);
 
-  const sumBy = (st: StatusSel) => base.filter((p) => effectiveStatus(p) === st).reduce((s, p) => s + Number(p.valor), 0);
+  const sumBy = (st: StatusSel) => base.filter((p) => effectiveStatus(p, hoje) === st).reduce((s, p) => s + Number(p.valor), 0);
   const totalAPagar = sumBy("a_pagar");
   const totalPago = sumBy("pago");
   const totalVencido = sumBy("vencido");
@@ -1512,7 +1513,7 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
         row = { mes: format(parseLocalDate(p.data_vencimento), "MMM/yy", { locale: ptBR }), ord: k, pago: 0, a_pagar: 0, vencido: 0 };
         m.set(k, row);
       }
-      row[effectiveStatus(p)] += Number(p.valor);
+      row[effectiveStatus(p, hoje)] += Number(p.valor);
     }
     return Array.from(m.values()).sort((a, b) => a.ord.localeCompare(b.ord));
   }, [base]);
