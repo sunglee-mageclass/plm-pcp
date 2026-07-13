@@ -123,6 +123,32 @@ export const deleteUser = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+// Exclui a loja (RPC excluir_loja, super_admin-gated) E as contas auth.users dos seus
+// usuários não-super — senão viram identidades zumbi (logam, mas sem public.users → RLS
+// quebra). Espelha o deleteUser individual. Coleta os uids ANTES do wipe apagar public.users.
+export const excluirLoja = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator(z.object({ tenant_id: z.string().uuid() }))
+  .handler(async ({ data, context }) => {
+    await assertSuperAdmin(context.supabase, context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    // 1) uids não-super da loja (antes do wipe) — super_admins não são apagados.
+    const { data: usuarios } = await supabaseAdmin
+      .from("users").select("id, role").eq("tenant_id", data.tenant_id);
+    const uids = (usuarios ?? []).filter((u: any) => u.role !== "super_admin").map((u: any) => u.id);
+
+    // 2) wipe + delete da loja (RPC gated; usa o client do super_admin p/ is_super_admin()).
+    const { error } = await context.supabase.rpc("excluir_loja" as any, { _tenant_id: data.tenant_id });
+    if (error) throw new Error(error.message);
+
+    // 3) apaga as contas auth (a Auth API limpa sessões/identidades).
+    for (const uid of uids) {
+      await supabaseAdmin.auth.admin.deleteUser(uid).catch(() => {});
+    }
+    return { ok: true };
+  });
+
 export const resetUserPassword = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator(

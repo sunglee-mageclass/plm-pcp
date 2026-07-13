@@ -8,6 +8,7 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { formatCNPJ } from "@/lib/format";
 import { sanitizeStorageName } from "@/lib/storage-tenant";
 import { supabase } from "@/integrations/supabase/client";
+import { excluirLoja } from "@/lib/admin.functions";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +32,16 @@ import { useSort, SortHead } from "@/components/shared/sort";
 
 // Toggles de módulo (chaves batem com tenant_config.modules e PAGES_CATALOG).
 const MODULE_TOGGLES = PAGES_CATALOG.map((m) => ({ key: m.module, label: m.label }));
+// Descrição curta por módulo (o super_admin liga/desliga sabendo o que cada um faz).
+const MODULE_DESC: Record<string, string> = {
+  cadastro: "Materiais, fornecedores, atributos e colaboradores.",
+  entrada_saida: "Ordens de compra de tecido/aviamento, rolos e estoque.",
+  otb: "OTB — orçamento de coleção (Open To Buy) antes do Planejamento.",
+  criacao: "Planejamento e Desenvolvimento (kanban) dos modelos.",
+  producao: "CAD, Serviços, CQ, Direcionamento e Lançamentos.",
+  financeiro: "Contas a pagar, calendário e resumo financeiro.",
+  dashboard: "Painéis de coleção, estoque, produção, custos, comercial e leadtime.",
+};
 const MODULE_DEFAULTS: Record<string, boolean> = {
   ...Object.fromEntries(MODULE_TOGGLES.map((m) => [m.key, true])),
   otb: false, // opt-in
@@ -66,6 +77,7 @@ function LojasPage() {
   const [open, setOpen] = useState(false);
   const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
   const [resetTarget, setResetTarget] = useState<Tenant | null>(null);
+  const [resetConfirm, setResetConfirm] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Tenant | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState("");
   // Ativar/inativar a loja suspende/libera o acesso de todos os usuários dela.
@@ -118,15 +130,16 @@ function LojasPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin", "tenants"] });
       setResetTarget(null);
+      setResetConfirm("");
       toast.success("Loja resetada — voltou ao estado inicial.");
     },
     onError: (e: Error) => toast.error(mensagemErro(e)),
   });
-  // Exclusão definitiva da loja + todos os dados (RPC excluir_loja, super_admin).
+  // Exclusão definitiva da loja + todos os dados + contas auth (server fn excluirLoja,
+  // super_admin): a RPC excluir_loja apaga os dados; a server fn ainda remove os auth.users.
   const deleteMut = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.rpc("excluir_loja" as any, { _tenant_id: id });
-      if (error) throw error;
+      await excluirLoja({ data: { tenant_id: id } });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin", "tenants"] });
@@ -205,19 +218,20 @@ function LojasPage() {
                     )}
                   </TableCell>
                   <TableCell data-label="Ações" className="text-right">
-                    <div className="inline-flex items-center gap-2">
+                    <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
                       <Button
                         variant="ghost"
-                        size="icon"
+                        size="iconSm"
                         onClick={() => setEditingTenant(t)}
                         aria-label="Editar loja"
+                        title="Editar loja"
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
                       <Button
                         variant="ghost"
-                        size="icon"
-                        onClick={() => setResetTarget(t)}
+                        size="iconSm"
+                        onClick={() => { setResetTarget(t); setResetConfirm(""); }}
                         aria-label="Resetar loja"
                         title="Resetar (zerar dados, manter loja)"
                       >
@@ -225,17 +239,17 @@ function LojasPage() {
                       </Button>
                       <Button
                         variant="ghost"
-                        size="icon"
+                        size="iconSm"
                         onClick={() => { setDeleteTarget(t); setDeleteConfirm(""); }}
                         aria-label="Excluir loja"
                         title="Excluir loja"
                       >
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
-                      <Switch
-                        checked={t.ativo}
-                        onCheckedChange={() => setAtivoTarget(t)}
-                      />
+                      {/* Alvo de toque 44px envolvendo o Switch (o próprio é 20px). */}
+                      <label className="inline-flex h-11 items-center px-1" title={t.ativo ? "Inativar loja" : "Ativar loja"}>
+                        <Switch checked={t.ativo} onCheckedChange={() => setAtivoTarget(t)} aria-label={t.ativo ? "Inativar loja" : "Ativar loja"} />
+                      </label>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -247,7 +261,7 @@ function LojasPage() {
 
       <Dialog open={!!editingTenant} onOpenChange={(o) => !o && setEditingTenant(null)}>
         {editingTenant && (
-          <EditarLojaModal tenant={editingTenant} onClose={() => setEditingTenant(null)} />
+          <EditarLojaModal key={editingTenant.id} tenant={editingTenant} onClose={() => setEditingTenant(null)} />
         )}
       </Dialog>
 
@@ -285,24 +299,35 @@ function LojasPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Reset: zera os dados de negócio, mantém loja/usuários/config. */}
-      <AlertDialog open={!!resetTarget} onOpenChange={(o) => { if (!o) setResetTarget(null); }}>
-        <AlertDialogContent>
+      {/* Reset: zera os dados de negócio, mantém loja/usuários/config. Destrutivo e
+          irreversível → confirma digitando o nome (igual excluir). */}
+      <AlertDialog open={!!resetTarget} onOpenChange={(o) => { if (!o) { setResetTarget(null); setResetConfirm(""); } }}>
+        <AlertDialogContent className="max-h-[90dvh] overflow-y-auto">
           <AlertDialogHeader>
             <AlertDialogTitle>Resetar a loja “{resetTarget?.nome}”?</AlertDialogTitle>
             <AlertDialogDescription>
+              <span className="mb-1 block rounded bg-muted px-2 py-1 text-xs">
+                {resetTarget?.nome}{resetTarget?.cnpj ? ` · ${resetTarget.cnpj}` : ""}
+              </span>
               Apaga <strong>todos os dados de negócio</strong> (cadastro, desenvolvimento,
               OCs, CAD, CQ, produção, financeiro e estoque) e devolve a loja ao estado
               inicial. Mantém a loja, os usuários, as permissões e a configuração, e
-              recria as categorias fixas (Corte/Oficina). <strong>Não pode ser desfeito.</strong>
+              recria as categorias fixas (Corte/Oficina) e os 12 meses.
+              <strong> Não pode ser desfeito.</strong> Para confirmar, digite o nome da loja:
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <Input
+            value={resetConfirm}
+            onChange={(e) => setResetConfirm(e.target.value)}
+            placeholder={resetTarget?.nome ?? ""}
+            autoFocus
+          />
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               className="bg-amber-600 text-white hover:bg-amber-700"
               onClick={(e) => { e.preventDefault(); if (resetTarget) resetMut.mutate(resetTarget.id); }}
-              disabled={resetMut.isPending}
+              disabled={resetMut.isPending || resetConfirm.trim() !== (resetTarget?.nome ?? "").trim()}
             >
               {resetMut.isPending ? "Resetando…" : "Resetar loja"}
             </AlertDialogAction>
@@ -312,7 +337,7 @@ function LojasPage() {
 
       {/* Exclusão: loja + todos os dados; confirma digitando o nome. */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(o) => { if (!o) { setDeleteTarget(null); setDeleteConfirm(""); } }}>
-        <AlertDialogContent>
+        <AlertDialogContent className="max-h-[90dvh] overflow-y-auto">
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir a loja “{deleteTarget?.nome}”?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -331,7 +356,7 @@ function LojasPage() {
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={(e) => { e.preventDefault(); if (deleteTarget) deleteMut.mutate(deleteTarget.id); }}
-              disabled={deleteMut.isPending || deleteConfirm.trim() !== deleteTarget?.nome}
+              disabled={deleteMut.isPending || deleteConfirm.trim() !== (deleteTarget?.nome ?? "").trim()}
             >
               {deleteMut.isPending ? "Excluindo…" : "Excluir loja"}
             </AlertDialogAction>
@@ -498,26 +523,19 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
         // Store storage path only; signed URLs are created short-lived at read time.
         logo_url = path;
       }
-      const payload: { nome: string; cnpj: string | null; contato: string | null; logo_url?: string | null } = {
-        nome: nome.trim(),
-        cnpj: cnpj || null,
-        contato: contato || null,
-      };
-      if (logo_url !== undefined) payload.logo_url = logo_url;
-      const { error } = await supabase.from("tenants").update(payload).eq("id", tenant.id);
+      // Save ATÔMICO (tenants + tenant_config numa txn no servidor): RPC salvar_loja.
+      // _logo_url null = mantém a logo atual (COALESCE no servidor). _modules null = não
+      // toca em modules — só envia quando a config JÁ foi carregada (senão o estado ainda
+      // está nos MODULE_DEFAULTS e sobrescreveria a config real com defaults).
+      const { error } = await supabase.rpc("salvar_loja" as any, {
+        _id: tenant.id,
+        _nome: nome.trim(),
+        _cnpj: cnpj || null,
+        _contato: contato || null,
+        _logo_url: logo_url ?? null,
+        _modules: cfgFetched ? ({ ...modules, cadastro: true } as any) : null,
+      });
       if (error) throw error;
-      // Módulos habilitados → tenant_config da loja (upsert; cadastro forçado on).
-      // Só grava se os módulos JÁ foram carregados — senão o estado ainda está nos
-      // MODULE_DEFAULTS (tudo on) e o save sobrescreveria a config real com defaults.
-      if (cfgFetched) {
-        const { error: cfgErr } = await supabase
-          .from("tenant_config")
-          .upsert(
-            { tenant_id: tenant.id, modules: { ...modules, cadastro: true } } as any,
-            { onConflict: "tenant_id" },
-          );
-        if (cfgErr) throw cfgErr;
-      }
       toast.success("Loja atualizada");
       qc.invalidateQueries({ queryKey: ["admin", "tenants"] });
       qc.invalidateQueries({ queryKey: ["tenant-switcher"] });
@@ -564,25 +582,34 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
           </div>
           <div>
             <Label>Módulos habilitados</Label>
-            <div className="mt-2 space-y-2 rounded-md border p-3">
-              {MODULE_TOGGLES.map((m) => {
-                const locked = m.key === "cadastro";
-                return (
-                  <div key={m.key} className="flex items-center justify-between">
-                    <span className="text-sm">
-                      {m.label}
-                      {locked && <span className="text-xs text-muted-foreground"> (sempre ativo)</span>}
-                    </span>
-                    <Switch
-                      checked={locked ? true : !!modules[m.key]}
-                      disabled={locked}
-                      onCheckedChange={(checked) =>
-                        setModules((prev) => ({ ...prev, [m.key]: checked }))
-                      }
-                    />
-                  </div>
-                );
-              })}
+            <div className="mt-2 divide-y rounded-md border">
+              {!cfgFetched ? (
+                <p className="p-3 text-sm text-muted-foreground">Carregando módulos…</p>
+              ) : (
+                MODULE_TOGGLES.map((m) => {
+                  const locked = m.key === "cadastro";
+                  return (
+                    <label key={m.key} className="flex min-h-11 items-center justify-between gap-3 px-3 py-2">
+                      <span className="min-w-0">
+                        <span className="text-sm">
+                          {m.label}
+                          {locked && <span className="text-xs text-muted-foreground"> (sempre ativo)</span>}
+                        </span>
+                        {MODULE_DESC[m.key] && (
+                          <span className="block text-xs text-muted-foreground">{MODULE_DESC[m.key]}</span>
+                        )}
+                      </span>
+                      <Switch
+                        checked={locked ? true : !!modules[m.key]}
+                        disabled={locked}
+                        onCheckedChange={(checked) =>
+                          setModules((prev) => ({ ...prev, [m.key]: checked }))
+                        }
+                      />
+                    </label>
+                  );
+                })
+              )}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
               Só os módulos ligados aparecem para a loja. Apenas Cadastro + Entrada e Saída = modo só-estoque.
@@ -594,7 +621,7 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
           <Button type="button" variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={onClose}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <Button type="submit" className="max-sm:ml-auto" disabled={submitting}>{submitting ? "Salvando…" : "Salvar"}</Button>
+          <Button type="submit" className="max-sm:ml-auto" disabled={submitting || !cfgFetched}>{submitting ? "Salvando…" : "Salvar"}</Button>
         </DialogFooter>
       </form>
 
