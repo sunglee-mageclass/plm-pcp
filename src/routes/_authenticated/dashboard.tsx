@@ -1305,17 +1305,18 @@ function LeadtimePretty(s: string) {
 function EtapaLeadCard({ label, e }: { label: string; e: any }) {
   const ideal = Number(e.idealDias) || 0;
   const media = Number(e.duracaoMedia) || 0;
-  const ok = ideal <= 0 || media <= ideal;
-  const pctBar = ideal > 0 ? Math.min(100, (media / ideal) * 100) : 0;
+  const sla = !!e.slaCol; // prazo por item (SLA da Subcategoria) — não há ideal único
+  const ok = sla ? Number(e.pctNoPrazo) >= 100 : ideal <= 0 || media <= ideal;
+  const pctBar = sla ? Number(e.pctNoPrazo) || 0 : ideal > 0 ? Math.min(100, (media / ideal) * 100) : 0;
   return (
     <Card className="p-4">
       <p className="text-sm font-medium truncate">{label}</p>
       <div className="mt-1 flex items-baseline gap-2">
-        <span className={"text-2xl font-bold " + (ok ? "text-green-600 dark:text-green-400" : "text-destructive")}>{fmtNum(media)}d</span>
-        <span className="text-xs text-muted-foreground">ideal {fmtNum(ideal)}d</span>
+        <span className={"text-2xl font-bold " + (sla ? "text-foreground" : ok ? "text-green-600 dark:text-green-400" : "text-destructive")}>{fmtNum(media)}d</span>
+        <span className="text-xs text-muted-foreground">{sla ? "SLA da Subcat." : `ideal ${fmtNum(ideal)}d`}</span>
       </div>
       <div className="mt-2 h-2 overflow-hidden rounded bg-muted">
-        <div className={"h-full " + (ok ? "bg-green-500" : "bg-destructive")} style={{ width: `${pctBar}%` }} />
+        <div className={"h-full " + (ok || sla ? "bg-green-500" : "bg-destructive")} style={{ width: `${pctBar}%` }} />
       </div>
       <p className="mt-2 text-xs text-muted-foreground">
         {e.pctNoPrazo}% no prazo · {e.nModelos} modelo(s){Number(e.foraSla) > 0 ? ` · ${e.foraSla} fora` : ""}
@@ -1325,42 +1326,84 @@ function EtapaLeadCard({ label, e }: { label: string; e: any }) {
 }
 
 function LeadtimeTab() {
-  const { data, isLoading, isError } = useQuery({
+  // Filtro GLOBAL do Leadtime: move os cards (médias) E a tabela (detalhamento) juntos.
+  const [colecao, setColecao] = useState("all");
+  const [subcol, setSubcol] = useState("all");
+  const [semana, setSemana] = useState("all");
+
+  // skeleton = quais etapas + ideal/label/ordem (config); det = itens (dados por modelo).
+  const skel = useQuery({
     queryKey: ["dash-leadtime"],
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc("dashboard_leadtime" as never);
-      if (error) throw error;
-      return data as any;
-    },
+    queryFn: async () => { const { data, error } = await supabase.rpc("dashboard_leadtime" as never); if (error) throw error; return data as any; },
   });
-  const etapas: any[] = data?.etapas ?? [];
-  // Ordena pela ORDEM DO FLUXO, não por duração/alfabética. Kanban = ordem das colunas
-  // (status_kanban da loja via normalizeKanbanStatuses); macro = ordem fixa do fluxo.
-  const kanbanIdx = new Map(
-    normalizeKanbanStatuses(data?.kanbanOrder).map((s, i) => ["kanban:" + s.key, i] as const),
+  const det = useQuery({
+    queryKey: ["dash-leadtime-itens"],
+    queryFn: async () => { const { data, error } = await supabase.rpc("dashboard_leadtime_itens" as never); if (error) throw error; return data as any; },
+  });
+  const etapas: any[] = skel.data?.etapas ?? [];
+  const itens: any[] = det.data?.itens ?? [];
+  const slaServico: string | null = det.data?.slaServico ?? null;
+
+  const uniq = (vals: any[]) => Array.from(new Set(vals.filter((v) => v != null && v !== ""))).sort();
+  const colecoes = uniq(itens.map((i) => i.colecao));
+  const subcols = uniq(itens.map((i) => i.subcolecao));
+  const semanas = uniq(itens.map((i) => i.semana));
+  const filtItens = itens.filter(
+    (i) =>
+      (colecao === "all" || (i.colecao ?? "") === colecao) &&
+      (subcol === "all" || (i.subcolecao ?? "") === subcol) &&
+      (semana === "all" || (i.semana ?? "") === semana),
   );
+
+  // Stats por etapa RECOMPUTADOS dos itens filtrados (cards movem com o filtro). Na etapa
+  // do SLA, o prazo por item vem do SLA da Subcategoria (sub1_sla).
+  const statOf = (etapaKey: string, idealFixo: number) => {
+    let s = 0, n = 0, ok = 0, fora = 0;
+    for (const it of filtItens) {
+      const d = it.duracoes?.[etapaKey];
+      if (d == null) continue;
+      n++; s += Number(d);
+      const ideal = etapaKey === slaServico && it.sub1_sla != null ? Number(it.sub1_sla) : idealFixo;
+      if (ideal <= 0 || Number(d) <= ideal) ok++; else fora++;
+    }
+    return { duracaoMedia: n ? Math.round((s / n) * 10) / 10 : 0, nModelos: n, foraSla: fora, pctNoPrazo: n ? Math.round((100 * ok) / n) : 0 };
+  };
+  const withStats = (e: any) => ({ ...e, ...statOf(e.etapa, Number(e.idealDias) || 0), slaCol: e.etapa === slaServico });
+
+  // Ordem do fluxo (kanban pela ordem de status_kanban; produção fixa; serviços-micro no slot de Serviços).
+  const kanbanIdx = new Map(normalizeKanbanStatuses(skel.data?.kanbanOrder).map((s, i) => ["kanban:" + s.key, i] as const));
   const ordKb = (k: string) => (kanbanIdx.has(k) ? kanbanIdx.get(k)! : 999);
-  // Produção em ordem de fluxo; serviços-micro (servico_cat:*) ocupam o slot de "Serviços",
-  // entre si ordenados por categorias_terceirizado.ordem (campo `sub`).
   const PROD_ORDER = ["cad_corte", "servicos", "cq", "direcionamento", "lancamento"];
   const ordProd = (e: any) =>
     String(e.etapa).startsWith("servico_cat:")
       ? 1 + (Number(e.sub) || 0) / 1000
       : (PROD_ORDER.indexOf(e.etapa) < 0 ? 999 : PROD_ORDER.indexOf(e.etapa));
-  const planejamento = etapas.filter((e) => e.etapa === "planejamento");
-  const kanban = etapas.filter((e) => e.tipo === "kanban").sort((a, b) => ordKb(a.etapa) - ordKb(b.etapa));
+  const planejamento = etapas.filter((e) => e.etapa === "planejamento").map(withStats);
+  const kanban = etapas.filter((e) => e.tipo === "kanban").sort((a, b) => ordKb(a.etapa) - ordKb(b.etapa)).map(withStats);
   const macro = etapas
     .filter((e) => (e.tipo === "macro" && e.etapa !== "planejamento") || e.tipo === "servico")
-    .sort((a, b) => ordProd(a) - ordProd(b));
+    .sort((a, b) => ordProd(a) - ordProd(b)).map(withStats);
+  const colunas = [...planejamento, ...kanban, ...macro];
+
+  const isLoading = skel.isLoading || det.isLoading;
+  const isError = skel.isError || det.isError;
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <DashTabsList />
+        <FilterButton
+          screen="leadtime"
+          filters={[
+            { label: "Coleção", value: colecao, onChange: setColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: String(c), nome: String(c) }))] },
+            { label: "Subcoleção", value: subcol, onChange: setSubcol, options: [{ id: "all", nome: "Todas" }, ...subcols.map((c) => ({ id: String(c), nome: String(c) }))] },
+            { label: "Semana", value: semana, onChange: setSemana, options: [{ id: "all", nome: "Todas" }, ...semanas.map((c) => ({ id: String(c), nome: "Sem " + c }))] },
+          ]}
+        />
       </div>
       <p className="text-sm text-muted-foreground">
-        Tempo médio em cada etapa vs o ideal. O ideal e quais etapas acompanhar são definidos em
-        Configurações da Loja. Verde = dentro do ideal.
+        Cards = tempo médio por etapa; tabela = detalhamento por item. Ambos seguem o filtro.
+        Verde = dentro do ideal/SLA. Etapas, ideais e SLA em Configurações da Loja.
       </p>
 
       {/* Ordem do fluxo: Planejamento → Desenvolvimento (kanban) → Produção (marcos). */}
@@ -1391,7 +1434,7 @@ function LeadtimeTab() {
         </div>
       )}
 
-      {etapas.length > 0 && <LeadtimeItens colunas={[...planejamento, ...kanban, ...macro]} />}
+      {etapas.length > 0 && <LeadtimeMatriz colunas={colunas} itens={filtItens} slaServico={slaServico} />}
 
       {!isLoading && etapas.length === 0 && (
         <p className="rounded-md border p-6 text-center text-sm text-muted-foreground">
@@ -1404,103 +1447,20 @@ function LeadtimeTab() {
   );
 }
 
-// Tracking INDIVIDUAL: matriz item × etapas. Colunas = etapas acompanhadas (flow order,
-// as mesmas dos cards); célula = dias na etapa, verde/vermelho vs o ideal da etapa.
-// "Agrupar por" colapsa em Coleção OU Subcoleção·Semana (linha = média do grupo).
-function ltMedias(items: any[]): Record<string, number> {
-  const acc: Record<string, { s: number; c: number }> = {};
-  for (const it of items) {
-    for (const [k, v] of Object.entries(it.duracoes ?? {})) {
-      const n = Number(v);
-      if (!isFinite(n)) continue;
-      (acc[k] ??= { s: 0, c: 0 });
-      acc[k].s += n; acc[k].c += 1;
-    }
-  }
-  const out: Record<string, number> = {};
-  for (const [k, { s, c }] of Object.entries(acc)) out[k] = c ? Math.round((s / c) * 10) / 10 : 0;
-  return out;
-}
-
-function LeadtimeItens({ colunas }: { colunas: any[] }) {
-  const [colecao, setColecao] = useState("all");
-  const [subcol, setSubcol] = useState("all");
-  const [semana, setSemana] = useState("all");
-  const [agrupar, setAgrupar] = useState<"none" | "colecao" | "subsem">("none");
-
-  const { data, isLoading } = useQuery({
-    queryKey: ["dash-leadtime-itens"],
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc("dashboard_leadtime_itens" as never);
-      if (error) throw error;
-      return data as any;
-    },
-  });
-  const itens: any[] = data?.itens ?? [];
-  // Etapa cujo prazo (por item) vem do "SLA de Serviços" da Subcategoria 1 (config da loja).
-  const slaServico: string | null = data?.slaServico ?? null;
-
-  const uniq = (vals: any[]) => Array.from(new Set(vals.filter((v) => v != null && v !== ""))).sort();
-  const colecoes = uniq(itens.map((i) => i.colecao));
-  const subcols = uniq(itens.map((i) => i.subcolecao));
-  const semanas = uniq(itens.map((i) => i.semana));
-
-  const filt = itens.filter(
-    (i) =>
-      (colecao === "all" || (i.colecao ?? "") === colecao) &&
-      (subcol === "all" || (i.subcolecao ?? "") === subcol) &&
-      (semana === "all" || (i.semana ?? "") === semana),
-  );
-
-  type Row = { key: string; label: string; sub?: string; versao?: number; n: number; dur: Record<string, number>; sla?: number | null };
-  let rows: Row[];
-  if (agrupar === "none") {
-    rows = filt.map((it) => ({
-      key: it.modelo_id, label: it.ref || it.nome || "—",
-      sub: it.ref ? it.nome : undefined, versao: it.versao, n: 1, dur: it.duracoes ?? {}, sla: it.sub1_sla ?? null,
-    }));
-  } else {
-    const keyOf = (it: any) =>
-      agrupar === "colecao"
-        ? it.colecao || "Sem coleção"
-        : `${it.subcolecao || "Sem subcoleção"}${it.semana ? " · Sem " + it.semana : ""}`;
-    const groups = new Map<string, any[]>();
-    for (const it of filt) { const k = keyOf(it); (groups.get(k) ?? groups.set(k, []).get(k))!.push(it); }
-    rows = Array.from(groups.entries())
-      .map(([k, its]) => ({ key: k, label: k, n: its.length, dur: ltMedias(its) }))
-      .sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
-  }
-
+// Tracking INDIVIDUAL: matriz item × etapas (o DETALHAMENTO). Recebe os itens JÁ filtrados
+// pelo filtro global do Leadtime + as colunas (etapas em flow order, com idealDias). Célula
+// = dias na etapa, verde/vermelho vs o ideal — na coluna do SLA, vs o SLA da Sub1 do item.
+function LeadtimeMatriz({ colunas, itens, slaServico }: { colunas: any[]; itens: any[]; slaServico: string | null }) {
   const idealDe = (etapa: string) => Number(colunas.find((c) => c.etapa === etapa)?.idealDias) || 0;
-  const dimLabel = agrupar === "none" ? "Item" : agrupar === "colecao" ? "Coleção" : "Subcoleção · Semana";
-
   return (
     <div className="space-y-3">
       <SecHeader icon={ClipboardCheck}>Detalhamento por item</SecHeader>
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="inline-flex rounded-md border p-0.5">
-          {([["none", "Item"], ["colecao", "Coleção"], ["subsem", "Subcol · Semana"]] as const).map(([v, l]) => (
-            <button
-              key={v}
-              type="button"
-              onClick={() => setAgrupar(v)}
-              className={"rounded px-2.5 py-1 text-xs font-medium " + (agrupar === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}
-            >
-              {l}
-            </button>
-          ))}
-        </div>
-        <LtSel value={colecao} onChange={setColecao} allLabel="Todas coleções" opts={colecoes} />
-        <LtSel value={subcol} onChange={setSubcol} allLabel="Todas subcoleções" opts={subcols} />
-        <LtSel value={semana} onChange={setSemana} allLabel="Todas semanas" opts={semanas} prefix="Sem " />
-      </div>
-
       <Card className="p-0 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm card-table">
             <thead className="text-left text-muted-foreground">
               <tr className="border-b">
-                <th className="py-2 px-3 whitespace-nowrap">{dimLabel}</th>
+                <th className="py-2 px-3 whitespace-nowrap">Item</th>
                 {colunas.map((c) => (
                   <th key={c.etapa} className="py-2 px-2 text-center text-xs whitespace-nowrap">
                     {c.tipo === "kanban" ? LeadtimePretty(c.label) : c.label}
@@ -1512,54 +1472,42 @@ function LeadtimeItens({ colunas }: { colunas: any[] }) {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <tr key={r.key} className="border-b last:border-0">
-                  <td className="py-2 px-3 font-medium" data-label={dimLabel}>
-                    <span className="inline-flex items-center gap-1.5">
-                      {r.label}
-                      {r.versao != null && r.versao > 1 && <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">v{r.versao}</Badge>}
-                      {agrupar !== "none" && <span className="text-xs text-muted-foreground">({r.n})</span>}
-                    </span>
-                    {r.sub && <span className="block text-xs text-muted-foreground">{r.sub}</span>}
-                  </td>
-                  {colunas.map((c) => {
-                    const d = r.dur[c.etapa];
-                    // Na coluna do SLA, o prazo por item vem do SLA da Subcategoria (item mode).
-                    const ideal = c.etapa === slaServico && r.sla != null ? Number(r.sla) : idealDe(c.etapa);
-                    const ok = d == null || ideal <= 0 || d <= ideal;
-                    return (
-                      <td
-                        key={c.etapa}
-                        data-label={c.tipo === "kanban" ? LeadtimePretty(c.label) : c.label}
-                        className={"py-2 px-2 text-center tabular-nums " + (d == null ? "text-muted-foreground/50" : ok ? "text-green-700 dark:text-green-400" : "text-destructive font-semibold")}
-                      >
-                        {d == null ? "—" : fmtNum(d)}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-              {!isLoading && rows.length === 0 && (
+              {itens.map((it) => {
+                const dur = it.duracoes ?? {};
+                return (
+                  <tr key={it.modelo_id} className="border-b last:border-0">
+                    <td className="py-2 px-3 font-medium" data-label="Item">
+                      <span className="inline-flex items-center gap-1.5">
+                        {it.ref || it.nome || "—"}
+                        {it.versao != null && it.versao > 1 && <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">v{it.versao}</Badge>}
+                      </span>
+                      {it.ref && it.nome && <span className="block text-xs text-muted-foreground">{it.nome}</span>}
+                    </td>
+                    {colunas.map((c) => {
+                      const d = dur[c.etapa];
+                      // Na coluna do SLA, o prazo por item vem do SLA da Subcategoria do item.
+                      const ideal = c.etapa === slaServico && it.sub1_sla != null ? Number(it.sub1_sla) : idealDe(c.etapa);
+                      const ok = d == null || ideal <= 0 || Number(d) <= ideal;
+                      return (
+                        <td
+                          key={c.etapa}
+                          data-label={c.tipo === "kanban" ? LeadtimePretty(c.label) : c.label}
+                          className={"py-2 px-2 text-center tabular-nums " + (d == null ? "text-muted-foreground/50" : ok ? "text-green-700 dark:text-green-400" : "text-destructive font-semibold")}
+                        >
+                          {d == null ? "—" : fmtNum(d)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+              {itens.length === 0 && (
                 <tr><td colSpan={colunas.length + 1} className="py-6 text-center text-muted-foreground">Nenhum item no filtro.</td></tr>
               )}
             </tbody>
           </table>
         </div>
       </Card>
-      {isLoading && <p className="text-sm text-muted-foreground">Carregando itens…</p>}
     </div>
-  );
-}
-
-function LtSel({ value, onChange, allLabel, opts, prefix }: { value: string; onChange: (v: string) => void; allLabel: string; opts: any[]; prefix?: string }) {
-  if (opts.length === 0) return null;
-  return (
-    <Select value={value} onValueChange={onChange}>
-      <SelectTrigger className="h-8 w-auto min-w-[9rem] text-xs"><SelectValue /></SelectTrigger>
-      <SelectContent>
-        <SelectItem value="all">{allLabel}</SelectItem>
-        {opts.map((o) => <SelectItem key={String(o)} value={String(o)}>{prefix ? prefix + o : String(o)}</SelectItem>)}
-      </SelectContent>
-    </Select>
   );
 }
