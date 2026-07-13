@@ -202,7 +202,13 @@ e verifique** — o repo muda rápido.
    finalizado. **Gate downstream ÚNICO `cqLiberado()` (`@/lib/cq-status`)** = Pré confirmado E (se há
    serviço pós-costura ativo) Pós confirmado; consumido por **Direcionamento, "Lançar" (Planejamento) e
    Lançamentos** — não duplicar o predicado. "Sem acabamento" = `cad.sem_acabamento` (Pré finalizado
-   vira Finalizado sem pós).
+   vira Finalizado sem pós). **"Lançado" tem fonte ÚNICA = `modelos.lancado`** (setado por "Lançar" no
+   Planejamento, gated por `cqLiberado`). A tabela `lancamentos` está APOSENTADA (o botão de foto-amostra
+   saiu em 18/jun; nada mais a popula) — não reintroduzir dependência dela. Os dashboards de produção
+   (`_dashboard_producao_core`) derivam a etapa "Lançado" de `m.lancado` (era `EXISTS(lancamentos)`, que
+   nunca mais marcava nada). Trigger `trg_rebaixa_lancado_cq` em `controle_qualidade`: desmarcar o CQ
+   (Pré ou Pós → deixa de estar liberado) rebaixa `modelos.lancado=false` + acende `#Erro` na etapa
+   'lancamentos' (espelha o #10 do Direcionamento).
 7. **1 CAD por modelo** — garantido por TRIGGER `enforce_unique_fk` (NÃO por UNIQUE, ver
    "O que NÃO fazer"). Enviar ao corte (`baixar_estoque_tecido_corte`) é atômico e retorna
    `deficit[]` por variante.

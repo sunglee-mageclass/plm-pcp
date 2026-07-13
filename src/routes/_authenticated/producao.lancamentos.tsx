@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Rocket, Upload, CheckCircle2, Camera, ArrowUp, ArrowDown } from "lucide-react";
+import { Rocket, Camera, ArrowUp, ArrowDown } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { brl } from "@/lib/format";
@@ -9,12 +9,13 @@ import { varianteLabel } from "@/lib/variante";
 import { precoInfo } from "@/lib/preco";
 import { cqLiberado } from "@/lib/cq-status";
 import { ResumoVenda } from "@/components/shared/ResumoVenda";
+import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { FilterButton, SearchToggle, AgrupamentoButton } from "@/components/shared/filters";
+import { DateField } from "@/components/shared/DateField";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { useSort } from "@/components/shared/sort";
@@ -41,6 +42,8 @@ type LancCard = {
   nome: string | null;
   colecao: string | null;
   subcolecao: string | null;
+  semana: string | null;
+  data_lancamento: string | null;
   linha: string | null;
   markup: number | null;
   preco_venda: number | null;
@@ -57,17 +60,17 @@ type LancCard = {
   subcategoria1_nome: string | null;
   versao: number;
   fotos_modelo: string[];
-  tecido_nome: string | null;
   variantes: VarInfo[];
   gradeTotal: number;
   cqId: string | null;
   fotoByNum: Record<string, boolean>;
-  lancamento?: any;
   revisao_pendente?: any;
 };
 
+// Data ISO (yyyy-MM-dd) → dd/MM/yyyy sem passar por new Date() (evita deslocar 1 dia por fuso).
+const fmtDataBR = (s: string | null) => (s ? s.split("-").reverse().join("/") : null);
+
 function LancamentosPage() {
-  const qc = useQueryClient();
   const fl = useFieldLabels();
   const readOnly = useReadOnly();
   const gridRef = useRef<HTMLDivElement>(null);
@@ -83,6 +86,9 @@ function LancamentosPage() {
   const [fAno, setFAno] = useState("all");
   const [fGrupo, setFGrupo] = useState("all");
   const [fRep, setFRep] = useState("all");
+  const [fSemana, setFSemana] = useState("all");
+  const [fDe, setFDe] = useState(""); // data de lançamento — início do período
+  const [fAte, setFAte] = useState(""); // data de lançamento — fim do período
   const [groupByCat, setGroupByCat] = useState(false);
   const [groupByLinha, setGroupByLinha] = useState(false);
   const [groupByRep, setGroupByRep] = useState(false);
@@ -102,7 +108,7 @@ function LancamentosPage() {
       // Produtos: enviados ao CAD + CQ CONFIRMADO + LANÇADOS (gate explícito no card).
       const { data: modelos, error } = await supabase
         .from("modelos")
-        .select("id, ref, nome, colecao, subcolecao, mes_id, ano_id, linha_id, versao, preco_venda, revisao_pendente, fotos_modelo, categoria_principal_id, subcategoria1_id, linha:linha_id(nome, markup), categorias_produto:categoria_principal_id(nome, grupo_id, grupo:grupo_id(nome)), subcategorias1_produto:subcategoria1_id(nome), cad(id, controle_qualidade(id, status, status_pos, fotografado_variantes), producao_terceirizados(ativo, categorias_terceirizado(etapa)))")
+        .select("id, ref, nome, colecao, subcolecao, semana, data_lancamento, mes_id, ano_id, linha_id, versao, preco_venda, revisao_pendente, fotos_modelo, categoria_principal_id, subcategoria1_id, linha:linha_id(nome, markup), categorias_produto:categoria_principal_id(nome, grupo_id, grupo:grupo_id(nome)), subcategorias1_produto:subcategoria1_id(nome), cad(id, controle_qualidade(id, status, status_pos, fotografado_variantes), producao_terceirizados(ativo, categorias_terceirizado(etapa)))")
         .eq("enviado_cad", true)
         .eq("lancado", true);
       if (error) throw error;
@@ -121,7 +127,7 @@ function LancamentosPage() {
         cadIds.length
           ? supabase
               .from("cad_tecidos")
-              .select("cad_id, tipo, numero, artigos:artigo_id(nome), cad_tecido_variantes(ordem, variantes_tecido:variante_tecido_id(nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))")
+              .select("cad_id, tipo, numero, cad_tecido_variantes(ordem, variantes_tecido:variante_tecido_id(nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))")
               .in("cad_id", cadIds)
               .eq("tipo", "tecido")
               .eq("numero", 1)
@@ -168,6 +174,8 @@ function LancamentosPage() {
           nome: m.nome,
           colecao: m.colecao,
           subcolecao: m.subcolecao ?? null,
+          semana: m.semana ?? null,
+          data_lancamento: m.data_lancamento ?? null,
           linha: m.linha?.nome ?? null,
           markup: m.linha?.markup ?? null,
           preco_venda: m.preco_venda ?? null,
@@ -184,28 +192,13 @@ function LancamentosPage() {
           subcategoria1_nome: (m as any).subcategorias1_produto?.nome ?? null,
           versao: Number(m.versao ?? 1),
           fotos_modelo: Array.isArray(m.fotos_modelo) ? m.fotos_modelo : [],
-          tecido_nome: tec?.artigos?.nome ?? null,
           variantes,
           gradeTotal,
           cqId: cqRow?.id ?? null,
           fotoByNum,
-          lancamento: m.lancamentos?.[0] ?? null,
           revisao_pendente: m.revisao_pendente,
         };
       });
-    },
-  });
-
-  // Carrega o lançamento (foto amostra) separadamente p/ não complicar a query acima.
-  const { data: lancByCad = {} } = useQuery({
-    queryKey: ["lancamentos-rows", cards.map((c) => c.cad_id)],
-    enabled: cards.length > 0,
-    queryFn: async () => {
-      const cadIds = cards.map((c) => c.cad_id);
-      const { data } = await supabase.from("lancamentos").select("*").in("cad_id", cadIds);
-      const m: Record<string, any> = {};
-      (data ?? []).forEach((l: any) => { m[l.cad_id] = l; });
-      return m;
     },
   });
 
@@ -249,10 +242,24 @@ function LancamentosPage() {
     if (fGrupo !== "all" && c.grupo_id !== fGrupo) return false;
     if (fMes !== "all" && c.mes_id !== fMes) return false;
     if (fAno !== "all" && c.ano_id !== fAno) return false;
+    if (fSemana !== "all" && c.semana !== fSemana) return false;
+    // Período de lançamento — compara ISO (yyyy-MM-dd) lexicograficamente.
+    if (fDe && (!c.data_lancamento || c.data_lancamento < fDe)) return false;
+    if (fAte && (!c.data_lancamento || c.data_lancamento > fAte)) return false;
     if (fRep === "rep" && !((c.versao ?? 1) > 1)) return false;
     if (fRep === "uni" && (c.versao ?? 1) > 1) return false;
     return true;
   });
+
+  // Badge de filtros ativos = dropdowns ≠ "all" + o Período (De/Até) como 1.
+  const filtroCount =
+    [fGrupo, fColecao, fSubcolecao, fCat, fSub1, fLinha, fMes, fAno, fSemana, fRep].filter((v) => v !== "all").length +
+    (fDe || fAte ? 1 : 0);
+  const limparFiltros = () => {
+    setFGrupo("all"); setFColecao("all"); setFSubcolecao("all"); setFCat("all"); setFSub1("all");
+    setFLinha("all"); setFMes("all"); setFAno("all"); setFSemana("all"); setFRep("all");
+    setFDe(""); setFAte("");
+  };
 
   // Ordenação dos cards. ref/nome/colecao/linha/categoria_nome/gradeTotal já são
   // valores CRUS no card (não formatados), então não precisam de accessors.
@@ -272,7 +279,13 @@ function LancamentosPage() {
       return (data ?? {}) as Record<string, { previsto: number; real: number; confirmado: boolean }>;
     },
   });
-  const piFor = (c: LancCard) => precoInfo((custoMap as any)[c.modelo_id]?.real, c.markup, c.preco_venda);
+  // Custo real senão previsto (paridade com o Planejamento). Em Lançamentos o real
+  // já costuma estar fechado (CQ confirmado), mas o fallback evita zerar preço/poder
+  // de venda num raro CAD sem real.
+  const piFor = (c: LancCard) => {
+    const cu = (custoMap as any)[c.modelo_id];
+    return precoInfo(cu?.real || cu?.previsto, c.markup, c.preco_venda);
+  };
   const computeResumo = (items: LancCard[]) => {
     let poder = 0, somaMk = 0, nMk = 0;
     for (const c of items) {
@@ -338,12 +351,10 @@ function LancamentosPage() {
     return (
       <LancamentoCard
         key={c.modelo_id}
-        card={{ ...c, lancamento: (lancByCad as any)[c.cad_id] ?? null }}
+        card={c}
         markup={pi.markupExibir > 0 ? pi.markupExibir : null}
         preco={pi.efetivo > 0 ? pi.efetivo : null}
         compact={compact}
-        onUpload={(file) => uploadMut.mutate({ card: c, file })}
-        uploading={uploadMut.isPending}
         readOnly={readOnly}
       />
     );
@@ -380,40 +391,6 @@ function LancamentosPage() {
     { key: "gradeTotal", label: "Grade total" },
   ];
 
-  const uploadMut = useMutation({
-    mutationFn: async (args: { card: LancCard; file: File }) => {
-      const { card, file } = args;
-      const lanc = (lancByCad as any)[card.cad_id];
-      const { tenantPrefix } = await import("@/lib/storage-tenant");
-      const tenant = await tenantPrefix();
-      const ext = file.name.split(".").pop() ?? "jpg";
-      const path = `${tenant}/${card.modelo_id}/${Date.now()}.${ext}`;
-      const { error: upErr } = await supabase.storage.from("lancamentos").upload(path, file, { upsert: true });
-      if (upErr) throw upErr;
-
-      const today = new Date().toISOString().slice(0, 10);
-      const payload = {
-        cad_id: card.cad_id,
-        modelo_id: card.modelo_id,
-        foto_peca_amostra: path,
-        data_lancamento: lanc?.data_lancamento ?? today,
-        verificado: true,
-      };
-      if (lanc?.id) {
-        const { error } = await supabase.from("lancamentos").update(payload).eq("id", lanc.id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from("lancamentos").insert(payload);
-        if (error) throw error;
-      }
-    },
-    onSuccess: async () => {
-      toast.success("Foto enviada");
-      await qc.invalidateQueries({ queryKey: ["lancamentos-rows"] });
-    },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao enviar foto")),
-  });
-
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
@@ -424,7 +401,7 @@ function LancamentosPage() {
             <p className="text-sm text-muted-foreground">Produtos com Controle de Qualidade confirmado.</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 max-sm:w-full max-sm:justify-end">
           <SearchToggle value={q} onChange={setQ} placeholder={`${fl("ref")} ou nome…`} />
           <AgrupamentoButton
             groups={[
@@ -435,6 +412,8 @@ function LancamentosPage() {
           />
           <FilterButton
             screen="lancamentos"
+            activeCount={filtroCount}
+            onClear={limparFiltros}
             filters={[
               { label: "Grupo", value: fGrupo, onChange: setFGrupo, options: [{ id: "all", nome: "Todos" }, ...grupos] },
               { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...colecoes.map((c) => ({ id: c, nome: c }))] },
@@ -444,9 +423,22 @@ function LancamentosPage() {
               { label: "Linha", value: fLinha, onChange: setFLinha, options: [{ id: "all", nome: "Todas" }, ...linhas] },
               { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...(meses as any[]).map((m) => ({ id: m.id, nome: m.nome }))] },
               { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...(anos as any[]).map((a) => ({ id: a.id, nome: a.nome }))] },
+              { label: "Semana", value: fSemana, onChange: setFSemana, options: [{ id: "all", nome: "Todas" }, ...["1", "2", "3", "4", "5"].map((n) => ({ id: n, nome: n }))] },
               { label: "Repetição", value: fRep, onChange: setFRep, options: [{ id: "all", nome: "Todos" }, { id: "rep", nome: "Repetidos" }, { id: "uni", nome: "Únicos" }] },
             ]}
-          />
+          >
+            {/* Período de lançamento (data_lancamento). Renderizado abaixo dos dropdowns. */}
+            <div className="grid grid-cols-2 gap-x-5 gap-y-1 border-t pt-3">
+              <div className="grid gap-1">
+                <Label className="text-xs">Lançado de</Label>
+                <DateField value={fDe} onChange={(e) => setFDe(e.target.value)} />
+              </div>
+              <div className="grid gap-1">
+                <Label className="text-xs">Lançado até</Label>
+                <DateField value={fAte} onChange={(e) => setFAte(e.target.value)} />
+              </div>
+            </div>
+          </FilterButton>
         </div>
       </header>
 
@@ -470,7 +462,7 @@ function LancamentosPage() {
             <Button
               variant="outline"
               size="icon"
-              className="h-8 w-8 shrink-0"
+              className="h-8 w-8 max-md:h-11 max-md:w-11 shrink-0"
               onClick={() => s.toggle(s.sortKey!)}
               aria-label={s.sortDir === "asc" ? "Ordenar decrescente" : "Ordenar crescente"}
               title={s.sortDir === "asc" ? "Crescente" : "Decrescente"}
@@ -509,25 +501,19 @@ function LancamentosPage() {
   );
 }
 
-function LancamentoCard(props: { card: LancCard; markup: number | null; preco: number | null; compact: boolean; onUpload: (f: File) => void; uploading: boolean; readOnly: boolean }) {
+function LancamentoCard(props: { card: LancCard; markup: number | null; preco: number | null; compact: boolean; readOnly: boolean }) {
   const { card, compact, readOnly, markup, preco } = props;
   const qc = useQueryClient();
   const [foto, setFoto] = useState<Record<string, boolean>>(card.fotoByNum);
   useEffect(() => { setFoto(card.fotoByNum); }, [card.cqId, JSON.stringify(card.fotoByNum)]);
 
-  const { data: amostraUrl } = useQuery({
-    queryKey: ["lanc-amostra", card.lancamento?.foto_peca_amostra],
-    enabled: !!card.lancamento?.foto_peca_amostra,
-    staleTime: 55 * 60 * 1000, // signed URL vale 1h — não revalidar a cada filtro/remontagem
-    queryFn: async () => (await supabase.storage.from("lancamentos").createSignedUrl(card.lancamento.foto_peca_amostra, 3600)).data?.signedUrl ?? null,
-  });
   const { data: modeloFoto } = useQuery({
     queryKey: ["modelo-foto", card.fotos_modelo?.[0]],
     enabled: !!card.fotos_modelo?.[0],
-    staleTime: 55 * 60 * 1000,
+    staleTime: 55 * 60 * 1000, // signed URL vale 1h — não revalidar a cada filtro/remontagem
     queryFn: async () => (await supabase.storage.from("modelos").createSignedUrl(card.fotos_modelo[0], 3600)).data?.signedUrl ?? null,
   });
-  const img = amostraUrl ?? modeloFoto ?? null;
+  const img = modeloFoto ?? null;
 
   // Câmera em 3 níveis: nenhuma foto → sem ícone; parcial → cinza; todas → verde.
   const total = card.variantes.length;
@@ -562,14 +548,14 @@ function LancamentoCard(props: { card: LancCard; markup: number | null; preco: n
             ) : (
               <div className="w-full h-full flex items-center justify-center text-muted-foreground text-xs">Sem foto</div>
             )}
-            {card.lancamento?.verificado && (
-              <Badge className="absolute top-2 right-2 bg-emerald-500 text-white">
-                <CheckCircle2 className="h-3 w-3 mr-1" /> Lançado
-              </Badge>
-            )}
             {compact && camColor && (
               <span className="absolute top-2 left-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-background/80">
                 <Camera className={"h-3.5 w-3.5 " + camColor} />
+              </span>
+            )}
+            {compact && card.ref && (
+              <span className="absolute inset-x-0 bottom-0 truncate bg-background/85 px-1 py-0.5 text-center font-mono text-[10px] text-primary">
+                {card.ref}
               </span>
             )}
           </div>
@@ -579,18 +565,25 @@ function LancamentoCard(props: { card: LancCard; markup: number | null; preco: n
               <div className="flex items-center justify-between gap-2">
                 <p className="font-mono text-primary">{card.ref ?? "—"}</p>
                 <div className="flex items-center gap-1">
+                  <VersaoBadge versao={card.versao} />
                   <RevisaoErroBadge revisao={card.revisao_pendente} etapa="lancamentos" />
                   {camColor && <Camera className={"h-4 w-4 " + camColor} />}
                 </div>
               </div>
               <p className="font-semibold text-sm leading-tight line-clamp-2">{card.nome ?? "—"}</p>
-              <p className="text-muted-foreground">
-                {[card.colecao, card.linha, card.categoria_nome].filter(Boolean).join(" · ") || "—"}
-              </p>
+              <p className="text-muted-foreground truncate">{[card.colecao, card.subcolecao].filter(Boolean).join(" · ") || "—"}</p>
+              {(card.semana || card.data_lancamento) && (
+                <p className="text-muted-foreground truncate">
+                  {[card.semana ? `Semana ${card.semana}` : null, fmtDataBR(card.data_lancamento)].filter(Boolean).join(" · ")}
+                </p>
+              )}
+              <p className="text-muted-foreground truncate">{[card.linha, card.categoria_nome, card.subcategoria1_nome].filter(Boolean).join(" · ") || "—"}</p>
               <p className="text-muted-foreground">{[card.mes, card.ano].filter(Boolean).join(" / ") || "—"}</p>
               {markup != null && <p className="text-muted-foreground">Markup: {Number(markup).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</p>}
-              {preco != null && <p className="font-medium">{brl(preco)}</p>}
-              {card.tecido_nome && <p className="text-muted-foreground">Tecido: {card.tecido_nome}</p>}
+              {preco != null && <p className="font-medium">Preço avulso: {brl(preco)}</p>}
+              {preco != null && card.gradeTotal > 0 && (
+                <p className="text-muted-foreground">Poder de venda: {brl(preco * card.gradeTotal)}</p>
+              )}
               {card.variantes.length > 0 && (
                 <div className="pt-1 mt-1 border-t space-y-0.5">
                   {card.variantes.map((v) => (
@@ -620,13 +613,13 @@ function LancamentoCard(props: { card: LancCard; markup: number | null; preco: n
           {card.variantes.map((v) => {
             const on = !!foto[String(v.num)];
             return (
-              <div key={v.num} className="flex items-center justify-between gap-2 rounded px-2 py-1 hover:bg-muted/50">
+              <div key={v.num} className="flex items-center justify-between gap-2 rounded px-2 py-1 max-md:py-2 hover:bg-muted/50">
                 <span className="text-sm truncate">{v.label}</span>
                 <Button
                   type="button"
                   size="icon"
                   variant={on ? "default" : "outline"}
-                  className={"h-7 w-7 shrink-0 " + (on ? "bg-emerald-500 hover:bg-emerald-600" : "")}
+                  className={"h-8 w-8 max-md:h-11 max-md:w-11 shrink-0 " + (on ? "bg-emerald-500 hover:bg-emerald-600" : "")}
                   disabled={readOnly || saveFoto.isPending || !card.cqId}
                   onClick={() => toggle(v.num)}
                   title={on ? "Fotografada" : "Sem foto"}

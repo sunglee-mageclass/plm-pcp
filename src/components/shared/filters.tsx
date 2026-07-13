@@ -132,7 +132,8 @@ export function FilterButton({ filters, children, activeCount, onClear, screen }
         className={`max-h-[75vh] space-y-3 overflow-y-auto ${adaptive ? "w-[22rem] sm:w-[46rem]" : "w-72"}`}
       >
         {filters ? (
-          adaptive ? (
+          <>
+          {adaptive ? (
             <div className="grid grid-cols-1 gap-x-5 gap-y-3 sm:grid-cols-3">
               {/* Coluna 1 — Mais usados (adaptativa por usuário) */}
               <div className="space-y-3 sm:border-r sm:pr-4">
@@ -159,7 +160,10 @@ export function FilterButton({ filters, children, activeCount, onClear, screen }
             </div>
           ) : (
             <div className="space-y-3">{filters.map(renderFilter)}</div>
-          )
+          )}
+          {/* Filtros custom (ex.: intervalo de datas) renderizados abaixo dos dropdowns. */}
+          {children}
+          </>
         ) : (
           children
         )}
