@@ -13,7 +13,7 @@ export const Route = createFileRoute("/_authenticated/entrada-saida/alertas-teci
           <div>
             <h1 className="text-2xl font-bold">Alertas de Tecido</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Tecidos sinalizados no CQ para revisão do estilo. Resolva com Estilo OK, troca ou cancelamento.
+              Tecidos sinalizados no Controle de Qualidade aguardando ação do Estilo. Resolva com Estilo OK, troca ou cancelamento.
             </p>
           </div>
         </header>
