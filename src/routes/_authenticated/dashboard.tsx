@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { brl, fmtNum } from "@/lib/format";
 import { precoInfo } from "@/lib/preco";
+import { normalizeKanbanStatuses } from "@/lib/kanban-status";
 import { useMemo, useState, type ReactNode } from "react";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useQuery } from "@tanstack/react-query";
@@ -1333,8 +1334,19 @@ function LeadtimeTab() {
     },
   });
   const etapas: any[] = data?.etapas ?? [];
-  const macro = etapas.filter((e) => e.tipo === "macro");
-  const kanban = etapas.filter((e) => e.tipo === "kanban");
+  // Ordena pela ORDEM DO FLUXO, não por duração/alfabética. Kanban = ordem das colunas
+  // (status_kanban da loja via normalizeKanbanStatuses); macro = ordem fixa do fluxo.
+  const kanbanIdx = new Map(
+    normalizeKanbanStatuses(data?.kanbanOrder).map((s, i) => ["kanban:" + s.key, i] as const),
+  );
+  const MACRO_ORDER = ["planejamento", "cad_corte", "servicos", "cq", "direcionamento", "lancamento"];
+  const ordKb = (k: string) => (kanbanIdx.has(k) ? kanbanIdx.get(k)! : 999);
+  const ordMc = (k: string) => { const i = MACRO_ORDER.indexOf(k); return i < 0 ? 999 : i; };
+  const planejamento = etapas.filter((e) => e.etapa === "planejamento");
+  const kanban = etapas.filter((e) => e.tipo === "kanban").sort((a, b) => ordKb(a.etapa) - ordKb(b.etapa));
+  const macro = etapas
+    .filter((e) => e.tipo === "macro" && e.etapa !== "planejamento")
+    .sort((a, b) => ordMc(a.etapa) - ordMc(b.etapa));
 
   return (
     <div className="space-y-4">
@@ -1343,10 +1355,19 @@ function LeadtimeTab() {
       </div>
       <p className="text-sm text-muted-foreground">
         Tempo médio em cada etapa vs o ideal. O ideal e quais etapas acompanhar são definidos em
-        Configurações da Loja (em breve). Verde = dentro do ideal.
+        Configurações da Loja. Verde = dentro do ideal.
       </p>
 
-      {/* Ordem do fluxo: Desenvolvimento (kanban) → Produção (marcos). */}
+      {/* Ordem do fluxo: Planejamento → Desenvolvimento (kanban) → Produção (marcos). */}
+      {planejamento.length > 0 && (
+        <div>
+          <SecHeader icon={ClipboardCheck}>Planejamento</SecHeader>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {planejamento.map((e) => <EtapaLeadCard key={e.etapa} label={e.label} e={e} />)}
+          </div>
+        </div>
+      )}
+
       {kanban.length > 0 && (
         <div>
           <SecHeader icon={Palette}>Desenvolvimento · por coluna do kanban</SecHeader>

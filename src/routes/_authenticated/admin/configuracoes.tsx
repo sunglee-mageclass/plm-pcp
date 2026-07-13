@@ -450,6 +450,9 @@ function ConfiguracoesLojaPage() {
 // Nenhuma marcada = a aba mostra todas com o default. As keys casam com a RPC
 // dashboard_leadtime (macro: cad_corte/servicos/cq/direcionamento/lancamento;
 // kanban: "kanban:" + chave snake da coluna).
+// Planejamento é o 1º passo do fluxo (card criado → ordem de criação enviada). Macro
+// própria, exibida antes do Desenvolvimento.
+const LEADTIME_PLANEJAMENTO = { key: "planejamento", label: "Planejamento" };
 const LEADTIME_MACRO: { key: string; label: string }[] = [
   { key: "cad_corte", label: "CAD → Corte" },
   { key: "servicos", label: "Produção (Serviços)" },
@@ -467,9 +470,10 @@ function LeadtimeConfigCard({
   value: { key: string; tipo: "macro" | "kanban"; idealDias: number }[];
   onChange: (etapas: { key: string; tipo: "macro" | "kanban"; idealDias: number }[]) => void;
 }) {
-  // Lista ordenada de etapas disponíveis, na ORDEM DO FLUXO: Desenvolvimento (colunas do
-  // kanban) → Produção (macro). É esta ordem que a aba Leadtime herda ao salvar.
+  // Lista ordenada de etapas disponíveis, na ORDEM DO FLUXO: Planejamento → Desenvolvimento
+  // (colunas do kanban) → Produção (macro). É esta ordem que a aba Leadtime herda ao salvar.
   const disponiveis: { key: string; tipo: "macro" | "kanban"; label: string }[] = [
+    { ...LEADTIME_PLANEJAMENTO, tipo: "macro" as const },
     ...statusKanban.map((label) => ({ key: "kanban:" + resolveStatusKey(label), tipo: "kanban" as const, label })),
     ...LEADTIME_MACRO.map((m) => ({ ...m, tipo: "macro" as const })),
   ];
@@ -503,6 +507,14 @@ function LeadtimeConfigCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Ordem do fluxo: Planejamento → Desenvolvimento → Produção. */}
+        <LeadtimeGrupo
+          titulo="Planejamento"
+          itens={disponiveis.filter((d) => d.key === "planejamento")}
+          sel={sel}
+          onToggle={toggle}
+          onIdeal={setIdeal}
+        />
         <LeadtimeGrupo
           titulo="Desenvolvimento · colunas do kanban"
           itens={disponiveis.filter((d) => d.tipo === "kanban")}
@@ -512,7 +524,7 @@ function LeadtimeConfigCard({
         />
         <LeadtimeGrupo
           titulo="Produção"
-          itens={disponiveis.filter((d) => d.tipo === "macro")}
+          itens={disponiveis.filter((d) => d.tipo === "macro" && d.key !== "planejamento")}
           sel={sel}
           onToggle={toggle}
           onIdeal={setIdeal}
