@@ -1339,14 +1339,19 @@ function LeadtimeTab() {
   const kanbanIdx = new Map(
     normalizeKanbanStatuses(data?.kanbanOrder).map((s, i) => ["kanban:" + s.key, i] as const),
   );
-  const MACRO_ORDER = ["planejamento", "cad_corte", "servicos", "cq", "direcionamento", "lancamento"];
   const ordKb = (k: string) => (kanbanIdx.has(k) ? kanbanIdx.get(k)! : 999);
-  const ordMc = (k: string) => { const i = MACRO_ORDER.indexOf(k); return i < 0 ? 999 : i; };
+  // Produção em ordem de fluxo; serviços-micro (servico_cat:*) ocupam o slot de "Serviços",
+  // entre si ordenados por categorias_terceirizado.ordem (campo `sub`).
+  const PROD_ORDER = ["cad_corte", "servicos", "cq", "direcionamento", "lancamento"];
+  const ordProd = (e: any) =>
+    String(e.etapa).startsWith("servico_cat:")
+      ? 1 + (Number(e.sub) || 0) / 1000
+      : (PROD_ORDER.indexOf(e.etapa) < 0 ? 999 : PROD_ORDER.indexOf(e.etapa));
   const planejamento = etapas.filter((e) => e.etapa === "planejamento");
   const kanban = etapas.filter((e) => e.tipo === "kanban").sort((a, b) => ordKb(a.etapa) - ordKb(b.etapa));
   const macro = etapas
-    .filter((e) => e.tipo === "macro" && e.etapa !== "planejamento")
-    .sort((a, b) => ordMc(a.etapa) - ordMc(b.etapa));
+    .filter((e) => (e.tipo === "macro" && e.etapa !== "planejamento") || e.tipo === "servico")
+    .sort((a, b) => ordProd(a) - ordProd(b));
 
   return (
     <div className="space-y-4">

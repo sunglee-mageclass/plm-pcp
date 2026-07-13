@@ -98,7 +98,7 @@ const DEFAULTS = {
   kanban_requisitos: {} as Record<string, string[]>,
   // Leadtime: etapas acompanhadas na aba Leadtime do Dashboard + ideal (dias) de cada.
   // Vazio = a aba mostra TODAS as etapas com o default. Ordem = ordem de exibição.
-  leadtime: { etapas: [] as { key: string; tipo: "macro" | "kanban"; idealDias: number }[] },
+  leadtime: { etapas: [] as { key: string; tipo: "macro" | "kanban" | "servico"; idealDias: number }[] },
 };
 
 type ConfigState = typeof DEFAULTS;
@@ -253,6 +253,7 @@ function ConfiguracoesLojaPage() {
       />
 
       <LeadtimeConfigCard
+        tenantId={data?.tenantId ?? null}
         statusKanban={cfg.status_kanban}
         value={cfg.leadtime.etapas}
         onChange={(etapas) => setCfg((c) => ({ ...c, leadtime: { etapas } }))}
@@ -461,35 +462,69 @@ const LEADTIME_MACRO: { key: string; label: string }[] = [
   { key: "lancamento", label: "Lançamento" },
 ];
 
+type LtTipo = "macro" | "kanban" | "servico";
+type LtEtapa = { key: string; tipo: LtTipo; idealDias: number };
+type LtItem = { key: string; tipo?: LtTipo; label?: string; indent?: boolean; caption?: string };
+
 function LeadtimeConfigCard({
+  tenantId,
   statusKanban,
   value,
   onChange,
 }: {
+  tenantId: string | null;
   statusKanban: string[];
-  value: { key: string; tipo: "macro" | "kanban"; idealDias: number }[];
-  onChange: (etapas: { key: string; tipo: "macro" | "kanban"; idealDias: number }[]) => void;
+  value: LtEtapa[];
+  onChange: (etapas: LtEtapa[]) => void;
 }) {
-  // Lista ordenada de etapas disponíveis, na ORDEM DO FLUXO: Planejamento → Desenvolvimento
-  // (colunas do kanban) → Produção (macro). É esta ordem que a aba Leadtime herda ao salvar.
-  const disponiveis: { key: string; tipo: "macro" | "kanban"; label: string }[] = [
+  // Categorias de serviço da loja — p/ acompanhar Serviços "micro" (por categoria).
+  const { data: servCats = [] } = useQuery({
+    queryKey: ["leadtime-servico-cats", tenantId],
+    enabled: !!tenantId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("categorias_terceirizado")
+        .select("id, nome, ordem")
+        .eq("tenant_id", tenantId!)
+        .order("ordem", { ascending: true });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  // Produção em ordem de fluxo; sob "Produção (Serviços)", as categorias como micro.
+  const servItens: LtItem[] = (servCats as any[]).map((c) => ({
+    key: "servico_cat:" + c.id, tipo: "servico" as const, label: c.nome, indent: true,
+  }));
+  const producaoItens: LtItem[] = [];
+  for (const m of LEADTIME_MACRO) {
+    producaoItens.push({ key: m.key, tipo: "macro", label: m.label });
+    if (m.key === "servicos" && servItens.length) {
+      producaoItens.push({ key: "__servcap__", caption: "Ou detalhe por categoria (micro), no lugar do Serviços acima:" });
+      producaoItens.push(...servItens);
+    }
+  }
+
+  // Lista ordenada de etapas disponíveis, na ORDEM DO FLUXO (define a ordem salva):
+  // Planejamento → Desenvolvimento (kanban) → Produção (macro + serviços-micro).
+  const disponiveis: { key: string; tipo: LtTipo; label: string }[] = [
     { ...LEADTIME_PLANEJAMENTO, tipo: "macro" as const },
     ...statusKanban.map((label) => ({ key: "kanban:" + resolveStatusKey(label), tipo: "kanban" as const, label })),
-    ...LEADTIME_MACRO.map((m) => ({ ...m, tipo: "macro" as const })),
+    ...producaoItens.filter((it) => !it.caption).map((it) => ({ key: it.key, tipo: it.tipo!, label: it.label! })),
   ];
   const sel = new Map(value.map((e) => [e.key, e]));
 
   // Reescreve a seleção sempre na ordem canônica da lista de disponíveis.
-  function commit(next: Map<string, { key: string; tipo: "macro" | "kanban"; idealDias: number }>) {
+  function commit(next: Map<string, LtEtapa>) {
     onChange(disponiveis.filter((d) => next.has(d.key)).map((d) => next.get(d.key)!));
   }
-  function toggle(d: { key: string; tipo: "macro" | "kanban" }, on: boolean) {
+  function toggle(d: { key: string; tipo: LtTipo }, on: boolean) {
     const m = new Map(sel);
     if (on) m.set(d.key, { key: d.key, tipo: d.tipo, idealDias: sel.get(d.key)?.idealDias ?? (d.tipo === "kanban" ? 5 : 7) });
     else m.delete(d.key);
     commit(m);
   }
-  function setIdeal(key: string, tipo: "macro" | "kanban", dias: number) {
+  function setIdeal(key: string, tipo: LtTipo, dias: number) {
     const m = new Map(sel);
     m.set(key, { key, tipo, idealDias: Math.max(0, dias || 0) });
     commit(m);
@@ -524,7 +559,7 @@ function LeadtimeConfigCard({
         />
         <LeadtimeGrupo
           titulo="Produção"
-          itens={disponiveis.filter((d) => d.tipo === "macro" && d.key !== "planejamento")}
+          itens={producaoItens}
           sel={sel}
           onToggle={toggle}
           onIdeal={setIdeal}
@@ -542,21 +577,30 @@ function LeadtimeGrupo({
   onIdeal,
 }: {
   titulo: string;
-  itens: { key: string; tipo: "macro" | "kanban"; label: string }[];
-  sel: Map<string, { key: string; tipo: "macro" | "kanban"; idealDias: number }>;
-  onToggle: (d: { key: string; tipo: "macro" | "kanban" }, on: boolean) => void;
-  onIdeal: (key: string, tipo: "macro" | "kanban", dias: number) => void;
+  itens: LtItem[];
+  sel: Map<string, LtEtapa>;
+  onToggle: (d: { key: string; tipo: LtTipo }, on: boolean) => void;
+  onIdeal: (key: string, tipo: LtTipo, dias: number) => void;
 }) {
-  if (itens.length === 0) return null;
+  if (itens.filter((i) => !i.caption).length === 0) return null;
   return (
     <div>
       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{titulo}</p>
       <div className="space-y-1.5">
         {itens.map((d) => {
+          if (d.caption) {
+            return <p key={d.key} className="pl-1 pt-1 text-xs text-muted-foreground">{d.caption}</p>;
+          }
           const on = sel.has(d.key);
           return (
-            <div key={d.key} className="flex items-center gap-3 rounded-md border px-3 py-2">
-              <Switch checked={on} onCheckedChange={(v) => onToggle(d, v)} />
+            <div
+              key={d.key}
+              className={
+                "flex items-center gap-3 rounded-md border px-3 py-2" +
+                (d.indent ? " ml-4 border-l-2 border-l-muted-foreground/30" : "")
+              }
+            >
+              <Switch checked={on} onCheckedChange={(v) => onToggle({ key: d.key, tipo: d.tipo! }, v)} />
               <span className="flex-1 truncate text-sm">{d.label}</span>
               {on && (
                 <div className="flex items-center gap-1.5">
@@ -564,7 +608,7 @@ function LeadtimeGrupo({
                   <NumberInput
                     integer
                     value={sel.get(d.key)!.idealDias}
-                    onChange={(e) => onIdeal(d.key, d.tipo, Number(e.target.value))}
+                    onChange={(e) => onIdeal(d.key, d.tipo!, Number(e.target.value))}
                     className="h-8 w-16 text-right"
                   />
                   <span className="text-xs text-muted-foreground">dias</span>
