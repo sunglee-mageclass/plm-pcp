@@ -1401,11 +1401,6 @@ function LeadtimeTab() {
           ]}
         />
       </div>
-      <p className="text-sm text-muted-foreground">
-        Cards = tempo médio por etapa; tabela = detalhamento por item. Ambos seguem o filtro.
-        Verde = dentro do ideal/SLA. Etapas, ideais e SLA em Configurações da Loja.
-      </p>
-
       {/* Ordem do fluxo: Planejamento → Desenvolvimento (kanban) → Produção (marcos). */}
       {planejamento.length > 0 && (
         <div>
