@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { brl, fmtNum } from "@/lib/format";
+import { precoInfo } from "@/lib/preco";
 import { useMemo, useState, type ReactNode } from "react";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useQuery } from "@tanstack/react-query";
@@ -27,7 +28,7 @@ import { useAuth } from "@/hooks/useAuth";
 export const Route = createFileRoute("/_authenticated/dashboard")({
   component: () => (
     <ModuleGuard module="dashboard">
-      <RequirePermission anyOf={["dashboard_colecao","dashboard_estoque","dashboard_producao","dashboard_financeiro","dashboard_custos"]}>
+      <RequirePermission anyOf={["dashboard_colecao","dashboard_estoque","dashboard_producao","dashboard_financeiro","dashboard_custos","dashboard_comercial"]}>
         <Dashboard />
       </RequirePermission>
     </ModuleGuard>
@@ -44,6 +45,7 @@ const DASH_TABS = [
   { value: "producao", label: "Produção", Comp: ProducaoTab },
   { value: "financeiro", label: "Financeiro", Comp: FinanceiroTab },
   { value: "custos", label: "Custos", Comp: CustosTab },
+  { value: "comercial", label: "Comercial", Comp: ComercialTab },
 ] as const;
 
 function Dashboard() {
@@ -1142,6 +1144,173 @@ function CustosTab() {
           },
         ]}
       />
+    </div>
+  );
+}
+
+/* ============================ COMERCIAL ============================ */
+
+// Poder de venda / margem por Coleção e Linha — POTENCIAL (grade planejada) vs
+// REALIZADO (grade real do CQ). Cálculo no FRONT reusando @/lib/preco (fonte ÚNICA
+// de preço; não replicar em SQL); sem RPC nova — custo_unitario_modelos (tenant-safe)
+// + queries RLS por tenant. Espelha o "poder de venda" do Planejamento/Lançamentos.
+type ComRow = { key: string; nome: string; pvPot: number; pvReal: number; lucroPot: number; margemPot: number; markup: number; n: number };
+
+function ComTable({ title, firstLabel, rows }: { title: string; firstLabel: string; rows: ComRow[] }) {
+  const s = useSort(rows, { accessors: {
+    nome: (r: ComRow) => r.nome, pvPot: (r: ComRow) => r.pvPot, pvReal: (r: ComRow) => r.pvReal,
+    lucroPot: (r: ComRow) => r.lucroPot, margemPot: (r: ComRow) => r.margemPot, markup: (r: ComRow) => r.markup,
+  } });
+  return (
+    <Card className="p-4">
+      <h3 className="font-semibold mb-3">{title}</h3>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm card-table">
+          <thead className="text-left text-muted-foreground">
+            <tr className="border-b">
+              <SortTh label={firstLabel} sortKey="nome" sortState={s} className="py-2 pr-3" />
+              <SortTh label="PV potencial" sortKey="pvPot" sortState={s} className="py-2 pr-3 text-right" align="right" />
+              <SortTh label="PV realizado" sortKey="pvReal" sortState={s} className="py-2 pr-3 text-right" align="right" />
+              <SortTh label="Lucro (pot.)" sortKey="lucroPot" sortState={s} className="py-2 pr-3 text-right" align="right" />
+              <SortTh label="Margem" sortKey="margemPot" sortState={s} className="py-2 pr-3 text-right" align="right" />
+              <SortTh label="Markup" sortKey="markup" sortState={s} className="py-2 pr-3 text-right" align="right" />
+            </tr>
+          </thead>
+          <tbody>
+            {s.sorted.map((r) => (
+              <tr key={r.key} className="border-b last:border-0">
+                <td className="py-2 pr-3">{r.nome}</td>
+                <td className="py-2 pr-3 text-right" data-label="PV potencial">{brl(r.pvPot)}</td>
+                <td className="py-2 pr-3 text-right" data-label="PV realizado">{brl(r.pvReal)}</td>
+                <td className="py-2 pr-3 text-right" data-label="Lucro (pot.)">{brl(r.lucroPot)}</td>
+                <td className="py-2 pr-3 text-right" data-label="Margem">{r.margemPot > 0 ? `${r.margemPot.toFixed(0)}%` : "—"}</td>
+                <td className="py-2 pr-3 text-right" data-label="Markup">{r.markup > 0 ? `${r.markup.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}×` : "—"}</td>
+              </tr>
+            ))}
+            {rows.length === 0 && <tr><td colSpan={6} className="py-4 text-center text-muted-foreground">Sem dados.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
+function ComercialTab() {
+  const [fMes, setFMes] = useState("all");
+  const [fAno, setFAno] = useState("all");
+  const [fSemana, setFSemana] = useState("all");
+  const [fSubcolecao, setFSubcolecao] = useState("all");
+  const [fColecao, setFColecao] = useState("all");
+
+  const { data: meses = [] } = useQuery({ queryKey: ["opt", "meses"], queryFn: async () => (await supabase.from("meses").select("id, nome:mes").order("ordem")).data ?? [] });
+  const { data: anos = [] } = useQuery({ queryKey: ["opt", "anos"], queryFn: async () => (await supabase.from("anos").select("id, nome:ano").order("ano")).data ?? [] });
+  const { data: opts = { colecoes: [] as string[], subcolecoes: [] as string[] } } = useQuery({
+    queryKey: ["comercial-opts"],
+    queryFn: async () => {
+      const { data } = await supabase.from("modelos").select("colecao, subcolecao");
+      return {
+        colecoes: Array.from(new Set((data ?? []).map((m: any) => m.colecao).filter(Boolean))).sort() as string[],
+        subcolecoes: Array.from(new Set((data ?? []).map((m: any) => m.subcolecao).filter(Boolean))).sort() as string[],
+      };
+    },
+  });
+
+  const { data: modelos = [], isLoading, isError } = useQuery({
+    queryKey: ["comercial-modelos", fMes, fAno, fSemana, fSubcolecao, fColecao],
+    queryFn: async () => {
+      let q = supabase.from("modelos").select("id, colecao, linha_id, preco_venda, linha:linha_id(nome, markup)");
+      if (fMes !== "all") q = q.eq("mes_id", fMes);
+      if (fAno !== "all") q = q.eq("ano_id", fAno);
+      if (fSemana !== "all") q = q.eq("semana", fSemana);
+      if (fSubcolecao !== "all") q = q.eq("subcolecao", fSubcolecao);
+      if (fColecao !== "all") q = q.eq("colecao", fColecao);
+      const { data, error } = await q;
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+  const ids = useMemo(() => modelos.map((m) => m.id).sort(), [modelos]);
+
+  const { data: custoMap = {} } = useQuery({
+    queryKey: ["comercial-custo", ids], enabled: ids.length > 0,
+    queryFn: async () => (await supabase.rpc("custo_unitario_modelos" as any, { _ids: ids })).data ?? {},
+  });
+  const { data: gradePlan = {} } = useQuery({
+    queryKey: ["comercial-grade-plan", ids], enabled: ids.length > 0,
+    queryFn: async () => {
+      const { data } = await supabase.from("modelo_grades").select("modelo_id, grade_total").in("modelo_id", ids);
+      const m: Record<string, number> = {};
+      (data ?? []).forEach((r: any) => { m[r.modelo_id] = (m[r.modelo_id] ?? 0) + Number(r.grade_total ?? 0); });
+      return m;
+    },
+  });
+  const { data: gradeReal = {} } = useQuery({
+    queryKey: ["comercial-grade-real", ids], enabled: ids.length > 0,
+    queryFn: async () => {
+      const { data } = await supabase.from("cad").select("modelo_id, cad_grades(grade_total_real)").in("modelo_id", ids);
+      const m: Record<string, number> = {};
+      (data ?? []).forEach((c: any) => {
+        const soma = (c.cad_grades ?? []).reduce((sum: number, g: any) => sum + Number(g.grade_total_real ?? 0), 0);
+        m[c.modelo_id] = (m[c.modelo_id] ?? 0) + soma;
+      });
+      return m;
+    },
+  });
+
+  const { byColecao, byLinha, tot } = useMemo(() => {
+    const acc = (map: Map<string, ComRow>, key: string, nome: string, m: any) => {
+      const cu = (custoMap as any)[m.id];
+      const custo = Number(cu?.real) || Number(cu?.previsto) || 0;
+      const pi = precoInfo(custo, m.linha?.markup, m.preco_venda);
+      const gp = Number((gradePlan as any)[m.id]) || 0;
+      const gr = Number((gradeReal as any)[m.id]) || 0;
+      let r = map.get(key);
+      if (!r) { r = { key, nome, pvPot: 0, pvReal: 0, lucroPot: 0, margemPot: 0, markup: 0, n: 0 }; map.set(key, r); }
+      r.pvPot += pi.efetivo * gp;
+      r.pvReal += pi.efetivo * gr;
+      r.lucroPot += (pi.efetivo - custo) * gp;
+      if (pi.markupReal > 0) { r.markup += pi.markupReal; r.n += 1; }
+    };
+    const mc = new Map<string, ComRow>(), ml = new Map<string, ComRow>();
+    for (const m of modelos) {
+      acc(mc, m.colecao ?? "__none__", m.colecao || "Sem coleção", m);
+      acc(ml, m.linha_id ?? "__none__", (m.linha?.nome as string) || "Sem linha", m);
+    }
+    const finish = (map: Map<string, ComRow>) => Array.from(map.values())
+      .map((r) => ({ ...r, margemPot: r.pvPot > 0 ? (r.lucroPot / r.pvPot) * 100 : 0, markup: r.n > 0 ? r.markup / r.n : 0 }))
+      .sort((a, b) => b.pvPot - a.pvPot);
+    const bc = finish(mc), bl = finish(ml);
+    const t = bc.reduce((a, r) => ({ pvPot: a.pvPot + r.pvPot, pvReal: a.pvReal + r.pvReal, lucroPot: a.lucroPot + r.lucroPot, nMk: a.nMk + r.n, sMk: a.sMk + r.markup * r.n }), { pvPot: 0, pvReal: 0, lucroPot: 0, nMk: 0, sMk: 0 });
+    return { byColecao: bc, byLinha: bl, tot: { ...t, margem: t.pvPot > 0 ? (t.lucroPot / t.pvPot) * 100 : 0, markup: t.nMk > 0 ? t.sMk / t.nMk : 0 } };
+  }, [modelos, custoMap, gradePlan, gradeReal]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <DashTabsList />
+        <FilterButton
+          filters={[
+            { label: "Coleção", value: fColecao, onChange: setFColecao, options: [{ id: "all", nome: "Todas" }, ...opts.colecoes.map((c) => ({ id: c, nome: c }))] },
+            { label: "Subcoleção", value: fSubcolecao, onChange: setFSubcolecao, options: [{ id: "all", nome: "Todas" }, ...opts.subcolecoes.map((c) => ({ id: c, nome: c }))] },
+            { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...(meses as any[]).map((m) => ({ id: m.id, nome: m.nome }))] },
+            { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...(anos as any[]).map((a) => ({ id: a.id, nome: a.nome }))] },
+            { label: "Semana", value: fSemana, onChange: setFSemana, options: [{ id: "all", nome: "Todas" }, ...["1", "2", "3", "4", "5"].map((n) => ({ id: n, nome: n }))] },
+          ]}
+        />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Kpi label="Poder de venda" value={brl(tot.pvPot)} icon={Tag} sub={`realizado ${brl(tot.pvReal)}`} />
+        <Kpi label="Lucro bruto (pot.)" value={brl(tot.lucroPot)} icon={DollarSign} />
+        <Kpi label="Margem média" value={tot.margem > 0 ? `${tot.margem.toFixed(0)}%` : "—"} icon={Sparkles} />
+        <Kpi label="Markup médio" value={tot.markup > 0 ? `${tot.markup.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}×` : "—"} icon={Layers} />
+      </div>
+
+      <ComTable title="Por coleção" firstLabel="Coleção" rows={byColecao} />
+      <ComTable title="Por linha" firstLabel="Linha" rows={byLinha} />
+
+      {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+      <DashError show={isError} />
     </div>
   );
 }

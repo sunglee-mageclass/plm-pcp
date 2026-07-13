@@ -92,6 +92,7 @@ export const PAGES_CATALOG: ModuleDef[] = [
       { key: "dashboard_producao", label: "Produção" },
       { key: "dashboard_financeiro", label: "Financeiro" },
       { key: "dashboard_custos", label: "Custos" },
+      { key: "dashboard_comercial", label: "Comercial" },
     ],
   },
 ];
