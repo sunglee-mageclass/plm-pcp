@@ -91,6 +91,7 @@ function LancamentosPage() {
   const [fAte, setFAte] = useState(""); // data de lançamento — fim do período
   const [groupByCat, setGroupByCat] = useState(false);
   const [groupByLinha, setGroupByLinha] = useState(false);
+  const [groupBySub1, setGroupBySub1] = useState(false);
   const [groupByRep, setGroupByRep] = useState(false);
 
   const { data: meses = [] } = useQuery({
@@ -323,6 +324,17 @@ function LancamentosPage() {
       .map(([key, its]) => ({ key, nome: key === "__none__" ? "Sem categoria" : key, items: its }))
       .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
   };
+  const bySub1 = (items: LancCard[]): Split[] => {
+    const map = new Map<string, LancCard[]>();
+    items.forEach((c) => {
+      const key = c.subcategoria1_id ?? "__none__";
+      const arr = map.get(key);
+      if (arr) arr.push(c); else map.set(key, [c]);
+    });
+    return Array.from(map.entries())
+      .map(([key, its]) => ({ key, nome: key === "__none__" ? "Sem subcategoria" : (its[0].subcategoria1_nome ?? "Sem subcategoria"), items: its }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  };
   const byRep = (items: LancCard[]): Split[] => {
     const reps = items.filter((c) => (c.versao ?? 1) > 1);
     const unis = items.filter((c) => (c.versao ?? 1) <= 1);
@@ -334,6 +346,7 @@ function LancamentosPage() {
   const splitters: ((items: LancCard[]) => Split[])[] = [
     groupByLinha ? byLinha : null,
     groupByCat ? byCat : null,
+    groupBySub1 ? bySub1 : null,
     groupByRep ? byRep : null,
   ].filter(Boolean) as ((items: LancCard[]) => Split[])[];
   type Grupo = { key: string; nome: string; resumo: ReturnType<typeof computeResumo>; items?: LancCard[]; subgroups?: Grupo[] };
@@ -407,6 +420,7 @@ function LancamentosPage() {
             groups={[
               { label: "Linha", active: groupByLinha, onToggle: () => setGroupByLinha((v) => !v) },
               { label: "Categoria", active: groupByCat, onToggle: () => setGroupByCat((v) => !v) },
+              { label: "Subcategoria", active: groupBySub1, onToggle: () => setGroupBySub1((v) => !v) },
               { label: "Repetição", active: groupByRep, onToggle: () => setGroupByRep((v) => !v) },
             ]}
           />
