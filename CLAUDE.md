@@ -151,10 +151,15 @@ unit + integração transacional de RPC — ver `tests/README.md`)
 - **financeiro**: calendário + lista + parcelas (a pagar) + serviços terceirizados
 - **dashboard**: 7 abas (coleção, estoque, produção, financeiro, custos, **comercial**,
   **leadtime**). *Comercial* = poder de venda/margem (Planejado vs Realizado, colunas
-  agrupadas). *Leadtime* = duração média real por etapa vs ideal (RPC `dashboard_leadtime`;
-  etapas MACRO dos marcos + Desenvolvimento por COLUNA do kanban via `modelo_kanban_historico`;
-  quais etapas + ideal em `tenant_config.leadtime`, editado em `/admin/configuracoes`; sem
-  config = todas com default 7d/5d). Cada aba é permissão própria (`dashboard_comercial`/`_leadtime`)
+  agrupadas). *Leadtime* = tempo por etapa vs ideal, em ordem de FLUXO **Planejamento →
+  Desenvolvimento (por coluna do kanban, via `modelo_kanban_historico`) → Produção** (marcos +
+  Serviços macro OU micro por categoria). Config `tenant_config.leadtime` (`{etapas:[{key,tipo,
+  idealDias}], slaServico}`) em `/admin/configuracoes` escolhe quais etapas + ideal (sem config =
+  todas default 7d/5d). Cards (médias, RPC `dashboard_leadtime`) + **matriz item × etapas** (RPC
+  `dashboard_leadtime_itens`, tracking individual) sob **um filtro global** (coleção/subcol/semana).
+  **SLA de Serviços por item**: `subcategorias1_produto.sla_oficina` (rótulo "SLA de Serviços") vira
+  o prazo da etapa apontada por `slaServico`; opções = serviços de confecção (`src/lib/servico-
+  confeccao.ts`). Cada aba é permissão própria (`dashboard_comercial`/`_leadtime`)
 - **admin**: lojas (criar/editar/reset/excluir), usuarios, usuarios-loja, configuracoes
   (módulos, modos, fuso, card de Integração ERP)
 
