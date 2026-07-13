@@ -28,7 +28,7 @@ import { useAuth } from "@/hooks/useAuth";
 export const Route = createFileRoute("/_authenticated/dashboard")({
   component: () => (
     <ModuleGuard module="dashboard">
-      <RequirePermission anyOf={["dashboard_colecao","dashboard_estoque","dashboard_producao","dashboard_financeiro","dashboard_custos","dashboard_comercial"]}>
+      <RequirePermission anyOf={["dashboard_colecao","dashboard_estoque","dashboard_producao","dashboard_financeiro","dashboard_custos","dashboard_comercial","dashboard_leadtime"]}>
         <Dashboard />
       </RequirePermission>
     </ModuleGuard>
@@ -46,6 +46,7 @@ const DASH_TABS = [
   { value: "financeiro", label: "Financeiro", Comp: FinanceiroTab },
   { value: "custos", label: "Custos", Comp: CustosTab },
   { value: "comercial", label: "Comercial", Comp: ComercialTab },
+  { value: "leadtime", label: "Leadtime", Comp: LeadtimeTab },
 ] as const;
 
 function Dashboard() {
@@ -1339,6 +1340,89 @@ function ComercialTab() {
       <ComTable title="Por coleção" firstLabel="Coleção" rows={byColecao} />
       <ComTable title="Por linha" firstLabel="Linha" rows={byLinha} />
 
+      {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+      <DashError show={isError} />
+    </div>
+  );
+}
+
+/* ============================ LEADTIME ============================ */
+
+// Leadtime: duração média REAL por etapa vs o tempo IDEAL (config da loja, senão
+// default). Etapas MACRO (marcos existentes) + Desenvolvimento destrinchado por COLUNA
+// do kanban (modelo_kanban_historico). RPC dashboard_leadtime (só exibe).
+function LeadtimePretty(s: string) {
+  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function EtapaLeadCard({ label, e }: { label: string; e: any }) {
+  const ideal = Number(e.idealDias) || 0;
+  const media = Number(e.duracaoMedia) || 0;
+  const ok = ideal <= 0 || media <= ideal;
+  const pctBar = ideal > 0 ? Math.min(100, (media / ideal) * 100) : 0;
+  return (
+    <Card className="p-4">
+      <p className="text-sm font-medium truncate">{label}</p>
+      <div className="mt-1 flex items-baseline gap-2">
+        <span className={"text-2xl font-bold " + (ok ? "text-green-600 dark:text-green-400" : "text-destructive")}>{fmtNum(media)}d</span>
+        <span className="text-xs text-muted-foreground">ideal {fmtNum(ideal)}d</span>
+      </div>
+      <div className="mt-2 h-2 overflow-hidden rounded bg-muted">
+        <div className={"h-full " + (ok ? "bg-green-500" : "bg-destructive")} style={{ width: `${pctBar}%` }} />
+      </div>
+      <p className="mt-2 text-xs text-muted-foreground">
+        {e.pctNoPrazo}% no prazo · {e.nModelos} modelo(s){Number(e.foraSla) > 0 ? ` · ${e.foraSla} fora` : ""}
+      </p>
+    </Card>
+  );
+}
+
+function LeadtimeTab() {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["dash-leadtime"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("dashboard_leadtime" as never);
+      if (error) throw error;
+      return data as any;
+    },
+  });
+  const etapas: any[] = data?.etapas ?? [];
+  const macro = etapas.filter((e) => e.tipo === "macro");
+  const kanban = etapas.filter((e) => e.tipo === "kanban");
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <DashTabsList />
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Tempo médio em cada etapa vs o ideal. O ideal e quais etapas acompanhar são definidos em
+        Configurações da Loja (em breve). Verde = dentro do ideal.
+      </p>
+
+      {macro.length > 0 && (
+        <div>
+          <SecHeader icon={Factory}>Etapas de produção</SecHeader>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {macro.map((e) => <EtapaLeadCard key={e.etapa} label={e.label} e={e} />)}
+          </div>
+        </div>
+      )}
+
+      {kanban.length > 0 && (
+        <div>
+          <SecHeader icon={Palette}>Desenvolvimento · por coluna do kanban</SecHeader>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {kanban.map((e) => <EtapaLeadCard key={e.etapa} label={LeadtimePretty(e.label)} e={e} />)}
+          </div>
+        </div>
+      )}
+
+      {!isLoading && etapas.length === 0 && (
+        <p className="rounded-md border p-6 text-center text-sm text-muted-foreground">
+          Sem dados de leadtime ainda. As etapas populam conforme os modelos avançam no fluxo.
+        </p>
+      )}
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
       <DashError show={isError} />
     </div>
