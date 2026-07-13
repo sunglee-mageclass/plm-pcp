@@ -100,6 +100,9 @@ function AuditoriaPage() {
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
+      <Button asChild variant="ghost" size="sm" className="max-sm:hidden -ml-2 w-fit text-muted-foreground">
+        <Link to="/admin"><ArrowLeft className="mr-1 h-4 w-4" /> Voltar ao Admin</Link>
+      </Button>
       <header className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
           <ScrollText className="h-7 w-7 shrink-0 text-primary mt-0.5" />

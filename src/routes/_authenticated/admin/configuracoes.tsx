@@ -213,6 +213,9 @@ function ConfiguracoesLojaPage() {
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-w-4xl max-sm:pb-24">
+      <Button asChild variant="ghost" size="sm" className="max-sm:hidden -ml-2 w-fit text-muted-foreground">
+        <Link to="/admin"><ArrowLeft className="mr-1 h-4 w-4" /> Voltar ao Admin</Link>
+      </Button>
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div className="flex min-w-0 items-start gap-3">
           <Settings className="h-7 w-7 shrink-0 text-primary mt-0.5" />

@@ -136,6 +136,9 @@ function UsuariosPage() {
 
   return (
     <div className="space-y-6 max-sm:pb-24">
+      <Button asChild variant="ghost" size="sm" className="max-sm:hidden -ml-2 w-fit text-muted-foreground">
+        <Link to="/admin"><ArrowLeft className="mr-1 h-4 w-4" /> Voltar ao Admin</Link>
+      </Button>
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-4">
           <Users className="h-7 w-7 text-primary mt-0.5 shrink-0" />
