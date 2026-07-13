@@ -586,7 +586,7 @@ function ParcelaDetailDialog({
           </div>
           <div>
             <span className="text-muted-foreground">Status:</span>{" "}
-            <Badge variant={st === "pago" ? "default" : st === "vencido" ? "destructive" : "secondary"}>
+            <Badge variant={st === "pago" ? "default" : st === "vencido" ? "destructive" : "secondary"} className="text-sm">
               {st === "a_pagar" ? "A pagar" : st === "pago" ? "Pago" : "Vencido"}
             </Badge>
           </div>
@@ -892,16 +892,16 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
                       />
                     </td>
                     <td className="py-2 pr-3" data-label="Status">
-                      <Badge variant={st === "pago" ? "default" : st === "vencido" ? "destructive" : "secondary"}>
+                      <Badge variant={st === "pago" ? "default" : st === "vencido" ? "destructive" : "secondary"} className="text-sm">
                         {st === "a_pagar" ? "A pagar" : st === "pago" ? "Pago" : "Vencido"}
                       </Badge>
                     </td>
                     <td className="py-2 pr-3" data-label="Pagamento">{p.data_pagamento ? format(parseISO(p.data_pagamento), "dd/MM/yyyy") : "—"}</td>
                     <td className="py-2 pr-3" data-label="" onClick={stop} onKeyDown={stop}>
                       {podeEditar && (st !== "pago" ? (
-                        <Button size="sm" variant="outline" className="max-md:h-11" onClick={() => setPagandoId(p.id)}>Marcar pago</Button>
+                        <Button size="sm" variant="outline" onClick={() => setPagandoId(p.id)}>Marcar pago</Button>
                       ) : (
-                        <Button size="sm" variant="destructive" className="max-md:h-11" onClick={() => desmarcarMut.mutate(p.id)} disabled={desmarcarMut.isPending}>Desmarcar</Button>
+                        <Button size="sm" variant="destructive" onClick={() => desmarcarMut.mutate(p.id)} disabled={desmarcarMut.isPending}>Desmarcar</Button>
                       ))}
                       {p.comprovante_url && (
                         <ComprovanteLink value={p.comprovante_url} label="comprovante" className="text-xs text-primary ml-2" />
@@ -1120,15 +1120,15 @@ function ServicosView() {
                       <VencimentoCell value={r.data_pagamento ?? ""} onSave={(data) => updPag.mutate({ id: r.parcela_id, data })} />
                     </td>
                     <td className="py-2 pr-3" data-label="Status">
-                      <Badge variant={st === "pago" ? "default" : st === "vencido" ? "destructive" : "secondary"}>
+                      <Badge variant={st === "pago" ? "default" : st === "vencido" ? "destructive" : "secondary"} className="text-sm">
                         {st === "a_pagar" ? "A pagar" : st === "pago" ? "Pago" : "Vencido"}
                       </Badge>
                     </td>
                     <td className="py-2 pr-3" data-label="" onClick={stop} onKeyDown={stop}>
                       {podeEditar && (st === "pago" ? (
-                        <Button size="sm" variant="destructive" className="max-md:h-11" onClick={() => togglePago.mutate({ id: r.parcela_id, pago: false })} disabled={togglePago.isPending}>Desmarcar</Button>
+                        <Button size="sm" variant="destructive" onClick={() => togglePago.mutate({ id: r.parcela_id, pago: false })} disabled={togglePago.isPending}>Desmarcar</Button>
                       ) : (
-                        <Button size="sm" className="max-md:h-11" onClick={() => togglePago.mutate({ id: r.parcela_id, pago: true })} disabled={togglePago.isPending}>Marcar pago</Button>
+                        <Button size="sm" onClick={() => togglePago.mutate({ id: r.parcela_id, pago: true })} disabled={togglePago.isPending}>Marcar pago</Button>
                       ))}
                     </td>
                   </tr>
@@ -1244,7 +1244,7 @@ function ServicoDetailDialog({
           <div><span className="text-muted-foreground">Vencimento:</span> {fmtD(row.data_vencimento)}</div>
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground">Status:</span>
-            <Badge variant={stVariant} className="text-sm px-3 py-1">{stLabel}</Badge>
+            <Badge variant={stVariant} className="text-sm">{stLabel}</Badge>
           </div>
           {row.data_pagamento && (
             <div><span className="text-muted-foreground">Pago em:</span> {fmtD(row.data_pagamento)}</div>
