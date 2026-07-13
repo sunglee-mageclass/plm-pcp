@@ -190,6 +190,7 @@ function PlanejamentoPage() {
   const clearSel = () => setSelected(new Set());
   const [groupByCat, setGroupByCat] = useState(true);
   const [groupByLinha, setGroupByLinha] = useState(false);
+  const [groupBySub1, setGroupBySub1] = useState(false);
   const [groupByRep, setGroupByRep] = useState(false);
   // Planejamento sempre abre com 5 colunas (não persiste a escolha entre acessos).
   const [cols, setCols] = useGridCols("planejamento", 5, true);
@@ -346,6 +347,7 @@ function PlanejamentoPage() {
 
   const estMap = Object.fromEntries(estilistas.map((e) => [e.id, e.nome]));
   const catMap = Object.fromEntries(categorias.map((c) => [c.id, c.nome]));
+  const sub1Map = Object.fromEntries(sub1Opts.map((s) => [s.id, s.nome]));
   const linhaMap = Object.fromEntries(linhas.map((l) => [l.id, l.nome]));
   const linhaMarkupMap = Object.fromEntries(linhas.map((l) => [l.id, l.markup]));
   // Preço/markup efetivos de um modelo (custo × markup da linha → sugerido → venda).
@@ -453,6 +455,17 @@ function PlanejamentoPage() {
       .map(([key, its]) => ({ key, nome: key === "__none__" ? "Sem categoria" : catMap[key] ?? "Sem categoria", items: its }))
       .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
   };
+  const bySub1 = (items: Modelo[]): Split[] => {
+    const map = new Map<string, Modelo[]>();
+    items.forEach((m) => {
+      const key = m.subcategoria1_id ?? "__none__";
+      const arr = map.get(key);
+      if (arr) arr.push(m); else map.set(key, [m]);
+    });
+    return Array.from(map.entries())
+      .map(([key, its]) => ({ key, nome: key === "__none__" ? "Sem subcategoria" : sub1Map[key] ?? "Sem subcategoria", items: its }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  };
   const byRep = (items: Modelo[]): Split[] => {
     const reps = items.filter(isRepeticao);
     const unis = items.filter((m) => !isRepeticao(m));
@@ -465,6 +478,7 @@ function PlanejamentoPage() {
   const splitters: ((items: Modelo[]) => Split[])[] = [
     groupByLinha ? byLinha : null,
     groupByCat ? byCat : null,
+    groupBySub1 ? bySub1 : null,
     groupByRep ? byRep : null,
   ].filter(Boolean) as ((items: Modelo[]) => Split[])[];
   type Grupo = { key: string; nome: string; resumo: ReturnType<typeof computeResumo>; items?: Modelo[]; subgroups?: Grupo[] };
@@ -525,6 +539,7 @@ function PlanejamentoPage() {
             groups={[
               { label: "Linha", active: groupByLinha, onToggle: () => setGroupByLinha((v) => !v) },
               { label: "Categoria", active: groupByCat, onToggle: () => setGroupByCat((v) => !v) },
+              { label: "Subcategoria", active: groupBySub1, onToggle: () => setGroupBySub1((v) => !v) },
               { label: "Repetição", active: groupByRep, onToggle: () => setGroupByRep((v) => !v) },
             ]}
           />
