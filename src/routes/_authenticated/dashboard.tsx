@@ -449,13 +449,15 @@ function EtapaBarCard({ title, data, dataKey, name, color }: {
 
 /* ============================ PRODUÇÃO ============================ */
 
-function RankingOficinas() {
+function RankingServicos() {
+  // Seletor = CATEGORIA DE SERVIÇO (Corte/Oficina/PL/...), não subcategoria de produto.
+  // "Geral" agrega todos os serviços. Prazo = data_prevista do bloco; desvio = entrega − prazo.
   const [cat, setCat] = useState("all");
   const { data } = useQuery({
-    queryKey: ["dash-ranking-oficinas", cat],
+    queryKey: ["dash-ranking-servicos", cat],
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("ranking_oficinas" as never, {
-        p_categoria_produto: cat === "all" ? undefined : cat,
+      const { data, error } = await supabase.rpc("ranking_servicos" as never, {
+        p_categoria: cat === "all" ? undefined : cat,
       } as never);
       if (error) throw error;
       return data as any;
@@ -463,18 +465,17 @@ function RankingOficinas() {
   });
   const ranking: any[] = data?.ranking ?? [];
   const categorias: any[] = data?.categorias ?? [];
-  // Posição do ranking = ordem da RPC (por desvio), estável mesmo se reordenar a tabela.
-  const rankMap = useMemo(() => new Map(ranking.map((r, i) => [r.oficina, i + 1])), [ranking]);
+  const rankMap = useMemo(() => new Map(ranking.map((r, i) => [r.fornecedor, i + 1])), [ranking]);
   const sort = useSort<any>(ranking, { key: "desvio", dir: "asc" });
 
   return (
     <Card className="p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="font-semibold">Ranking de oficinas <span className="text-sm font-normal text-muted-foreground">· SLA entregue vs cadastrado (menor desvio = melhor)</span></h3>
+        <h3 className="font-semibold">Ranking de serviços <span className="text-sm font-normal text-muted-foreground">· entrega real vs prazo estipulado (menor desvio = melhor)</span></h3>
         <Select value={cat} onValueChange={setCat}>
-          <SelectTrigger className="h-8 w-56"><SelectValue placeholder="Subcategoria 1" /></SelectTrigger>
+          <SelectTrigger className="h-8 w-full sm:w-56"><SelectValue placeholder="Serviço" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Geral (todas as subcategorias 1)</SelectItem>
+            <SelectItem value="all">Geral (todos os serviços)</SelectItem>
             {categorias.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
           </SelectContent>
         </Select>
@@ -484,36 +485,36 @@ function RankingOficinas() {
           <thead className="text-left text-muted-foreground">
             <tr className="border-b">
               <th className="py-2 pr-3 w-10 text-center">#</th>
-              <SortTh label="Oficina" sortKey="oficina" sortState={sort} className="py-2 pr-3" />
+              <SortTh label="Fornecedor" sortKey="fornecedor" sortState={sort} className="py-2 pr-3" />
               <SortTh label="Entregas" sortKey="entregas" sortState={sort} className="py-2 pr-3 text-right" />
-              <SortTh label="SLA real (dias)" sortKey="slaReal" sortState={sort} className="py-2 pr-3 text-right" />
-              <SortTh label="SLA esperado" sortKey="slaEsperado" sortState={sort} className="py-2 pr-3 text-right" />
+              <SortTh label="Dias real" sortKey="diasReal" sortState={sort} className="py-2 pr-3 text-right" />
+              <SortTh label="Prazo" sortKey="diasPrazo" sortState={sort} className="py-2 pr-3 text-right" />
               <SortTh label="Desvio" sortKey="desvio" sortState={sort} className="py-2 pr-3 text-right" />
-              <SortTh label="% dentro" sortKey="pctDentro" sortState={sort} className="py-2 pr-3 text-right" />
+              <SortTh label="% no prazo" sortKey="pctDentro" sortState={sort} className="py-2 pr-3 text-right" />
             </tr>
           </thead>
           <tbody>
             {sort.sorted.map((r: any) => {
-              const pos = rankMap.get(r.oficina) ?? 0;
+              const pos = rankMap.get(r.fornecedor) ?? 0;
               const medal = pos === 1 ? "🥇" : pos === 2 ? "🥈" : pos === 3 ? "🥉" : String(pos);
               const dentro = Number(r.desvio) <= 0;
               return (
-                <tr key={r.oficina} className="border-b last:border-0">
+                <tr key={r.fornecedor} className="border-b last:border-0">
                   <td className="py-2 pr-3 text-center">{medal}</td>
-                  <td className="py-2 pr-3 font-medium" data-label="Oficina">{r.oficina}</td>
+                  <td className="py-2 pr-3 font-medium" data-label="Fornecedor">{r.fornecedor}</td>
                   <td className="py-2 pr-3 text-right" data-label="Entregas">{r.entregas}</td>
-                  <td className="py-2 pr-3 text-right" data-label="SLA real (dias)">{fmtNum(r.slaReal)}</td>
-                  <td className="py-2 pr-3 text-right" data-label="SLA esperado">{fmtNum(r.slaEsperado)}</td>
+                  <td className="py-2 pr-3 text-right" data-label="Dias real">{fmtNum(r.diasReal)}</td>
+                  <td className="py-2 pr-3 text-right" data-label="Prazo">{fmtNum(r.diasPrazo)}</td>
                   <td className={"py-2 pr-3 text-right font-medium " + (dentro ? "text-green-600 dark:text-green-400" : "text-destructive")} data-label="Desvio">
                     {Number(r.desvio) > 0 ? "+" : ""}{fmtNum(r.desvio)}
                   </td>
-                  <td className="py-2 pr-3 text-right" data-label="% dentro">{r.pctDentro}%</td>
+                  <td className="py-2 pr-3 text-right" data-label="% no prazo">{r.pctDentro}%</td>
                 </tr>
               );
             })}
             {ranking.length === 0 && (
               <tr><td colSpan={7} className="py-4 text-center text-muted-foreground">
-                Sem entregas de oficina com SLA cadastrado. Defina o "SLA Oficina" nas categorias de produto (Cadastro → Categoria do Produto).
+                Sem entregas registradas para este serviço (precisa de envio + entrega no bloco).
               </td></tr>
             )}
           </tbody>
@@ -773,7 +774,7 @@ function ProducaoTab() {
         )}
       </Card>
 
-      <RankingOficinas />
+      <RankingServicos />
 
       <RelatorioPrint
         titulo="Relatório de Produção — prazos e qualidade"
