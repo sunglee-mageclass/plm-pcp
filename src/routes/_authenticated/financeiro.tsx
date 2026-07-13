@@ -586,7 +586,7 @@ function ParcelaDetailDialog({
           </div>
           <div>
             <span className="text-muted-foreground">Status:</span>{" "}
-            <Badge variant={st === "pago" ? "default" : st === "vencido" ? "destructive" : "secondary"} className="text-sm">
+            <Badge variant={st === "pago" ? "default" : st === "vencido" ? "destructive" : "secondary"} className="text-sm h-8 px-3">
               {st === "a_pagar" ? "A pagar" : st === "pago" ? "Pago" : "Vencido"}
             </Badge>
           </div>
@@ -892,7 +892,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
                       />
                     </td>
                     <td className="py-2 pr-3" data-label="Status">
-                      <Badge variant={st === "pago" ? "default" : st === "vencido" ? "destructive" : "secondary"} className="text-sm">
+                      <Badge variant={st === "pago" ? "default" : st === "vencido" ? "destructive" : "secondary"} className="text-sm h-8 px-3">
                         {st === "a_pagar" ? "A pagar" : st === "pago" ? "Pago" : "Vencido"}
                       </Badge>
                     </td>
@@ -1120,7 +1120,7 @@ function ServicosView() {
                       <VencimentoCell value={r.data_pagamento ?? ""} onSave={(data) => updPag.mutate({ id: r.parcela_id, data })} />
                     </td>
                     <td className="py-2 pr-3" data-label="Status">
-                      <Badge variant={st === "pago" ? "default" : st === "vencido" ? "destructive" : "secondary"} className="text-sm">
+                      <Badge variant={st === "pago" ? "default" : st === "vencido" ? "destructive" : "secondary"} className="text-sm h-8 px-3">
                         {st === "a_pagar" ? "A pagar" : st === "pago" ? "Pago" : "Vencido"}
                       </Badge>
                     </td>
@@ -1244,7 +1244,7 @@ function ServicoDetailDialog({
           <div><span className="text-muted-foreground">Vencimento:</span> {fmtD(row.data_vencimento)}</div>
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground">Status:</span>
-            <Badge variant={stVariant} className="text-sm">{stLabel}</Badge>
+            <Badge variant={stVariant} className="text-sm h-8 px-3">{stLabel}</Badge>
           </div>
           {row.data_pagamento && (
             <div><span className="text-muted-foreground">Pago em:</span> {fmtD(row.data_pagamento)}</div>
