@@ -1244,14 +1244,14 @@ function ServicoDetailDialog({
           <div><span className="text-muted-foreground">Vencimento:</span> {fmtD(row.data_vencimento)}</div>
           <div className="flex items-center gap-2">
             <span className="text-muted-foreground">Status:</span>
-            <Badge variant={stVariant}>{stLabel}</Badge>
+            <Badge variant={stVariant} className="text-sm px-3 py-1">{stLabel}</Badge>
           </div>
           {row.data_pagamento && (
             <div><span className="text-muted-foreground">Pago em:</span> {fmtD(row.data_pagamento)}</div>
           )}
         </div>
-        <DialogFooter className="flex-row flex-wrap justify-end gap-2">
-          <Button size="sm" variant="outline" onClick={onClose} aria-label="Voltar" className="max-sm:aspect-square max-sm:px-0">
+        <DialogFooter className="flex-row flex-wrap items-center justify-end gap-2">
+          <Button size="sm" variant="outline" onClick={onClose} aria-label="Voltar" className="mr-auto max-sm:aspect-square max-sm:px-0">
             <ArrowLeft className="h-4 w-4 sm:hidden" />
             <span className="max-sm:sr-only">Fechar</span>
           </Button>
