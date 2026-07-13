@@ -125,6 +125,7 @@ type Modelo = {
   modelo_base_id: string | null;
   preco_venda: number | null;
   origem: string | null;
+  tecidos_planejados: string[] | null;
 };
 
 // `color` = badge tonalizado (bg claro + texto escuro; passa WCAG AA, ao contrário do
@@ -192,6 +193,7 @@ function PlanejamentoPage() {
   const [groupByLinha, setGroupByLinha] = useState(false);
   const [groupBySub1, setGroupBySub1] = useState(false);
   const [groupByRep, setGroupByRep] = useState(false);
+  const [groupByTecido, setGroupByTecido] = useState(false);
   // Planejamento sempre abre com 5 colunas (não persiste a escolha entre acessos).
   const [cols, setCols] = useGridCols("planejamento", 5, true);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -270,7 +272,7 @@ function PlanejamentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, estilista_id, linha_id, colecao, colecao_id, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, origem")
+        .select("id, nome, estilista_id, linha_id, colecao, colecao_id, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, origem, tecidos_planejados")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as Modelo[];
@@ -349,6 +351,7 @@ function PlanejamentoPage() {
   const catMap = Object.fromEntries(categorias.map((c) => [c.id, c.nome]));
   const sub1Map = Object.fromEntries(sub1Opts.map((s) => [s.id, s.nome]));
   const linhaMap = Object.fromEntries(linhas.map((l) => [l.id, l.nome]));
+  const artigoMap = Object.fromEntries(artigos.map((a) => [a.id, a.nome]));
   const linhaMarkupMap = Object.fromEntries(linhas.map((l) => [l.id, l.markup]));
   // Preço/markup efetivos de um modelo (custo × markup da linha → sugerido → venda).
   const piFor = (m: Modelo) =>
@@ -474,11 +477,28 @@ function PlanejamentoPage() {
     if (unis.length) out.push({ key: "uni", nome: "Únicos", items: unis });
     return out;
   };
+  // Tecido é MULTI-PERTENCIMENTO: um modelo com vários tecidos_planejados aparece em cada
+  // grupo de tecido (por isso o poder de venda do grupo pode "somar mais" que o total).
+  const byTecido = (items: Modelo[]): Split[] => {
+    const map = new Map<string, Modelo[]>();
+    items.forEach((m) => {
+      const arts = (m.tecidos_planejados ?? []).filter(Boolean);
+      const keys = arts.length ? arts : ["__none__"];
+      keys.forEach((k) => {
+        const arr = map.get(k);
+        if (arr) arr.push(m); else map.set(k, [m]);
+      });
+    });
+    return Array.from(map.entries())
+      .map(([key, its]) => ({ key, nome: key === "__none__" ? "Sem tecido" : artigoMap[key] ?? "Sem tecido", items: its }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+  };
   // Ordem de aninhamento fixa (amplo→fino); os toggles só escolhem quais níveis entram.
   const splitters: ((items: Modelo[]) => Split[])[] = [
     groupByLinha ? byLinha : null,
     groupByCat ? byCat : null,
     groupBySub1 ? bySub1 : null,
+    groupByTecido ? byTecido : null,
     groupByRep ? byRep : null,
   ].filter(Boolean) as ((items: Modelo[]) => Split[])[];
   type Grupo = { key: string; nome: string; resumo: ReturnType<typeof computeResumo>; items?: Modelo[]; subgroups?: Grupo[] };
@@ -540,6 +560,7 @@ function PlanejamentoPage() {
               { label: "Linha", active: groupByLinha, onToggle: () => setGroupByLinha((v) => !v) },
               { label: "Categoria", active: groupByCat, onToggle: () => setGroupByCat((v) => !v) },
               { label: "Subcategoria", active: groupBySub1, onToggle: () => setGroupBySub1((v) => !v) },
+              { label: "Tecido", active: groupByTecido, onToggle: () => setGroupByTecido((v) => !v) },
               { label: "Repetição", active: groupByRep, onToggle: () => setGroupByRep((v) => !v) },
             ]}
           />
