@@ -1154,40 +1154,58 @@ function CustosTab() {
 // REALIZADO (grade real do CQ). Cálculo no FRONT reusando @/lib/preco (fonte ÚNICA
 // de preço; não replicar em SQL); sem RPC nova — custo_unitario_modelos (tenant-safe)
 // + queries RLS por tenant. Espelha o "poder de venda" do Planejamento/Lançamentos.
-type ComRow = { key: string; nome: string; pvPot: number; pvReal: number; lucroPot: number; margemPot: number; markup: number; n: number };
+type ComRow = { key: string; nome: string; pvPlan: number; lucroPlan: number; pvReal: number; lucroReal: number; margemPlan: number; markupPlan: number; margemReal: number; markupReal: number };
 
+const fmtPct = (v: number) => (v > 0 ? `${v.toFixed(0)}%` : "—");
+const fmtMkp = (v: number) => (v > 0 ? `${v.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}×` : "—");
+
+// Tabela com DOIS grupos de colunas claramente separados: Planejado (orçamento, grade
+// planejada) vs Realizado (feito, grade real). Cor + borda separam as duas contas.
 function ComTable({ title, firstLabel, rows }: { title: string; firstLabel: string; rows: ComRow[] }) {
   const s = useSort(rows, { accessors: {
-    nome: (r: ComRow) => r.nome, pvPot: (r: ComRow) => r.pvPot, pvReal: (r: ComRow) => r.pvReal,
-    lucroPot: (r: ComRow) => r.lucroPot, margemPot: (r: ComRow) => r.margemPot, markup: (r: ComRow) => r.markup,
+    nome: (r: ComRow) => r.nome,
+    pvPlan: (r: ComRow) => r.pvPlan, lucroPlan: (r: ComRow) => r.lucroPlan, margemPlan: (r: ComRow) => r.margemPlan, markupPlan: (r: ComRow) => r.markupPlan,
+    pvReal: (r: ComRow) => r.pvReal, lucroReal: (r: ComRow) => r.lucroReal, margemReal: (r: ComRow) => r.margemReal, markupReal: (r: ComRow) => r.markupReal,
   } });
+  const plan = "bg-blue-500/5", real = "bg-emerald-500/5";
   return (
     <Card className="p-4">
       <h3 className="font-semibold mb-3">{title}</h3>
       <div className="overflow-x-auto">
         <table className="w-full text-sm card-table">
           <thead className="text-left text-muted-foreground">
+            <tr>
+              <th className="py-1 pr-3"></th>
+              <th colSpan={4} className={`py-1 px-2 text-center font-semibold text-blue-600 border-l ${plan}`}>Planejado (orçamento)</th>
+              <th colSpan={4} className={`py-1 px-2 text-center font-semibold text-emerald-600 border-l ${real}`}>Realizado (feito)</th>
+            </tr>
             <tr className="border-b">
               <SortTh label={firstLabel} sortKey="nome" sortState={s} className="py-2 pr-3" />
-              <SortTh label="PV potencial" sortKey="pvPot" sortState={s} className="py-2 pr-3 text-right" align="right" />
-              <SortTh label="PV realizado" sortKey="pvReal" sortState={s} className="py-2 pr-3 text-right" align="right" />
-              <SortTh label="Lucro (pot.)" sortKey="lucroPot" sortState={s} className="py-2 pr-3 text-right" align="right" />
-              <SortTh label="Margem" sortKey="margemPot" sortState={s} className="py-2 pr-3 text-right" align="right" />
-              <SortTh label="Markup" sortKey="markup" sortState={s} className="py-2 pr-3 text-right" align="right" />
+              <SortTh label="PV" sortKey="pvPlan" sortState={s} className={`py-2 px-2 text-right border-l ${plan}`} align="right" />
+              <SortTh label="Lucro" sortKey="lucroPlan" sortState={s} className={`py-2 px-2 text-right ${plan}`} align="right" />
+              <SortTh label="Margem" sortKey="margemPlan" sortState={s} className={`py-2 px-2 text-right ${plan}`} align="right" />
+              <SortTh label="Markup" sortKey="markupPlan" sortState={s} className={`py-2 px-2 text-right ${plan}`} align="right" />
+              <SortTh label="PV" sortKey="pvReal" sortState={s} className={`py-2 px-2 text-right border-l ${real}`} align="right" />
+              <SortTh label="Lucro" sortKey="lucroReal" sortState={s} className={`py-2 px-2 text-right ${real}`} align="right" />
+              <SortTh label="Margem" sortKey="margemReal" sortState={s} className={`py-2 px-2 text-right ${real}`} align="right" />
+              <SortTh label="Markup" sortKey="markupReal" sortState={s} className={`py-2 px-2 text-right ${real}`} align="right" />
             </tr>
           </thead>
           <tbody>
             {s.sorted.map((r) => (
               <tr key={r.key} className="border-b last:border-0">
-                <td className="py-2 pr-3">{r.nome}</td>
-                <td className="py-2 pr-3 text-right" data-label="PV potencial">{brl(r.pvPot)}</td>
-                <td className="py-2 pr-3 text-right" data-label="PV realizado">{brl(r.pvReal)}</td>
-                <td className="py-2 pr-3 text-right" data-label="Lucro (pot.)">{brl(r.lucroPot)}</td>
-                <td className="py-2 pr-3 text-right" data-label="Margem">{r.margemPot > 0 ? `${r.margemPot.toFixed(0)}%` : "—"}</td>
-                <td className="py-2 pr-3 text-right" data-label="Markup">{r.markup > 0 ? `${r.markup.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}×` : "—"}</td>
+                <td className="py-2 pr-3 font-medium">{r.nome}</td>
+                <td className={`py-2 px-2 text-right border-l ${plan}`} data-label="Plan · PV">{brl(r.pvPlan)}</td>
+                <td className={`py-2 px-2 text-right ${plan}`} data-label="Plan · Lucro">{brl(r.lucroPlan)}</td>
+                <td className={`py-2 px-2 text-right ${plan}`} data-label="Plan · Margem">{fmtPct(r.margemPlan)}</td>
+                <td className={`py-2 px-2 text-right ${plan}`} data-label="Plan · Markup">{fmtMkp(r.markupPlan)}</td>
+                <td className={`py-2 px-2 text-right border-l ${real}`} data-label="Real · PV">{brl(r.pvReal)}</td>
+                <td className={`py-2 px-2 text-right ${real}`} data-label="Real · Lucro">{brl(r.lucroReal)}</td>
+                <td className={`py-2 px-2 text-right ${real}`} data-label="Real · Margem">{fmtPct(r.margemReal)}</td>
+                <td className={`py-2 px-2 text-right ${real}`} data-label="Real · Markup">{fmtMkp(r.markupReal)}</td>
               </tr>
             ))}
-            {rows.length === 0 && <tr><td colSpan={6} className="py-4 text-center text-muted-foreground">Sem dados.</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={9} className="py-4 text-center text-muted-foreground">Sem dados.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -1265,23 +1283,30 @@ function ComercialTab() {
       const gp = Number((gradePlan as any)[m.id]) || 0;
       const gr = Number((gradeReal as any)[m.id]) || 0;
       let r = map.get(key);
-      if (!r) { r = { key, nome, pvPot: 0, pvReal: 0, lucroPot: 0, margemPot: 0, markup: 0, n: 0 }; map.set(key, r); }
-      r.pvPot += pi.efetivo * gp;
-      r.pvReal += pi.efetivo * gr;
-      r.lucroPot += (pi.efetivo - custo) * gp;
-      if (pi.markupReal > 0) { r.markup += pi.markupReal; r.n += 1; }
+      if (!r) { r = { key, nome, pvPlan: 0, lucroPlan: 0, pvReal: 0, lucroReal: 0, margemPlan: 0, markupPlan: 0, margemReal: 0, markupReal: 0 }; map.set(key, r); }
+      r.pvPlan += pi.efetivo * gp; r.lucroPlan += (pi.efetivo - custo) * gp;
+      r.pvReal += pi.efetivo * gr; r.lucroReal += (pi.efetivo - custo) * gr;
+    };
+    // margem% = lucro/PV; markup = PV/custo, e custo = PV − lucro.
+    const derive = (r: ComRow): ComRow => {
+      const custoPlan = r.pvPlan - r.lucroPlan, custoReal = r.pvReal - r.lucroReal;
+      return { ...r,
+        margemPlan: r.pvPlan > 0 ? (r.lucroPlan / r.pvPlan) * 100 : 0,
+        markupPlan: custoPlan > 0 ? r.pvPlan / custoPlan : 0,
+        margemReal: r.pvReal > 0 ? (r.lucroReal / r.pvReal) * 100 : 0,
+        markupReal: custoReal > 0 ? r.pvReal / custoReal : 0,
+      };
     };
     const mc = new Map<string, ComRow>(), ml = new Map<string, ComRow>();
     for (const m of modelos) {
       acc(mc, m.colecao ?? "__none__", m.colecao || "Sem coleção", m);
       acc(ml, m.linha_id ?? "__none__", (m.linha?.nome as string) || "Sem linha", m);
     }
-    const finish = (map: Map<string, ComRow>) => Array.from(map.values())
-      .map((r) => ({ ...r, margemPot: r.pvPot > 0 ? (r.lucroPot / r.pvPot) * 100 : 0, markup: r.n > 0 ? r.markup / r.n : 0 }))
-      .sort((a, b) => b.pvPot - a.pvPot);
+    const finish = (map: Map<string, ComRow>) => Array.from(map.values()).map(derive).sort((a, b) => b.pvPlan - a.pvPlan);
     const bc = finish(mc), bl = finish(ml);
-    const t = bc.reduce((a, r) => ({ pvPot: a.pvPot + r.pvPot, pvReal: a.pvReal + r.pvReal, lucroPot: a.lucroPot + r.lucroPot, nMk: a.nMk + r.n, sMk: a.sMk + r.markup * r.n }), { pvPot: 0, pvReal: 0, lucroPot: 0, nMk: 0, sMk: 0 });
-    return { byColecao: bc, byLinha: bl, tot: { ...t, margem: t.pvPot > 0 ? (t.lucroPot / t.pvPot) * 100 : 0, markup: t.nMk > 0 ? t.sMk / t.nMk : 0 } };
+    const t0 = bc.reduce((a, r) => ({ pvPlan: a.pvPlan + r.pvPlan, lucroPlan: a.lucroPlan + r.lucroPlan, pvReal: a.pvReal + r.pvReal, lucroReal: a.lucroReal + r.lucroReal }), { pvPlan: 0, lucroPlan: 0, pvReal: 0, lucroReal: 0 });
+    const tot = derive({ key: "", nome: "", ...t0, margemPlan: 0, markupPlan: 0, margemReal: 0, markupReal: 0 });
+    return { byColecao: bc, byLinha: bl, tot };
   }, [modelos, custoMap, gradePlan, gradeReal]);
 
   return (
@@ -1300,10 +1325,10 @@ function ComercialTab() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Kpi label="Poder de venda" value={brl(tot.pvPot)} icon={Tag} sub={`realizado ${brl(tot.pvReal)}`} />
-        <Kpi label="Lucro bruto (pot.)" value={brl(tot.lucroPot)} icon={DollarSign} />
-        <Kpi label="Margem média" value={tot.margem > 0 ? `${tot.margem.toFixed(0)}%` : "—"} icon={Sparkles} />
-        <Kpi label="Markup médio" value={tot.markup > 0 ? `${tot.markup.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}×` : "—"} icon={Layers} />
+        <Kpi label="Poder de venda" value={brl(tot.pvPlan)} icon={Tag} sub={`realizado ${brl(tot.pvReal)}`} />
+        <Kpi label="Lucro bruto" value={brl(tot.lucroPlan)} icon={DollarSign} sub={`realizado ${brl(tot.lucroReal)}`} />
+        <Kpi label="Margem média" value={fmtPct(tot.margemPlan)} icon={Sparkles} sub={`realizado ${fmtPct(tot.margemReal)}`} />
+        <Kpi label="Markup médio" value={fmtMkp(tot.markupPlan)} icon={Layers} sub={`realizado ${fmtMkp(tot.markupReal)}`} />
       </div>
 
       <ComTable title="Por coleção" firstLabel="Coleção" rows={byColecao} />
