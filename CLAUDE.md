@@ -171,7 +171,15 @@ e verifique** — o repo muda rápido.
 
 1. **Parcelas (OC)** — salvar itens ANTES de `status='recebido'` (comentário "CRITICAL"
    em `oc-aviamento.tsx`). `recalcular_parcelas` distribui `total − Σ(pagas)`; é automática
-   via trigger. **Parcela a pagar (prazo 30/60/90) ≠ `parcelas_recebimento` (entrega).**
+   via trigger p/ **tecido** (`recalc_parcelas_on_valor` em `ocs_tecido` ao mudar
+   `valor_real_total`) E **aviamento** (`trg_recalc_parcelas_aviamento` em
+   `ocs_aviamento_itens`, só quando a OC já está 'recebido'). **Parcela a pagar (prazo
+   30/60/90) ≠ `parcelas_recebimento` (entrega).** ⚠️ O cliente (`authenticated`) só tem
+   UPDATE em `parcelas(data_vencimento,status,data_pagamento,comprovante_url)` — `valor`/
+   `numero_parcela` são só-derivados das geradoras (DEFINER, owner=postgres). Vencimento de
+   parcela PAGA é bloqueado no front (não muta conta quitada). `servicos_financeiro` (DEFINER
+   que sincroniza `parcelas_servico` na leitura) tem EXECUTE revogado de PUBLIC/anon; e
+   `parcelas_servico` tem o modgate RESTRICTIVE do módulo `financeiro` (igual `parcelas`).
 2. **Storage por tenant** — todos os buckets via `(storage.foldername(name))[1] =
    get_user_tenant_id()`; uploads via `tenantPrefix()`.
 3. **Itens de OC** — diff incremental por id (update/insert/delete seletivo); IDs preservados.

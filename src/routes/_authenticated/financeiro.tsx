@@ -272,7 +272,7 @@ function FinanceiroPage() {
           <TabsTrigger value="resumo">Resumo</TabsTrigger>
         </TabsList>
         <TabsContent value="calendario" className="mt-4">
-          <CalendarioView parcelas={parcelasCal} loading={isLoading} />
+          <CalendarioView parcelas={parcelasCal} loading={isLoading} onServico={() => setTab("servicos")} />
         </TabsContent>
         <TabsContent value="lista" className="mt-4">
           <ListaView parcelas={parcelas} loading={isLoading} />
@@ -291,7 +291,7 @@ function FinanceiroPage() {
 
 /* ============================ CALENDÁRIO ============================ */
 
-function CalendarioView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolean }) {
+function CalendarioView({ parcelas, loading, onServico }: { parcelas: Parcela[]; loading: boolean; onServico?: () => void }) {
   const [detalheId, setDetalheId] = useState<string | null>(null);
   const [pagandoId, setPagandoId] = useState<string | null>(null);
   const [ocView, setOcView] = useState<{ tipo: string; id: string } | null>(null);
@@ -378,7 +378,7 @@ function CalendarioView({ parcelas, loading }: { parcelas: Parcela[]; loading: b
                     <button
                       key={p.id}
                       type="button"
-                      onClick={() => (p as any)._servico ? toast.info("Serviço — pague/edite na aba Serviços") : setDetalheId(p.id)}
+                      onClick={() => (p as any)._servico ? onServico?.() : setDetalheId(p.id)}
                       className={cn("w-full text-left px-1.5 py-0.5 rounded truncate hover:ring-1 hover:ring-primary", color)}
                     >
                       {(p.representanteNome ?? p.empresaNome ?? p.empresas?.nome ?? "—")} · {brl(Number(p.valor))}
@@ -417,7 +417,7 @@ function CalendarioView({ parcelas, loading }: { parcelas: Parcela[]; loading: b
                     <button
                       key={p.id}
                       type="button"
-                      onClick={() => (p as any)._servico ? toast.info("Serviço — pague/edite na aba Serviços") : setDetalheId(p.id)}
+                      onClick={() => (p as any)._servico ? onServico?.() : setDetalheId(p.id)}
                       className="flex w-full items-center gap-3 px-3 py-3 text-left active:bg-muted/50"
                     >
                       <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full", dot)} />
@@ -571,7 +571,7 @@ function ParcelaDetailDialog({
               value={vencimento}
               onChange={(e) => setVencimento(e.target.value)}
               className="w-40"
-              disabled={!podeEditar}
+              disabled={!podeEditar || st === "pago"}
             />
             {podeEditar && vencimento !== parcela.data_vencimento && (
               <Button
@@ -605,7 +605,7 @@ function ParcelaDetailDialog({
               <div style={{ fontSize: 11 }}>{new Date().toLocaleDateString("pt-BR")}</div>
             </div>
             <div style={{ fontSize: 13, lineHeight: 2 }}>
-              <div><b>Fornecedor:</b> {parcela.empresas?.nome ?? "—"}</div>
+              <div><b>Fornecedor:</b> {parcela.representanteNome ?? parcela.empresaNome ?? parcela.empresas?.nome ?? "—"}</div>
               <div><b>Origem:</b> {tipoLabel} · Nº {ocNumero}</div>
               <div><b>Parcela:</b> {parcela.numero_parcela}</div>
               <div><b>Valor:</b> {brl(Number(parcela.valor))}</div>
@@ -684,7 +684,7 @@ function Legend2({ color, label }: { color: string; label: string }) {
 // EMITE quando o ISO está completo/válido (ou vazio), nunca a cada tecla. Antes salvava
 // no blur do input, mas ESCOLHER no calendário não dispara blur (o foco fica no popover),
 // então a data mudava na tela mas NÃO persistia e voltava ao antigo no próximo refetch.
-function VencimentoCell({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+function VencimentoCell({ value, onSave, disabled }: { value: string; onSave: (v: string) => void; disabled?: boolean }) {
   const podeEditar = usePodeEditarFinanceiro();
   const [v, setV] = useState(value);
   useEffect(() => { setV(value); }, [value]);
@@ -697,7 +697,7 @@ function VencimentoCell({ value, onSave }: { value: string; onSave: (v: string) 
         if (iso && iso !== value) onSave(iso);
       }}
       className="w-36"
-      disabled={!podeEditar}
+      disabled={!podeEditar || disabled}
     />
   );
 }
@@ -888,6 +888,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
                       <VencimentoCell
                         value={p.data_vencimento}
                         onSave={(v) => updateVencimentoMut.mutate({ id: p.id, data: v })}
+                        disabled={st === "pago"}
                       />
                     </td>
                     <td className="py-2 pr-3" data-label="Status">
@@ -898,9 +899,9 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
                     <td className="py-2 pr-3" data-label="Pagamento">{p.data_pagamento ? format(parseISO(p.data_pagamento), "dd/MM/yyyy") : "—"}</td>
                     <td className="py-2 pr-3" data-label="" onClick={stop} onKeyDown={stop}>
                       {podeEditar && (st !== "pago" ? (
-                        <Button size="sm" variant="outline" onClick={() => setPagandoId(p.id)}>Marcar pago</Button>
+                        <Button size="sm" variant="outline" className="max-md:h-11" onClick={() => setPagandoId(p.id)}>Marcar pago</Button>
                       ) : (
-                        <Button size="sm" variant="destructive" onClick={() => desmarcarMut.mutate(p.id)} disabled={desmarcarMut.isPending}>Desmarcar</Button>
+                        <Button size="sm" variant="destructive" className="max-md:h-11" onClick={() => desmarcarMut.mutate(p.id)} disabled={desmarcarMut.isPending}>Desmarcar</Button>
                       ))}
                       {p.comprovante_url && (
                         <ComprovanteLink value={p.comprovante_url} label="comprovante" className="text-xs text-primary ml-2" />
@@ -945,7 +946,7 @@ function ListaView({ parcelas, loading }: { parcelas: Parcela[]; loading: boolea
           { key: "pagamento", label: "Pagamento" },
         ]}
         linhas={filtered.map((p) => ({
-          fornecedor: p.empresas?.nome ?? "—",
+          fornecedor: p.representanteNome ?? p.empresaNome ?? p.empresas?.nome ?? "—",
           oc: ocNumero(p),
           parcela: p.numero_parcela,
           valor: brl(Number(p.valor)),
@@ -1113,7 +1114,7 @@ function ServicosView() {
                     <td className="py-2 pr-3" data-label="Parcela">{r.numero_parcela}/{r.numero_parcelas}</td>
                     <td className="py-2 pr-3 text-right font-medium" data-label="Valor parcela">{brl(Number(r.valor_parcela))}</td>
                     <td className="py-2 pr-3" data-label="Vencimento" onClick={stop} onKeyDown={stop}>
-                      <VencimentoCell value={r.data_vencimento ?? ""} onSave={(data) => updVenc.mutate({ id: r.parcela_id, data })} />
+                      <VencimentoCell value={r.data_vencimento ?? ""} onSave={(data) => updVenc.mutate({ id: r.parcela_id, data })} disabled={st === "pago"} />
                     </td>
                     <td className="py-2 pr-3" data-label="Pagamento" onClick={stop} onKeyDown={stop}>
                       <VencimentoCell value={r.data_pagamento ?? ""} onSave={(data) => updPag.mutate({ id: r.parcela_id, data })} />
@@ -1125,9 +1126,9 @@ function ServicosView() {
                     </td>
                     <td className="py-2 pr-3" data-label="" onClick={stop} onKeyDown={stop}>
                       {podeEditar && (st === "pago" ? (
-                        <Button size="sm" variant="destructive" onClick={() => togglePago.mutate({ id: r.parcela_id, pago: false })} disabled={togglePago.isPending}>Desmarcar</Button>
+                        <Button size="sm" variant="destructive" className="max-md:h-11" onClick={() => togglePago.mutate({ id: r.parcela_id, pago: false })} disabled={togglePago.isPending}>Desmarcar</Button>
                       ) : (
-                        <Button size="sm" onClick={() => togglePago.mutate({ id: r.parcela_id, pago: true })} disabled={togglePago.isPending}>Marcar pago</Button>
+                        <Button size="sm" className="max-md:h-11" onClick={() => togglePago.mutate({ id: r.parcela_id, pago: true })} disabled={togglePago.isPending}>Marcar pago</Button>
                       ))}
                     </td>
                   </tr>
