@@ -209,12 +209,15 @@ function ColecaoTab() {
         <Kpi label="Em Planejamento" value={kpis.planejamento} icon={Palette} />
         <Kpi label="Em Desenvolvimento" value={kpis.desenvolvimento} icon={Sparkles} />
         <Kpi label="Em Produção" value={kpis.producao} icon={BarChart3} />
-        <Kpi label="Lançados (CQ ok)" value={kpis.lancados} icon={Package} />
+        <Kpi label="Lançados" value={kpis.lancados} icon={Package} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="p-4">
           <h3 className="font-semibold mb-3">Funil de progresso</h3>
+          {funnelBase === 0 ? (
+            <p className="py-20 text-center text-sm text-muted-foreground">{isLoading ? "Carregando…" : "Sem dados no período."}</p>
+          ) : (
           <div style={{ width: "100%", height: 320 }}>
             <ResponsiveContainer>
               <FunnelChart>
@@ -226,9 +229,13 @@ function ColecaoTab() {
               </FunnelChart>
             </ResponsiveContainer>
           </div>
+          )}
         </Card>
         <Card className="p-4">
           <h3 className="font-semibold mb-3">Distribuição por categoria</h3>
+          {pieData.length === 0 ? (
+            <p className="py-20 text-center text-sm text-muted-foreground">{isLoading ? "Carregando…" : "Sem dados no período."}</p>
+          ) : (
           <div style={{ width: "100%", height: 320 }}>
             <ResponsiveContainer>
               <PieChart>
@@ -240,6 +247,7 @@ function ColecaoTab() {
               </PieChart>
             </ResponsiveContainer>
           </div>
+          )}
         </Card>
       </div>
 
@@ -569,8 +577,8 @@ function ProducaoTab() {
   }, [defeitoMes]);
   // Oficina e Acabamento são subtipos de Serviço — não etapas próprias.
   const etapas = ["CAD", "Serviço", "Controle de Qualidade", "Direcionamento", "Lançado"];
-  // Rótulo da timeline: a etapa "Lançado" (existe registro em lancamentos) é a
-  // ETAPA de lançamento — distinta do KPI "Lançados (CQ ok)" (CQ confirmado).
+  // Rótulo da timeline. "Lançado" = modelos.lancado (fonte única), a MESMA base do
+  // KPI "Lançados" da aba Coleção — consistentes desde jul/2026.
   const etapaLabel: Record<string, string> = { "Lançado": "Em Lançamento" };
 
   const colecoes: string[] = data?.filtros?.colecoes ?? [];
@@ -1078,14 +1086,21 @@ function CustosTab() {
       </Card>
 
       <Card className="p-4">
-        <h3 className="font-semibold mb-3">Custo médio por peça por coleção</h3>
+        <h3 className="font-semibold mb-1">Custo médio por peça por coleção</h3>
+        <p className="mb-3 text-xs text-muted-foreground">Só modelos com corte confirmado. Passe o mouse para ver a cobertura (quantos de quantos).</p>
         <div style={{ width: "100%", height: 300 }}>
           <ResponsiveContainer>
             <BarChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
               <XAxis dataKey="colecao" />
               <YAxis tickFormatter={(v) => v.toLocaleString("pt-BR")} />
-              <Tooltip formatter={(v: any) => brl(Number(v))} />
+              <Tooltip
+                formatter={(v: any) => brl(Number(v))}
+                labelFormatter={(label: any, payload: any) => {
+                  const p = payload?.[0]?.payload;
+                  return p && p.nTotal != null ? `${label} — média de ${p.nConf}/${p.nTotal} modelo(s)` : label;
+                }}
+              />
               <Bar dataKey="medio" name="Custo médio" fill={PIE_COLORS[1]} />
             </BarChart>
           </ResponsiveContainer>
