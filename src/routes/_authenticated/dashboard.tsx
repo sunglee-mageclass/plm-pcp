@@ -1391,6 +1391,8 @@ function LeadtimeTab() {
         </div>
       )}
 
+      {etapas.length > 0 && <LeadtimeItens colunas={[...planejamento, ...kanban, ...macro]} />}
+
       {!isLoading && etapas.length === 0 && (
         <p className="rounded-md border p-6 text-center text-sm text-muted-foreground">
           Sem dados de leadtime ainda. As etapas populam conforme os modelos avançam no fluxo.
@@ -1399,5 +1401,160 @@ function LeadtimeTab() {
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
       <DashError show={isError} />
     </div>
+  );
+}
+
+// Tracking INDIVIDUAL: matriz item × etapas. Colunas = etapas acompanhadas (flow order,
+// as mesmas dos cards); célula = dias na etapa, verde/vermelho vs o ideal da etapa.
+// "Agrupar por" colapsa em Coleção OU Subcoleção·Semana (linha = média do grupo).
+function ltMedias(items: any[]): Record<string, number> {
+  const acc: Record<string, { s: number; c: number }> = {};
+  for (const it of items) {
+    for (const [k, v] of Object.entries(it.duracoes ?? {})) {
+      const n = Number(v);
+      if (!isFinite(n)) continue;
+      (acc[k] ??= { s: 0, c: 0 });
+      acc[k].s += n; acc[k].c += 1;
+    }
+  }
+  const out: Record<string, number> = {};
+  for (const [k, { s, c }] of Object.entries(acc)) out[k] = c ? Math.round((s / c) * 10) / 10 : 0;
+  return out;
+}
+
+function LeadtimeItens({ colunas }: { colunas: any[] }) {
+  const [colecao, setColecao] = useState("all");
+  const [subcol, setSubcol] = useState("all");
+  const [semana, setSemana] = useState("all");
+  const [agrupar, setAgrupar] = useState<"none" | "colecao" | "subsem">("none");
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["dash-leadtime-itens"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("dashboard_leadtime_itens" as never);
+      if (error) throw error;
+      return data as any;
+    },
+  });
+  const itens: any[] = data?.itens ?? [];
+
+  const uniq = (vals: any[]) => Array.from(new Set(vals.filter((v) => v != null && v !== ""))).sort();
+  const colecoes = uniq(itens.map((i) => i.colecao));
+  const subcols = uniq(itens.map((i) => i.subcolecao));
+  const semanas = uniq(itens.map((i) => i.semana));
+
+  const filt = itens.filter(
+    (i) =>
+      (colecao === "all" || (i.colecao ?? "") === colecao) &&
+      (subcol === "all" || (i.subcolecao ?? "") === subcol) &&
+      (semana === "all" || (i.semana ?? "") === semana),
+  );
+
+  type Row = { key: string; label: string; sub?: string; versao?: number; n: number; dur: Record<string, number> };
+  let rows: Row[];
+  if (agrupar === "none") {
+    rows = filt.map((it) => ({
+      key: it.modelo_id, label: it.ref || it.nome || "—",
+      sub: it.ref ? it.nome : undefined, versao: it.versao, n: 1, dur: it.duracoes ?? {},
+    }));
+  } else {
+    const keyOf = (it: any) =>
+      agrupar === "colecao"
+        ? it.colecao || "Sem coleção"
+        : `${it.subcolecao || "Sem subcoleção"}${it.semana ? " · Sem " + it.semana : ""}`;
+    const groups = new Map<string, any[]>();
+    for (const it of filt) { const k = keyOf(it); (groups.get(k) ?? groups.set(k, []).get(k))!.push(it); }
+    rows = Array.from(groups.entries())
+      .map(([k, its]) => ({ key: k, label: k, n: its.length, dur: ltMedias(its) }))
+      .sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
+  }
+
+  const idealDe = (etapa: string) => Number(colunas.find((c) => c.etapa === etapa)?.idealDias) || 0;
+  const dimLabel = agrupar === "none" ? "Item" : agrupar === "colecao" ? "Coleção" : "Subcoleção · Semana";
+
+  return (
+    <div className="space-y-3">
+      <SecHeader icon={ClipboardCheck}>Detalhamento por item</SecHeader>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="inline-flex rounded-md border p-0.5">
+          {([["none", "Item"], ["colecao", "Coleção"], ["subsem", "Subcol · Semana"]] as const).map(([v, l]) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setAgrupar(v)}
+              className={"rounded px-2.5 py-1 text-xs font-medium " + (agrupar === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+        <LtSel value={colecao} onChange={setColecao} allLabel="Todas coleções" opts={colecoes} />
+        <LtSel value={subcol} onChange={setSubcol} allLabel="Todas subcoleções" opts={subcols} />
+        <LtSel value={semana} onChange={setSemana} allLabel="Todas semanas" opts={semanas} prefix="Sem " />
+      </div>
+
+      <Card className="p-0 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm card-table">
+            <thead className="text-left text-muted-foreground">
+              <tr className="border-b">
+                <th className="py-2 px-3 whitespace-nowrap">{dimLabel}</th>
+                {colunas.map((c) => (
+                  <th key={c.etapa} className="py-2 px-2 text-center text-xs whitespace-nowrap">
+                    {c.tipo === "kanban" ? LeadtimePretty(c.label) : c.label}
+                    <span className="block font-normal text-[10px] text-muted-foreground/70">ideal {fmtNum(idealDe(c.etapa))}d</span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.key} className="border-b last:border-0">
+                  <td className="py-2 px-3 font-medium" data-label={dimLabel}>
+                    <span className="inline-flex items-center gap-1.5">
+                      {r.label}
+                      {r.versao != null && r.versao > 1 && <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">v{r.versao}</Badge>}
+                      {agrupar !== "none" && <span className="text-xs text-muted-foreground">({r.n})</span>}
+                    </span>
+                    {r.sub && <span className="block text-xs text-muted-foreground">{r.sub}</span>}
+                  </td>
+                  {colunas.map((c) => {
+                    const d = r.dur[c.etapa];
+                    const ideal = idealDe(c.etapa);
+                    const ok = d == null || ideal <= 0 || d <= ideal;
+                    return (
+                      <td
+                        key={c.etapa}
+                        data-label={c.tipo === "kanban" ? LeadtimePretty(c.label) : c.label}
+                        className={"py-2 px-2 text-center tabular-nums " + (d == null ? "text-muted-foreground/50" : ok ? "text-green-700 dark:text-green-400" : "text-destructive font-semibold")}
+                      >
+                        {d == null ? "—" : fmtNum(d)}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+              {!isLoading && rows.length === 0 && (
+                <tr><td colSpan={colunas.length + 1} className="py-6 text-center text-muted-foreground">Nenhum item no filtro.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+      {isLoading && <p className="text-sm text-muted-foreground">Carregando itens…</p>}
+    </div>
+  );
+}
+
+function LtSel({ value, onChange, allLabel, opts, prefix }: { value: string; onChange: (v: string) => void; allLabel: string; opts: any[]; prefix?: string }) {
+  if (opts.length === 0) return null;
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger className="h-8 w-auto min-w-[9rem] text-xs"><SelectValue /></SelectTrigger>
+      <SelectContent>
+        <SelectItem value="all">{allLabel}</SelectItem>
+        {opts.map((o) => <SelectItem key={String(o)} value={String(o)}>{prefix ? prefix + o : String(o)}</SelectItem>)}
+      </SelectContent>
+    </Select>
   );
 }
