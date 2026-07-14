@@ -6,6 +6,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useAuth } from "@/hooks/useAuth";
 import { useSystemIdentity } from "@/hooks/useSystemIdentity";
 import { supabase } from "@/integrations/supabase/client";
@@ -29,8 +33,14 @@ function IdentidadePage() {
   const [logoPath, setLogoPath] = useState<string | null>(null);
   const [faviconPath, setFaviconPath] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [confirmSave, setConfirmSave] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const faviconInputRef = useRef<HTMLInputElement>(null);
+  // Arquivos enviados nesta sessão (p/ apagar os que não forem persistidos → sem órfãos).
+  const sessionUploads = useRef<string[]>([]);
+
+  // Limites de arquivo (o bucket não impõe; branding não precisa ser grande).
+  const MAX = { logo: 1_048_576, favicon: 262_144 } as const; // 1 MB / 256 KB
 
   useEffect(() => {
     if (!identity.isLoading) {
@@ -47,12 +57,16 @@ function IdentidadePage() {
   if (!isSuperAdmin) return <Navigate to="/admin" replace />;
 
   async function uploadFile(file: File, kind: "logo" | "favicon") {
-    const ext = file.name.split(".").pop() ?? "png";
+    if (!file.type.startsWith("image/")) throw new Error("Selecione um arquivo de imagem.");
+    if (file.size > MAX[kind]) throw new Error(`Arquivo grande demais (máx. ${Math.round(MAX[kind] / 1024)} KB).`);
+    // ext sanitizado (só alfanumérico) — sem traversal/extensão estranha no path.
+    const ext = file.name.split(".").pop()?.replace(/[^a-z0-9]/gi, "").toLowerCase() || "png";
     const path = `${kind}-${Date.now()}.${ext}`;
     const { error } = await supabase.storage
       .from("system-identity")
       .upload(path, file, { upsert: true, contentType: file.type });
     if (error) throw error;
+    sessionUploads.current.push(path);
     // Bucket público: URL estável (não expira), também serve de preview imediato.
     const publicUrl = supabase.storage.from("system-identity").getPublicUrl(path).data.publicUrl;
     return { path, signedUrl: publicUrl };
@@ -85,9 +99,10 @@ function IdentidadePage() {
   }
 
   async function handleSave() {
+    setConfirmSave(false);
     setSaving(true);
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("system_settings")
         .update({
           nome_sistema: nome.trim() || "sisTrama",
@@ -95,8 +110,20 @@ function IdentidadePage() {
           logo_url: logoPath,
           favicon_url: faviconPath,
         })
-        .eq("singleton", true);
+        .eq("singleton", true)
+        .select("id");
       if (error) throw error;
+      // 0 linhas = RLS bloqueou (sem erro) → não minta "atualizada".
+      if (!data?.length) throw new Error("Sem permissão para salvar a identidade.");
+      // Apaga órfãos: os paths antigos persistidos e os uploads desta sessão que não
+      // viraram os finais (senão o bucket acumula arquivos p/ sempre).
+      const keep = new Set([logoPath, faviconPath].filter(Boolean) as string[]);
+      const toRemove = [...new Set(
+        [identity.logo_url, identity.favicon_url, ...sessionUploads.current]
+          .filter((p): p is string => !!p && !keep.has(p)),
+      )];
+      if (toRemove.length) await supabase.storage.from("system-identity").remove(toRemove);
+      sessionUploads.current = [];
       await qc.invalidateQueries({ queryKey: ["system_identity"] });
       toast.success("Identidade atualizada.");
     } catch (err) {
@@ -117,11 +144,11 @@ function IdentidadePage() {
           <div className="min-w-0">
             <h1 className="text-2xl font-bold">Identidade do Sistema</h1>
             <p className="text-sm text-muted-foreground">
-              Personalize nome, subtítulo, logo e favicon exibidos em todo o sistema.
+              Nome, subtítulo, logo e favicon exibidos em <strong>todas as lojas</strong> e na tela de login.
             </p>
           </div>
         </div>
-        <Button className="max-sm:hidden shrink-0" onClick={handleSave} disabled={saving}>
+        <Button className="max-sm:hidden shrink-0" onClick={() => setConfirmSave(true)} disabled={saving}>
           {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Salvar
         </Button>
@@ -152,7 +179,7 @@ function IdentidadePage() {
           <CardDescription>PNG ou SVG. Recomendado quadrado, fundo transparente.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-4">
             <div className="flex h-20 w-20 items-center justify-center rounded-md border bg-muted/40 overflow-hidden">
               {logoPreview ? (
                 <img src={logoPreview} alt="Logo" className="max-h-full max-w-full object-contain" />
@@ -165,7 +192,7 @@ function IdentidadePage() {
               <Upload className="mr-2 h-4 w-4" /> Selecionar arquivo
             </Button>
             {logoPath && (
-              <Button type="button" variant="ghost" onClick={() => { setLogoPath(null); setLogoPreview(null); }}>
+              <Button type="button" variant="ghost" onClick={() => { setLogoPath(null); setLogoPreview(null); toast.info("Logo removida. Clique em Salvar para aplicar."); }}>
                 Remover
               </Button>
             )}
@@ -179,7 +206,7 @@ function IdentidadePage() {
           <CardDescription>PNG 32×32 px ideal.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-4">
             <div className="flex h-12 w-12 items-center justify-center rounded-md border bg-muted/40 overflow-hidden">
               {faviconPreview ? (
                 <img src={faviconPreview} alt="Favicon" className="max-h-full max-w-full object-contain" />
@@ -192,7 +219,7 @@ function IdentidadePage() {
               <Upload className="mr-2 h-4 w-4" /> Selecionar arquivo
             </Button>
             {faviconPath && (
-              <Button type="button" variant="ghost" onClick={() => { setFaviconPath(null); setFaviconPreview(null); }}>
+              <Button type="button" variant="ghost" onClick={() => { setFaviconPath(null); setFaviconPreview(null); toast.info("Favicon removido. Clique em Salvar para aplicar."); }}>
                 Remover
               </Button>
             )}
@@ -205,11 +232,27 @@ function IdentidadePage() {
         <Button asChild variant="outline" size="icon" aria-label="Voltar">
           <Link to="/admin"><ArrowLeft className="h-4 w-4" /></Link>
         </Button>
-        <Button className="ml-auto" onClick={handleSave} disabled={saving}>
+        <Button className="ml-auto" onClick={() => setConfirmSave(true)} disabled={saving}>
           {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Salvar
         </Button>
       </MobileActionBar>
+
+      <AlertDialog open={confirmSave} onOpenChange={setConfirmSave}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Salvar a identidade do sistema?</AlertDialogTitle>
+            <AlertDialogDescription>
+              O nome, subtítulo, logo e favicon mudam para <strong>todas as lojas e usuários</strong>,
+              inclusive a tela de login. Deseja continuar?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { void handleSave(); }} disabled={saving}>Salvar</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

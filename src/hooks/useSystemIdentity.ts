@@ -69,8 +69,13 @@ export function useApplySystemIdentity() {
   useEffect(() => {
     if (typeof document === "undefined") return;
     const href = identity.faviconSignedUrl;
-    if (!href) return;
     let link = document.querySelector<HTMLLinkElement>("link[rel='icon']");
+    // Favicon removido: tira o <link> (volta ao ícone padrão do navegador) em vez de
+    // deixar preso o antigo até dar reload.
+    if (!href) {
+      if (link) link.remove();
+      return;
+    }
     if (!link) {
       link = document.createElement("link");
       link.rel = "icon";
