@@ -69,6 +69,7 @@ export const Route = createFileRoute("/_authenticated/cadastro/aviamentos")({
 
 type Aviamento = {
   id: string;
+  codigo: string | null;
   codigo_nome: string;
   empresa_id: string | null;
   representante_id: string | null;
@@ -92,6 +93,7 @@ type Subcategoria = { id: string; nome: string; categoria_aviamento_id: string }
 
 const COLUMN_OPTIONS = GRID_COLS_OPTIONS;
 const SORT_OPTIONS = [
+  { value: "codigo", label: "Código (A-Z)" },
   { value: "nome", label: "Nome (A-Z)" },
   { value: "preco", label: "Preço (menor)" },
   { value: "preco_desc", label: "Preço (maior)" },
@@ -129,10 +131,11 @@ function AviamentosGallery() {
       const { data, error } = await supabase
         .from("aviamentos")
         .select(
-          "id,codigo_nome,empresa_id,representante_id,categoria_aviamento_id,subcategoria_aviamento_id,material_aviamento_id,composicao,preco,intervalo_largura_id,largura_exata,intervalo_vazado_id,largura_exata_vazado,foto_url,observacoes,created_at",
+          "id,codigo,codigo_nome,empresa_id,representante_id,categoria_aviamento_id,subcategoria_aviamento_id,material_aviamento_id,composicao,preco,intervalo_largura_id,largura_exata,intervalo_vazado_id,largura_exata_vazado,foto_url,observacoes,created_at",
         );
       if (error) throw error;
-      return (data ?? []) as Aviamento[];
+      // `codigo` ainda não está no types.ts gerado (backlog de regenerar) → cast via unknown.
+      return (data ?? []) as unknown as Aviamento[];
     },
   });
 
@@ -227,6 +230,8 @@ function AviamentosGallery() {
           return (b.preco ?? 0) - (a.preco ?? 0);
         case "recente":
           return b.created_at.localeCompare(a.created_at);
+        case "codigo":
+          return (a.codigo ?? "~").localeCompare(b.codigo ?? "~", "pt-BR", { numeric: true });
         default:
           return a.codigo_nome.localeCompare(b.codigo_nome);
       }
@@ -442,6 +447,9 @@ function AviamentoCard({
       </div>
       {!compact && (
       <div className="p-3 space-y-1">
+        {aviamento.codigo && (
+          <p className="font-mono text-[11px] leading-none text-muted-foreground">{aviamento.codigo}</p>
+        )}
         <h3 className="font-medium leading-tight line-clamp-1">{aviamento.codigo_nome}</h3>
         {(!categoria || !fornecedor) && (
           <div className="flex items-center gap-1 rounded bg-amber-500/15 px-2 py-1 text-[10px] font-medium text-amber-700 dark:text-amber-400">
@@ -734,11 +742,20 @@ function AviamentoModal({
           </div>
 
           <div className="md:col-span-2 grid gap-3 md:grid-cols-2">
-            <Field className="md:col-span-2" label="Código / Nome *">
+            <Field className="md:col-span-2" label="Código">
+              <Input
+                value={initial?.codigo ?? ""}
+                readOnly
+                disabled
+                placeholder="Gerado automaticamente ao salvar (sigla da categoria + nº)"
+                className="font-mono w-full sm:w-64"
+              />
+            </Field>
+            <Field className="md:col-span-2" label="Nome *">
               <Input
                 value={form.codigo_nome}
                 onChange={(e) => set("codigo_nome", e.target.value)}
-                placeholder="Ex: BT-001 Botão metal 12mm"
+                placeholder="Ex: Botão metal 12mm"
               />
             </Field>
 
