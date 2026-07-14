@@ -59,8 +59,20 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useReadOnly } from "@/components/RequirePermission";
 
 export const Route = createFileRoute("/_authenticated/cadastro/tecidos/$artigoId")({
-  component: TecidoDetail,
+  component: TecidoDetailPage,
 });
+
+// Página (deep-link direto pela URL): envolve o detalhe no container e fecha voltando p/ a lista.
+// O uso PADRÃO é via modal na lista (cadastro.tecidos.index) — este componente é o mesmo.
+function TecidoDetailPage() {
+  const { artigoId } = Route.useParams();
+  const navigate = useNavigate();
+  return (
+    <div className="container mx-auto p-3 sm:p-6 max-w-5xl max-sm:pb-24">
+      <TecidoDetail artigoId={artigoId} onClose={() => navigate({ to: "/cadastro/tecidos" })} />
+    </div>
+  );
+}
 
 type Artigo = {
   id: string;
@@ -95,8 +107,7 @@ type Variante = {
 type Cor = { id: string; nome: string };
 type Apelido = { id: string; nome: string; cor_base_id: string | null };
 
-function TecidoDetail() {
-  const { artigoId } = Route.useParams();
+export function TecidoDetail({ artigoId, onClose }: { artigoId: string; onClose: () => void }) {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
 
@@ -232,7 +243,6 @@ function TecidoDetail() {
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar.")),
   });
 
-  const navigate = useNavigate();
   const [confirmDel, setConfirmDel] = useState(false);
   const excluirMut = useMutation({
     mutationFn: async () => {
@@ -248,7 +258,7 @@ function TecidoDetail() {
       toast.success("Tecido excluído.");
       qc.invalidateQueries({ queryKey: ["artigos"] });
       qc.invalidateQueries({ queryKey: ["variantes-thumb"] });
-      navigate({ to: "/cadastro/tecidos" });
+      onClose();
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir.")),
   });
@@ -276,13 +286,11 @@ function TecidoDetail() {
     : [];
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-w-5xl max-sm:pb-24">
+    <div className="space-y-6 max-sm:pb-24">
       <header className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Button asChild variant="outline" size="icon" className="max-sm:hidden">
-            <Link to="/cadastro/tecidos">
-              <ArrowLeft className="h-4 w-4" />
-            </Link>
+          <Button variant="outline" size="icon" className="max-sm:hidden" onClick={onClose} aria-label="Fechar">
+            <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
             <h1 className="text-2xl font-bold">{form.nome}</h1>
@@ -308,8 +316,8 @@ function TecidoDetail() {
 
       {/* Mobile: voltar + excluir + salvar na barra fixa do rodapé. */}
       <MobileActionBar>
-        <Button asChild variant="outline" size="icon" aria-label="Voltar">
-          <Link to="/cadastro/tecidos"><ArrowLeft className="h-4 w-4" /></Link>
+        <Button variant="outline" size="icon" aria-label="Voltar" onClick={onClose}>
+          <ArrowLeft className="h-4 w-4" />
         </Button>
         {!readOnly && (
           <Button variant="destructive" size="icon" onClick={() => setConfirmDel(true)} disabled={excluirMut.isPending} aria-label="Excluir tecido">

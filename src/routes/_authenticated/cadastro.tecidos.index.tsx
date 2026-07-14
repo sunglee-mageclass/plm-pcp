@@ -40,6 +40,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { FilterButton, SearchToggle, AgrupamentoButton } from "@/components/shared/filters";
+import { TecidoDetail } from "./cadastro.tecidos.$artigoId";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { EmptyState } from "@/components/shared/EmptyState";
 
@@ -92,6 +93,7 @@ function TecidosGallery() {
       return n;
     });
   const [createOpen, setCreateOpen] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
 
   const { data: artigos = [], isLoading } = useQuery({
     queryKey: ["artigos"],
@@ -237,7 +239,7 @@ function TecidosGallery() {
       toast.success("Tecido criado.");
       setCreateOpen(false);
       qc.invalidateQueries({ queryKey: ["artigos"] });
-      navigate({ to: "/cadastro/tecidos/$artigoId", params: { artigoId: id } });
+      setOpenId(id); // abre o detalhe no modal
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao criar.")),
   });
@@ -254,6 +256,7 @@ function TecidosGallery() {
       fotoPath={firstVarMap.get(a.id) ?? null}
       compact={compact}
       readOnly={readOnly}
+      onOpen={() => setOpenId(a.id)}
     />
   );
 
@@ -418,6 +421,14 @@ function TecidosGallery() {
         loading={createMut.isPending}
       />
 
+      {/* Detalhe do tecido em MODAL (padrão dos outros cadastros), no lugar da página. */}
+      <Dialog open={!!openId} onOpenChange={(o) => { if (!o) setOpenId(null); }}>
+        <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto [&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0">
+          <DialogTitle className="sr-only">Detalhes do tecido</DialogTitle>
+          {openId && <TecidoDetail artigoId={openId} onClose={() => setOpenId(null)} />}
+        </DialogContent>
+      </Dialog>
+
       <MobileActionBar>
         <Button onClick={() => setCreateOpen(true)} disabled={readOnly} className="ml-auto">
           <Plus className="h-4 w-4 mr-1" /> Novo
@@ -434,6 +445,7 @@ function TecidoCard({
   fotoPath,
   compact,
   readOnly,
+  onOpen,
 }: {
   artigo: Artigo;
   categorias: string[];
@@ -441,17 +453,14 @@ function TecidoCard({
   fotoPath: string | null;
   compact?: boolean;
   readOnly?: boolean;
+  onOpen: () => void;
 }) {
   const url = useSignedUrl(fotoPath);
   const semCategoria = categorias.length === 0;
   const semFornecedor = !fornecedor;
   return (
     <div className="group relative">
-      <Link
-        to="/cadastro/tecidos/$artigoId"
-        params={{ artigoId: artigo.id }}
-        className="block"
-      >
+      <button type="button" onClick={onOpen} className="block w-full text-left">
         <Card className="overflow-hidden h-full transition-shadow group-hover:shadow-md">
           <div className="aspect-square bg-muted relative">
             {url ? (
@@ -507,7 +516,7 @@ function TecidoCard({
           </div>
           )}
         </Card>
-      </Link>
+      </button>
     </div>
   );
 }
