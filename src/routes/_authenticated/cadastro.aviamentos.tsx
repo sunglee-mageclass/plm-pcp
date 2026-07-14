@@ -716,8 +716,8 @@ function AviamentoModal({
 
   const saveMut = useMutation({
     mutationFn: async () => {
+      // Nome é opcional — o identificador é o `codigo` automático.
       const nome = form.codigo_nome.trim();
-      if (!nome) throw new Error("Informe o código/nome.");
       const payload = {
         codigo_nome: nome,
         empresa_id: form.empresa_id || null,
@@ -825,7 +825,7 @@ function AviamentoModal({
                   className="font-mono"
                 />
               </Field>
-              <Field label="Nome *" className="flex-1">
+              <Field label="Nome" className="flex-1">
                 <Input
                   value={form.codigo_nome}
                   onChange={(e) => set("codigo_nome", e.target.value)}
