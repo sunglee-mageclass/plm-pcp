@@ -502,47 +502,48 @@ function AviamentoCard({
 }) {
   const url = useSignedUrl(aviamento.foto_url, "aviamentos");
   return (
-    <Card className="overflow-hidden h-full group">
-      <div className="aspect-square bg-muted relative">
-        <button
-          type="button"
-          onClick={onEdit}
-          className="block w-full h-full"
-          aria-label={`Abrir ${aviamento.codigo_nome}`}
-        >
-          {url ? (
-            <img src={url} alt={aviamento.codigo_nome} className="w-full h-full object-cover" loading="lazy" />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-              <ImageOff className="h-10 w-10" />
-            </div>
-          )}
-        </button>
-      </div>
-      {!compact && (
-      <div className="p-3 space-y-1">
-        {aviamento.codigo && (
-          <p className="font-mono text-[11px] leading-none text-muted-foreground">{aviamento.codigo}</p>
-        )}
-        <h3 className="font-medium leading-tight line-clamp-1">{aviamento.codigo_nome}</h3>
-        {(!categoria || !fornecedor) && (
-          <div className="flex items-center gap-1 rounded bg-amber-500/15 px-2 py-1 text-[10px] font-medium text-amber-700 dark:text-amber-400">
-            <AlertTriangle className="h-3 w-3 shrink-0" />
-            <span className="line-clamp-1">
-              {!categoria && !fornecedor
-                ? "Sem categoria e sem fornecedor"
-                : !categoria
-                  ? "Sem categoria"
-                  : "Sem fornecedor"}
-            </span>
+    <div className="group relative">
+      <button type="button" onClick={onEdit} className="block w-full text-left" aria-label={`Abrir ${aviamento.codigo_nome}`}>
+        <Card className="overflow-hidden h-full transition-shadow group-hover:shadow-md">
+          <div className="aspect-square bg-muted relative">
+            {url ? (
+              <img src={url} alt={aviamento.codigo_nome} className="w-full h-full object-cover" loading="lazy" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                <ImageOff className="h-10 w-10" />
+              </div>
+            )}
           </div>
-        )}
-        <p className="text-xs text-muted-foreground line-clamp-1">{categoria ?? "—"}</p>
-        <p className="text-xs text-muted-foreground line-clamp-1">{fornecedor ?? "—"}</p>
-        <p className="text-sm font-semibold text-primary">{fmtBRL(aviamento.preco)}</p>
-      </div>
-      )}
-    </Card>
+          {!compact && (
+          <div className="p-3 space-y-1">
+            {aviamento.codigo && (
+              <p className="font-mono text-[11px] leading-none text-muted-foreground">{aviamento.codigo}</p>
+            )}
+            <h3 className="font-medium leading-tight line-clamp-1">{aviamento.codigo_nome}</h3>
+            {(!categoria || !fornecedor) && (
+              <div className="flex items-center gap-1 rounded bg-amber-500/15 px-2 py-1 text-[10px] font-medium text-amber-700 dark:text-amber-400">
+                <AlertTriangle className="h-3 w-3 shrink-0" />
+                <span className="line-clamp-1">
+                  {!categoria && !fornecedor
+                    ? "Sem categoria e sem fornecedor"
+                    : !categoria
+                      ? "Sem categoria"
+                      : "Sem fornecedor"}
+                </span>
+              </div>
+            )}
+            {categoria && (
+              <div className="flex flex-wrap gap-1">
+                <Badge variant="secondary" className="text-[10px]">{categoria}</Badge>
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground line-clamp-1">{fornecedor ?? "—"}</p>
+            <p className="text-sm font-semibold text-primary">{fmtBRL(aviamento.preco)}</p>
+          </div>
+          )}
+        </Card>
+      </button>
+    </div>
   );
 }
 
