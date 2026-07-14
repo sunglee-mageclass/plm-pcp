@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, Save } from "lucide-react";
+import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, Save, ChevronDown, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -194,6 +194,14 @@ function PlanejamentoPage() {
   const [groupBySub1, setGroupBySub1] = useState(false);
   const [groupByRep, setGroupByRep] = useState(false);
   const [groupByTecido, setGroupByTecido] = useState(false);
+  // Grupos recolhidos (por caminho único pai/filho). Vazio = todos expandidos.
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const toggleGroup = (path: string) =>
+    setCollapsedGroups((prev) => {
+      const n = new Set(prev);
+      if (n.has(path)) n.delete(path); else n.add(path);
+      return n;
+    });
   // Planejamento sempre abre com 5 colunas (não persiste a escolha entre acessos).
   const [cols, setCols] = useGridCols("planejamento", 5, true);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -514,19 +522,32 @@ function PlanejamentoPage() {
   // Render recursivo dos grupos (profundidade arbitrária). Título encolhe com a
   // profundidade; nós internos ganham barra/indentação à esquerda.
   const HEADER_CLS = ["text-lg font-semibold", "text-base font-semibold", "text-sm font-semibold text-muted-foreground"];
-  const renderGroup = (g: Grupo, depth: number) => (
-    <section key={g.key}>
-      <div className={`flex flex-wrap items-baseline gap-x-3 gap-y-1 ${depth === 0 ? "mb-3" : "mb-2"}`}>
-        <h2 className={HEADER_CLS[Math.min(depth, HEADER_CLS.length - 1)]}>{g.nome}</h2>
-        <ResumoVenda {...g.resumo} />
-      </div>
-      {g.subgroups ? (
-        <div className="space-y-5 border-l pl-3">{g.subgroups.map((sg) => renderGroup(sg, depth + 1))}</div>
-      ) : (
-        <div className={GRID_COLS_CLASS[cols]}>{g.items!.map(renderCard)}</div>
-      )}
-    </section>
-  );
+  const renderGroup = (g: Grupo, depth: number, path: string) => {
+    const collapsed = collapsedGroups.has(path);
+    return (
+      <section key={g.key}>
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => toggleGroup(path)}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleGroup(path); } }}
+          className={`flex cursor-pointer select-none flex-wrap items-center gap-x-2 gap-y-1 ${depth === 0 ? "mb-3" : "mb-2"}`}
+          aria-expanded={!collapsed}
+        >
+          {collapsed
+            ? <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+            : <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />}
+          <h2 className={HEADER_CLS[Math.min(depth, HEADER_CLS.length - 1)]}>{g.nome}</h2>
+          <ResumoVenda {...g.resumo} />
+        </div>
+        {!collapsed && (g.subgroups ? (
+          <div className="space-y-5 border-l pl-3">{g.subgroups.map((sg) => renderGroup(sg, depth + 1, `${path}/${sg.key}`))}</div>
+        ) : (
+          <div className={GRID_COLS_CLASS[cols]}>{g.items!.map(renderCard)}</div>
+        ))}
+      </section>
+    );
+  };
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
@@ -637,7 +658,7 @@ function PlanejamentoPage() {
         <EmptyState icon={Palette} title="Nenhum modelo encontrado" description="Crie um modelo usando o botão Novo Modelo." />
       ) : groups ? (
         <div className="space-y-8">
-          {groups.map((g) => renderGroup(g, 0))}
+          {groups.map((g) => renderGroup(g, 0, g.key))}
         </div>
       ) : (
         <div className={GRID_COLS_CLASS[cols]}>{sorted.map(renderCard)}</div>
