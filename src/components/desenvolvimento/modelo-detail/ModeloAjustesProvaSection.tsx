@@ -25,6 +25,112 @@ type Comentario = {
   autor: { nome: string } | null;
 };
 
+type ResolverMut = {
+  isPending: boolean;
+  variables?: { id: string; r: boolean };
+  mutate: (vars: { id: string; r: boolean }) => void;
+};
+
+type ComentProps = {
+  c: Comentario;
+  isReply?: boolean;
+  resolved?: boolean;
+  user: { id: string } | null;
+  fmt: (iso: string) => string;
+  replyTo: string | null;
+  setReplyTo: (id: string | null) => void;
+  replyTexto: string;
+  setReplyTexto: (t: string) => void;
+  comentarMut: { isPending: boolean; mutate: (vars: { t: string; parent: string | null }) => void };
+  resolverMut: ResolverMut;
+  excluirMut: { isPending: boolean; mutate: (id: string) => void };
+};
+
+function Coment({ c, isReply, resolved, user, fmt, replyTo, setReplyTo, replyTexto, setReplyTexto, comentarMut, resolverMut, excluirMut }: ComentProps) {
+  return (
+    <div className={(isReply ? "ml-6 border-l pl-3 " : "") + (resolved ? "opacity-60 " : "") + "py-1.5"}>
+      <div className="flex items-baseline gap-2 text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">{c.user_id ? c.autor?.nome ?? "—" : "Importado"}</span>
+        <span>{fmt(c.created_at)}</span>
+      </div>
+      <p className="whitespace-pre-wrap text-sm">{c.texto}</p>
+      <div className="mt-1 flex flex-wrap items-center gap-1">
+        {!isReply && !resolved && (
+          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => { setReplyTo(c.id); setReplyTexto(""); }}>
+            <CornerDownRight className="mr-1 h-3.5 w-3.5" /> Responder
+          </Button>
+        )}
+        {!isReply && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={() => resolverMut.mutate({ id: c.id, r: !c.resolvido })}
+            disabled={resolverMut.isPending && resolverMut.variables?.id === c.id}
+          >
+            {c.resolvido ? <><RotateCcw className="mr-1 h-3.5 w-3.5" /> Reabrir</> : <><Check className="mr-1 h-3.5 w-3.5" /> Resolver</>}
+          </Button>
+        )}
+        {c.user_id && user?.id === c.user_id && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-destructive hover:text-destructive">
+                <Trash2 className="mr-1 h-3.5 w-3.5" /> Excluir
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Excluir comentário?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {isReply ? "A resposta será removida." : "O fio e todas as respostas serão removidos."} Não pode ser desfeito.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => excluirMut.mutate(c.id)}>
+                  Excluir
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
+      </div>
+      {!isReply && replyTo === c.id && !resolved && (
+        <div className="ml-6 mt-1.5 flex gap-2">
+          <Textarea rows={2} value={replyTexto} onChange={(e) => setReplyTexto(e.target.value)} placeholder="Escreva a resposta…" className="text-sm" />
+          <div className="flex flex-col gap-1">
+            <Button size="sm" onClick={() => comentarMut.mutate({ t: replyTexto, parent: c.id })} disabled={!replyTexto.trim() || comentarMut.isPending}>Enviar</Button>
+            <Button size="sm" variant="ghost" onClick={() => setReplyTo(null)}>Cancelar</Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+type FioProps = {
+  f: { top: Comentario; replies: Comentario[] };
+  resolved?: boolean;
+  user: { id: string } | null;
+  fmt: (iso: string) => string;
+  replyTo: string | null;
+  setReplyTo: (id: string | null) => void;
+  replyTexto: string;
+  setReplyTexto: (t: string) => void;
+  comentarMut: { isPending: boolean; mutate: (vars: { t: string; parent: string | null }) => void };
+  resolverMut: ResolverMut;
+  excluirMut: { isPending: boolean; mutate: (id: string) => void };
+};
+
+function Fio({ f, resolved, user, fmt, replyTo, setReplyTo, replyTexto, setReplyTexto, comentarMut, resolverMut, excluirMut }: FioProps) {
+  return (
+    <div className="rounded-md border p-2">
+      <Coment c={f.top} resolved={resolved} user={user} fmt={fmt} replyTo={replyTo} setReplyTo={setReplyTo} replyTexto={replyTexto} setReplyTexto={setReplyTexto} comentarMut={comentarMut} resolverMut={resolverMut} excluirMut={excluirMut} />
+      {f.replies.map((r) => <Coment key={r.id} c={r} isReply resolved={resolved} user={user} fmt={fmt} replyTo={replyTo} setReplyTo={setReplyTo} replyTexto={replyTexto} setReplyTexto={setReplyTexto} comentarMut={comentarMut} resolverMut={resolverMut} excluirMut={excluirMut} />)}
+    </div>
+  );
+}
+
 export function ModeloAjustesProvaSection({ modeloId }: { modeloId: string }) {
   const qc = useQueryClient();
   const { user } = useAuth();
@@ -94,66 +200,7 @@ export function ModeloAjustesProvaSection({ modeloId }: { modeloId: string }) {
     onError: (e: unknown) => toast.error(mensagemErro(e, "Erro ao excluir.")),
   });
 
-  const Coment = ({ c, isReply, resolved }: { c: Comentario; isReply?: boolean; resolved?: boolean }) => (
-    <div className={(isReply ? "ml-6 border-l pl-3 " : "") + (resolved ? "opacity-60 " : "") + "py-1.5"}>
-      <div className="flex items-baseline gap-2 text-xs text-muted-foreground">
-        <span className="font-medium text-foreground">{c.user_id ? c.autor?.nome ?? "—" : "Importado"}</span>
-        <span>{fmt(c.created_at)}</span>
-      </div>
-      <p className="whitespace-pre-wrap text-sm">{c.texto}</p>
-      <div className="mt-1 flex flex-wrap items-center gap-1">
-        {!isReply && !resolved && (
-          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => { setReplyTo(c.id); setReplyTexto(""); }}>
-            <CornerDownRight className="mr-1 h-3.5 w-3.5" /> Responder
-          </Button>
-        )}
-        {!isReply && (
-          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => resolverMut.mutate({ id: c.id, r: !c.resolvido })} disabled={resolverMut.isPending}>
-            {c.resolvido ? <><RotateCcw className="mr-1 h-3.5 w-3.5" /> Reabrir</> : <><Check className="mr-1 h-3.5 w-3.5" /> Resolver</>}
-          </Button>
-        )}
-        {c.user_id && user?.id === c.user_id && (
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-destructive hover:text-destructive">
-                <Trash2 className="mr-1 h-3.5 w-3.5" /> Excluir
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Excluir comentário?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  {isReply ? "A resposta será removida." : "O fio e todas as respostas serão removidos."} Não pode ser desfeito.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => excluirMut.mutate(c.id)}>
-                  Excluir
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        )}
-      </div>
-      {!isReply && replyTo === c.id && !resolved && (
-        <div className="ml-6 mt-1.5 flex gap-2">
-          <Textarea rows={2} value={replyTexto} onChange={(e) => setReplyTexto(e.target.value)} placeholder="Escreva a resposta…" className="text-sm" />
-          <div className="flex flex-col gap-1">
-            <Button size="sm" onClick={() => comentarMut.mutate({ t: replyTexto, parent: c.id })} disabled={!replyTexto.trim() || comentarMut.isPending}>Enviar</Button>
-            <Button size="sm" variant="ghost" onClick={() => setReplyTo(null)}>Cancelar</Button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-
-  const Fio = ({ f, resolved }: { f: { top: Comentario; replies: Comentario[] }; resolved?: boolean }) => (
-    <div className="rounded-md border p-2">
-      <Coment c={f.top} resolved={resolved} />
-      {f.replies.map((r) => <Coment key={r.id} c={r} isReply resolved={resolved} />)}
-    </div>
-  );
+  const sharedProps = { user, fmt, replyTo, setReplyTo, replyTexto, setReplyTexto, comentarMut, resolverMut, excluirMut };
 
   return (
     <div className="space-y-3">
@@ -171,13 +218,13 @@ export function ModeloAjustesProvaSection({ modeloId }: { modeloId: string }) {
           <TabsTrigger value="resolvidos">Resolvidos ({resolvidos.length})</TabsTrigger>
         </TabsList>
         <TabsContent value="abertos" className="space-y-2 pt-2">
-          {abertos.map((f) => <Fio key={f.top.id} f={f} />)}
+          {abertos.map((f) => <Fio key={f.top.id} f={f} {...sharedProps} />)}
           {!isLoading && abertos.length === 0 && (
             <p className="rounded-md border p-4 text-center text-sm text-muted-foreground">Nenhum ajuste ainda. Envie o primeiro comentário.</p>
           )}
         </TabsContent>
         <TabsContent value="resolvidos" className="space-y-2 pt-2">
-          {resolvidos.map((f) => <Fio key={f.top.id} f={f} resolved />)}
+          {resolvidos.map((f) => <Fio key={f.top.id} f={f} resolved {...sharedProps} />)}
           {!isLoading && resolvidos.length === 0 && (
             <p className="rounded-md border p-4 text-center text-sm text-muted-foreground">Nenhum ajuste resolvido.</p>
           )}
