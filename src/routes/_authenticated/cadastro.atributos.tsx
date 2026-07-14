@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Tags } from "lucide-react";
 import { AttributeTab, type AttributeTabConfig } from "@/components/attribute-tab";
 import { useTenantModules } from "@/hooks/useTenantModules";
+import { useAuth } from "@/hooks/useAuth";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -50,6 +51,7 @@ const ATTRIBUTES: AttributeItem[] = [
       plural: "Cores base",
       usage: [
         { table: "variantes_tecido", column: "cor_id" },
+        { table: "aviamentos", column: "cor_id" }, // SET NULL — some em silêncio se não contar
         { table: "cores_apelido", column: "cor_base_id" },
       ],
     },
@@ -65,7 +67,10 @@ const ATTRIBUTES: AttributeItem[] = [
       plural: "Cores apelido",
       // Cada apelido pertence a uma Cor base (obrigatório).
       extra: { field: "cor_base_id", label: "Cor base", from: "cores", optionLabel: "nome", required: true },
-      usage: [],
+      usage: [
+        { table: "aviamentos", column: "cor_apelido_id" }, // SET NULL
+        { table: "variantes_tecido", column: "cor_apelido_id" },
+      ],
     },
   },
   {
@@ -80,6 +85,7 @@ const ATTRIBUTES: AttributeItem[] = [
       usage: [
         { table: "artigos", column: "ano_id" },
         { table: "modelos", column: "ano_id" },
+        { table: "colecoes", column: "ano_id" },
       ],
     },
   },
@@ -111,7 +117,10 @@ const ATTRIBUTES: AttributeItem[] = [
       nameField: "nome",
       singular: "Categoria de Fornecedor",
       plural: "Categorias de Fornecedor",
-      usage: [{ table: "empresa_categorias_fornecedor", column: "categoria_fornecedor_id" }],
+      usage: [
+        { table: "empresa_categorias_fornecedor", column: "categoria_fornecedor_id" },
+        { table: "empresas", column: "categoria_fornecedor_id" },
+      ],
     },
   },
   {
@@ -123,7 +132,10 @@ const ATTRIBUTES: AttributeItem[] = [
       nameField: "nome",
       singular: "Categoria de Tecido",
       plural: "Categorias de Tecido",
-      usage: [{ table: "artigo_categorias_tecido", column: "categoria_tecido_id" }],
+      usage: [
+        { table: "artigo_categorias_tecido", column: "categoria_tecido_id" },
+        { table: "artigos", column: "categoria_tecido_id" },
+      ],
     },
   },
   {
@@ -212,6 +224,8 @@ const ATTRIBUTES: AttributeItem[] = [
       extra: { field: "grupo_id", label: "Grupo", from: "grupos_produto", optionLabel: "nome", required: true },
       usage: [
         { table: "modelos", column: "categoria_principal_id" },
+        { table: "modelos", column: "categoria_secundaria_id" },
+        { table: "colecao_semana_categorias", column: "categoria_id" }, // CASCADE — apaga distribuição OTB
         { table: "subcategorias1_produto", column: "categoria_id" },
         { table: "subcategorias2_produto", column: "categoria_id" },
       ],
@@ -271,7 +285,11 @@ const ATTRIBUTES: AttributeItem[] = [
       plural: "Linhas",
       // Markup (pode ser decimal) por Linha — usado em cálculos de preço.
       extraNumber: { field: "markup", label: "Markup", placeholder: "ex.: 2,5", step: "0.01" },
-      usage: [{ table: "modelos", column: "linha_id" }],
+      usage: [
+        { table: "modelos", column: "linha_id" },
+        { table: "colecao_pv_itens", column: "linha_id" },
+        { table: "mix_padrao_linhas", column: "linha_id" },
+      ],
     },
   },
   {
@@ -281,6 +299,8 @@ const ATTRIBUTES: AttributeItem[] = [
     config: {
       table: "categorias_terceirizado",
       nameField: "nome",
+      // Tem coluna `ordem` (usada em Serviços/CQ) → precisa semear no insert e ordenar por ela.
+      orderField: "ordem",
       singular: "Categoria do Serviço",
       plural: "Categorias do Serviço",
       // Etapa: diferencia serviço "até costura" (pré) de "pós costura" (o antigo acabamento).
@@ -293,8 +313,9 @@ const ATTRIBUTES: AttributeItem[] = [
         ],
       },
       usage: [
-        { table: "terceirizado_categorias", column: "categoria_terceirizado_id" },
+        { table: "empresa_categorias_servico", column: "categoria_terceirizado_id" }, // CASCADE — vínculo empresa↔serviço
         { table: "producao_terceirizados", column: "categoria_terceirizado_id" },
+        { table: "tipos_colaborador", column: "categoria_terceirizado_id" },
       ],
       // Corte e Oficina são fixos do sistema (semeados por loja); não podem ser
       // renomeados nem excluídos — "Oficina" alimenta a detecção do fluxo de oficina.
@@ -335,10 +356,17 @@ function useAttributeCount(table: string | null) {
 
 function AtributosPage() {
   const { isStockOnly } = useTenantModules();
+  const { isTenantAdmin, isSuperAdmin } = useAuth();
+  // Categoria do Serviço é admin-only no banco (config de produção: SLA/Leadtime).
+  // Esconde a aba p/ não-admin em vez de deixar o edit dar UPDATE-0 silencioso.
+  const visibleAttributes = useMemo(
+    () => ATTRIBUTES.filter((a) => isTenantAdmin || isSuperAdmin || a.value !== "cat_terceirizado"),
+    [isTenantAdmin, isSuperAdmin],
+  );
   const [selectedValue, setSelectedValue] = useState<string>(ATTRIBUTES[0].value);
   const selected = useMemo(
-    () => ATTRIBUTES.find((a) => a.value === selectedValue) ?? ATTRIBUTES[0],
-    [selectedValue],
+    () => visibleAttributes.find((a) => a.value === selectedValue) ?? visibleAttributes[0],
+    [selectedValue, visibleAttributes],
   );
   // Subcategoria 1 ganha o SLA de Serviços (dias) — prazo da confecção (oficina/costura/
   // PL). Coluna `sla_oficina` (nome herdado). Reaproveitado como prazo no Leadtime. Exceto
@@ -352,9 +380,11 @@ function AtributosPage() {
   const grouped = useMemo(() => {
     const map = new Map<GroupKey, AttributeItem[]>();
     for (const g of GROUP_ORDER) map.set(g, []);
-    for (const item of ATTRIBUTES) map.get(item.group)!.push(item);
+    for (const item of visibleAttributes) map.get(item.group)!.push(item);
     return map;
-  }, []);
+  }, [visibleAttributes]);
+  // Só grupos com ao menos 1 item visível (SERVIÇO fica vazio p/ não-admin).
+  const visibleGroups = useMemo(() => GROUP_ORDER.filter((g) => grouped.get(g)!.length > 0), [grouped]);
 
   const qc = useQueryClient();
   const { data: count, isLoading: countLoading } = useAttributeCount(selected.config?.table ?? null);
@@ -381,7 +411,7 @@ function AtributosPage() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {GROUP_ORDER.map((g) => (
+            {visibleGroups.map((g) => (
               <SelectGroup key={g}>
                 <SelectLabel>{g}</SelectLabel>
                 {grouped.get(g)!.map((item) => (
@@ -399,7 +429,7 @@ function AtributosPage() {
         {/* Sidebar */}
         <aside className="hidden md:block w-60 shrink-0 border-r py-4">
           <nav className="space-y-4">
-            {GROUP_ORDER.map((g) => (
+            {visibleGroups.map((g) => (
               <div key={g}>
                 <div className="px-4 pb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   {g}

@@ -208,7 +208,9 @@ export function AttributeTab({
       }
       if (config.extraNumber) {
         const n = newExtraNum.trim().replace(",", ".");
-        payload[config.extraNumber.field] = n === "" ? null : Number(n);
+        const num = n === "" ? null : Number(n);
+        if (num !== null && num < 0) throw new Error("O valor não pode ser negativo.");
+        payload[config.extraNumber.field] = num;
       }
       if (config.extraEnum) {
         payload[config.extraEnum.field] = newEnum || config.extraEnum.options[0].value;
@@ -242,11 +244,14 @@ export function AttributeTab({
     mutationFn: async ({ id, value }: { id: string; value: string }) => {
       const v = value.trim();
       if (!v) throw new Error("Preencha o nome.");
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from(config.table as any)
         .update({ [config.nameField]: v })
-        .eq("id", id);
+        .eq("id", id)
+        .select("id");
       if (error) throw error;
+      // 0 linhas = RLS bloqueou (sem erro) → não minta "Atualizado".
+      if (!data?.length) throw new Error("Sem permissão para editar este item.");
     },
     onSuccess: () => {
       toast.success("Atualizado.");
@@ -260,11 +265,13 @@ export function AttributeTab({
   const updateExtraMut = useMutation({
     mutationFn: async ({ id, value }: { id: string; value: string }) => {
       if (!config.extra) return;
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from(config.table as any)
         .update({ [config.extra.field]: value || null })
-        .eq("id", id);
+        .eq("id", id)
+        .select("id");
       if (error) throw error;
+      if (!data?.length) throw new Error("Sem permissão para editar este item.");
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: listKey });
@@ -278,11 +285,14 @@ export function AttributeTab({
       if (!config.extraNumber) return;
       const n = value.trim().replace(",", ".");
       const num = n === "" ? null : Number(n);
-      const { error } = await supabase
+      if (num !== null && num < 0) throw new Error("O valor não pode ser negativo.");
+      const { data, error } = await supabase
         .from(config.table as any)
         .update({ [config.extraNumber.field]: num })
-        .eq("id", id);
+        .eq("id", id)
+        .select("id");
       if (error) throw error;
+      if (!data?.length) throw new Error("Sem permissão para editar este item.");
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: listKey });
@@ -294,11 +304,13 @@ export function AttributeTab({
   const updateEnumMut = useMutation({
     mutationFn: async ({ id, value }: { id: string; value: string }) => {
       if (!config.extraEnum) return;
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from(config.table as any)
         .update({ [config.extraEnum.field]: value })
-        .eq("id", id);
+        .eq("id", id)
+        .select("id");
       if (error) throw error;
+      if (!data?.length) throw new Error("Sem permissão para editar este item.");
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: listKey });
@@ -309,8 +321,9 @@ export function AttributeTab({
 
   const deleteMut = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from(config.table as any).delete().eq("id", id);
+      const { data, error } = await supabase.from(config.table as any).delete().eq("id", id).select("id");
       if (error) throw error;
+      if (!data?.length) throw new Error("Sem permissão para excluir este item.");
     },
     onSuccess: () => {
       toast.success("Excluído.");
@@ -327,11 +340,12 @@ export function AttributeTab({
     setDeleteUsage(null);
     let total = 0;
     for (const ref of config.usage) {
-      const { count } = await supabase
+      const { count, error } = await supabase
         .from(ref.table as any)
         .select("*", { count: "exact", head: true })
         .eq(ref.column, row.id);
-      total += count ?? 0;
+      // Não conseguiu verificar (tabela/rede) → trata como "em uso" p/ não apagar às cegas.
+      total += error ? 1 : (count ?? 0);
     }
     setDeleteUsage(total);
   };
@@ -348,12 +362,13 @@ export function AttributeTab({
     for (const id of Array.from(selected)) {
       let usage = 0;
       for (const ref of config.usage) {
-        const { count } = await supabase.from(ref.table as any).select("*", { count: "exact", head: true }).eq(ref.column, id);
-        usage += count ?? 0;
+        const { count, error } = await supabase.from(ref.table as any).select("*", { count: "exact", head: true }).eq(ref.column, id);
+        usage += error ? 1 : (count ?? 0);
       }
       if (usage > 0) { emUso++; continue; }
-      const { error } = await supabase.from(config.table as any).delete().eq("id", id);
-      if (error) { emUso++; continue; }
+      // .select() p/ saber se realmente apagou: 0 linhas = RLS bloqueou (sem erro).
+      const { data, error } = await supabase.from(config.table as any).delete().eq("id", id).select("id");
+      if (error || !data?.length) { emUso++; continue; }
       ok++;
     }
     setBulkBusy(false);
@@ -458,7 +473,7 @@ export function AttributeTab({
                             if (e.key === "Enter") updateMut.mutate({ id: row.id, value: editValue });
                             if (e.key === "Escape") setEditingId(null);
                           }}
-                          className="h-8"
+                          className="h-8 max-md:h-11"
                         />
                         <Button
                           size="icon"
@@ -666,7 +681,7 @@ export function AttributeTab({
               ) : deleteUsage > 0 ? (
                 <>
                   Este item está em uso em <strong>{deleteUsage}</strong> registro(s).
-                  Deseja excluir mesmo assim?
+                  Remova os vínculos antes de excluir.
                 </>
               ) : (
                 <>
@@ -682,7 +697,7 @@ export function AttributeTab({
                 e.preventDefault();
                 if (deleteRow) deleteMut.mutate(deleteRow.id);
               }}
-              disabled={deleteUsage === null || deleteMut.isPending}
+              disabled={deleteUsage === null || (deleteUsage ?? 0) > 0 || deleteMut.isPending}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Excluir
