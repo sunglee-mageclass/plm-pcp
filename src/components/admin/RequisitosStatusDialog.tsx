@@ -33,7 +33,7 @@ export function RequisitosStatusButton({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button type="button" variant="outline" size="sm" className="h-8 shrink-0">
+        <Button type="button" variant="outline" size="sm" className="h-8 shrink-0 max-md:h-11 max-md:w-11 max-md:p-0">
           <ListChecks className="h-4 w-4 sm:mr-1" />
           <span className="max-sm:sr-only">Requisitos{requisitos.length ? ` (${requisitos.length})` : ""}</span>
         </Button>

@@ -216,6 +216,12 @@ export function AttributeTab({
       if (config.fixedFilter) {
         payload[config.fixedFilter.field] = config.fixedFilter.value;
       }
+      // Semeia a ordem (senão cai no default 0 e a lista fica não-determinística):
+      // próxima = maior ordem do tenant + 1.
+      if (config.orderField) {
+        const next = rows.reduce((mx, r) => Math.max(mx, Number(r[config.orderField!] ?? 0)), -1) + 1;
+        payload[config.orderField] = next;
+      }
       const { error } = await supabase.from(config.table as any).insert(payload);
       if (error) throw error;
     },

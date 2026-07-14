@@ -364,7 +364,8 @@ function ConfiguracoesLojaPage() {
           <CardTitle>Nomenclaturas</CardTitle>
           <CardDescription>
             Renomeie as abas do menu (módulos e páginas) e os campos de cada módulo.
-            Deixe em branco para manter o nome padrão.
+            Deixe em branco para manter o nome padrão.{" "}
+            <strong className="text-foreground">Salvas na própria janela</strong>, separado do botão "Salvar alterações" acima.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -622,7 +623,11 @@ function LeadtimeGrupo({
               }
             >
               <Switch checked={on} onCheckedChange={(v) => onToggle({ key: d.key, tipo: d.tipo! }, v)} />
-              <span className="flex-1 truncate text-sm">{d.label}</span>
+              {/* Rótulo clicável = alvo de toque grande no mobile (o Switch é pequeno). */}
+              <span
+                className="flex-1 cursor-pointer select-none truncate text-sm"
+                onClick={() => onToggle({ key: d.key, tipo: d.tipo! }, !on)}
+              >{d.label}</span>
               {on && (
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs text-muted-foreground">ideal</span>
@@ -770,7 +775,7 @@ function SortableItem({
     >
       <button
         type="button"
-        className="cursor-grab text-muted-foreground hover:text-foreground touch-none"
+        className="flex shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground touch-none hover:text-foreground max-md:min-h-11 max-md:min-w-10"
         {...attributes}
         {...listeners}
         aria-label="Arrastar"
@@ -780,7 +785,7 @@ function SortableItem({
       <Input
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-8 border-0 shadow-none focus-visible:ring-1"
+        className="h-8 border-0 shadow-none focus-visible:ring-1 max-md:h-11"
       />
       {extra}
       <Button type="button" size="icon" variant="ghost" onClick={onRemove}>
@@ -859,7 +864,7 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
           <Settings className="h-4 w-4 mr-2" /> Editar nomenclaturas por módulo
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!p-4">
         <DialogHeader>
           <DialogTitle>Nomenclaturas</DialogTitle>
         </DialogHeader>
@@ -886,7 +891,7 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
               {mod.pages.map((p) => (
                 <div key={p.key} className="grid grid-cols-1 md:grid-cols-[170px_1fr] items-center gap-2 md:pl-4">
                   <Label className="text-xs text-muted-foreground">{p.label}</Label>
-                  <Input className="h-8" placeholder={p.label} value={tabs[p.key] ?? ""} onChange={(e) => setTabs((t) => ({ ...t, [p.key]: e.target.value }))} />
+                  <Input className="h-8 max-md:h-11" placeholder={p.label} value={tabs[p.key] ?? ""} onChange={(e) => setTabs((t) => ({ ...t, [p.key]: e.target.value }))} />
                 </div>
               ))}
             </div>
@@ -900,7 +905,7 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
                 fieldKeys.map((k) => (
                   <div key={k} className="grid grid-cols-1 md:grid-cols-[170px_1fr] items-center gap-2">
                     <Label className="text-xs text-muted-foreground">{FIELD_LABEL_DEFAULTS[k] ?? k}</Label>
-                    <Input className="h-8" placeholder={FIELD_LABEL_DEFAULTS[k] ?? k} value={campos[k] ?? ""} onChange={(e) => setCampos((c) => ({ ...c, [k]: e.target.value }))} />
+                    <Input className="h-8 max-md:h-11" placeholder={FIELD_LABEL_DEFAULTS[k] ?? k} value={campos[k] ?? ""} onChange={(e) => setCampos((c) => ({ ...c, [k]: e.target.value }))} />
                   </div>
                 ))
               )}
@@ -909,7 +914,7 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
         )}
 
         <p className="text-xs text-muted-foreground">Em branco = nome padrão.</p>
-        <DialogFooter>
+        <DialogFooter className="max-sm:sticky max-sm:bottom-0 max-sm:-mx-4 max-sm:border-t max-sm:bg-background max-sm:px-4 max-sm:py-3">
           <Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>
           <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
             <Save className="h-4 w-4 mr-2" /> Salvar
@@ -917,258 +922,5 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-// Categorias de Terceirizado (mesma lista usada em Cadastro → Serviço → Terceirizados).
-// Mesmo padrão visual do card de Acabamento, mas persiste direto na tabela
-// `categorias_terceirizado` (cada ação salva na hora, não depende do botão "Salvar").
-function ServicosCard({ tenantId }: { tenantId: string | null }) {
-  const qc = useQueryClient();
-  const [draft, setDraft] = useState("");
-  const [removeTarget, setRemoveTarget] = useState<{ id: string; nome: string } | null>(null);
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
-
-  const { data: categorias = [], isLoading } = useQuery({
-    queryKey: ["categorias_terceirizado", "config"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("categorias_terceirizado")
-        .select("id, nome, ordem")
-        .order("ordem")
-        .order("nome");
-      if (error) throw error;
-      return (data ?? []) as unknown as { id: string; nome: string; ordem: number }[];
-    },
-  });
-
-  const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ["categorias_terceirizado", "config"] });
-    // Mesma lista consumida no cadastro de Terceirizados.
-    qc.invalidateQueries({ queryKey: ["cat-terceirizado-options"] });
-    qc.invalidateQueries({ queryKey: ["categorias_terceirizado"] });
-  };
-
-  const reorderMut = useMutation({
-    // `prev` é o snapshot do cache antes do update otimista, para rollback no erro.
-    mutationFn: async ({ ordered }: { ordered: { id: string }[]; prev: typeof categorias }) => {
-      // UPDATE por id tocando SÓ em `ordem`. Não usar `.upsert`: o PostgREST gera
-      // INSERT ... ON CONFLICT, e o Postgres valida o NOT NULL de `nome` (e demais
-      // colunas) na linha de INSERT proposta ANTES de resolver o conflito, então o
-      // upsert sem `nome` falha com not-null violation e a branch de UPDATE nunca roda.
-      for (const [i, c] of ordered.entries()) {
-        const { error } = await supabase
-          .from("categorias_terceirizado")
-          .update({ ordem: i })
-          .eq("id", c.id);
-        if (error) throw error;
-      }
-    },
-    onSuccess: invalidate,
-    onError: (e: any, vars) => {
-      // Reverte o update otimista do cache; senão a tela mostra a nova ordem (mentira)
-      // enquanto o banco mantém a antiga até o próximo refetch.
-      qc.setQueryData(["categorias_terceirizado", "config"], vars.prev);
-      toast.error(mensagemErro(e, "Erro ao reordenar."));
-    },
-  });
-
-  const handleDragEnd = (e: DragEndEvent) => {
-    const { active, over } = e;
-    if (!over || active.id === over.id) return;
-    const oldIndex = categorias.findIndex((c) => c.id === active.id);
-    const newIndex = categorias.findIndex((c) => c.id === over.id);
-    if (oldIndex < 0 || newIndex < 0) return;
-    const prev = categorias;
-    const next = arrayMove(categorias, oldIndex, newIndex);
-    qc.setQueryData(["categorias_terceirizado", "config"], next); // otimista
-    reorderMut.mutate({ ordered: next, prev });
-  };
-
-  const addMut = useMutation({
-    mutationFn: async (nome: string) => {
-      // tenant_id é preenchido pelo trigger set_tenant_id.
-      const { error } = await supabase.from("categorias_terceirizado").insert({ nome, ordem: categorias.length } as any);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      setDraft("");
-      invalidate();
-    },
-    onError: (e: any) =>
-      toast.error(e?.code === "23505" ? "Categoria já existe." : mensagemErro(e, "Erro ao adicionar.")),
-  });
-
-  const renameMut = useMutation({
-    mutationFn: async ({ id, nome }: { id: string; nome: string }) => {
-      const { error } = await supabase
-        .from("categorias_terceirizado")
-        .update({ nome })
-        .eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: invalidate,
-    onError: (e: any) =>
-      toast.error(e?.code === "23505" ? "Categoria já existe." : mensagemErro(e, "Erro ao renomear.")),
-  });
-
-  const removeMut = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from("categorias_terceirizado").delete().eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: invalidate,
-    onError: (e: any) =>
-      toast.error(
-        e?.code === "23503"
-          ? "Categoria em uso por serviços. Remova os vínculos antes."
-          : mensagemErro(e, "Erro ao excluir."),
-      ),
-  });
-
-  const add = () => {
-    const v = draft.trim();
-    if (!v) return;
-    if (categorias.some((c) => c.nome.toLowerCase() === v.toLowerCase())) {
-      toast.error("Categoria já existe.");
-      return;
-    }
-    addMut.mutate(v);
-  };
-
-  return (
-    <>
-    <Card>
-      <CardHeader>
-        <CardTitle>Serviços</CardTitle>
-        <CardDescription>Categorias dos serviços executados.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="flex gap-2">
-          <Input
-            placeholder="Ex: Estamparia"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                add();
-              }
-            }}
-            disabled={!tenantId}
-          />
-          <Button
-            type="button"
-            onClick={add}
-            variant="secondary"
-            disabled={!tenantId || addMut.isPending}
-          >
-            <Plus className="h-4 w-4 mr-1" /> Adicionar
-          </Button>
-        </div>
-
-        {isLoading ? (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground italic">
-            <Loader2 className="h-4 w-4 animate-spin" /> Carregando…
-          </p>
-        ) : (
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <SortableContext items={categorias.map((c) => c.id)} strategy={verticalListSortingStrategy}>
-              <ul className="space-y-2">
-                {categorias.map((c) => (
-                  <ServicoRow
-                    key={c.id}
-                    id={c.id}
-                    nome={c.nome}
-                    onRename={(nome) => renameMut.mutate({ id: c.id, nome })}
-                    onRemove={() => setRemoveTarget(c)}
-                  />
-                ))}
-                {categorias.length === 0 && (
-                  <li className="text-sm text-muted-foreground italic">Nenhuma categoria ainda.</li>
-                )}
-              </ul>
-            </SortableContext>
-          </DndContext>
-        )}
-      </CardContent>
-    </Card>
-
-    <AlertDialog open={!!removeTarget} onOpenChange={(o) => { if (!o) setRemoveTarget(null); }}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Excluir o serviço “{removeTarget?.nome}”?</AlertDialogTitle>
-          <AlertDialogDescription>
-            Esta categoria de serviço sai da loja. Se já estiver em uso por algum
-            serviço, a exclusão será bloqueada. Esta ação não pode ser desfeita.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancelar</AlertDialogCancel>
-          <AlertDialogAction
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            onClick={(e) => { e.preventDefault(); if (removeTarget) removeMut.mutate(removeTarget.id); setRemoveTarget(null); }}
-          >
-            Excluir
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-    </>
-  );
-}
-
-function ServicoRow({
-  id,
-  nome,
-  onRename,
-  onRemove,
-}: {
-  id: string;
-  nome: string;
-  onRename: (nome: string) => void;
-  onRemove: () => void;
-}) {
-  const [value, setValue] = useState(nome);
-  useEffect(() => setValue(nome), [nome]);
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
-  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.6 : 1 };
-
-  const commit = () => {
-    const v = value.trim();
-    if (!v) {
-      setValue(nome); // não permite vazio: reverte
-      return;
-    }
-    if (v !== nome) onRename(v);
-  };
-
-  return (
-    <li ref={setNodeRef} style={style} className="flex items-center gap-2 rounded-md border bg-card p-2">
-      <button
-        type="button"
-        className="cursor-grab text-muted-foreground hover:text-foreground touch-none"
-        {...attributes}
-        {...listeners}
-        aria-label="Arrastar"
-      >
-        <GripVertical className="h-4 w-4" />
-      </button>
-      <Input
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            (e.target as HTMLInputElement).blur();
-          }
-        }}
-        className="h-8 border-0 shadow-none focus-visible:ring-1"
-      />
-      <Button type="button" size="icon" variant="ghost" onClick={onRemove}>
-        <Trash2 className="h-4 w-4 text-destructive" />
-      </Button>
-    </li>
   );
 }
