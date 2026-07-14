@@ -155,7 +155,7 @@ function LojasPage() {
   if (!isSuperAdmin) return <Navigate to="/dashboard" replace />;
 
   return (
-    <div className="space-y-6 max-sm:pb-24">
+    <div className="mx-auto max-w-6xl space-y-6 max-sm:pb-24">
       <Button asChild variant="ghost" size="sm" className="max-sm:hidden -ml-2 w-fit text-muted-foreground">
         <Link to="/admin"><ArrowLeft className="mr-1 h-4 w-4" /> Voltar ao Admin</Link>
       </Button>
