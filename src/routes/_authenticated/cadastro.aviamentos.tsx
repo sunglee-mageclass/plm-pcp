@@ -89,9 +89,14 @@ type Aviamento = {
   foto_url: string | null;
   observacoes: string | null;
   created_at: string;
+  ncm: string | null;
+  cor_id: string | null;
+  cor_apelido_id: string | null;
+  cor_apelido: { nome: string } | null;
 };
 
 type Option = { id: string; nome: string };
+type CorApelido = { id: string; nome: string; cor_base_id: string | null };
 type Empresa = { id: string; nome_fantasia: string; representantes?: { id: string; nome: string | null }[] | null };
 type Subcategoria = { id: string; nome: string; categoria_aviamento_id: string };
 
@@ -144,7 +149,7 @@ function AviamentosGallery() {
       const { data, error } = await supabase
         .from("aviamentos")
         .select(
-          "id,codigo,codigo_nome,empresa_id,representante_id,categoria_aviamento_id,subcategoria_aviamento_id,material_aviamento_id,composicao,preco,intervalo_largura_id,largura_exata,intervalo_vazado_id,largura_exata_vazado,foto_url,observacoes,created_at",
+          "id,codigo,codigo_nome,empresa_id,representante_id,categoria_aviamento_id,subcategoria_aviamento_id,material_aviamento_id,composicao,preco,intervalo_largura_id,largura_exata,intervalo_vazado_id,largura_exata_vazado,foto_url,observacoes,created_at,ncm,cor_id,cor_apelido_id,cor_apelido:cor_apelido_id(nome)",
         );
       if (error) throw error;
       // `codigo` ainda não está no types.ts gerado (backlog de regenerar) → cast via unknown.
@@ -516,11 +521,21 @@ function AviamentoCard({
             )}
           </div>
           {!compact && (
-          <div className="p-3 space-y-1">
+          // Altura FIXA + flex-col + preço com mt-auto: todos os cards ficam do mesmo
+          // tamanho e o preço alinha no rodapé, independente de quanta info tem.
+          <div className="p-3 flex h-[172px] flex-col gap-1 overflow-hidden">
             {aviamento.codigo && (
               <p className="font-mono text-[11px] leading-none text-muted-foreground">{aviamento.codigo}</p>
             )}
             <h3 className="font-medium leading-tight line-clamp-1">{aviamento.codigo_nome}</h3>
+            {(categoria || aviamento.cor_apelido?.nome) && (
+              <div className="flex flex-wrap gap-1">
+                {categoria && <Badge variant="secondary" className="text-[10px]">{categoria}</Badge>}
+                {aviamento.cor_apelido?.nome && (
+                  <Badge variant="outline" className="text-[10px]">{aviamento.cor_apelido.nome}</Badge>
+                )}
+              </div>
+            )}
             {(!categoria || !fornecedor) && (
               <div className="flex items-center gap-1 rounded bg-amber-500/15 px-2 py-1 text-[10px] font-medium text-amber-700 dark:text-amber-400">
                 <AlertTriangle className="h-3 w-3 shrink-0" />
@@ -533,13 +548,11 @@ function AviamentoCard({
                 </span>
               </div>
             )}
-            {categoria && (
-              <div className="flex flex-wrap gap-1">
-                <Badge variant="secondary" className="text-[10px]">{categoria}</Badge>
-              </div>
-            )}
             <p className="text-xs text-muted-foreground line-clamp-1">{fornecedor ?? "—"}</p>
-            <p className="text-sm font-semibold text-primary">{fmtBRL(aviamento.preco)}</p>
+            {aviamento.ncm && (
+              <p className="text-[11px] text-muted-foreground line-clamp-1">NCM {aviamento.ncm}</p>
+            )}
+            <p className="mt-auto text-sm font-semibold text-primary">{fmtBRL(aviamento.preco)}</p>
           </div>
           )}
         </Card>
@@ -562,6 +575,9 @@ type FormState = {
   intervalo_vazado_id: string;
   largura_exata_vazado: string;
   observacoes: string;
+  ncm: string;
+  cor_id: string;
+  cor_apelido_id: string;
   foto_url: string | null;
 };
 
@@ -579,6 +595,9 @@ const emptyForm: FormState = {
   intervalo_vazado_id: "",
   largura_exata_vazado: "",
   observacoes: "",
+  ncm: "",
+  cor_id: "",
+  cor_apelido_id: "",
   foto_url: null,
 };
 
@@ -643,6 +662,9 @@ function AviamentoModal({
         largura_exata_vazado:
           initial.largura_exata_vazado != null ? String(initial.largura_exata_vazado) : "",
         observacoes: initial.observacoes ?? "",
+        ncm: initial.ncm ?? "",
+        cor_id: initial.cor_id ?? "",
+        cor_apelido_id: initial.cor_apelido_id ?? "",
         foto_url: initial.foto_url,
       });
     } else {
@@ -680,6 +702,33 @@ function AviamentoModal({
     if (empresaInicial && !list.some((e) => e.id === empresaInicial.id)) list.push(empresaInicial);
     return list;
   }, [empresas, empresaInicial]);
+
+  // Cores já cadastradas: base (cores) + apelido (cores_apelido, vinculado à base).
+  const { data: cores = [] } = useQuery({
+    queryKey: ["cores-list"],
+    enabled: open,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("cores").select("id,nome").order("nome");
+      if (error) throw error;
+      return (data ?? []) as Option[];
+    },
+  });
+  const { data: coresApelido = [] } = useQuery({
+    queryKey: ["cores-apelido-list"],
+    enabled: open,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("cores_apelido")
+        .select("id,nome,cor_base_id")
+        .order("nome");
+      if (error) throw error;
+      return (data ?? []) as CorApelido[];
+    },
+  });
+  // Apelido é filtrado pela cor base escolhida (cor_base_id).
+  const apelidosFiltrados = coresApelido.filter(
+    (c) => !form.cor_id || c.cor_base_id === form.cor_id,
+  );
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -735,13 +784,17 @@ function AviamentoModal({
         intervalo_vazado_id: form.intervalo_vazado_id || null,
         largura_exata_vazado: form.largura_exata_vazado ? Number(form.largura_exata_vazado) : null,
         observacoes: form.observacoes.trim() || null,
+        ncm: form.ncm.trim() || null,
+        cor_id: form.cor_id || null,
+        cor_apelido_id: form.cor_apelido_id || null,
         foto_url: form.foto_url,
       };
+      // ncm/cor_id/cor_apelido_id ainda não estão no types.ts gerado (backlog) → cast.
       if (initial) {
-        const { error } = await supabase.from("aviamentos").update(payload).eq("id", initial.id);
+        const { error } = await supabase.from("aviamentos").update(payload as never).eq("id", initial.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from("aviamentos").insert(payload);
+        const { error } = await supabase.from("aviamentos").insert(payload as never);
         if (error) throw error;
       }
     },
@@ -918,6 +971,36 @@ function AviamentoModal({
               <Input
                 value={form.composicao}
                 onChange={(e) => set("composicao", e.target.value)}
+              />
+            </Field>
+
+            <Field label="Cor base">
+              <SelectField
+                value={form.cor_id}
+                onChange={(v) => {
+                  set("cor_id", v);
+                  set("cor_apelido_id", ""); // troca a base → limpa o apelido
+                }}
+                options={cores}
+                placeholder="Selecione"
+              />
+            </Field>
+            <Field label="Cor apelido">
+              <SelectField
+                value={form.cor_apelido_id}
+                onChange={(v) => set("cor_apelido_id", v)}
+                options={apelidosFiltrados}
+                placeholder={form.cor_id ? "Selecione" : "Selecione a cor base"}
+                disabled={!form.cor_id}
+              />
+            </Field>
+
+            <Field label="NCM">
+              <Input
+                value={form.ncm}
+                onChange={(e) => set("ncm", e.target.value)}
+                placeholder="Ex: 9606.22.00"
+                inputMode="numeric"
               />
             </Field>
 
