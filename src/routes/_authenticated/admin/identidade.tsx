@@ -107,7 +107,7 @@ function IdentidadePage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 max-sm:pb-24">
+    <div className="space-y-6 max-sm:pb-24">
       <Button asChild variant="ghost" size="sm" className="max-sm:hidden -ml-2 w-fit text-muted-foreground">
         <Link to="/admin"><ArrowLeft className="mr-1 h-4 w-4" /> Voltar ao Admin</Link>
       </Button>
@@ -127,8 +127,8 @@ function IdentidadePage() {
         </Button>
       </header>
 
-      {/* Blocos em grade responsiva: 2 colunas no desktop, 1 no mobile (masonry). */}
-      <div className="gap-4 lg:columns-2 [&>*]:mb-4 [&>*]:break-inside-avoid">
+      {/* Blocos em grade responsiva full-width: 2 colunas no desktop, 1 no mobile. */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 items-start">
       <Card>
         <CardHeader>
           <CardTitle>Textos</CardTitle>
