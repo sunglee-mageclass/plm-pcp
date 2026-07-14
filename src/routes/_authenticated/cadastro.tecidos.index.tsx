@@ -9,6 +9,8 @@ import {
   LayoutGrid,
   ImageOff,
   Loader2,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -37,7 +39,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { FilterButton, SearchToggle } from "@/components/shared/filters";
+import { FilterButton, SearchToggle, AgrupamentoButton } from "@/components/shared/filters";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { EmptyState } from "@/components/shared/EmptyState";
 
@@ -80,6 +82,15 @@ function TecidosGallery() {
   const [empresaFilter, setEmpresaFilter] = useState<string>("all");
   const [catFilter, setCatFilter] = useState<string>("all");
   const [sort, setSort] = useState<string>("nome");
+  const [groupByCat, setGroupByCat] = useState(false);
+  const [groupByForn, setGroupByForn] = useState(false);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const toggleCollapse = (path: string) =>
+    setCollapsed((prev) => {
+      const n = new Set(prev);
+      if (n.has(path)) n.delete(path); else n.add(path);
+      return n;
+    });
   const [createOpen, setCreateOpen] = useState(false);
 
   const { data: artigos = [], isLoading } = useQuery({
@@ -233,6 +244,80 @@ function TecidosGallery() {
 
   // (A exclusão de tecido vive na tela de detalhe — cadastro.tecidos.$artigoId.)
 
+  // Card (reusado no grid liso e nos grupos).
+  const renderCard = (a: Artigo) => (
+    <TecidoCard
+      key={a.id}
+      artigo={a}
+      categorias={categoriaNomesByArtigo.get(a.id) ?? []}
+      fornecedor={a.empresa_id ? empresasMap.get(a.empresa_id) ?? null : null}
+      fotoPath={firstVarMap.get(a.id) ?? null}
+      compact={compact}
+      readOnly={readOnly}
+    />
+  );
+
+  // Agrupamento. Categoria = MULTI-pertencimento (um tecido com várias categorias
+  // aparece em cada grupo); Fornecedor = simples. Aninha Categoria › Fornecedor.
+  type Split = { key: string; nome: string; items: Artigo[] };
+  const sortSplits = (arr: Split[]) =>
+    arr.sort((x, y) => (x.key === "__none__" ? 1 : y.key === "__none__" ? -1 : x.nome.localeCompare(y.nome, "pt-BR")));
+  const byCategoria = (items: Artigo[]): Split[] => {
+    const map = new Map<string, Artigo[]>();
+    items.forEach((a) => {
+      const ids = new Set<string>(catsByArtigo.get(a.id) ?? []);
+      if (a.categoria_tecido_id) ids.add(a.categoria_tecido_id);
+      const keys = ids.size ? Array.from(ids) : ["__none__"];
+      keys.forEach((k) => { (map.get(k) ?? map.set(k, []).get(k))!.push(a); });
+    });
+    return sortSplits(Array.from(map.entries()).map(([k, its]) => ({
+      key: k, nome: k === "__none__" ? "Sem categoria" : categoriasMap.get(k) ?? "Sem categoria", items: its,
+    })));
+  };
+  const byFornecedor = (items: Artigo[]): Split[] => {
+    const map = new Map<string, Artigo[]>();
+    items.forEach((a) => { const k = a.empresa_id ?? "__none__"; (map.get(k) ?? map.set(k, []).get(k))!.push(a); });
+    return sortSplits(Array.from(map.entries()).map(([k, its]) => ({
+      key: k, nome: k === "__none__" ? "Sem fornecedor" : empresasMap.get(k) ?? "Sem fornecedor", items: its,
+    })));
+  };
+  const splitters = [groupByCat ? byCategoria : null, groupByForn ? byFornecedor : null].filter(Boolean) as ((i: Artigo[]) => Split[])[];
+  type Grupo = { key: string; nome: string; count: number; items?: Artigo[]; subgroups?: Grupo[] };
+  const buildGroups = (items: Artigo[], depth: number): Grupo[] =>
+    splitters[depth](items).map((g) => {
+      const node: Grupo = { key: g.key, nome: g.nome, count: g.items.length };
+      if (depth + 1 < splitters.length) node.subgroups = buildGroups(g.items, depth + 1);
+      else node.items = g.items;
+      return node;
+    });
+  const groups: Grupo[] | null = splitters.length ? buildGroups(filtered, 0) : null;
+
+  const HEADER_CLS = ["text-lg font-semibold", "text-base font-semibold text-muted-foreground"];
+  const renderGroup = (g: Grupo, depth: number, path: string) => {
+    const isCollapsed = collapsed.has(path);
+    return (
+      <section key={g.key} className="space-y-3">
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => toggleCollapse(path)}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleCollapse(path); } }}
+          className="flex cursor-pointer select-none items-center gap-2"
+          aria-expanded={!isCollapsed}
+        >
+          {isCollapsed ? <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />}
+          <h2 className={HEADER_CLS[Math.min(depth, HEADER_CLS.length - 1)]}>{g.nome}</h2>
+          <span className="text-xs text-muted-foreground">({g.count})</span>
+        </div>
+        {!isCollapsed && (g.subgroups ? (
+          <div className="space-y-4 border-l pl-3">{g.subgroups.map((sg) => renderGroup(sg, depth + 1, `${path}/${sg.key}`))}</div>
+        ) : (
+          <div className={GRID_COLS_CLASS[cols]}>{g.items!.map(renderCard)}</div>
+        ))}
+      </section>
+    );
+  };
+
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
       <header className="flex flex-wrap items-center justify-between gap-3">
@@ -258,6 +343,12 @@ function TecidosGallery() {
               ))}
             </SelectContent>
           </Select>
+          <AgrupamentoButton
+            groups={[
+              { label: "Categoria", active: groupByCat, onToggle: () => setGroupByCat((v) => !v) },
+              { label: "Fornecedor", active: groupByForn, onToggle: () => setGroupByForn((v) => !v) },
+            ]}
+          />
           <FilterButton
             filters={[
               { label: "Fornecedor", value: empresaFilter, onChange: setEmpresaFilter, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
@@ -310,19 +401,13 @@ function TecidosGallery() {
             }}
           />
         )
+      ) : groups ? (
+        <div ref={gridRef} className="space-y-6">
+          {groups.map((g) => renderGroup(g, 0, g.key))}
+        </div>
       ) : (
         <div ref={gridRef} className={GRID_COLS_CLASS[cols]}>
-          {filtered.map((a) => (
-            <TecidoCard
-              key={a.id}
-              artigo={a}
-              categorias={categoriaNomesByArtigo.get(a.id) ?? []}
-              fornecedor={a.empresa_id ? empresasMap.get(a.empresa_id) ?? null : null}
-              fotoPath={firstVarMap.get(a.id) ?? null}
-              compact={compact}
-              readOnly={readOnly}
-            />
-          ))}
+          {filtered.map(renderCard)}
         </div>
       )}
 
