@@ -14,6 +14,7 @@ import {
   Trash2,
   ChevronDown,
   ChevronRight,
+  Save,
 } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -769,11 +770,39 @@ function AviamentoModal({
     onOpenChange(o);
   };
 
+  const isSheet = !!initial;
   return (
-    <ModalShell isSheet={!!initial} open={open} onOpenChange={handleOpenChange}>
-        <DialogHeader className="max-sm:shrink-0">
-          <DialogTitle>{initial ? "Editar Aviamento" : "Novo Aviamento"}</DialogTitle>
-        </DialogHeader>
+    <ModalShell isSheet={isSheet} open={open} onOpenChange={handleOpenChange}>
+        {isSheet ? (
+          // Sheet (editar): cabeçalho com botões no topo (igual ao detalhe do Tecido).
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <Button variant="outline" size="icon" className="max-sm:hidden" onClick={() => handleOpenChange(false)} aria-label="Fechar">
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+              <DialogTitle className="text-xl font-bold">Editar Aviamento</DialogTitle>
+            </div>
+            {!readOnly && (
+              <div className="flex items-center gap-2 max-sm:hidden">
+                {initial && onDelete && (
+                  <>
+                    <Button variant="destructive" onClick={() => onDelete()}>
+                      <Trash2 className="h-4 w-4 mr-1" /> Excluir
+                    </Button>
+                    <div className="w-px h-6 bg-border mx-1" aria-hidden />
+                  </>
+                )}
+                <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+                  <Save className="h-4 w-4 mr-1" /> {saveMut.isPending ? "Salvando…" : "Salvar"}
+                </Button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <DialogHeader className="max-sm:shrink-0">
+            <DialogTitle>Novo Aviamento</DialogTitle>
+          </DialogHeader>
+        )}
 
         <fieldset disabled={readOnly} className="contents">
         <div className="grid gap-4 md:grid-cols-3 py-2 max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-y-auto">
@@ -937,26 +966,40 @@ function AviamentoModal({
         </div>
         </fieldset>
 
-        <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
-          {/* Desktop: Cancelar em texto. Mobile: ícone de voltar (igual às outras barras). */}
-          <Button variant="outline" className="max-sm:hidden" onClick={() => handleOpenChange(false)}>
-            Cancelar
-          </Button>
-          <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={() => handleOpenChange(false)}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          {!readOnly && initial && onDelete && (
-            <Button variant="destructive" className="shrink-0 max-sm:aspect-square max-sm:px-0" onClick={() => onDelete()} aria-label="Excluir aviamento">
-              <Trash2 className="h-4 w-4 sm:mr-1" />
-              <span className="max-sm:sr-only">Excluir</span>
+        {isSheet ? (
+          // Sheet (editar): no desktop os botões estão no cabeçalho; no mobile, barra fixa
+          // com voltar + excluir + salvar (igual ao detalhe do Tecido).
+          <MobileActionBar>
+            <Button variant="outline" size="icon" aria-label="Voltar" onClick={() => handleOpenChange(false)}>
+              <ArrowLeft className="h-4 w-4" />
             </Button>
-          )}
-          {!readOnly && (
-            <Button className="ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
-              {saveMut.isPending ? "Salvando…" : "Salvar"}
+            {!readOnly && initial && onDelete && (
+              <Button variant="destructive" size="icon" aria-label="Excluir aviamento" onClick={() => onDelete()}>
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
+            {!readOnly && (
+              <Button className="ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+                {saveMut.isPending ? "Salvando…" : "Salvar"}
+              </Button>
+            )}
+          </MobileActionBar>
+        ) : (
+          <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
+            {/* Desktop: Cancelar em texto. Mobile: ícone de voltar (igual às outras barras). */}
+            <Button variant="outline" className="max-sm:hidden" onClick={() => handleOpenChange(false)}>
+              Cancelar
             </Button>
-          )}
-        </DialogFooter>
+            <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={() => handleOpenChange(false)}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            {!readOnly && (
+              <Button className="ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+                {saveMut.isPending ? "Salvando…" : "Salvar"}
+              </Button>
+            )}
+          </DialogFooter>
+        )}
     </ModalShell>
   );
 }
