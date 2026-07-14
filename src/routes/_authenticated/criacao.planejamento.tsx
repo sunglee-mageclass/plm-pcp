@@ -1794,7 +1794,7 @@ function PhotoList({ label, paths, onAdd, onRemove }: {
   return (
     <div className="grid gap-2">
       <Label>{label}</Label>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {paths.map((p, i) => (
           <FileThumb key={i} path={p} onRemove={() => onRemove(i)} />
         ))}

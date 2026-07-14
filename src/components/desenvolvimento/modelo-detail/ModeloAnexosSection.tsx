@@ -110,7 +110,7 @@ function PhotoList({
   return (
     <div className="grid gap-2">
       <Label>{label}</Label>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {paths.map((p, i) => (
           <FileThumb key={p} path={p} onRemove={() => onChange(paths.filter((_, j) => j !== i))} />
         ))}
