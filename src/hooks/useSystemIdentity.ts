@@ -12,7 +12,7 @@ export type SystemIdentity = {
 
 const DEFAULTS: SystemIdentity = {
   id: "",
-  nome_sistema: "sisTrama",
+  nome_sistema: "WISH360",
   subtitulo: "Moda & Confecção",
   logo_url: null,
   favicon_url: null,
