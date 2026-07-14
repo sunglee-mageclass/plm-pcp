@@ -26,6 +26,8 @@ import { LayoutGrid } from "lucide-react";
 import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
 import { RevisaoErroBadge, VerificarRevisao } from "@/components/producao/RevisaoErro";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { useSignedUrl } from "@/hooks/useSignedUrl";
+import { ImagePreview } from "@/components/shared/ImagePreview";
 export const Route = createFileRoute("/_authenticated/producao/lancamentos")({
   component: () => (
     <RequirePermission page="producao_lancamentos">
@@ -58,6 +60,7 @@ type LancCard = {
   grupo_nome: string | null;
   subcategoria1_id: string | null;
   subcategoria1_nome: string | null;
+  conjunto_id: string | null;
   versao: number;
   fotos_modelo: string[];
   variantes: VarInfo[];
@@ -109,7 +112,7 @@ function LancamentosPage() {
       // Produtos: enviados ao CAD + CQ CONFIRMADO + LANÇADOS (gate explícito no card).
       const { data: modelos, error } = await supabase
         .from("modelos")
-        .select("id, ref, nome, colecao, subcolecao, semana, data_lancamento, mes_id, ano_id, linha_id, versao, preco_venda, revisao_pendente, fotos_modelo, categoria_principal_id, subcategoria1_id, linha:linha_id(nome, markup), categorias_produto:categoria_principal_id(nome, grupo_id, grupo:grupo_id(nome)), subcategorias1_produto:subcategoria1_id(nome), cad(id, controle_qualidade(id, status, status_pos, fotografado_variantes), producao_terceirizados(ativo, categorias_terceirizado(etapa)))")
+        .select("id, ref, nome, conjunto_id, colecao, subcolecao, semana, data_lancamento, mes_id, ano_id, linha_id, versao, preco_venda, revisao_pendente, fotos_modelo, categoria_principal_id, subcategoria1_id, linha:linha_id(nome, markup), categorias_produto:categoria_principal_id(nome, grupo_id, grupo:grupo_id(nome)), subcategorias1_produto:subcategoria1_id(nome), cad(id, controle_qualidade(id, status, status_pos, fotografado_variantes), producao_terceirizados(ativo, categorias_terceirizado(etapa)))")
         .eq("enviado_cad", true)
         .eq("lancado", true);
       if (error) throw error;
@@ -192,6 +195,7 @@ function LancamentosPage() {
           subcategoria1_id: m.subcategoria1_id ?? null,
           subcategoria1_nome: (m as any).subcategorias1_produto?.nome ?? null,
           versao: Number(m.versao ?? 1),
+          conjunto_id: (m as { conjunto_id?: string | null }).conjunto_id ?? null,
           fotos_modelo: Array.isArray(m.fotos_modelo) ? m.fotos_modelo : [],
           variantes,
           gradeTotal,
@@ -515,6 +519,44 @@ function LancamentosPage() {
   );
 }
 
+function RelThumb({ path, refLabel }: { path: string | null; refLabel: string | null }) {
+  const url = useSignedUrl(path, "modelos");
+  const inner = (
+    <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded border bg-muted/40">
+      {url ? <img src={url} alt={refLabel ?? ""} className="h-full w-full object-cover" /> : <span className="text-[9px] text-muted-foreground">Sem foto</span>}
+    </div>
+  );
+  return (
+    <div className="w-16 text-center">
+      {url ? <ImagePreview src={url} alt={refLabel ?? ""}>{inner}</ImagePreview> : inner}
+      <p className="mt-0.5 truncate font-mono text-[10px] text-primary">{refLabel ?? "—"}</p>
+    </div>
+  );
+}
+
+function RelacionadosLancamento({ conjuntoId, modeloId }: { conjuntoId: string | null; modeloId: string }) {
+  const { data: membros = [] } = useQuery({
+    queryKey: ["lanc-relacionados", conjuntoId, modeloId],
+    enabled: !!conjuntoId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("modelos").select("id, ref, fotos_modelo")
+        .eq("conjunto_id" as any, conjuntoId as string).neq("id", modeloId);
+      if (error) throw error;
+      return (data ?? []) as unknown as { id: string; ref: string | null; fotos_modelo: string[] | null }[];
+    },
+  });
+  if (!conjuntoId || membros.length === 0) return null;
+  return (
+    <div className="mt-1 border-t pt-2">
+      <p className="mb-1 text-xs font-semibold text-muted-foreground">Produto relacionado</p>
+      <div className="flex flex-wrap gap-2">
+        {membros.map((m) => <RelThumb key={m.id} path={m.fotos_modelo?.[0] ?? null} refLabel={m.ref} />)}
+      </div>
+    </div>
+  );
+}
+
 function LancamentoCard(props: { card: LancCard; markup: number | null; preco: number | null; compact: boolean; readOnly: boolean }) {
   const { card, compact, readOnly, markup, preco } = props;
   const qc = useQueryClient();
@@ -649,6 +691,7 @@ function LancamentoCard(props: { card: LancCard; markup: number | null; preco: n
             );
           })}
         </div>
+        <RelacionadosLancamento conjuntoId={card.conjunto_id} modeloId={card.modelo_id} />
       </DialogContent>
     </Dialog>
   );
