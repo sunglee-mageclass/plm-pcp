@@ -15,6 +15,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ModeloDetailPanel } from "@/components/desenvolvimento/ModeloDetailPanel";
+import { ImagePreview } from "@/components/shared/ImagePreview";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { useCursorTip } from "@/components/shared/CursorTip";
@@ -454,6 +455,20 @@ function DesenvolvimentoPage() {
   );
 }
 
+// Capa do card. Foto (imagem) é clicável e abre o lightbox (ImagePreview faz
+// stopPropagation, então NÃO abre o painel de detalhe junto). PDF/vazio seguem inertes
+// (clique cai no card = abre o detalhe).
+function CardCover({ url, isPdf, nome }: { url: string | null; isPdf: boolean; nome: string | null }) {
+  const box = "h-14 w-14 shrink-0 rounded bg-muted overflow-hidden flex items-center justify-center";
+  if (!url) return <div className={box}><ImageIcon className="h-6 w-6 text-muted-foreground" /></div>;
+  if (isPdf) return <div className={box}><iframe src={`${url}#toolbar=0&navpanes=0&scrollbar=0`} title="" className="h-full w-full pointer-events-none" /></div>;
+  return (
+    <ImagePreview src={url} alt={nome ?? ""} className={box}>
+      <img src={url} alt={nome ?? ""} draggable={false} className="h-full w-full object-cover" />
+    </ImagePreview>
+  );
+}
+
 function MobileCard({ modelo, estilistaNome, categoriaNome, onOpen }: {
   modelo: Modelo;
   estilistaNome: string | null;
@@ -471,11 +486,7 @@ function MobileCard({ modelo, estilistaNome, categoriaNome, onOpen }: {
         <span className="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full bg-sky-600 ring-2 ring-card" aria-label="Enviado ao CAD" />
       )}
       <div className="flex gap-2" onClick={onOpen} role="button">
-        <div className="h-14 w-14 shrink-0 rounded bg-muted overflow-hidden flex items-center justify-center">
-          {!url ? <ImageIcon className="h-6 w-6 text-muted-foreground" />
-               : coverIsPdf ? <iframe src={`${url}#toolbar=0&navpanes=0&scrollbar=0`} title="" className="h-full w-full pointer-events-none" />
-               : <img src={url} alt={modelo.nome ?? ""} className="h-full w-full object-cover" />}
-        </div>
+        <CardCover url={url} isPdf={coverIsPdf} nome={modelo.nome} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 min-w-0">
             <p className="text-sm font-medium truncate">{modelo.nome ?? "Sem nome"}</p>
@@ -519,11 +530,7 @@ function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: i
         <span className="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full bg-sky-600 ring-2 ring-card" aria-label="Enviado ao CAD" />
       )}
       <div className="flex gap-2">
-        <div className="h-14 w-14 shrink-0 rounded bg-muted overflow-hidden flex items-center justify-center">
-          {!url ? <ImageIcon className="h-6 w-6 text-muted-foreground" />
-               : coverIsPdf ? <iframe src={`${url}#toolbar=0&navpanes=0&scrollbar=0`} title="" className="h-full w-full pointer-events-none" />
-               : <img src={url} alt={modelo.nome ?? ""} className="h-full w-full object-cover" />}
-        </div>
+        <CardCover url={url} isPdf={coverIsPdf} nome={modelo.nome} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 min-w-0">
             <p className="text-sm font-medium truncate">{modelo.nome ?? "Sem nome"}</p>
