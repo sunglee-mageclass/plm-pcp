@@ -31,6 +31,7 @@ import {
   type TecidoBlock,
 } from "./modelo-detail/types";
 import { ModeloInfoSection } from "./modelo-detail/ModeloInfoSection";
+import { ModeloAjustesProvaSection } from "./modelo-detail/ModeloAjustesProvaSection";
 import { ModeloTecidosSection } from "./modelo-detail/ModeloTecidosSection";
 import { ModeloAviamentosSection } from "./modelo-detail/ModeloAviamentosSection";
 import { ModeloGradeSection } from "./modelo-detail/ModeloGradeSection";
@@ -541,7 +542,6 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         data_desenho_tecnico: draft.data_desenho_tecnico || null,
         data_aprovacao: draft.data_aprovacao || null,
         observacoes_tecnicas: draft.observacoes_tecnicas || null,
-        ajustes_prova: draft.ajustes_prova || null,
         observacoes_gerais: draft.observacoes_gerais || null,
         ficha_medida_url: draft.ficha_medida_url || null,
         desenho_tecnico_url: draft.desenho_tecnico_url || null,
@@ -975,8 +975,15 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
             </AccordionContent>
           </AccordionItem>
 
+          <AccordionItem value="prova">
+            <AccordionTrigger>2. Ajustes na Prova</AccordionTrigger>
+            <AccordionContent>
+              <ModeloAjustesProvaSection modeloId={modeloId} />
+            </AccordionContent>
+          </AccordionItem>
+
           <AccordionItem value="s2">
-            <AccordionTrigger>2. Tecidos / Forros / Entretelas</AccordionTrigger>
+            <AccordionTrigger>3. Tecidos / Forros / Entretelas</AccordionTrigger>
             <AccordionContent>
               <ModeloTecidosSection
                 modeloId={modeloId}
@@ -993,7 +1000,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           </AccordionItem>
 
           <AccordionItem value="s3">
-            <AccordionTrigger>3. Aviamentos</AccordionTrigger>
+            <AccordionTrigger>4. Aviamentos</AccordionTrigger>
             <AccordionContent>
               <ModeloAviamentosSection
                 rows={aviamentosState}
@@ -1006,7 +1013,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           </AccordionItem>
 
           <AccordionItem value="s4">
-            <AccordionTrigger>4. Grade</AccordionTrigger>
+            <AccordionTrigger>5. Grade</AccordionTrigger>
             <AccordionContent>
               <ModeloGradeSection
                 tamanhos={tamanhos}
@@ -1023,7 +1030,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           </AccordionItem>
 
           <AccordionItem value="s5">
-            <AccordionTrigger>5. Custos</AccordionTrigger>
+            <AccordionTrigger>6. Custos</AccordionTrigger>
             <AccordionContent>
               <ModeloCustosSection
                 totals={totals}
@@ -1034,7 +1041,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           </AccordionItem>
 
           <AccordionItem value="s6">
-            <AccordionTrigger>6. Anexos</AccordionTrigger>
+            <AccordionTrigger>7. Anexos</AccordionTrigger>
             <AccordionContent>
               <ModeloAnexosSection
                 fichaMedidaUrl={draft.ficha_medida_url}

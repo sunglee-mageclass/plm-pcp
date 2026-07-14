@@ -227,9 +227,6 @@ export function ModeloInfoSection({
       <Field label="Observações Técnicas" full>
         <Textarea rows={3} value={draft.observacoes_tecnicas} onChange={(e) => setDraft({ ...draft, observacoes_tecnicas: e.target.value })} />
       </Field>
-      <Field label="Ajustes na Prova" full>
-        <Textarea rows={3} value={draft.ajustes_prova} onChange={(e) => setDraft({ ...draft, ajustes_prova: e.target.value })} />
-      </Field>
     </div>
   );
 }
