@@ -21,6 +21,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
+import { OcModalShell } from "@/components/shared/OcModalShell";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -717,8 +718,8 @@ function OcDialog({
   };
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-4xl max-h-[90dvh] grid grid-rows-[auto_minmax(0,1fr)_auto] !overflow-hidden max-md:w-screen max-md:max-w-none max-md:h-dvh max-md:max-h-dvh max-md:rounded-none max-md:border-0 max-md:!p-4 max-md:[&>button]:hidden">
+    <>
+    <OcModalShell isEdit={isEdit} onClose={onClose}>
         <DialogHeader className="shrink-0">
           <DialogTitle>{isEdit ? `OC ${draft.numero_pedido || ""}` : "Nova OC de Aviamento"}</DialogTitle>
         </DialogHeader>
@@ -1011,7 +1012,7 @@ function OcDialog({
             </Button>
           </div>
         </div>
-      </DialogContent>
+    </OcModalShell>
 
       <AlertDialog open={confirmUnmark} onOpenChange={setConfirmUnmark}>
         <AlertDialogContent>
@@ -1031,6 +1032,6 @@ function OcDialog({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Dialog>
+    </>
   );
 }

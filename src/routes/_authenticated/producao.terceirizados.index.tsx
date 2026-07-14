@@ -212,7 +212,7 @@ function TercListPage() {
       {printReq && <PrintFicha modeloId={printReq.id} kind="tecnica" token={printReq.token} />}
 
       <Sheet open={!!sheetId} onOpenChange={(o) => !o && setSheetId(null)}>
-        <SheetContent className="w-full sm:w-[92vw] sm:max-w-[1100px] overflow-y-auto p-0 max-md:[&>button]:hidden">
+        <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] overflow-y-auto p-0 max-md:[&>button]:hidden">
           {sheetId && <TerceirizadosDetail modeloId={sheetId} onClose={() => setSheetId(null)} />}
         </SheetContent>
       </Sheet>
