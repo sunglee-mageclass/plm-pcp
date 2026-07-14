@@ -41,6 +41,7 @@ import { useTenantModules } from "@/hooks/useTenantModules";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { BulkEditDialog } from "@/components/planejamento/BulkEditDialog";
+import { ProdutoRelacionadoSetor } from "@/components/planejamento/ProdutoRelacionadoSetor";
 export const Route = createFileRoute("/_authenticated/criacao/planejamento")({
   component: () => (
     <RequirePermission page="criacao_planejamento">
@@ -1371,6 +1372,11 @@ function ModeloDialog({
                 <p className="text-sm text-muted-foreground">Disponível após o CAD e o Controle de Qualidade confirmado.</p>
               )}
               {lancado && <p className="mt-2 text-xs text-emerald-600">✓ Lançado — aparece em Lançamentos.</p>}
+            </Secao>
+          )}
+          {isEdit && modeloId && (
+            <Secao titulo="Produto Relacionado">
+              <ProdutoRelacionadoSetor modeloId={modeloId} />
             </Secao>
           )}
         </div>
