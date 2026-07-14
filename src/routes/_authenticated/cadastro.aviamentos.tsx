@@ -46,6 +46,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -768,8 +769,7 @@ function AviamentoModal({
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
+    <ModalShell isSheet={!!initial} open={open} onOpenChange={handleOpenChange}>
         <DialogHeader className="max-sm:shrink-0">
           <DialogTitle>{initial ? "Editar Aviamento" : "Novo Aviamento"}</DialogTitle>
         </DialogHeader>
@@ -956,6 +956,32 @@ function AviamentoModal({
             </Button>
           )}
         </DialogFooter>
+    </ModalShell>
+  );
+}
+
+// Editar (abrir card) = Sheet lateral (igual Planejamento); Novo (cadastrar) = Dialog
+// centralizado. Sheet e Dialog do shadcn são o mesmo primitivo do Radix, então o
+// DialogHeader/DialogTitle/DialogFooter internos funcionam nos dois.
+function ModalShell({ isSheet, open, onOpenChange, children }: {
+  isSheet: boolean;
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  children: React.ReactNode;
+}) {
+  if (isSheet) {
+    return (
+      <Sheet open={open} onOpenChange={onOpenChange}>
+        <SheetContent side="right" className="flex w-full flex-col gap-4 overflow-y-auto p-4 sm:w-[70vw] sm:max-w-[70vw] sm:p-6 [&>button]:hidden">
+          {children}
+        </SheetContent>
+      </Sheet>
+    );
+  }
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
+        {children}
       </DialogContent>
     </Dialog>
   );
