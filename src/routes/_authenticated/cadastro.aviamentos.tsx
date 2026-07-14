@@ -92,6 +92,7 @@ type Aviamento = {
   ncm: string | null;
   cor_id: string | null;
   cor_apelido_id: string | null;
+  cor: { nome: string } | null;
   cor_apelido: { nome: string } | null;
 };
 
@@ -126,6 +127,9 @@ function AviamentosGallery() {
   const [sort, setSort] = useState("nome");
   const [groupByCat, setGroupByCat] = useState(false);
   const [groupBySub, setGroupBySub] = useState(false);
+  const [groupByCorBase, setGroupByCorBase] = useState(false);
+  const [groupByCorApelido, setGroupByCorApelido] = useState(false);
+  const [groupByFornecedor, setGroupByFornecedor] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const toggleCollapse = (path: string) =>
     setCollapsed((prev) => {
@@ -149,7 +153,7 @@ function AviamentosGallery() {
       const { data, error } = await supabase
         .from("aviamentos")
         .select(
-          "id,codigo,codigo_nome,empresa_id,representante_id,categoria_aviamento_id,subcategoria_aviamento_id,material_aviamento_id,composicao,preco,intervalo_largura_id,largura_exata,intervalo_vazado_id,largura_exata_vazado,foto_url,observacoes,created_at,ncm,cor_id,cor_apelido_id,cor_apelido:cor_apelido_id(nome)",
+          "id,codigo,codigo_nome,empresa_id,representante_id,categoria_aviamento_id,subcategoria_aviamento_id,material_aviamento_id,composicao,preco,intervalo_largura_id,largura_exata,intervalo_vazado_id,largura_exata_vazado,foto_url,observacoes,created_at,ncm,cor_id,cor_apelido_id,cor:cor_id(nome),cor_apelido:cor_apelido_id(nome)",
         );
       if (error) throw error;
       // `codigo` ainda não está no types.ts gerado (backlog de regenerar) → cast via unknown.
@@ -228,6 +232,15 @@ function AviamentosGallery() {
   );
   const catMap = useMemo(() => new Map(categorias.map((c) => [c.id, c.nome])), [categorias]);
   const subMap = useMemo(() => new Map(subcategorias.map((s) => [s.id, s.nome])), [subcategorias]);
+  // Maps de cor derivados das próprias linhas (cada uma traz o nome embedado).
+  const corBaseMap = useMemo(
+    () => new Map(aviamentos.filter((a) => a.cor_id).map((a) => [a.cor_id!, a.cor?.nome ?? "—"])),
+    [aviamentos],
+  );
+  const corApelidoMap = useMemo(
+    () => new Map(aviamentos.filter((a) => a.cor_apelido_id).map((a) => [a.cor_apelido_id!, a.cor_apelido?.nome ?? "—"])),
+    [aviamentos],
+  );
 
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
@@ -301,7 +314,16 @@ function AviamentosGallery() {
   };
   const byCat = (items: Aviamento[]) => splitBy(items, (a) => a.categoria_aviamento_id, (k) => (k === "__none__" ? "Sem categoria" : catMap.get(k) ?? "Sem categoria"));
   const bySub = (items: Aviamento[]) => splitBy(items, (a) => a.subcategoria_aviamento_id, (k) => (k === "__none__" ? "Sem subcategoria" : subMap.get(k) ?? "Sem subcategoria"));
-  const splitters = [groupByCat ? byCat : null, groupBySub ? bySub : null].filter(Boolean) as ((i: Aviamento[]) => Split[])[];
+  const byCorBase = (items: Aviamento[]) => splitBy(items, (a) => a.cor_id, (k) => (k === "__none__" ? "Sem cor base" : corBaseMap.get(k) ?? "Sem cor base"));
+  const byCorApelido = (items: Aviamento[]) => splitBy(items, (a) => a.cor_apelido_id, (k) => (k === "__none__" ? "Sem cor apelido" : corApelidoMap.get(k) ?? "Sem cor apelido"));
+  const byFornecedor = (items: Aviamento[]) => splitBy(items, (a) => a.empresa_id, (k) => (k === "__none__" ? "Sem fornecedor" : empresasMap.get(k) ?? "Sem fornecedor"));
+  const splitters = [
+    groupByCat ? byCat : null,
+    groupBySub ? bySub : null,
+    groupByCorBase ? byCorBase : null,
+    groupByCorApelido ? byCorApelido : null,
+    groupByFornecedor ? byFornecedor : null,
+  ].filter(Boolean) as ((i: Aviamento[]) => Split[])[];
   type Grupo = { key: string; nome: string; count: number; items?: Aviamento[]; subgroups?: Grupo[] };
   const buildGroups = (items: Aviamento[], depth: number): Grupo[] =>
     splitters[depth](items).map((g) => {
@@ -367,6 +389,9 @@ function AviamentosGallery() {
             groups={[
               { label: "Categoria", active: groupByCat, onToggle: () => setGroupByCat((v) => !v) },
               { label: "Subcategoria", active: groupBySub, onToggle: () => setGroupBySub((v) => !v) },
+              { label: "Cor base", active: groupByCorBase, onToggle: () => setGroupByCorBase((v) => !v) },
+              { label: "Cor apelido", active: groupByCorApelido, onToggle: () => setGroupByCorApelido((v) => !v) },
+              { label: "Fornecedor", active: groupByFornecedor, onToggle: () => setGroupByFornecedor((v) => !v) },
             ]}
           />
           <FilterButton
@@ -528,11 +553,14 @@ function AviamentoCard({
               <p className="font-mono text-[11px] leading-none text-muted-foreground">{aviamento.codigo}</p>
             )}
             <h3 className="font-medium leading-tight line-clamp-1">{aviamento.codigo_nome}</h3>
-            {(categoria || aviamento.cor_apelido?.nome) && (
+            {(categoria || aviamento.cor?.nome || aviamento.cor_apelido?.nome) && (
               <div className="flex flex-wrap gap-1">
                 {categoria && <Badge variant="secondary" className="text-[10px]">{categoria}</Badge>}
+                {aviamento.cor?.nome && (
+                  <Badge variant="outline" className="text-[10px]">{aviamento.cor.nome}</Badge>
+                )}
                 {aviamento.cor_apelido?.nome && (
-                  <Badge variant="outline" className="text-[10px]">{aviamento.cor_apelido.nome}</Badge>
+                  <Badge variant="outline" className="text-[10px] border-primary/40 text-primary">{aviamento.cor_apelido.nome}</Badge>
                 )}
               </div>
             )}
