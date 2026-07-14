@@ -38,6 +38,10 @@ function traduzPadrao(msg: string): string | null {
   if (!m) return null;
   if (m.includes("violates foreign key") || m.includes("still referenced")) return POR_CODIGO["23503"];
   if (m.includes("duplicate key") || m.includes("unique constraint")) return POR_CODIGO["23505"];
+  // Colisão de e-mail vinda do Auth (GoTrue) — chega em inglês, sem SQLSTATE.
+  if (m.includes("already registered") || m.includes("already been registered") ||
+      m.includes("email_exists") || (m.includes("email") && m.includes("already")))
+    return "Já existe uma conta com este e-mail.";
   if (m.includes("null value") && m.includes("not-null")) return POR_CODIGO["23502"];
   if (m.includes("violates check constraint")) return POR_CODIGO["23514"];
   if (m.includes("row-level security") || m.includes("row level security"))

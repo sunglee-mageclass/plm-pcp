@@ -14,6 +14,7 @@ import {
 } from "@/lib/admin.functions";
 import { isEmail } from "@/lib/email";
 import { PermissoesModal } from "@/components/admin/PermissoesModal";
+import { UserActionsMenu, type UserAction } from "@/components/admin/UserActionsMenu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,6 +30,10 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
+} from "@/components/ui/alert-dialog";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { useSort, SortHead } from "@/components/shared/sort";
 
@@ -46,7 +51,7 @@ type AppUser = {
 };
 type Tenant = { id: string; nome: string };
 
-const ROLES = ["super_admin", "admin", "tenant_admin", "user"] as const;
+const ROLES = ["super_admin", "tenant_admin", "user"] as const;
 
 function UsuariosPage() {
   const { isSuperAdmin, loading, user } = useAuth();
@@ -57,6 +62,8 @@ function UsuariosPage() {
   const [permUser, setPermUser] = useState<AppUser | null>(null);
   const [editing, setEditing] = useState<AppUser | null>(null);
   const [deleting, setDeleting] = useState<AppUser | null>(null);
+  const [confirmLogout, setConfirmLogout] = useState<AppUser | null>(null);
+  const [confirmDeact, setConfirmDeact] = useState<AppUser | null>(null);
 
   const callToggle = useServerFn(toggleUserAtivo);
   const callReset = useServerFn(resetUserPassword);
@@ -131,6 +138,28 @@ function UsuariosPage() {
     onError: (e: Error) => toast.error(mensagemErro(e, "Erro ao forçar logout")),
   });
 
+  // Desativar (banir) pede confirmação; reativar é 1 clique.
+  const onToggleAtivo = (u: AppUser, next: boolean) => {
+    if (!next) { setConfirmDeact(u); return; }
+    toggle.mutate({ user_id: u.id, ativo: true });
+  };
+
+  // Ações de baixa frequência da linha → menu "⋯" (com rótulos).
+  const menuActions = (u: AppUser): UserAction[] => {
+    const acts: UserAction[] = [];
+    if (u.tenant_id && u.role !== "super_admin") {
+      acts.push({ label: "Permissões", icon: ShieldCheck, onClick: () => setPermUser(u) });
+    }
+    acts.push({ label: "Redefinir senha", icon: KeyRound, onClick: () => setResetting(u) });
+    if (user?.id !== u.id) {
+      acts.push({ label: "Forçar logout", icon: LogOut, onClick: () => setConfirmLogout(u) });
+    }
+    if (u.role !== "super_admin") {
+      acts.push({ label: "Excluir", icon: Trash2, onClick: () => setDeleting(u), destructive: true, separatorBefore: true });
+    }
+    return acts;
+  };
+
   if (loading) return null;
   if (!isSuperAdmin) return <Navigate to="/dashboard" replace />;
 
@@ -177,7 +206,7 @@ function UsuariosPage() {
               <SortHead label="Nome" sortKey="nome" sortState={sortState} />
               <SortHead label="Email" sortKey="email" sortState={sortState} />
               <SortHead label="Loja" sortKey="loja" sortState={sortState} />
-              <SortHead label="Role" sortKey="role" sortState={sortState} />
+              <SortHead label="Papel" sortKey="role" sortState={sortState} />
               <SortHead label="Status" sortKey="ativo" sortState={sortState} />
               <TableHead className="text-right">Ações</TableHead>
             </TableRow>
@@ -193,44 +222,26 @@ function UsuariosPage() {
                   <TableCell className="font-medium">{u.nome}</TableCell>
                   <TableCell data-label="Email" className="text-sm">{u.email}</TableCell>
                   <TableCell data-label="Loja" className="text-sm">{u.tenant_id ? tenantMap[u.tenant_id] ?? "—" : "—"}</TableCell>
-                  <TableCell data-label="Role"><RoleBadge role={u.role} /></TableCell>
+                  <TableCell data-label="Papel"><RoleBadge role={u.role} /></TableCell>
                   <TableCell data-label="Status">
                     {u.ativo
                       ? <StatusBadge tone="success">Ativo</StatusBadge>
                       : <StatusBadge tone="danger">Inativo</StatusBadge>}
                   </TableCell>
                   <TableCell data-label="Ações" className="text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <Button size="sm" variant="ghost" onClick={() => setEditing(u)} title="Editar">
+                    <div className="flex items-center justify-end gap-1">
+                      <Button size="icon" variant="ghost" onClick={() => setEditing(u)} title="Editar" aria-label="Editar">
                         <Pencil className="h-4 w-4" />
                       </Button>
-                      {u.tenant_id && u.role !== "super_admin" && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => setPermUser(u)}
-                          title="Permissões"
-                        >
-                          <ShieldCheck className="h-4 w-4" />
-                        </Button>
-                      )}
-                      <Button size="sm" variant="ghost" onClick={() => setResetting(u)} title="Redefinir senha">
-                        <KeyRound className="h-4 w-4" />
-                      </Button>
-                      {u.role !== "super_admin" && (
-                        <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setDeleting(u)} title="Excluir">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      )}
                       {user?.id !== u.id && (
-                        <Button size="sm" variant="ghost" onClick={() => forceLogout.mutate(u.id)} disabled={forceLogout.isPending} title="Forçar logout">
-                          <LogOut className="h-4 w-4" />
-                        </Button>
+                        <Switch
+                          checked={u.ativo}
+                          disabled={toggle.isPending}
+                          aria-label={u.ativo ? "Desativar usuário" : "Ativar usuário"}
+                          onCheckedChange={(c) => onToggleAtivo(u, c)}
+                        />
                       )}
-                      <Switch
-                        checked={u.ativo}
-                        onCheckedChange={(c) => toggle.mutate({ user_id: u.id, ativo: c })}
-                      />
+                      <UserActionsMenu actions={menuActions(u)} />
                     </div>
                   </TableCell>
                 </TableRow>
@@ -261,7 +272,7 @@ function UsuariosPage() {
       </Dialog>
 
       <Dialog open={!!editing} onOpenChange={(v) => !v && setEditing(null)}>
-        {editing && <EditUsuarioModal tenants={tenants} user={editing} onClose={() => setEditing(null)} />}
+        {editing && <EditUsuarioModal tenants={tenants} user={editing} isSelf={editing.id === user?.id} onClose={() => setEditing(null)} />}
       </Dialog>
 
       <Dialog open={!!deleting} onOpenChange={(v) => !v && setDeleting(null)}>
@@ -281,6 +292,47 @@ function UsuariosPage() {
           </DialogContent>
         )}
       </Dialog>
+
+      <AlertDialog open={!!confirmDeact} onOpenChange={(v) => !v && setConfirmDeact(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Desativar usuário?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Isto bloqueia o acesso de <strong>{confirmDeact?.nome}</strong> imediatamente
+              (a conta é banida no login). Você pode reativar depois.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { if (confirmDeact) toggle.mutate({ user_id: confirmDeact.id, ativo: false }); setConfirmDeact(null); }}
+            >
+              Desativar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!confirmLogout} onOpenChange={(v) => !v && setConfirmLogout(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Forçar logout?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Encerra a sessão de <strong>{confirmLogout?.nome}</strong>. A pessoa cai no
+              próximo refresh/reload e precisa entrar de novo.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => { if (confirmLogout) forceLogout.mutate(confirmLogout.id); setConfirmLogout(null); }}
+            >
+              Forçar logout
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <MobileActionBar>
         <Button asChild variant="outline" size="icon" aria-label="Voltar">
@@ -358,7 +410,7 @@ function NovoUsuarioModal({
             </Select>
           </div>
           <div>
-            <Label>Role *</Label>
+            <Label>Papel *</Label>
             <Select value={role} onValueChange={(v) => setRole(v as (typeof ROLES)[number])}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -382,8 +434,8 @@ function NovoUsuarioModal({
 }
 
 function EditUsuarioModal({
-  tenants, user, onClose,
-}: { tenants: Tenant[]; user: AppUser; onClose: () => void }) {
+  tenants, user, isSelf, onClose,
+}: { tenants: Tenant[]; user: AppUser; isSelf: boolean; onClose: () => void }) {
   const qc = useQueryClient();
   const call = useServerFn(updateUser);
   const [nome, setNome] = useState(user.nome);
@@ -440,8 +492,8 @@ function EditUsuarioModal({
             </Select>
           </div>
           <div>
-            <Label>Role *</Label>
-            <Select value={role} onValueChange={(v) => setRole(v as (typeof ROLES)[number])}>
+            <Label>Papel *</Label>
+            <Select value={role} onValueChange={(v) => setRole(v as (typeof ROLES)[number])} disabled={isSelf}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="user">Usuário</SelectItem>
@@ -449,6 +501,9 @@ function EditUsuarioModal({
                 <SelectItem value="super_admin">Super Admin</SelectItem>
               </SelectContent>
             </Select>
+            {isSelf && (
+              <p className="mt-1 text-xs text-muted-foreground">Você não pode alterar o próprio papel.</p>
+            )}
           </div>
         </div>
         <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">

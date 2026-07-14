@@ -22,7 +22,7 @@ export const createTenantUser = createServerFn({ method: "POST" })
       password: z.string().min(6).max(100),
       nome: z.string().min(1).max(255),
       tenant_id: z.string().uuid(),
-      role: z.enum(["admin", "user", "super_admin", "tenant_admin"]),
+      role: z.enum(["user", "super_admin", "tenant_admin"]),
     }),
   )
   .handler(async ({ data, context }) => {
@@ -55,9 +55,15 @@ export const createTenantUser = createServerFn({ method: "POST" })
 
     // ensure user_roles row (handle_new_user already inserts 'user')
     await supabaseAdmin.from("user_roles").delete().eq("user_id", uid);
-    await supabaseAdmin
+    const { error: rErr } = await supabaseAdmin
       .from("user_roles")
       .insert({ user_id: uid, role: data.role as any });
+    if (rErr) {
+      // Compensa: sem papel o usuário fica "sem acesso a nada". Desfaz users + auth.
+      await supabaseAdmin.from("users").delete().eq("id", uid);
+      await supabaseAdmin.auth.admin.deleteUser(uid);
+      throw new Error(rErr.message);
+    }
 
     return { id: uid };
   });
@@ -70,11 +76,17 @@ export const updateUser = createServerFn({ method: "POST" })
       nome: z.string().min(1).max(255),
       email: emailSchema,
       tenant_id: z.string().uuid().nullable(),
-      role: z.enum(["admin", "user", "super_admin", "tenant_admin"]),
+      role: z.enum(["user", "super_admin", "tenant_admin"]),
     }),
   )
   .handler(async ({ data, context }) => {
     await assertSuperAdmin(context.supabase, context.userId);
+    // Anti-lockout: um super não pode se rebaixar (perderia o próprio acesso e,
+    // se for o único, ninguém mais destranca /admin sem SQL). Rebaixar OUTRO super
+    // sempre deixa você — então este guard basta para garantir ≥1 super.
+    if (data.user_id === context.userId && data.role !== "super_admin") {
+      throw new Error("Você não pode rebaixar a si mesmo. Peça a outro super admin.");
+    }
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
     const { error: aErr } = await supabaseAdmin.auth.admin.updateUserById(data.user_id, {
@@ -169,16 +181,25 @@ export const toggleUserAtivo = createServerFn({ method: "POST" })
   .validator(z.object({ user_id: z.string().uuid(), ativo: z.boolean() }))
   .handler(async ({ data, context }) => {
     await assertSuperAdmin(context.supabase, context.userId);
+    // Anti-lockout: um super não pode desativar (banir) a si mesmo.
+    if (data.user_id === context.userId && !data.ativo) {
+      throw new Error("Você não pode desativar a si mesmo.");
+    }
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { error } = await supabaseAdmin
       .from("users")
       .update({ ativo: data.ativo })
       .eq("id", data.user_id);
     if (error) throw new Error(error.message);
-    // also ban/unban in auth
-    await supabaseAdmin.auth.admin.updateUserById(data.user_id, {
+    // Espelha ban/unban no Auth. Se falhar, reverte o flag — senão ficaria
+    // "inativo na UI" mas ainda logando (ou vice-versa).
+    const { error: banErr } = await supabaseAdmin.auth.admin.updateUserById(data.user_id, {
       ban_duration: data.ativo ? "none" : "876000h",
     });
+    if (banErr) {
+      await supabaseAdmin.from("users").update({ ativo: !data.ativo }).eq("id", data.user_id);
+      throw new Error(banErr.message);
+    }
     return { ok: true };
   });
 

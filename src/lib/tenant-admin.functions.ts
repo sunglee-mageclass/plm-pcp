@@ -53,7 +53,13 @@ export const createStoreUser = createServerFn({ method: "POST" })
       throw new Error(uErr.message);
     }
     await supabaseAdmin.from("user_roles").delete().eq("user_id", uid);
-    await supabaseAdmin.from("user_roles").insert({ user_id: uid, role: "user" as any });
+    const { error: rErr } = await supabaseAdmin.from("user_roles").insert({ user_id: uid, role: "user" as any });
+    if (rErr) {
+      // Compensa: sem papel o usuário não acessa nada. Desfaz users + auth.
+      await supabaseAdmin.from("users").delete().eq("id", uid);
+      await supabaseAdmin.auth.admin.deleteUser(uid);
+      throw new Error(rErr.message);
+    }
     return { id: uid };
   });
 
