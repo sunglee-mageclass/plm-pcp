@@ -908,14 +908,22 @@ function AviamentoModal({
                   className="font-mono"
                 />
               </Field>
-              <Field label="Nome" className="flex-1">
+              <Field label="NCM" className="flex-1">
                 <Input
-                  value={form.codigo_nome}
-                  onChange={(e) => set("codigo_nome", e.target.value)}
-                  placeholder="Ex: Botão metal 12mm"
+                  value={form.ncm}
+                  onChange={(e) => set("ncm", e.target.value)}
+                  placeholder="Ex: 9606.22.00"
+                  inputMode="numeric"
                 />
               </Field>
             </div>
+            <Field label="Nome" className="md:col-span-2">
+              <Input
+                value={form.codigo_nome}
+                onChange={(e) => set("codigo_nome", e.target.value)}
+                placeholder="Ex: Botão metal 12mm"
+              />
+            </Field>
 
             <Field label="Fornecedor">
               {/* Dropdown único: empresa (direto) OU empresa via representante. */}
@@ -992,15 +1000,6 @@ function AviamentoModal({
                 options={apelidosFiltrados}
                 placeholder={form.cor_id ? "Selecione" : "Selecione a cor base"}
                 disabled={!form.cor_id}
-              />
-            </Field>
-
-            <Field label="NCM">
-              <Input
-                value={form.ncm}
-                onChange={(e) => set("ncm", e.target.value)}
-                placeholder="Ex: 9606.22.00"
-                inputMode="numeric"
               />
             </Field>
 
