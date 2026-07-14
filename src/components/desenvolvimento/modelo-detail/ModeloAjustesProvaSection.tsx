@@ -131,6 +131,25 @@ function Fio({ f, resolved, user, fmt, replyTo, setReplyTo, replyTexto, setReply
   );
 }
 
+async function fetchProvaComentarios(modeloId: string): Promise<Comentario[]> {
+  const { data, error } = await supabase
+    .from("modelo_prova_comentarios" as never)
+    .select("id,parent_id,user_id,texto,resolvido,resolvido_at,created_at,autor:users!user_id(nome)")
+    .eq("modelo_id", modeloId);
+  if (error) throw error;
+  return (data ?? []) as unknown as Comentario[];
+}
+
+/** Nº de fios ABERTOS (topo não resolvido) — p/ o badge no accordion. Compartilha a
+ *  MESMA queryKey da seção, então atualiza junto com enviar/resolver/excluir. */
+export function useProvaAbertosCount(modeloId: string): number {
+  const { data = [] } = useQuery({
+    queryKey: ["prova-comentarios", modeloId],
+    queryFn: () => fetchProvaComentarios(modeloId),
+  });
+  return data.filter((c) => c.parent_id === null && !c.resolvido).length;
+}
+
 export function ModeloAjustesProvaSection({ modeloId }: { modeloId: string }) {
   const qc = useQueryClient();
   const { user } = useAuth();
@@ -141,14 +160,7 @@ export function ModeloAjustesProvaSection({ modeloId }: { modeloId: string }) {
 
   const { data: comentarios = [], isLoading } = useQuery({
     queryKey: ["prova-comentarios", modeloId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("modelo_prova_comentarios" as never)
-        .select("id,parent_id,user_id,texto,resolvido,resolvido_at,created_at,autor:users!user_id(nome)")
-        .eq("modelo_id", modeloId);
-      if (error) throw error;
-      return (data ?? []) as unknown as Comentario[];
-    },
+    queryFn: () => fetchProvaComentarios(modeloId),
   });
 
   const fmt = (iso: string) =>

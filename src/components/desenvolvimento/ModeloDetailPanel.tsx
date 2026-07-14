@@ -31,7 +31,7 @@ import {
   type TecidoBlock,
 } from "./modelo-detail/types";
 import { ModeloInfoSection } from "./modelo-detail/ModeloInfoSection";
-import { ModeloAjustesProvaSection } from "./modelo-detail/ModeloAjustesProvaSection";
+import { ModeloAjustesProvaSection, useProvaAbertosCount } from "./modelo-detail/ModeloAjustesProvaSection";
 import { ModeloTecidosSection } from "./modelo-detail/ModeloTecidosSection";
 import { ModeloAviamentosSection } from "./modelo-detail/ModeloAviamentosSection";
 import { ModeloGradeSection } from "./modelo-detail/ModeloGradeSection";
@@ -59,6 +59,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const qc = useQueryClient();
   const fl = useFieldLabels();
   const tenantId = useActiveTenantId();
+  const provaAbertos = useProvaAbertosCount(modeloId); // badge de ajustes abertos no accordion
 
   const { isModuleEnabled } = useTenantModules();
   const otbOn = isModuleEnabled("otb");
@@ -976,7 +977,19 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           </AccordionItem>
 
           <AccordionItem value="prova">
-            <AccordionTrigger>2. Ajustes na Prova</AccordionTrigger>
+            <AccordionTrigger>
+              <span className="flex items-center gap-2">
+                2. Ajustes na Prova
+                {provaAbertos > 0 && (
+                  <span
+                    className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground"
+                    title={`${provaAbertos} ajuste(s) em aberto`}
+                  >
+                    {provaAbertos}
+                  </span>
+                )}
+              </span>
+            </AccordionTrigger>
             <AccordionContent>
               <ModeloAjustesProvaSection modeloId={modeloId} />
             </AccordionContent>
