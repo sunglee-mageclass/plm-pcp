@@ -520,10 +520,10 @@ function AviamentoCard({
       </div>
       {!compact && (
       <div className="p-3 space-y-1">
-        <h3 className="flex items-baseline gap-1.5 leading-tight">
-          {aviamento.codigo && <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{aviamento.codigo}</span>}
-          <span className="min-w-0 truncate font-medium">{aviamento.codigo_nome}</span>
-        </h3>
+        {aviamento.codigo && (
+          <p className="font-mono text-[11px] leading-none text-muted-foreground">{aviamento.codigo}</p>
+        )}
+        <h3 className="font-medium leading-tight line-clamp-1">{aviamento.codigo_nome}</h3>
         {(!categoria || !fornecedor) && (
           <div className="flex items-center gap-1 rounded bg-amber-500/15 px-2 py-1 text-[10px] font-medium text-amber-700 dark:text-amber-400">
             <AlertTriangle className="h-3 w-3 shrink-0" />
@@ -815,22 +815,24 @@ function AviamentoModal({
           </div>
 
           <div className="md:col-span-2 grid gap-3 md:grid-cols-2">
-            <Field className="md:col-span-2" label="Código">
-              <Input
-                value={initial?.codigo ?? ""}
-                readOnly
-                disabled
-                placeholder="Gerado automaticamente ao salvar (sigla da categoria + nº)"
-                className="font-mono w-full sm:w-64"
-              />
-            </Field>
-            <Field className="md:col-span-2" label="Nome *">
-              <Input
-                value={form.codigo_nome}
-                onChange={(e) => set("codigo_nome", e.target.value)}
-                placeholder="Ex: Botão metal 12mm"
-              />
-            </Field>
+            <div className="md:col-span-2 flex flex-col gap-3 sm:flex-row">
+              <Field label="Código" className="sm:w-48 sm:shrink-0">
+                <Input
+                  value={initial?.codigo ?? ""}
+                  readOnly
+                  disabled
+                  placeholder="Gerado ao salvar"
+                  className="font-mono"
+                />
+              </Field>
+              <Field label="Nome *" className="flex-1">
+                <Input
+                  value={form.codigo_nome}
+                  onChange={(e) => set("codigo_nome", e.target.value)}
+                  placeholder="Ex: Botão metal 12mm"
+                />
+              </Field>
+            </div>
 
             <Field label="Fornecedor">
               {/* Dropdown único: empresa (direto) OU empresa via representante. */}
