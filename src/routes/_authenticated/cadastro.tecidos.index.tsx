@@ -39,6 +39,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { FilterButton, SearchToggle, AgrupamentoButton } from "@/components/shared/filters";
 import { TecidoDetail } from "./cadastro.tecidos.$artigoId";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
@@ -421,13 +422,13 @@ function TecidosGallery() {
         loading={createMut.isPending}
       />
 
-      {/* Detalhe do tecido em MODAL (padrão dos outros cadastros), no lugar da página. */}
-      <Dialog open={!!openId} onOpenChange={(o) => { if (!o) setOpenId(null); }}>
-        <DialogContent className="max-w-5xl max-h-[92vh] overflow-y-auto [&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0">
-          <DialogTitle className="sr-only">Detalhes do tecido</DialogTitle>
+      {/* Detalhe do tecido em SHEET lateral (igual Planejamento). Abrir card = ver/editar. */}
+      <Sheet open={!!openId} onOpenChange={(o) => { if (!o) setOpenId(null); }}>
+        <SheetContent side="right" className="w-full overflow-y-auto p-4 sm:w-[70vw] sm:max-w-[70vw] sm:p-6 [&>button]:hidden">
+          <SheetTitle className="sr-only">Detalhes do tecido</SheetTitle>
           {openId && <TecidoDetail artigoId={openId} onClose={() => setOpenId(null)} />}
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
 
       <MobileActionBar>
         <Button onClick={() => setCreateOpen(true)} disabled={readOnly} className="ml-auto">
