@@ -11,7 +11,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { DollarSign, ChevronLeft, ChevronRight, Upload, Printer, ArrowLeft } from "lucide-react";
+import { DollarSign, ChevronLeft, ChevronRight, Upload, Printer } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { brl } from "@/lib/format";
 import { corApelidoLabel } from "@/lib/variante";
@@ -618,10 +618,6 @@ function ParcelaDetailDialog({
         )}
 
         <DialogFooter className="flex-row flex-wrap justify-end gap-2">
-          <Button size="sm" variant="outline" onClick={onClose} aria-label="Voltar" className="max-sm:aspect-square max-sm:px-0">
-            <ArrowLeft className="h-4 w-4 sm:hidden" />
-            <span className="max-sm:sr-only">Fechar</span>
-          </Button>
           {st === "pago" && (
             <Button size="sm" variant="outline" className="hidden md:inline-flex" onClick={() => printWithImages()}>
               <Printer className="h-4 w-4 mr-1" /> Comprovante
@@ -1268,10 +1264,6 @@ function ServicoDetailDialog({
           )}
         </div>
         <DialogFooter className="flex-row flex-wrap items-center justify-end gap-2">
-          <Button size="sm" variant="outline" onClick={onClose} aria-label="Voltar" className="mr-auto max-sm:aspect-square max-sm:px-0">
-            <ArrowLeft className="h-4 w-4 sm:hidden" />
-            <span className="max-sm:sr-only">Fechar</span>
-          </Button>
           {canPay && (isPago ? (
             <Button size="sm" variant="destructive" onClick={() => onTogglePago(false)} disabled={toggling}>Desmarcar pago</Button>
           ) : (
@@ -1390,10 +1382,6 @@ function OcViewDialog({ view, onClose }: { view: { tipo: string; id: string } | 
               <Printer className="h-4 w-4 mr-1" /> Imprimir
             </Button>
           )}
-          <Button variant="outline" onClick={onClose} aria-label="Voltar" className="max-sm:aspect-square max-sm:px-0">
-            <ArrowLeft className="h-4 w-4 sm:hidden" />
-            <span className="max-sm:sr-only">Fechar</span>
-          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
