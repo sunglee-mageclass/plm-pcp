@@ -136,7 +136,11 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   normaliza sem acento/minúsculo + substring; `FABRIC_TOKENS` inclui `artigo`) — NÃO casar o nome
   exato da categoria (é texto livre por loja; hard-coded `["Tecido"...]` sumia quando a loja renomeava).
   `artigos`/`aviamentos` têm `representante_id` (FK `representantes`)
-- **criacao**: planejamento, desenvolvimento (kanban dinâmico, ficha técnica, observações)
+- **criacao**: planejamento, desenvolvimento (kanban dinâmico, ficha técnica, observações).
+  No card (`ModeloDetailPanel`), a seção **"2. Ajustes na Prova"** é um FIO DE COMENTÁRIOS
+  (tabela `modelo_prova_comentarios`, RPCs `prova_comentar`/`prova_resolver`/`prova_excluir`;
+  fio de 2 níveis via `parent_id`, abas Abertos/Resolvidos, excluir só-autor, badge nº abertos).
+  A coluna `modelos.ajustes_prova` virou LEGADA (dropar depois). Ver [[project_ajustes_prova_comentarios]]
 - **entrada-saida**: oc-tecido, oc-aviamento, rolos, estoque
 - **producao**: cad, terceirizados=**Serviços** (abas pré/pós-costura por `categorias_terceirizado.etapa`),
   oficina, cq (abas **Pré/Pós** dentro do item — ver invariante 6), direcionamento, lancamentos,
