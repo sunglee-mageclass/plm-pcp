@@ -22,7 +22,7 @@ export const createStoreUser = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .validator(
     z.object({
-      nome: z.string().min(1).max(255),
+      nome: z.string().trim().min(1).max(255),
       email: emailSchema,
       password: z.string().min(6).max(100),
     }),

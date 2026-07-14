@@ -20,7 +20,7 @@ export const createTenantUser = createServerFn({ method: "POST" })
     z.object({
       email: emailSchema,
       password: z.string().min(6).max(100),
-      nome: z.string().min(1).max(255),
+      nome: z.string().trim().min(1).max(255),
       tenant_id: z.string().uuid(),
       role: z.enum(["user", "super_admin", "tenant_admin"]),
     }),
@@ -73,7 +73,7 @@ export const updateUser = createServerFn({ method: "POST" })
   .validator(
     z.object({
       user_id: z.string().uuid(),
-      nome: z.string().min(1).max(255),
+      nome: z.string().trim().min(1).max(255),
       email: emailSchema,
       tenant_id: z.string().uuid().nullable(),
       role: z.enum(["user", "super_admin", "tenant_admin"]),
@@ -154,11 +154,18 @@ export const excluirLoja = createServerFn({ method: "POST" })
     const { error } = await context.supabase.rpc("excluir_loja" as any, { _tenant_id: data.tenant_id });
     if (error) throw new Error(error.message);
 
-    // 3) apaga as contas auth (a Auth API limpa sessões/identidades).
+    // 3) apaga as contas auth (a Auth API limpa sessões/identidades). Retenta 1x e
+    //    coleta as que ainda falharem — senão viram zumbi SILENCIOSO (auth sem
+    //    public.users): logam mas quebram no RLS, e ninguém fica sabendo.
+    const falhas: string[] = [];
     for (const uid of uids) {
-      await supabaseAdmin.auth.admin.deleteUser(uid).catch(() => {});
+      const del = await supabaseAdmin.auth.admin.deleteUser(uid).catch((e: any) => ({ error: e }));
+      if ((del as any)?.error) {
+        const retry = await supabaseAdmin.auth.admin.deleteUser(uid).catch((e: any) => ({ error: e }));
+        if ((retry as any)?.error) falhas.push(uid);
+      }
     }
-    return { ok: true };
+    return { ok: true, falhas };
   });
 
 export const resetUserPassword = createServerFn({ method: "POST" })

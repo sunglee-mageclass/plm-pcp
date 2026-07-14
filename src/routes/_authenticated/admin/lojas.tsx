@@ -139,14 +139,19 @@ function LojasPage() {
   // super_admin): a RPC excluir_loja apaga os dados; a server fn ainda remove os auth.users.
   const deleteMut = useMutation({
     mutationFn: async (id: string) => {
-      await excluirLoja({ data: { tenant_id: id } });
+      return await excluirLoja({ data: { tenant_id: id } });
     },
-    onSuccess: () => {
+    onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["admin", "tenants"] });
       qc.invalidateQueries({ queryKey: ["tenant-switcher"] });
       setDeleteTarget(null);
       setDeleteConfirm("");
-      toast.success("Loja excluída.");
+      const falhas = (res as { falhas?: string[] } | undefined)?.falhas?.length ?? 0;
+      if (falhas > 0) {
+        toast.warning(`Loja excluída, mas ${falhas} conta(s) de acesso não puderam ser removidas — verifique no painel de autenticação.`);
+      } else {
+        toast.success("Loja excluída.");
+      }
     },
     onError: (e: Error) => toast.error(mensagemErro(e)),
   });
