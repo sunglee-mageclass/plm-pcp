@@ -232,6 +232,36 @@ function ConfiguracoesLojaPage() {
         </Button>
       </header>
 
+      {/* Módulos (badges) à esquerda + Fuso à direita — logo abaixo do header, sem card. */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <Label className="text-xs text-muted-foreground">Módulos da loja</Label>
+          <div className="mt-1.5 flex flex-wrap gap-2">
+            {MODULE_LABELS.map((m) => {
+              const on = !!(modules as any)[m.key];
+              return (
+                <Badge key={m.key} variant={on ? "default" : "secondary"} className={on ? "" : "opacity-60"}>
+                  {m.label}: {on ? "Ativo" : "Inativo"}
+                </Badge>
+              );
+            })}
+          </div>
+        </div>
+        {!isStockOnly && (
+          <div className="shrink-0 sm:text-right">
+            <Label className="text-xs text-muted-foreground">Fuso horário (GMT)</Label>
+            <Select value={cfg.timezone} onValueChange={(v) => setCfg({ ...cfg, timezone: v })}>
+              <SelectTrigger className="mt-1.5 w-full sm:w-72"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {TIMEZONE_OPTIONS.map((tz) => (
+                  <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+      </div>
+
       {/* Blocos em grade responsiva de 2 colunas no desktop (distribui alternando as
           colunas), 1 no mobile. */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 items-start">
@@ -273,27 +303,28 @@ function ConfiguracoesLojaPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Data e Hora</CardTitle>
+          <CardTitle>OC e Rolo</CardTitle>
           <CardDescription>
-            Fuso horário da loja. Afeta o relógio do topo e as mensagens de
-            prazo/atraso/adiantado das ordens de compra.
+            Como a loja trabalha o tecido — define o que aparece para vincular no Desenvolvimento.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
-          <Label>Fuso horário (GMT)</Label>
+          <Label>Trabalhar com</Label>
           <Select
-            value={cfg.timezone}
-            onValueChange={(v) => setCfg({ ...cfg, timezone: v })}
+            value={cfg.modo_oc_rolo}
+            onValueChange={(v) => setCfg({ ...cfg, modo_oc_rolo: v as ConfigState["modo_oc_rolo"] })}
           >
-            <SelectTrigger className="w-full md:w-72">
-              <SelectValue />
-            </SelectTrigger>
+            <SelectTrigger className="w-full md:w-96"><SelectValue /></SelectTrigger>
             <SelectContent>
-              {TIMEZONE_OPTIONS.map((tz) => (
-                <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>
-              ))}
+              <SelectItem value="ambos">Ambos (OC e Rolo)</SelectItem>
+              <SelectItem value="oc">Somente OC</SelectItem>
+              <SelectItem value="rolo">Somente Rolo</SelectItem>
             </SelectContent>
           </Select>
+          <p className="text-xs text-muted-foreground">
+            No Desenvolvimento, ao vincular tecido por variante: "Somente OC" mostra só OCs;
+            "Somente Rolo" mostra só rolos; "Ambos" mostra os dois. Vínculos já feitos continuam aparecendo.
+          </p>
         </CardContent>
       </Card>
 
@@ -326,55 +357,7 @@ function ConfiguracoesLojaPage() {
           </p>
         </CardContent>
       </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>OC e Rolo</CardTitle>
-          <CardDescription>
-            Como a loja trabalha o tecido — define o que aparece para vincular no Desenvolvimento.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <Label>Trabalhar com</Label>
-          <Select
-            value={cfg.modo_oc_rolo}
-            onValueChange={(v) => setCfg({ ...cfg, modo_oc_rolo: v as ConfigState["modo_oc_rolo"] })}
-          >
-            <SelectTrigger className="w-full md:w-96"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ambos">Ambos (OC e Rolo)</SelectItem>
-              <SelectItem value="oc">Somente OC</SelectItem>
-              <SelectItem value="rolo">Somente Rolo</SelectItem>
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-muted-foreground">
-            No Desenvolvimento, ao vincular tecido por variante: "Somente OC" mostra só OCs;
-            "Somente Rolo" mostra só rolos; "Ambos" mostra os dois. Vínculos já feitos continuam aparecendo.
-          </p>
-        </CardContent>
-      </Card>
       </>)}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Módulos da loja</CardTitle>
-          <CardDescription>
-            Módulos habilitados para a sua loja. Para contratar ou desabilitar um módulo, fale com o suporte.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-2">
-            {MODULE_LABELS.map((m) => {
-              const on = !!(modules as any)[m.key];
-              return (
-                <Badge key={m.key} variant={on ? "default" : "secondary"} className={on ? "" : "opacity-60"}>
-                  {m.label}: {on ? "Ativo" : "Inativo"}
-                </Badge>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
 
       <Card>
         <CardHeader>
@@ -437,11 +420,10 @@ function ConfiguracoesLojaPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Salvar as configurações da loja?</AlertDialogTitle>
             <AlertDialogDescription>
-              Estas configurações afetam dados de <strong>toda a loja</strong> — modo
-              OC/Rolo, grade de tamanhos, status do kanban, acabamento e baixa de estoque.
-              Alterar algo que já está em uso pode deixar registros existentes
-              inconsistentes e, em casos extremos, exigir reiniciar a loja por completo.
-              Deseja continuar?
+              Estas configurações afetam dados de <strong>toda a loja</strong> — fuso
+              horário, status do kanban (e requisitos), modo de baixa de estoque, modo
+              OC/Rolo e configuração de leadtime. Alterar algo que já está em uso pode
+              deixar registros existentes inconsistentes. Deseja continuar?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
