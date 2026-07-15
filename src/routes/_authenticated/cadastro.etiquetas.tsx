@@ -42,14 +42,25 @@ type CorBlock = { cor_id: string; preco: number | null; tamanhos: string[] };
 type Etiqueta = {
   id: string; nome: string; unidade: string; preco: number | null;
   empresa_id: string | null; representante_id: string | null; observacoes: string | null;
-  n_variantes: number;
+  formato_tamanho: string; n_variantes: number;
 };
 
 const UNIDADES = ["unidade", "metro", "rolo", "milheiro"];
+const FORMATOS = [
+  { value: "ambos", label: "Ambos (PPP · 34)" },
+  { value: "numero", label: "Número (34)" },
+  { value: "letra", label: "Letra (PPP)" },
+];
 const DEFAULT_TAMANHOS = ["34|PPP", "36|PP", "38|P", "40|M", "42|G", "44|GG"];
 const SEM = "__none__";
-// "38|P" -> "P · 38"
-const fmtTamanho = (t: string) => { const [num, sig] = t.split("|"); return sig ? `${sig} · ${num}` : t; };
+// "38|P" -> conforme o formato da etiqueta: "P · 38" | "38" | "P".
+const fmtTamanho = (t: string, formato = "ambos") => {
+  const [num, sig] = t.split("|");
+  if (!sig) return t;
+  if (formato === "numero") return num;
+  if (formato === "letra") return sig;
+  return `${sig} · ${num}`;
+};
 
 function EtiquetasPage() {
   const qc = useQueryClient();
@@ -71,6 +82,7 @@ function EtiquetasPage() {
   const [fEmpresa, setFEmpresa] = useState<string | null>(null);
   const [fRep, setFRep] = useState<string | null>(null);
   const [fPreco, setFPreco] = useState<number | null>(null);
+  const [fFormato, setFFormato] = useState("ambos");
   const [fObs, setFObs] = useState("");
   const [fBlocks, setFBlocks] = useState<CorBlock[]>([]);
 
@@ -79,13 +91,13 @@ function EtiquetasPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("etiquetas" as any)
-        .select("id, nome, unidade, preco, empresa_id, representante_id, observacoes, variantes_etiqueta(id)")
+        .select("id, nome, unidade, preco, empresa_id, representante_id, observacoes, formato_tamanho, variantes_etiqueta(id)")
         .order("nome");
       if (error) throw error;
       return ((data ?? []) as any[]).map((e) => ({
         id: e.id, nome: e.nome, unidade: e.unidade ?? "unidade", preco: e.preco,
         empresa_id: e.empresa_id, representante_id: e.representante_id, observacoes: e.observacoes,
-        n_variantes: (e.variantes_etiqueta ?? []).length,
+        formato_tamanho: e.formato_tamanho ?? "ambos", n_variantes: (e.variantes_etiqueta ?? []).length,
       })) as Etiqueta[];
     },
   });
@@ -143,13 +155,14 @@ function EtiquetasPage() {
   };
 
   const resetForm = () => {
-    setFNome(""); setFUnidade("unidade"); setFEmpresa(null); setFRep(null); setFPreco(null); setFObs(""); setFBlocks([]);
+    setFNome(""); setFUnidade("unidade"); setFEmpresa(null); setFRep(null); setFPreco(null);
+    setFFormato("ambos"); setFObs(""); setFBlocks([]);
   };
   const openCreate = () => { setEditing(null); resetForm(); setOpen(true); };
   const openEdit = async (e: Etiqueta) => {
     setEditing(e);
     setFNome(e.nome); setFUnidade(e.unidade); setFEmpresa(e.empresa_id); setFRep(e.representante_id);
-    setFPreco(e.preco); setFObs(e.observacoes ?? ""); setFBlocks([]);
+    setFPreco(e.preco); setFFormato(e.formato_tamanho ?? "ambos"); setFObs(e.observacoes ?? ""); setFBlocks([]);
     setOpen(true);
     const { data } = await supabase.from("variantes_etiqueta" as any).select("tamanho, cor_id, preco").eq("etiqueta_id", e.id);
     // agrupa variantes por cor → blocos
@@ -193,7 +206,7 @@ function EtiquetasPage() {
       );
       const payload = {
         nome, unidade: fUnidade, empresa_id: fEmpresa, representante_id: fRep,
-        preco: fPreco, observacoes: fObs.trim() || null,
+        preco: fPreco, formato_tamanho: fFormato, observacoes: fObs.trim() || null,
       };
       let etqId = editing?.id;
       if (editing) {
@@ -371,6 +384,14 @@ function EtiquetasPage() {
                 </Select>
               </div>
               <div className="space-y-1.5">
+                <Label>Formato do tamanho</Label>
+                <Select value={fFormato} onValueChange={setFFormato} disabled={readOnly}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{FORMATOS.map((f) => <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>)}</SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">Como o tamanho aparece na etiqueta (a grade guarda 34|PPP).</p>
+              </div>
+              <div className="space-y-1.5">
                 <Label>Preço base (R$)</Label>
                 <div className="flex items-center gap-2">
                   <NumberInput type="number" step="0.01" placeholder="0,00" value={fPreco ?? ""} onChange={(e) => setFPreco(e.target.value === "" ? null : Number(e.target.value))} disabled={readOnly} />
@@ -416,7 +437,7 @@ function EtiquetasPage() {
                           {tamanhos.map((t) => (
                             <label key={t} className="flex items-center gap-1.5 text-sm cursor-pointer">
                               <Checkbox checked={b.tamanhos.includes(t)} onCheckedChange={() => toggleTamanho(i, t)} disabled={readOnly} />
-                              {fmtTamanho(t)}
+                              {fmtTamanho(t, fFormato)}
                             </label>
                           ))}
                         </div>
