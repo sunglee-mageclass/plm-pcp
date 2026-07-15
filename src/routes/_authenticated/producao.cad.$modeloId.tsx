@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { ModeloPhoto } from "@/components/producao/cad/shared";
 import { calcCusto } from "@/components/producao/cad/types";
+import { somaCustosAdicionais } from "@/lib/custo";
 import type {
   AviamentoRow,
   EtiquetaRow,
@@ -720,12 +721,14 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
     [grades],
   );
 
-  // Custo real por peça (CAD, sem serviços) = soma dos custos de tecido + aviamento.
+  // Custo real por peça (CAD, sem serviços) = tecido + aviamento + custos adicionais do modelo
+  // (estes "seguem para frente" desde o Desenvolvimento — ver src/lib/custo.ts).
   const custoRealPeca = useMemo(
     () =>
       tecidos.reduce((a, t) => a + (Number(t.custo_cad) || 0), 0) +
-      aviamentos.reduce((a, av) => a + (Number(av.custo_cad) || 0), 0),
-    [tecidos, aviamentos],
+      aviamentos.reduce((a, av) => a + (Number(av.custo_cad) || 0), 0) +
+      somaCustosAdicionais((modelo as any)?.custos_adicionais),
+    [tecidos, aviamentos, modelo],
   );
 
   // Cálculo automático (quando ligado): por variante, qtd de folhas e metragem

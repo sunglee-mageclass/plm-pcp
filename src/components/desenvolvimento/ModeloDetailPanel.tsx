@@ -7,6 +7,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { labelVarianteRow } from "@/lib/variante";
+import { somaCustosAdicionais } from "@/lib/custo";
 import { Loader2, Pencil, Send, ArrowLeft } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -451,7 +452,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     const entretela = sum("entretela");
     const aviamento = aviamentosState.reduce((s, r) => s + (r.custo_previsto || 0), 0);
     const terceirizados = draft?.custo_terceirizados_previsto ?? 0;
-    const custosAdd = (draft?.custos_adicionais ?? []).reduce((s: number, c: { valor: number }) => s + (Number(c.valor) || 0), 0);
+    const custosAdd = somaCustosAdicionais(draft?.custos_adicionais);
     const peca = tecido + forro + entretela + aviamento + terceirizados + custosAdd;
     return { tecido, forro, entretela, aviamento, terceirizados, peca };
   }, [blocks, aviamentosState, draft?.custo_terceirizados_previsto, draft?.custos_adicionais]);

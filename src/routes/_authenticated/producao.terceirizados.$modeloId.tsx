@@ -6,6 +6,7 @@ import { ArrowLeft, Users, Save, Plus, Trash2, FileText, Pencil, Printer } from 
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { corApelidoLabelServico } from "@/lib/variante";
+import { somaCustosAdicionais } from "@/lib/custo";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
@@ -105,9 +106,8 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
   const { data: modelo } = useQuery({
     queryKey: ["terc-modelo", modeloId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("modelos")
-        .select("id, ref, nome, colecao, categoria_principal_id")
+      const { data, error } = await (supabase.from("modelos") as any)
+        .select("id, ref, nome, colecao, categoria_principal_id, custos_adicionais")
         .eq("id", modeloId)
         .maybeSingle();
       if (error) throw error;
@@ -492,7 +492,9 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
     [blocos],
   );
   const servicoPorPeca = gradeTotalGeral > 0 ? servicoTotal / gradeTotalGeral : 0;
-  const custoRealPeca = (Number(materiaisPorPeca) || 0) + servicoPorPeca;
+  // + custos adicionais do modelo (seguem para frente desde o Desenvolvimento — src/lib/custo.ts).
+  const custoRealPeca =
+    (Number(materiaisPorPeca) || 0) + servicoPorPeca + somaCustosAdicionais((modelo as any)?.custos_adicionais);
 
   const saveMut = useMutation({
     mutationFn: async () => {
