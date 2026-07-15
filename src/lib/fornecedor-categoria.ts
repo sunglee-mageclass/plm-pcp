@@ -14,6 +14,9 @@ export const normalizeCat = (s: string | null | undefined) =>
 // de fornecedor de tecido como "Artigo"/"Artigos"; por isso entram como tokens.
 export const FABRIC_TOKENS = ["tecido", "artigo", "forro", "entretela"];
 export const AVIAMENTO_TOKENS = ["aviamento"];
+// Etiqueta/TAG: a loja pode nomear a categoria de fornecedor de várias formas
+// (Insumo/Etiqueta/Tag). Substring normalizada cobre plural/caixa.
+export const ETIQUETA_TOKENS = ["etiqueta", "tag", "insumo"];
 
 type EmpresaComCategorias = {
   empresa_categorias_fornecedor?: ({ categorias_fornecedor?: { nome?: string | null } | null } | null)[] | null;

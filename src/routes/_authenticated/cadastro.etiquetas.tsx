@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { FornecedorSelect, type EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
+import { empresaTemCategoria, ETIQUETA_TOKENS } from "@/lib/fornecedor-categoria";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
@@ -35,7 +36,9 @@ export const Route = createFileRoute("/_authenticated/cadastro/etiquetas")({
   ),
 });
 
-type VarRow = { id?: string; tamanho: string; cor_id: string; preco: number | null };
+// Editor por COR: cada bloco é uma cor (ou "sem cor") com um preço e os tamanhos que
+// existem naquela cor (checkbox). Sem tamanhos marcados = variante só da cor (sem tamanho).
+type CorBlock = { cor_id: string; preco: number | null; tamanhos: string[] };
 type Etiqueta = {
   id: string; nome: string; unidade: string; preco: number | null;
   empresa_id: string | null; representante_id: string | null; observacoes: string | null;
@@ -69,7 +72,7 @@ function EtiquetasPage() {
   const [fRep, setFRep] = useState<string | null>(null);
   const [fPreco, setFPreco] = useState<number | null>(null);
   const [fObs, setFObs] = useState("");
-  const [fVars, setFVars] = useState<VarRow[]>([]);
+  const [fBlocks, setFBlocks] = useState<CorBlock[]>([]);
 
   const { data: etiquetas = [], isLoading } = useQuery({
     queryKey: ["etiquetas-cadastro"],
@@ -90,14 +93,17 @@ function EtiquetasPage() {
   const { data: empresas = [] } = useQuery({
     queryKey: ["empresas-options", "etiqueta"],
     queryFn: async () => {
+      // Fornecedores de material cuja categoria casa Insumo/Etiqueta/Tag (token flexível).
       const { data } = await supabase
         .from("empresas")
-        .select("id,nome_fantasia,representantes(id, nome)")
+        .select("id,nome_fantasia,representantes(id, nome),empresa_categorias_fornecedor(categorias_fornecedor(nome))")
         .eq("tipo", "material")
         .order("nome_fantasia");
-      return ((data ?? []) as any[]).map((e) => ({
-        id: e.id as string, nome_fantasia: e.nome_fantasia as string, representantes: e.representantes ?? [],
-      })) as EmpresaFornecedor[];
+      return ((data ?? []) as any[])
+        .filter((e) => empresaTemCategoria(e, ETIQUETA_TOKENS))
+        .map((e) => ({
+          id: e.id as string, nome_fantasia: e.nome_fantasia as string, representantes: e.representantes ?? [],
+        })) as EmpresaFornecedor[];
     },
   });
   const empresasMap = useMemo(() => new Map(empresas.map((e) => [e.id, e.nome_fantasia])), [empresas]);
@@ -137,34 +143,54 @@ function EtiquetasPage() {
   };
 
   const resetForm = () => {
-    setFNome(""); setFUnidade("unidade"); setFEmpresa(null); setFRep(null); setFPreco(null); setFObs(""); setFVars([]);
+    setFNome(""); setFUnidade("unidade"); setFEmpresa(null); setFRep(null); setFPreco(null); setFObs(""); setFBlocks([]);
   };
   const openCreate = () => { setEditing(null); resetForm(); setOpen(true); };
   const openEdit = async (e: Etiqueta) => {
     setEditing(e);
     setFNome(e.nome); setFUnidade(e.unidade); setFEmpresa(e.empresa_id); setFRep(e.representante_id);
-    setFPreco(e.preco); setFObs(e.observacoes ?? ""); setFVars([]);
+    setFPreco(e.preco); setFObs(e.observacoes ?? ""); setFBlocks([]);
     setOpen(true);
-    const { data } = await supabase.from("variantes_etiqueta" as any).select("id, tamanho, cor_id, preco").eq("etiqueta_id", e.id);
-    setFVars(((data ?? []) as any[]).map((v) => ({ id: v.id, tamanho: v.tamanho ?? "", cor_id: v.cor_id ?? "", preco: v.preco })));
+    const { data } = await supabase.from("variantes_etiqueta" as any).select("tamanho, cor_id, preco").eq("etiqueta_id", e.id);
+    // agrupa variantes por cor → blocos
+    const byCor = new Map<string, CorBlock>();
+    for (const v of (data ?? []) as any[]) {
+      const key = v.cor_id ?? "";
+      let b = byCor.get(key);
+      if (!b) { b = { cor_id: key, preco: v.preco ?? null, tamanhos: [] }; byCor.set(key, b); }
+      if (v.tamanho) b.tamanhos.push(v.tamanho);
+      if (b.preco == null && v.preco != null) b.preco = v.preco;
+    }
+    setFBlocks([...byCor.values()]);
   };
 
-  const addVar = () => setFVars((vs) => [...vs, { tamanho: "", cor_id: "", preco: fPreco }]);
-  const updVar = (i: number, patch: Partial<VarRow>) => setFVars((vs) => vs.map((v, j) => (j === i ? { ...v, ...patch } : v)));
-  const rmVar = (i: number) => setFVars((vs) => vs.filter((_, j) => j !== i));
-  const aplicarPrecoTodas = () => setFVars((vs) => vs.map((v) => ({ ...v, preco: fPreco })));
+  const usedCors = (except: number) => new Set(fBlocks.filter((_, j) => j !== except).map((b) => b.cor_id));
+  const addBlock = () => setFBlocks((bs) => [...bs, { cor_id: "", preco: fPreco, tamanhos: [] }]);
+  const updBlock = (i: number, patch: Partial<CorBlock>) => setFBlocks((bs) => bs.map((b, j) => (j === i ? { ...b, ...patch } : b)));
+  const rmBlock = (i: number) => setFBlocks((bs) => bs.filter((_, j) => j !== i));
+  const toggleTamanho = (i: number, t: string) => setFBlocks((bs) => bs.map((b, j) => {
+    if (j !== i) return b;
+    const has = b.tamanhos.includes(t);
+    return { ...b, tamanhos: has ? b.tamanhos.filter((x) => x !== t) : [...b.tamanhos, t] };
+  }));
+  const aplicarPrecoTodas = () => setFBlocks((bs) => bs.map((b) => ({ ...b, preco: fPreco })));
 
   const saveMut = useMutation({
     mutationFn: async () => {
       const nome = fNome.trim();
       if (!nome) throw new Error("Informe o nome da etiqueta.");
-      // combinação tamanho×cor duplicada no form
-      const seen = new Set<string>();
-      for (const v of fVars) {
-        const k = `${v.tamanho}|${v.cor_id}`;
-        if (seen.has(k)) throw new Error("Há variantes com o mesmo tamanho e cor.");
-        seen.add(k);
+      // uma cor por bloco (não repetir cor)
+      const seenCor = new Set<string>();
+      for (const b of fBlocks) {
+        if (seenCor.has(b.cor_id)) throw new Error("Há mais de um bloco para a mesma cor.");
+        seenCor.add(b.cor_id);
       }
+      // expande blocos → variantes (sem tamanho marcado = 1 variante só da cor)
+      const variantes = fBlocks.flatMap((b) =>
+        (b.tamanhos.length === 0 ? [null] : b.tamanhos).map((t) => ({
+          tamanho: t, cor_id: b.cor_id || null, preco: b.preco,
+        })),
+      );
       const payload = {
         nome, unidade: fUnidade, empresa_id: fEmpresa, representante_id: fRep,
         preco: fPreco, observacoes: fObs.trim() || null,
@@ -178,24 +204,14 @@ function EtiquetasPage() {
         if (error) throw error;
         etqId = (data as any).id;
       }
-      // diff das variantes (o trigger acerta etiquetas.preco = MAX das variantes)
-      const existing = editing
-        ? (((await supabase.from("variantes_etiqueta" as any).select("id").eq("etiqueta_id", etqId)).data ?? []) as any[]).map((x) => x.id as string)
-        : [];
-      const keptIds = new Set(fVars.filter((v) => v.id).map((v) => v.id as string));
-      const toDelete = existing.filter((id) => !keptIds.has(id));
-      for (const v of fVars) {
-        const row = { etiqueta_id: etqId, tamanho: v.tamanho || null, cor_id: v.cor_id || null, preco: v.preco };
-        if (v.id) {
-          const { error } = await supabase.from("variantes_etiqueta" as any).update(row).eq("id", v.id);
-          if (error) throw error;
-        } else {
-          const { error } = await supabase.from("variantes_etiqueta" as any).insert(row);
-          if (error) throw error;
-        }
+      // Substitui todas as variantes (nada referencia o id da variante nesta fase; o
+      // trigger acerta etiquetas.preco = MAX das variantes ao inserir).
+      if (editing) {
+        const { error } = await supabase.from("variantes_etiqueta" as any).delete().eq("etiqueta_id", etqId);
+        if (error) throw error;
       }
-      if (toDelete.length) {
-        const { error } = await supabase.from("variantes_etiqueta" as any).delete().in("id", toDelete);
+      if (variantes.length) {
+        const { error } = await supabase.from("variantes_etiqueta" as any).insert(variantes.map((v) => ({ ...v, etiqueta_id: etqId })));
         if (error) throw error;
       }
     },
@@ -358,7 +374,7 @@ function EtiquetasPage() {
                 <Label>Preço base (R$)</Label>
                 <div className="flex items-center gap-2">
                   <NumberInput type="number" step="0.01" placeholder="0,00" value={fPreco ?? ""} onChange={(e) => setFPreco(e.target.value === "" ? null : Number(e.target.value))} disabled={readOnly} />
-                  {fVars.length > 0 && !readOnly && (
+                  {fBlocks.length > 0 && !readOnly && (
                     <Button type="button" variant="link" className="px-0 h-auto shrink-0" onClick={aplicarPrecoTodas}>Aplicar a todas</Button>
                   )}
                 </div>
@@ -370,38 +386,45 @@ function EtiquetasPage() {
               </div>
             </div>
 
-            {/* Variantes: matriz tamanho × cor */}
+            {/* Variantes por cor: escolhe a cor e marca os tamanhos (opcional). */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label>Variantes (tamanho × cor)</Label>
-                {!readOnly && <Button type="button" variant="outline" size="sm" onClick={addVar}><Plus className="h-4 w-4 mr-1" /> Variante</Button>}
+                <Label>Variantes por cor</Label>
+                {!readOnly && <Button type="button" variant="outline" size="sm" onClick={addBlock}><Plus className="h-4 w-4 mr-1" /> Cor</Button>}
               </div>
-              {fVars.length === 0 ? (
+              {fBlocks.length === 0 ? (
                 <p className="text-xs text-muted-foreground">Sem variantes. A etiqueta usa só o preço base.</p>
               ) : (
-                <div className="space-y-2">
-                  {fVars.map((v, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <Select value={v.tamanho || SEM} onValueChange={(val) => updVar(i, { tamanho: val === SEM ? "" : val })} disabled={readOnly}>
-                        <SelectTrigger className="flex-1"><SelectValue placeholder="Tamanho" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={SEM}>Sem tamanho</SelectItem>
-                          {tamanhos.map((t) => <SelectItem key={t} value={t}>{fmtTamanho(t)}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                      <Select value={v.cor_id || SEM} onValueChange={(val) => updVar(i, { cor_id: val === SEM ? "" : val })} disabled={readOnly}>
-                        <SelectTrigger className="flex-1"><SelectValue placeholder="Cor" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={SEM}>Sem cor</SelectItem>
-                          {cores.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                      <NumberInput type="number" step="0.01" placeholder="0,00" className="w-24" value={v.preco ?? ""}
-                        onChange={(e) => updVar(i, { preco: e.target.value === "" ? null : Number(e.target.value) })} disabled={readOnly} />
-                      {!readOnly && <Button type="button" size="icon" variant="ghost" onClick={() => rmVar(i)} aria-label="Remover"><X className="h-4 w-4" /></Button>}
-                    </div>
-                  ))}
-                  <p className="text-xs text-muted-foreground">O preço base da etiqueta vira o maior preço entre as variantes.</p>
+                <div className="space-y-3">
+                  {fBlocks.map((b, i) => {
+                    const used = usedCors(i);
+                    return (
+                      <div key={i} className="rounded-md border p-3 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Select value={b.cor_id || SEM} onValueChange={(val) => updBlock(i, { cor_id: val === SEM ? "" : val })} disabled={readOnly}>
+                            <SelectTrigger className="flex-1"><SelectValue placeholder="Cor" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={SEM} disabled={used.has("")}>Sem cor</SelectItem>
+                              {cores.map((c) => <SelectItem key={c.id} value={c.id} disabled={used.has(c.id)}>{c.nome}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                          <NumberInput type="number" step="0.01" placeholder="0,00" className="w-24" value={b.preco ?? ""}
+                            onChange={(e) => updBlock(i, { preco: e.target.value === "" ? null : Number(e.target.value) })} disabled={readOnly} />
+                          {!readOnly && <Button type="button" size="icon" variant="ghost" onClick={() => rmBlock(i)} aria-label="Remover cor"><X className="h-4 w-4" /></Button>}
+                        </div>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                          {tamanhos.map((t) => (
+                            <label key={t} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                              <Checkbox checked={b.tamanhos.includes(t)} onCheckedChange={() => toggleTamanho(i, t)} disabled={readOnly} />
+                              {fmtTamanho(t)}
+                            </label>
+                          ))}
+                        </div>
+                        {b.tamanhos.length === 0 && <p className="text-[11px] text-muted-foreground">Sem tamanho marcado → variante única desta cor.</p>}
+                      </div>
+                    );
+                  })}
+                  <p className="text-xs text-muted-foreground">O preço base da etiqueta vira o maior preço entre as cores.</p>
                 </div>
               )}
             </div>
