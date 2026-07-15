@@ -340,8 +340,11 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
   }, [blocos, categorias, colaboradores, empresasServico, aviamentosModelo, tecidosModelo]);
   const [hydrated, setHydrated] = useState(false);
   // Trava por segurança quando o serviço está Finalizado: só edita ao clicar
-  // "Editar", e o Salvar volta a travar.
-  const [editingTab, setEditingTab] = useState<Record<string, boolean>>({});
+  // "Editar", e o Salvar volta a travar. UM único modo de edição p/ AMBAS as abas
+  // (Pré/Pós): clicar Editar em qualquer aba libera as duas, e Salvar (que já
+  // persiste os dois lados) re-trava. Navegar entre abas não perde o rascunho
+  // (os `blocos` são um só estado compartilhado).
+  const [editing, setEditing] = useState(false);
 
   // "Observação de Partes do Molde": mesmo campo do CAD (cad.observacoes_molde).
   const [observacoesMolde, setObservacoesMolde] = useState("");
@@ -533,7 +536,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
     },
     onSuccess: async () => {
       toast.success("Salvo com sucesso");
-      setEditingTab({}); // salvar re-trava as abas que já estão finalizadas
+      setEditing(false); // salvar re-trava ambas as abas que já estão finalizadas
       // Busca os dados frescos ANTES de liberar o guard de hidratação, senão a
       // re-hidratação rodava com o cache antigo (vazio) e o formulário "sumia".
       await qc.invalidateQueries({ queryKey: ["producao-terc", cad?.id] });
@@ -579,7 +582,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
   const abaFinalizada =
     (tabEtapa === "pos_costura" && semAcabamento && salvosDaAba.length === 0) ||
     (salvosDaAba.length > 0 && salvosDaAba.every(blocoFinalizado));
-  const locked = abaFinalizada && !editingTab[tabEtapa];
+  const locked = abaFinalizada && !editing;
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
@@ -602,7 +605,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
             <Printer className="h-4 w-4 mr-2" /> Imprimir OS
           </Button>
           {locked ? (
-            <Button variant="outline" size="icon" onClick={() => setEditingTab((m) => ({ ...m, [tabEtapa]: true }))} disabled={readOnly} aria-label="Editar">
+            <Button variant="outline" size="icon" onClick={() => setEditing(true)} disabled={readOnly} aria-label="Editar">
               <Pencil className="h-4 w-4" />
             </Button>
           ) : (
@@ -621,7 +624,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
           <Button asChild variant="outline" size="icon" className="mr-auto" aria-label="Voltar"><Link to="/producao/terceirizados"><ArrowLeft className="h-4 w-4" /></Link></Button>
         )}
         {locked ? (
-          <Button variant="outline" size="icon" onClick={() => setEditingTab((m) => ({ ...m, [tabEtapa]: true }))} disabled={readOnly} aria-label="Editar"><Pencil className="h-4 w-4" /></Button>
+          <Button variant="outline" size="icon" onClick={() => setEditing(true)} disabled={readOnly} aria-label="Editar"><Pencil className="h-4 w-4" /></Button>
         ) : (
           <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}><Save className="h-4 w-4 mr-2" /> Salvar</Button>
         )}
