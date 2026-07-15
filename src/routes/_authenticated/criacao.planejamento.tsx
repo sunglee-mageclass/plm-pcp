@@ -127,6 +127,7 @@ type Modelo = {
   preco_venda: number | null;
   origem: string | null;
   tecidos_planejados: string[] | null;
+  lancado: boolean | null;
 };
 
 // `color` = badge tonalizado (bg claro + texto escuro; passa WCAG AA, ao contrário do
@@ -181,6 +182,7 @@ function PlanejamentoPage() {
   const [fRep, setFRep] = useState("all");
   const [fOrigem, setFOrigem] = useState("all");
   const [fColecao, setFColecao] = useState("all");
+  const [fLancamento, setFLancamento] = useState("all"); // all | pronto | lancado
   const [openId, setOpenId] = useState<string | null>(null);
   const [openNew, setOpenNew] = useState(false);
   const [openBatch, setOpenBatch] = useState(false);
@@ -281,7 +283,7 @@ function PlanejamentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, estilista_id, linha_id, colecao, colecao_id, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, origem, tecidos_planejados")
+        .select("id, nome, estilista_id, linha_id, colecao, colecao_id, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, origem, tecidos_planejados, lancado")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as Modelo[];
@@ -323,6 +325,27 @@ function PlanejamentoPage() {
     },
   });
 
+  // CQ liberado por modelo (Pré + Pós se há serviço pós-costura) → "pronto para lançar".
+  // Reusa o SSOT `cqLiberado` (@/lib/cq-status) sobre o CAD embedado, p/ não divergir do
+  // gate do setor Lançamento. Map modelo_id → boolean (CQ liberado, ainda sem olhar lançado).
+  const { data: cqProntoMap = {} } = useQuery({
+    queryKey: ["plan-cq-pronto", modeloIdsAll],
+    enabled: modeloIdsAll.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("cad")
+        .select("modelo_id, controle_qualidade(status, status_pos), producao_terceirizados(ativo, categorias_terceirizado(etapa))")
+        .in("modelo_id", modeloIdsAll);
+      if (error) throw error;
+      const m: Record<string, boolean> = {};
+      for (const row of (data ?? []) as any[]) if (row.modelo_id) m[row.modelo_id] = cqLiberado(row);
+      return m;
+    },
+  });
+  // "lançado" | "pronto" (CQ liberado e ainda não lançado) | null — p/ filtro e badge.
+  const lancStatusDe = (m: Modelo): "lancado" | "pronto" | null =>
+    m.lancado ? "lancado" : ((cqProntoMap as Record<string, boolean>)[m.id] ? "pronto" : null);
+
   const colecoes = useMemo(() => {
     const s = new Set<string>();
     modelos.forEach((m) => m.colecao && s.add(m.colecao));
@@ -353,6 +376,7 @@ function PlanejamentoPage() {
     if (fRep === "rep" && !isRepeticao(m)) return false;
     if (fRep === "uni" && isRepeticao(m)) return false;
     if (fOrigem !== "all" && (m.origem ?? "interno") !== fOrigem) return false;
+    if (fLancamento !== "all" && lancStatusDe(m) !== fLancamento) return false;
     return true;
   });
 
@@ -433,6 +457,7 @@ function PlanejamentoPage() {
         markup={(() => { const p = piFor(m); return p.markupExibir > 0 ? p.markupExibir : null; })()}
         preco={(() => { const p = piFor(m); return p.efetivo > 0 ? p.efetivo : null; })()}
         aprovacao={(() => { const a = (aprovacaoMap as any)[m.id]; return a?.tem ? (a.todos ? "verde" : "amarela") : null; })()}
+        lancStatus={lancStatusDe(m)}
         mesNome={m.mes_id ? mesMap[m.mes_id] : null}
         anoNome={m.ano_id ? anoMap[m.ano_id] : null}
         onOpen={() => (selMode ? toggleSel(m.id) : setOpenId(m.id))}
@@ -590,6 +615,7 @@ function PlanejamentoPage() {
             screen="planejamento"
             filters={[
               { label: "Status", value: fStatus, onChange: setFStatus, options: [{ id: "all", nome: "Todos" }, ...STATUS_OPTS.map((s) => ({ id: s.value, nome: s.label }))] },
+              { label: "Lançamento", value: fLancamento, onChange: setFLancamento, options: [{ id: "all", nome: "Todos" }, { id: "pronto", nome: "Prontos para lançar" }, { id: "lancado", nome: "Lançados" }] },
               { label: fl("estilista"), value: fEstilista, onChange: setFEstilista, options: [{ id: "all", nome: "Todos" }, ...estilistas] },
               { label: "Semana", value: fSemana || "all", onChange: (v) => setFSemana(v === "all" ? "" : v), options: [{ id: "all", nome: "Todas" }, ...["1","2","3","4","5"].map((s) => ({ id: s, nome: s }))] },
               { label: "Mês de Planejamento", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
@@ -720,8 +746,8 @@ function PlanejamentoPage() {
 }
 
 
-function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, custoReal, markup, preco, aprovacao, mesNome, anoNome, onOpen, compact }: {
-  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; aprovacao: "verde" | "amarela" | null; mesNome: string | null; anoNome: string | null; onOpen: () => void; compact?: boolean;
+function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, custoReal, markup, preco, aprovacao, lancStatus, mesNome, anoNome, onOpen, compact }: {
+  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; aprovacao: "verde" | "amarela" | null; lancStatus: "lancado" | "pronto" | null; mesNome: string | null; anoNome: string | null; onOpen: () => void; compact?: boolean;
 }) {
   // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
   const cover = (modelo.fotos_modelo?.[0]) || modelo.desenho_tecnico_url || modelo.croqui_url || null;
@@ -742,6 +768,14 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
       {...handlers}
     >
       <div className="relative aspect-[3/4] bg-muted flex items-center justify-center overflow-hidden">
+        {lancStatus && (
+          <span
+            className={`absolute top-1.5 left-1.5 z-10 rounded px-1.5 py-0.5 text-[10px] font-semibold leading-none shadow ${lancStatus === "lancado" ? "bg-emerald-600 text-white" : "bg-sky-500 text-white"}`}
+            title={lancStatus === "lancado" ? "Lançado" : "Pronto para lançar (CQ liberado)"}
+          >
+            {lancStatus === "lancado" ? "Lançado" : "Pronto"}
+          </span>
+        )}
         {aprovacao && (
           <span
             className={`absolute top-1.5 right-1.5 z-10 h-3 w-3 rounded-full ring-2 ring-white shadow ${aprovacao === "verde" ? "bg-emerald-500" : "bg-amber-400"}`}
