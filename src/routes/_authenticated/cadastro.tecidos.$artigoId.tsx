@@ -106,6 +106,8 @@ type Variante = {
   cor_apelido_id: string | null;
   nome_variante: string | null;
   codigo_variante: string | null;
+  preco: number | null;
+  historico_precos?: Array<{ preco: number; data: string }> | null;
   foto_url: string | null;
   enderecos?: { rua: string; prateleira: string }[] | null;
   rua?: string | null;
@@ -240,11 +242,24 @@ export function TecidoDetail({ artigoId, onClose }: { artigoId: string; onClose:
         _cat_ids: catIds,
       });
       if (catErr) throw catErr;
+
+      // Preço do tecido MUDOU → replica nas variantes (viram default, editáveis depois). Só
+      // quando o usuário muda o preço (dirty-check vs o valor salvo) — salvar outros campos NÃO
+      // sobrescreve preços de variante. Não cascateia ao limpar (null). Trigger mantém artigo=MAX.
+      const precoNovo = form.preco ?? null;
+      if (precoNovo != null && precoNovo !== (artigo?.preco ?? null)) {
+        const { error: repErr } = await supabase
+          .from("variantes_tecido")
+          .update({ preco: precoNovo } as any)
+          .eq("artigo_id", artigoId);
+        if (repErr) throw repErr;
+      }
     },
     onSuccess: () => {
       toast.success("Tecido atualizado.");
       qc.invalidateQueries({ queryKey: ["artigo", artigoId] });
       qc.invalidateQueries({ queryKey: ["artigos"] });
+      qc.invalidateQueries({ queryKey: ["variantes", artigoId] }); // replicou preço nas variantes
       qc.invalidateQueries({ queryKey: ["artigo-cats", artigoId] });
       qc.invalidateQueries({ queryKey: ["artigo-cats-all"] });
     },
@@ -558,7 +573,7 @@ export function TecidoDetail({ artigoId, onClose }: { artigoId: string; onClose:
         </CardContent>
       </Card>
 
-      <VariantesSection artigoId={artigoId} readOnly={readOnly} />
+      <VariantesSection artigoId={artigoId} readOnly={readOnly} precoArtigo={form.preco ?? null} />
     </div>
   );
 }
@@ -582,7 +597,7 @@ function Field({
 
 // ============= Variants =============
 
-function VariantesSection({ artigoId, readOnly }: { artigoId: string; readOnly: boolean }) {
+function VariantesSection({ artigoId, readOnly, precoArtigo }: { artigoId: string; readOnly: boolean; precoArtigo: number | null }) {
   const qc = useQueryClient();
   const [removeTarget, setRemoveTarget] = useState<Variante | null>(null);
   const [addBase, setAddBase] = useState<string>("");
@@ -613,7 +628,7 @@ function VariantesSection({ artigoId, readOnly }: { artigoId: string; readOnly: 
         .eq("artigo_id", artigoId)
         .order("created_at");
       if (error) throw error;
-      return (data ?? []) as Variante[];
+      return (data ?? []) as unknown as Variante[]; // types.ts ainda sem preco/historico_precos
     },
   });
 
@@ -628,9 +643,10 @@ function VariantesSection({ artigoId, readOnly }: { artigoId: string; readOnly: 
     mutationFn: async ({ corId, apelidoId }: { corId: string; apelidoId: string }) => {
       // nome_variante é OPCIONAL (nome comercial, ex.: "Malha") — NÃO auto-gerar a partir
       // de cor. O rótulo em toda tela é montado por nome + cor + apelido (helper).
+      // Apelido é OPCIONAL. Variante nova HERDA o preço do artigo (default replicável).
       const { error } = await supabase
         .from("variantes_tecido")
-        .insert({ artigo_id: artigoId, cor_id: corId, cor_apelido_id: apelidoId });
+        .insert({ artigo_id: artigoId, cor_id: corId, cor_apelido_id: apelidoId || null, preco: precoArtigo ?? null } as any);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -639,6 +655,22 @@ function VariantesSection({ artigoId, readOnly }: { artigoId: string; readOnly: 
       qc.invalidateQueries({ queryKey: ["variantes-thumb"] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao adicionar.")),
+  });
+
+  // Aplica o preço do tecido (artigo) a TODAS as variantes (replicar). O trigger mantém o
+  // artigo = maior; aplicar iguala todas ao preço atual do artigo.
+  const aplicarPrecoMut = useMutation({
+    mutationFn: async () => {
+      if (precoArtigo == null) return;
+      const { error } = await supabase.from("variantes_tecido").update({ preco: precoArtigo } as any).eq("artigo_id", artigoId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Preço aplicado a todas as variantes.");
+      qc.invalidateQueries({ queryKey: ["variantes", artigoId] });
+      qc.invalidateQueries({ queryKey: ["artigo", artigoId] });
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao aplicar preço.")),
   });
 
   const removeVarMut = useMutation({
@@ -658,7 +690,7 @@ function VariantesSection({ artigoId, readOnly }: { artigoId: string; readOnly: 
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao remover.")),
   });
 
-  const jaExiste = variantes.some((v) => v.cor_id === addBase && v.cor_apelido_id === addApelido);
+  const jaExiste = variantes.some((v) => v.cor_id === addBase && v.cor_apelido_id === (addApelido || null));
 
   return (
     <Card>
@@ -690,7 +722,7 @@ function VariantesSection({ artigoId, readOnly }: { artigoId: string; readOnly: 
             </Select>
           </div>
           <div className="flex-1 space-y-1">
-            <Label className="text-xs">Cor apelido *</Label>
+            <Label className="text-xs">Cor apelido</Label>
             <Select
               value={addApelido}
               onValueChange={(a) => {
@@ -713,19 +745,32 @@ function VariantesSection({ artigoId, readOnly }: { artigoId: string; readOnly: 
           <Button
             type="button"
             className="shrink-0"
-            disabled={readOnly || !addBase || !addApelido || jaExiste || addVarMut.isPending}
+            disabled={readOnly || !addBase || jaExiste || addVarMut.isPending}
             onClick={() => addVarMut.mutate({ corId: addBase, apelidoId: addApelido })}
           >
             <Plus className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Adicionar</span>
           </Button>
         </div>
         {jaExiste && (
-          <p className="text-xs text-amber-600">Essa combinação de cor + apelido já existe neste tecido.</p>
+          <p className="text-xs text-amber-600">Essa cor (com esse apelido) já existe neste tecido.</p>
         )}
-        {(cores.length === 0 || apelidos.length === 0) && (
+        {cores.length === 0 && (
           <p className="text-xs text-muted-foreground italic">
-            Cadastre cores e cores apelido em Atributos primeiro.
+            Cadastre cores em Atributos primeiro.
           </p>
+        )}
+
+        {!readOnly && precoArtigo != null && variantes.length > 0 && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full sm:w-auto"
+            onClick={() => aplicarPrecoMut.mutate()}
+            disabled={aplicarPrecoMut.isPending}
+          >
+            Aplicar preço do tecido ({new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(precoArtigo)}) a todas as variantes
+          </Button>
         )}
 
         {variantes.length === 0 ? (
@@ -804,17 +849,21 @@ function VariantRow({
   const [codigo, setCodigo] = useState(variante.codigo_variante ?? "");
   const [corId, setCorId] = useState(variante.cor_id ?? "");
   const [apelidoId, setApelidoId] = useState(variante.cor_apelido_id ?? "");
+  const [preco, setPreco] = useState(variante.preco?.toString() ?? "");
   const [uploading, setUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const photoUrl = useSignedUrl(variante.foto_url);
 
   const saveMut = useMutation({
     mutationFn: async (patch: Partial<Variante>) => {
-      const { error } = await supabase.from("variantes_tecido").update(patch).eq("id", variante.id);
+      const { error } = await supabase.from("variantes_tecido").update(patch as any).eq("id", variante.id);
       if (error) throw error;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["variantes", variante.artigo_id] });
+      // preço da variante pode ter mudado o MAX → reflete no preço de referência do artigo.
+      qc.invalidateQueries({ queryKey: ["artigo", variante.artigo_id] });
+      qc.invalidateQueries({ queryKey: ["artigos"] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar.")),
   });
@@ -938,6 +987,44 @@ function VariantRow({
                 codigo !== (variante.codigo_variante ?? "") &&
                 saveMut.mutate({ codigo_variante: codigo })
               }
+              readOnly={readOnly}
+            />
+          </div>
+          {/* Preço POR VARIANTE. O preço de referência do artigo = o maior das variantes. */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label>Preço</Label>
+              {(variante.historico_precos?.length ?? 0) > 0 && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-6 w-6" aria-label="Histórico de preço da variante">
+                      <History className="h-3.5 w-3.5" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-56 p-2">
+                    <p className="mb-1 text-xs font-semibold">Histórico de preço</p>
+                    <ul className="space-y-1">
+                      {[...(variante.historico_precos ?? [])].reverse().map((h, i) => (
+                        <li key={i} className="flex items-center justify-between text-xs">
+                          <span>{new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(h.preco))}</span>
+                          <span className="text-muted-foreground">{fmtDataHora(h.data)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </PopoverContent>
+                </Popover>
+              )}
+            </div>
+            <Input
+              type="number"
+              step="0.01"
+              placeholder="0,00"
+              value={preco}
+              onChange={(e) => setPreco(e.target.value)}
+              onBlur={() => {
+                const v = preco === "" ? null : Number(preco);
+                if (v !== (variante.preco ?? null)) saveMut.mutate({ preco: v });
+              }}
               readOnly={readOnly}
             />
           </div>
