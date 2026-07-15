@@ -72,10 +72,13 @@ export function calcCusto(consumo: number, loss: number, preco: number) {
   return Number((consumo * (1 + loss / 100) * preco).toFixed(2));
 }
 
+// Células das tabelas dos printáveis — compactas p/ caber na margem padrão do print.
 export const cellH: React.CSSProperties = {
   border: "1px solid #999",
-  padding: "3px 6px",
+  padding: "2px 5px",
   textAlign: "left",
   fontWeight: 600,
+  fontSize: 10,
+  wordBreak: "break-word",
 };
-export const cell: React.CSSProperties = { border: "1px solid #999", padding: "3px 6px" };
+export const cell: React.CSSProperties = { border: "1px solid #999", padding: "2px 5px", fontSize: 10, wordBreak: "break-word" };
