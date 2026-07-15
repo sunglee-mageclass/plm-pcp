@@ -109,34 +109,14 @@ export const savePermissions = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const tenantId = await assertTenantAdmin(context.supabase, context.userId);
-
-    // Verify target user is in same tenant
-    const { data: target } = await context.supabase
-      .from("users")
-      .select("tenant_id")
-      .eq("id", data.user_id)
-      .maybeSingle();
-    if (!target || target.tenant_id !== tenantId) {
-      throw new Error("Forbidden: user not in your store");
-    }
-
-    // Replace all permissions for this user in this tenant
-    const { error: delErr } = await context.supabase
-      .from("user_permissions")
-      .delete()
-      .eq("user_id", data.user_id);
-    if (delErr) throw new Error(delErr.message);
-
-    if (data.perms.length > 0) {
-      const rows = data.perms.map((p) => ({
-        user_id: data.user_id,
-        tenant_id: tenantId,
-        pagina: p.pagina,
-        pode_ver: p.pode_ver,
-        pode_editar: p.pode_editar,
-      }));
-      const { error: insErr } = await context.supabase.from("user_permissions").insert(rows);
-      if (insErr) throw new Error(insErr.message);
-    }
+    // Substituição ATÔMICA (delete+insert numa txn) via RPC — a authz (tenant_admin da própria
+    // loja) e a checagem de "alvo é da loja" são refeitas no servidor. Antes eram 2 escritas
+    // soltas: DELETE ok + INSERT falho deixava o usuário SEM permissão nenhuma.
+    const { error } = await context.supabase.rpc("set_user_permissions" as any, {
+      _user_id: data.user_id,
+      _tenant_id: tenantId,
+      _perms: data.perms,
+    } as any);
+    if (error) throw new Error(error.message);
     return { ok: true };
   });

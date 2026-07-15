@@ -244,35 +244,14 @@ export const savePermissionsAsSuperAdmin = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     await assertSuperAdmin(context.supabase, context.userId);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-
-    // Verify target user belongs to the informed tenant
-    const { data: target, error: tErr } = await supabaseAdmin
-      .from("users")
-      .select("tenant_id")
-      .eq("id", data.user_id)
-      .maybeSingle();
-    if (tErr) throw new Error(tErr.message);
-    if (!target || target.tenant_id !== data.tenant_id) {
-      throw new Error("Usuário não pertence à loja informada");
-    }
-
-    const { error: delErr } = await supabaseAdmin
-      .from("user_permissions")
-      .delete()
-      .eq("user_id", data.user_id);
-    if (delErr) throw new Error(delErr.message);
-
-    if (data.perms.length > 0) {
-      const rows = data.perms.map((p) => ({
-        user_id: data.user_id,
-        tenant_id: data.tenant_id,
-        pagina: p.pagina,
-        pode_ver: p.pode_ver,
-        pode_editar: p.pode_editar,
-      }));
-      const { error: insErr } = await supabaseAdmin.from("user_permissions").insert(rows);
-      if (insErr) throw new Error(insErr.message);
-    }
+    // Substituição ATÔMICA via RPC (delete+insert numa txn). A RPC refaz a authz (super_admin
+    // escolhe a loja) e valida que o alvo é da loja. Antes eram 2 escritas soltas via service
+    // role: DELETE ok + INSERT falho deixava o usuário SEM permissão nenhuma.
+    const { error } = await context.supabase.rpc("set_user_permissions" as any, {
+      _user_id: data.user_id,
+      _tenant_id: data.tenant_id,
+      _perms: data.perms,
+    } as any);
+    if (error) throw new Error(error.message);
     return { ok: true };
   });

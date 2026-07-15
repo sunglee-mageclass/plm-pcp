@@ -263,7 +263,9 @@ e verifique** — o repo muda rápido.
     clampa; `confirmar_direcionamento`=RAISE) e recomputa `loja_fisica`+totais por soma —
     invariante `Σec + Σloja = Σreal`. **Confirmar é atômico** (`confirmar_direcionamento`
     = save strict + `cad.direcionamento_status='separado'` numa txn; NÃO fazer save+update
-    separados no front). **Grade real defasada rebaixa**: trigger `trg_rebaixa_direcionamento_grade`
+    separados no front) e **exige CQ liberado no SERVIDOR** (`_cq_liberado(_cad_id)`, espelho de
+    `@/lib/cq-status` — Pré confirmado E, se há serviço pós-costura ativo, Pós confirmado; jul/2026:
+    fecha o bypass de confirmar via URL direta sem passar pelo filtro da lista). **Grade real defasada rebaixa**: trigger `trg_rebaixa_direcionamento_grade`
     em `cad_grades` — se a grade real muda (CQ confirmar/desmarcar/reconfirmar) e o
     Direcionamento estava 'separado', volta a 'pendente' + acende `#Erro` na etapa
     `direcionamento` (espelha o M2 do CQ). 2º lote NÃO entra no split (a grade real já o
