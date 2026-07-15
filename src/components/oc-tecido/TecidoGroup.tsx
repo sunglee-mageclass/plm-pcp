@@ -37,14 +37,35 @@ export function TecidoGroup({
       <div className="flex items-center justify-between">
         <h4 className="font-semibold">Tecido {n}</h4>
       </div>
-      <div className="grid gap-1">
-        <Label>Tecido</Label>
-        <Select value={artigoId ?? ""} onValueChange={onArtigoChange}>
-          <SelectTrigger><SelectValue placeholder="Selecionar tecido…" /></SelectTrigger>
-          <SelectContent>
-            {artigos.map((a) => <SelectItem key={a.id} value={a.id}>{artigoLabel(a)}</SelectItem>)}
-          </SelectContent>
-        </Select>
+      <div className="grid gap-3 sm:grid-cols-[1fr_30%]">
+        <div className="grid gap-1">
+          <Label>Tecido</Label>
+          <Select value={artigoId ?? ""} onValueChange={onArtigoChange}>
+            <SelectTrigger><SelectValue placeholder="Selecionar tecido…" /></SelectTrigger>
+            <SelectContent>
+              {artigos.map((a) => <SelectItem key={a.id} value={a.id}>{artigoLabel(a)}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        {artigoId && (
+          <div className="grid gap-1">
+            {/* Preço do tecido (default = cadastro) + "Aplicar a todos" como link (sem borda). */}
+            <div className="flex items-center justify-between">
+              <Label>Preço do tecido</Label>
+              <Button type="button" variant="link" className="h-auto p-0 text-xs"
+                disabled={items.length === 0}
+                onClick={() => setPrecoAll(precoTecido)}>
+                Aplicar a todos
+              </Button>
+            </div>
+            <div className="relative">
+              <NumberInput type="number" step="0.01" placeholder="0,00" className="pl-7"
+                value={precoTecido ?? undefined}
+                onChange={(e) => setPrecoTecido(e.target.value === "" ? null : Number(e.target.value))} />
+              <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">R$</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {artigoId && (
@@ -83,21 +104,6 @@ export function TecidoGroup({
 
           {items.length > 0 && (
             <div className="space-y-2">
-              {/* Preço do tecido (default = cadastro) + "Aplicar a todos" as variantes desta OC. */}
-              <div className="flex items-end gap-2">
-                <div className="flex-1 space-y-1">
-                  <Label>Preço do tecido</Label>
-                  <div className="relative">
-                    <NumberInput type="number" step="0.01" placeholder="0,00" className="pl-7"
-                      value={precoTecido ?? undefined}
-                      onChange={(e) => setPrecoTecido(e.target.value === "" ? null : Number(e.target.value))} />
-                    <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">R$</span>
-                  </div>
-                </div>
-                <Button type="button" variant="outline" onClick={() => setPrecoAll(precoTecido)}>
-                  Aplicar a todos
-                </Button>
-              </div>
               <div className="flex items-center gap-3">
                 <Label className="flex-1">Quantidade e preço</Label>
                 <span className="w-32 text-xs text-muted-foreground">Qtd</span>

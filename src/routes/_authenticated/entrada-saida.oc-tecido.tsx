@@ -584,14 +584,11 @@ function OcDialog({
     setItems((prev) => prev.map((i) => i.tempId === tempId ? { ...i, cancelado: value } : i));
   };
 
-  const valorPrev = (it: ItemDraft) => {
-    const a = it.artigo_id ? artigoMap[it.artigo_id] : null;
-    return (a?.preco ?? 0) * it.quantidade_pedida;
-  };
-  const valorReal = (it: ItemDraft) => {
-    const a = it.artigo_id ? artigoMap[it.artigo_id] : null;
-    return (a?.preco ?? 0) * (it.quantidade_recebida ?? 0);
-  };
+  // Valor da OC = preço do ITEM desta compra × qtd (fallback p/ o preço do cadastro do artigo
+  // quando o item não tem preço). Reflete o preço por variante informado na OC.
+  const precoDe = (it: ItemDraft) => it.preco ?? (it.artigo_id ? artigoMap[it.artigo_id]?.preco : null) ?? 0;
+  const valorPrev = (it: ItemDraft) => precoDe(it) * it.quantidade_pedida;
+  const valorReal = (it: ItemDraft) => precoDe(it) * (it.quantidade_recebida ?? 0);
   // Itens cancelados não entram nos totais (nem no valor_real_total persistido,
   // que alimenta as parcelas).
   const totalPrevisto = items.filter((i) => !i.cancelado).reduce((s, i) => s + valorPrev(i), 0);
