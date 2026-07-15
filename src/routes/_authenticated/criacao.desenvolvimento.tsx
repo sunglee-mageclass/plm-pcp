@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Hammer, ImageIcon, ChevronRight, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
+import { Hammer, ImageIcon, ChevronRight, ChevronsDownUp, ChevronsUpDown, Group } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -52,6 +52,7 @@ type Modelo = {
   ano_id: string | null;
   categoria_principal_id: string | null;
   subcategoria1_id: string | null;
+  linha_id: string | null;
   status_desenvolvimento: string | null;
   fotos_modelo: string[] | null;
   desenho_tecnico_url: string | null;
@@ -66,6 +67,20 @@ const SORT_FIELDS = [
   { key: "versao", label: "Versão" },
   { key: "created_at", label: "Data" },
 ] as const;
+
+// Dimensões de agrupamento DENTRO de cada coluna de status. "tecido" = default.
+const GROUP_FIELDS = [
+  { id: "tecido", nome: "Tecido" },
+  { id: "categoria", nome: "Categoria" },
+  { id: "colecao", nome: "Coleção" },
+  { id: "linha", nome: "Linha" },
+  { id: "estilista", nome: "Estilista" },
+  { id: "none", nome: "Sem agrupamento" },
+] as const;
+const SEM_LABEL: Record<string, string> = {
+  tecido: "Sem tecido", categoria: "Sem categoria", colecao: "Sem coleção", linha: "Sem linha", estilista: "Sem estilista",
+};
+const GROUPBY_LS = "desenv-groupby";
 
 function useOpts(table: string, key = "nome") {
   return useQuery({
@@ -115,6 +130,14 @@ function DesenvolvimentoPage() {
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // Agrupamento dentro de cada status (default: por tecido); persiste por usuário.
+  const [groupBy, setGroupBy] = useState<string>(() => {
+    try { return localStorage.getItem(GROUPBY_LS) || "tecido"; } catch { return "tecido"; }
+  });
+  const changeGroupBy = (v: string) => {
+    setGroupBy(v);
+    try { localStorage.setItem(GROUPBY_LS, v); } catch { /* ignore */ }
+  };
   const toggleCollapse = (key: string) => setCollapsed((prev) => {
     const n = new Set(prev);
     n.has(key) ? n.delete(key) : n.add(key);
@@ -128,6 +151,7 @@ function DesenvolvimentoPage() {
   const { data: meses = [] } = useOpts("meses", "mes");
   const { data: anos = [] } = useOpts("anos", "ano");
   const { data: grupos = [] } = useOpts("grupos_produto");
+  const { data: linhas = [] } = useOpts("linhas");
   const { data: categorias = [] } = useQuery({
     queryKey: ["opt", "categorias_produto", "com-grupo"],
     queryFn: async () => {
@@ -174,13 +198,35 @@ function DesenvolvimentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, ref, versao, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, status_desenvolvimento, fotos_modelo, desenho_tecnico_url, croqui_url, enviado_cad, created_at")
+        .select("id, nome, ref, versao, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, linha_id, status_desenvolvimento, fotos_modelo, desenho_tecnico_url, croqui_url, enviado_cad, created_at")
         .eq("ordem_criacao_enviada", true)
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as Modelo[];
     },
   });
+
+  // Tecido PRINCIPAL por modelo (1º bloco tipo='tecido', menor numero) — p/ agrupar por tecido.
+  const { data: modeloTecidos = [] } = useQuery({
+    queryKey: ["desenv-modelo-tecidos", tenantId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("modelo_tecidos")
+        .select("modelo_id, numero, artigos:artigo_id(nome)")
+        .eq("tipo", "tecido")
+        .order("numero");
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+  const tecidoPrincipalMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of modeloTecidos) {
+      const nome = Array.isArray(r.artigos) ? r.artigos[0]?.nome : r.artigos?.nome;
+      if (nome && !m.has(r.modelo_id)) m.set(r.modelo_id, nome); // ordenado por numero → 1º é o principal
+    }
+    return m;
+  }, [modeloTecidos]);
 
   const modeloIdsAll = useMemo(() => modelos.map((m) => m.id).sort(), [modelos]);
   const { data: condicoesMap = {} } = useQuery({
@@ -242,6 +288,33 @@ function DesenvolvimentoPage() {
 
   const estMap = Object.fromEntries(estilistas.map((e) => [e.id, e.nome]));
   const catMap = Object.fromEntries(categorias.map((c) => [c.id, c.nome]));
+  const linhaMap = Object.fromEntries(linhas.map((l) => [l.id, l.nome]));
+
+  // Rótulo do grupo de um modelo na dimensão atual (fallback "Sem X").
+  const groupLabelOf = (m: Modelo): string => {
+    switch (groupBy) {
+      case "tecido": return tecidoPrincipalMap.get(m.id) ?? SEM_LABEL.tecido;
+      case "categoria": return (m.categoria_principal_id ? catMap[m.categoria_principal_id] : null) ?? SEM_LABEL.categoria;
+      case "colecao": return m.colecao || SEM_LABEL.colecao;
+      case "linha": return (m.linha_id ? linhaMap[m.linha_id] : null) ?? SEM_LABEL.linha;
+      case "estilista": return (m.estilista_id ? estMap[m.estilista_id] : null) ?? SEM_LABEL.estilista;
+      default: return "";
+    }
+  };
+  // Agrupa os cards de UMA coluna. "none" → 1 grupo sem rótulo (lista plana). "Sem X" por último.
+  const groupCards = (cards: Modelo[]): { label: string; cards: Modelo[] }[] => {
+    if (groupBy === "none") return [{ label: "", cards }];
+    const map = new Map<string, Modelo[]>();
+    for (const m of cards) {
+      const label = groupLabelOf(m);
+      const arr = map.get(label);
+      if (arr) arr.push(m); else map.set(label, [m]);
+    }
+    const sem = SEM_LABEL[groupBy];
+    return Array.from(map.entries())
+      .sort(([a], [b]) => (a === sem ? 1 : b === sem ? -1 : a.localeCompare(b, "pt-BR")))
+      .map(([label, cards]) => ({ label, cards }));
+  };
 
   // Ordena os cards DENTRO de cada coluna pelo campo escolhido (valor cru).
   const s = useSort(filtered, { key: "created_at", dir: "desc" });
@@ -326,6 +399,17 @@ function DesenvolvimentoPage() {
             {allCollapsed ? <ChevronsUpDown className="h-4 w-4 sm:mr-1" /> : <ChevronsDownUp className="h-4 w-4 sm:mr-1" />}
             <span className="max-lg:sr-only">{allCollapsed ? "Expandir todas" : "Recolher todas"}</span>
           </Button>
+          <Select value={groupBy} onValueChange={changeGroupBy}>
+            <SelectTrigger className="h-9 w-auto gap-1 text-xs sm:text-sm" title="Agrupar por (dentro de cada status)">
+              <Group className="h-4 w-4 shrink-0" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {GROUP_FIELDS.map((g) => (
+                <SelectItem key={g.id} value={g.id}>{g.nome}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Select value={s.sortKey ?? ""} onValueChange={(v) => s.toggle(v)}>
             <SelectTrigger className="h-9 w-auto gap-1 text-xs sm:text-sm">
               <SelectValue placeholder="Ordenar por" />
@@ -392,18 +476,30 @@ function DesenvolvimentoPage() {
                 <div className="flex-1 min-w-0 p-2 space-y-2 overflow-y-auto">
                   {cards.length === 0 ? (
                     <p className="text-xs text-muted-foreground text-center py-6">Sem cards</p>
-                  ) : cards.map((m) => (
-                    <KanbanCard
-                      key={m.id}
-                      modelo={m}
-                      estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
-                      categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
-                      onOpen={() => setOpenId(m.id)}
-                      draggable={editable}
-                      onDragStartCard={() => setDraggingId(m.id)}
-                      onDragEndCard={() => setDraggingId(null)}
-                    />
-                  ))}
+                  ) : (
+                    groupCards(cards).map((g) => (
+                      <div key={g.label || "_all"} className="space-y-2">
+                        {g.label && (
+                          <div className="flex items-center justify-between gap-2 px-1 pt-1 text-xs font-semibold text-muted-foreground">
+                            <span className="truncate">{g.label}</span>
+                            <span className="shrink-0">{g.cards.length}</span>
+                          </div>
+                        )}
+                        {g.cards.map((m) => (
+                          <KanbanCard
+                            key={m.id}
+                            modelo={m}
+                            estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
+                            categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
+                            onOpen={() => setOpenId(m.id)}
+                            draggable={editable}
+                            onDragStartCard={() => setDraggingId(m.id)}
+                            onDragEndCard={() => setDraggingId(null)}
+                          />
+                        ))}
+                      </div>
+                    ))
+                  )}
                 </div>
               )}
             </div>
@@ -431,15 +527,25 @@ function DesenvolvimentoPage() {
                   {cards.length === 0 ? (
                     <p className="text-xs text-muted-foreground text-center py-4">Sem cards</p>
                   ) : (
-                    <div className="space-y-2">
-                      {cards.map((m) => (
-                        <MobileCard
-                          key={m.id}
-                          modelo={m}
-                          estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
-                          categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
-                          onOpen={() => setOpenId(m.id)}
-                        />
+                    <div className="space-y-3">
+                      {groupCards(cards).map((g) => (
+                        <div key={g.label || "_all"} className="space-y-2">
+                          {g.label && (
+                            <div className="flex items-center justify-between gap-2 px-1 text-xs font-semibold text-muted-foreground">
+                              <span className="truncate">{g.label}</span>
+                              <span className="shrink-0">{g.cards.length}</span>
+                            </div>
+                          )}
+                          {g.cards.map((m) => (
+                            <MobileCard
+                              key={m.id}
+                              modelo={m}
+                              estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
+                              categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
+                              onOpen={() => setOpenId(m.id)}
+                            />
+                          ))}
+                        </div>
                       ))}
                     </div>
                   )}
