@@ -63,6 +63,8 @@ export type EtiquetaRow = {
   consumo: number;
   quantidade_planejada: number;
   quantidade_enviar: number;
+  // Qtd a enviar POR tamanho {tamanho: qtd}; vazio p/ etiqueta sem tamanho (usa o escalar).
+  enviarPorTamanho: Record<string, number>;
 };
 
 export function calcCusto(consumo: number, loss: number, preco: number) {

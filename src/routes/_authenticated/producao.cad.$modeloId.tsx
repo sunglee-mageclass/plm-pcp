@@ -255,7 +255,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
     queryFn: async () => {
       const { data } = await supabase
         .from("cad_etiquetas" as any)
-        .select("id, etiqueta_id, cor_id, consumo, quantidade_planejada, quantidade_enviar, etiquetas:etiqueta_id(nome, tamanho)")
+        .select("id, etiqueta_id, cor_id, consumo, quantidade_planejada, quantidade_enviar, enviar_por_tamanho, etiquetas:etiqueta_id(nome, tamanho)")
         .eq("cad_id", cadRow!.id);
       return (data ?? []) as any[];
     },
@@ -491,6 +491,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
       consumo: Number(e.consumo ?? 0),
       quantidade_planejada: Number(e.quantidade_planejada ?? 0),
       quantidade_enviar: Number(e.quantidade_enviar ?? 0),
+      enviarPorTamanho: (e.enviar_por_tamanho ?? {}) as Record<string, number>,
     }));
     // Traz do BOM (modelo_etiquetas) o que ainda não está no CAD (por etiqueta + cor).
     const jaTem = new Set(etqRows.map((e) => `${e.etiqueta_id}|${e.cor_id ?? ""}`));
@@ -501,7 +502,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
       etqRows.push({
         etiqueta_id: m.etiqueta_id, etiqueta_nome: nomeDe[m.etiqueta_id] ?? "—",
         cor_id: m.cor_id ?? null, tamanho: null, consumo: Number(m.consumo ?? 0),
-        quantidade_planejada: 0, quantidade_enviar: 0,
+        quantidade_planejada: 0, quantidade_enviar: 0, enviarPorTamanho: {},
       });
     }
     setEtiquetas(etqRows);
@@ -611,6 +612,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
         consumo: 0,
         quantidade_planejada: 0,
         quantidade_enviar: 0,
+        enviarPorTamanho: {},
       },
     ]);
   };
@@ -658,14 +660,31 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
           quantidade_enviar: a.quantidade_enviar,
           quantidade_separar: a.quantidade_separar,
         })),
-        _etiquetas: etiquetas.filter((e) => e.etiqueta_id).map((e) => ({
-          etiqueta_id: e.etiqueta_id,
-          cor_id: e.cor_id,
-          consumo: e.consumo,
-          // Total = consumo × grade total geral (o detalhamento por tamanho é a explosão exibida).
-          quantidade_planejada: Number((e.consumo * gradeTotalGeral).toFixed(2)),
-          quantidade_enviar: e.quantidade_enviar,
-        })),
+        _etiquetas: etiquetas.filter((e) => e.etiqueta_id).map((e) => {
+          const info = (etiquetasDisponiveis as any[]).find((d) => d.id === e.etiqueta_id);
+          const semTamanho = (info?.formato_tamanho ?? "ambos") === "nenhum"
+            || ((info?.variantes ?? []) as any[]).every((v) => !v.tamanho);
+          const enviarMap: Record<string, number> = {};
+          let totalEnviar = 0;
+          if (semTamanho) {
+            totalEnviar = Number(e.quantidade_enviar || 0);
+          } else {
+            for (const t of gradeTamanhos) {
+              const v = e.enviarPorTamanho[t] ?? Number((e.consumo * gradeSumByTamanho(t)).toFixed(2));
+              enviarMap[t] = v;
+              totalEnviar += v;
+            }
+          }
+          return {
+            etiqueta_id: e.etiqueta_id,
+            cor_id: e.cor_id,
+            consumo: e.consumo,
+            // Total = consumo × grade total geral (o detalhamento por tamanho é a explosão).
+            quantidade_planejada: Number((e.consumo * gradeTotalGeral).toFixed(2)),
+            quantidade_enviar: Number(totalEnviar.toFixed(2)),
+            enviar_por_tamanho: enviarMap,
+          };
+        }),
         _proporcoes: proporcoes,
         _observacoes_molde: observacoesMolde || null,
         _data_previsao_corte: previsaoEntrega || null,

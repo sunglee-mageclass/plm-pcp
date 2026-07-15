@@ -77,7 +77,7 @@ export function CadEtiquetasSection({
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   <div className="grid gap-1">
                     <Label className="text-xs">Cor</Label>
                     <Select value={e.cor_id || SEM} onValueChange={(v) => onUpdate(i, { cor_id: v === SEM ? null : v })}>
@@ -91,10 +91,6 @@ export function CadEtiquetasSection({
                   <div className="grid gap-1">
                     <Label className="text-xs">Consumo</Label>
                     <NumberInput type="number" step="0.0001" placeholder="0,00" value={e.consumo || ""} onChange={(ev) => onUpdate(i, { consumo: Number(ev.target.value) })} />
-                  </div>
-                  <div className="grid gap-1">
-                    <Label className="text-xs">Qtd a Enviar</Label>
-                    <NumberInput type="number" step="0.01" placeholder="0,00" value={e.quantidade_enviar || ""} onChange={(ev) => onUpdate(i, { quantidade_enviar: Number(ev.target.value) })} />
                   </div>
                 </div>
 
@@ -112,6 +108,7 @@ export function CadEtiquetasSection({
                         <th className="px-2 py-1 text-left">Tamanho</th>
                         <th className="px-2 py-1">Grade</th>
                         <th className="px-2 py-1">Qtd planejada</th>
+                        <th className="px-2 py-1">Qtd a Enviar</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -120,19 +117,32 @@ export function CadEtiquetasSection({
                           <td className="px-2 py-1" data-label="Tamanho">Geral</td>
                           <td className="px-2 py-1 text-center" data-label="Grade">{gradeTotalGeral}</td>
                           <td className="px-2 py-1 text-center font-medium" data-label="Qtd planejada">{fmtNum(Number((e.consumo * gradeTotalGeral).toFixed(2)))}</td>
+                          <td className="px-2 py-1" data-label="Qtd a Enviar">
+                            <NumberInput type="number" step="0.01" className="max-md:w-28"
+                              placeholder={fmtNum(Number((e.consumo * gradeTotalGeral).toFixed(2)))}
+                              value={e.quantidade_enviar || ""}
+                              onChange={(ev) => onUpdate(i, { quantidade_enviar: Number(ev.target.value) })} />
+                          </td>
                         </tr>
                       ) : gradeTamanhos.length === 0 ? (
-                        <tr className="border-t"><td colSpan={3} className="px-2 py-1 text-muted-foreground">Defina a grade para ver a explosão.</td></tr>
+                        <tr className="border-t"><td colSpan={4} className="px-2 py-1 text-muted-foreground">Defina a grade para ver a explosão.</td></tr>
                       ) : (
                         gradeTamanhos.map((t) => {
                           const base = gradeSumByTamanho(t);
+                          const planej = Number((e.consumo * base).toFixed(2));
                           return (
                             <tr key={t} className="border-t">
                               <td className="px-2 py-1" data-label="Tamanho">
                                 {fmtTam(t, formato)}{!temVar(t) && <span className="text-amber-600" title="Sem variante nesta cor"> ⚠</span>}
                               </td>
                               <td className="px-2 py-1 text-center" data-label="Grade">{base}</td>
-                              <td className="px-2 py-1 text-center font-medium" data-label="Qtd planejada">{fmtNum(Number((e.consumo * base).toFixed(2)))}</td>
+                              <td className="px-2 py-1 text-center font-medium" data-label="Qtd planejada">{fmtNum(planej)}</td>
+                              <td className="px-2 py-1" data-label="Qtd a Enviar">
+                                <NumberInput type="number" step="0.01" className="max-md:w-28"
+                                  placeholder={fmtNum(planej)}
+                                  value={e.enviarPorTamanho[t] ?? ""}
+                                  onChange={(ev) => onUpdate(i, { enviarPorTamanho: { ...e.enviarPorTamanho, [t]: Number(ev.target.value) } })} />
+                              </td>
                             </tr>
                           );
                         })

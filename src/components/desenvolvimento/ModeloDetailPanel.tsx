@@ -1134,7 +1134,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           </AccordionItem>
 
           <AccordionItem value="s3e">
-            <AccordionTrigger>TAG/Etiquetas</AccordionTrigger>
+            <AccordionTrigger>5. TAG/Etiquetas</AccordionTrigger>
             <AccordionContent>
               <ModeloEtiquetasSection
                 rows={etiquetasState}
@@ -1148,7 +1148,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           </AccordionItem>
 
           <AccordionItem value="s4">
-            <AccordionTrigger>5. Grade</AccordionTrigger>
+            <AccordionTrigger>6. Grade</AccordionTrigger>
             <AccordionContent>
               <ModeloGradeSection
                 tamanhos={tamanhos}
@@ -1165,7 +1165,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           </AccordionItem>
 
           <AccordionItem value="s5">
-            <AccordionTrigger>6. Custos</AccordionTrigger>
+            <AccordionTrigger>7. Custos</AccordionTrigger>
             <AccordionContent>
               <ModeloCustosSection
                 totals={totals}
@@ -1178,7 +1178,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           </AccordionItem>
 
           <AccordionItem value="s6">
-            <AccordionTrigger>7. Anexos</AccordionTrigger>
+            <AccordionTrigger>8. Anexos</AccordionTrigger>
             <AccordionContent>
               <ModeloAnexosSection
                 fichaMedidaUrl={draft.ficha_medida_url}
