@@ -95,14 +95,10 @@ export function OcTecidoCalculos({
     if (!a || it.quantidade_recebida == null) return 0;
     return a.unidade_medida === "kg" ? it.quantidade_recebida * rendimentoDe(it, a) : it.quantidade_recebida;
   };
-  const valorPrev = (it: ItemDraft) => {
-    const a = it.artigo_id ? artigoMap[it.artigo_id] : null;
-    return (a?.preco ?? 0) * it.quantidade_pedida;
-  };
-  const valorReal = (it: ItemDraft) => {
-    const a = it.artigo_id ? artigoMap[it.artigo_id] : null;
-    return (a?.preco ?? 0) * (it.quantidade_recebida ?? 0);
-  };
+  // Valor por linha usa o preço do ITEM desta compra (fallback p/ o preço do artigo do cadastro).
+  const precoDe = (it: ItemDraft) => it.preco ?? (it.artigo_id ? artigoMap[it.artigo_id]?.preco : null) ?? 0;
+  const valorPrev = (it: ItemDraft) => precoDe(it) * it.quantidade_pedida;
+  const valorReal = (it: ItemDraft) => precoDe(it) * (it.quantidade_recebida ?? 0);
   const hasKg = items.some((it) => {
     const a = it.artigo_id ? artigoMap[it.artigo_id] : null;
     return a?.unidade_medida === "kg";
