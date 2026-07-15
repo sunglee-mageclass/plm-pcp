@@ -27,6 +27,18 @@ Objetivo principal: **explosão de materiais** (BOM) + compra/estoque/financeiro
 - Custo do modelo usa o preço da variante da cor escolhida, regra **maior** (igual tecido).
 - Unidades: `unidade | metro | rolo | milheiro`.
 
+## Seleção (Desenvolvimento → CAD) — decisão travada
+
+- **Desenvolvimento (Fase 1c):** escolhe **etiqueta + cor + consumo/peça** (modelo_etiquetas).
+- **CAD (Fase 1d):** as etiquetas vêm do Desenvolvimento; o **tamanho explode AUTOMÁTICO pela
+  grade** — 1 linha por tamanho da grade, `qtd = grade(tamanho) × consumo`, usando a variante
+  (aquele tamanho, cor escolhida). NÃO se seleciona variante por variante (é a explosão de
+  materiais). Formato "Nenhum" (sem tamanho) = 1 linha só: `qtd = grade total × consumo`.
+- Formato do tamanho da etiqueta (`etiquetas.formato_tamanho`: ambos|numero|letra|nenhum) só
+  muda a EXIBIÇÃO; a variante guarda o tamanho completo da grade ("34|PPP").
+- Edge: se a etiqueta (na cor escolhida) não tiver variante p/ algum tamanho da grade, avisar
+  e cair no preço/base (a definir na Fase 1d).
+
 ## Faseamento
 
 - **Fase 1** — cadastro rico + `variantes_etiqueta` + `modelo_etiquetas` (BOM/explosão) + CAD por

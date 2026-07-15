@@ -25,8 +25,11 @@ import {
   makeEmptyBlocks,
   recomputeAviamento,
   recomputeBlock,
+  recomputeEtiqueta,
   type AviamentoRow,
+  type EtiquetaInfo,
   type GradeRow,
+  type ModeloEtiquetaRow,
   type OcAlloc,
   type Opt,
   type TecidoBlock,
@@ -35,6 +38,7 @@ import { ModeloInfoSection } from "./modelo-detail/ModeloInfoSection";
 import { ModeloAjustesProvaSection, useProvaAbertosCount } from "./modelo-detail/ModeloAjustesProvaSection";
 import { ModeloTecidosSection } from "./modelo-detail/ModeloTecidosSection";
 import { ModeloAviamentosSection } from "./modelo-detail/ModeloAviamentosSection";
+import { ModeloEtiquetasSection } from "./modelo-detail/ModeloEtiquetasSection";
 import { ModeloGradeSection } from "./modelo-detail/ModeloGradeSection";
 import { ModeloCustosSection } from "./modelo-detail/ModeloCustosSection";
 import { ModeloAnexosSection } from "./modelo-detail/ModeloAnexosSection";
@@ -182,6 +186,24 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   });
   const aviamentoMap = useMemo(() => Object.fromEntries(aviamentos.map((a) => [a.id, a])), [aviamentos]);
 
+  // Etiquetas (com variantes p/ cores + preço por cor) — p/ a seção de BOM do modelo.
+  const { data: etiquetasList = [] } = useQuery({
+    queryKey: ["etiquetas-bom"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("etiquetas" as any)
+        .select("id, nome, formato_tamanho, preco, variantes_etiqueta(cor_id, preco, cor:cor_id(nome))")
+        .order("nome");
+      if (error) throw error;
+      return ((data ?? []) as any[]).map((e) => ({
+        id: e.id, nome: e.nome, formato_tamanho: e.formato_tamanho ?? "ambos", preco: e.preco,
+        variantes: (e.variantes_etiqueta ?? []).map((v: any) => ({ cor_id: v.cor_id, cor_nome: v.cor?.nome ?? null, preco: v.preco })),
+      })) as EtiquetaInfo[];
+    },
+  });
+  const etiquetaMap = useMemo(() => Object.fromEntries(etiquetasList.map((e) => [e.id, e])), [etiquetasList]);
+  const etiquetaOpts = useMemo<Opt[]>(() => etiquetasList.map((e) => ({ id: e.id, nome: e.nome })), [etiquetasList]);
+
   const { data: modelo, isLoading: loadingModelo } = useQuery({
     queryKey: ["modelo-detail", modeloId],
     queryFn: async () => {
@@ -249,6 +271,19 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     },
   });
 
+  const { data: modeloEtiquetasData } = useQuery({
+    queryKey: ["modelo-etiquetas", modeloId],
+    enabled: !!modeloId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("modelo_etiquetas" as any)
+        .select("id, etiqueta_id, cor_id, consumo, loss_percent, custo_previsto")
+        .eq("modelo_id", modeloId).order("numero");
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+
   const { data: gradesData } = useQuery({
     queryKey: ["modelo-grades", modeloId],
     queryFn: async () => {
@@ -273,6 +308,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   });
   const [blocks, setBlocks] = useState<TecidoBlock[]>(makeEmptyBlocks());
   const [aviamentosState, setAviamentosState] = useState<AviamentoRow[]>([]);
+  const [etiquetasState, setEtiquetasState] = useState<ModeloEtiquetaRow[]>([]);
   const [grades, setGrades] = useState<GradeRow[]>([]);
   const [uploading, setUploading] = useState(false);
   const [confirmEnviarCad, setConfirmEnviarCad] = useState(false);
@@ -449,6 +485,15 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   }, [aviamentosData]);
 
   useEffect(() => {
+    if (!modeloEtiquetasData) return;
+    setEtiquetasState(modeloEtiquetasData.map((e: any) => ({
+      id: e.id, etiqueta_id: e.etiqueta_id, cor_id: e.cor_id,
+      consumo: Number(e.consumo ?? 0), loss_percent: Number(e.loss_percent ?? 0),
+      custo_previsto: Number(e.custo_previsto ?? 0),
+    })));
+  }, [modeloEtiquetasData]);
+
+  useEffect(() => {
     if (!gradesData) { setGrades([]); return; }
     const rows: GradeRow[] = gradesData.map((g: any) => ({
       variante_numero: g.variante_numero,
@@ -465,11 +510,12 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     const forro = sum("forro");
     const entretela = sum("entretela");
     const aviamento = aviamentosState.reduce((s, r) => s + (r.custo_previsto || 0), 0);
+    const etiqueta = etiquetasState.reduce((s, r) => s + (r.custo_previsto || 0), 0);
     const terceirizados = draft?.custo_terceirizados_previsto ?? 0;
     const custosAdd = somaCustosAdicionais(draft?.custos_adicionais);
-    const peca = tecido + forro + entretela + aviamento + terceirizados + custosAdd;
-    return { tecido, forro, entretela, aviamento, terceirizados, peca };
-  }, [blocks, aviamentosState, draft?.custo_terceirizados_previsto, draft?.custos_adicionais]);
+    const peca = tecido + forro + entretela + aviamento + etiqueta + terceirizados + custosAdd;
+    return { tecido, forro, entretela, aviamento, etiqueta, terceirizados, peca };
+  }, [blocks, aviamentosState, etiquetasState, draft?.custo_terceirizados_previsto, draft?.custos_adicionais]);
 
   const curStatus = (draft?.status_desenvolvimento ?? "").toLowerCase();
   const isAprovado = curStatus === APROVADO_KEY;
@@ -652,6 +698,30 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         _grades: gradesPayload as any,
       });
       if (eBom) throw eBom;
+
+      // Etiquetas do modelo (BOM) — diff direto por id (fora da RPC crítica do BOM, que
+      // trata reserva de estoque; etiqueta não reserva). Preserva ids.
+      const etqRows = etiquetasState.filter((r) => r.etiqueta_id);
+      const existingEtqIds = (modeloEtiquetasData ?? []).map((e: any) => e.id as string);
+      const keptEtq = new Set(etqRows.filter((r) => r.id).map((r) => r.id as string));
+      for (const [i, r] of etqRows.entries()) {
+        const row = {
+          modelo_id: modeloId, etiqueta_id: r.etiqueta_id, cor_id: r.cor_id || null,
+          numero: i + 1, consumo: r.consumo || 0, loss_percent: r.loss_percent || 0, custo_previsto: r.custo_previsto || 0,
+        };
+        if (r.id) {
+          const { error } = await supabase.from("modelo_etiquetas" as any).update(row).eq("id", r.id);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase.from("modelo_etiquetas" as any).insert(row);
+          if (error) throw error;
+        }
+      }
+      const toDelEtq = existingEtqIds.filter((id) => !keptEtq.has(id));
+      if (toDelEtq.length) {
+        const { error } = await supabase.from("modelo_etiquetas" as any).delete().in("id", toDelEtq);
+        if (error) throw error;
+      }
   };
 
   const save = useMutation({
@@ -667,6 +737,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       });
       setGradeAlterada(false); setConsumoAlterado(false); setAviamentoAlterado(false);
       qc.invalidateQueries({ queryKey: ["modelo-detail", modeloId] });
+      qc.invalidateQueries({ queryKey: ["modelo-etiquetas", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-condicoes-kanban", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-tecidos", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-tecido-oc-links", modeloId] });
@@ -814,6 +885,15 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     setAviamentosState((rows) => [...rows, { aviamento_id: null, consumo: 0, loss_percent: 0, custo_previsto: 0 }]);
   };
   const removeAviamento = (idx: number) => { setAviamentoAlterado(true); setAviamentosState((rows) => rows.filter((_, i) => i !== idx)); };
+
+  const updateEtiqueta = (idx: number, patch: Partial<ModeloEtiquetaRow>) => {
+    setEtiquetasState((rows) => rows.map((r, i) => i === idx ? recomputeEtiqueta({ ...r, ...patch }, etiquetaMap) : r));
+  };
+  const addEtiqueta = () => {
+    if (etiquetasState.length >= 10) return;
+    setEtiquetasState((rows) => [...rows, { etiqueta_id: null, cor_id: null, consumo: 0, loss_percent: 0, custo_previsto: 0 }]);
+  };
+  const removeEtiqueta = (idx: number) => setEtiquetasState((rows) => rows.filter((_, i) => i !== idx));
 
   const updateGradeTotal = (n: number, total: number) => {
     setGradeAlterada(true);
@@ -1041,6 +1121,20 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 onChangeRow={updateAviamento}
                 onAdd={addAviamento}
                 onRemove={removeAviamento}
+              />
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="s3e">
+            <AccordionTrigger>TAG/Etiquetas</AccordionTrigger>
+            <AccordionContent>
+              <ModeloEtiquetasSection
+                rows={etiquetasState}
+                etiquetas={etiquetaOpts}
+                etiquetaMap={etiquetaMap}
+                onChangeRow={updateEtiqueta}
+                onAdd={addEtiqueta}
+                onRemove={removeEtiqueta}
               />
             </AccordionContent>
           </AccordionItem>

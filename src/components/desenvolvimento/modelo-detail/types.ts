@@ -125,3 +125,39 @@ export function recomputeAviamento(
   const custo = preco * (r.consumo || 0) * (1 + (r.loss_percent || 0) / 100);
   return { ...r, custo_previsto: Math.round(custo * 100) / 100 };
 }
+
+// ── Etiquetas no BOM do modelo (escolhe etiqueta + cor; tamanho explode no CAD) ──
+export type EtiquetaVarInfo = { cor_id: string | null; cor_nome: string | null; preco: number | null };
+export type EtiquetaInfo = { id: string; nome: string; formato_tamanho: string; preco: number | null; variantes: EtiquetaVarInfo[] };
+
+export type ModeloEtiquetaRow = {
+  id?: string;
+  etiqueta_id: string | null;
+  cor_id: string | null;
+  consumo: number;
+  loss_percent: number;
+  custo_previsto: number;
+};
+
+/** Preço da etiqueta na cor escolhida: MAX das variantes daquela cor; senão o preço base. */
+export function precoEtiquetaCor(etq: EtiquetaInfo | undefined, corId: string | null): number {
+  if (!etq) return 0;
+  const vs = (etq.variantes ?? []).filter((v) => (v.cor_id ?? null) === (corId ?? null));
+  const max = vs.reduce((m, v) => Math.max(m, Number(v.preco ?? 0)), 0);
+  return max > 0 ? max : Number(etq.preco ?? 0);
+}
+
+export function recomputeEtiqueta(r: ModeloEtiquetaRow, etiquetaMap: Record<string, EtiquetaInfo>): ModeloEtiquetaRow {
+  const etq = r.etiqueta_id ? etiquetaMap[r.etiqueta_id] : undefined;
+  const preco = precoEtiquetaCor(etq, r.cor_id);
+  const custo = preco * (r.consumo || 0) * (1 + (r.loss_percent || 0) / 100);
+  return { ...r, custo_previsto: Math.round(custo * 100) / 100 };
+}
+
+/** Cores distintas da etiqueta (p/ o dropdown de cor no BOM). */
+export function coresDaEtiqueta(etq: EtiquetaInfo | undefined): Opt[] {
+  if (!etq) return [];
+  const seen = new Map<string, string>();
+  for (const v of etq.variantes ?? []) if (v.cor_id) seen.set(v.cor_id, v.cor_nome ?? "—");
+  return Array.from(seen.entries()).map(([id, nome]) => ({ id, nome }));
+}

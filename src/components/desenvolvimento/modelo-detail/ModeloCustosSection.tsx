@@ -16,7 +16,7 @@ export function ModeloCustosSection({
   custosAdicionais,
   onChangeCustos,
 }: {
-  totals: { tecido: number; forro: number; entretela: number; aviamento: number; peca: number };
+  totals: { tecido: number; forro: number; entretela: number; aviamento: number; etiqueta: number; peca: number };
   custoTerceirizados: number;
   onChangeTerceirizados: (v: number) => void;
   custosAdicionais: CustoAdicional[];
@@ -33,6 +33,7 @@ export function ModeloCustosSection({
       <Row label="Forro" value={totals.forro} />
       <Row label="Entretela" value={totals.entretela} />
       <Row label="Aviamento" value={totals.aviamento} />
+      <Row label="Etiquetas" value={totals.etiqueta} />
       <div className="flex justify-between items-center">
         <Label>Previsão de Mão de Obra</Label>
         <NumberInput
