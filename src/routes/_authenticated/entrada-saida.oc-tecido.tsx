@@ -722,25 +722,11 @@ function OcDialog({
   const unmarkReceivedMut = useMutation({
     mutationFn: async () => {
       if (!ocId) return;
-      // Modo Só Rolo: reverte os rolos criados no recebimento ANTES de mudar o status,
-      // numa transação (RPC) — senão ficam órfãos e re-receber duplica. Bloqueia se
-      // algum rolo já estiver em uso (a OC fica recebida, sem efeito colateral).
-      if (modoOcRolo !== "oc") {
-        const { error: eRolo } = await supabase.rpc("reverter_rolos_oc" as any, { _oc_id: ocId });
-        if (eRolo) throw eRolo;
-      }
-      const { error: e1 } = await supabase
-        .from("ocs_tecido")
-        .update({ status: "encomendado" })
-        .eq("id", ocId);
-      if (e1) throw e1;
-      const { error: e2 } = await supabase
-        .from("parcelas")
-        .delete()
-        .eq("oc_tecido_id", ocId)
-        .neq("status", "pago")
-        .is("data_pagamento", null);
-      if (e2) throw e2;
+      // Atômico numa RPC: reverte rolos do recebimento (respeita o modo da loja; bloqueia se
+      // algum rolo já em uso) + volta status p/ 'encomendado' + apaga parcelas não-pagas, tudo
+      // numa txn (antes eram 2-3 escritas soltas que deixavam estado parcial em falha do meio).
+      const { error } = await supabase.rpc("desmarcar_recebimento_oc" as any, { _tipo: "tecido", _oc_id: ocId });
+      if (error) throw error;
     },
     onSuccess: () => {
       toast.success("OC voltou para Encomendado.");

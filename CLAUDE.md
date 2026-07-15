@@ -225,7 +225,9 @@ e verifique** — o repo muda rápido.
    grade real → `cad_grades`). **Pós** (acabamento) = `controle_qualidade.status_pos` + tabela
    `cq_pos_variantes` (serviço pós-costura × variante × etapa), RPCs `salvar_cq_pos`/`desmarcar_cq_pos`
    que **NÃO** tocam `cad_grades` (só exibem a grade real do Pré) — wrappers com EXECUTE revogado de
-   PUBLIC/anon (só authenticated), igual ao Pré. Gates: Pré abre com pré finalizado; Pós com pós
+   PUBLIC/anon (só authenticated), igual ao Pré. O Pós **espelha as guardas do Pré** (jul/2026):
+   `grade_total` DERIVADO no servidor da soma do mapa `grades` (não confia no escalar do cliente) e
+   **não confirma com Σ=0** ([C1]/[Σ]). Gates: Pré abre com pré finalizado; Pós com pós
    finalizado. **Gate downstream ÚNICO `cqLiberado()` (`@/lib/cq-status`)** = Pré confirmado E (se há
    serviço pós-costura ativo) Pós confirmado; consumido por **Direcionamento, "Lançar" (Planejamento) e
    Lançamentos** — não duplicar o predicado. "Sem acabamento" = `cad.sem_acabamento` (Pré finalizado

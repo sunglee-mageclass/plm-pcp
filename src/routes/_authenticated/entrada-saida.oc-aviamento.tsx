@@ -641,18 +641,9 @@ function OcDialog({
   const unmarkReceivedMut = useMutation({
     mutationFn: async () => {
       if (!ocId) return;
-      const { error: e1 } = await supabase
-        .from("ocs_aviamento")
-        .update({ status: "encomendado" })
-        .eq("id", ocId);
-      if (e1) throw e1;
-      const { error: e2 } = await supabase
-        .from("parcelas")
-        .delete()
-        .eq("oc_aviamento_id", ocId)
-        .neq("status", "pago")
-        .is("data_pagamento", null);
-      if (e2) throw e2;
+      // Atômico numa RPC (antes: UPDATE status + DELETE parcelas soltos → estado parcial em falha).
+      const { error } = await supabase.rpc("desmarcar_recebimento_oc" as any, { _tipo: "aviamento", _oc_id: ocId });
+      if (error) throw error;
     },
     onSuccess: () => {
       toast.success("OC voltou para Encomendado.");
