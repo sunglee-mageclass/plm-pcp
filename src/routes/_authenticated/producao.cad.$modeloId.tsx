@@ -236,8 +236,17 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
   const { data: etiquetasDisponiveis = [] } = useQuery({
     queryKey: ["etiquetas-opts"],
     queryFn: async () => {
-      const { data } = await supabase.from("etiquetas" as any).select("id, nome, tamanho").order("nome");
-      return ((data ?? []) as unknown) as { id: string; nome: string; tamanho: string | null }[];
+      const { data } = await supabase.from("etiquetas" as any)
+        .select("id, nome, tamanho, formato_tamanho, preco, variantes_etiqueta(tamanho, cor_id, preco, cor:cor_id(nome))")
+        .order("nome");
+      return ((data ?? []) as any[]).map((e) => ({
+        id: e.id as string, nome: e.nome as string, tamanho: (e.tamanho ?? null) as string | null,
+        formato_tamanho: (e.formato_tamanho ?? "ambos") as string, preco: e.preco as number | null,
+        variantes: ((e.variantes_etiqueta ?? []) as any[]).map((v) => ({
+          tamanho: v.tamanho as string | null, cor_id: v.cor_id as string | null,
+          cor_nome: (v.cor?.nome ?? null) as string | null, preco: v.preco as number | null,
+        })),
+      }));
     },
   });
   const { data: cadEtiquetas = [], isFetched: cadEtiquetasFetched } = useQuery({
@@ -246,8 +255,16 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
     queryFn: async () => {
       const { data } = await supabase
         .from("cad_etiquetas" as any)
-        .select("id, etiqueta_id, consumo, quantidade_planejada, quantidade_enviar, etiquetas:etiqueta_id(nome, tamanho)")
+        .select("id, etiqueta_id, cor_id, consumo, quantidade_planejada, quantidade_enviar, etiquetas:etiqueta_id(nome, tamanho)")
         .eq("cad_id", cadRow!.id);
+      return (data ?? []) as any[];
+    },
+  });
+  const { data: modeloEtiquetas = [], isFetched: modeloEtiquetasFetched } = useQuery({
+    queryKey: ["cad-modelo-etiquetas", modeloId],
+    queryFn: async () => {
+      const { data } = await supabase.from("modelo_etiquetas" as any)
+        .select("etiqueta_id, cor_id, consumo").eq("modelo_id", modeloId).order("numero");
       return (data ?? []) as any[];
     },
   });
@@ -272,6 +289,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
     if (!modelo) return;
     if (cadRow === undefined) return;
     if (!frozenPrecosFetched) return; // Fase B: espera o preço congelado antes de semear o custo
+    if (!modeloEtiquetasFetched) return; // espera o BOM de etiquetas p/ mesclar no CAD
     // Se já existe um CAD, espera as queries do CAD terminarem de buscar antes de
     // semear (evita semear do fallback enquanto o cad_* ainda carrega). Quando o
     // CAD existir mas vier vazio, cai no fallback de modelo_tecidos/grades/aviamentos.
@@ -464,23 +482,35 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
     }
     setAviamentos(initialAvi);
 
-    setEtiquetas(
-      (cadEtiquetas as any[]).map((e) => ({
-        id: e.id,
-        etiqueta_id: e.etiqueta_id,
-        etiqueta_nome: e.etiquetas?.nome ?? "—",
-        tamanho: e.etiquetas?.tamanho ?? null,
-        consumo: Number(e.consumo ?? 0),
-        quantidade_planejada: Number(e.quantidade_planejada ?? 0),
-        quantidade_enviar: Number(e.quantidade_enviar ?? 0),
-      })),
-    );
+    const etqRows: EtiquetaRow[] = (cadEtiquetas as any[]).map((e) => ({
+      id: e.id,
+      etiqueta_id: e.etiqueta_id,
+      etiqueta_nome: e.etiquetas?.nome ?? "—",
+      cor_id: e.cor_id ?? null,
+      tamanho: e.etiquetas?.tamanho ?? null,
+      consumo: Number(e.consumo ?? 0),
+      quantidade_planejada: Number(e.quantidade_planejada ?? 0),
+      quantidade_enviar: Number(e.quantidade_enviar ?? 0),
+    }));
+    // Traz do BOM (modelo_etiquetas) o que ainda não está no CAD (por etiqueta + cor).
+    const jaTem = new Set(etqRows.map((e) => `${e.etiqueta_id}|${e.cor_id ?? ""}`));
+    const nomeDe = Object.fromEntries((etiquetasDisponiveis as any[]).map((d) => [d.id, d.nome]));
+    for (const m of modeloEtiquetas as any[]) {
+      const key = `${m.etiqueta_id}|${m.cor_id ?? ""}`;
+      if (jaTem.has(key)) continue;
+      etqRows.push({
+        etiqueta_id: m.etiqueta_id, etiqueta_nome: nomeDe[m.etiqueta_id] ?? "—",
+        cor_id: m.cor_id ?? null, tamanho: null, consumo: Number(m.consumo ?? 0),
+        quantidade_planejada: 0, quantidade_enviar: 0,
+      });
+    }
+    setEtiquetas(etqRows);
 
     if (cadRow?.data_previsao_corte) setPrevisaoEntrega(cadRow.data_previsao_corte);
     setObservacoesMolde((cadRow as any)?.observacoes_molde ?? "");
 
     setSeeded(true);
-  }, [modelo, cadRow, cadTecidos, modeloTecidos, cadGrades, modeloGrades, cadAviamentos, modeloAviamentos, cadEtiquetas, cadTecidosFetched, cadGradesFetched, cadAviamentosFetched, cadEtiquetasFetched, modeloTecidosFetched, modeloGradesFetched, modeloAviamentosFetched, frozenPrecos, frozenPrecosFetched, seeded]);
+  }, [modelo, cadRow, cadTecidos, modeloTecidos, cadGrades, modeloGrades, cadAviamentos, modeloAviamentos, cadEtiquetas, modeloEtiquetas, etiquetasDisponiveis, cadTecidosFetched, cadGradesFetched, cadAviamentosFetched, cadEtiquetasFetched, modeloEtiquetasFetched, modeloTecidosFetched, modeloGradesFetched, modeloAviamentosFetched, frozenPrecos, frozenPrecosFetched, seeded]);
 
   // --- helpers ---
   const updateTec = (i: number, patch: Partial<TecidoRow>) => {
@@ -559,6 +589,12 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
   // Soma da grade de um tamanho (ex.: "38|P") somando todas as variantes.
   const gradeSumByTamanho = (tamanho: string) =>
     grades.reduce((s, g) => s + (Number(g.grades?.[tamanho]) || 0), 0);
+  // Tamanhos da grade com quantidade > 0 (p/ a explosão das etiquetas por tamanho).
+  const gradeTamanhos = useMemo(() => {
+    const s = new Set<string>();
+    grades.forEach((g) => Object.entries(g.grades ?? {}).forEach(([t, q]) => { if ((Number(q) || 0) > 0) s.add(t); }));
+    return Array.from(s).sort();
+  }, [grades]);
   const updateEtiqueta = (i: number, patch: Partial<EtiquetaRow>) => {
     setEtiquetas((prev) => prev.map((e, j) => (j === i ? { ...e, ...patch } : e)));
   };
@@ -570,6 +606,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
       {
         etiqueta_id: opt.id,
         etiqueta_nome: opt.nome,
+        cor_id: null,
         tamanho: opt.tamanho ?? null,
         consumo: 0,
         quantidade_planejada: 0,
@@ -621,13 +658,12 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
           quantidade_enviar: a.quantidade_enviar,
           quantidade_separar: a.quantidade_separar,
         })),
-        _etiquetas: etiquetas.map((e) => ({
+        _etiquetas: etiquetas.filter((e) => e.etiqueta_id).map((e) => ({
           etiqueta_id: e.etiqueta_id,
+          cor_id: e.cor_id,
           consumo: e.consumo,
-          // Sem tamanho atrelado, usa a grade total geral; com tamanho, a grade do tamanho.
-          quantidade_planejada: Number(
-            (e.consumo * (e.tamanho ? gradeSumByTamanho(e.tamanho) : gradeTotalGeral)).toFixed(2),
-          ),
+          // Total = consumo × grade total geral (o detalhamento por tamanho é a explosão exibida).
+          quantidade_planejada: Number((e.consumo * gradeTotalGeral).toFixed(2)),
           quantidade_enviar: e.quantidade_enviar,
         })),
         _proporcoes: proporcoes,
@@ -960,6 +996,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
         <CadEtiquetasSection
           etiquetas={etiquetas}
           disponiveis={etiquetasDisponiveis}
+          gradeTamanhos={gradeTamanhos}
           gradeSumByTamanho={gradeSumByTamanho}
           gradeTotalGeral={gradeTotalGeral}
           onUpdate={updateEtiqueta}

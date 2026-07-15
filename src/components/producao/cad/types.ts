@@ -56,8 +56,9 @@ export type EtiquetaRow = {
   id?: string;
   etiqueta_id: string;
   etiqueta_nome: string;
-  // Tamanho da grade atrelado (ex.: "38|P"); se houver, a Qtd Planejada é
-  // calculada (consumo * soma da grade desse tamanho). Senão, é manual.
+  // Cor escolhida (do BOM/CAD). O tamanho NÃO é fixo por linha: explode pela grade
+  // (uma qtd por tamanho), usando a variante (tamanho, cor). `tamanho` legado (mantido).
+  cor_id: string | null;
   tamanho: string | null;
   consumo: number;
   quantidade_planejada: number;

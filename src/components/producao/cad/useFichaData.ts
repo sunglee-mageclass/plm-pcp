@@ -166,7 +166,7 @@ export function useFichaData(modeloId: string): FichaData {
   );
 
   const etiquetas: EtiquetaRow[] = useMemo(
-    () => (cadEtiquetas as any[]).map((e) => ({ id: e.id, etiqueta_id: e.etiqueta_id, etiqueta_nome: e.etiquetas?.nome ?? "—", tamanho: e.etiquetas?.tamanho ?? null, consumo: num(e.consumo), quantidade_planejada: num(e.quantidade_planejada), quantidade_enviar: num(e.quantidade_enviar) })),
+    () => (cadEtiquetas as any[]).map((e) => ({ id: e.id, etiqueta_id: e.etiqueta_id, etiqueta_nome: e.etiquetas?.nome ?? "—", cor_id: e.cor_id ?? null, tamanho: e.etiquetas?.tamanho ?? null, consumo: num(e.consumo), quantidade_planejada: num(e.quantidade_planejada), quantidade_enviar: num(e.quantidade_enviar) })),
     [cadEtiquetas],
   );
 
