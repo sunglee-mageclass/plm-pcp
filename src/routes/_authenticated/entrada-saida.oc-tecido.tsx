@@ -739,6 +739,7 @@ function OcDialog({
       qc.invalidateQueries({ queryKey: ["parcelas"] });
       qc.invalidateQueries({ queryKey: ["rolos"] });
       qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
+      qc.invalidateQueries({ queryKey: ["sidebar-badges"] });
       onSaved();
       onClose();
     },
@@ -762,6 +763,7 @@ function OcDialog({
       qc.invalidateQueries({ queryKey: ["parcelas"] });
       qc.invalidateQueries({ queryKey: ["rolos"] });
       qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
+      qc.invalidateQueries({ queryKey: ["sidebar-badges"] });
       onSaved();
       onClose();
     },

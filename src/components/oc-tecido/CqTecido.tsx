@@ -142,7 +142,7 @@ function useCqUpdate() {
       if (error) throw error;
     },
     onSuccess: () => {
-      ["cq-tecido", "cq-oc", "alertas-tecido", "estoque-tecidos", "dash-estoque", "consumo-por-oc", "ocs_tecido"]
+      ["cq-tecido", "cq-oc", "alertas-tecido", "estoque-tecidos", "dash-estoque", "consumo-por-oc", "ocs_tecido", "sidebar-badges"]
         .forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar CQ")),
@@ -167,7 +167,7 @@ function useResolucao() {
     },
     onSuccess: () => {
       ["cq-tecido", "cq-oc", "alertas-tecido", "estoque-tecidos", "dash-estoque",
-        "consumo-por-oc", "ocs_tecido", "parcelas", "dash-financeiro"]
+        "consumo-por-oc", "ocs_tecido", "parcelas", "dash-financeiro", "sidebar-badges"]
         .forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao aplicar resolução")),
@@ -186,7 +186,7 @@ function useReceberReposicao() {
     },
     onSuccess: () => {
       ["cq-tecido", "cq-oc", "alertas-tecido", "estoque-tecidos", "dash-estoque",
-        "consumo-por-oc", "ocs_tecido", "parcelas", "dash-financeiro"]
+        "consumo-por-oc", "ocs_tecido", "parcelas", "dash-financeiro", "sidebar-badges"]
         .forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao receber reposição")),

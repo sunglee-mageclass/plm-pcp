@@ -1177,6 +1177,7 @@ function ModeloDialog({
       toast.success(send ? "Modelo lançado" : "Lançamento cancelado");
       qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
       qc.invalidateQueries({ queryKey: ["lancamentos-cards"] });
+      qc.invalidateQueries({ queryKey: ["sidebar-badges"] });
     },
   });
 

@@ -97,6 +97,29 @@ const PAGE_URLS: Record<string, string> = {
   producao_lancamentos: "/producao/lancamentos",
 };
 
+// Bolinhas de atenção ao lado de itens do menu (contadores vindos da RPC sidebar_badges).
+// A cor comunica urgência: atraso = vermelho, alerta = âmbar, pronto p/ lançar = azul.
+const BADGE_CLS: Record<string, string> = {
+  criacao_planejamento: "bg-sky-500 text-white",
+  entrada_alertas_tecido: "bg-amber-500 text-white",
+  entrada_oc_tecido: "bg-red-500 text-white",
+  entrada_oc_aviamento: "bg-red-500 text-white",
+};
+
+function NavBadge({ n, className }: { n: number; className?: string }) {
+  if (!n || n <= 0) return null;
+  return (
+    <span
+      className={cn(
+        "inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none tabular-nums",
+        className,
+      )}
+    >
+      {n > 99 ? "99+" : n}
+    </span>
+  );
+}
+
 export function AppSidebar() {
   const { state, setOpenMobile } = useSidebar();
   const collapsed = state === "collapsed";
@@ -111,6 +134,37 @@ export function AppSidebar() {
   // No modo Só Rolo a página "Consumo por OC" passa a se chamar "Consumo por Rolo".
   const labelFor = (key: string, fallback: string) =>
     tabLabels[key] || (key === "producao_consumo_oc" && modoOcRolo === "rolo" ? "Consumo por Rolo" : fallback);
+
+  // Contadores de atenção da sidebar (uma RPC leve, tenant-scoped). refetch on focus +
+  // rede de segurança a cada 60s; o "Lançar"/alertas/OC invalidam ["sidebar-badges"].
+  const { data: badges } = useQuery({
+    queryKey: ["sidebar-badges"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("sidebar_badges" as any);
+      if (error) throw error;
+      return (data ?? {}) as Record<string, number>;
+    },
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+  const countFor: Record<string, number> = {
+    criacao_planejamento: Number(badges?.prontos_lancar ?? 0),
+    entrada_alertas_tecido: Number(badges?.alertas_tecido ?? 0),
+    entrada_oc_tecido: Number(badges?.oc_tecido_atrasada ?? 0),
+    entrada_oc_aviamento: Number(badges?.oc_aviamento_atrasada ?? 0),
+  };
+  // Agregado por módulo (quando o grupo está recolhido/ícone): soma + cor da maior urgência.
+  const itemBadge = (subs: { key: string }[]) => {
+    const present = subs.filter((s) => (countFor[s.key] ?? 0) > 0);
+    const total = present.reduce((a, s) => a + (countFor[s.key] ?? 0), 0);
+    const cls = present.some((s) => s.key === "entrada_oc_tecido" || s.key === "entrada_oc_aviamento")
+      ? "bg-red-500 text-white"
+      : present.some((s) => s.key === "entrada_alertas_tecido")
+        ? "bg-amber-500 text-white"
+        : "bg-sky-500 text-white";
+    return { total, cls };
+  };
+
   const visibleMainItems = PAGES_CATALOG
     // Gate de módulo (a loja contratou?): vale para todos os papéis, inclusive admin.
     .filter((m) => isModuleEnabled(m.module))
@@ -148,6 +202,7 @@ export function AppSidebar() {
 
   const renderItem = (item: (typeof visibleMainItems)[number]) => {
     const active = isActive(item.url);
+    const { total: badgeTotal, cls: badgeCls } = itemBadge(item.subs);
     if (item.subs.length === 0) {
       return (
         <SidebarMenuItem key={item.url}>
@@ -167,9 +222,11 @@ export function AppSidebar() {
             // Sidebar recolhida: o ícone do módulo NAVEGA pra página de cards
             // (basePath), em vez de só abrir o submenu (que fica escondido).
             <SidebarMenuButton asChild isActive={active} tooltip={item.title}>
-              <Link to={item.url}>
+              <Link to={item.url} className="relative">
                 <item.icon className="h-4 w-4" />
                 <span>{item.title}</span>
+                {/* Ícone-only (sidebar recolhida): dot no canto sinaliza pendências. */}
+                {badgeTotal > 0 && <span className={cn("absolute right-1 top-1 h-2 w-2 rounded-full", badgeCls)} />}
               </Link>
             </SidebarMenuButton>
           ) : (
@@ -177,7 +234,8 @@ export function AppSidebar() {
               <SidebarMenuButton isActive={active} tooltip={item.title}>
                 <item.icon className="h-4 w-4" />
                 <span>{item.title}</span>
-                <ChevronRight className="ml-auto h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90" />
+                {badgeTotal > 0 && <NavBadge n={badgeTotal} className={cn("ml-auto", badgeCls)} />}
+                <ChevronRight className={cn("h-4 w-4 transition-transform group-data-[state=open]/collapsible:rotate-90", badgeTotal > 0 ? "ml-1" : "ml-auto")} />
               </SidebarMenuButton>
             </CollapsibleTrigger>
           )}
@@ -188,6 +246,9 @@ export function AppSidebar() {
                   <SidebarMenuSubButton asChild isActive={isActive(sub.url)}>
                     <Link to={sub.url}>
                       <span>{sub.label}</span>
+                      {(countFor[sub.key] ?? 0) > 0 && (
+                        <NavBadge n={countFor[sub.key]} className={cn("ml-auto", BADGE_CLS[sub.key])} />
+                      )}
                     </Link>
                   </SidebarMenuSubButton>
                 </SidebarMenuSubItem>

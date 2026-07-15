@@ -632,6 +632,7 @@ function OcDialog({
       qc.invalidateQueries({ queryKey: ["parcelas"] });
       qc.invalidateQueries({ queryKey: ["estoque-aviamentos"] });
       qc.invalidateQueries({ queryKey: ["dash-estoque"] });
+      qc.invalidateQueries({ queryKey: ["sidebar-badges"] });
       onSaved();
       onClose();
     },
@@ -654,6 +655,7 @@ function OcDialog({
       qc.invalidateQueries({ queryKey: ["parcelas"] });
       qc.invalidateQueries({ queryKey: ["estoque-aviamentos"] });
       qc.invalidateQueries({ queryKey: ["dash-estoque"] });
+      qc.invalidateQueries({ queryKey: ["sidebar-badges"] });
       onSaved();
       onClose();
     },
