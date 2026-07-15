@@ -489,6 +489,23 @@ function OcDialog({
   }, [variantes]);
   const varianteMap = useMemo(() => Object.fromEntries(variantes.map((v) => [v.id, v])), [variantes]);
 
+  // Pré-preenche o preço de CADA item com o preço ATUAL da variante (cadastro) quando vier vazio —
+  // vale p/ NOVA OC e ao EDITAR (encomendados/recebidos). Só toca o que está null; o usuário edita
+  // se o preço desta compra for diferente. Roda quando as variantes/itens carregam.
+  useEffect(() => {
+    setItems((prev) => {
+      let changed = false;
+      const next = prev.map((i) => {
+        if (i.preco == null && i.variante_tecido_id) {
+          const p = varianteMap[i.variante_tecido_id]?.preco;
+          if (p != null) { changed = true; return { ...i, preco: p }; }
+        }
+        return i;
+      });
+      return changed ? next : prev;
+    });
+  }, [varianteMap]);
+
   const itemsBy = (n: 1 | 2) => items.filter((i) => i.artigo_numero === n);
   const artigoIdFor = (n: 1 | 2) => itemsBy(n)[0]?.artigo_id ?? null;
 
