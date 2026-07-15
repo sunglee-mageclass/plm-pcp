@@ -493,6 +493,14 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     })));
   }, [modeloEtiquetasData]);
 
+  // Quando os preços das etiquetas carregam/mudam, recalcula o custo das linhas na hora
+  // (sem reabrir e sem salvar) — preserva consumo/cor já digitados. Só roda quando o
+  // etiquetaMap muda (carga/refetch), não durante a digitação.
+  useEffect(() => {
+    if (Object.keys(etiquetaMap).length === 0) return;
+    setEtiquetasState((rows) => (rows.length ? rows.map((r) => recomputeEtiqueta(r, etiquetaMap)) : rows));
+  }, [etiquetaMap]);
+
   useEffect(() => {
     if (!gradesData) { setGrades([]); return; }
     const rows: GradeRow[] = gradesData.map((g: any) => ({
