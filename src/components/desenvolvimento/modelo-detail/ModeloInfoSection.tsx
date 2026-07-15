@@ -19,6 +19,7 @@ export function ModeloInfoSection({
   draft,
   setDraft,
   linhas,
+  estilistas,
   modelistas,
   piloteiros,
   categorias,
@@ -35,6 +36,7 @@ export function ModeloInfoSection({
   draft: Draft;
   setDraft: (d: Draft) => void;
   linhas: Opt[];
+  estilistas: Opt[];
   modelistas: Opt[];
   piloteiros: Opt[];
   categorias: Opt[];
@@ -118,6 +120,7 @@ export function ModeloInfoSection({
           </Field>
         )}
         <FieldSelectOpt label={fl("linha")} value={draft.linha_id} onChange={(v) => setDraft({ ...draft, linha_id: v })} options={linhas} />
+        <FieldSelectOpt label={fl("estilista")} value={draft.estilista_id} onChange={(v) => setDraft({ ...draft, estilista_id: v })} options={estilistas} />
         <FieldSelectOpt label={fl("modelista")} value={draft.modelista_id} onChange={(v) => setDraft({ ...draft, modelista_id: v })} options={modelistas} />
         {/* Categoria (vem do Planejamento, editável aqui) + Subcategorias 1/2 deste modelo. */}
         <FieldSelectOpt

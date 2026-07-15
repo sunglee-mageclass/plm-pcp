@@ -881,7 +881,8 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
                   <NumberInput
                     type="number"
                     step="0.01"
-                    value={b.preco_metro_unidade}
+                    placeholder="0,00"
+                    value={b.preco_metro_unidade || ""}
                     onChange={(e) => updateBloco(idx, { preco_metro_unidade: Number(e.target.value) })}
                   />
                   {canSeeAprovacao && (
@@ -900,7 +901,8 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
                 <Label className="text-xs">Qtd Enviada</Label>
                 <NumberInput
                   type="number"
-                  value={b.quantidade_enviada}
+                  placeholder="0,00"
+                  value={b.quantidade_enviada || ""}
                   onChange={(e) => updateBloco(idx, { quantidade_enviada: Number(e.target.value) })}
                 />
               </div>
@@ -931,7 +933,8 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
                 <Label className="text-xs">Qtd Recebida</Label>
                 <NumberInput
                   type="number"
-                  value={b.quantidade_recebida}
+                  placeholder="0,00"
+                  value={b.quantidade_recebida || ""}
                   onChange={(e) => updateBloco(idx, { quantidade_recebida: Number(e.target.value) })}
                 />
               </div>
@@ -939,7 +942,8 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
                 <Label className="text-xs">Qtd Defeito</Label>
                 <NumberInput
                   type="number"
-                  value={b.quantidade_defeito}
+                  placeholder="0,00"
+                  value={b.quantidade_defeito || ""}
                   onChange={(e) => updateBloco(idx, { quantidade_defeito: Number(e.target.value) })}
                 />
               </div>
@@ -949,7 +953,8 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
                   <NumberInput
                     type="number"
                     step="0.01"
-                    value={b.desconto_total}
+                    placeholder="0,00"
+                    value={b.desconto_total || ""}
                     onChange={(e) => updateBloco(idx, { desconto_total: Number(e.target.value) })}
                   />
                 </div>
@@ -960,7 +965,8 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
                   <NumberInput
                     type="number"
                     step="0.01"
-                    value={b.multa_total}
+                    placeholder="0,00"
+                    value={b.multa_total || ""}
                     onChange={(e) => updateBloco(idx, { multa_total: Number(e.target.value) })}
                   />
                 </div>
@@ -970,9 +976,10 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
                   <Label className="text-xs">Nº de parcelas</Label>
                   <NumberInput
                     type="number"
+                    integer
                     min={1}
                     value={b.numero_parcelas}
-                    onChange={(e) => updateBloco(idx, { numero_parcelas: Math.max(1, Number(e.target.value) || 1) })}
+                    onChange={(e) => updateBloco(idx, { numero_parcelas: Math.max(1, Math.trunc(Number(e.target.value)) || 1) })}
                   />
                 </div>
               )}

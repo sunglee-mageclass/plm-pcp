@@ -77,6 +77,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const categorias = useOpts("categorias_produto");
   const sub1Opts = useSubOpts("subcategorias1_produto");
   const sub2Opts = useSubOpts("subcategorias2_produto");
+  const estilistas = useColabs("estilista");
   const modelistas = useColabs("modelista");
   const piloteiros = useColabs("piloteiro");
 
@@ -324,6 +325,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         status_desenvolvimento: modelo.status_desenvolvimento ?? statusOptions[0]?.value ?? "em_modelagem",
         motivo_cancelamento: modelo.motivo_cancelamento ?? "",
         linha_id: modelo.linha_id,
+        estilista_id: (modelo as any).estilista_id ?? null,
         modelista_id: modelo.modelista_id,
         piloteiro1_id: modelo.piloteiro1_id,
         piloteiro2_id: modelo.piloteiro2_id,
@@ -536,6 +538,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         status_desenvolvimento: draft.status_desenvolvimento,
         motivo_cancelamento: isReprovado ? draft.motivo_cancelamento : null,
         linha_id: draft.linha_id,
+        estilista_id: draft.estilista_id,
         modelista_id: draft.modelista_id,
         piloteiro1_id: draft.piloteiro1_id,
         piloteiro2_id: draft.piloteiro2_id,
@@ -964,6 +967,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 draft={draft}
                 setDraft={setDraft}
                 linhas={linhas.data ?? []}
+                estilistas={estilistas.data ?? []}
                 modelistas={modelistas.data ?? []}
                 piloteiros={piloteiros.data ?? []}
                 categorias={categorias.data ?? []}
