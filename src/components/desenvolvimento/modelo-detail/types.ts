@@ -87,6 +87,7 @@ export function recomputeBlock(
   b: TecidoBlock,
   artigoMap: Record<string, { preco?: number | null; preco_por_metro?: number | null }>,
   varianteArtigoMap?: Record<string, string>,
+  frozenPrecos?: Record<string, number>,
 ): TecidoBlock {
   // Consumo é sempre em metros; para tecido em kg o preço por metro é
   // preco_por_metro (= preco / rendimento). Usa-se preco_por_metro — igual ao
@@ -107,7 +108,11 @@ export function recomputeBlock(
     }
   }
   if (usados.size === 0 && b.artigo_id) usados.add(b.artigo_id);
-  const preco = usados.size > 0 ? Math.max(...Array.from(usados).map(precoOf)) : 0;
+  const artigoPreco = usados.size > 0 ? Math.max(...Array.from(usados).map(precoOf)) : 0;
+  // Fase B: se há OC vinculada no Desenvolvimento p/ este tecido, o preço vem dela
+  // (congela o custo — não segue mudança futura de preço do artigo). Senão, o do artigo.
+  const frozen = frozenPrecos?.[`${b.tipo}|${b.numero}`];
+  const preco = frozen != null ? Number(frozen) : artigoPreco;
   const custo = preco * (b.consumo || 0) * (1 + (b.loss_percent || 0) / 100);
   return { ...b, custo_previsto: Math.round(custo * 100) / 100 };
 }

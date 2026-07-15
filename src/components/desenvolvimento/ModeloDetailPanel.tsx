@@ -225,6 +225,18 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     },
   });
 
+  // Fase B — preço congelado pela OC vinculada (mapa "tipo|numero" → preço/metro). O custo
+  // previsto usa esse preço em vez do preço atual do artigo quando há OC vinculada.
+  const { data: frozenPrecos = {} } = useQuery({
+    queryKey: ["modelo-precos-congelado", modeloId],
+    enabled: !!modeloId,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("precos_tecido_congelado" as any, { _modelo_id: modeloId });
+      if (error) throw error;
+      return (data ?? {}) as Record<string, number>;
+    },
+  });
+
   const { data: aviamentosData } = useQuery({
     queryKey: ["modelo-aviamentos", modeloId],
     queryFn: async () => {
@@ -711,7 +723,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           );
           merged = { ...merged, variantes };
         }
-        return recomputeBlock(merged, artigoMap, varianteArtigoMap);
+        return recomputeBlock(merged, artigoMap, varianteArtigoMap, frozenPrecos as Record<string, number>);
       }));
     };
     // Trocar o artigo do Tecido 1 zera suas variantes; a grade é indexada por
@@ -753,7 +765,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         }
         // Recalcula: o custo usa o maior preço entre os artigos das variantes
         // escolhidas (substitutos podem ter preços diferentes).
-        return recomputeBlock({ ...b, variantes, oc_links }, artigoMap, varianteArtigoMap);
+        return recomputeBlock({ ...b, variantes, oc_links }, artigoMap, varianteArtigoMap, frozenPrecos as Record<string, number>);
       }));
     };
     if (isTecido1 && !value) {

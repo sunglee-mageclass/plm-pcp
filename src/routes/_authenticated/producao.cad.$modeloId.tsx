@@ -110,6 +110,20 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
   });
   const custoRealTotalVar = Number(custoRealTotalMap?.[modeloId] ?? 0);
 
+  // Fase B — custo congelado pela OC vinculada no Desenvolvimento: mapa "tipo|numero" →
+  // preço/metro da OC vinculada. Ao computar custo_cad, usa esse preço (senão o do artigo),
+  // para o custo do produto NÃO seguir mudanças futuras de preço do artigo.
+  const { data: frozenPrecos = {}, isFetched: frozenPrecosFetched } = useQuery({
+    queryKey: ["cad-precos-congelado", modeloId],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("precos_tecido_congelado" as any, { _modelo_id: modeloId });
+      if (error) throw error;
+      return (data ?? {}) as Record<string, number>;
+    },
+  });
+  const precoTecido = (tipo: string, numero: number, artigoPpm: number) =>
+    Number((frozenPrecos as Record<string, number>)[`${tipo}|${numero}`] ?? artigoPpm);
+
   // Ordem canônica dos tamanhos (mesma do Desenvolvimento), p/ a grade não sair fora de ordem.
   const { data: tenantCfg } = useQuery({
     queryKey: ["cad-tenant-config-grade", tenantId],
@@ -257,6 +271,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
     if (seeded) return;
     if (!modelo) return;
     if (cadRow === undefined) return;
+    if (!frozenPrecosFetched) return; // Fase B: espera o preço congelado antes de semear o custo
     // Se já existe um CAD, espera as queries do CAD terminarem de buscar antes de
     // semear (evita semear do fallback enquanto o cad_* ainda carrega). Quando o
     // CAD existir mas vier vazio, cai no fallback de modelo_tecidos/grades/aviamentos.
@@ -286,7 +301,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
       metragem_enviada: 0,
     });
     const tecFromModelo = (mt: any): TecidoRow => {
-      const preco = Number(mt.artigos?.preco_por_metro ?? 0);
+      const preco = precoTecido(mt.tipo, mt.numero, Number(mt.artigos?.preco_por_metro ?? 0));
       const consumo = Number(mt.consumo ?? 0);
       const loss = Number(mt.loss_percent ?? 0);
       return {
@@ -316,7 +331,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
         loss_percent_cad: Number(t.loss_percent_cad ?? 0),
         custo_cad: Number(t.custo_cad ?? 0),
         tamanho_folha: Number(t.tamanho_folha ?? 0),
-        preco: Number(t.artigos?.preco_por_metro ?? 0),
+        preco: precoTecido(t.tipo, t.numero, Number(t.artigos?.preco_por_metro ?? 0)),
         largura: Number(t.artigos?.largura_estimada ?? 0),
         artigo_nome: t.artigos?.nome ? (t.artigos?.unidade_medida ? `${t.artigos.nome} [${t.artigos.unidade_medida}]` : t.artigos.nome) : null,
         etiqueta_lavagem_urls: (t.artigos?.etiqueta_lavagem_urls ?? []) as string[],
@@ -465,7 +480,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
     setObservacoesMolde((cadRow as any)?.observacoes_molde ?? "");
 
     setSeeded(true);
-  }, [modelo, cadRow, cadTecidos, modeloTecidos, cadGrades, modeloGrades, cadAviamentos, modeloAviamentos, cadEtiquetas, cadTecidosFetched, cadGradesFetched, cadAviamentosFetched, cadEtiquetasFetched, modeloTecidosFetched, modeloGradesFetched, modeloAviamentosFetched, seeded]);
+  }, [modelo, cadRow, cadTecidos, modeloTecidos, cadGrades, modeloGrades, cadAviamentos, modeloAviamentos, cadEtiquetas, cadTecidosFetched, cadGradesFetched, cadAviamentosFetched, cadEtiquetasFetched, modeloTecidosFetched, modeloGradesFetched, modeloAviamentosFetched, frozenPrecos, frozenPrecosFetched, seeded]);
 
   // --- helpers ---
   const updateTec = (i: number, patch: Partial<TecidoRow>) => {
