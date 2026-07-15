@@ -339,6 +339,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         desenho_tecnico_url: (modelo as any).desenho_tecnico_url ?? "",
         croqui_url: (modelo as any).croqui_url ?? "",
         custo_terceirizados_previsto: Number(modelo.custo_terceirizados_previsto ?? 0),
+        custos_adicionais: ((modelo as any).custos_adicionais ?? []) as { descricao: string; valor: number }[],
         proporcoes: (modelo.proporcoes ?? {}) as Record<string, number>,
         enviado_cad: !!modelo.enviado_cad,
         fotos_modelo: (modelo.fotos_modelo ?? []) as string[],
@@ -450,9 +451,10 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     const entretela = sum("entretela");
     const aviamento = aviamentosState.reduce((s, r) => s + (r.custo_previsto || 0), 0);
     const terceirizados = draft?.custo_terceirizados_previsto ?? 0;
-    const peca = tecido + forro + entretela + aviamento + terceirizados;
+    const custosAdd = (draft?.custos_adicionais ?? []).reduce((s: number, c: { valor: number }) => s + (Number(c.valor) || 0), 0);
+    const peca = tecido + forro + entretela + aviamento + terceirizados + custosAdd;
     return { tecido, forro, entretela, aviamento, terceirizados, peca };
-  }, [blocks, aviamentosState, draft?.custo_terceirizados_previsto]);
+  }, [blocks, aviamentosState, draft?.custo_terceirizados_previsto, draft?.custos_adicionais]);
 
   const curStatus = (draft?.status_desenvolvimento ?? "").toLowerCase();
   const isAprovado = curStatus === APROVADO_KEY;
@@ -553,6 +555,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         colecao_id: draft.colecao_id || null,
         subcolecao: draft.subcolecao || null,
         custo_terceirizados_previsto: draft.custo_terceirizados_previsto || 0,
+        custos_adicionais: draft.custos_adicionais ?? [],
         custo_tecido_total: totals.tecido,
         custo_forro_total: totals.forro,
         custo_entretela_total: totals.entretela,
@@ -1049,6 +1052,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 totals={totals}
                 custoTerceirizados={draft.custo_terceirizados_previsto}
                 onChangeTerceirizados={(v) => setDraft({ ...draft, custo_terceirizados_previsto: v })}
+                custosAdicionais={draft.custos_adicionais ?? []}
+                onChangeCustos={(v) => setDraft({ ...draft, custos_adicionais: v })}
               />
             </AccordionContent>
           </AccordionItem>
