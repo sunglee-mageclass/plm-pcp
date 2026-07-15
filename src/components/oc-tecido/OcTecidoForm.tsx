@@ -16,7 +16,7 @@ export function OcTecidoForm({
   draft, setDraft, respMode, setRespMode,
   empresas, estilistas,
   artigos, variantesByArtigo, varianteMap,
-  itemsBy, artigoIdFor, setArtigo, toggleVariante, setQtd, setRendimento,
+  itemsBy, artigoIdFor, setArtigo, toggleVariante, setQtd, setPreco, setRendimento,
   tecido2Aberto, setTecido2Aberto, removeTecido2,
   handleSingleUpload,
 }: {
@@ -34,6 +34,7 @@ export function OcTecidoForm({
   setArtigo: (n: 1 | 2, artigoId: string) => void;
   toggleVariante: (n: 1 | 2, varId: string, checked: boolean) => void;
   setQtd: (tempId: string, field: "quantidade_pedida" | "quantidade_recebida", v: number | null) => void;
+  setPreco: (tempId: string, v: number | null) => void;
   setRendimento: (n: 1 | 2, v: number | null) => void;
   tecido2Aberto: boolean;
   setTecido2Aberto: (v: boolean) => void;
@@ -142,6 +143,7 @@ export function OcTecidoForm({
             items={itemsBy(1).filter((i) => i.variante_tecido_id)}
             toggleVariante={(vid, c) => toggleVariante(1, vid, c)}
             setQtd={setQtd}
+            setPreco={setPreco}
             setRendimento={(v) => setRendimento(1, v)}
             varianteMap={varianteMap}
           />
@@ -161,6 +163,7 @@ export function OcTecidoForm({
                 items={itemsBy(2).filter((i) => i.variante_tecido_id)}
                 toggleVariante={(vid, c) => toggleVariante(2, vid, c)}
                 setQtd={setQtd}
+                setPreco={setPreco}
                 setRendimento={(v) => setRendimento(2, v)}
                 varianteMap={varianteMap}
               />

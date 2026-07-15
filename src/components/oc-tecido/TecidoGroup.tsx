@@ -7,7 +7,7 @@ import { artigoLabel, unidadeSufixo } from "@/lib/artigo-label";
 import { labelVariante, type Artigo, type ItemDraft, type Variante } from "./shared";
 
 export function TecidoGroup({
-  n, artigos, artigoId, onArtigoChange, variantes, items, toggleVariante, setQtd, setRendimento, varianteMap,
+  n, artigos, artigoId, onArtigoChange, variantes, items, toggleVariante, setQtd, setPreco, setRendimento, varianteMap,
 }: {
   n: 1 | 2;
   artigos: Artigo[];
@@ -17,6 +17,7 @@ export function TecidoGroup({
   items: ItemDraft[];
   toggleVariante: (vid: string, checked: boolean) => void;
   setQtd: (tempId: string, field: "quantidade_pedida" | "quantidade_recebida", v: number | null) => void;
+  setPreco: (tempId: string, v: number | null) => void;
   setRendimento: (v: number | null) => void;
   varianteMap: Record<string, Variante>;
 }) {
@@ -76,7 +77,11 @@ export function TecidoGroup({
 
           {items.length > 0 && (
             <div className="space-y-2">
-              <Label>Quantidades</Label>
+              <div className="flex items-center gap-3">
+                <Label className="flex-1">Quantidade e preço</Label>
+                <span className="w-32 text-xs text-muted-foreground">Qtd</span>
+                <span className="w-28 text-xs text-muted-foreground">Preço (un.)</span>
+              </div>
               {items.map((i) => {
                 const v = varianteMap[i.variante_tecido_id];
                 return (
@@ -93,6 +98,13 @@ export function TecidoGroup({
                           {sufixo}
                         </span>
                       )}
+                    </div>
+                    {/* Fase A: preço desta compra (default = preço atual da variante; editável). */}
+                    <div className="relative w-28">
+                      <NumberInput type="number" step="0.01" placeholder="0,00" className="pl-7"
+                        value={i.preco ?? undefined}
+                        onChange={(e) => setPreco(i.tempId, e.target.value === "" ? null : Number(e.target.value))} />
+                      <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">R$</span>
                     </div>
                   </div>
                 );

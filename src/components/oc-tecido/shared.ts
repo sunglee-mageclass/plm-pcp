@@ -25,6 +25,7 @@ export type Artigo = {
 export type Variante = {
   id: string; artigo_id: string;
   nome_variante: string | null; codigo_variante: string | null;
+  preco?: number | null;
   cor?: { nome: string | null } | null;
   apelido?: { nome: string | null } | null;
 };
@@ -97,6 +98,8 @@ export type ItemDraft = {
   // artigo (cadastro). Só relevante para artigos em kg.
   rendimento: number | null;
   cancelado: boolean;
+  // Preço unitário desta compra (Fase A — a OC dita o preço). Default = preço atual da variante.
+  preco: number | null;
 };
 
 // Um rolo destrinchado no recebimento (modo Só Rolo). Antes era só a quantidade

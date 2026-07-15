@@ -382,6 +382,7 @@ function OcDialog({
         quantidade_recebida: i.quantidade_recebida == null ? null : Number(i.quantidade_recebida),
         rendimento: (i as any).rendimento == null ? null : Number((i as any).rendimento),
         cancelado: !!(i as any).cancelado,
+        preco: (i as any).preco == null ? null : Number((i as any).preco),
       }));
       setItems(mapped);
       setOriginalItemIds(mapped.map((m) => m.id).filter((x): x is string => !!x));
@@ -475,10 +476,10 @@ function OcDialog({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("variantes_tecido")
-        .select("id, artigo_id, nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)")
+        .select("id, artigo_id, nome_variante, codigo_variante, preco, cor:cor_id(nome), apelido:cor_apelido_id(nome)")
         .in("artigo_id", artigoIds);
       if (error) throw error;
-      return (data ?? []) as Variante[];
+      return (data ?? []) as unknown as Variante[]; // types.ts ainda sem variantes_tecido.preco
     },
   });
   const variantesByArtigo = useMemo(() => {
@@ -504,6 +505,7 @@ function OcDialog({
         quantidade_recebida: null,
         rendimento: rendimentoPadrao,
         cancelado: false,
+        preco: null,
       },
     ]);
   };
@@ -540,6 +542,8 @@ function OcDialog({
           quantidade_recebida: null,
           rendimento: rendimentoGrupo,
           cancelado: false,
+          // Default = preço ATUAL da variante (cadastro); editável (o preço real desta compra).
+          preco: varianteMap[varId]?.preco ?? artigoMap[artigoId]?.preco ?? null,
         },
       ];
     });
@@ -547,6 +551,9 @@ function OcDialog({
 
   const setQtd = (tempId: string, field: "quantidade_pedida" | "quantidade_recebida", v: number | null) => {
     setItems((prev) => prev.map((i) => i.tempId === tempId ? { ...i, [field]: v } : i));
+  };
+  const setPreco = (tempId: string, v: number | null) => {
+    setItems((prev) => prev.map((i) => i.tempId === tempId ? { ...i, preco: v } : i));
   };
   // Rendimento é por tecido: aplica o valor a todos os itens do mesmo artigo_numero.
   const setRendimento = (n: 1 | 2, v: number | null) => {
@@ -653,6 +660,7 @@ function OcDialog({
         quantidade_recebida: recebidaDe(i.tempId, i.quantidade_recebida),
         rendimento: i.rendimento,
         cancelado: i.cancelado,
+        preco: i.preco,
         rolos_planejados: modoOcRolo !== "oc" ? roloPlan(i.tempId) : null,
       }));
       const { data: savedOcId, error: saveErr } = await supabase.rpc("salvar_oc_tecido" as any, {
@@ -903,6 +911,7 @@ function OcDialog({
             setArtigo={setArtigo}
             toggleVariante={toggleVariante}
             setQtd={setQtd}
+            setPreco={setPreco}
             setRendimento={setRendimento}
             tecido2Aberto={tecido2Aberto}
             setTecido2Aberto={setTecido2Aberto}
