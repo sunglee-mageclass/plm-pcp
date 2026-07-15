@@ -230,13 +230,13 @@ function TecidoBlockEditor({
           options={artigos.map((a) => ({ id: a.id, nome: artigoLabel(a) }))}
         />
         <Field label="Custo Previsto">
-          <Input readOnly value={fmtNum(block.custo_previsto)} />
+          <Input readOnly placeholder="0,00" value={block.custo_previsto ? fmtNum(block.custo_previsto) : ""} />
         </Field>
         <Field label="Consumo">
-          <NumberInput type="number" step="0.001" value={block.consumo} onChange={(e) => onChangeBlock({ consumo: Number(e.target.value) || 0 })} />
+          <NumberInput type="number" step="0.001" placeholder="0,000" value={block.consumo || ""} onChange={(e) => onChangeBlock({ consumo: Number(e.target.value) || 0 })} />
         </Field>
         <Field label="% Loss">
-          <NumberInput type="number" step="0.01" value={block.loss_percent} onChange={(e) => onChangeBlock({ loss_percent: Number(e.target.value) || 0 })} />
+          <NumberInput type="number" step="0.01" placeholder="0,00" value={block.loss_percent || ""} onChange={(e) => onChangeBlock({ loss_percent: Number(e.target.value) || 0 })} />
         </Field>
       </div>
 
