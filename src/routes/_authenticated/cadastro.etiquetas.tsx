@@ -50,6 +50,7 @@ const FORMATOS = [
   { value: "ambos", label: "Ambos (PPP · 34)" },
   { value: "numero", label: "Número (34)" },
   { value: "letra", label: "Letra (PPP)" },
+  { value: "nenhum", label: "Nenhum (sem tamanho)" },
 ];
 const DEFAULT_TAMANHOS = ["34|PPP", "36|PP", "38|P", "40|M", "42|G", "44|GG"];
 const SEM = "__none__";
@@ -385,11 +386,14 @@ function EtiquetasPage() {
               </div>
               <div className="space-y-1.5">
                 <Label>Formato do tamanho</Label>
-                <Select value={fFormato} onValueChange={setFFormato} disabled={readOnly}>
+                <Select
+                  value={fFormato}
+                  onValueChange={(v) => { setFFormato(v); if (v === "nenhum") setFBlocks((bs) => bs.map((b) => ({ ...b, tamanhos: [] }))); }}
+                  disabled={readOnly}
+                >
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>{FORMATOS.map((f) => <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>)}</SelectContent>
                 </Select>
-                <p className="text-[11px] text-muted-foreground">Como o tamanho aparece na etiqueta (a grade guarda 34|PPP).</p>
               </div>
               <div className="space-y-1.5">
                 <Label>Preço base (R$)</Label>
@@ -433,15 +437,19 @@ function EtiquetasPage() {
                             onChange={(e) => updBlock(i, { preco: e.target.value === "" ? null : Number(e.target.value) })} disabled={readOnly} />
                           {!readOnly && <Button type="button" size="icon" variant="ghost" onClick={() => rmBlock(i)} aria-label="Remover cor"><X className="h-4 w-4" /></Button>}
                         </div>
-                        <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-                          {tamanhos.map((t) => (
-                            <label key={t} className="flex items-center gap-1.5 text-sm cursor-pointer">
-                              <Checkbox checked={b.tamanhos.includes(t)} onCheckedChange={() => toggleTamanho(i, t)} disabled={readOnly} />
-                              {fmtTamanho(t, fFormato)}
-                            </label>
-                          ))}
-                        </div>
-                        {b.tamanhos.length === 0 && <p className="text-[11px] text-muted-foreground">Sem tamanho marcado → variante única desta cor.</p>}
+                        {fFormato !== "nenhum" && (
+                          <>
+                            <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                              {tamanhos.map((t) => (
+                                <label key={t} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                                  <Checkbox checked={b.tamanhos.includes(t)} onCheckedChange={() => toggleTamanho(i, t)} disabled={readOnly} />
+                                  {fmtTamanho(t, fFormato)}
+                                </label>
+                              ))}
+                            </div>
+                            {b.tamanhos.length === 0 && <p className="text-[11px] text-muted-foreground">Sem tamanho marcado → variante única desta cor.</p>}
+                          </>
+                        )}
                       </div>
                     );
                   })}
