@@ -242,28 +242,34 @@ export function TecidoDetail({ artigoId, onClose }: { artigoId: string; onClose:
         _cat_ids: catIds,
       });
       if (catErr) throw catErr;
-
-      // Preço do tecido MUDOU → replica nas variantes (viram default, editáveis depois). Só
-      // quando o usuário muda o preço (dirty-check vs o valor salvo) — salvar outros campos NÃO
-      // sobrescreve preços de variante. Não cascateia ao limpar (null). Trigger mantém artigo=MAX.
-      const precoNovo = form.preco ?? null;
-      if (precoNovo != null && precoNovo !== (artigo?.preco ?? null)) {
-        const { error: repErr } = await supabase
-          .from("variantes_tecido")
-          .update({ preco: precoNovo } as any)
-          .eq("artigo_id", artigoId);
-        if (repErr) throw repErr;
-      }
     },
     onSuccess: () => {
       toast.success("Tecido atualizado.");
       qc.invalidateQueries({ queryKey: ["artigo", artigoId] });
       qc.invalidateQueries({ queryKey: ["artigos"] });
-      qc.invalidateQueries({ queryKey: ["variantes", artigoId] }); // replicou preço nas variantes
       qc.invalidateQueries({ queryKey: ["artigo-cats", artigoId] });
       qc.invalidateQueries({ queryKey: ["artigo-cats-all"] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar.")),
+  });
+
+  // Aplica o preço do tecido (campo Preço) a TODAS as variantes — replicar sob demanda (botão
+  // ao lado do label). O trigger mantém artigos.preco = MAX(variantes). Não invalida ["artigo"]
+  // p/ não resetar o form (que perderia edições não salvas de outros campos).
+  const aplicarPrecoVariantesMut = useMutation({
+    mutationFn: async () => {
+      if (!form || form.preco == null) return;
+      const { error } = await supabase
+        .from("variantes_tecido")
+        .update({ preco: form.preco } as any)
+        .eq("artigo_id", artigoId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Preço aplicado a todas as variantes.");
+      qc.invalidateQueries({ queryKey: ["variantes", artigoId] });
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao aplicar preço.")),
   });
 
   const [confirmDel, setConfirmDel] = useState(false);
@@ -489,7 +495,23 @@ export function TecidoDetail({ artigoId, onClose }: { artigoId: string; onClose:
             </Select>
           </Field>
 
-          <Field label="Preço">
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <Label>Preço</Label>
+              {!readOnly && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs"
+                  disabled={form.preco == null || aplicarPrecoVariantesMut.isPending}
+                  onClick={() => aplicarPrecoVariantesMut.mutate()}
+                  title="Aplica este preço a todas as variantes deste tecido"
+                >
+                  Aplicar a todas
+                </Button>
+              )}
+            </div>
             <NumberInput
               type="number"
               step="0.01"
@@ -498,7 +520,7 @@ export function TecidoDetail({ artigoId, onClose }: { artigoId: string; onClose:
                 setForm({ ...form, preco: e.target.value === "" ? null : Number(e.target.value) })
               }
             />
-          </Field>
+          </div>
 
           {isKg && (
             <Field label="Rendimento (m/kg)">
@@ -657,22 +679,6 @@ function VariantesSection({ artigoId, readOnly, precoArtigo }: { artigoId: strin
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao adicionar.")),
   });
 
-  // Aplica o preço do tecido (artigo) a TODAS as variantes (replicar). O trigger mantém o
-  // artigo = maior; aplicar iguala todas ao preço atual do artigo.
-  const aplicarPrecoMut = useMutation({
-    mutationFn: async () => {
-      if (precoArtigo == null) return;
-      const { error } = await supabase.from("variantes_tecido").update({ preco: precoArtigo } as any).eq("artigo_id", artigoId);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success("Preço aplicado a todas as variantes.");
-      qc.invalidateQueries({ queryKey: ["variantes", artigoId] });
-      qc.invalidateQueries({ queryKey: ["artigo", artigoId] });
-    },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao aplicar preço.")),
-  });
-
   const removeVarMut = useMutation({
     mutationFn: async (v: Variante) => {
       // RPC com GUARDA: bloqueia se a cor estiver em uso. A foto do storage só sai DEPOIS do delete
@@ -758,19 +764,6 @@ function VariantesSection({ artigoId, readOnly, precoArtigo }: { artigoId: strin
           <p className="text-xs text-muted-foreground italic">
             Cadastre cores em Atributos primeiro.
           </p>
-        )}
-
-        {!readOnly && precoArtigo != null && variantes.length > 0 && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="w-full sm:w-auto"
-            onClick={() => aplicarPrecoMut.mutate()}
-            disabled={aplicarPrecoMut.isPending}
-          >
-            Aplicar preço do tecido ({new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(precoArtigo)}) a todas as variantes
-          </Button>
         )}
 
         {variantes.length === 0 ? (
