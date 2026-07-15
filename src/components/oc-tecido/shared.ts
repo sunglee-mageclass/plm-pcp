@@ -83,6 +83,7 @@ export type Draft = {
   anexo_pedido_url: string | null;
   modelo_sugerido_url: string | null;
   nf_url: string | null;
+  nfs: { url: string; data?: string }[]; // várias Notas Fiscais (nf_url = a primeira)
   parcelas_recebimento: ParcelaRecebimento[];
 };
 
@@ -135,6 +136,7 @@ export function emptyDraft(): Draft {
     anexo_pedido_url: null,
     modelo_sugerido_url: null,
     nf_url: null,
+    nfs: [],
     parcelas_recebimento: [{ data: "", recebido: false }],
   };
 }

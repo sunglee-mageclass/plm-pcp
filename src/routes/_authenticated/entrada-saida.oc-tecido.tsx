@@ -24,7 +24,6 @@ import {
 import { OcTecidoList } from "@/components/oc-tecido/OcTecidoList";
 import { RolosList, RoloDialog, RemoverMetragemDialog, AjustesList } from "@/components/oc-tecido/Rolos";
 import { OcCqSection, alertaBadge } from "@/components/oc-tecido/CqTecido";
-import { OcNfHistorico } from "@/components/oc-tecido/OcNfHistorico";
 import { FilterButton } from "@/components/shared/filters";
 import { OcTecidoForm } from "@/components/oc-tecido/OcTecidoForm";
 import { OcTecidoRecebimento } from "@/components/oc-tecido/OcTecidoRecebimento";
@@ -365,6 +364,7 @@ function OcDialog({
           anexo_pedido_url: oc.anexo_pedido_url,
           modelo_sugerido_url: oc.modelo_sugerido_url,
           nf_url: oc.nf_url,
+          nfs: (((oc as any).nfs ?? []) as { url: string; data?: string }[]),
           parcelas_recebimento: (Array.isArray((oc as any).parcelas_recebimento) && (oc as any).parcelas_recebimento.length > 0)
             ? ((oc as any).parcelas_recebimento as { data: string; recebido: boolean }[])
             : [{ data: "", recebido: false }],
@@ -627,7 +627,7 @@ function OcDialog({
         observacoes_defeitos: draft.observacoes_defeitos || null,
         anexo_pedido_url: draft.anexo_pedido_url,
         modelo_sugerido_url: draft.modelo_sugerido_url,
-        nf_url: draft.nf_url,
+        nf_url: draft.nfs[0]?.url ?? null, // NF primária = primeira da lista (compat)
         data_entrega: markReceived ? (lastDate || null) : (draft.data_entrega || null),
         parcelas_recebimento: parcelas,
         valor_previsto_total: totalPrevisto,
@@ -688,6 +688,13 @@ function OcDialog({
       });
       if (saveErr) throw saveErr;
       ocIdLocal = savedOcId as string;
+
+      // NFs (lista) — persistidas fora da RPC crítica de parcelas (NF não é invariante
+      // financeiro). nf_url já foi salvo pela RPC como a primeira da lista.
+      if (ocIdLocal) {
+        const { error: nfErr } = await supabase.from("ocs_tecido").update({ nfs: draft.nfs } as any).eq("id", ocIdLocal);
+        if (nfErr) throw nfErr;
+      }
 
       // Modo só-rolo: gera os rolos a partir do destrinchamento. A RPC gerar_rolos_recebimento
       // cria TODOS numa transação (tudo-ou-nada) — sem rolos parciais se um estourar o saldo.
@@ -870,7 +877,7 @@ function OcDialog({
     algumaQtdRecebida &&
     todasParcelasOk &&
     todasEtiquetasOk &&
-    !!draft.nf_url;
+    draft.nfs.length > 0;
 
   const getMissingRequirements = (): string[] => {
     const missing: string[] = [];
@@ -882,7 +889,7 @@ function OcDialog({
       if (!parcelas.every((p) => p.recebido === true)) missing.push("Marque todas as parcelas como recebidas.");
     }
     if (!todasEtiquetasOk) missing.push("Anexe a etiqueta de lavagem de todos os tecidos.");
-    if (!draft.nf_url) missing.push("Anexe a nota fiscal (NF).");
+    if (draft.nfs.length === 0) missing.push("Anexe ao menos uma nota fiscal (NF).");
     return missing;
   };
 
@@ -977,7 +984,6 @@ function OcDialog({
           {/* No modo Só Rolo o CQ é feito POR ROLO no destrinchamento acima — a seção
               de CQ por item da OC fica redundante. */}
           {isEdit && ocId && modoOcRolo === "oc" && <OcCqSection ocId={ocId} />}
-          {isEdit && ocId && <OcNfHistorico ocId={ocId} />}
         </div>
 
         <div className="flex items-center gap-2 shrink-0 border-t bg-background -mx-6 -mb-6 px-6 py-3 max-md:-mx-4 max-md:-mb-4 max-md:px-4 max-md:shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">

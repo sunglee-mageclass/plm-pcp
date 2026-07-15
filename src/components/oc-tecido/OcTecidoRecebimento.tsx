@@ -5,13 +5,14 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { FileField } from "./FileField";
+import { NfList } from "./NfList";
+import { uploadFile } from "./shared";
 import { OcTecidoCalculos } from "./OcTecidoCalculos";
 import { EtiquetaLavagemArtigoEditor } from "@/components/shared/EtiquetaLavagemArtigo";
 import type { Artigo, Draft, ItemDraft, ParcelaRecebimento, RoloEntry, Variante } from "./shared";
 
 export function OcTecidoRecebimento({
-  draft, setDraft, handleSingleUpload,
+  draft, setDraft,
   items, artigoMap, varianteMap, setQtd, totalPrevisto, totalReal,
   tecido2Aberto, artigoId1, artigoId2, status, readOnly = false,
   toggleCancelado, canCancel,
@@ -72,14 +73,14 @@ export function OcTecidoRecebimento({
               disabled={readOnly}
             />
           </div>
-          <FileField
-            label="Nota Fiscal"
-            path={draft.nf_url}
-            onChange={(f) => handleSingleUpload(f, "nf_url")}
-            onClear={() => setDraft((d) => ({ ...d, nf_url: null }))}
-            disabled={readOnly}
-          />
         </div>
+
+        <NfList
+          value={draft.nfs}
+          onChange={(nfs) => setDraft((d) => ({ ...d, nfs }))}
+          uploadFn={(f) => uploadFile(f, "nf_url")}
+          readOnly={readOnly}
+        />
 
         <div className="rounded-md border p-3 space-y-2">
           <Label className="text-sm">Parcelas de Recebimento</Label>

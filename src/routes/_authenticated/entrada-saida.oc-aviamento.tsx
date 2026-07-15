@@ -44,6 +44,7 @@ import { FilterButton } from "@/components/shared/filters";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { FornecedorSelect } from "@/components/shared/FornecedorSelect";
+import { NfList } from "@/components/oc-tecido/NfList";
 import { useSort, SortHead } from "@/components/shared/sort";
 export const Route = createFileRoute("/_authenticated/entrada-saida/oc-aviamento")({
   component: () => (
@@ -451,6 +452,7 @@ type Draft = {
   prazo_pagamento: string;
   quantidade_prazos: number;
   nf_url: string | null;
+  nfs: { url: string; data?: string }[]; // várias Notas Fiscais (nf_url = a primeira)
   parcelas_recebimento: ParcelaRecebimento[];
 };
 function emptyDraft(): Draft {
@@ -466,6 +468,7 @@ function emptyDraft(): Draft {
     prazo_pagamento: "",
     quantidade_prazos: 1,
     nf_url: null,
+    nfs: [],
     parcelas_recebimento: [{ data: "", recebido: false }],
   };
 }
@@ -511,6 +514,7 @@ function OcDialog({
           prazo_pagamento: oc.prazo_pagamento ?? "",
           quantidade_prazos: oc.quantidade_prazos ?? 1,
           nf_url: oc.nf_url,
+          nfs: (((oc as any).nfs ?? []) as { url: string; data?: string }[]),
           parcelas_recebimento: (Array.isArray((oc as any).parcelas_recebimento) && (oc as any).parcelas_recebimento.length > 0)
             ? ((oc as any).parcelas_recebimento as ParcelaRecebimento[])
             : [{ data: "", recebido: false }],
@@ -562,14 +566,6 @@ function OcDialog({
   const totalPrev = items.filter((i) => !i.cancelado).reduce((s, i) => s + valorPrev(i), 0);
   const totalReal = items.filter((i) => !i.cancelado).reduce((s, i) => s + valorReal(i), 0);
 
-  const handleNF = async (file: File) => {
-    try {
-      const path = await uploadFile(file, "nf");
-      setDraft((d) => ({ ...d, nf_url: path }));
-      toast.success("NF enviada");
-    } catch (e: any) { toast.error(mensagemErro(e)); }
-  };
-
   // Guarda SÍNCRONA contra duplo-clique (isPending só atualiza no re-render; 2 cliques
   // rápidos disparam 2 saves = 2 OCs). Espelha o padrão da OC Tecido.
   const savingRef = useRef(false);
@@ -599,7 +595,7 @@ function OcDialog({
         data_entrega: markReceived ? (lastDate || null) : (draft.data_entrega || null),
         prazo_pagamento: draft.prazo_pagamento || null,
         quantidade_prazos: draft.quantidade_prazos,
-        nf_url: draft.nf_url,
+        nf_url: draft.nfs[0]?.url ?? null, // NF primária = primeira da lista (compat)
         parcelas_recebimento: parcelas,
         status: markReceived ? "recebido" : status,
       };
@@ -617,12 +613,18 @@ function OcDialog({
       // Dentro da RPC os itens entram ANTES do status='recebido' (o trigger gerar_parcelas
       // lê os itens no UPDATE) e recalcular_parcelas roda no fim (preserva pagas). Acaba
       // com a janela de falha parcial das 6-8 chamadas que isto era no cliente.
-      const { error } = await supabase.rpc("salvar_oc_aviamento" as any, {
+      const { data: savedId, error } = await supabase.rpc("salvar_oc_aviamento" as any, {
         _oc_id: isEdit ? ocId : null,
         _oc: ocPayload,
         _itens: itensPayload,
       });
       if (error) throw error;
+      // NFs (lista) — fora da RPC crítica de parcelas (nf_url já salvo como a primeira).
+      const oid = isEdit ? ocId : ((savedId as string | null) ?? null);
+      if (oid) {
+        const { error: nfErr } = await supabase.from("ocs_aviamento").update({ nfs: draft.nfs } as any).eq("id", oid);
+        if (nfErr) throw nfErr;
+      }
     },
     onSuccess: () => {
       toast.success("OC salva");
@@ -675,13 +677,13 @@ function OcDialog({
     canShowRecebimento &&
     !isReadOnlyRecebimento &&
     items.some((i) => (i.quantidade_recebida ?? 0) > 0) &&
-    !!draft.nf_url &&
+    draft.nfs.length > 0 &&
     todasParcelasOk;
 
   const getMissingRequirements = (): string[] => {
     const m: string[] = [];
     if (!items.some((i) => (i.quantidade_recebida ?? 0) > 0)) m.push("Preencha a quantidade recebida de pelo menos um aviamento");
-    if (!draft.nf_url) m.push("Anexe a nota fiscal");
+    if (draft.nfs.length === 0) m.push("Anexe ao menos uma nota fiscal");
     if (parcelas.length === 0) {
       m.push("Defina a quantidade de parcelas de recebimento");
     } else {
@@ -905,25 +907,15 @@ function OcDialog({
                   <Label>Data da Entrega <span className="text-xs text-muted-foreground">(última parcela recebida)</span></Label>
                   <DateField value={draft.data_entrega || derivedEntrega} disabled readOnly />
                 </div>
-                <div className="grid gap-1">
-                  <Label>Nota Fiscal</Label>
-                  {draft.nf_url ? (
-                    <div className="flex items-center gap-2">
-                      <Badge variant="secondary" className="truncate max-w-[200px]">{draft.nf_url.split("/").pop()}</Badge>
-                      {!isReadOnlyRecebimento && (
-                        <Button size="sm" variant="ghost" onClick={() => setDraft((d) => ({ ...d, nf_url: null }))}>
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-                  ) : (
-                    <label className="inline-flex items-center gap-2 text-sm border rounded-md px-3 py-2 cursor-pointer hover:bg-accent w-fit">
-                      <Upload className="h-4 w-4" /> Selecionar arquivo
-                      <input type="file" className="hidden" onChange={(e) => e.target.files?.[0] && handleNF(e.target.files[0])} />
-                    </label>
-                  )}
-                </div>
               </div>
+
+              <NfList
+                value={draft.nfs}
+                onChange={(nfs) => setDraft((d) => ({ ...d, nfs }))}
+                uploadFn={(f) => uploadFile(f, "nf")}
+                bucket="oc-aviamento"
+                readOnly={isReadOnlyRecebimento}
+              />
 
               <div className="grid gap-2">
                 <Label className="text-sm">Parcelas de Recebimento</Label>
