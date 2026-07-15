@@ -284,6 +284,17 @@ function LancamentosPage() {
       return (data ?? {}) as Record<string, { previsto: number; real: number; confirmado: boolean }>;
     },
   });
+  // EXPERIMENTAL (acompanhamento): custo real TOTAL por variante (Σ metragem×preço da variante).
+  // Separado do custo oficial — mostrado em itálico no card.
+  const { data: custoRealTotalMap = {} } = useQuery({
+    queryKey: ["lanc-custo-real-total", modeloIdsAll],
+    enabled: modeloIdsAll.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("custo_real_total_variantes" as any, { _ids: modeloIdsAll });
+      if (error) throw error;
+      return (data ?? {}) as Record<string, number>;
+    },
+  });
   // Custo real senão previsto (paridade com o Planejamento). Em Lançamentos o real
   // já costuma estar fechado (CQ confirmado), mas o fallback evita zerar preço/poder
   // de venda num raro CAD sem real.
@@ -371,6 +382,7 @@ function LancamentosPage() {
         card={c}
         markup={pi.markupExibir > 0 ? pi.markupExibir : null}
         preco={pi.efetivo > 0 ? pi.efetivo : null}
+        custoRealTotal={Number((custoRealTotalMap as any)[c.modelo_id] ?? 0) || null}
         compact={compact}
         readOnly={readOnly}
       />
@@ -557,8 +569,8 @@ function RelacionadosLancamento({ conjuntoId, modeloId }: { conjuntoId: string |
   );
 }
 
-function LancamentoCard(props: { card: LancCard; markup: number | null; preco: number | null; compact: boolean; readOnly: boolean }) {
-  const { card, compact, readOnly, markup, preco } = props;
+function LancamentoCard(props: { card: LancCard; markup: number | null; preco: number | null; custoRealTotal: number | null; compact: boolean; readOnly: boolean }) {
+  const { card, compact, readOnly, markup, preco, custoRealTotal } = props;
   const qc = useQueryClient();
   const [foto, setFoto] = useState<Record<string, boolean>>(card.fotoByNum);
   useEffect(() => { setFoto(card.fotoByNum); }, [card.cqId, JSON.stringify(card.fotoByNum)]);
@@ -644,6 +656,11 @@ function LancamentoCard(props: { card: LancCard; markup: number | null; preco: n
               {preco != null && <p className="font-medium">Preço avulso: {brl(preco)}</p>}
               {preco != null && card.gradeTotal > 0 && (
                 <p className="text-muted-foreground">Poder de venda: {brl(preco * card.gradeTotal)}</p>
+              )}
+              {custoRealTotal != null && custoRealTotal > 0 && (
+                <p className="text-xs italic text-muted-foreground" title="Experimental — Σ(metragem × preço da variante). Não entra no custo oficial.">
+                  Custo real total (acomp.): {brl(custoRealTotal)}
+                </p>
               )}
               {card.variantes.length > 0 && (
                 <div className="pt-1 mt-1 border-t space-y-0.5">

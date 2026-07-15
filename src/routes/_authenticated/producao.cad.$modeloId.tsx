@@ -98,6 +98,18 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
     },
   });
 
+  // EXPERIMENTAL (acompanhamento): custo real TOTAL do tecido com base no preço de cada variante
+  // (Σ metragem×preço/metro). Separado do custo oficial — mostrado em itálico.
+  const { data: custoRealTotalMap } = useQuery({
+    queryKey: ["custo-real-total-variantes", modeloId],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("custo_real_total_variantes" as any, { _ids: [modeloId] });
+      if (error) throw error;
+      return (data ?? {}) as Record<string, number>;
+    },
+  });
+  const custoRealTotalVar = Number(custoRealTotalMap?.[modeloId] ?? 0);
+
   // Ordem canônica dos tamanhos (mesma do Desenvolvimento), p/ a grade não sair fora de ordem.
   const { data: tenantCfg } = useQuery({
     queryKey: ["cad-tenant-config-grade", tenantId],
@@ -895,6 +907,11 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
             {custosAdicionaisPeca > 0 && (
               <div className="mt-1 text-xs text-muted-foreground">
                 inclui custos adicionais: {custosAdicionaisPeca.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+              </div>
+            )}
+            {custoRealTotalVar > 0 && (
+              <div className="mt-1 text-xs italic text-muted-foreground" title="Experimental — Σ(metragem × preço da variante). Não entra no custo oficial.">
+                Custo real total (acompanhamento): {custoRealTotalVar.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
               </div>
             )}
           </div>

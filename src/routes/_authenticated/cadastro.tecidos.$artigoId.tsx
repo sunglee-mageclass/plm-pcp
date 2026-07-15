@@ -990,15 +990,29 @@ function VariantRow({
               readOnly={readOnly}
             />
           </div>
-          {/* Preço POR VARIANTE. O preço de referência do artigo = o maior das variantes. */}
+          {/* Preço POR VARIANTE. O preço de referência do artigo = o maior das variantes.
+              Ícone de histórico AO LADO do input (label simples, alinha com o campo Código). */}
           <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label>Preço</Label>
+            <Label>Preço</Label>
+            <div className="flex items-center gap-1">
+              <Input
+                type="number"
+                step="0.01"
+                placeholder="0,00"
+                className="flex-1"
+                value={preco}
+                onChange={(e) => setPreco(e.target.value)}
+                onBlur={() => {
+                  const v = preco === "" ? null : Number(preco);
+                  if (v !== (variante.preco ?? null)) saveMut.mutate({ preco: v });
+                }}
+                readOnly={readOnly}
+              />
               {(variante.historico_precos?.length ?? 0) > 0 && (
                 <Popover>
                   <PopoverTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-6 w-6" aria-label="Histórico de preço da variante">
-                      <History className="h-3.5 w-3.5" />
+                    <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0" aria-label="Histórico de preço da variante" title="Histórico de preço">
+                      <History className="h-4 w-4" />
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent align="end" className="w-56 p-2">
@@ -1015,18 +1029,6 @@ function VariantRow({
                 </Popover>
               )}
             </div>
-            <Input
-              type="number"
-              step="0.01"
-              placeholder="0,00"
-              value={preco}
-              onChange={(e) => setPreco(e.target.value)}
-              onBlur={() => {
-                const v = preco === "" ? null : Number(preco);
-                if (v !== (variante.preco ?? null)) saveMut.mutate({ preco: v });
-              }}
-              readOnly={readOnly}
-            />
           </div>
           <div className="space-y-1.5 md:col-span-3">
             <Label>Endereços</Label>
