@@ -846,6 +846,8 @@ function VariantRow({
   const [uploading, setUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const photoUrl = useSignedUrl(variante.foto_url);
+  // Preço pode mudar por FORA (botão "Aplicar a todas" do tecido) → re-sincroniza o campo.
+  useEffect(() => { setPreco(variante.preco?.toString() ?? ""); }, [variante.preco]);
 
   const saveMut = useMutation({
     mutationFn: async (patch: Partial<Variante>) => {
@@ -909,6 +911,11 @@ function VariantRow({
           </p>
           <p className="text-xs text-muted-foreground line-clamp-1">
             {variante.codigo_variante || variante.nome_variante || "Sem código"}
+          </p>
+          <p className="text-xs font-medium">
+            {variante.preco != null
+              ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(variante.preco))
+              : <span className="text-muted-foreground font-normal">Sem preço</span>}
           </p>
         </div>
         <Button variant="ghost" size="icon" aria-label={expanded ? "Recolher" : "Expandir"} aria-expanded={expanded} onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}>
