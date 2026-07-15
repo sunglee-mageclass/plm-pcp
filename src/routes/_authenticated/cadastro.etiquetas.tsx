@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Tag, Plus, Pencil, Trash2, Search, Loader2 } from "lucide-react";
+import { Tag, Plus, Pencil, Trash2, Search, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -11,22 +11,21 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { NumberInput } from "@/components/shared/NumberInput";
+import { FornecedorSelect, type EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
 import { useSort, SortHead } from "@/components/shared/sort";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useAuth } from "@/hooks/useAuth";
+import { fmtNum } from "@/lib/format";
 
 export const Route = createFileRoute("/_authenticated/cadastro/etiquetas")({
   component: () => (
@@ -36,93 +35,176 @@ export const Route = createFileRoute("/_authenticated/cadastro/etiquetas")({
   ),
 });
 
-type Etiqueta = { id: string; nome: string; tamanho: string | null };
-
-// Mesma grade padrão usada no CAD/Configurações quando a loja ainda não salvou.
-const DEFAULT_TAMANHOS = ["34|PPP", "36|PP", "38|P", "40|M", "42|G", "44|GG"];
-
-// "38|P" -> "P · 38"
-const fmtTamanho = (t: string) => {
-  const [num, sig] = t.split("|");
-  return sig ? `${sig} · ${num}` : t;
+type VarRow = { id?: string; tamanho: string; cor_id: string; preco: number | null };
+type Etiqueta = {
+  id: string; nome: string; unidade: string; preco: number | null;
+  empresa_id: string | null; representante_id: string | null; observacoes: string | null;
+  n_variantes: number;
 };
+
+const UNIDADES = ["unidade", "metro", "rolo", "milheiro"];
+const DEFAULT_TAMANHOS = ["34|PPP", "36|PP", "38|P", "40|M", "42|G", "44|GG"];
+const SEM = "__none__";
+// "38|P" -> "P · 38"
+const fmtTamanho = (t: string) => { const [num, sig] = t.split("|"); return sig ? `${sig} · ${num}` : t; };
 
 function EtiquetasPage() {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
   const tenantId = useActiveTenantId();
-  const { isAdmin } = useAuth(); // exclusão em massa é só p/ admin+ (tenant_admin ou super_admin)
+  const { isAdmin } = useAuth();
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Etiqueta | null>(null);
-  const [formNome, setFormNome] = useState("");
-  const [formTamanho, setFormTamanho] = useState("");
   const [deleteRow, setDeleteRow] = useState<Etiqueta | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set()); // seleção p/ exclusão em massa
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
-  const colCount = isAdmin ? 4 : 3;
+  const colCount = isAdmin ? 6 : 5;
+
+  // form
+  const [fNome, setFNome] = useState("");
+  const [fUnidade, setFUnidade] = useState("unidade");
+  const [fEmpresa, setFEmpresa] = useState<string | null>(null);
+  const [fRep, setFRep] = useState<string | null>(null);
+  const [fPreco, setFPreco] = useState<number | null>(null);
+  const [fObs, setFObs] = useState("");
+  const [fVars, setFVars] = useState<VarRow[]>([]);
 
   const { data: etiquetas = [], isLoading } = useQuery({
     queryKey: ["etiquetas-cadastro"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("etiquetas" as any).select("id, nome, tamanho").order("nome");
+      const { data, error } = await supabase
+        .from("etiquetas" as any)
+        .select("id, nome, unidade, preco, empresa_id, representante_id, observacoes, variantes_etiqueta(id)")
+        .order("nome");
       if (error) throw error;
-      return ((data ?? []) as unknown) as Etiqueta[];
+      return ((data ?? []) as any[]).map((e) => ({
+        id: e.id, nome: e.nome, unidade: e.unidade ?? "unidade", preco: e.preco,
+        empresa_id: e.empresa_id, representante_id: e.representante_id, observacoes: e.observacoes,
+        n_variantes: (e.variantes_etiqueta ?? []).length,
+      })) as Etiqueta[];
     },
   });
 
-  // Tamanhos da grade configurada na loja; cai no padrão se ainda não houver config.
+  const { data: empresas = [] } = useQuery({
+    queryKey: ["empresas-options", "etiqueta"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("empresas")
+        .select("id,nome_fantasia,representantes(id, nome)")
+        .eq("tipo", "material")
+        .order("nome_fantasia");
+      return ((data ?? []) as any[]).map((e) => ({
+        id: e.id as string, nome_fantasia: e.nome_fantasia as string, representantes: e.representantes ?? [],
+      })) as EmpresaFornecedor[];
+    },
+  });
+  const empresasMap = useMemo(() => new Map(empresas.map((e) => [e.id, e.nome_fantasia])), [empresas]);
+
+  const { data: cores = [] } = useQuery({
+    queryKey: ["cores-opts", tenantId],
+    enabled: !!tenantId,
+    queryFn: async () => {
+      const { data } = await supabase.from("cores").select("id, nome").order("nome");
+      return (data ?? []) as { id: string; nome: string }[];
+    },
+  });
+  const corMap = useMemo(() => new Map(cores.map((c) => [c.id, c.nome])), [cores]);
+
   const { data: tamanhos = [] } = useQuery({
     queryKey: ["tenant-tamanhos-grade", tenantId],
     enabled: !!tenantId,
     queryFn: async () => {
       const { data } = await supabase.from("tenant_config").select("tamanhos_grade").eq("tenant_id", tenantId).limit(1);
       const raw = (data ?? [])[0]?.tamanhos_grade as any;
-      const list = Array.isArray(raw) && raw.length > 0
+      return (Array.isArray(raw) && raw.length > 0
         ? raw.map((x: any) => (typeof x === "string" ? x : (x?.nome ?? x?.label ?? String(x))))
-        : DEFAULT_TAMANHOS;
-      return list as string[];
+        : DEFAULT_TAMANHOS) as string[];
     },
   });
 
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
-    if (!s) return etiquetas;
-    return etiquetas.filter((e) => e.nome.toLowerCase().includes(s));
+    return s ? etiquetas.filter((e) => e.nome.toLowerCase().includes(s)) : etiquetas;
   }, [etiquetas, search]);
-
   const { sorted, sortKey, sortDir, toggle } = useSort(filtered, { key: "nome" });
   const sortState = { sortKey, sortDir, toggle };
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["etiquetas-cadastro"] });
-    qc.invalidateQueries({ queryKey: ["etiquetas-opts"] }); // select do CAD
+    qc.invalidateQueries({ queryKey: ["etiquetas-opts"] });
   };
 
-  const openCreate = () => { setEditing(null); setFormNome(""); setFormTamanho(""); setOpen(true); };
-  const openEdit = (e: Etiqueta) => { setEditing(e); setFormNome(e.nome); setFormTamanho(e.tamanho ?? ""); setOpen(true); };
+  const resetForm = () => {
+    setFNome(""); setFUnidade("unidade"); setFEmpresa(null); setFRep(null); setFPreco(null); setFObs(""); setFVars([]);
+  };
+  const openCreate = () => { setEditing(null); resetForm(); setOpen(true); };
+  const openEdit = async (e: Etiqueta) => {
+    setEditing(e);
+    setFNome(e.nome); setFUnidade(e.unidade); setFEmpresa(e.empresa_id); setFRep(e.representante_id);
+    setFPreco(e.preco); setFObs(e.observacoes ?? ""); setFVars([]);
+    setOpen(true);
+    const { data } = await supabase.from("variantes_etiqueta" as any).select("id, tamanho, cor_id, preco").eq("etiqueta_id", e.id);
+    setFVars(((data ?? []) as any[]).map((v) => ({ id: v.id, tamanho: v.tamanho ?? "", cor_id: v.cor_id ?? "", preco: v.preco })));
+  };
+
+  const addVar = () => setFVars((vs) => [...vs, { tamanho: "", cor_id: "", preco: fPreco }]);
+  const updVar = (i: number, patch: Partial<VarRow>) => setFVars((vs) => vs.map((v, j) => (j === i ? { ...v, ...patch } : v)));
+  const rmVar = (i: number) => setFVars((vs) => vs.filter((_, j) => j !== i));
+  const aplicarPrecoTodas = () => setFVars((vs) => vs.map((v) => ({ ...v, preco: fPreco })));
 
   const saveMut = useMutation({
     mutationFn: async () => {
-      const v = formNome.trim();
-      if (!v) throw new Error("Informe o nome da etiqueta.");
-      const payload = { nome: v, tamanho: formTamanho || null };
+      const nome = fNome.trim();
+      if (!nome) throw new Error("Informe o nome da etiqueta.");
+      // combinação tamanho×cor duplicada no form
+      const seen = new Set<string>();
+      for (const v of fVars) {
+        const k = `${v.tamanho}|${v.cor_id}`;
+        if (seen.has(k)) throw new Error("Há variantes com o mesmo tamanho e cor.");
+        seen.add(k);
+      }
+      const payload = {
+        nome, unidade: fUnidade, empresa_id: fEmpresa, representante_id: fRep,
+        preco: fPreco, observacoes: fObs.trim() || null,
+      };
+      let etqId = editing?.id;
       if (editing) {
         const { error } = await supabase.from("etiquetas" as any).update(payload).eq("id", editing.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from("etiquetas" as any).insert(payload);
+        const { data, error } = await supabase.from("etiquetas" as any).insert(payload).select("id").single();
+        if (error) throw error;
+        etqId = (data as any).id;
+      }
+      // diff das variantes (o trigger acerta etiquetas.preco = MAX das variantes)
+      const existing = editing
+        ? (((await supabase.from("variantes_etiqueta" as any).select("id").eq("etiqueta_id", etqId)).data ?? []) as any[]).map((x) => x.id as string)
+        : [];
+      const keptIds = new Set(fVars.filter((v) => v.id).map((v) => v.id as string));
+      const toDelete = existing.filter((id) => !keptIds.has(id));
+      for (const v of fVars) {
+        const row = { etiqueta_id: etqId, tamanho: v.tamanho || null, cor_id: v.cor_id || null, preco: v.preco };
+        if (v.id) {
+          const { error } = await supabase.from("variantes_etiqueta" as any).update(row).eq("id", v.id);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase.from("variantes_etiqueta" as any).insert(row);
+          if (error) throw error;
+        }
+      }
+      if (toDelete.length) {
+        const { error } = await supabase.from("variantes_etiqueta" as any).delete().in("id", toDelete);
         if (error) throw error;
       }
     },
     onSuccess: () => {
       toast.success(editing ? "Etiqueta atualizada." : "Etiqueta criada.");
-      setOpen(false);
-      invalidate();
+      setOpen(false); invalidate();
     },
     onError: (e: any) =>
-      toast.error(e?.code === "23505" ? "Etiqueta já existe." : mensagemErro(e, "Erro ao salvar.")),
+      toast.error(e?.code === "23505" ? "Etiqueta (ou variante) já existe." : mensagemErro(e, "Erro ao salvar.")),
   });
 
   const delMut = useMutation({
@@ -130,37 +212,28 @@ function EtiquetasPage() {
       const { error } = await supabase.from("etiquetas" as any).delete().eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => {
-      toast.success("Excluída.");
-      setDeleteRow(null);
-      invalidate();
-    },
+    onSuccess: () => { toast.success("Excluída."); setDeleteRow(null); invalidate(); },
     onError: (e: any) =>
-      toast.error(e?.code === "23503" ? "Etiqueta em uso em algum CAD. Remova de lá antes." : mensagemErro(e, "Erro ao excluir.")),
+      toast.error(e?.code === "23503" ? "Etiqueta em uso (CAD/modelo). Remova de lá antes." : mensagemErro(e, "Erro ao excluir.")),
   });
 
-  // Exclusão em MASSA (só admin): tenta apagar cada selecionada; a FK NO ACTION (23503)
-  // barra as em uso — essas são puladas/contadas, sem abortar as demais.
   const selectableIds = useMemo(() => sorted.map((e) => e.id), [sorted]);
   const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set(selectableIds));
-  const toggleOne = (id: string) =>
-    setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const toggleOne = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const bulkDelete = async () => {
     setBulkBusy(true);
     let ok = 0, emUso = 0;
     for (const id of Array.from(selected)) {
       const { error } = await supabase.from("etiquetas" as any).delete().eq("id", id);
-      if (error) { emUso++; continue; } // 23503 (em uso) ou qualquer outro erro: pula
-      ok++;
+      if (error) emUso++; else ok++;
     }
-    setBulkBusy(false);
-    setBulkOpen(false);
-    setSelected(new Set());
-    invalidate();
+    setBulkBusy(false); setBulkOpen(false); setSelected(new Set()); invalidate();
     if (ok > 0) toast.success(`${ok} excluída(s).${emUso > 0 ? ` ${emUso} em uso (não excluída(s)).` : ""}`);
     else toast.error(`Nenhuma excluída${emUso > 0 ? ` — ${emUso} em uso` : ""}.`);
   };
+
+  const fornecedorLabel = (e: Etiqueta) => (e.empresa_id ? empresasMap.get(e.empresa_id) ?? "—" : "—");
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
@@ -169,7 +242,7 @@ function EtiquetasPage() {
         <div>
           <h1 className="text-2xl font-bold">TAG/Etiquetas</h1>
           <p className="text-sm text-muted-foreground">
-            Cadastro de tags / etiquetas. Atrele um tamanho para calcular a quantidade pela grade no CAD.
+            Cadastro de tags / etiquetas com variantes por tamanho × cor, unidade, fornecedor e preço.
           </p>
         </div>
       </header>
@@ -177,12 +250,7 @@ function EtiquetasPage() {
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Buscar etiquetas…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
+          <Input placeholder="Buscar etiquetas…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
         </div>
         {isAdmin && selected.size > 0 && !readOnly && (
           <Button variant="destructive" onClick={() => setBulkOpen(true)}>
@@ -206,7 +274,9 @@ function EtiquetasPage() {
                 </TableHead>
               )}
               <SortHead label="Nome" sortKey="nome" sortState={sortState} />
-              <SortHead label="Tamanho" sortKey="tamanho" sortState={sortState} />
+              <SortHead label="Unidade" sortKey="unidade" sortState={sortState} />
+              <TableHead>Fornecedor</TableHead>
+              <TableHead className="text-right">Preço</TableHead>
               <TableHead className="w-32 text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
@@ -221,21 +291,15 @@ function EtiquetasPage() {
               <TableRow>
                 <TableCell colSpan={colCount} className="p-0">
                   {etiquetas.length === 0 ? (
-                    <EmptyState
-                      icon={Tag}
-                      title="Nenhuma etiqueta cadastrada"
-                      description="Cadastre tags / etiquetas e atrele um tamanho para calcular a quantidade pela grade no CAD."
+                    <EmptyState icon={Tag} title="Nenhuma etiqueta cadastrada"
+                      description="Cadastre tags / etiquetas com variantes por tamanho × cor."
                       action={readOnly ? undefined : { label: "Nova etiqueta", onClick: openCreate }}
-                      className="border-0 bg-transparent"
-                    />
+                      className="border-0 bg-transparent" />
                   ) : (
-                    <EmptyState
-                      icon={Search}
-                      title="Nenhuma etiqueta encontrada"
+                    <EmptyState icon={Search} title="Nenhuma etiqueta encontrada"
                       description="Nenhuma etiqueta corresponde à busca atual."
                       action={{ label: "Limpar busca", onClick: () => setSearch("") }}
-                      className="border-0 bg-transparent"
-                    />
+                      className="border-0 bg-transparent" />
                   )}
                 </TableCell>
               </TableRow>
@@ -244,23 +308,18 @@ function EtiquetasPage() {
                 <TableRow key={e.id} data-state={selected.has(e.id) ? "selected" : undefined}>
                   {isAdmin && (
                     <TableCell className="w-10">
-                      {!readOnly && (
-                        <Checkbox checked={selected.has(e.id)} onCheckedChange={() => toggleOne(e.id)} aria-label="Selecionar" />
-                      )}
+                      {!readOnly && <Checkbox checked={selected.has(e.id)} onCheckedChange={() => toggleOne(e.id)} aria-label="Selecionar" />}
                     </TableCell>
                   )}
                   <TableCell>
-                    <button type="button" className="text-left hover:underline" onClick={() => openEdit(e)}>
-                      {e.nome}
-                    </button>
+                    <button type="button" className="text-left hover:underline font-medium" onClick={() => openEdit(e)}>{e.nome}</button>
+                    {e.n_variantes > 0 && <Badge variant="secondary" className="ml-2">{e.n_variantes} var.</Badge>}
                   </TableCell>
-                  <TableCell>
-                    {e.tamanho ? <Badge variant="secondary">{fmtTamanho(e.tamanho)}</Badge> : <span className="text-muted-foreground">—</span>}
-                  </TableCell>
+                  <TableCell className="capitalize">{e.unidade}</TableCell>
+                  <TableCell className="text-muted-foreground">{fornecedorLabel(e)}</TableCell>
+                  <TableCell className="text-right">{e.preco != null ? `R$ ${fmtNum(e.preco)}` : "—"}</TableCell>
                   <TableCell className="text-right">
-                    <Button size="icon" variant="ghost" onClick={() => openEdit(e)} aria-label="Editar">
-                      <Pencil className="h-4 w-4" />
-                    </Button>
+                    <Button size="icon" variant="ghost" onClick={() => openEdit(e)} aria-label="Editar"><Pencil className="h-4 w-4" /></Button>
                     <Button size="icon" variant="ghost" onClick={() => setDeleteRow(e)} disabled={readOnly} aria-label="Excluir">
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
@@ -278,34 +337,78 @@ function EtiquetasPage() {
 
       {/* Criar / editar */}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
+        <DialogContent className="sm:max-w-2xl max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
           <DialogHeader className="max-sm:shrink-0">
             <DialogTitle>{editing ? "Editar etiqueta" : "Nova etiqueta"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3 py-2 max-sm:min-h-0 max-sm:overflow-y-auto">
-            <div className="space-y-1.5">
-              <Label>Nome</Label>
-              <Input
-                autoFocus
-                value={formNome}
-                onChange={(e) => setFormNome(e.target.value)}
-                placeholder="Ex: Etiqueta de composição"
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); saveMut.mutate(); } }}
-                disabled={readOnly}
-              />
+          <div className="space-y-4 py-2 max-sm:min-h-0 max-sm:overflow-y-auto">
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>Nome</Label>
+                <Input autoFocus value={fNome} onChange={(e) => setFNome(e.target.value)} placeholder="Ex: Etiqueta de composição" disabled={readOnly} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Unidade</Label>
+                <Select value={fUnidade} onValueChange={setFUnidade} disabled={readOnly}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{UNIDADES.map((u) => <SelectItem key={u} value={u} className="capitalize">{u}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Preço base (R$)</Label>
+                <div className="flex items-center gap-2">
+                  <NumberInput type="number" step="0.01" placeholder="0,00" value={fPreco ?? ""} onChange={(e) => setFPreco(e.target.value === "" ? null : Number(e.target.value))} disabled={readOnly} />
+                  {fVars.length > 0 && !readOnly && (
+                    <Button type="button" variant="link" className="px-0 h-auto shrink-0" onClick={aplicarPrecoTodas}>Aplicar a todas</Button>
+                  )}
+                </div>
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <Label>Fornecedor</Label>
+                <FornecedorSelect empresas={empresas} empresaId={fEmpresa} representanteId={fRep}
+                  onChange={(emp, rep) => { setFEmpresa(emp); setFRep(rep); }} disabled={readOnly} placeholder="Sem fornecedor" />
+              </div>
             </div>
+
+            {/* Variantes: matriz tamanho × cor */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Variantes (tamanho × cor)</Label>
+                {!readOnly && <Button type="button" variant="outline" size="sm" onClick={addVar}><Plus className="h-4 w-4 mr-1" /> Variante</Button>}
+              </div>
+              {fVars.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Sem variantes. A etiqueta usa só o preço base.</p>
+              ) : (
+                <div className="space-y-2">
+                  {fVars.map((v, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <Select value={v.tamanho || SEM} onValueChange={(val) => updVar(i, { tamanho: val === SEM ? "" : val })} disabled={readOnly}>
+                        <SelectTrigger className="flex-1"><SelectValue placeholder="Tamanho" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={SEM}>Sem tamanho</SelectItem>
+                          {tamanhos.map((t) => <SelectItem key={t} value={t}>{fmtTamanho(t)}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <Select value={v.cor_id || SEM} onValueChange={(val) => updVar(i, { cor_id: val === SEM ? "" : val })} disabled={readOnly}>
+                        <SelectTrigger className="flex-1"><SelectValue placeholder="Cor" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={SEM}>Sem cor</SelectItem>
+                          {cores.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <NumberInput type="number" step="0.01" placeholder="0,00" className="w-24" value={v.preco ?? ""}
+                        onChange={(e) => updVar(i, { preco: e.target.value === "" ? null : Number(e.target.value) })} disabled={readOnly} />
+                      {!readOnly && <Button type="button" size="icon" variant="ghost" onClick={() => rmVar(i)} aria-label="Remover"><X className="h-4 w-4" /></Button>}
+                    </div>
+                  ))}
+                  <p className="text-xs text-muted-foreground">O preço base da etiqueta vira o maior preço entre as variantes.</p>
+                </div>
+              )}
+            </div>
+
             <div className="space-y-1.5">
-              <Label>Tamanho (opcional)</Label>
-              <Select value={formTamanho || "none"} onValueChange={(v) => setFormTamanho(v === "none" ? "" : v)} disabled={readOnly}>
-                <SelectTrigger><SelectValue placeholder="Sem tamanho" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Sem tamanho</SelectItem>
-                  {tamanhos.map((t) => <SelectItem key={t} value={t}>{fmtTamanho(t)}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Atrelado a um tamanho, a Qtd Planejada no CAD = consumo × grade desse tamanho.
-              </p>
+              <Label>Observações</Label>
+              <Input value={fObs} onChange={(e) => setFObs(e.target.value)} placeholder="Opcional" disabled={readOnly} />
             </div>
           </div>
           <DialogFooter className="max-sm:shrink-0 max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
@@ -323,38 +426,26 @@ function EtiquetasPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir etiqueta?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Tem certeza que deseja excluir <strong>{deleteRow?.nome}</strong>?
-            </AlertDialogDescription>
+            <AlertDialogDescription>Tem certeza que deseja excluir <strong>{deleteRow?.nome}</strong>? As variantes também serão removidas.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => { e.preventDefault(); if (deleteRow) delMut.mutate(deleteRow.id); }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Excluir
-            </AlertDialogAction>
+            <AlertDialogAction onClick={(e) => { e.preventDefault(); if (deleteRow) delMut.mutate(deleteRow.id); }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Excluir</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Exclusão em massa (só admin — ver gate no botão/coluna de checkbox). */}
       <AlertDialog open={bulkOpen} onOpenChange={(o) => { if (!o && !bulkBusy) setBulkOpen(false); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir {selected.size} etiqueta(s)?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Etiquetas em uso em algum CAD são puladas (não excluídas). Esta ação não pode ser desfeita.
-            </AlertDialogDescription>
+            <AlertDialogDescription>Etiquetas em uso (CAD/modelo) são puladas. Esta ação não pode ser desfeita.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={bulkBusy}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => { e.preventDefault(); bulkDelete(); }}
-              disabled={bulkBusy}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
+            <AlertDialogAction onClick={(e) => { e.preventDefault(); bulkDelete(); }} disabled={bulkBusy}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               {bulkBusy ? "Excluindo…" : `Excluir ${selected.size}`}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -362,9 +453,7 @@ function EtiquetasPage() {
       </AlertDialog>
 
       <MobileActionBar>
-        <Button onClick={openCreate} className="ml-auto" disabled={readOnly}>
-          <Plus className="h-4 w-4 mr-1" /> Novo
-        </Button>
+        <Button onClick={openCreate} className="ml-auto" disabled={readOnly}><Plus className="h-4 w-4 mr-1" /> Novo</Button>
       </MobileActionBar>
     </div>
   );
