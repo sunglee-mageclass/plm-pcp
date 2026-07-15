@@ -730,6 +730,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
       somaCustosAdicionais((modelo as any)?.custos_adicionais),
     [tecidos, aviamentos, modelo],
   );
+  const custosAdicionaisPeca = somaCustosAdicionais((modelo as any)?.custos_adicionais);
 
   // Cálculo automático (quando ligado): por variante, qtd de folhas e metragem
   // planejada; por tecido, tamanho da folha. Tudo derivado de consumo + grade +
@@ -891,6 +892,11 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
               <b className="text-primary">{custoRealPeca.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</b>
               <span className="text-xs text-muted-foreground">/ peça</span>
             </div>
+            {custosAdicionaisPeca > 0 && (
+              <div className="mt-1 text-xs text-muted-foreground">
+                inclui custos adicionais: {custosAdicionaisPeca.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+              </div>
+            )}
           </div>
         </Card>
 

@@ -493,8 +493,8 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
   );
   const servicoPorPeca = gradeTotalGeral > 0 ? servicoTotal / gradeTotalGeral : 0;
   // + custos adicionais do modelo (seguem para frente desde o Desenvolvimento — src/lib/custo.ts).
-  const custoRealPeca =
-    (Number(materiaisPorPeca) || 0) + servicoPorPeca + somaCustosAdicionais((modelo as any)?.custos_adicionais);
+  const custosAdicionaisPeca = somaCustosAdicionais((modelo as any)?.custos_adicionais);
+  const custoRealPeca = (Number(materiaisPorPeca) || 0) + servicoPorPeca + custosAdicionaisPeca;
 
   const saveMut = useMutation({
     mutationFn: async () => {
@@ -703,9 +703,15 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
         </div>
         <div>
           <Label className="text-xs text-muted-foreground">Custo real (c/ serviço) / peça</Label>
-          <div className="mt-1 text-sm font-bold text-primary" title={`Materiais CAD ${brl(Number(materiaisPorPeca) || 0)} + serviço ${brl(servicoPorPeca)}`}>
+          <div
+            className="mt-1 text-sm font-bold text-primary"
+            title={`Materiais CAD ${brl(Number(materiaisPorPeca) || 0)} + serviço ${brl(servicoPorPeca)}${custosAdicionaisPeca > 0 ? ` + adicionais ${brl(custosAdicionaisPeca)}` : ""}`}
+          >
             {brl(custoRealPeca)}
           </div>
+          {custosAdicionaisPeca > 0 && (
+            <div className="text-xs text-muted-foreground">inclui custos adicionais: {brl(custosAdicionaisPeca)}</div>
+          )}
         </div>
       </Card>
 
