@@ -208,6 +208,11 @@ e verifique** — o repo muda rápido.
    `set_artigo_categorias` (atômico).
 5. **Rolos** — `ocs_tecido.is_rolo` (estoque físico por rolo); RPC `criar_rolo`; separar =
    baixa `separacao_rolo` (reversível); `modo_oc_rolo` filtra o que aparece no Desenvolvimento.
+   ⚠️ **Excluir rolo é SÓ via RPC com guarda** `excluir_rolo` (`_rolo_em_uso` = EXISTS baixa no
+   item do rolo OU vínculo de Dev → RAISE). O `.delete()` cru em `ocs_tecido` cascateava
+   `ocs_tecido_itens → estoque_tecido_baixas` (ON DELETE CASCADE) e apagava o LEDGER em silêncio
+   p/ rolo consumido/vinculado (mesma classe do #4). Rolo livre exclui ok (a baixa `separacao_rolo`
+   fica no item de ORIGEM e volta pra OC via cascade do `rolo_id`).
 6. **CQ** — `salvar_cq`/`desmarcar_cq` fazem status + `cq_variantes` + grade real numa txn.
    `salvar_cad_completo` PRESERVA a grade real quando o CQ do CAD está confirmado. CQ de
    tecido em `ocs_tecido_itens.cq_*` + página Alertas (`cq_alerta_status`: troca/cancelar).

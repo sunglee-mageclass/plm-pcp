@@ -390,7 +390,9 @@ export function RolosList() {
 
   const excluir = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("ocs_tecido").delete().eq("id", id);
+      // Via RPC com guarda (_rolo_em_uso): o `.delete()` cru cascateava e apagava o ledger
+      // de estoque (estoque_tecido_baixas) em silêncio p/ rolo consumido/vinculado. Invariante #4/#5.
+      const { error } = await supabase.rpc("excluir_rolo" as never, { _rolo_id: id } as never);
       if (error) throw error;
     },
     onSuccess: () => {
