@@ -342,9 +342,15 @@ function PlanejamentoPage() {
       return m;
     },
   });
-  // "lançado" | "pronto" (CQ liberado e ainda não lançado) | null — p/ filtro e badge.
-  const lancStatusDe = (m: Modelo): "lancado" | "pronto" | null =>
-    m.lancado ? "lancado" : ((cqProntoMap as Record<string, boolean>)[m.id] ? "pronto" : null);
+  // "lançado" | "pronto" | null — p/ filtro e badge. "pronto" = mesmo gate do botão
+  // Lançar: CQ liberado E valor dos serviços externos aprovado, e ainda não lançado.
+  const lancStatusDe = (m: Modelo): "lancado" | "pronto" | null => {
+    if (m.lancado) return "lancado";
+    const cqOk = !!(cqProntoMap as Record<string, boolean>)[m.id];
+    const a = (aprovacaoMap as any)[m.id];
+    const servicoOk = !(a?.tem && !a?.todos); // sem serviço externo ou todos aprovados
+    return cqOk && servicoOk ? "pronto" : null;
+  };
 
   const colecoes = useMemo(() => {
     const s = new Set<string>();
@@ -1024,6 +1030,19 @@ function ModeloDialog({
   // gate do Direcionamento (predicado único em @/lib/cq-status).
   const cqConfirmado = cqLiberado(cqInfo as any);
 
+  // Aprovação do VALOR dos serviços externos (mesma fonte da bolinha do card:
+  // servico_aprovacao_por_modelo). {tem, todos} → pendente = tem externo e nem todos aprovados.
+  const { data: servicoAprov } = useQuery({
+    queryKey: ["plan-servico-aprov", modeloId],
+    enabled: !!modeloId,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("servico_aprovacao_por_modelo" as any, { _ids: [modeloId] });
+      if (error) throw error;
+      return ((data ?? {}) as Record<string, { tem: boolean; todos: boolean }>)[modeloId!] ?? null;
+    },
+  });
+  const servicoValorPendente = !!servicoAprov?.tem && !servicoAprov?.todos;
+
   useQuery({
     queryKey: ["modelo", modeloId],
     enabled: !!modeloId,
@@ -1141,7 +1160,11 @@ function ModeloDialog({
   const lancar = useMutation({
     mutationFn: async (send: boolean) => {
       if (!modeloId) throw new Error("Salve o modelo primeiro.");
-      if (send && !draft.data_lancamento) throw new Error("Preencha a Data de Lançamento.");
+      if (send) {
+        if (!cqConfirmado) throw new Error("Confirme o Controle de Qualidade antes de lançar.");
+        if (servicoValorPendente) throw new Error("Aprove o valor dos serviços antes de lançar.");
+        if (!draft.data_lancamento) throw new Error("Preencha a Data de Lançamento.");
+      }
       const payload = send
         ? { lancado: true, data_lancamento: draft.data_lancamento }
         : { lancado: false };
@@ -1198,6 +1221,13 @@ function ModeloDialog({
   // Condições que faltam p/ Enviar a Ordem de Criação (mostradas no tooltip do botão).
   const enviarBloqueios: string[] = [];
   if (draft.status_planejamento !== "planejado") enviarBloqueios.push('Defina o Status como "Planejado".');
+
+  // O que falta p/ poder Lançar (mesmo gate da mutation `lancar`) — alimenta o tooltip
+  // do botão desabilitado no setor Lançamento.
+  const lancarBloqueios: string[] = [];
+  if (!cqConfirmado) lancarBloqueios.push("Confirme o Controle de Qualidade (Pré e, se houver acabamento, o Pós).");
+  if (servicoValorPendente) lancarBloqueios.push("Aprove o valor dos serviços (em Produção › Serviços).");
+  if (!draft.data_lancamento) lancarBloqueios.push("Preencha a Data de Lançamento.");
 
   return (
     <Sheet open onOpenChange={(o) => !o && onClose()}>
@@ -1378,37 +1408,50 @@ function ModeloDialog({
             </div>
           </Secao>
 
-          {/* SETOR 6 — Lançamento (gate p/ Lançamentos: só após CAD + CQ confirmado) */}
+          {/* SETOR 6 — Lançamento (gate: CAD + CQ liberado + valor de serviços aprovado) */}
           {isEdit && (
             <Secao titulo="Lançamento">
-              {cqConfirmado ? (
-                <div className="flex flex-wrap items-end gap-3">
-                  <div className="grid gap-1 flex-1 min-w-[180px]">
-                    <Label>Data de Lançamento</Label>
-                    {/* Editável aqui também: a data real pode não se cumprir, então o
-                        usuário ajusta no próprio setor Lançamento (Salvar persiste). */}
-                    <DateField
-                      value={draft.data_lancamento ?? ""}
-                      onChange={(e) => setDraft((d) => ({ ...d, data_lancamento: e.target.value || null }))}
-                    />
-                  </div>
-                  {lancado ? (
-                    <Button variant="outline" onClick={() => lancar.mutate(false)} disabled={lancar.isPending}>
-                      Cancelar Lançamento
-                    </Button>
-                  ) : (
-                    <Button
-                      onClick={() => lancar.mutate(true)}
-                      disabled={lancar.isPending || !draft.data_lancamento}
-                      title={!draft.data_lancamento ? "Preencha a Data de Lançamento" : undefined}
-                    >
-                      Lançar
-                    </Button>
-                  )}
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="grid gap-1 flex-1 min-w-[180px]">
+                  <Label>Data de Lançamento</Label>
+                  {/* Editável aqui também: a data real pode não se cumprir, então o
+                      usuário ajusta no próprio setor Lançamento (Salvar persiste). */}
+                  <DateField
+                    value={draft.data_lancamento ?? ""}
+                    onChange={(e) => setDraft((d) => ({ ...d, data_lancamento: e.target.value || null }))}
+                  />
                 </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">Disponível após o CAD e o Controle de Qualidade confirmado.</p>
-              )}
+                {lancado ? (
+                  <Button variant="outline" onClick={() => lancar.mutate(false)} disabled={lancar.isPending}>
+                    Cancelar Lançamento
+                  </Button>
+                ) : (
+                  <TooltipProvider>
+                    <Tooltip>
+                      {/* Botão desabilitado não dispara title nativo — o span recebe o
+                          hover e o tooltip lista o que falta para lançar. */}
+                      <TooltipTrigger asChild>
+                        <span className="inline-flex">
+                          <Button
+                            onClick={() => lancar.mutate(true)}
+                            disabled={lancar.isPending || lancarBloqueios.length > 0}
+                          >
+                            Lançar
+                          </Button>
+                        </span>
+                      </TooltipTrigger>
+                      {lancarBloqueios.length > 0 && (
+                        <TooltipContent className="max-w-[260px]">
+                          <p className="font-medium">Para lançar, falta:</p>
+                          <ul className="mt-1 list-disc pl-4">
+                            {lancarBloqueios.map((b) => <li key={b}>{b}</li>)}
+                          </ul>
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+              </div>
               {lancado && <p className="mt-2 text-xs text-emerald-600">✓ Lançado — aparece em Lançamentos.</p>}
             </Secao>
           )}
