@@ -109,32 +109,43 @@ export function FichaTecnica({ modeloId }: { modeloId: string }) {
         </table>
       </div>
 
-      {/* Explosão de TAG/Etiquetas */}
+      {/* Explosão de Insumos */}
       {d.etiquetas.length > 0 && (
         <div className="print-section" style={{ marginTop: 10 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>TAG/Etiquetas</h3>
+          <h3 style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>Insumos</h3>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, marginTop: 4 }}>
             <thead>
               <tr style={{ background: "#eee" }}>
-                <th style={cellH}>Etiqueta</th>
+                <th style={cellH}>Insumo</th>
+                <th style={cellH}>Cor</th>
                 <th style={cellH}>Tamanho</th>
-                <th style={cellH}>Consumo</th>
-                <th style={cellH}>Quantidade Planejada</th>
-                <th style={cellH}>Quantidade a Enviar</th>
+                <th style={cellH}>Qtd Planejada</th>
+                <th style={cellH}>Qtd a Enviar</th>
               </tr>
             </thead>
             <tbody>
-              {d.etiquetas.map((e, i) => {
-                const base = e.tamanho ? gradeSumT(e.tamanho) : d.gradeTotalGeral;
-                return (
-                  <tr key={i}>
-                    <td style={cell}>{e.etiqueta_nome ?? ""}</td>
-                    <td style={cell}>{fmtTam(e.tamanho)}</td>
-                    <td style={cell}>{fmt(e.consumo)}</td>
-                    <td style={cell}>{fmt(e.consumo * base)}</td>
-                    <td style={cell}>{fmt(e.quantidade_enviar)}</td>
+              {d.etiquetas.flatMap((e, i) => {
+                const tams = Object.keys(e.enviarPorTamanho ?? {}).sort();
+                if (tams.length === 0) {
+                  return [(
+                    <tr key={i}>
+                      <td style={cell}>{e.etiqueta_nome ?? ""}</td>
+                      <td style={cell}>{e.cor_nome ?? "—"}</td>
+                      <td style={cell}>Geral</td>
+                      <td style={cell}>{fmt(e.consumo * d.gradeTotalGeral)}</td>
+                      <td style={cell}>{fmt(e.quantidade_enviar)}</td>
+                    </tr>
+                  )];
+                }
+                return tams.map((t, j) => (
+                  <tr key={`${i}-${j}`}>
+                    <td style={cell}>{j === 0 ? (e.etiqueta_nome ?? "") : ""}</td>
+                    <td style={cell}>{j === 0 ? (e.cor_nome ?? "—") : ""}</td>
+                    <td style={cell}>{fmtTam(t)}</td>
+                    <td style={cell}>{fmt(e.consumo * gradeSumT(t))}</td>
+                    <td style={cell}>{fmt(e.enviarPorTamanho[t] ?? 0)}</td>
                   </tr>
-                );
+                ));
               })}
             </tbody>
           </table>

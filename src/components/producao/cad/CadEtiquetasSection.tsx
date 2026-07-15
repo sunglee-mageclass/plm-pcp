@@ -39,12 +39,12 @@ export function CadEtiquetasSection({
   return (
     <Card className="p-5 max-md:p-3 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="font-semibold flex items-center gap-2"><Tag className="h-4 w-4" /> TAG/Etiquetas</h2>
+        <h2 className="font-semibold flex items-center gap-2"><Tag className="h-4 w-4" /> Explosão de Insumos</h2>
         <Select value="" onValueChange={(v) => v && onAdd(v)}>
           <SelectTrigger className="h-8 w-56 max-md:w-full"><SelectValue placeholder="Adicionar etiqueta…" /></SelectTrigger>
           <SelectContent>
             {disponiveis.length === 0 ? (
-              <div className="p-2 text-xs text-muted-foreground">Cadastre em Cadastro &gt; TAG/Etiquetas.</div>
+              <div className="p-2 text-xs text-muted-foreground">Cadastre em Cadastro &gt; Insumos.</div>
             ) : (
               disponiveis.map((d) => <SelectItem key={d.id} value={d.id}>{d.nome}</SelectItem>)
             )}

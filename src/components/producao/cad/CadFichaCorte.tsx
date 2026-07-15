@@ -193,29 +193,40 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
 
           {(etiquetas ?? []).length > 0 && (
             <>
-              <h3 style={{ fontSize: 14, fontWeight: 600, marginTop: 10 }}>TAG/Etiquetas</h3>
+              <h3 style={{ fontSize: 14, fontWeight: 600, marginTop: 10 }}>Insumos</h3>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, marginTop: 4 }}>
                 <thead>
                   <tr style={{ background: "#eee" }}>
-                    <th style={cellH}>Etiqueta</th>
+                    <th style={cellH}>Insumo</th>
+                    <th style={cellH}>Cor</th>
                     <th style={cellH}>Tamanho</th>
-                    <th style={cellH}>Consumo</th>
-                    <th style={cellH}>Quantidade Planejada</th>
-                    <th style={cellH}>Quantidade a Enviar</th>
+                    <th style={cellH}>Qtd Planejada</th>
+                    <th style={cellH}>Qtd a Enviar</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(etiquetas ?? []).map((e, i) => {
-                    const base = e.tamanho ? gradeSumT(e.tamanho) : totalGeral;
-                    return (
-                      <tr key={i}>
-                        <td style={cell}>{e.etiqueta_nome ?? ""}</td>
-                        <td style={cell}>{fmtTam(e.tamanho)}</td>
-                        <td style={cell}>{fmt2(e.consumo)}</td>
-                        <td style={cell}>{fmt2(e.consumo * base)}</td>
-                        <td style={cell}>{fmt2(e.quantidade_enviar)}</td>
+                  {(etiquetas ?? []).flatMap((e, i) => {
+                    const tams = Object.keys(e.enviarPorTamanho ?? {}).sort();
+                    if (tams.length === 0) {
+                      return [(
+                        <tr key={i}>
+                          <td style={cell}>{e.etiqueta_nome ?? ""}</td>
+                          <td style={cell}>{e.cor_nome ?? "—"}</td>
+                          <td style={cell}>Geral</td>
+                          <td style={cell}>{fmt2(e.consumo * totalGeral)}</td>
+                          <td style={cell}>{fmt2(e.quantidade_enviar)}</td>
+                        </tr>
+                      )];
+                    }
+                    return tams.map((t, j) => (
+                      <tr key={`${i}-${j}`}>
+                        <td style={cell}>{j === 0 ? (e.etiqueta_nome ?? "") : ""}</td>
+                        <td style={cell}>{j === 0 ? (e.cor_nome ?? "—") : ""}</td>
+                        <td style={cell}>{fmtTam(t)}</td>
+                        <td style={cell}>{fmt2(e.consumo * gradeSumT(t))}</td>
+                        <td style={cell}>{fmt2(e.enviarPorTamanho[t] ?? 0)}</td>
                       </tr>
-                    );
+                    ));
                   })}
                 </tbody>
               </table>

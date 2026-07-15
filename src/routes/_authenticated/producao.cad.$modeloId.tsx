@@ -596,6 +596,12 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
     grades.forEach((g) => Object.entries(g.grades ?? {}).forEach(([t, q]) => { if ((Number(q) || 0) > 0) s.add(t); }));
     return Array.from(s).sort();
   }, [grades]);
+  // Etiquetas com nome da cor p/ a impressão (a Ficha explode por tamanho).
+  const etiquetasPrint = useMemo(() => etiquetas.map((e) => {
+    const info = (etiquetasDisponiveis as any[]).find((d) => d.id === e.etiqueta_id);
+    const cor = ((info?.variantes ?? []) as any[]).find((v) => (v.cor_id ?? null) === (e.cor_id ?? null));
+    return { ...e, cor_nome: cor?.cor_nome ?? null };
+  }), [etiquetas, etiquetasDisponiveis]);
   const updateEtiqueta = (i: number, patch: Partial<EtiquetaRow>) => {
     setEtiquetas((prev) => prev.map((e, j) => (j === i ? { ...e, ...patch } : e)));
   };
@@ -1048,7 +1054,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
         grades={grades}
         tamanhosAll={tamanhosAll}
         aviamentos={aviamentos}
-        etiquetas={etiquetas}
+        etiquetas={etiquetasPrint}
         gradeTotalGeral={gradeTotalGeral}
         labelByNumero={gradeLabelByNumero}
         ocLinksByKey={ocLinksByKey}

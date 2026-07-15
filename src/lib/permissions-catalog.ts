@@ -22,7 +22,7 @@ export const PAGES_CATALOG: ModuleDef[] = [
       { key: "cadastro_servico", label: "Fornecedores" },
       { key: "cadastro_tecidos", label: "Tecidos" },
       { key: "cadastro_aviamentos", label: "Aviamentos" },
-      { key: "cadastro_etiquetas", label: "TAG/Etiquetas", modes: ["full"] },
+      { key: "cadastro_etiquetas", label: "Insumos", modes: ["full"] },
       { key: "cadastro_destinos", label: "Destinos", modes: ["stock"] },
     ],
   },

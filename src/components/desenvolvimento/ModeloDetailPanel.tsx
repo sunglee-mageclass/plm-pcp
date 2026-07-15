@@ -1134,7 +1134,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           </AccordionItem>
 
           <AccordionItem value="s3e">
-            <AccordionTrigger>5. TAG/Etiquetas</AccordionTrigger>
+            <AccordionTrigger>5. Insumos</AccordionTrigger>
             <AccordionContent>
               <ModeloEtiquetasSection
                 rows={etiquetasState}

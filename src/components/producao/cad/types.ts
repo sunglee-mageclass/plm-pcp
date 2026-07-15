@@ -59,6 +59,7 @@ export type EtiquetaRow = {
   // Cor escolhida (do BOM/CAD). O tamanho NÃO é fixo por linha: explode pela grade
   // (uma qtd por tamanho), usando a variante (tamanho, cor). `tamanho` legado (mantido).
   cor_id: string | null;
+  cor_nome?: string | null;
   tamanho: string | null;
   consumo: number;
   quantidade_planejada: number;
