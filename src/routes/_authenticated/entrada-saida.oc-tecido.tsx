@@ -572,6 +572,10 @@ function OcDialog({
   const setPreco = (tempId: string, v: number | null) => {
     setItems((prev) => prev.map((i) => i.tempId === tempId ? { ...i, preco: v } : i));
   };
+  // Preço do tecido (n) aplicado a TODAS as variantes daquele tecido na OC.
+  const setPrecoAll = (n: 1 | 2, v: number | null) => {
+    setItems((prev) => prev.map((i) => i.artigo_numero === n && i.variante_tecido_id ? { ...i, preco: v } : i));
+  };
   // Rendimento é por tecido: aplica o valor a todos os itens do mesmo artigo_numero.
   const setRendimento = (n: 1 | 2, v: number | null) => {
     setItems((prev) => prev.map((i) => i.artigo_numero === n ? { ...i, rendimento: v } : i));
@@ -929,6 +933,7 @@ function OcDialog({
             toggleVariante={toggleVariante}
             setQtd={setQtd}
             setPreco={setPreco}
+            setPrecoAll={setPrecoAll}
             setRendimento={setRendimento}
             tecido2Aberto={tecido2Aberto}
             setTecido2Aberto={setTecido2Aberto}

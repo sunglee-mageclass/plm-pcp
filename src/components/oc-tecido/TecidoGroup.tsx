@@ -1,13 +1,15 @@
+import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { artigoLabel, unidadeSufixo } from "@/lib/artigo-label";
 import { labelVariante, type Artigo, type ItemDraft, type Variante } from "./shared";
 
 export function TecidoGroup({
-  n, artigos, artigoId, onArtigoChange, variantes, items, toggleVariante, setQtd, setPreco, setRendimento, varianteMap,
+  n, artigos, artigoId, onArtigoChange, variantes, items, toggleVariante, setQtd, setPreco, setPrecoAll, setRendimento, varianteMap,
 }: {
   n: 1 | 2;
   artigos: Artigo[];
@@ -18,6 +20,7 @@ export function TecidoGroup({
   toggleVariante: (vid: string, checked: boolean) => void;
   setQtd: (tempId: string, field: "quantidade_pedida" | "quantidade_recebida", v: number | null) => void;
   setPreco: (tempId: string, v: number | null) => void;
+  setPrecoAll: (v: number | null) => void;
   setRendimento: (v: number | null) => void;
   varianteMap: Record<string, Variante>;
 }) {
@@ -25,6 +28,9 @@ export function TecidoGroup({
   const artigoAtual = artigos.find((a) => a.id === artigoId) ?? null;
   const sufixo = unidadeSufixo(artigoAtual?.unidade_medida);
   const isKg = artigoAtual?.unidade_medida === "kg";
+  // Preço do tecido (referência do cadastro) + "Aplicar a todos" — preenche todas as variantes.
+  const [precoTecido, setPrecoTecido] = useState<number | null>(artigoAtual?.preco ?? null);
+  useEffect(() => { setPrecoTecido(artigoAtual?.preco ?? null); }, [artigoAtual?.preco]);
 
   return (
     <Card className="p-4 space-y-3">
@@ -77,6 +83,21 @@ export function TecidoGroup({
 
           {items.length > 0 && (
             <div className="space-y-2">
+              {/* Preço do tecido (default = cadastro) + "Aplicar a todos" as variantes desta OC. */}
+              <div className="flex items-end gap-2">
+                <div className="flex-1 space-y-1">
+                  <Label>Preço do tecido</Label>
+                  <div className="relative">
+                    <NumberInput type="number" step="0.01" placeholder="0,00" className="pl-7"
+                      value={precoTecido ?? undefined}
+                      onChange={(e) => setPrecoTecido(e.target.value === "" ? null : Number(e.target.value))} />
+                    <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">R$</span>
+                  </div>
+                </div>
+                <Button type="button" variant="outline" onClick={() => setPrecoAll(precoTecido)}>
+                  Aplicar a todos
+                </Button>
+              </div>
               <div className="flex items-center gap-3">
                 <Label className="flex-1">Quantidade e preço</Label>
                 <span className="w-32 text-xs text-muted-foreground">Qtd</span>
