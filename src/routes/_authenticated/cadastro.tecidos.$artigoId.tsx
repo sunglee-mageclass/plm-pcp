@@ -58,6 +58,14 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { useReadOnly } from "@/components/RequirePermission";
 
+// Datas antigas do histórico foram gravadas com offset '+00' (não-ISO) → new Date() dava
+// Invalid Date. Normaliza '+00' → '+00:00' antes de parsear (o trigger novo já grava certo).
+function fmtDataHora(v: unknown): string {
+  if (!v) return "";
+  const d = new Date(String(v).replace(/([+-]\d{2})$/, "$1:00"));
+  return isNaN(d.getTime()) ? "" : d.toLocaleString("pt-BR");
+}
+
 export const Route = createFileRoute("/_authenticated/cadastro/tecidos/$artigoId")({
   component: TecidoDetailPage,
 });
@@ -541,7 +549,7 @@ export function TecidoDetail({ artigoId, onClose }: { artigoId: string; onClose:
                     }).format(Number(h.preco))}
                   </span>
                   <span className="text-xs text-muted-foreground">
-                    {h.data ? new Date(h.data).toLocaleString("pt-BR") : ""}
+                    {fmtDataHora(h.data)}
                   </span>
                 </li>
               ))}
