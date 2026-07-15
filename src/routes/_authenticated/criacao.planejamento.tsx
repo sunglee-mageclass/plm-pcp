@@ -1351,8 +1351,12 @@ function ModeloDialog({
                 <div className="flex flex-wrap items-end gap-3">
                   <div className="grid gap-1 flex-1 min-w-[180px]">
                     <Label>Data de Lançamento</Label>
-                    {/* Editada no setor Coleção; aqui só confirma o que vai ser lançado. */}
-                    <DateField value={draft.data_lancamento ?? ""} readOnly className="bg-muted" />
+                    {/* Editável aqui também: a data real pode não se cumprir, então o
+                        usuário ajusta no próprio setor Lançamento (Salvar persiste). */}
+                    <DateField
+                      value={draft.data_lancamento ?? ""}
+                      onChange={(e) => setDraft((d) => ({ ...d, data_lancamento: e.target.value || null }))}
+                    />
                   </div>
                   {lancado ? (
                     <Button variant="outline" onClick={() => lancar.mutate(false)} disabled={lancar.isPending}>
