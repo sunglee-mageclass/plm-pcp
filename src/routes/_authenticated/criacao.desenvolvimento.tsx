@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Hammer, ImageIcon, ChevronRight, ChevronsDownUp, ChevronsUpDown, Group } from "lucide-react";
+import { Hammer, ImageIcon, ChevronRight, ChevronDown, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ModeloDetailPanel } from "@/components/desenvolvimento/ModeloDetailPanel";
 import { ImagePreview } from "@/components/shared/ImagePreview";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
-import { FilterButton, SearchToggle } from "@/components/shared/filters";
+import { FilterButton, SearchToggle, AgrupamentoButton } from "@/components/shared/filters";
 import { useCursorTip } from "@/components/shared/CursorTip";
 import { useSort } from "@/components/shared/sort";
 
@@ -68,18 +68,9 @@ const SORT_FIELDS = [
   { key: "created_at", label: "Data" },
 ] as const;
 
-// Dimensões de agrupamento DENTRO de cada coluna de status. "tecido" = default.
-const GROUP_FIELDS = [
-  { id: "tecido", nome: "Tecido" },
-  { id: "categoria", nome: "Categoria" },
-  { id: "colecao", nome: "Coleção" },
-  { id: "linha", nome: "Linha" },
-  { id: "estilista", nome: "Estilista" },
-  { id: "none", nome: "Sem agrupamento" },
-] as const;
-const SEM_LABEL: Record<string, string> = {
-  tecido: "Sem tecido", categoria: "Sem categoria", colecao: "Sem coleção", linha: "Sem linha", estilista: "Sem estilista",
-};
+// Agrupamento combinável DENTRO de cada coluna de status (mesmo padrão do Planejamento). Por
+// enquanto só "tecido"; adicionar dimensão = +splitter + +item no AgrupamentoButton. Persiste
+// os agrupamentos ativos (lista) por usuário.
 const GROUPBY_LS = "desenv-groupby";
 
 function useOpts(table: string, key = "nome") {
@@ -130,14 +121,20 @@ function DesenvolvimentoPage() {
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
-  // Agrupamento dentro de cada status (default: por tecido); persiste por usuário.
-  const [groupBy, setGroupBy] = useState<string>(() => {
-    try { return localStorage.getItem(GROUPBY_LS) || "tecido"; } catch { return "tecido"; }
+  // Agrupamento combinável (igual Planejamento) DENTRO de cada status. Por ora só Tecido; default ON.
+  const [groupByTecido, setGroupByTecido] = useState<boolean>(() => {
+    try { return (localStorage.getItem(GROUPBY_LS) ?? "tecido").includes("tecido"); } catch { return true; }
   });
-  const changeGroupBy = (v: string) => {
-    setGroupBy(v);
-    try { localStorage.setItem(GROUPBY_LS, v); } catch { /* ignore */ }
-  };
+  const toggleTecido = () => setGroupByTecido((v) => {
+    const nv = !v;
+    try { localStorage.setItem(GROUPBY_LS, nv ? "tecido" : ""); } catch { /* ignore */ }
+    return nv;
+  });
+  // Colapso por grupo — path = "status/grupo[/subgrupo…]" (sessão, igual Planejamento).
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const toggleGroup = (path: string) => setCollapsedGroups((prev) => {
+    const n = new Set(prev); n.has(path) ? n.delete(path) : n.add(path); return n;
+  });
   const toggleCollapse = (key: string) => setCollapsed((prev) => {
     const n = new Set(prev);
     n.has(key) ? n.delete(key) : n.add(key);
@@ -151,7 +148,6 @@ function DesenvolvimentoPage() {
   const { data: meses = [] } = useOpts("meses", "mes");
   const { data: anos = [] } = useOpts("anos", "ano");
   const { data: grupos = [] } = useOpts("grupos_produto");
-  const { data: linhas = [] } = useOpts("linhas");
   const { data: categorias = [] } = useQuery({
     queryKey: ["opt", "categorias_produto", "com-grupo"],
     queryFn: async () => {
@@ -288,33 +284,76 @@ function DesenvolvimentoPage() {
 
   const estMap = Object.fromEntries(estilistas.map((e) => [e.id, e.nome]));
   const catMap = Object.fromEntries(categorias.map((c) => [c.id, c.nome]));
-  const linhaMap = Object.fromEntries(linhas.map((l) => [l.id, l.nome]));
 
-  // Rótulo do grupo de um modelo na dimensão atual (fallback "Sem X").
-  const groupLabelOf = (m: Modelo): string => {
-    switch (groupBy) {
-      case "tecido": return tecidoPrincipalMap.get(m.id) ?? SEM_LABEL.tecido;
-      case "categoria": return (m.categoria_principal_id ? catMap[m.categoria_principal_id] : null) ?? SEM_LABEL.categoria;
-      case "colecao": return m.colecao || SEM_LABEL.colecao;
-      case "linha": return (m.linha_id ? linhaMap[m.linha_id] : null) ?? SEM_LABEL.linha;
-      case "estilista": return (m.estilista_id ? estMap[m.estilista_id] : null) ?? SEM_LABEL.estilista;
-      default: return "";
-    }
-  };
-  // Agrupa os cards de UMA coluna. "none" → 1 grupo sem rótulo (lista plana). "Sem X" por último.
-  const groupCards = (cards: Modelo[]): { label: string; cards: Modelo[] }[] => {
-    if (groupBy === "none") return [{ label: "", cards }];
+  // Agrupamento aninhado (mesmo padrão do Planejamento). Splitters ativos aninham nesta ordem.
+  type Split = { key: string; nome: string; items: Modelo[] };
+  const byTecido = (items: Modelo[]): Split[] => {
     const map = new Map<string, Modelo[]>();
-    for (const m of cards) {
-      const label = groupLabelOf(m);
-      const arr = map.get(label);
-      if (arr) arr.push(m); else map.set(label, [m]);
+    for (const m of items) {
+      const nome = tecidoPrincipalMap.get(m.id) ?? "Sem tecido";
+      const arr = map.get(nome); if (arr) arr.push(m); else map.set(nome, [m]);
     }
-    const sem = SEM_LABEL[groupBy];
     return Array.from(map.entries())
-      .sort(([a], [b]) => (a === sem ? 1 : b === sem ? -1 : a.localeCompare(b, "pt-BR")))
-      .map(([label, cards]) => ({ label, cards }));
+      .map(([nome, its]) => ({ key: nome, nome, items: its }))
+      .sort((a, b) => (a.nome === "Sem tecido" ? 1 : b.nome === "Sem tecido" ? -1 : a.nome.localeCompare(b.nome, "pt-BR")));
   };
+  const splitters: ((items: Modelo[]) => Split[])[] = [
+    groupByTecido ? byTecido : null,
+  ].filter(Boolean) as ((items: Modelo[]) => Split[])[];
+  type Grupo = { key: string; nome: string; items?: Modelo[]; subgroups?: Grupo[] };
+  const buildGroups = (items: Modelo[], depth: number): Grupo[] =>
+    splitters[depth](items).map((g) => {
+      const node: Grupo = { key: g.key, nome: g.nome };
+      if (depth + 1 < splitters.length) node.subgroups = buildGroups(g.items, depth + 1);
+      else node.items = g.items;
+      return node;
+    });
+  const countLeaves = (g: Grupo): number =>
+    g.items ? g.items.length : (g.subgroups ?? []).reduce((s, sg) => s + countLeaves(sg), 0);
+
+  const renderDesktopCard = (m: Modelo) => (
+    <KanbanCard
+      key={m.id}
+      modelo={m}
+      estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
+      categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
+      onOpen={() => setOpenId(m.id)}
+      draggable={editable}
+      onDragStartCard={() => setDraggingId(m.id)}
+      onDragEndCard={() => setDraggingId(null)}
+    />
+  );
+  const renderMobileCard = (m: Modelo) => (
+    <MobileCard
+      key={m.id}
+      modelo={m}
+      estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
+      categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
+      onOpen={() => setOpenId(m.id)}
+    />
+  );
+  // Render recursivo dos grupos COLAPSÁVEIS dentro de uma coluna (renderCard difere desktop/mobile).
+  const renderGroups = (nodes: Grupo[], path: string, renderCard: (m: Modelo) => React.ReactNode): React.ReactNode =>
+    nodes.map((g) => {
+      const p = `${path}/${g.key}`;
+      const collapsed = collapsedGroups.has(p);
+      return (
+        <div key={g.key} className="space-y-2">
+          <button
+            type="button"
+            onClick={() => toggleGroup(p)}
+            className="flex w-full items-center gap-1.5 px-1 pt-1 text-left text-xs font-semibold text-muted-foreground hover:text-foreground"
+          >
+            {collapsed ? <ChevronRight className="h-3.5 w-3.5 shrink-0" /> : <ChevronDown className="h-3.5 w-3.5 shrink-0" />}
+            <span className="truncate">{g.nome}</span>
+            <span className="ml-auto shrink-0">{countLeaves(g)}</span>
+          </button>
+          {!collapsed && (g.subgroups
+            ? <div className="space-y-2 border-l pl-2">{renderGroups(g.subgroups, p, renderCard)}</div>
+            : <div className="space-y-2">{g.items!.map(renderCard)}</div>)}
+        </div>
+      );
+    });
 
   // Ordena os cards DENTRO de cada coluna pelo campo escolhido (valor cru).
   const s = useSort(filtered, { key: "created_at", dir: "desc" });
@@ -399,17 +438,11 @@ function DesenvolvimentoPage() {
             {allCollapsed ? <ChevronsUpDown className="h-4 w-4 sm:mr-1" /> : <ChevronsDownUp className="h-4 w-4 sm:mr-1" />}
             <span className="max-lg:sr-only">{allCollapsed ? "Expandir todas" : "Recolher todas"}</span>
           </Button>
-          <Select value={groupBy} onValueChange={changeGroupBy}>
-            <SelectTrigger className="h-9 w-auto gap-1 text-xs sm:text-sm" title="Agrupar por (dentro de cada status)">
-              <Group className="h-4 w-4 shrink-0" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {GROUP_FIELDS.map((g) => (
-                <SelectItem key={g.id} value={g.id}>{g.nome}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <AgrupamentoButton
+            groups={[
+              { label: "Tecido", active: groupByTecido, onToggle: toggleTecido },
+            ]}
+          />
           <Select value={s.sortKey ?? ""} onValueChange={(v) => s.toggle(v)}>
             <SelectTrigger className="h-9 w-auto gap-1 text-xs sm:text-sm">
               <SelectValue placeholder="Ordenar por" />
@@ -476,29 +509,10 @@ function DesenvolvimentoPage() {
                 <div className="flex-1 min-w-0 p-2 space-y-2 overflow-y-auto">
                   {cards.length === 0 ? (
                     <p className="text-xs text-muted-foreground text-center py-6">Sem cards</p>
+                  ) : splitters.length === 0 ? (
+                    cards.map(renderDesktopCard)
                   ) : (
-                    groupCards(cards).map((g) => (
-                      <div key={g.label || "_all"} className="space-y-2">
-                        {g.label && (
-                          <div className="flex items-center justify-between gap-2 px-1 pt-1 text-xs font-semibold text-muted-foreground">
-                            <span className="truncate">{g.label}</span>
-                            <span className="shrink-0">{g.cards.length}</span>
-                          </div>
-                        )}
-                        {g.cards.map((m) => (
-                          <KanbanCard
-                            key={m.id}
-                            modelo={m}
-                            estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
-                            categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
-                            onOpen={() => setOpenId(m.id)}
-                            draggable={editable}
-                            onDragStartCard={() => setDraggingId(m.id)}
-                            onDragEndCard={() => setDraggingId(null)}
-                          />
-                        ))}
-                      </div>
-                    ))
+                    renderGroups(buildGroups(cards, 0), s.key, renderDesktopCard)
                   )}
                 </div>
               )}
@@ -526,28 +540,10 @@ function DesenvolvimentoPage() {
                 <AccordionContent className="pb-3">
                   {cards.length === 0 ? (
                     <p className="text-xs text-muted-foreground text-center py-4">Sem cards</p>
+                  ) : splitters.length === 0 ? (
+                    <div className="space-y-2">{cards.map(renderMobileCard)}</div>
                   ) : (
-                    <div className="space-y-3">
-                      {groupCards(cards).map((g) => (
-                        <div key={g.label || "_all"} className="space-y-2">
-                          {g.label && (
-                            <div className="flex items-center justify-between gap-2 px-1 text-xs font-semibold text-muted-foreground">
-                              <span className="truncate">{g.label}</span>
-                              <span className="shrink-0">{g.cards.length}</span>
-                            </div>
-                          )}
-                          {g.cards.map((m) => (
-                            <MobileCard
-                              key={m.id}
-                              modelo={m}
-                              estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
-                              categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
-                              onOpen={() => setOpenId(m.id)}
-                            />
-                          ))}
-                        </div>
-                      ))}
-                    </div>
+                    <div className="space-y-3">{renderGroups(buildGroups(cards, 0), s.key, renderMobileCard)}</div>
                   )}
                 </AccordionContent>
               </AccordionItem>
