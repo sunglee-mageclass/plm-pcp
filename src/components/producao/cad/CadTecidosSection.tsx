@@ -63,11 +63,11 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
           {t.artigo_id && <EtiquetaLavagemArtigoView artigoId={t.artigo_id} size="sm" />}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Field label="Consumo CAD (m)">
-              <NumberInput type="number" step="0.01" value={t.consumo_cad}
+              <NumberInput type="number" step="0.01" placeholder="0,00" value={t.consumo_cad || ""}
                 onChange={(e) => updateTec(i, { consumo_cad: Math.max(0, Number(e.target.value)) })} />
             </Field>
             <Field label="% Loss CAD">
-              <NumberInput type="number" step="0.01" value={t.loss_percent_cad}
+              <NumberInput type="number" step="0.01" placeholder="0,00" value={t.loss_percent_cad || ""}
                 onChange={(e) => updateTec(i, { loss_percent_cad: Math.max(0, Number(e.target.value)) })} />
             </Field>
             <Field label="Custo CAD (R$)">
@@ -77,7 +77,7 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
               {ro ? (
                 <Input readOnly className="bg-muted" value={fmtNum(t.tamanho_folha)} />
               ) : (
-                <NumberInput type="number" step="0.01" value={t.tamanho_folha}
+                <NumberInput type="number" step="0.01" placeholder="0,00" value={t.tamanho_folha || ""}
                   onChange={(e) => updateTec(i, { tamanho_folha: Math.max(0, Number(e.target.value)) })} />
               )}
             </Field>
@@ -109,7 +109,7 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
                         {ro ? (
                           <Input readOnly className="bg-muted max-md:w-24" value={fmtNum(v.quantidade_folhas)} />
                         ) : (
-                          <NumberInput type="number" className="max-md:w-24" value={v.quantidade_folhas}
+                          <NumberInput type="number" className="max-md:w-24" placeholder="0" value={v.quantidade_folhas || ""}
                             onChange={(e) => updateVar(i, j, { quantidade_folhas: Math.max(0, Number(e.target.value)) })} />
                         )}
                       </td>
@@ -117,12 +117,12 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
                         {ro ? (
                           <Input readOnly className="bg-muted max-md:w-24" value={fmtNum(v.metragem_planejada)} />
                         ) : (
-                          <NumberInput type="number" step="0.01" className="max-md:w-24" value={v.metragem_planejada}
+                          <NumberInput type="number" step="0.01" className="max-md:w-24" placeholder="0,00" value={v.metragem_planejada || ""}
                             onChange={(e) => updateVar(i, j, { metragem_planejada: Math.max(0, Number(e.target.value)) })} />
                         )}
                       </td>
                       <td className="px-2 py-1" data-label="Metr. a Separar/Enviar">
-                        <NumberInput type="number" step="0.01" className="max-md:w-24" value={v.metragem_enviada}
+                        <NumberInput type="number" step="0.01" className="max-md:w-24" placeholder="0,00" value={v.metragem_enviada || ""}
                           onChange={(e) => updateVar(i, j, { metragem_enviada: Math.max(0, Number(e.target.value)) })} />
                       </td>
                     </tr>

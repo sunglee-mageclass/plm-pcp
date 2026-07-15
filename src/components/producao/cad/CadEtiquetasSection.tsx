@@ -84,7 +84,7 @@ export function CadEtiquetasSection({ etiquetas, disponiveis, gradeSumByTamanho,
                         type="number"
                         step="0.0001"
                         className="max-md:w-28"
-                        placeholder="0,0000"
+                        placeholder="0,00"
                         value={e.consumo || ""}
                         onChange={(ev) => onUpdate(i, { consumo: Number(ev.target.value) })}
                       />
