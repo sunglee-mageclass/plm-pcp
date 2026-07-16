@@ -8,23 +8,19 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
 import { SortHead, useSort } from "@/components/shared/sort";
-import { fmtDate, fmtMoney, type Colab, type Empresa, type OC, type OCStatus } from "./shared";
+import { fmtDate, fmtMoney, type Empresa, type OC, type OCStatus } from "./shared";
 
 export function OcTecidoList({
   tab, setTab,
   filterEmpresa, setFilterEmpresa,
-  filterResp, setFilterResp,
-  empresas, estilistas, ocs, empresaMap, onRowClick, onDelete,
+  empresas, ocs, empresaMap, onRowClick, onDelete,
   qtdRecebidaByOc, alertaBadgeByOc,
 }: {
   tab: OCStatus;
   setTab: (t: OCStatus) => void;
   filterEmpresa: string;
   setFilterEmpresa: (v: string) => void;
-  filterResp: string;
-  setFilterResp: (v: string) => void;
   empresas: Empresa[];
-  estilistas: Colab[];
   ocs: OC[];
   empresaMap: Record<string, string>;
   onRowClick: (id: string) => void;
@@ -33,7 +29,7 @@ export function OcTecidoList({
   alertaBadgeByOc?: Record<string, { label: string; cls: string } | null>;
 }) {
   // Filters now live in the page header via FilterButton; this component renders just tabs + table.
-  void filterEmpresa; void setFilterEmpresa; void filterResp; void setFilterResp; void empresas; void estilistas;
+  void filterEmpresa; void setFilterEmpresa; void empresas;
 
   // Accessors p/ ordenar por valor CRU mesmo quando a célula exibe valor formatado.
   const fornecedorAcc = (o: OC) => (o.empresa_id ? empresaMap[o.empresa_id] ?? "" : "");

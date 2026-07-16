@@ -25,6 +25,7 @@ import { OcTecidoList } from "@/components/oc-tecido/OcTecidoList";
 import { RolosList, RoloDialog, RemoverMetragemDialog, AjustesList } from "@/components/oc-tecido/Rolos";
 import { OcCqSection, alertaBadge } from "@/components/oc-tecido/CqTecido";
 import { FilterButton } from "@/components/shared/filters";
+import { useResponsavelFilter, SENTINEL_UUID } from "@/hooks/useResponsavelFilter";
 import { OcTecidoForm } from "@/components/oc-tecido/OcTecidoForm";
 import { OcTecidoRecebimento } from "@/components/oc-tecido/OcTecidoRecebimento";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
@@ -52,20 +53,20 @@ function OcTecidoPage() {
   const [openRemover, setOpenRemover] = useState(false);
   const [tab, setTab] = useState<OCStatus>("encomendado");
   const [filterEmpresa, setFilterEmpresa] = useState<string>("all");
-  const [filterResp, setFilterResp] = useState<string>("all");
+  const respF = useResponsavelFilter();
   const [filterAlerta, setFilterAlerta] = useState<string>("all");
   const [openNew, setOpenNew] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<OC | null>(null);
 
   const { data: ocs = [] } = useQuery({
-    queryKey: ["ocs_tecido", tab, filterEmpresa, filterResp, filterAlerta],
+    queryKey: ["ocs_tecido", tab, filterEmpresa, respF.tipo, respF.pessoaId, filterAlerta],
     queryFn: async () => {
       // Recebidos trazem o status de alerta dos itens (p/ badge na lista + filtro).
       const sel = tab === "recebido" ? "*, ocs_tecido_itens!oc_tecido_id(cq_alerta_status)" : "*";
       let q = supabase.from("ocs_tecido").select(sel).eq("status", tab).eq("is_rolo" as never, false as never).order("created_at", { ascending: false });
       if (filterEmpresa !== "all") q = q.eq("empresa_id", filterEmpresa);
-      if (filterResp !== "all") q = q.eq("responsavel_id", filterResp);
+      if (respF.idsFiltro) q = q.in("responsavel_id", respF.idsFiltro.length ? respF.idsFiltro : [SENTINEL_UUID]);
       const { data, error } = await q;
       if (error) throw error;
       let rows = (data ?? []) as any[];
@@ -99,17 +100,6 @@ function OcTecidoPage() {
       return ((data ?? []) as any[])
         .filter((e) => empresaTemCategoria(e, FABRIC_TOKENS))
         .map((e) => ({ id: e.id as string, nome_fantasia: e.nome_fantasia as string, representantes: e.representantes ?? [] })) as Empresa[];
-    },
-  });
-
-  const { data: estilistas = [] } = useQuery({
-    queryKey: ["colab-estilistas"],
-    // sem staleTime: a tela de colaboradores não invalida esta chave; manter fresh-on-mount
-    // p/ um estilista recém-criado aparecer aqui na hora.
-    queryFn: async () => {
-      const { data, error } = await supabase.from("colaboradores").select("id, nome, tipo").eq("tipo", "estilista").order("nome");
-      if (error) throw error;
-      return (data ?? []) as Colab[];
     },
   });
 
@@ -189,9 +179,7 @@ function OcTecidoPage() {
               <FilterButton
                 filters={[
                   { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
-                  ...(tab === "encomendado"
-                    ? [{ label: "Responsável", value: filterResp, onChange: setFilterResp, options: [{ id: "all", nome: "Todos" }, ...estilistas.map((e) => ({ id: e.id, nome: e.nome }))] }]
-                    : []),
+                  ...(tab === "encomendado" ? respF.filters : []),
                   ...(tab === "recebido"
                     ? [{ label: "Alerta", value: filterAlerta, onChange: setFilterAlerta, options: [
                         { id: "all", nome: "Todos" },
@@ -232,10 +220,7 @@ function OcTecidoPage() {
           setTab={setTab}
           filterEmpresa={filterEmpresa}
           setFilterEmpresa={setFilterEmpresa}
-          filterResp={filterResp}
-          setFilterResp={setFilterResp}
           empresas={empresas}
-          estilistas={estilistas}
           ocs={ocs}
           empresaMap={empresaMap}
           onRowClick={(id) => { setEditingId(id); setOpenNew(true); }}

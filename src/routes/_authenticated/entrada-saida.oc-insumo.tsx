@@ -16,6 +16,8 @@ import { DateField } from "@/components/shared/DateField";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { FornecedorSelect, type EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 import { ResponsavelSelect } from "@/components/shared/ResponsavelSelect";
+import { FilterButton } from "@/components/shared/filters";
+import { useResponsavelFilter, SENTINEL_NOME } from "@/hooks/useResponsavelFilter";
 import { NfList } from "@/components/oc-tecido/NfList";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -76,14 +78,19 @@ function OcInsumoPage() {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
   const [tab, setTab] = useState<OCStatus>("encomendado");
+  const [filterEmpresa, setFilterEmpresa] = useState<string>("all");
+  const respF = useResponsavelFilter();
   const [openId, setOpenId] = useState<string | null>(null);
   const [openNew, setOpenNew] = useState(false);
   const [deleting, setDeleting] = useState<any | null>(null);
 
   const { data: ocs = [] } = useQuery({
-    queryKey: ["ocs_etiqueta", tab],
+    queryKey: ["ocs_etiqueta", tab, filterEmpresa, respF.tipo, respF.pessoaId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("ocs_etiqueta" as any).select("*").eq("status", tab).order("created_at", { ascending: false });
+      let q = supabase.from("ocs_etiqueta" as any).select("*").eq("status", tab).order("created_at", { ascending: false });
+      if (filterEmpresa !== "all") q = q.eq("empresa_id", filterEmpresa);
+      if (respF.nomesFiltro) q = q.in("responsavel_nome", respF.nomesFiltro.length ? respF.nomesFiltro : [SENTINEL_NOME]);
+      const { data, error } = await q;
       if (error) throw error;
       return (data ?? []) as any[];
     },
@@ -151,7 +158,13 @@ function OcInsumoPage() {
             <TabsTrigger value="encomendado">Encomendados</TabsTrigger>
             <TabsTrigger value="recebido">Recebidos</TabsTrigger>
           </TabsList>
-          <Button className="ml-auto max-sm:hidden" onClick={() => { setOpenId(null); setOpenNew(true); }} disabled={readOnly}><Plus className="h-4 w-4 mr-1" /> Nova OC</Button>
+          <div className="ml-auto flex items-center gap-2">
+            <FilterButton filters={[
+              { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
+              ...(tab === "encomendado" ? respF.filters : []),
+            ]} />
+            <Button className="max-sm:hidden" onClick={() => { setOpenId(null); setOpenNew(true); }} disabled={readOnly}><Plus className="h-4 w-4 mr-1" /> Nova OC</Button>
+          </div>
         </div>
 
         <TabsContent value={tab} className="mt-4">

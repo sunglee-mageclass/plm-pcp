@@ -45,6 +45,7 @@ import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { FornecedorSelect } from "@/components/shared/FornecedorSelect";
 import { ResponsavelSelect } from "@/components/shared/ResponsavelSelect";
+import { useResponsavelFilter, SENTINEL_NOME } from "@/hooks/useResponsavelFilter";
 import { NfList } from "@/components/oc-tecido/NfList";
 import { useSort, SortHead } from "@/components/shared/sort";
 export const Route = createFileRoute("/_authenticated/entrada-saida/oc-aviamento")({
@@ -111,17 +112,17 @@ function OcAviamentoPage() {
   const qc = useQueryClient();
   const [tab, setTab] = useState<OCStatus>("encomendado");
   const [filterEmpresa, setFilterEmpresa] = useState<string>("all");
-  const [filterResp, setFilterResp] = useState<string>("all");
+  const respF = useResponsavelFilter();
   const [openNew, setOpenNew] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<OC | null>(null);
 
   const { data: ocs = [] } = useQuery({
-    queryKey: ["ocs_aviamento", tab, filterEmpresa, filterResp],
+    queryKey: ["ocs_aviamento", tab, filterEmpresa, respF.tipo, respF.pessoaId],
     queryFn: async () => {
       let q = supabase.from("ocs_aviamento").select("*").eq("status", tab).order("created_at", { ascending: false });
       if (filterEmpresa !== "all") q = q.eq("empresa_id", filterEmpresa);
-      if (filterResp !== "all") q = q.eq("responsavel_nome", filterResp);
+      if (respF.nomesFiltro) q = q.in("responsavel_nome", respF.nomesFiltro.length ? respF.nomesFiltro : [SENTINEL_NOME]);
       const { data, error } = await q;
       if (error) throw error;
       return (data ?? []) as OC[];
@@ -142,14 +143,6 @@ function OcAviamentoPage() {
       return ((data ?? []) as any[])
         .filter((e) => empresaTemCategoria(e, AVIAMENTO_TOKENS))
         .map((e) => ({ id: e.id as string, nome_fantasia: e.nome_fantasia as string, representantes: e.representantes ?? [] })) as Empresa[];
-    },
-  });
-  const { data: estilistas = [] } = useQuery({
-    queryKey: ["colab-estilistas"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("colaboradores").select("id, nome, tipo").eq("tipo", "estilista").order("nome");
-      if (error) throw error;
-      return (data ?? []) as Colab[];
     },
   });
   const empresaMap = useMemo(() => Object.fromEntries(empresas.map((e) => [e.id, e.nome_fantasia])), [empresas]);
@@ -223,9 +216,7 @@ function OcAviamentoPage() {
           <FilterButton
             filters={[
               { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
-              ...(tab === "encomendado"
-                ? [{ label: "Responsável", value: filterResp, onChange: setFilterResp, options: [{ id: "all", nome: "Todos" }, ...estilistas.map((e) => ({ id: e.nome, nome: e.nome }))] }]
-                : []),
+              ...(tab === "encomendado" ? respF.filters : []),
             ]}
           />
           <Button className="max-sm:hidden" onClick={() => { setEditingId(null); setOpenNew(true); }}>
