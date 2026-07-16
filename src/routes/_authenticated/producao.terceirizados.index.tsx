@@ -173,7 +173,9 @@ function TercListPage() {
               <tr
                 key={r.modelo_id}
                 className="border-t hover:bg-muted/30 cursor-pointer"
-                onClick={() => setSheetId(r.modelo_id)}
+                // Abrir o detalhe fecha o printável da lista (senão as duas .print-area —
+                // a ficha da lista + a do detalhe — imprimiam empilhadas na mesma folha).
+                onClick={() => { setPrintReq(null); setSheetId(r.modelo_id); }}
               >
                 <td className="px-4 py-2">
                   <span className="inline-flex items-center gap-2">
