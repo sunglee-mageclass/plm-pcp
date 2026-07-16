@@ -136,13 +136,14 @@ export function DownstreamConfirmDialog({
           </div>
         )}
 
-        <AlertDialogFooter className="flex-col gap-2 sm:flex-row">
+        {onDesmarcar && from === "desenvolvimento" && (
+          <Button variant="secondary" className="w-full" onClick={onDesmarcar}>
+            <Undo2 className="h-4 w-4 mr-1" /> Desmarcar etapas posteriores…
+          </Button>
+        )}
+
+        <AlertDialogFooter>
           <AlertDialogCancel>Voltar a editar</AlertDialogCancel>
-          {onDesmarcar && from === "desenvolvimento" && (
-            <Button variant="secondary" onClick={onDesmarcar}>
-              <Undo2 className="h-4 w-4 mr-1" /> Desmarcar etapas…
-            </Button>
-          )}
           <AlertDialogAction onClick={onConfirm}>Salvar mesmo assim</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
