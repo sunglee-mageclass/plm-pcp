@@ -133,7 +133,7 @@ function OcInsumoPage() {
     },
   });
 
-  const invalidate = () => ["ocs_etiqueta", "ocs-insumo-totals", "parcelas", "sidebar-badges", "estoque_etiqueta"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+  const invalidate = () => ["ocs_etiqueta", "ocs-insumo-totals", "parcelas", "sidebar-badges", "estoque-insumos"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
 
   const deleteMut = useMutation({
     mutationFn: async (oc: any) => { const { error } = await supabase.from("ocs_etiqueta" as any).delete().eq("id", oc.id); if (error) throw error; },
