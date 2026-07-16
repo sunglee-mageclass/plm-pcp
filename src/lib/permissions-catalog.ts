@@ -34,6 +34,7 @@ export const PAGES_CATALOG: ModuleDef[] = [
       { key: "entrada_oc_tecido", label: "OC Tecido" },
       { key: "entrada_alertas_tecido", label: "Alertas de Tecido", modes: ["full"] },
       { key: "entrada_oc_aviamento", label: "OC Aviamento" },
+      { key: "entrada_oc_insumo", label: "OC Insumo", modes: ["full"] },
       { key: "entrada_os_tecido", label: "OS Tecido", modes: ["stock"] },
       { key: "entrada_os_aviamento", label: "OS Aviamento", modes: ["stock"] },
       { key: "entrada_estoque", label: "Estoque" },

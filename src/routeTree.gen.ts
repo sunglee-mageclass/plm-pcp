@@ -38,6 +38,7 @@ import { Route as AuthenticatedProducaoCadRouteImport } from './routes/_authenti
 import { Route as AuthenticatedEntradaSaidaOsTecidoRouteImport } from './routes/_authenticated/entrada-saida.os-tecido'
 import { Route as AuthenticatedEntradaSaidaOsAviamentoRouteImport } from './routes/_authenticated/entrada-saida.os-aviamento'
 import { Route as AuthenticatedEntradaSaidaOcTecidoRouteImport } from './routes/_authenticated/entrada-saida.oc-tecido'
+import { Route as AuthenticatedEntradaSaidaOcInsumoRouteImport } from './routes/_authenticated/entrada-saida.oc-insumo'
 import { Route as AuthenticatedEntradaSaidaOcAviamentoRouteImport } from './routes/_authenticated/entrada-saida.oc-aviamento'
 import { Route as AuthenticatedEntradaSaidaEstoqueRouteImport } from './routes/_authenticated/entrada-saida.estoque'
 import { Route as AuthenticatedEntradaSaidaAlertasTecidoRouteImport } from './routes/_authenticated/entrada-saida.alertas-tecido'
@@ -226,6 +227,12 @@ const AuthenticatedEntradaSaidaOcTecidoRoute =
   AuthenticatedEntradaSaidaOcTecidoRouteImport.update({
     id: '/oc-tecido',
     path: '/oc-tecido',
+    getParentRoute: () => AuthenticatedEntradaSaidaRoute,
+  } as any)
+const AuthenticatedEntradaSaidaOcInsumoRoute =
+  AuthenticatedEntradaSaidaOcInsumoRouteImport.update({
+    id: '/oc-insumo',
+    path: '/oc-insumo',
     getParentRoute: () => AuthenticatedEntradaSaidaRoute,
   } as any)
 const AuthenticatedEntradaSaidaOcAviamentoRoute =
@@ -439,6 +446,7 @@ export interface FileRoutesByFullPath {
   '/entrada-saida/alertas-tecido': typeof AuthenticatedEntradaSaidaAlertasTecidoRoute
   '/entrada-saida/estoque': typeof AuthenticatedEntradaSaidaEstoqueRoute
   '/entrada-saida/oc-aviamento': typeof AuthenticatedEntradaSaidaOcAviamentoRoute
+  '/entrada-saida/oc-insumo': typeof AuthenticatedEntradaSaidaOcInsumoRoute
   '/entrada-saida/oc-tecido': typeof AuthenticatedEntradaSaidaOcTecidoRoute
   '/entrada-saida/os-aviamento': typeof AuthenticatedEntradaSaidaOsAviamentoRoute
   '/entrada-saida/os-tecido': typeof AuthenticatedEntradaSaidaOsTecidoRoute
@@ -493,6 +501,7 @@ export interface FileRoutesByTo {
   '/entrada-saida/alertas-tecido': typeof AuthenticatedEntradaSaidaAlertasTecidoRoute
   '/entrada-saida/estoque': typeof AuthenticatedEntradaSaidaEstoqueRoute
   '/entrada-saida/oc-aviamento': typeof AuthenticatedEntradaSaidaOcAviamentoRoute
+  '/entrada-saida/oc-insumo': typeof AuthenticatedEntradaSaidaOcInsumoRoute
   '/entrada-saida/oc-tecido': typeof AuthenticatedEntradaSaidaOcTecidoRoute
   '/entrada-saida/os-aviamento': typeof AuthenticatedEntradaSaidaOsAviamentoRoute
   '/entrada-saida/os-tecido': typeof AuthenticatedEntradaSaidaOsTecidoRoute
@@ -550,6 +559,7 @@ export interface FileRoutesById {
   '/_authenticated/entrada-saida/alertas-tecido': typeof AuthenticatedEntradaSaidaAlertasTecidoRoute
   '/_authenticated/entrada-saida/estoque': typeof AuthenticatedEntradaSaidaEstoqueRoute
   '/_authenticated/entrada-saida/oc-aviamento': typeof AuthenticatedEntradaSaidaOcAviamentoRoute
+  '/_authenticated/entrada-saida/oc-insumo': typeof AuthenticatedEntradaSaidaOcInsumoRoute
   '/_authenticated/entrada-saida/oc-tecido': typeof AuthenticatedEntradaSaidaOcTecidoRoute
   '/_authenticated/entrada-saida/os-aviamento': typeof AuthenticatedEntradaSaidaOsAviamentoRoute
   '/_authenticated/entrada-saida/os-tecido': typeof AuthenticatedEntradaSaidaOsTecidoRoute
@@ -612,6 +622,7 @@ export interface FileRouteTypes {
     | '/entrada-saida/alertas-tecido'
     | '/entrada-saida/estoque'
     | '/entrada-saida/oc-aviamento'
+    | '/entrada-saida/oc-insumo'
     | '/entrada-saida/oc-tecido'
     | '/entrada-saida/os-aviamento'
     | '/entrada-saida/os-tecido'
@@ -666,6 +677,7 @@ export interface FileRouteTypes {
     | '/entrada-saida/alertas-tecido'
     | '/entrada-saida/estoque'
     | '/entrada-saida/oc-aviamento'
+    | '/entrada-saida/oc-insumo'
     | '/entrada-saida/oc-tecido'
     | '/entrada-saida/os-aviamento'
     | '/entrada-saida/os-tecido'
@@ -722,6 +734,7 @@ export interface FileRouteTypes {
     | '/_authenticated/entrada-saida/alertas-tecido'
     | '/_authenticated/entrada-saida/estoque'
     | '/_authenticated/entrada-saida/oc-aviamento'
+    | '/_authenticated/entrada-saida/oc-insumo'
     | '/_authenticated/entrada-saida/oc-tecido'
     | '/_authenticated/entrada-saida/os-aviamento'
     | '/_authenticated/entrada-saida/os-tecido'
@@ -962,6 +975,13 @@ declare module '@tanstack/react-router' {
       path: '/oc-tecido'
       fullPath: '/entrada-saida/oc-tecido'
       preLoaderRoute: typeof AuthenticatedEntradaSaidaOcTecidoRouteImport
+      parentRoute: typeof AuthenticatedEntradaSaidaRoute
+    }
+    '/_authenticated/entrada-saida/oc-insumo': {
+      id: '/_authenticated/entrada-saida/oc-insumo'
+      path: '/oc-insumo'
+      fullPath: '/entrada-saida/oc-insumo'
+      preLoaderRoute: typeof AuthenticatedEntradaSaidaOcInsumoRouteImport
       parentRoute: typeof AuthenticatedEntradaSaidaRoute
     }
     '/_authenticated/entrada-saida/oc-aviamento': {
@@ -1270,6 +1290,7 @@ interface AuthenticatedEntradaSaidaRouteChildren {
   AuthenticatedEntradaSaidaAlertasTecidoRoute: typeof AuthenticatedEntradaSaidaAlertasTecidoRoute
   AuthenticatedEntradaSaidaEstoqueRoute: typeof AuthenticatedEntradaSaidaEstoqueRoute
   AuthenticatedEntradaSaidaOcAviamentoRoute: typeof AuthenticatedEntradaSaidaOcAviamentoRoute
+  AuthenticatedEntradaSaidaOcInsumoRoute: typeof AuthenticatedEntradaSaidaOcInsumoRoute
   AuthenticatedEntradaSaidaOcTecidoRoute: typeof AuthenticatedEntradaSaidaOcTecidoRoute
   AuthenticatedEntradaSaidaOsAviamentoRoute: typeof AuthenticatedEntradaSaidaOsAviamentoRoute
   AuthenticatedEntradaSaidaOsTecidoRoute: typeof AuthenticatedEntradaSaidaOsTecidoRoute
@@ -1284,6 +1305,8 @@ const AuthenticatedEntradaSaidaRouteChildren: AuthenticatedEntradaSaidaRouteChil
       AuthenticatedEntradaSaidaEstoqueRoute,
     AuthenticatedEntradaSaidaOcAviamentoRoute:
       AuthenticatedEntradaSaidaOcAviamentoRoute,
+    AuthenticatedEntradaSaidaOcInsumoRoute:
+      AuthenticatedEntradaSaidaOcInsumoRoute,
     AuthenticatedEntradaSaidaOcTecidoRoute:
       AuthenticatedEntradaSaidaOcTecidoRoute,
     AuthenticatedEntradaSaidaOsAviamentoRoute:
