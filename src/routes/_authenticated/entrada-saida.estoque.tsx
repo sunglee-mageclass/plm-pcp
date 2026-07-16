@@ -856,8 +856,6 @@ function InsumosTab() {
       }));
     },
   });
-  const varLabel = (r: any) => [r.corNome, r.tamanho ? fmtTamInsumo(r.tamanho) : null].filter(Boolean).join(" · ") || "Único";
-
   const filtered = useMemo(() => {
     const s = search.toLowerCase();
     return data.filter((r) => {
@@ -868,18 +866,25 @@ function InsumosTab() {
     });
   }, [data, search, estoqueFilter]);
 
-  // Agrupa por INSUMO; dentro, ordena por cor depois tamanho (como Tecidos agrupa por tecido).
+  // Dois níveis de agrupamento dentro do insumo: por COR, e dentro dela por TAMANHO.
   const grouped = useMemo(() => {
-    const map = new Map<string, { id: string; nome: string; rows: any[] }>();
+    const insMap = new Map<string, { id: string; nome: string; coresMap: Map<string, { cor: string | null; rows: any[] }> }>();
     for (const r of filtered) {
-      const g = map.get(r.etiquetaId) ?? { id: r.etiquetaId, nome: r.etiquetaNome, rows: [] as any[] };
-      g.rows.push(r);
-      map.set(r.etiquetaId, g);
+      let ins = insMap.get(r.etiquetaId);
+      if (!ins) { ins = { id: r.etiquetaId, nome: r.etiquetaNome, coresMap: new Map() }; insMap.set(r.etiquetaId, ins); }
+      const corKey = r.corNome ?? "__semcor__";
+      let cor = ins.coresMap.get(corKey);
+      if (!cor) { cor = { cor: r.corNome ?? null, rows: [] }; ins.coresMap.set(corKey, cor); }
+      cor.rows.push(r);
     }
-    const arr = Array.from(map.values());
-    arr.forEach((g) => g.rows.sort((a, b) =>
-      (a.corNome ?? "").localeCompare(b.corNome ?? "") || (a.tamanho ?? "").localeCompare(b.tamanho ?? "")));
-    return arr.sort((a, b) => a.nome.localeCompare(b.nome));
+    return Array.from(insMap.values())
+      .map((ins) => ({
+        id: ins.id, nome: ins.nome,
+        cores: Array.from(ins.coresMap.values())
+          .map((c) => ({ cor: c.cor, rows: c.rows.sort((a, b) => (a.tamanho ?? "").localeCompare(b.tamanho ?? "")) }))
+          .sort((a, b) => (a.cor ?? "").localeCompare(b.cor ?? "")),
+      }))
+      .sort((a, b) => a.nome.localeCompare(b.nome));
   }, [filtered]);
 
   return (
@@ -912,29 +917,36 @@ function InsumosTab() {
         grouped.map((g) => (
           <Card key={g.id} className="p-4">
             <h3 className="font-semibold mb-3">{g.nome}</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="text-left text-muted-foreground">
-                  <tr className="border-b">
-                    <th className="py-2 pr-3">Variante (cor · tamanho)</th>
-                    <th className="py-2 pr-3 text-right">Prev. Receb.</th>
-                    <th className="py-2 pr-3 text-right">Recebido</th>
-                    <th className="py-2 pr-3 text-right">Baixa</th>
-                    <th className="py-2 pr-3 text-right">Físico</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {g.rows.map((r: any, i: number) => (
-                    <tr key={i} className="border-t">
-                      <td className="py-2 pr-3 text-muted-foreground" data-label="Variante">{varLabel(r)}</td>
-                      <td className="py-2 pr-3 text-right" data-label="Prev. Receb.">{fmt(r.prevReceb)}</td>
-                      <td className="py-2 pr-3 text-right" data-label="Recebido">{fmt(r.recebido)}</td>
-                      <td className="py-2 pr-3 text-right" data-label="Baixa">{fmt(r.baixa)}</td>
-                      <td className="py-2 pr-3 text-right font-medium" data-label="Físico">{fmt(r.fisico)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="space-y-3">
+              {g.cores.map((c, ci) => (
+                <div key={ci}>
+                  {c.cor && <h4 className="text-sm font-medium mb-1 text-muted-foreground">{c.cor}</h4>}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="text-left text-muted-foreground">
+                        <tr className="border-b">
+                          <th className="py-2 pr-3">Tamanho</th>
+                          <th className="py-2 pr-3 text-right">Prev. Receb.</th>
+                          <th className="py-2 pr-3 text-right">Recebido</th>
+                          <th className="py-2 pr-3 text-right">Baixa</th>
+                          <th className="py-2 pr-3 text-right">Físico</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {c.rows.map((r: any, i: number) => (
+                          <tr key={i} className="border-t">
+                            <td className="py-2 pr-3" data-label="Tamanho">{r.tamanho ? fmtTamInsumo(r.tamanho) : "Geral"}</td>
+                            <td className="py-2 pr-3 text-right" data-label="Prev. Receb.">{fmt(r.prevReceb)}</td>
+                            <td className="py-2 pr-3 text-right" data-label="Recebido">{fmt(r.recebido)}</td>
+                            <td className="py-2 pr-3 text-right" data-label="Baixa">{fmt(r.baixa)}</td>
+                            <td className="py-2 pr-3 text-right font-medium" data-label="Físico">{fmt(r.fisico)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
             </div>
           </Card>
         ))
@@ -945,20 +957,22 @@ function InsumosTab() {
         dataStr={new Date().toLocaleDateString("pt-BR")}
         colunas={[
           { key: "insumo", label: "Insumo" },
-          { key: "variante", label: "Variante" },
+          { key: "cor", label: "Cor" },
+          { key: "tamanho", label: "Tamanho" },
           { key: "prev", label: "Prev. Receb.", align: "right" },
           { key: "recebido", label: "Recebido", align: "right" },
           { key: "baixa", label: "Baixa", align: "right" },
           { key: "fisico", label: "Físico", align: "right" },
         ]}
-        linhas={grouped.flatMap((g) => g.rows.map((r: any) => ({
+        linhas={grouped.flatMap((g) => g.cores.flatMap((c) => c.rows.map((r: any) => ({
           insumo: g.nome,
-          variante: varLabel(r),
+          cor: c.cor ?? "—",
+          tamanho: r.tamanho ? fmtTamInsumo(r.tamanho) : "Geral",
           prev: fmt(r.prevReceb),
           recebido: fmt(r.recebido),
           baixa: fmt(r.baixa),
           fisico: fmt(r.fisico),
-        })))}
+        }))))}
       />
     </div>
   );
