@@ -209,14 +209,18 @@ export function AppSidebar() {
     const active = isActive(item.url);
     const { total: badgeTotal, cls: badgeCls } = itemBadge(item.subs);
     if (item.subs.length === 0) {
+      // OTB divergência: espelha o padrão dos itens com subitens — pílula (NavBadge)
+      // quando aberto, dot no canto quando recolhido.
+      const otbDiv = item.url === "/otb" ? (countFor.otb_divergencia ?? 0) : 0;
       return (
         <SidebarMenuItem key={item.url}>
           <SidebarMenuButton asChild isActive={active} tooltip={item.title}>
             <Link to={item.url} className="relative">
               <item.icon className="h-4 w-4" />
               <span>{item.title}</span>
-              {item.url === "/otb" && (countFor.otb_divergencia ?? 0) > 0 && (
-                <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-red-500" title="Coleção(ões) com divergência" />
+              {otbDiv > 0 && (collapsed
+                ? <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-red-500" title="Coleção(ões) com divergência" />
+                : <NavBadge n={otbDiv} className={cn("ml-auto", BADGE_CLS.otb_divergencia)} />
               )}
             </Link>
           </SidebarMenuButton>
