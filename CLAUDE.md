@@ -90,21 +90,20 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   subcoleção). O card (`ColecaoSheet`) tem Nome de Coleção + blocos de subcoleção (nome + Semanas 1–5 c/ qtd).
   Cada semana pode ter **distribuição por categoria** (`colecao_semana_categorias`, chave por coleção/subcoleção/
   semana/categoria; soma fecha com a qtd da semana — validado na UI e no diálogo "Categorias da semana", botão ao
-  lado da qtd). RPC `otb_confirmar` reconcilia cards em branco por **bucket = (subcoleção × semana × categoria)** —
-  cada modelo nasce c/ `colecao_id`+`subcolecao`+`semana`(+`categoria_principal_id` se distribuído). **Sincronização
-  bidirecional**: (1) diminuir a qtd no OTB remove cards **"vazios"** (só os campos que o OTB preenche +
-  status em_planejamento/reprovado — o predicado NÃO conta coleção/subcoleção/semana/categoria como "tocado";
-  NUNCA apaga card que o usuário mexeu ou que avançou); (2) **apagar um card baixa a qtd** da sua semana/subcoleção/
-  categoria — trigger `trg_otb_dec_semana` em `modelos` (só p/ `colecao_id` not null), com trava GUC
-  `app.otb_reconciling` que `otb_confirmar`/`otb_excluir_colecao` setam p/ o encolher da RPC não decrementar 2×.
-  RPC `otb_importar_colecoes`. **Integridade OTB↔Planejamento** (total tem que bater): `otb_confirmar` também
-  **limpa órfãos** (remove cards vazios em Planejamento/Rejeitado fora de qualquer bucket — sobras do modelo
-  antigo); a distribuição por categoria pode ser **parcial** (Σcat ≤ total; o **resto** vira cards sem categoria);
-  e o `ColecaoSheet` tem um bloco **"Não classificados"** (cards sem semana/subcoleção) com **Atribuir** direto →
-  RPC `otb_atribuir_card`. **Gatilho `fn_otb_sync_semana`** (`modelos` AFTER INSERT/UPDATE/DELETE) mantém as qtds
-  do OTB em QUALQUER caminho (reclassificar semana/subcoleção/categoria direto no Planejamento, criar/apagar card,
-  trocar de coleção); trava `app.otb_reconciling` desliga o gatilho em `otb_confirmar`/`otb_excluir_colecao`/
-  `otb_importar_colecoes`. `modelos.subcolecao` (texto): no Planejamento/
+  lado da qtd). **Confirmar (`otb_confirmar`) só marca `colecoes.status='confirmada'` — NÃO cria nem apaga cards.**
+  O plano (qtds nas semanas/categorias) é um **alvo fixo**: após confirmado, o usuário cria/edita/exclui cards
+  livremente no Planejamento sem que o OTB se ajuste automaticamente. **O sync bidirecional
+  (`fn_otb_sync_semana`/`trg_otb_sync_semana`) e a trava GUC `app.otb_reconciling` foram REMOVIDOS** — o trigger
+  não existe mais no banco. RPC `otb_importar_colecoes`. Distribuição por categoria pode ser **parcial**
+  (Σcat ≤ total; o **resto** vira cards sem categoria); o `ColecaoSheet` tem um bloco **"Não classificados"**
+  (cards sem semana/subcoleção) com **Atribuir** direto → RPC `otb_atribuir_card`.
+  **Realizado = contagem viva de cards** via RPC `otb_orcamento` (queryKey `["otb-orcamento"]`): retorna shape
+  `{colecoes, subcolecoes, niveis3}` com `{total, realizado, over}` por bucket (coleção/subcoleção/linha-ou-categoria).
+  **Divergência**: `realizado > total` no nível da **coleção** → linha vermelha na lista + `sidebar_badges.otb_divergencia`
+  (bolinha vermelha no ícone OTB na sidebar); sub-níveis estourados aparecem em âmbar. O hook `useOrcamento()` e o
+  componente `OrcamentoTag` (em `src/components/otb/orcamento.tsx`) consomem essa RPC. Para que os contadores se
+  mantenham em dia, as mutations de criar/editar/excluir `modelos` no Planejamento invalidam `["otb-orcamento"]`
+  em seu `onSuccess`. `modelos.subcolecao` (texto): no Planejamento/
   Desenvolvimento vira **dropdown das subcoleções da coleção** quando OTB ligado (senão texto livre). Preenchimento
   em massa no Planejamento (`BulkEditDialog`). O Planejamento abre **sempre com 5 colunas** (`useGridCols(...,5,true)`
   — não persiste); card mostra coleção→subcoleção→semana→mês/ano.
@@ -123,10 +122,11 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   o à-parte. **Data de lançamento é POR SEMANA** (`colecao_subcolecoes.datas_semanas` jsonb {semana:data}; semanas do
   CALENDÁRIO seg–dom derivadas do mês/ano via `date-fns`, editáveis; **bidirecional**: dá pra definir a DATA e o sistema
   retorna a semana (`semanaDaData`); **subcoleção nova nasce SEM semanas** selecionadas; `data_lancamento` single vira fallback). **Confirmar
-  = `otb_confirmar_pv`**: bucket=(**subcoleção×linha×semana**), target=SOMA das qtd/semana, mesma reconciliação/órfãos/
-  guarda `app.otb_reconciling`; cada card nasce com linha/subcoleção/semana + **a data da SUA semana** (datas_semanas->>
-  semana), **preço E categoria em branco** (categoria vira decisão do Planejamento). Trigger `enforce_pv_itens_tenant` NÃO
-  referencia mais cat/sub. Telas em `/otb-beta` (Padrão do mix) e `/otb-beta-colecao` (editor PV) — ainda rotuladas "beta".
+  = `otb_confirmar_pv`**: bucket=(**subcoleção×linha×semana**), target=SOMA das qtd/semana, mesma reconciliação de cards
+  em branco/órfãos (sem trava GUC — removida); cada card nasce com linha/subcoleção/semana + **a data da SUA semana**
+  (datas_semanas->>semana), **preço E categoria em branco** (categoria vira decisão do Planejamento).
+  Trigger `enforce_pv_itens_tenant` NÃO referencia mais cat/sub. Telas em `/otb-beta` (Padrão do mix) e
+  `/otb-beta-colecao` (editor PV) — ainda rotuladas "beta".
 - **cadastro**: atributos (categorias tecido/aviamento/material/subcategoria, linhas,
   categorias de serviço fixas Corte/Oficina), colaboradores, servicos, tecidos
   (+variantes), aviamentos. **Fornecedor** (cadastro Tecido/Aviamento + OC Tecido/Aviamento):

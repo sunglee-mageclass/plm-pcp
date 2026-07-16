@@ -734,7 +734,7 @@ function PlanejamentoPage() {
           categorias={categorias}
           linhas={linhas}
           onClose={() => setOpenBatch(false)}
-          onSaved={() => qc.invalidateQueries({ queryKey: ["modelos-planejamento"] })}
+          onSaved={() => { qc.invalidateQueries({ queryKey: ["modelos-planejamento"] }); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); }}
         />
       )}
 
@@ -1146,6 +1146,7 @@ function ModeloDialog({
       toast.success("Modelo salvo");
       qc.invalidateQueries({ queryKey: ["modelo"] });
       qc.invalidateQueries({ queryKey: ["modelo-tecidos"] });
+      qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
       onSaved();
       onClose();
     },
@@ -1221,7 +1222,7 @@ function ModeloDialog({
       const { error } = await supabase.from("modelos").insert(payload);
       if (error) throw error;
     },
-    onSuccess: () => { toast.success("Card duplicado"); onSaved(); onClose(); },
+    onSuccess: () => { toast.success("Card duplicado"); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); onSaved(); onClose(); },
     onError: (e: any) => toast.error(mensagemErro(e)),
   });
 
@@ -1231,7 +1232,7 @@ function ModeloDialog({
       const { error } = await supabase.from("modelos").delete().eq("id", modeloId);
       if (error) throw error;
     },
-    onSuccess: () => { toast.success("Modelo excluído"); onSaved(); onClose(); },
+    onSuccess: () => { toast.success("Modelo excluído"); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); onSaved(); onClose(); },
     onError: (e: any) => toast.error(mensagemErro(e)),
   });
 
