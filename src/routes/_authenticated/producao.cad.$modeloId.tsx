@@ -677,7 +677,12 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
           if (semTamanho) {
             totalEnviar = Number(e.quantidade_enviar || 0);
           } else {
+            // Estoque por cor+tamanho: só baixa (tamanho,cor) que existe como variante — assim
+            // a baixa neta sempre contra o recebido da mesma chave (sem baixa órfã).
+            const temVar = (t: string) => ((info?.variantes ?? []) as any[]).some(
+              (v) => (v.tamanho ?? null) === t && (v.cor_id ?? null) === (e.cor_id ?? null));
             for (const t of gradeTamanhos) {
+              if (!temVar(t)) continue;
               const v = e.enviarPorTamanho[t] ?? Number((e.consumo * gradeSumByTamanho(t)).toFixed(2));
               enviarMap[t] = v;
               totalEnviar += v;

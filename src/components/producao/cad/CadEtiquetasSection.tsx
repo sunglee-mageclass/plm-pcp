@@ -10,7 +10,6 @@ import type { EtiquetaRow } from "./types";
 type EtqVar = { tamanho: string | null; cor_id: string | null; cor_nome: string | null; preco: number | null };
 type Opt = { id: string; nome: string; tamanho: string | null; formato_tamanho: string; preco: number | null; variantes: EtqVar[] };
 
-const SEM = "__none__";
 // "38|P" conforme o formato da etiqueta.
 const fmtTam = (t: string, formato: string) => {
   const [num, sig] = t.split("|");
@@ -77,17 +76,19 @@ export function CadEtiquetasSection({
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="grid gap-1">
-                    <Label className="text-xs">Cor</Label>
-                    <Select value={e.cor_id || SEM} onValueChange={(v) => onUpdate(i, { cor_id: v === SEM ? null : v })}>
-                      <SelectTrigger className="h-8"><SelectValue placeholder="Cor" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={SEM}>Sem cor</SelectItem>
-                        {cores.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <div className={cores.length > 0 ? "grid grid-cols-2 gap-2" : "grid gap-2"}>
+                  {/* Insumo colorido: cor é OBRIGATÓRIA (estoque por cor+tamanho). Sem cor → campo some. */}
+                  {cores.length > 0 && (
+                    <div className="grid gap-1">
+                      <Label className="text-xs">Cor</Label>
+                      <Select value={e.cor_id ?? ""} onValueChange={(v) => onUpdate(i, { cor_id: v || null })}>
+                        <SelectTrigger className="h-8"><SelectValue placeholder="Escolha a cor" /></SelectTrigger>
+                        <SelectContent>
+                          {cores.map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                   <div className="grid gap-1">
                     <Label className="text-xs">Consumo</Label>
                     <NumberInput type="number" step="0.0001" placeholder="0,00" value={e.consumo || ""} onChange={(ev) => onUpdate(i, { consumo: Number(ev.target.value) })} />
@@ -138,10 +139,14 @@ export function CadEtiquetasSection({
                               <td className="px-2 py-1 text-center" data-label="Grade">{base}</td>
                               <td className="px-2 py-1 text-center font-medium" data-label="Qtd planejada">{fmtNum(planej)}</td>
                               <td className="px-2 py-1" data-label="Qtd a Enviar">
-                                <NumberInput type="number" step="0.01" className="max-md:w-28"
-                                  placeholder={fmtNum(planej)}
-                                  value={e.enviarPorTamanho[t] ?? ""}
-                                  onChange={(ev) => onUpdate(i, { enviarPorTamanho: { ...e.enviarPorTamanho, [t]: Number(ev.target.value) } })} />
+                                {temVar(t) ? (
+                                  <NumberInput type="number" step="0.01" className="max-md:w-28"
+                                    placeholder={fmtNum(planej)}
+                                    value={e.enviarPorTamanho[t] ?? ""}
+                                    onChange={(ev) => onUpdate(i, { enviarPorTamanho: { ...e.enviarPorTamanho, [t]: Number(ev.target.value) } })} />
+                                ) : (
+                                  <span className="text-xs text-muted-foreground" title="Sem variante nesta cor — cadastre a variante para consumir/baixar">—</span>
+                                )}
                               </td>
                             </tr>
                           );
