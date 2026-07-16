@@ -38,10 +38,12 @@ export function OrdemServicoTerceirizados({
       {itens.map((it, i) => (
         <section
           key={i}
-          className="print-section"
           style={{
-            pageBreakAfter: i < itens.length - 1 ? "always" : "auto",
-            breakAfter: i < itens.length - 1 ? "page" : "auto",
+            // Quebra ANTES de cada serviço (menos o 1º) — mais confiável que break-after
+            // p/ garantir 1 serviço por página. (Sem "print-section": o page-break-inside:
+            // avoid conflitava com a quebra e deixava 2 serviços na mesma folha.)
+            pageBreakBefore: i > 0 ? "always" : "auto",
+            breakBefore: i > 0 ? "page" : "auto",
           }}
         >
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", borderBottom: "2px solid #000", paddingBottom: 6, marginBottom: 12 }}>

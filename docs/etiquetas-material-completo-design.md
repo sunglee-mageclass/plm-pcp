@@ -39,6 +39,18 @@ Objetivo principal: **explosão de materiais** (BOM) + compra/estoque/financeiro
 - Edge: se a etiqueta (na cor escolhida) não tiver variante p/ algum tamanho da grade, avisar
   e cair no preço/base (a definir na Fase 1d).
 
+## Nomenclatura (jul/2026) — "Insumos"
+
+O material passou a se chamar **Insumos** na UI: sidebar/cadastro "Insumos",
+Desenvolvimento "5. Insumos", CAD "Explosão de Insumos", printáveis "Insumos".
+Rota/keys/DB continuam `etiquetas`/`cadastro_etiquetas` (só rótulo mudou).
+
+## Financeiro (Fase 3) — estrutura
+
+Em Financeiro, as OCs ficam separadas por **Tecidos, Aviamentos, Insumos, Serviços**
+(abas/seções). Abrir a aba **Insumos** (após "OCs") para as contas a pagar das OCs de
+insumo. Espelha o que já existe p/ tecido/aviamento/serviço.
+
 ## Faseamento
 
 - **Fase 1** — cadastro rico + `variantes_etiqueta` + `modelo_etiquetas` (BOM/explosão) + CAD por
