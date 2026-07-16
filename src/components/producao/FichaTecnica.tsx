@@ -24,6 +24,7 @@ export function FichaTecnica({ modeloId }: { modeloId: string }) {
   const forroBlocks = d.tecidos.filter((t) => t.tipo === "forro");
   const entretelaBlocks = d.tecidos.filter((t) => t.tipo === "entretela");
   const gradeSumT = (t: string) => d.grades.reduce((s, g) => s + (Number((g.grades as any)?.[t]) || 0), 0);
+  const gradeTams = Array.from(new Set(d.grades.flatMap((g) => Object.keys((g.grades as any) ?? {}).filter((t) => (Number((g.grades as any)[t]) || 0) > 0)))).sort();
 
   return (
     <PrintArea>
@@ -125,8 +126,9 @@ export function FichaTecnica({ modeloId }: { modeloId: string }) {
             </thead>
             <tbody>
               {d.etiquetas.flatMap((e, i) => {
-                const tams = Object.keys(e.enviarPorTamanho ?? {}).sort();
-                if (tams.length === 0) {
+                // Explode pela GRADE quando o insumo tem tamanho (reflete o cadastro atual,
+                // mesmo sem enviar_por_tamanho gravado). Sem tamanho → uma linha "Geral".
+                if (e.semTamanho || gradeTams.length === 0) {
                   return [(
                     <tr key={i}>
                       <td style={cell}>{e.etiqueta_nome ?? ""}</td>
@@ -137,15 +139,18 @@ export function FichaTecnica({ modeloId }: { modeloId: string }) {
                     </tr>
                   )];
                 }
-                return tams.map((t, j) => (
-                  <tr key={`${i}-${j}`}>
-                    <td style={cell}>{j === 0 ? (e.etiqueta_nome ?? "") : ""}</td>
-                    <td style={cell}>{j === 0 ? (e.cor_nome ?? "—") : ""}</td>
-                    <td style={cell}>{fmtTam(t)}</td>
-                    <td style={cell}>{fmt(e.consumo * gradeSumT(t))}</td>
-                    <td style={cell}>{fmt(e.enviarPorTamanho[t] ?? 0)}</td>
-                  </tr>
-                ));
+                return gradeTams.map((t, j) => {
+                  const planej = e.consumo * gradeSumT(t);
+                  return (
+                    <tr key={`${i}-${j}`}>
+                      <td style={cell}>{j === 0 ? (e.etiqueta_nome ?? "") : ""}</td>
+                      <td style={cell}>{j === 0 ? (e.cor_nome ?? "—") : ""}</td>
+                      <td style={cell}>{fmtTam(t)}</td>
+                      <td style={cell}>{fmt(planej)}</td>
+                      <td style={cell}>{fmt(e.enviarPorTamanho[t] ?? planej)}</td>
+                    </tr>
+                  );
+                });
               })}
             </tbody>
           </table>

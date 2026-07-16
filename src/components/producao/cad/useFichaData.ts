@@ -99,7 +99,7 @@ export function useFichaData(modeloId: string): FichaData {
   const { data: cadEtiquetas = [] } = useQuery({
     queryKey: ["ft-etiquetas", cadId],
     enabled: !!cadId,
-    queryFn: async () => ((await supabase.from("cad_etiquetas" as any).select("*, etiquetas:etiqueta_id(nome, tamanho), cor:cor_id(nome)").eq("cad_id", cadId)).data ?? []) as any[],
+    queryFn: async () => ((await supabase.from("cad_etiquetas" as any).select("*, etiquetas:etiqueta_id(nome, tamanho, formato_tamanho, variantes_etiqueta(tamanho)), cor:cor_id(nome)").eq("cad_id", cadId)).data ?? []) as any[],
   });
 
   const { data: tamanhosConfig = [] } = useQuery({
@@ -166,7 +166,13 @@ export function useFichaData(modeloId: string): FichaData {
   );
 
   const etiquetas: EtiquetaRow[] = useMemo(
-    () => (cadEtiquetas as any[]).map((e) => ({ id: e.id, etiqueta_id: e.etiqueta_id, etiqueta_nome: e.etiquetas?.nome ?? "—", cor_id: e.cor_id ?? null, cor_nome: e.cor?.nome ?? null, tamanho: e.etiquetas?.tamanho ?? null, consumo: num(e.consumo), quantidade_planejada: num(e.quantidade_planejada), quantidade_enviar: num(e.quantidade_enviar), enviarPorTamanho: (e.enviar_por_tamanho ?? {}) as Record<string, number> })),
+    () => (cadEtiquetas as any[]).map((e) => {
+      const formato = e.etiquetas?.formato_tamanho ?? "ambos";
+      const vs = (e.etiquetas?.variantes_etiqueta ?? []) as any[];
+      // "Sem tamanho" = formato Nenhum OU o insumo não tem nenhuma variante com tamanho.
+      const semTamanho = formato === "nenhum" || vs.every((v) => !v.tamanho);
+      return { id: e.id, etiqueta_id: e.etiqueta_id, etiqueta_nome: e.etiquetas?.nome ?? "—", cor_id: e.cor_id ?? null, cor_nome: e.cor?.nome ?? null, tamanho: e.etiquetas?.tamanho ?? null, consumo: num(e.consumo), quantidade_planejada: num(e.quantidade_planejada), quantidade_enviar: num(e.quantidade_enviar), enviarPorTamanho: (e.enviar_por_tamanho ?? {}) as Record<string, number>, semTamanho };
+    }),
     [cadEtiquetas],
   );
 

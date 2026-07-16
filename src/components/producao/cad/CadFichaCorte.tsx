@@ -125,6 +125,7 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
 
   const totalGeral = gradeTotalGeral ?? grades.reduce((s, g) => s + (Number(g.grade_total) || 0), 0);
   const gradeSumT = (t: string) => grades.reduce((s, g) => s + (Number((g.grades as any)?.[t]) || 0), 0);
+  const gradeTams = Array.from(new Set(grades.flatMap((g) => Object.keys((g.grades as any) ?? {}).filter((t) => (Number((g.grades as any)[t]) || 0) > 0)))).sort();
   const fmtTam = (t: string | null) => {
     if (!t) return "Geral";
     const [num, sig] = t.split("|");
@@ -206,8 +207,9 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
                 </thead>
                 <tbody>
                   {(etiquetas ?? []).flatMap((e, i) => {
-                    const tams = Object.keys(e.enviarPorTamanho ?? {}).sort();
-                    if (tams.length === 0) {
+                    // Explode pela GRADE quando o insumo tem tamanho (mesmo sem enviar_por_tamanho
+                    // gravado — reflete o cadastro atual). Sem tamanho → uma linha "Geral".
+                    if (e.semTamanho || gradeTams.length === 0) {
                       return [(
                         <tr key={i}>
                           <td style={cell}>{e.etiqueta_nome ?? ""}</td>
@@ -218,15 +220,18 @@ export function CadFichaCorte({ modelo, tecidos, grades, tamanhosAll, aviamentos
                         </tr>
                       )];
                     }
-                    return tams.map((t, j) => (
-                      <tr key={`${i}-${j}`}>
-                        <td style={cell}>{j === 0 ? (e.etiqueta_nome ?? "") : ""}</td>
-                        <td style={cell}>{j === 0 ? (e.cor_nome ?? "—") : ""}</td>
-                        <td style={cell}>{fmtTam(t)}</td>
-                        <td style={cell}>{fmt2(e.consumo * gradeSumT(t))}</td>
-                        <td style={cell}>{fmt2(e.enviarPorTamanho[t] ?? 0)}</td>
-                      </tr>
-                    ));
+                    return gradeTams.map((t, j) => {
+                      const planej = e.consumo * gradeSumT(t);
+                      return (
+                        <tr key={`${i}-${j}`}>
+                          <td style={cell}>{j === 0 ? (e.etiqueta_nome ?? "") : ""}</td>
+                          <td style={cell}>{j === 0 ? (e.cor_nome ?? "—") : ""}</td>
+                          <td style={cell}>{fmtTam(t)}</td>
+                          <td style={cell}>{fmt2(planej)}</td>
+                          <td style={cell}>{fmt2(e.enviarPorTamanho[t] ?? planej)}</td>
+                        </tr>
+                      );
+                    });
                   })}
                 </tbody>
               </table>

@@ -66,6 +66,9 @@ export type EtiquetaRow = {
   quantidade_enviar: number;
   // Qtd a enviar POR tamanho {tamanho: qtd}; vazio p/ etiqueta sem tamanho (usa o escalar).
   enviarPorTamanho: Record<string, number>;
+  // Insumo sem tamanho (formato Nenhum ou sem variante com tamanho) — usado na impressão
+  // p/ decidir "Geral" vs explosão pela grade, mesmo sem enviar_por_tamanho gravado.
+  semTamanho?: boolean;
 };
 
 export function calcCusto(consumo: number, loss: number, preco: number) {

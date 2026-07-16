@@ -599,8 +599,10 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
   // Etiquetas com nome da cor p/ a impressão (a Ficha explode por tamanho).
   const etiquetasPrint = useMemo(() => etiquetas.map((e) => {
     const info = (etiquetasDisponiveis as any[]).find((d) => d.id === e.etiqueta_id);
-    const cor = ((info?.variantes ?? []) as any[]).find((v) => (v.cor_id ?? null) === (e.cor_id ?? null));
-    return { ...e, cor_nome: cor?.cor_nome ?? null };
+    const vars = (info?.variantes ?? []) as any[];
+    const cor = vars.find((v) => (v.cor_id ?? null) === (e.cor_id ?? null));
+    const semTamanho = (info?.formato_tamanho ?? "ambos") === "nenhum" || vars.every((v) => !v.tamanho);
+    return { ...e, cor_nome: cor?.cor_nome ?? null, semTamanho };
   }), [etiquetas, etiquetasDisponiveis]);
   const updateEtiqueta = (i: number, patch: Partial<EtiquetaRow>) => {
     setEtiquetas((prev) => prev.map((e, j) => (j === i ? { ...e, ...patch } : e)));
