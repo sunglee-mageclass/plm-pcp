@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Undo2, ExternalLink, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, Undo2, ExternalLink, CheckCircle2, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -136,14 +136,15 @@ export function DownstreamConfirmDialog({
           </div>
         )}
 
-        {onDesmarcar && from === "desenvolvimento" && (
-          <Button variant="secondary" className="w-full" onClick={onDesmarcar}>
-            <Undo2 className="h-4 w-4 mr-1" /> Desmarcar etapas posteriores…
-          </Button>
-        )}
-
-        <AlertDialogFooter>
-          <AlertDialogCancel>Voltar a editar</AlertDialogCancel>
+        <AlertDialogFooter className="flex-row flex-wrap justify-end gap-2">
+          <AlertDialogCancel className="mt-0 px-3" aria-label="Voltar a editar" title="Voltar a editar">
+            <ArrowLeft className="h-4 w-4" />
+          </AlertDialogCancel>
+          {onDesmarcar && from === "desenvolvimento" && (
+            <Button variant="secondary" onClick={onDesmarcar}>
+              <Undo2 className="h-4 w-4 mr-1" /> Desmarcar etapas
+            </Button>
+          )}
           <AlertDialogAction onClick={onConfirm}>Salvar mesmo assim</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
