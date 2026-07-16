@@ -167,7 +167,9 @@ function CadListPage() {
               <tr
                 key={r.modelo_id}
                 className="border-t hover:bg-muted/30 cursor-pointer"
-                onClick={() => setSheetId(r.modelo_id)}
+                // Abrir o detalhe fecha o printável da lista (senão a Ficha de Corte da
+                // lista + a do detalhe imprimiam DUPLICADAS — 4 páginas em vez de 2).
+                onClick={() => { setPrintReq(null); setSheetId(r.modelo_id); }}
               >
                 <td className="px-4 py-2">
                   <span className="font-mono text-primary">{r.ref ?? "—"}</span>
