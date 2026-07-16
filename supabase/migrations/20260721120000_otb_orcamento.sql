@@ -13,9 +13,9 @@ AS $function$
        COALESCE((SELECT sum((e.value)::int)
                  FROM colecao_pv_itens it
                  CROSS JOIN LATERAL jsonb_each_text(it.qtd_semanas) e(key,value)
-                 WHERE it.colecao_id = cols.id AND e.value ~ '^[0-9]+$'),0)
+                 WHERE it.colecao_id = cols.id AND it.tenant_id = _tenant AND e.value ~ '^[0-9]+$'),0)
      ELSE
-       COALESCE((SELECT sum(cs.qtd_planejada) FROM colecao_semanas cs WHERE cs.colecao_id = cols.id),0)
+       COALESCE((SELECT sum(cs.qtd_planejada) FROM colecao_semanas cs WHERE cs.colecao_id = cols.id AND cs.tenant_id = _tenant),0)
      END)::int AS total,
     COALESCE((SELECT count(*) FROM modelos m WHERE m.colecao_id = cols.id AND m.tenant_id = _tenant),0)::int AS realizado
   FROM cols;
@@ -40,9 +40,9 @@ begin
       (CASE WHEN sc.tipo='poder_venda' THEN
          COALESCE((SELECT sum((e.value)::int) FROM colecao_pv_itens it
                    CROSS JOIN LATERAL jsonb_each_text(it.qtd_semanas) e(key,value)
-                   WHERE it.subcolecao_id = sc.sub_id AND e.value ~ '^[0-9]+$'),0)
+                   WHERE it.subcolecao_id = sc.sub_id AND it.tenant_id = _tenant AND e.value ~ '^[0-9]+$'),0)
        ELSE
-         COALESCE((SELECT sum(cs.qtd_planejada) FROM colecao_semanas cs WHERE cs.subcolecao_id = sc.sub_id),0)
+         COALESCE((SELECT sum(cs.qtd_planejada) FROM colecao_semanas cs WHERE cs.subcolecao_id = sc.sub_id AND cs.tenant_id = _tenant),0)
        END)::int AS total,
       COALESCE((SELECT count(*) FROM modelos m WHERE m.colecao_id = sc.colecao_id
                 AND m.tenant_id = _tenant AND m.subcolecao = sc.sub_nome),0)::int AS realizado
@@ -53,14 +53,14 @@ begin
     SELECT sc.colecao_id, sc.sub_nome, 'linha'::text AS tipo3, it.linha_id AS ref_id, l.nome AS label,
       COALESCE((SELECT sum((e.value)::int) FROM jsonb_each_text(it.qtd_semanas) e(key,value)
                 WHERE e.value ~ '^[0-9]+$'),0)::int AS total
-    FROM sc JOIN colecao_pv_itens it ON it.subcolecao_id = sc.sub_id
+    FROM sc JOIN colecao_pv_itens it ON it.subcolecao_id = sc.sub_id AND it.tenant_id = _tenant
     LEFT JOIN linhas l ON l.id = it.linha_id
     WHERE sc.tipo = 'poder_venda'
     UNION ALL
     -- Orçamento: nível 3 = categoria
     SELECT sc.colecao_id, sc.sub_nome, 'categoria'::text, csc.categoria_id, cat.nome,
       sum(csc.qtd)::int
-    FROM sc JOIN colecao_semana_categorias csc ON csc.subcolecao_id = sc.sub_id
+    FROM sc JOIN colecao_semana_categorias csc ON csc.subcolecao_id = sc.sub_id AND csc.tenant_id = _tenant
     LEFT JOIN categorias_produto cat ON cat.id = csc.categoria_id
     WHERE sc.tipo <> 'poder_venda'
     GROUP BY sc.colecao_id, sc.sub_nome, csc.categoria_id, cat.nome
