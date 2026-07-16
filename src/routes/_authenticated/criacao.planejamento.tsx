@@ -476,6 +476,9 @@ function PlanejamentoPage() {
   // amplo→fino (linha › categoria › repetição); qualquer combinação liga/desliga
   // independente. Cada nó carrega o próprio resumo (poder de venda etc.).
   type Split = { key: string; nome: string; items: Modelo[] };
+  // "__none__" (Sem categoria/linha/subcategoria/tecido) sempre por ÚLTIMO; o resto alfabético pt-BR.
+  const sortSplits = (a: Split, b: Split) =>
+    a.key === "__none__" ? 1 : b.key === "__none__" ? -1 : a.nome.localeCompare(b.nome, "pt-BR");
   const byLinha = (items: Modelo[]): Split[] => {
     const map = new Map<string, Modelo[]>();
     items.forEach((m) => {
@@ -485,7 +488,7 @@ function PlanejamentoPage() {
     });
     return Array.from(map.entries())
       .map(([key, its]) => ({ key, nome: key === "__none__" ? "Sem linha" : linhaMap[key] ?? "Sem linha", items: its }))
-      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+      .sort(sortSplits);
   };
   const byCat = (items: Modelo[]): Split[] => {
     const map = new Map<string, Modelo[]>();
@@ -496,7 +499,7 @@ function PlanejamentoPage() {
     });
     return Array.from(map.entries())
       .map(([key, its]) => ({ key, nome: key === "__none__" ? "Sem categoria" : catMap[key] ?? "Sem categoria", items: its }))
-      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+      .sort(sortSplits);
   };
   const bySub1 = (items: Modelo[]): Split[] => {
     const map = new Map<string, Modelo[]>();
@@ -507,7 +510,7 @@ function PlanejamentoPage() {
     });
     return Array.from(map.entries())
       .map(([key, its]) => ({ key, nome: key === "__none__" ? "Sem subcategoria" : sub1Map[key] ?? "Sem subcategoria", items: its }))
-      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+      .sort(sortSplits);
   };
   const byRep = (items: Modelo[]): Split[] => {
     const reps = items.filter(isRepeticao);
@@ -531,7 +534,7 @@ function PlanejamentoPage() {
     });
     return Array.from(map.entries())
       .map(([key, its]) => ({ key, nome: key === "__none__" ? "Sem tecido" : artigoMap[key] ?? "Sem tecido", items: its }))
-      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+      .sort(sortSplits);
   };
   // Ordem de aninhamento fixa (amplo→fino); os toggles só escolhem quais níveis entram.
   const splitters: ((items: Modelo[]) => Split[])[] = [
