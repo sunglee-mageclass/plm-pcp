@@ -364,6 +364,15 @@ function PlanejamentoPage() {
     return Array.from(s).sort();
   }, [modelos]);
 
+  // Coleção comum dos cards selecionados (p/ o BulkEditDialog oferecer as subcoleções
+  // certas sem exigir escolher Coleção). null se a seleção mistura coleções (ou nenhuma).
+  const bulkColecaoId = useMemo(() => {
+    if (!selected.size) return null;
+    const byId = new Map(modelos.map((m) => [m.id, m]));
+    const cols = new Set([...selected].map((id) => byId.get(id)?.colecao_id ?? null));
+    return cols.size === 1 ? ([...cols][0] ?? null) : null;
+  }, [selected, modelos]);
+
   const catGrupoMap = Object.fromEntries(categorias.map((c) => [c.id, c.grupo_id]));
   // "Repetição" = versão v2 em diante (cópia). O original (v1) é "único".
   const isRepeticao = (m: Modelo) => (m.versao ?? 1) > 1;
@@ -731,6 +740,7 @@ function PlanejamentoPage() {
         <BulkEditDialog
           ids={[...selected]}
           otbOn={otbOn}
+          defaultColecaoId={bulkColecaoId}
           colecoes={colecoesList}
           grupos={grupos}
           categorias={categorias}

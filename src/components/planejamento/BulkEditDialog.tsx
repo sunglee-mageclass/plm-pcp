@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -12,9 +12,10 @@ type Opt = { id: string; nome: string };
 const NONE = "__keep__"; // "não alterar"
 
 export function BulkEditDialog({
-  ids, otbOn, colecoes, grupos, categorias, sub1, sub2, estilistas, linhas, meses, anos, statusOpts, onClose, onSaved,
+  ids, otbOn, defaultColecaoId, colecoes, grupos, categorias, sub1, sub2, estilistas, linhas, meses, anos, statusOpts, onClose, onSaved,
 }: {
   ids: string[]; otbOn: boolean;
+  defaultColecaoId?: string | null;
   colecoes: (Opt & { mes_id?: string | null; ano_id?: string | null })[];
   grupos: Opt[]; categorias: (Opt & { grupo_id?: string | null })[];
   sub1: (Opt & { categoria_id?: string | null })[]; sub2: (Opt & { categoria_id?: string | null })[];
@@ -23,6 +24,7 @@ export function BulkEditDialog({
   onClose: () => void; onSaved: () => void;
 }) {
   const [colecaoId, setColecaoId] = useState(NONE);
+  const [subcolecao, setSubcolecao] = useState(NONE);
   const [grupo, setGrupo] = useState(NONE); // só cascata, não persiste
   const [categoria, setCategoria] = useState(NONE);
   const [s1, setS1] = useState(NONE);
@@ -39,6 +41,30 @@ export function BulkEditDialog({
   const s1Opts = categoria === NONE ? [] : sub1.filter((s) => s.categoria_id === categoria);
   const s2Opts = categoria === NONE ? [] : sub2.filter((s) => s.categoria_id === categoria);
 
+  // Subcoleção é conceito de OTB e depende da coleção: a escolhida no diálogo ou, se
+  // nenhuma, a coleção comum dos cards selecionados. Cada subcoleção resolve suas semanas
+  // de colecao_subcolecoes.semanas (PV) + colecao_semanas.semana (Orçamento); se der UMA só,
+  // vira auto-preenchimento da Semana.
+  const effColecaoId = colecaoId !== NONE ? colecaoId : (defaultColecaoId ?? null);
+  const { data: subcolOpts = [] } = useQuery({
+    queryKey: ["bulk-subcolecoes", effColecaoId],
+    enabled: otbOn && !!effColecaoId,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("colecao_subcolecoes")
+        .select("nome, semanas, colecao_semanas(semana)").eq("colecao_id", effColecaoId!).order("ordem");
+      if (error) throw error;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return ((data ?? []) as any[]).map((s) => {
+        const wk = new Set<number>();
+        (s.semanas ?? []).forEach((w: number) => wk.add(Number(w)));
+        (s.colecao_semanas ?? []).forEach((cs: any) => cs?.semana != null && wk.add(Number(cs.semana)));
+        const weeks = [...wk].filter((n) => n >= 1 && n <= 5).sort((a, b) => a - b);
+        return { nome: s.nome as string, autoWeek: weeks.length === 1 ? String(weeks[0]) : null };
+      });
+    },
+  });
+  const subcolAutoWeek = useMemo(() => Object.fromEntries(subcolOpts.map((s) => [s.nome, s.autoWeek])), [subcolOpts]);
+
   const apply = useMutation({
     mutationFn: async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -48,6 +74,7 @@ export function BulkEditDialog({
         const col = colecoes.find((c) => c.id === colecaoId);
         if (col) patch.colecao = col.nome;
       }
+      if (otbOn && subcolecao !== NONE) patch.subcolecao = subcolecao;
       if (categoria !== NONE) {
         patch.categoria_principal_id = categoria;
         patch.subcategoria1_id = null;
@@ -95,7 +122,29 @@ export function BulkEditDialog({
         <div className="space-y-3 max-sm:min-h-0 max-sm:overflow-y-auto">
           <p className="text-xs text-muted-foreground">Só os campos que você mudar de "Não alterar" são aplicados.</p>
           <div className="grid sm:grid-cols-2 gap-3">
-            {otbOn && field("Coleção", colecaoId, setColecaoId, colecoes)}
+            {otbOn && field("Coleção", colecaoId, (v) => { setColecaoId(v); setSubcolecao(NONE); }, colecoes)}
+            {otbOn && (
+              <div className="grid gap-1">
+                <Label className="text-xs">Subcoleção</Label>
+                <Select
+                  value={subcolecao}
+                  onValueChange={(v) => {
+                    setSubcolecao(v);
+                    const aw = v !== NONE ? subcolAutoWeek[v] : null; // uma semana só → auto-preenche
+                    if (aw) setSemana(aw);
+                  }}
+                  disabled={!effColecaoId}
+                >
+                  <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NONE}>{effColecaoId ? "Não alterar" : "Escolha a coleção"}</SelectItem>
+                    {subcolOpts.map((o) => (
+                      <SelectItem key={o.nome} value={o.nome}>{o.nome}{o.autoWeek ? ` · Sem ${o.autoWeek}` : ""}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {field("Grupo (filtra categoria)", grupo, (v) => { setGrupo(v); setCategoria(NONE); setS1(NONE); setS2(NONE); }, grupos)}
             {field("Categoria", categoria, (v) => { setCategoria(v); setS1(NONE); setS2(NONE); }, catOpts)}
             {field("Subcategoria 1", s1, setS1, s1Opts)}
