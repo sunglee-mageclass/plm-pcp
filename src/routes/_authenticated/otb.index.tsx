@@ -17,6 +17,7 @@ import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { Target, Plus } from "lucide-react";
 import { ColecaoSheet } from "@/components/otb/ColecaoSheet";
 import { computeColecaoResumo } from "@/components/otb/otb-resumo";
+import { useOrcamento } from "@/components/otb/orcamento";
 import { brl } from "@/lib/format";
 import { RequirePermission } from "@/components/RequirePermission";
 
@@ -154,6 +155,7 @@ function OtbPage() {
   }, [semanas, modelosLink, colecoes, custoMap, gradeMap, linhaMarkupMap]);
 
   const qc = useQueryClient();
+  const orcHook = useOrcamento();
   const importar = useMutation({
     mutationFn: async () => {
       const { data, error } = await supabase.rpc("otb_importar_colecoes" as any);
@@ -248,11 +250,19 @@ function OtbPage() {
                     <div className="text-sm font-medium">Poder de venda: {brl(st.poder)}</div>
                   </div>
                 )}
-                <div className="mt-1">
-                  <span className="text-xs text-muted-foreground tabular-nums" title="Modelos em status planejado / quantidade definida no OTB">
-                    {st.definido > 0 ? `${st.planejados}/${st.definido} planejados` : `${st.planejados} ${st.planejados === 1 ? "planejado" : "planejados"}`}
-                  </span>
-                </div>
+                {(() => {
+                  const ob = orcHook.colecao(c.id); // só confirmadas retornam bucket
+                  if (!ob) return null;
+                  const over = ob.realizado > ob.total;
+                  return (
+                    <div className="mt-1">
+                      <span className={`text-xs tabular-nums ${over ? "text-red-600 font-semibold" : "text-muted-foreground"}`}
+                        title="Cards criados no Planejamento / total do plano">
+                        {ob.realizado}/{ob.total} modelos{over ? " · divergência" : ""}
+                      </span>
+                    </div>
+                  );
+                })()}
               </button>
             );
           })}
