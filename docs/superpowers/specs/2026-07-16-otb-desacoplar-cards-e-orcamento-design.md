@@ -76,12 +76,12 @@ Sem `INSERT` de cards. Sem `app.otb_reconciling` (não há mais sync a proteger)
   → `Praia 3/30`; ao escolher linha/categoria → `Vestidos 2/10`. Mostra o **estado
   atual** (quantas vagas restam). Não bloqueia estourar.
 - **Novos Cards (em massa):** abaixo do "total de cards criados", **resumo projetado**
-  ("com esse planejamento: **20/100** nesta coleção, **3/10** nesta subcoleção"),
-  recalculado conforme as quantidades mudam. Para o nível de subcoleção existir, o
-  diálogo ganha um campo **Subcoleção** (hoje só tem coleção/semana/mês/ano + linhas
-  de categoria×qtd). A projeção cobre **coleção** (sempre) + **subcoleção** (quando
-  escolhida) + **categoria** por linha (Orçamento). Projeção por **linha (PV)** no
-  bulk fica deferida — o diálogo não captura linha (ver §10).
+  ("com esse planejamento: **20/100** nesta coleção, **3/10** nesta subcoleção,
+  **2/10** nesta linha"), recalculado conforme as quantidades mudam. O diálogo ganha
+  campos **Subcoleção** e **Linha** (de lote, aplicados a todos os cards criados; hoje
+  só tem coleção/semana/mês/ano + linhas de categoria×qtd). A projeção cobre
+  **coleção** + **subcoleção** + **linha** (PV) + **categoria** (Orçamento, vinda das
+  linhas de qtd).
 - **Selecionáveis** (dropdowns de coleção/subcoleção/linha/categoria no Novo Modelo e
   Novos Cards): cada opção mostra `X/Y`; opções estouradas em âmbar. Um helper único
   de rótulo (`<OrcamentoLabel>` ou função) evita duplicar a lógica.
@@ -134,8 +134,6 @@ o plano pretendido era outro. Sem backfill automático.
 **Fica pra depois:**
 - Bloquear criação ao estourar.
 - Divergência de subcoleção/linha no **sidebar** (hoje só o total da coleção).
-- Projeção/criação por **linha (PV)** no "Novos Cards" (o diálogo é por categoria;
-  precisaria capturar linha). v1: bulk projeta coleção + subcoleção + categoria.
 - Selecionáveis com orçamento no `BulkEditDialog` e nos dropdowns inline do card
   (v1 foca Novo Modelo + Novos Cards).
 - Histórico/relatório de divergências.
