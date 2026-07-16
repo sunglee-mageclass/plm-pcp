@@ -99,7 +99,21 @@ export function useFichaData(modeloId: string): FichaData {
   const { data: cadEtiquetas = [] } = useQuery({
     queryKey: ["ft-etiquetas", cadId],
     enabled: !!cadId,
-    queryFn: async () => ((await supabase.from("cad_etiquetas" as any).select("*, etiquetas:etiqueta_id(nome, tamanho, formato_tamanho, variantes_etiqueta(tamanho)), cor:cor_id(nome)").eq("cad_id", cadId)).data ?? []) as any[],
+    queryFn: async () => ((await supabase.from("cad_etiquetas" as any).select("*, etiquetas:etiqueta_id(nome, tamanho), cor:cor_id(nome)").eq("cad_id", cadId)).data ?? []) as any[],
+  });
+  // "Sem tamanho" por insumo (formato Nenhum ou sem variante com tamanho). Query SEPARADA
+  // (o embed aninhado cad_etiquetas→etiquetas→variantes_etiqueta vinha vazio → tudo "Geral").
+  const { data: etqSemTamanhoMap = {} } = useQuery({
+    queryKey: ["ft-etiquetas-semtamanho"],
+    queryFn: async () => {
+      const { data } = await supabase.from("etiquetas" as any).select("id, formato_tamanho, variantes_etiqueta(tamanho)");
+      const m: Record<string, boolean> = {};
+      for (const e of (data ?? []) as any[]) {
+        const vs = (e.variantes_etiqueta ?? []) as any[];
+        m[e.id] = (e.formato_tamanho ?? "ambos") === "nenhum" || vs.every((v) => !v.tamanho);
+      }
+      return m;
+    },
   });
 
   const { data: tamanhosConfig = [] } = useQuery({
@@ -166,14 +180,12 @@ export function useFichaData(modeloId: string): FichaData {
   );
 
   const etiquetas: EtiquetaRow[] = useMemo(
-    () => (cadEtiquetas as any[]).map((e) => {
-      const formato = e.etiquetas?.formato_tamanho ?? "ambos";
-      const vs = (e.etiquetas?.variantes_etiqueta ?? []) as any[];
-      // "Sem tamanho" = formato Nenhum OU o insumo não tem nenhuma variante com tamanho.
-      const semTamanho = formato === "nenhum" || vs.every((v) => !v.tamanho);
-      return { id: e.id, etiqueta_id: e.etiqueta_id, etiqueta_nome: e.etiquetas?.nome ?? "—", cor_id: e.cor_id ?? null, cor_nome: e.cor?.nome ?? null, tamanho: e.etiquetas?.tamanho ?? null, consumo: num(e.consumo), quantidade_planejada: num(e.quantidade_planejada), quantidade_enviar: num(e.quantidade_enviar), enviarPorTamanho: (e.enviar_por_tamanho ?? {}) as Record<string, number>, semTamanho };
-    }),
-    [cadEtiquetas],
+    () => (cadEtiquetas as any[]).map((e) => ({
+      id: e.id, etiqueta_id: e.etiqueta_id, etiqueta_nome: e.etiquetas?.nome ?? "—", cor_id: e.cor_id ?? null, cor_nome: e.cor?.nome ?? null, tamanho: e.etiquetas?.tamanho ?? null, consumo: num(e.consumo), quantidade_planejada: num(e.quantidade_planejada), quantidade_enviar: num(e.quantidade_enviar), enviarPorTamanho: (e.enviar_por_tamanho ?? {}) as Record<string, number>,
+      // Sem tamanho vindo do mapa (query separada) — default true se ainda não carregou.
+      semTamanho: (etqSemTamanhoMap as Record<string, boolean>)[e.etiqueta_id] ?? true,
+    })),
+    [cadEtiquetas, etqSemTamanhoMap],
   );
 
   const tamanhosAll = useMemo(() => {
