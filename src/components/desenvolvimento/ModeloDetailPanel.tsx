@@ -42,7 +42,7 @@ import { ModeloEtiquetasSection } from "./modelo-detail/ModeloEtiquetasSection";
 import { ModeloGradeSection } from "./modelo-detail/ModeloGradeSection";
 import { ModeloCustosSection } from "./modelo-detail/ModeloCustosSection";
 import { ModeloAnexosSection } from "./modelo-detail/ModeloAnexosSection";
-import { useEtapasAfetadas, DownstreamConfirmDialog } from "./DownstreamImpactAlert";
+import { useEtapasAfetadas, DownstreamConfirmDialog, DesmarcarEtapasDialog } from "./DownstreamImpactAlert";
 import { ModeloObservacoes } from "@/components/shared/ModeloObservacoes";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 
@@ -319,6 +319,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   // Salvar volta a travar. Reseta ao abrir outro modelo.
   const [editing, setEditing] = useState(false);
   const [confirmEditOpen, setConfirmEditOpen] = useState(false);
+  const [desmarcarOpen, setDesmarcarOpen] = useState(false);
   const { hasDownstream } = useEtapasAfetadas(modeloId);
   // Rastreio p/ o alerta inteligente (o que mudou → impacto específico).
   const [gradeAlterada, setGradeAlterada] = useState(false);
@@ -1053,7 +1054,14 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         open={confirmEditOpen}
         onOpenChange={setConfirmEditOpen}
         onConfirm={() => { setConfirmEditOpen(false); save.mutate(); }}
+        onDesmarcar={() => { setConfirmEditOpen(false); setDesmarcarOpen(true); }}
         changes={{ grade: gradeAlterada, consumo: consumoAlterado, aviamentos: aviamentoAlterado }}
+      />
+      <DesmarcarEtapasDialog
+        modeloId={modeloId}
+        open={desmarcarOpen}
+        onOpenChange={setDesmarcarOpen}
+        onSave={() => { setDesmarcarOpen(false); save.mutate(); }}
       />
 
       <fieldset disabled={locked} className="contents">

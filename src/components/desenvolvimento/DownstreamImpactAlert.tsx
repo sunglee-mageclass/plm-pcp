@@ -1,8 +1,14 @@
-import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle } from "lucide-react";
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, Undo2, ExternalLink, CheckCircle2 } from "lucide-react";
+import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { fmtNum } from "@/lib/format";
+import { useAuth } from "@/hooks/useAuth";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -76,6 +82,7 @@ export function DownstreamConfirmDialog({
   open,
   onOpenChange,
   onConfirm,
+  onDesmarcar,
   changes,
 }: {
   modeloId: string;
@@ -83,6 +90,7 @@ export function DownstreamConfirmDialog({
   open: boolean;
   onOpenChange: (o: boolean) => void;
   onConfirm: () => void;
+  onDesmarcar?: () => void;
   changes?: CamposAlterados;
 }) {
   const { etapas, reached } = useEtapasAfetadas(modeloId, from);
@@ -91,7 +99,7 @@ export function DownstreamConfirmDialog({
   const intro =
     from === "cad"
       ? "Este modelo já foi enviado ao corte ou tem produção. Salvar estas alterações do CAD vai afetar:"
-      : "Este modelo já avançou. Salvar estas alterações vai afetar as etapas seguintes (a metragem planejada do CAD não muda sozinha):";
+      : "Este modelo já avançou. As etapas seguintes NÃO atualizam sozinhas — para a mudança valer, é preciso DESMARCAR/refazer as posições posteriores (da última para a primeira) antes. Salvar agora afeta:";
 
   // Impacto específico do que foi alterado (alerta inteligente).
   const impactos = FIELD_IMPACT
@@ -128,11 +136,173 @@ export function DownstreamConfirmDialog({
           </div>
         )}
 
-        <AlertDialogFooter>
+        <AlertDialogFooter className="flex-col gap-2 sm:flex-row">
           <AlertDialogCancel>Voltar a editar</AlertDialogCancel>
+          {onDesmarcar && from === "desenvolvimento" && (
+            <Button variant="secondary" onClick={onDesmarcar}>
+              <Undo2 className="h-4 w-4 mr-1" /> Desmarcar etapas…
+            </Button>
+          )}
           <AlertDialogAction onClick={onConfirm}>Salvar mesmo assim</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  );
+}
+
+// Ordem REVERSA do fluxo (desmarca-se da última etapa para a primeira).
+type UnmarkStage = {
+  key: keyof Etapas;
+  label: string;
+  effect: (e: Etapas) => string;
+  perm: string;
+  action?: "lancamentos" | "direcionamento" | "cq" | "corte";
+  href?: (id: string) => string;
+  destructive?: boolean;
+};
+const UNMARK_STAGES: UnmarkStage[] = [
+  { key: "lancamentos", label: "Lançamentos", effect: () => "lançado → não lançado", perm: "producao_lancamentos", action: "lancamentos" },
+  { key: "direcionamento", label: "Direcionamento", effect: () => "separado → pendente", perm: "producao_direcionamento", action: "direcionamento" },
+  { key: "cq", label: "CQ", effect: () => "estorna a grade conferida (Pré e Pós)", perm: "producao_cq", action: "cq", destructive: true },
+  { key: "oficina", label: "Oficina", effect: () => "revise as quantidades na tela", perm: "producao_oficina", href: (id) => `/producao/oficina/${id}` },
+  { key: "terceirizados", label: "Serviços", effect: () => "revise as quantidades na tela", perm: "producao_terceirizados", href: (id) => `/producao/terceirizados/${id}` },
+  { key: "corte", label: "Corte", effect: (e) => `estorna a baixa de ${fmtNum(Number(e.baixa_total ?? 0))} m de tecido`, perm: "producao_cad", action: "corte", destructive: true },
+];
+
+/**
+ * Mini-janela para DESMARCAR as etapas posteriores atingidas, da última para a
+ * primeira, sem sair do Desenvolvimento. Reaproveita as MESMAS ações das telas de
+ * cada etapa (RPCs/updates com suas guardas). "Salvar agora" some assim que não há
+ * mais etapa desmarcável pendente.
+ */
+export function DesmarcarEtapasDialog({
+  modeloId,
+  open,
+  onOpenChange,
+  onSave,
+}: {
+  modeloId: string;
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  onSave: () => void;
+}) {
+  const qc = useQueryClient();
+  const { canEdit } = useAuth();
+  const { etapas } = useEtapasAfetadas(modeloId);
+  const [confirmKey, setConfirmKey] = useState<string | null>(null);
+
+  const { data: cadId } = useQuery({
+    queryKey: ["cad-id-por-modelo", modeloId],
+    enabled: open && !!modeloId,
+    queryFn: async () => {
+      const { data } = await supabase.from("cad").select("id").eq("modelo_id", modeloId).maybeSingle();
+      return ((data as any)?.id ?? null) as string | null;
+    },
+  });
+
+  const unmark = useMutation({
+    mutationFn: async (action: NonNullable<UnmarkStage["action"]>) => {
+      if (action === "lancamentos") {
+        const { error } = await supabase.from("modelos").update({ lancado: false } as any).eq("id", modeloId);
+        if (error) throw error;
+      } else if (!cadId) {
+        throw new Error("CAD deste modelo não encontrado.");
+      } else if (action === "direcionamento") {
+        const { error } = await supabase.from("cad").update({ direcionamento_status: "pendente", direcionamento_confirmado_at: null } as any).eq("id", cadId);
+        if (error) throw error;
+      } else if (action === "cq") {
+        const { error } = await supabase.rpc("desmarcar_cq" as any, { _cad_id: cadId }); // rebaixa o Pós junto
+        if (error) throw error;
+      } else if (action === "corte") {
+        const { error } = await supabase.rpc("reverter_corte_tecido" as any, { _cad_id: cadId });
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      toast.success("Etapa desmarcada.");
+      ["etapas-afetadas", "cad-grades", "parcelas", "estoque-tecidos", "estoque-aviamentos", "estoque-insumos", "sidebar-badges", "cad-etiquetas-rows"]
+        .forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Não foi possível desmarcar")),
+  });
+
+  const reached = UNMARK_STAGES.filter((s) => etapas[s.key]);
+  const firstDesmarcavel = reached.find((s) => s.action)?.key; // só a etapa mais recente fica ativa
+  const podeSalvar = !reached.some((s) => s.action); // nenhum "lock" pendente
+
+  const doAction = (s: UnmarkStage) => {
+    if (!s.action) return;
+    if (s.destructive) setConfirmKey(s.key);
+    else unmark.mutate(s.action);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Undo2 className="h-4 w-4" /> Desmarcar etapas posteriores
+          </DialogTitle>
+        </DialogHeader>
+
+        {reached.length === 0 ? (
+          <div className="flex items-center gap-2 rounded-md border border-emerald-500/40 bg-emerald-500/5 p-3 text-sm">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" /> Nenhuma etapa posterior pendente — pode salvar a edição.
+          </div>
+        ) : (
+          <>
+            <p className="text-sm text-muted-foreground">
+              Desmarque da última para a primeira. Cada botão reaproveita a reversão da própria etapa (com suas guardas).
+            </p>
+            <div className="space-y-2">
+              {reached.map((s) => {
+                const blocked = !!s.action && s.key !== firstDesmarcavel;
+                const semPerm = !!s.action && !canEdit(s.perm);
+                return (
+                  <div key={s.key} className="flex items-center gap-3 rounded-md border p-2.5">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium">{s.label}</p>
+                      <p className="text-xs text-muted-foreground">{s.effect(etapas)}</p>
+                    </div>
+                    {s.href ? (
+                      <a href={s.href(modeloId)} target="_blank" rel="noreferrer" className="shrink-0">
+                        <Button size="sm" variant="outline"><ExternalLink className="h-3.5 w-3.5 mr-1" /> Abrir</Button>
+                      </a>
+                    ) : semPerm ? (
+                      <span className="text-xs text-muted-foreground shrink-0">sem permissão</span>
+                    ) : blocked ? (
+                      <span className="text-xs text-muted-foreground shrink-0">desmarque a de cima</span>
+                    ) : (
+                      <Button size="sm" variant={s.destructive ? "destructive" : "secondary"} className="shrink-0"
+                        disabled={unmark.isPending} onClick={() => doAction(s)}>Desmarcar</Button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Fechar</Button>
+          {podeSalvar && <Button onClick={onSave}>Salvar agora</Button>}
+        </DialogFooter>
+      </DialogContent>
+
+      <AlertDialog open={!!confirmKey} onOpenChange={(o) => !o && setConfirmKey(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Desmarcar {UNMARK_STAGES.find((s) => s.key === confirmKey)?.label}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {(() => { const s = UNMARK_STAGES.find((x) => x.key === confirmKey); return s ? `${s.effect(etapas)}. Usa a mesma reversão da tela da etapa.` : ""; })()}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { const s = UNMARK_STAGES.find((x) => x.key === confirmKey); if (s?.action) unmark.mutate(s.action); setConfirmKey(null); }}>Desmarcar</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Dialog>
   );
 }
