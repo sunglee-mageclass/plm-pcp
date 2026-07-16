@@ -39,6 +39,7 @@ function EstoquePage() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsContent value="tecidos"><TecidosTab /></TabsContent>
         <TabsContent value="aviamentos"><AviamentosTab /></TabsContent>
+        <TabsContent value="insumos"><InsumosTab /></TabsContent>
       </Tabs>
     </div>
   );
@@ -170,6 +171,7 @@ function TecidosTab() {
         <TabsList>
           <TabsTrigger value="tecidos">Tecidos</TabsTrigger>
           <TabsTrigger value="aviamentos"><span className="sm:hidden">Aviam.</span><span className="hidden sm:inline">Aviamentos</span></TabsTrigger>
+          <TabsTrigger value="insumos">Insumos</TabsTrigger>
         </TabsList>
         <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}>
           <Printer className="h-4 w-4 mr-1" /> Imprimir
@@ -553,6 +555,7 @@ function AviamentosTab() {
         <TabsList>
           <TabsTrigger value="tecidos">Tecidos</TabsTrigger>
           <TabsTrigger value="aviamentos"><span className="sm:hidden">Aviam.</span><span className="hidden sm:inline">Aviamentos</span></TabsTrigger>
+          <TabsTrigger value="insumos">Insumos</TabsTrigger>
         </TabsList>
         <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}>
           <Printer className="h-4 w-4 mr-1" /> Imprimir
@@ -828,6 +831,78 @@ function AviamentoCard({ row }: { row: any }) {
               </div>
             ))}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================ INSUMOS ============================ */
+
+const fmtTamInsumo = (t: string) => { const [n, s] = t.split("|"); return s ? `${s} · ${n}` : t; };
+
+function InsumosTab() {
+  const [search, setSearch] = useState("");
+  const { data = [], isLoading } = useQuery({
+    queryKey: ["estoque-insumos"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("estoque_etiqueta" as any);
+      if (error) throw error;
+      return ((data ?? []) as any[]).map((r) => ({
+        etiquetaNome: r.etiqueta_nome as string, tamanho: r.tamanho as string | null, corNome: r.cor_nome as string | null,
+        recebido: num(r.recebido), prevReceb: num(r.prev_receb), baixa: num(r.baixa), fisico: num(r.fisico),
+      }));
+    },
+  });
+  const filtered = useMemo(() => {
+    const s = search.toLowerCase();
+    return data.filter((r) => !s || r.etiquetaNome.toLowerCase().includes(s) || (r.corNome ?? "").toLowerCase().includes(s));
+  }, [data, search]);
+  const varLabel = (r: any) => [r.corNome, r.tamanho ? fmtTamInsumo(r.tamanho) : null].filter(Boolean).join(" · ") || "Único";
+
+  return (
+    <div className="space-y-4">
+      <EstoqueHeader>
+        <TabsList>
+          <TabsTrigger value="tecidos">Tecidos</TabsTrigger>
+          <TabsTrigger value="aviamentos"><span className="sm:hidden">Aviam.</span><span className="hidden sm:inline">Aviamentos</span></TabsTrigger>
+          <TabsTrigger value="insumos">Insumos</TabsTrigger>
+        </TabsList>
+        <SearchToggle value={search} onChange={setSearch} placeholder="Insumo ou cor" />
+      </EstoqueHeader>
+      {isLoading ? (
+        <p className="text-sm text-muted-foreground">Carregando…</p>
+      ) : filtered.length === 0 ? (
+        <div className="rounded-lg border p-8 text-center text-muted-foreground">
+          <Boxes className="h-8 w-8 mx-auto mb-2 opacity-50" />
+          Sem insumos em estoque. Compras (OC Insumo) e consumos (CAD) aparecem aqui.
+        </div>
+      ) : (
+        <div className="rounded-lg border overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50">
+              <tr>
+                <th className="text-left px-3 py-2">Insumo</th>
+                <th className="text-left px-3 py-2">Variante</th>
+                <th className="text-right px-3 py-2">Prev. Receb.</th>
+                <th className="text-right px-3 py-2">Recebido</th>
+                <th className="text-right px-3 py-2">Baixa</th>
+                <th className="text-right px-3 py-2">Físico</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((r, i) => (
+                <tr key={i} className="border-t">
+                  <td className="px-3 py-2" data-label="Insumo">{r.etiquetaNome}</td>
+                  <td className="px-3 py-2 text-muted-foreground" data-label="Variante">{varLabel(r)}</td>
+                  <td className="px-3 py-2 text-right" data-label="Prev. Receb.">{fmt(r.prevReceb)}</td>
+                  <td className="px-3 py-2 text-right" data-label="Recebido">{fmt(r.recebido)}</td>
+                  <td className="px-3 py-2 text-right" data-label="Baixa">{fmt(r.baixa)}</td>
+                  <td className={`px-3 py-2 text-right font-medium ${r.fisico < 0 ? "text-destructive" : ""}`} data-label="Físico">{fmt(r.fisico)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
