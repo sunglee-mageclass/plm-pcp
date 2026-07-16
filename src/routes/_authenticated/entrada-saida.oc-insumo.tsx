@@ -20,7 +20,8 @@ import { FilterButton } from "@/components/shared/filters";
 import { useResponsavelFilter, SENTINEL_NOME } from "@/hooks/useResponsavelFilter";
 import { NfList } from "@/components/oc-tecido/NfList";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { OcModalShell } from "@/components/shared/OcModalShell";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -411,13 +412,13 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
   };
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-3xl max-h-[92vh] flex flex-col gap-0 p-0 max-sm:[&>button]:hidden">
-        <DialogHeader className="shrink-0 px-6 pt-6 pb-2">
+    <>
+    <OcModalShell isEdit={isEdit} onClose={onClose}>
+        <DialogHeader className="shrink-0">
           <DialogTitle>{isEdit ? `OC ${numero || "Insumo"}` : "Nova OC de Insumo"}</DialogTitle>
         </DialogHeader>
 
-        <div className="min-h-0 overflow-y-auto px-6 py-2 space-y-4">
+        <div className="space-y-4 min-h-0 overflow-y-auto">
           <div className="grid sm:grid-cols-2 gap-3">
             <div className="grid gap-1"><Label>Número do Pedido</Label><Input value={numero} onChange={(e) => setNumero(e.target.value)} disabled={readOnly} /></div>
             <div className="grid gap-1"><Label>Fornecedor</Label>
@@ -548,7 +549,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
           )}
         </div>
 
-        <div className="flex items-center gap-2 shrink-0 border-t bg-background px-6 py-3">
+        <div className="flex items-center gap-2 shrink-0 border-t bg-background -mx-6 -mb-6 px-6 py-3 max-md:-mx-4 max-md:-mb-4 max-md:px-4">
           <Button variant="outline" onClick={onClose} aria-label="Voltar"><ArrowLeft className="h-4 w-4 md:mr-1" /><span className="max-md:sr-only">Voltar</span></Button>
           {isEdit && status === "encomendado" && !readOnly && (
             <Button variant="destructive" onClick={onDelete} aria-label="Excluir"><Trash2 className="h-4 w-4 md:mr-1" /><span className="max-md:sr-only">Excluir</span></Button>
@@ -562,7 +563,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
             {!isReadOnlyRecebimento && <Button onClick={() => doSave(false)} disabled={save.isPending}>Salvar</Button>}
           </div>
         </div>
-      </DialogContent>
+    </OcModalShell>
 
       <AlertDialog open={confirmUnmark} onOpenChange={setConfirmUnmark}>
         <AlertDialogContent>
@@ -576,6 +577,6 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Dialog>
+    </>
   );
 }
