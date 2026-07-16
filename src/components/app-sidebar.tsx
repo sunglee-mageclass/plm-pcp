@@ -106,6 +106,7 @@ const BADGE_CLS: Record<string, string> = {
   entrada_oc_tecido: "bg-red-500 text-white",
   entrada_oc_aviamento: "bg-red-500 text-white",
   entrada_oc_insumo: "bg-red-500 text-white",
+  otb_divergencia: "bg-red-500 text-white",
 };
 
 function NavBadge({ n, className }: { n: number; className?: string }) {
@@ -155,6 +156,7 @@ export function AppSidebar() {
     entrada_oc_tecido: Number(badges?.oc_tecido_atrasada ?? 0),
     entrada_oc_aviamento: Number(badges?.oc_aviamento_atrasada ?? 0),
     entrada_oc_insumo: Number(badges?.oc_etiqueta_atrasada ?? 0),
+    otb_divergencia: Number(badges?.otb_divergencia ?? 0),
   };
   // Agregado por módulo (quando o grupo está recolhido/ícone): soma + cor da maior urgência.
   const itemBadge = (subs: { key: string }[]) => {
@@ -210,9 +212,12 @@ export function AppSidebar() {
       return (
         <SidebarMenuItem key={item.url}>
           <SidebarMenuButton asChild isActive={active} tooltip={item.title}>
-            <Link to={item.url}>
+            <Link to={item.url} className="relative">
               <item.icon className="h-4 w-4" />
               <span>{item.title}</span>
+              {item.url === "/otb" && (countFor.otb_divergencia ?? 0) > 0 && (
+                <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-red-500" title="Coleção(ões) com divergência" />
+              )}
             </Link>
           </SidebarMenuButton>
         </SidebarMenuItem>
