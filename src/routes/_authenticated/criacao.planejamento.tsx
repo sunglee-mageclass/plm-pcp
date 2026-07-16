@@ -1711,6 +1711,8 @@ function BatchCardsDialog({
                     setColecao(col?.nome ?? colecao);
                     if (!mesId && col?.mes_id) setMesId(col.mes_id);
                     if (!anoId && col?.ano_id) setAnoId(col.ano_id);
+                    setSubcolecao("");
+                    setLinhaId(null);
                   }}
                   options={colecoesBatch}
                 />
@@ -1754,7 +1756,7 @@ function BatchCardsDialog({
               {otbOn && (
                 <div className="grid gap-1">
                   <Label className="text-xs">Linha</Label>
-                  <Select value={linhaId ?? "__none__"} onValueChange={(v) => setLinhaId(v === "__none__" ? null : v)}>
+                  <Select value={linhaId ?? "__none__"} onValueChange={(v) => setLinhaId(v === "__none__" ? null : v)} disabled={!colecaoId}>
                     <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__none__">—</SelectItem>
