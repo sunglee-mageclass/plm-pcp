@@ -732,6 +732,7 @@ function PlanejamentoPage() {
           anos={anos}
           grupos={grupos}
           categorias={categorias}
+          linhas={linhas}
           onClose={() => setOpenBatch(false)}
           onSaved={() => qc.invalidateQueries({ queryKey: ["modelos-planejamento"] })}
         />
@@ -1586,9 +1587,9 @@ const emptyCatRow = (): CatRow => ({
 });
 
 function BatchCardsDialog({
-  meses, anos, grupos, categorias, onClose, onSaved,
+  meses, anos, grupos, categorias, linhas, onClose, onSaved,
 }: {
-  meses: Opt[]; anos: Opt[]; grupos: Opt[]; categorias: CatOpt[];
+  meses: Opt[]; anos: Opt[]; grupos: Opt[]; categorias: CatOpt[]; linhas: LinhaOpt[];
   onClose: () => void; onSaved: () => void;
 }) {
   const grupoMap = Object.fromEntries(grupos.map((g) => [g.id, g.nome]));
@@ -1598,6 +1599,7 @@ function BatchCardsDialog({
   // sem nome/estilista/tecido/fotos).
   const { isModuleEnabled: batchIsModuleEnabled } = useTenantModules();
   const otbOn = batchIsModuleEnabled("otb");
+  const orc = useOrcamento();
   const { data: colecoesBatch = [] } = useQuery({
     queryKey: ["otb-colecoes-opts"],
     enabled: otbOn,
@@ -1608,6 +1610,13 @@ function BatchCardsDialog({
   });
   const [colecao, setColecao] = useState("");
   const [colecaoId, setColecaoId] = useState<string | null>(null);
+  const [subcolecao, setSubcolecao] = useState("");
+  const [linhaId, setLinhaId] = useState<string | null>(null);
+  const { data: subOpts = [] } = useQuery({
+    queryKey: ["batch-subcolecoes", colecaoId],
+    enabled: otbOn && !!colecaoId,
+    queryFn: async () => (await supabase.from("colecao_subcolecoes").select("nome").eq("colecao_id", colecaoId!).order("ordem")).data?.map((r: any) => r.nome as string) ?? [],
+  });
   const [status, setStatus] = useState("em_planejamento");
   const [semana, setSemana] = useState("");
   const [mesId, setMesId] = useState<string | null>(null);
@@ -1650,6 +1659,8 @@ function BatchCardsDialog({
             estilista_id: null,
             colecao,
             colecao_id: colecaoId,
+            subcolecao,
+            linha_id: linhaId,
             semana,
             mes_id: mesId,
             ano_id: anoId,
@@ -1726,6 +1737,34 @@ function BatchCardsDialog({
               </div>
               <FieldSelect label="Mês de Planejamento" value={mesId} onChange={(v) => setMesId(v)} options={meses} />
               <FieldSelect label="Ano" value={anoId} onChange={(v) => setAnoId(v)} options={anos} />
+              {otbOn && (
+                <div className="grid gap-1">
+                  <Label className="text-xs">Subcoleção</Label>
+                  <Select value={subcolecao || "__none__"} onValueChange={(v) => setSubcolecao(v === "__none__" ? "" : v)} disabled={!colecaoId}>
+                    <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">—</SelectItem>
+                      {subOpts.map((s) => { const b = orc.subcolecao(colecaoId, s); return (
+                        <SelectItem key={s} value={s}>{s}{b ? ` · ${b.realizado}/${b.total}${b.over ? " ⚠" : ""}` : ""}</SelectItem>
+                      ); })}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {otbOn && (
+                <div className="grid gap-1">
+                  <Label className="text-xs">Linha</Label>
+                  <Select value={linhaId ?? "__none__"} onValueChange={(v) => setLinhaId(v === "__none__" ? null : v)}>
+                    <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">—</SelectItem>
+                      {linhas.map((l) => { const b = orc.nivel3(colecaoId, subcolecao, l.id); return (
+                        <SelectItem key={l.id} value={l.id}>{l.nome}{b ? ` · ${b.realizado}/${b.total}${b.over ? " ⚠" : ""}` : ""}</SelectItem>
+                      ); })}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
           </div>
 
@@ -1793,6 +1832,20 @@ function BatchCardsDialog({
             Total: <span className="font-medium text-foreground">{total}</span>{" "}
             {total === 1 ? "card" : "cards"} serão criados.
           </p>
+          {otbOn && colecaoId && (() => {
+            const cb = orc.colecao(colecaoId);
+            if (!cb) return null;
+            const sb = subcolecao ? orc.subcolecao(colecaoId, subcolecao) : null;
+            const nb = (linhaId && subcolecao) ? orc.nivel3(colecaoId, subcolecao, linhaId) : null;
+            const proj = (b: { total: number; realizado: number } | null) => b ? `${b.realizado + total}/${b.total}` : null;
+            return (
+              <p className="text-xs text-muted-foreground">
+                Com esse planejamento: <b>{proj(cb)}</b> nesta coleção
+                {sb && <> · <b>{proj(sb)}</b> nesta subcoleção</>}
+                {nb && <> · <b>{proj(nb)}</b> nesta linha</>}
+              </p>
+            );
+          })()}
         </div>
 
         <DialogFooter className="gap-2 max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
