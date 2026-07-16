@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Undo2, ExternalLink, CheckCircle2, ArrowLeft } from "lucide-react";
+import { AlertTriangle, Undo2, ExternalLink, CheckCircle2, ArrowLeft, Check } from "lucide-react";
 import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -136,18 +136,25 @@ export function DownstreamConfirmDialog({
           </div>
         )}
 
-        <AlertDialogFooter className="flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
-          <AlertDialogCancel className="mt-0 w-full sm:w-auto sm:px-3" aria-label="Voltar a editar" title="Voltar a editar">
-            <ArrowLeft className="h-4 w-4 mr-1 sm:mr-0" />
-            <span className="sm:hidden">Voltar a editar</span>
-          </AlertDialogCancel>
-          {onDesmarcar && from === "desenvolvimento" && (
-            <Button variant="secondary" className="w-full sm:w-auto" onClick={onDesmarcar}>
-              <Undo2 className="h-4 w-4 mr-1" /> Desmarcar etapas
+        {onDesmarcar && from === "desenvolvimento" ? (
+          // 3 botões numa linha: Voltar (ícone) · Desmarcar etapas (centro) · Salvar (ícone).
+          <AlertDialogFooter className="flex-row items-center gap-2">
+            <AlertDialogCancel className="mt-0 px-3 shrink-0" aria-label="Voltar a editar" title="Voltar a editar">
+              <ArrowLeft className="h-4 w-4" />
+            </AlertDialogCancel>
+            <Button variant="secondary" className="flex-1 min-w-0" onClick={onDesmarcar}>
+              <Undo2 className="h-4 w-4 mr-1 shrink-0" /> <span className="truncate">Desmarcar etapas</span>
             </Button>
-          )}
-          <AlertDialogAction onClick={onConfirm} className="w-full sm:w-auto">Salvar mesmo assim</AlertDialogAction>
-        </AlertDialogFooter>
+            <AlertDialogAction onClick={onConfirm} className="px-3 shrink-0" aria-label="Salvar mesmo assim" title="Salvar mesmo assim">
+              <Check className="h-4 w-4" />
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        ) : (
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar a editar</AlertDialogCancel>
+            <AlertDialogAction onClick={onConfirm}>Salvar mesmo assim</AlertDialogAction>
+          </AlertDialogFooter>
+        )}
       </AlertDialogContent>
     </AlertDialog>
   );
