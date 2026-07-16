@@ -4,17 +4,17 @@ import { Input } from "@/components/ui/input";
 import { DateField } from "@/components/shared/DateField";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { FileField } from "./FileField";
 import { TecidoGroup } from "./TecidoGroup";
 import { FornecedorSelect } from "@/components/shared/FornecedorSelect";
-import type { Artigo, Colab, Draft, Empresa, ItemDraft, ParcelaRecebimento, Variante } from "./shared";
+import { ResponsavelSelect } from "@/components/shared/ResponsavelSelect";
+import type { Artigo, Draft, Empresa, ItemDraft, ParcelaRecebimento, Variante } from "./shared";
 
 export function OcTecidoForm({
-  draft, setDraft, respMode, setRespMode,
-  empresas, estilistas,
+  draft, setDraft,
+  empresas,
   artigos, variantesByArtigo, varianteMap,
   itemsBy, artigoIdFor, setArtigo, toggleVariante, setQtd, setPreco, setPrecoAll, setRendimento,
   tecido2Aberto, setTecido2Aberto, removeTecido2,
@@ -22,10 +22,7 @@ export function OcTecidoForm({
 }: {
   draft: Draft;
   setDraft: React.Dispatch<React.SetStateAction<Draft>>;
-  respMode: "select" | "text";
-  setRespMode: (m: "select" | "text") => void;
   empresas: Empresa[];
-  estilistas: Colab[];
   artigos: Artigo[];
   variantesByArtigo: Record<string, Variante[]>;
   varianteMap: Record<string, Variante>;
@@ -62,25 +59,11 @@ export function OcTecidoForm({
 
         <div className="grid gap-1">
           <Label>Responsável</Label>
-          <div className="flex gap-2">
-            <Select value={respMode} onValueChange={(v) => setRespMode(v as "select" | "text")}>
-              <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="select">Estilista</SelectItem>
-                <SelectItem value="text">Livre</SelectItem>
-              </SelectContent>
-            </Select>
-            {respMode === "select" ? (
-              <Select value={draft.responsavel_id ?? ""} onValueChange={(v) => setDraft((d) => ({ ...d, responsavel_id: v }))}>
-                <SelectTrigger className="flex-1"><SelectValue placeholder="Selecione…" /></SelectTrigger>
-                <SelectContent>
-                  {estilistas.map((e) => <SelectItem key={e.id} value={e.id}>{e.nome}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            ) : (
-              <Input className="flex-1" value={draft.responsavel_nome} onChange={(e) => setDraft((d) => ({ ...d, responsavel_nome: e.target.value }))} />
-            )}
-          </div>
+          <ResponsavelSelect
+            nome={draft.responsavel_nome}
+            id={draft.responsavel_id}
+            onChange={(n, cid) => setDraft((d) => ({ ...d, responsavel_nome: n ?? "", responsavel_id: cid }))}
+          />
         </div>
 
         <div className="grid gap-1">

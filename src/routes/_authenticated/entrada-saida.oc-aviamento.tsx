@@ -44,6 +44,7 @@ import { FilterButton } from "@/components/shared/filters";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { FornecedorSelect } from "@/components/shared/FornecedorSelect";
+import { ResponsavelSelect } from "@/components/shared/ResponsavelSelect";
 import { NfList } from "@/components/oc-tecido/NfList";
 import { useSort, SortHead } from "@/components/shared/sort";
 export const Route = createFileRoute("/_authenticated/entrada-saida/oc-aviamento")({
@@ -401,7 +402,6 @@ function OcAviamentoPage() {
         <OcDialog
           ocId={editingId}
           empresas={empresas}
-          estilistas={estilistas}
           onClose={() => { setOpenNew(false); setEditingId(null); }}
           onSaved={() => qc.invalidateQueries({ queryKey: ["ocs_aviamento"] })}
           onDelete={() => {
@@ -474,11 +474,10 @@ function emptyDraft(): Draft {
 }
 
 function OcDialog({
-  ocId, empresas, estilistas, onClose, onSaved, onDelete,
+  ocId, empresas, onClose, onSaved, onDelete,
 }: {
   ocId: string | null;
   empresas: Empresa[];
-  estilistas: Colab[];
   onClose: () => void;
   onSaved: () => void;
   onDelete?: () => void;
@@ -489,7 +488,6 @@ function OcDialog({
   const [items, setItems] = useState<ItemDraft[]>([]);
   const [originalItemIds, setOriginalItemIds] = useState<string[]>([]);
   const [status, setStatus] = useState<OCStatus>("encomendado");
-  const [respMode, setRespMode] = useState<"select" | "text">("select");
   const [confirmUnmark, setConfirmUnmark] = useState(false);
 
   useQuery({
@@ -520,9 +518,6 @@ function OcDialog({
             : [{ data: "", recebido: false }],
         });
         setStatus((oc.status as OCStatus) ?? "encomendado");
-        const matchEst = estilistas.find((e) => e.nome === oc.responsavel_nome);
-        setRespMode(matchEst ? "select" : "text");
-        if (matchEst) setDraft((d) => ({ ...d, responsavel_id: matchEst.id }));
       }
       const mapped: ItemDraft[] = (its ?? []).map((i: any) => ({
         tempId: i.id,
@@ -585,9 +580,7 @@ function OcDialog({
         : draft.data_entrega;
       const ocPayload = {
         numero_pedido: draft.numero_pedido || null,
-        responsavel_nome: respMode === "select"
-          ? (draft.responsavel_id ? (estilistas.find((e) => e.id === draft.responsavel_id)?.nome ?? null) : null)
-          : (draft.responsavel_nome || null),
+        responsavel_nome: draft.responsavel_nome || null,
         empresa_id: draft.empresa_id,
         representante_id: draft.representante_id,
         data_pedido: draft.data_pedido || null,
@@ -743,25 +736,7 @@ function OcDialog({
 
             <div className="grid gap-1">
               <Label>Responsável</Label>
-              <div className="flex gap-2">
-                <Select value={respMode} onValueChange={(v) => setRespMode(v as any)}>
-                  <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="select">Estilista</SelectItem>
-                    <SelectItem value="text">Livre</SelectItem>
-                  </SelectContent>
-                </Select>
-                {respMode === "select" ? (
-                  <Select value={draft.responsavel_id ?? ""} onValueChange={(v) => setDraft((d) => ({ ...d, responsavel_id: v }))}>
-                    <SelectTrigger className="flex-1"><SelectValue placeholder="Selecione…" /></SelectTrigger>
-                    <SelectContent>
-                      {estilistas.map((e) => <SelectItem key={e.id} value={e.id}>{e.nome}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Input className="flex-1" value={draft.responsavel_nome} onChange={(e) => setDraft((d) => ({ ...d, responsavel_nome: e.target.value }))} />
-                )}
-              </div>
+              <ResponsavelSelect nome={draft.responsavel_nome} onChange={(n) => setDraft((d) => ({ ...d, responsavel_nome: n ?? "" }))} />
             </div>
 
             <div className="grid gap-1">

@@ -15,6 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { DateField } from "@/components/shared/DateField";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { FornecedorSelect, type EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
+import { ResponsavelSelect } from "@/components/shared/ResponsavelSelect";
 import { NfList } from "@/components/oc-tecido/NfList";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -49,7 +50,6 @@ type OCStatus = "encomendado" | "recebido";
 type ParcelaRec = { data: string; recebido: boolean };
 type Variante = { id: string; tamanho: string | null; cor_id: string | null; cor_nome: string | null; preco: number | null };
 type EtqOpt = { id: string; nome: string; preco: number | null; formato_tamanho: string; variantes: Variante[] };
-type Colab = { id: string; nome: string };
 // linha de variante (checkbox + qtds + preço) dentro do bloco de um insumo
 type VarRow = { itemId?: string; varianteId: string | null; corId: string | null; corNome: string | null; tamanho: string | null; label: string; incluido: boolean; qtdPedida: number | null; qtdRecebida: number | null; preco: number | null };
 type Block = { etiquetaId: string; selectedCores: string[]; rows: VarRow[] };
@@ -113,14 +113,6 @@ function OcInsumoPage() {
     },
   });
   const empresaMap = useMemo(() => Object.fromEntries(empresas.map((e) => [e.id, e.nome_fantasia])), [empresas]);
-
-  const { data: estilistas = [] } = useQuery({
-    queryKey: ["colab-estilistas"],
-    queryFn: async () => {
-      const { data } = await supabase.from("colaboradores").select("id, nome").eq("tipo", "estilista").order("nome");
-      return (data ?? []) as Colab[];
-    },
-  });
 
   const { data: etiquetas = [] } = useQuery({
     queryKey: ["etiquetas-oc-insumo"],
@@ -232,7 +224,6 @@ function OcInsumoPage() {
         <OcDialog
           ocId={openId}
           empresas={empresas}
-          estilistas={estilistas}
           etiquetas={etiquetas}
           onClose={() => { setOpenNew(false); setOpenId(null); }}
           onSaved={() => { invalidate(); setOpenNew(false); setOpenId(null); }}
@@ -256,8 +247,8 @@ function OcInsumoPage() {
   );
 }
 
-function OcDialog({ ocId, empresas, estilistas, etiquetas, onClose, onSaved, onDelete }: {
-  ocId: string | null; empresas: EmpresaFornecedor[]; estilistas: Colab[]; etiquetas: EtqOpt[];
+function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
+  ocId: string | null; empresas: EmpresaFornecedor[]; etiquetas: EtqOpt[];
   onClose: () => void; onSaved: () => void; onDelete: () => void;
 }) {
   const readOnly = useReadOnly();
@@ -267,8 +258,6 @@ function OcDialog({ ocId, empresas, estilistas, etiquetas, onClose, onSaved, onD
   const [numero, setNumero] = useState("");
   const [empresaId, setEmpresaId] = useState<string | null>(null);
   const [repId, setRepId] = useState<string | null>(null);
-  const [respMode, setRespMode] = useState<"select" | "text">("select");
-  const [respId, setRespId] = useState<string | null>(null);
   const [respNome, setRespNome] = useState("");
   const [dataPedido, setDataPedido] = useState(format(new Date(), "yyyy-MM-dd"));
   const [dataPrevista, setDataPrevista] = useState("");
@@ -305,8 +294,7 @@ function OcDialog({ ocId, empresas, estilistas, etiquetas, onClose, onSaved, onD
         setPrazo(oc.prazo_pagamento ?? ""); setQtdPrazos(oc.quantidade_prazos ?? 1); setNfs((oc.nfs ?? []) as any);
         setParcelas(Array.isArray(oc.parcelas_recebimento) && oc.parcelas_recebimento.length > 0 ? oc.parcelas_recebimento : [{ data: "", recebido: false }]);
         setStatus((oc.status as OCStatus) ?? "encomendado");
-        const match = estilistas.find((e) => e.nome === oc.responsavel_nome);
-        if (match) { setRespMode("select"); setRespId(match.id); } else if (oc.responsavel_nome) { setRespMode("text"); setRespNome(oc.responsavel_nome); }
+        setRespNome(oc.responsavel_nome ?? "");
         // agrupa itens por insumo → blocos (todas as variantes; marca as compradas); cores selecionadas = as usadas
         const byEtq = new Map<string, any[]>();
         for (const it of its) { const a = byEtq.get(it.etiqueta_id) ?? []; a.push(it); byEtq.set(it.etiqueta_id, a); }
@@ -375,10 +363,9 @@ function OcDialog({ ocId, empresas, estilistas, etiquetas, onClose, onSaved, onD
             preco: r.preco, cancelado: false,
           }));
       });
-      const respFinal = respMode === "select" ? (respId ? estilistas.find((e) => e.id === respId)?.nome ?? null : null) : (respNome || null);
       const lastDate = parcelas.map((p) => p.data).filter(Boolean).sort().slice(-1)[0] ?? null;
       const payload = {
-        numero_pedido: numero || null, responsavel_nome: respFinal, empresa_id: empresaId, representante_id: repId,
+        numero_pedido: numero || null, responsavel_nome: respNome || null, empresa_id: empresaId, representante_id: repId,
         data_pedido: dataPedido || null, data_prevista_entrega: dataPrevista || null,
         data_entrega: finalStatus === "recebido" ? lastDate : null,
         prazo_pagamento: prazo || null, quantidade_prazos: qtdPrazos, nf_url: nfs[0]?.url ?? null, nfs,
@@ -424,23 +411,7 @@ function OcDialog({ ocId, empresas, estilistas, etiquetas, onClose, onSaved, onD
               <FornecedorSelect empresas={empresas} empresaId={empresaId} representanteId={repId} onChange={(emp, rep) => { setEmpresaId(emp); setRepId(rep); }} disabled={readOnly} placeholder="Sem fornecedor" />
             </div>
             <div className="grid gap-1"><Label>Responsável</Label>
-              <div className="flex gap-2">
-                <Select value={respMode} onValueChange={(v) => setRespMode(v as any)} disabled={readOnly}>
-                  <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="select">Estilista</SelectItem>
-                    <SelectItem value="text">Livre</SelectItem>
-                  </SelectContent>
-                </Select>
-                {respMode === "select" ? (
-                  <Select value={respId ?? ""} onValueChange={setRespId} disabled={readOnly}>
-                    <SelectTrigger className="flex-1"><SelectValue placeholder="Selecione…" /></SelectTrigger>
-                    <SelectContent>{estilistas.map((e) => <SelectItem key={e.id} value={e.id}>{e.nome}</SelectItem>)}</SelectContent>
-                  </Select>
-                ) : (
-                  <Input className="flex-1" value={respNome} onChange={(e) => setRespNome(e.target.value)} disabled={readOnly} />
-                )}
-              </div>
+              <ResponsavelSelect nome={respNome} onChange={(n) => setRespNome(n ?? "")} disabled={readOnly} />
             </div>
             <div className="grid gap-1"><Label>Prazo de Pagamento</Label>
               <Input value={prazo} placeholder="Ex: 30/60/90" disabled={readOnly}

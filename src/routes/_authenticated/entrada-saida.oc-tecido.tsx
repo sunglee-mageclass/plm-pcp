@@ -262,7 +262,6 @@ function OcTecidoPage() {
         <OcDialog
           ocId={editingId}
           empresas={empresas}
-          estilistas={estilistas}
           onClose={() => { setOpenNew(false); setEditingId(null); }}
           onSaved={() => { qc.invalidateQueries({ queryKey: ["ocs_tecido"] }); }}
           onDelete={() => {
@@ -313,11 +312,10 @@ function OcTecidoPage() {
 }
 
 function OcDialog({
-  ocId, empresas, estilistas, onClose, onSaved, onDelete,
+  ocId, empresas, onClose, onSaved, onDelete,
 }: {
   ocId: string | null;
   empresas: Empresa[];
-  estilistas: Colab[];
   onClose: () => void;
   onSaved: () => void;
   onDelete?: () => void;
@@ -331,7 +329,6 @@ function OcDialog({
   // Modo só-rolo: o recebimento é destrinchado em rolos (gera os rolos ao receber).
   const modoOcRolo = useModoOcRolo();
   const [rolosPorItem, setRolosPorItem] = useState<Record<string, RoloEntry[]>>({});
-  const [respMode, setRespMode] = useState<"select" | "text">("select");
   const [tecido2Aberto, setTecido2Aberto] = useState(false);
   const [confirmUnmark, setConfirmUnmark] = useState(false);
   // Dispensa a etiqueta de lavagem POR TECIDO (keyed por artigo_id) no recebimento —
@@ -370,7 +367,6 @@ function OcDialog({
             : [{ data: "", recebido: false }],
         });
         setStatus((oc.status as OCStatus) ?? "encomendado");
-        setRespMode(oc.responsavel_id ? "select" : "text");
       }
       const mapped: ItemDraft[] = ((its ?? []) as unknown as OCItem[]).map((i) => ({
         tempId: i.id,
@@ -615,8 +611,8 @@ function OcDialog({
         : draft.data_entrega;
       const payload: any = {
         numero_pedido: draft.numero_pedido || null,
-        responsavel_id: respMode === "select" ? draft.responsavel_id : null,
-        responsavel_nome: respMode === "text" ? (draft.responsavel_nome || null) : null,
+        responsavel_id: draft.responsavel_id,
+        responsavel_nome: draft.responsavel_nome || null,
         empresa_id: draft.empresa_id,
         representante_id: draft.representante_id,
         data_pedido: draft.data_pedido || null,
@@ -926,10 +922,7 @@ function OcDialog({
           <OcTecidoForm
             draft={draft}
             setDraft={setDraft}
-            respMode={respMode}
-            setRespMode={setRespMode}
             empresas={empresas}
-            estilistas={estilistas}
             artigos={artigos}
             variantesByArtigo={variantesByArtigo}
             varianteMap={varianteMap}
