@@ -76,15 +76,6 @@ function OtbPage() {
     return m;
   }, [pvItens]);
 
-  // Aggregate data for xx/yy modelos + badge
-  const { data: semanas = [] } = useQuery({
-    queryKey: ["otb-semanas-todas"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("colecao_semanas").select("colecao_id, qtd_planejada");
-      if (error) throw error;
-      return (data ?? []) as { colecao_id: string; qtd_planejada: number }[];
-    },
-  });
   const { data: modelosLink = [] } = useQuery({
     queryKey: ["otb-modelos-link"],
     queryFn: async () => {
@@ -137,22 +128,17 @@ function OtbPage() {
 
   // Per-collection stats
   const statsByColecao = useMemo(() => {
-    // definido = qtd definida no OTB (Σ das semanas). planejados = modelos que
-    // chegaram no status "planejado" (rascunho/em planejamento/reprovado NÃO contam).
-    const definido: Record<string, number> = {};
-    for (const s of semanas) definido[s.colecao_id] = (definido[s.colecao_id] ?? 0) + Number(s.qtd_planejada ?? 0);
     const byCol: Record<string, typeof modelosLink> = {};
     for (const m of modelosLink) (byCol[m.colecao_id] ??= []).push(m);
-    const out: Record<string, { definido: number; planejados: number; previsto: number; real: number; poder: number }> = {};
+    const out: Record<string, { previsto: number; real: number; poder: number }> = {};
     for (const c of colecoes) {
       const ms = byCol[c.id] ?? [];
       const resumo = computeColecaoResumo(ms as any, custoMap as any, gradeMap as any, linhaMarkupMap as any);
-      const planejados = ms.filter((m) => m.status_planejamento === "planejado").length;
       // "custo comprometido" = real (que já cai no previsto quando não há CAD no corte).
-      out[c.id] = { definido: definido[c.id] ?? 0, planejados, previsto: resumo.previsto, real: resumo.real, poder: resumo.poder };
+      out[c.id] = { previsto: resumo.previsto, real: resumo.real, poder: resumo.poder };
     }
     return out;
-  }, [semanas, modelosLink, colecoes, custoMap, gradeMap, linhaMarkupMap]);
+  }, [modelosLink, colecoes, custoMap, gradeMap, linhaMarkupMap]);
 
   const qc = useQueryClient();
   const orcHook = useOrcamento();
@@ -203,7 +189,7 @@ function OtbPage() {
             const anoNome = c.ano_id ? (anos.find((a) => a.id === c.ano_id)?.nome ?? null) : null;
             const mesNome = c.mes_id ? (meses.find((m) => m.id === c.mes_id)?.nome ?? null) : null;
             const periodoLabel = [mesNome, anoNome].filter(Boolean).join(" / ");
-            const st = statsByColecao[c.id] ?? { definido: 0, planejados: 0, previsto: 0, real: 0, poder: 0 };
+            const st = statsByColecao[c.id] ?? { previsto: 0, real: 0, poder: 0 };
             const orc = c.tipo === "poder_venda" ? (custoPVMap[c.id] || null) : (c.orcamento != null ? Number(c.orcamento) : null);
             const temOrc = orc != null && orc > 0;
             const fora = temOrc && st.real > (orc as number);

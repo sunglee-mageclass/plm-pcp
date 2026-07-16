@@ -754,7 +754,7 @@ function PlanejamentoPage() {
           anos={anos}
           statusOpts={STATUS_OPTS.map((s) => ({ id: s.value, nome: s.label }))}
           onClose={() => setOpenBulk(false)}
-          onSaved={() => { qc.invalidateQueries({ queryKey: ["modelos-planejamento"] }); clearSel(); setSelMode(false); }}
+          onSaved={() => { qc.invalidateQueries({ queryKey: ["modelos-planejamento"] }); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); clearSel(); setSelMode(false); }}
         />
       )}
 
