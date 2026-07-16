@@ -105,6 +105,7 @@ const BADGE_CLS: Record<string, string> = {
   entrada_alertas_tecido: "bg-amber-500 text-white",
   entrada_oc_tecido: "bg-red-500 text-white",
   entrada_oc_aviamento: "bg-red-500 text-white",
+  entrada_oc_insumo: "bg-red-500 text-white",
 };
 
 function NavBadge({ n, className }: { n: number; className?: string }) {
@@ -153,12 +154,13 @@ export function AppSidebar() {
     entrada_alertas_tecido: Number(badges?.alertas_tecido ?? 0),
     entrada_oc_tecido: Number(badges?.oc_tecido_atrasada ?? 0),
     entrada_oc_aviamento: Number(badges?.oc_aviamento_atrasada ?? 0),
+    entrada_oc_insumo: Number(badges?.oc_etiqueta_atrasada ?? 0),
   };
   // Agregado por módulo (quando o grupo está recolhido/ícone): soma + cor da maior urgência.
   const itemBadge = (subs: { key: string }[]) => {
     const present = subs.filter((s) => (countFor[s.key] ?? 0) > 0);
     const total = present.reduce((a, s) => a + (countFor[s.key] ?? 0), 0);
-    const cls = present.some((s) => s.key === "entrada_oc_tecido" || s.key === "entrada_oc_aviamento")
+    const cls = present.some((s) => s.key === "entrada_oc_tecido" || s.key === "entrada_oc_aviamento" || s.key === "entrada_oc_insumo")
       ? "bg-red-500 text-white"
       : present.some((s) => s.key === "entrada_alertas_tecido")
         ? "bg-amber-500 text-white"
