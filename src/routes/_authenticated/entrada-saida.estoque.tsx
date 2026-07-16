@@ -843,22 +843,44 @@ const fmtTamInsumo = (t: string) => { const [n, s] = t.split("|"); return s ? `$
 
 function InsumosTab() {
   const [search, setSearch] = useState("");
+  const [estoqueFilter, setEstoqueFilter] = useState("all");
   const { data = [], isLoading } = useQuery({
     queryKey: ["estoque-insumos"],
     queryFn: async () => {
       const { data, error } = await supabase.rpc("estoque_etiqueta" as any);
       if (error) throw error;
       return ((data ?? []) as any[]).map((r) => ({
-        etiquetaNome: r.etiqueta_nome as string, tamanho: r.tamanho as string | null, corNome: r.cor_nome as string | null,
+        etiquetaId: r.etiqueta_id as string, etiquetaNome: r.etiqueta_nome as string,
+        tamanho: r.tamanho as string | null, corNome: r.cor_nome as string | null,
         recebido: num(r.recebido), prevReceb: num(r.prev_receb), baixa: num(r.baixa), fisico: num(r.fisico),
       }));
     },
   });
+  const varLabel = (r: any) => [r.corNome, r.tamanho ? fmtTamInsumo(r.tamanho) : null].filter(Boolean).join(" · ") || "Único";
+
   const filtered = useMemo(() => {
     const s = search.toLowerCase();
-    return data.filter((r) => !s || r.etiquetaNome.toLowerCase().includes(s) || (r.corNome ?? "").toLowerCase().includes(s));
-  }, [data, search]);
-  const varLabel = (r: any) => [r.corNome, r.tamanho ? fmtTamInsumo(r.tamanho) : null].filter(Boolean).join(" · ") || "Único";
+    return data.filter((r) => {
+      if (estoqueFilter === "zero" && r.fisico > 0) return false;
+      if (estoqueFilter === "positive" && r.fisico <= 0) return false;
+      if (s && !r.etiquetaNome.toLowerCase().includes(s) && !(r.corNome ?? "").toLowerCase().includes(s)) return false;
+      return true;
+    });
+  }, [data, search, estoqueFilter]);
+
+  // Agrupa por INSUMO; dentro, ordena por cor depois tamanho (como Tecidos agrupa por tecido).
+  const grouped = useMemo(() => {
+    const map = new Map<string, { id: string; nome: string; rows: any[] }>();
+    for (const r of filtered) {
+      const g = map.get(r.etiquetaId) ?? { id: r.etiquetaId, nome: r.etiquetaNome, rows: [] as any[] };
+      g.rows.push(r);
+      map.set(r.etiquetaId, g);
+    }
+    const arr = Array.from(map.values());
+    arr.forEach((g) => g.rows.sort((a, b) =>
+      (a.corNome ?? "").localeCompare(b.corNome ?? "") || (a.tamanho ?? "").localeCompare(b.tamanho ?? "")));
+    return arr.sort((a, b) => a.nome.localeCompare(b.nome));
+  }, [filtered]);
 
   return (
     <div className="space-y-4">
@@ -868,43 +890,76 @@ function InsumosTab() {
           <TabsTrigger value="aviamentos"><span className="sm:hidden">Aviam.</span><span className="hidden sm:inline">Aviamentos</span></TabsTrigger>
           <TabsTrigger value="insumos">Insumos</TabsTrigger>
         </TabsList>
+        <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}>
+          <Printer className="h-4 w-4 mr-1" /> Imprimir
+        </Button>
         <SearchToggle value={search} onChange={setSearch} placeholder="Insumo ou cor" />
+        <FilterButton
+          filters={[
+            { label: "Estoque", value: estoqueFilter, onChange: setEstoqueFilter, options: [{ id: "all", nome: "Todos" }, { id: "zero", nome: "Estoque Zerado" }, { id: "positive", nome: "Estoque > 0" }] },
+          ]}
+        />
       </EstoqueHeader>
+
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Carregando…</p>
-      ) : filtered.length === 0 ? (
+      ) : grouped.length === 0 ? (
         <div className="rounded-lg border p-8 text-center text-muted-foreground">
           <Boxes className="h-8 w-8 mx-auto mb-2 opacity-50" />
           Sem insumos em estoque. Compras (OC Insumo) e consumos (CAD) aparecem aqui.
         </div>
       ) : (
-        <div className="rounded-lg border overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50">
-              <tr>
-                <th className="text-left px-3 py-2">Insumo</th>
-                <th className="text-left px-3 py-2">Variante</th>
-                <th className="text-right px-3 py-2">Prev. Receb.</th>
-                <th className="text-right px-3 py-2">Recebido</th>
-                <th className="text-right px-3 py-2">Baixa</th>
-                <th className="text-right px-3 py-2">Físico</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((r, i) => (
-                <tr key={i} className="border-t">
-                  <td className="px-3 py-2" data-label="Insumo">{r.etiquetaNome}</td>
-                  <td className="px-3 py-2 text-muted-foreground" data-label="Variante">{varLabel(r)}</td>
-                  <td className="px-3 py-2 text-right" data-label="Prev. Receb.">{fmt(r.prevReceb)}</td>
-                  <td className="px-3 py-2 text-right" data-label="Recebido">{fmt(r.recebido)}</td>
-                  <td className="px-3 py-2 text-right" data-label="Baixa">{fmt(r.baixa)}</td>
-                  <td className={`px-3 py-2 text-right font-medium ${r.fisico < 0 ? "text-destructive" : ""}`} data-label="Físico">{fmt(r.fisico)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        grouped.map((g) => (
+          <Card key={g.id} className="p-4">
+            <h3 className="font-semibold mb-3">{g.nome}</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-left text-muted-foreground">
+                  <tr className="border-b">
+                    <th className="py-2 pr-3">Variante (cor · tamanho)</th>
+                    <th className="py-2 pr-3 text-right">Prev. Receb.</th>
+                    <th className="py-2 pr-3 text-right">Recebido</th>
+                    <th className="py-2 pr-3 text-right">Baixa</th>
+                    <th className="py-2 pr-3 text-right">Físico</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {g.rows.map((r: any, i: number) => (
+                    <tr key={i} className="border-t">
+                      <td className="py-2 pr-3 text-muted-foreground" data-label="Variante">{varLabel(r)}</td>
+                      <td className="py-2 pr-3 text-right" data-label="Prev. Receb.">{fmt(r.prevReceb)}</td>
+                      <td className="py-2 pr-3 text-right" data-label="Recebido">{fmt(r.recebido)}</td>
+                      <td className="py-2 pr-3 text-right" data-label="Baixa">{fmt(r.baixa)}</td>
+                      <td className="py-2 pr-3 text-right font-medium" data-label="Físico">{fmt(r.fisico)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        ))
       )}
+
+      <RelatorioPrint
+        titulo="Posição de Estoque — Insumos"
+        dataStr={new Date().toLocaleDateString("pt-BR")}
+        colunas={[
+          { key: "insumo", label: "Insumo" },
+          { key: "variante", label: "Variante" },
+          { key: "prev", label: "Prev. Receb.", align: "right" },
+          { key: "recebido", label: "Recebido", align: "right" },
+          { key: "baixa", label: "Baixa", align: "right" },
+          { key: "fisico", label: "Físico", align: "right" },
+        ]}
+        linhas={grouped.flatMap((g) => g.rows.map((r: any) => ({
+          insumo: g.nome,
+          variante: varLabel(r),
+          prev: fmt(r.prevReceb),
+          recebido: fmt(r.recebido),
+          baixa: fmt(r.baixa),
+          fisico: fmt(r.fisico),
+        })))}
+      />
     </div>
   );
 }

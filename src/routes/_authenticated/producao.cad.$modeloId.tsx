@@ -493,12 +493,18 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
       quantidade_enviar: Number(e.quantidade_enviar ?? 0),
       enviarPorTamanho: (e.enviar_por_tamanho ?? {}) as Record<string, number>,
     }));
-    // Traz do BOM (modelo_etiquetas) o que ainda não está no CAD (por etiqueta + cor).
-    const jaTem = new Set(etqRows.map((e) => `${e.etiqueta_id}|${e.cor_id ?? ""}`));
+    // Vínculo Desenvolvimento → CAD: a identidade do insumo é a ETIQUETA (não etiqueta+cor).
+    // O Desenvolvimento (BOM) DITA cor e consumo — sincroniza nas linhas do CAD (editar no Dev
+    // ATUALIZA, não duplica); o CAD só é dono das quantidades de envio (enviar_por_tamanho).
+    const bomByEtq = new Map((modeloEtiquetas as any[]).map((m) => [m.etiqueta_id, m]));
+    for (const r of etqRows) {
+      const m = bomByEtq.get(r.etiqueta_id);
+      if (m) { r.cor_id = m.cor_id ?? null; r.consumo = Number(m.consumo ?? 0); }
+    }
+    const jaTem = new Set(etqRows.map((e) => e.etiqueta_id));
     const nomeDe = Object.fromEntries((etiquetasDisponiveis as any[]).map((d) => [d.id, d.nome]));
     for (const m of modeloEtiquetas as any[]) {
-      const key = `${m.etiqueta_id}|${m.cor_id ?? ""}`;
-      if (jaTem.has(key)) continue;
+      if (jaTem.has(m.etiqueta_id)) continue;
       etqRows.push({
         etiqueta_id: m.etiqueta_id, etiqueta_nome: nomeDe[m.etiqueta_id] ?? "—",
         cor_id: m.cor_id ?? null, tamanho: null, consumo: Number(m.consumo ?? 0),
