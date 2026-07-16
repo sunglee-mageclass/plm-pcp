@@ -136,16 +136,17 @@ export function DownstreamConfirmDialog({
           </div>
         )}
 
-        <AlertDialogFooter className="flex-row flex-wrap justify-end gap-2">
-          <AlertDialogCancel className="mt-0 px-3" aria-label="Voltar a editar" title="Voltar a editar">
-            <ArrowLeft className="h-4 w-4" />
+        <AlertDialogFooter className="flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+          <AlertDialogCancel className="mt-0 w-full sm:w-auto sm:px-3" aria-label="Voltar a editar" title="Voltar a editar">
+            <ArrowLeft className="h-4 w-4 mr-1 sm:mr-0" />
+            <span className="sm:hidden">Voltar a editar</span>
           </AlertDialogCancel>
           {onDesmarcar && from === "desenvolvimento" && (
-            <Button variant="secondary" onClick={onDesmarcar}>
+            <Button variant="secondary" className="w-full sm:w-auto" onClick={onDesmarcar}>
               <Undo2 className="h-4 w-4 mr-1" /> Desmarcar etapas
             </Button>
           )}
-          <AlertDialogAction onClick={onConfirm}>Salvar mesmo assim</AlertDialogAction>
+          <AlertDialogAction onClick={onConfirm} className="w-full sm:w-auto">Salvar mesmo assim</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
