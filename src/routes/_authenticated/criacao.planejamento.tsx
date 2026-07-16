@@ -42,6 +42,7 @@ import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { BulkEditDialog } from "@/components/planejamento/BulkEditDialog";
 import { ProdutoRelacionadoSetor } from "@/components/planejamento/ProdutoRelacionadoSetor";
+import { useOrcamento, OrcamentoTag } from "@/components/otb/orcamento";
 export const Route = createFileRoute("/_authenticated/criacao/planejamento")({
   component: () => (
     <RequirePermission page="criacao_planejamento">
@@ -951,6 +952,7 @@ function ModeloDialog({
   const [confirmDel, setConfirmDel] = useState(false);
   const { isModuleEnabled } = useTenantModules();
   const otbOn = isModuleEnabled("otb");
+  const orc = useOrcamento();
   const { data: colecoes = [] } = useQuery({
     queryKey: ["otb-colecoes-opts"],
     enabled: otbOn,
@@ -1364,6 +1366,21 @@ function ModeloDialog({
                 />
               </div>
             </div>
+            {otbOn && draft.colecao_id && (() => {
+              const cb = orc.colecao(draft.colecao_id);
+              if (!cb) return null;
+              const sb = orc.subcolecao(draft.colecao_id, draft.subcolecao);
+              const ref = draft.linha_id ?? draft.categoria_principal_id;
+              const nb = orc.nivel3(draft.colecao_id, draft.subcolecao, ref);
+              return (
+                <div className="col-span-full flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-muted/40 px-2 py-1 text-xs">
+                  <span className="text-muted-foreground">Orçamento:</span>
+                  <span>{colecoes.find((c) => c.id === draft.colecao_id)?.nome ?? "coleção"} <OrcamentoTag total={cb.total} realizado={cb.realizado} /></span>
+                  {sb && <span>· {draft.subcolecao} <OrcamentoTag total={sb.total} realizado={sb.realizado} /></span>}
+                  {nb && <span>· <OrcamentoTag total={nb.total} realizado={nb.realizado} /></span>}
+                </div>
+              );
+            })()}
           </Secao>
 
           {/* SETOR 3 — Preço */}
