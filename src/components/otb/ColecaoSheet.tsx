@@ -457,20 +457,24 @@ export function ColecaoSheet({
       if (error) throw error;
       return data as { criados: number; removidos: number; mantidos: number };
     },
-    onSuccess: (r) => {
-      const partes = [
-        r.criados ? `${r.criados} criado(s)` : "",
-        r.removidos ? `${r.removidos} removido(s)` : "",
-        r.mantidos ? `${r.mantidos} mantido(s) (preenchidos)` : "",
-      ].filter(Boolean);
-      toast.success(`Coleção confirmada. ${partes.join(" · ") || "Sem mudanças."}`);
+    onSuccess: () => {
+      toast.success("Coleção confirmada.");
       qc.invalidateQueries({ queryKey: ["otb-colecoes"] });
-      qc.invalidateQueries({ queryKey: ["otb-semanas-todas"] });
-      qc.invalidateQueries({ queryKey: ["otb-modelos-link"] });
-      qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+      qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
       onSaved(); onClose();
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao confirmar coleção")),
+  });
+
+  const desconfirmar = useMutation({
+    mutationFn: async () => { const { error } = await supabase.rpc("otb_desconfirmar" as any, { _colecao_id: colecaoId }); if (error) throw error; },
+    onSuccess: () => {
+      toast.success("Coleção desconfirmada.");
+      qc.invalidateQueries({ queryKey: ["otb-colecoes"] });
+      qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
+      onSaved(); onClose();
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desconfirmar coleção")),
   });
 
   const excluir = useMutation({
@@ -575,19 +579,24 @@ export function ColecaoSheet({
           </div>
         </div>
         <div className="p-4 border-t shrink-0 flex justify-end gap-2">
-          {colecaoId && (
-            <Button variant="destructive" size="icon" className="sm:mr-auto" onClick={() => setConfirmDel(true)} disabled={excluir.isPending} aria-label="Excluir coleção">
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          )}
-          <Button variant="outline" onClick={onClose} aria-label="Voltar" className="shrink-0 max-sm:order-first max-sm:mr-auto max-sm:aspect-square max-sm:px-0">
+          <Button variant="outline" onClick={onClose} aria-label="Voltar" className="mr-auto shrink-0 max-sm:aspect-square max-sm:px-0">
             <ArrowLeft className="h-4 w-4 sm:hidden" />
             <span className="max-sm:sr-only">Cancelar</span>
           </Button>
-          {!isConfirmada && (
+          {colecaoId && (
+            <Button variant="destructive" size="icon" className="shrink-0" onClick={() => setConfirmDel(true)} disabled={excluir.isPending} aria-label="Excluir coleção">
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+          {!isConfirmada ? (
             <Button variant="secondary" onClick={() => confirmar.mutate()} disabled={confirmar.isPending || save.isPending} aria-label="Confirmar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
               <Check className="h-4 w-4 sm:hidden" />
               <span className="max-sm:sr-only">{confirmar.isPending ? "Confirmando…" : "Confirmar"}</span>
+            </Button>
+          ) : (
+            <Button variant="destructive" onClick={() => desconfirmar.mutate()} disabled={desconfirmar.isPending || save.isPending} aria-label="Desconfirmar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
+              <Check className="h-4 w-4 sm:hidden" />
+              <span className="max-sm:sr-only">{desconfirmar.isPending ? "Desconfirmando…" : "Desconfirmar"}</span>
             </Button>
           )}
           <Button onClick={() => save.mutate()} disabled={save.isPending || confirmar.isPending} aria-label="Salvar" className="shrink-0 max-sm:aspect-square max-sm:px-0">

@@ -192,6 +192,23 @@ function PlanejamentoPage() {
   const toggleSel = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const selectAllFiltered = () => setSelected(new Set(sorted.map((m) => m.id)));
   const clearSel = () => setSelected(new Set());
+  const [confirmBulkDel, setConfirmBulkDel] = useState(false);
+  const bulkDel = useMutation({
+    mutationFn: async () => {
+      const ids = [...selected];
+      if (!ids.length) return 0;
+      const { error } = await supabase.from("modelos").delete().in("id", ids);
+      if (error) throw error;
+      return ids.length;
+    },
+    onSuccess: (n) => {
+      toast.success(`${n} card(s) excluído(s)`);
+      clearSel(); setSelMode(false); setConfirmBulkDel(false);
+      qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+      qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
+    },
+    onError: (e: any) => { setConfirmBulkDel(false); toast.error(mensagemErro(e, "Erro ao excluir os cards")); },
+  });
   const [groupByCat, setGroupByCat] = useState(true);
   const [groupByLinha, setGroupByLinha] = useState(false);
   const [groupBySub1, setGroupBySub1] = useState(false);
@@ -606,6 +623,9 @@ function PlanejamentoPage() {
             <Button size="sm" variant="ghost" onClick={selectAllFiltered}>Todos ({sorted.length})</Button>
             <span className="whitespace-nowrap text-xs text-muted-foreground">{selected.size} selec.</span>
             <Button size="sm" disabled={selected.size === 0} onClick={() => setOpenBulk(true)}>Definir em massa</Button>
+            <Button size="sm" variant="destructive" disabled={selected.size === 0 || bulkDel.isPending} onClick={() => setConfirmBulkDel(true)} aria-label="Excluir selecionados">
+              <Trash2 className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Excluir</span>
+            </Button>
           </>
         )}
       </HeaderActions>
@@ -756,6 +776,24 @@ function PlanejamentoPage() {
           onSaved={() => { qc.invalidateQueries({ queryKey: ["modelos-planejamento"] }); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); clearSel(); setSelMode(false); }}
         />
       )}
+
+      <AlertDialog open={confirmBulkDel} onOpenChange={setConfirmBulkDel}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir {selected.size} card(s)?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Exclui os cards selecionados do Planejamento. Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => { e.preventDefault(); bulkDel.mutate(); }} disabled={bulkDel.isPending}>
+              {bulkDel.isPending ? "Excluindo…" : "Excluir"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <MobileActionBar>
         <Button variant="outline" onClick={() => setOpenBatch(true)}><Layers className="h-4 w-4 mr-1" /> Novos Cards</Button>

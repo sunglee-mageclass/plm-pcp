@@ -10,6 +10,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { DateField } from "@/components/shared/DateField";
 import { brl } from "@/lib/format";
 import { Plus, Trash2, ChevronRight, Save, Check, ArrowLeft } from "lucide-react";
@@ -61,6 +62,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
 
   const [savedId, setSavedId] = useState<string | null>(colecaoId);
   const [confirmada, setConfirmada] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
   const [padraoId, setPadraoId] = useState("");
   const [nome, setNome] = useState("");
   const [mesId, setMesId] = useState("");
@@ -243,12 +245,22 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
     if (error) throw error;
     return data as string;
   };
-  const feito = (cid: string) => { setSavedId(cid); qc.invalidateQueries({ queryKey: ["colecao-pv", cid] }); onSaved?.(); };
+  const feito = (cid: string) => { setSavedId(cid); qc.invalidateQueries({ queryKey: ["colecao-pv", cid] }); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); onSaved?.(); };
   const salvar = useMutation({ mutationFn: salvarRaw, onSuccess: (cid) => { toast.success("Coleção salva."); feito(cid); }, onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar a coleção.")) });
   const confirmar = useMutation({
-    mutationFn: async () => { const cid = await salvarRaw(); const { data, error } = await supabase.rpc("otb_confirmar_pv" as any, { _colecao_id: cid }); if (error) throw error; return { cid, res: data as { criados: number; removidos: number } }; },
-    onSuccess: ({ cid, res }) => { toast.success(`${res.criados} card(s) gerados no Planejamento${res.removidos ? `, ${res.removidos} removido(s)` : ""}.`); setConfirmada(true); feito(cid); },
+    mutationFn: async () => { const cid = await salvarRaw(); const { error } = await supabase.rpc("otb_confirmar_pv" as any, { _colecao_id: cid }); if (error) throw error; return cid; },
+    onSuccess: (cid) => { toast.success("Coleção confirmada."); setConfirmada(true); feito(cid); },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao confirmar a coleção.")),
+  });
+  const desconfirmar = useMutation({
+    mutationFn: async () => { if (!savedId) return; const { error } = await supabase.rpc("otb_desconfirmar" as any, { _colecao_id: savedId }); if (error) throw error; },
+    onSuccess: () => { toast.success("Coleção desconfirmada."); setConfirmada(false); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); onSaved?.(); },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desconfirmar a coleção.")),
+  });
+  const excluir = useMutation({
+    mutationFn: async () => { if (!savedId) return; const { error } = await supabase.rpc("otb_excluir_colecao" as any, { _colecao_id: savedId }); if (error) throw error; },
+    onSuccess: () => { toast.success("Coleção excluída."); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); onSaved?.(); onClose(); },
+    onError: (e: any) => { setConfirmDel(false); toast.error(mensagemErro(e, "Erro ao excluir a coleção.")); },
   });
 
   const d = useMemo(() => {
@@ -288,7 +300,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
         <SheetHeader className="p-4 border-b shrink-0">
           <div className="flex flex-wrap items-center gap-2">
             <SheetTitle className="text-base sm:text-lg">{colecaoId ? "Editar coleção" : "Nova coleção"} · Poder de venda</SheetTitle>
-            <Badge variant={confirmada ? "secondary" : "outline"}>{confirmada ? "Confirmada" : "Rascunho"}</Badge>
+            <Badge className={confirmada ? "bg-emerald-600 text-white hover:bg-emerald-600" : "bg-amber-500 text-white hover:bg-amber-500"}>{confirmada ? "Confirmada" : "Rascunho"}</Badge>
           </div>
         </SheetHeader>
 
@@ -448,14 +460,44 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
           <Button variant="outline" onClick={onClose} className="mr-auto shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Voltar">
             <ArrowLeft className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Voltar</span>
           </Button>
+          {savedId && (
+            <Button variant="destructive" size="icon" className="shrink-0" onClick={() => setConfirmDel(true)} disabled={excluir.isPending} aria-label="Excluir coleção">
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
           <Button variant="secondary" onClick={() => salvar.mutate()} disabled={!nome.trim() || salvar.isPending} className="shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Salvar">
             <Save className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">{salvar.isPending ? "Salvando…" : "Salvar"}</span>
           </Button>
-          <Button onClick={() => confirmar.mutate()} disabled={!nome.trim() || confirmar.isPending || salvar.isPending} className="shrink-0">
-            <Check className="h-4 w-4 mr-1" /> Confirmar
-          </Button>
+          {confirmada ? (
+            <Button variant="destructive" onClick={() => desconfirmar.mutate()} disabled={desconfirmar.isPending} className="shrink-0">
+              <Check className="h-4 w-4 mr-1" /> {desconfirmar.isPending ? "Desconfirmando…" : "Desconfirmar"}
+            </Button>
+          ) : (
+            <Button onClick={() => confirmar.mutate()} disabled={!nome.trim() || confirmar.isPending || salvar.isPending} className="shrink-0">
+              <Check className="h-4 w-4 mr-1" /> Confirmar
+            </Button>
+          )}
         </div>
       </SheetContent>
+
+      <AlertDialog open={confirmDel} onOpenChange={setConfirmDel}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir a coleção “{nome}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Exclui a coleção e os modelos vinculados que ainda estão em planejamento (ou reprovados).
+              Se houver modelo já <strong>planejado</strong>, a exclusão é bloqueada. Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={(e) => { e.preventDefault(); excluir.mutate(); }} disabled={excluir.isPending}>
+              {excluir.isPending ? "Excluindo…" : "Excluir"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Sheet>
   );
 }
