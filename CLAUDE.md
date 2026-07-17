@@ -127,6 +127,18 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   (datas_semanas->>semana), **preço E categoria em branco** (categoria vira decisão do Planejamento).
   Trigger `enforce_pv_itens_tenant` NÃO referencia mais cat/sub. Telas em `/otb-beta` (Padrão do mix) e
   `/otb-beta-colecao` (editor PV) — ainda rotuladas "beta".
+  **Simulador de Uso de OC** (`SimulacaoSheet`, botão Simular por card em `otb.index`): "Consumo por OC"
+  SIMULADO (sem baixa real). Atribui um **item de OC real** por unidade (subcoleção, ou coleção inteira) —
+  metragem = espelho de `consumo_por_oc` (`unidade_medida='kg' ? quantidade_pedida × artigo.rendimento : quantidade_pedida`,
+  recebida ao lado) —, digita **consumo por modelo** e vê **sobra/estoura** (`demanda = Σ prof×cores×consumo`,
+  cálculo puro em `src/lib/simulacao.ts`). Cenários nomeados em `otb_simulacoes`/`_unidades`/`_linhas`/`_modelos`
+  (4 tabelas RLS por tenant). RPCs **INVOKER** (espelham `salvar_colecao_pv`, NÃO DEFINER → sem `_core`/REVOKE):
+  `salvar_simulacao` (upsert atômico da árvore, delete-and-reinsert), `excluir_simulacao`, `aplicar_simulacao`.
+  **Write-back** ("Aplicar no card", AlertDialog, disabled até salvar): grava **só o ALVO DO PLANO** —
+  PV → `colecao_pv_itens` (prof_cor/cores + nº via `qtd_semanas` splitEven nas semanas da subcoleção);
+  Orçamento → `colecao_semanas.qtd_planejada` (splitEven), **bloqueando** (RAISE) se quebraria `Σcat ≤ qtd_planejada`.
+  NUNCA cria/edita cards do Planejamento nem vira BOM. Ao aplicar, front invalida `["otb-orcamento"]` + queries da coleção.
+  Front acessa tabelas/RPCs novas com `as any` (types.ts pendente de regen — precisa `supabase login`).
 - **cadastro**: atributos (categorias tecido/aviamento/material/subcategoria, linhas,
   categorias de serviço fixas Corte/Oficina), colaboradores, servicos, tecidos
   (+variantes), aviamentos. **Fornecedor** (cadastro Tecido/Aviamento + OC Tecido/Aviamento):
