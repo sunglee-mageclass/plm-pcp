@@ -111,4 +111,13 @@ begin
   return v_id;
 end $function$;
 
+create or replace function public.excluir_simulacao(_id uuid)
+returns void language plpgsql set search_path to 'public' as $function$
+begin
+  if auth.uid() is null then raise exception 'Não autenticado'; end if;
+  if not public.tenant_module_enabled('otb') then raise exception 'Módulo otb não habilitado' using errcode='42501'; end if;
+  delete from public.otb_simulacoes where id = _id and tenant_id = public.get_user_tenant_id();
+  if not found then raise exception 'Cenário não encontrado.'; end if;
+end $function$;
+
 commit;

@@ -62,3 +62,21 @@ describe.skipIf(!hasDb)("OTB Simulador — salvar_simulacao", () => {
     });
   });
 });
+
+describe.skipIf(!hasDb)("OTB Simulador — excluir_simulacao", () => {
+  it("apaga a simulação e cascateia as filhas", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await ligarOtb(c);
+      const col = await um<{ id: string }>(c, `insert into colecoes (nome) values ('C-DEL-SIM') returning id`, []);
+      const id = (await um<{ id: string }>(c, `select public.salvar_simulacao(null, $1::jsonb, $2::jsonb) as id`,
+        [JSON.stringify({ colecao_id: col.id, nome: "Del" }),
+         JSON.stringify([{ subcolecao_id: null, linhas: [{ prof_cor: 1, cores: 1, num_modelos: 1, modelos: [{ slot_index: 0, consumo: 1 }] }] }])])).id;
+      await c.query(`select public.excluir_simulacao($1)`, [id]);
+      const chk = await um<{ n: string; nun: string }>(c,
+        `select (select count(*) from otb_simulacoes where id=$1)::text n,
+                (select count(*) from otb_simulacao_unidades where simulacao_id=$1)::text nun`, [id]);
+      expect(chk.n).toBe("0"); expect(chk.nun).toBe("0");
+    });
+  });
+});
