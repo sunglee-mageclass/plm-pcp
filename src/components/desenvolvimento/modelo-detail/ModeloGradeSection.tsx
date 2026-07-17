@@ -32,6 +32,10 @@ export function ModeloGradeSection({
   const ensureGrade = (n: number): GradeRow =>
     grades.find((g) => g.variante_numero === n) ?? { variante_numero: n, grades: {}, grade_total: 0 };
 
+  // Com auto ligado E proporções definidas, a Grade Total vira editável (distribui pela proporção).
+  const somaProp = tamanhos.reduce((s, t) => s + (Number(proporcoes?.[t]) || 0), 0);
+  const totalEditavel = gradeAuto && somaProp > 0;
+
   return (
     <div className="space-y-3">
       <div>
@@ -65,7 +69,9 @@ export function ModeloGradeSection({
       </div>
       {gradeAuto && (
         <p className="text-[11px] text-muted-foreground -mt-1">
-          Digite um tamanho em qualquer variante e os demais preenchem na proporção acima.
+          {somaProp > 0
+            ? "Digite a Grade Total ou um tamanho, e os demais preenchem na proporção acima."
+            : "Defina as proporções acima para destrinchar a Grade Total."}
         </p>
       )}
       <Separator />
@@ -88,10 +94,11 @@ export function ModeloGradeSection({
                     <Label className="text-xs">Grade Total</Label>
                     <NumberInput
                       integer
-                      className="w-24 bg-muted"
-                      readOnly
-                      tabIndex={-1}
+                      className={`w-24 ${totalEditavel ? "" : "bg-muted"}`}
+                      readOnly={!totalEditavel}
+                      tabIndex={totalEditavel ? undefined : -1}
                       value={g.grade_total}
+                      onChange={totalEditavel ? (e) => onChangeGradeTotal(n, Math.max(0, Number(e.target.value) || 0)) : undefined}
                     />
                   </div>
                 </div>
