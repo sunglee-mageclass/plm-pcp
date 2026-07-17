@@ -244,14 +244,20 @@ export function SimulacaoSheet({
           cores: Number(l.cores) || 0,
           modelos: [...(l.modelos ?? [])]
             .sort((a: any, b: any) => (a.slot_index ?? 0) - (b.slot_index ?? 0))
-            .map((m: any) => ({
-              id: nid("m"),
-              modeloId: m.modelo_id ?? null,
-              consumo: Number(m.consumo) || 0,
-              ref: null,
-              nome: null,
-              foto: null,
-            })),
+            .map((m: any) => {
+              // Fix I2: enriquece com ref/nome/foto do modelo real quando disponível
+              const modeloReal = m.modelo_id
+                ? (modelosReais as any[]).find((mr: any) => mr.id === m.modelo_id)
+                : null;
+              return {
+                id: nid("m"),
+                modeloId: m.modelo_id ?? null,
+                consumo: Number(m.consumo) || 0,
+                ref: modeloReal?.ref ?? null,
+                nome: modeloReal?.nome ?? null,
+                foto: ((modeloReal?.fotos_modelo ?? []) as string[])[0] ?? null,
+              };
+            }),
         })),
     })),
   });
@@ -268,19 +274,23 @@ export function SimulacaoSheet({
     if (selId && selId !== draftFor) {
       const row = (cenariosSalvos as any[]).find((x: any) => x.id === selId);
       if (row) {
-        setDraft(mapCenarioFromDb(row));
+        // Fix I1: mapCenarioFromDb primeiro para obter os ids locais frescos,
+        // depois construir ocPorUnidade keyed pelo id LOCAL de cada unidade
+        const cenario = mapCenarioFromDb(row);
+        setDraft(cenario);
         setDraftFor(selId);
         setDirty(false);
         // inicializa o mapa OC por unidade com as OCs já vinculadas
         const ocMap: Record<string, string> = {};
-        for (const u of (row.unidades ?? []) as any[]) {
-          if (u.oc_tecido_item_id) {
+        for (const u of cenario.unidades) {
+          if (u.ocItemId) {
             const oc = (ocs as any[]).find((o) =>
-              (o.itens ?? []).some((it: any) => it.id === u.oc_tecido_item_id)
+              (o.itens ?? []).some((it: any) => it.id === u.ocItemId)
             );
-            if (oc) ocMap[u.id] = oc.id; // u.id ainda não existe aqui — usaremos dbId
+            if (oc) ocMap[u.id] = oc.id;
           }
         }
+        setOcPorUnidade(ocMap);
       }
     }
   // nomeUnidadeDe não é estável entre renders, mas a dependência correta é o plano
