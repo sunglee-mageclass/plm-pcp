@@ -146,7 +146,7 @@ describe.skipIf(!hasDb)("OTB Simulador — aplicar_simulacao (Orçamento)", () =
         [JSON.stringify({ colecao_id: col.id, nome: "Cen" }), JSON.stringify(arvore)])).id;
       const unId = (await um<{ id: string }>(c, `select id from otb_simulacao_unidades where simulacao_id=$1`, [simId])).id;
       await c.query(`savepoint sp1`);
-      await expect(c.query(`select public.aplicar_simulacao($1,$2)`, [simId, unId])).rejects.toThrow();
+      await expect(c.query(`select public.aplicar_simulacao($1,$2)`, [simId, unId])).rejects.toThrow(/Ajuste as categorias/);
       await c.query(`rollback to savepoint sp1`);
       const q = await um<{ q: string }>(c, `select qtd_planejada::text q from colecao_semanas where colecao_id=$1 and subcolecao_id=$2 and semana='1'`, [col.id, sub.id]);
       expect(q.q).toBe("10"); // inalterado

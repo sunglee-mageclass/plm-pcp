@@ -167,10 +167,10 @@ begin
       v_rem := v_total - (v_total / v_nweeks) * v_nweeks;
       -- Guarda: nenhuma semana pode ficar abaixo de Σ categorias.
       for r in
-        select semana, (row_number() over (order by semana)) - 1 as idx
+        select semana, (row_number() over (order by semana::int)) - 1 as idx
         from public.colecao_semanas
         where colecao_id = v_colecao and subcolecao_id is not distinct from v_sub and tenant_id = v_tenant
-        order by semana
+        order by semana::int
       loop
         v_new := (v_total / v_nweeks) + (case when r.idx < v_rem then 1 else 0 end);
         if (select coalesce(sum(qtd), 0) from public.colecao_semana_categorias
@@ -180,10 +180,10 @@ begin
       end loop;
       -- Aplica.
       for r in
-        select semana, (row_number() over (order by semana)) - 1 as idx
+        select semana, (row_number() over (order by semana::int)) - 1 as idx
         from public.colecao_semanas
         where colecao_id = v_colecao and subcolecao_id is not distinct from v_sub and tenant_id = v_tenant
-        order by semana
+        order by semana::int
       loop
         v_new := (v_total / v_nweeks) + (case when r.idx < v_rem then 1 else 0 end);
         update public.colecao_semanas set qtd_planejada = v_new
