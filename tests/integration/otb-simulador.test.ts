@@ -42,9 +42,10 @@ describe.skipIf(!hasDb)("OTB Simulador — salvar_simulacao", () => {
       await c.query(`select public.salvar_simulacao($1, $2::jsonb, $3::jsonb)`,
         [id, JSON.stringify({ colecao_id: col.id, nome: "Cenário A2" }), JSON.stringify(arvore2)]);
       chk = await um<{ un: string; ln: string; md: string }>(c,
-        `select (select count(*) from otb_simulacao_unidades u where u.simulacao_id=$1)::text un, '0' ln,
+        `select (select count(*) from otb_simulacao_unidades u where u.simulacao_id=$1)::text un,
+                (select count(*) from otb_simulacao_linhas l join otb_simulacao_unidades u on u.id=l.unidade_id where u.simulacao_id=$1)::text ln,
                 (select count(*) from otb_simulacao_modelos m join otb_simulacao_linhas l on l.id=m.linha_ref_id join otb_simulacao_unidades u on u.id=l.unidade_id where u.simulacao_id=$1)::text md`, [id]);
-      expect(chk.md).toBe("1");
+      expect(chk.un).toBe("1"); expect(chk.ln).toBe("1"); expect(chk.md).toBe("1");
       const nome = await um<{ nome: string }>(c, `select nome from otb_simulacoes where id=$1`, [id]);
       expect(nome.nome).toBe("Cenário A2");
     });
