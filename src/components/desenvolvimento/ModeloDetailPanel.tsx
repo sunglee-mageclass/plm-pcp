@@ -899,7 +899,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     setEtiquetasState((rows) => rows.map((r, i) => i === idx ? recomputeEtiqueta({ ...r, ...patch }, etiquetaMap) : r));
   };
   const addEtiqueta = () => {
-    if (etiquetasState.length >= 10) return;
+    if (etiquetasState.length >= 20) return;
     setEtiquetasState((rows) => [...rows, { etiqueta_id: null, cor_id: null, consumo: 0, loss_percent: 0, custo_previsto: 0 }]);
   };
   const removeEtiqueta = (idx: number) => setEtiquetasState((rows) => rows.filter((_, i) => i !== idx));

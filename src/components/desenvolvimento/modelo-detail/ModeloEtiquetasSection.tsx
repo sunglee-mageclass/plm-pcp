@@ -69,7 +69,7 @@ export function ModeloEtiquetasSection({
           </Card>
         );
       })}
-      {rows.length < 10 && (
+      {rows.length < 20 && (
         <Button variant="outline" size="sm" onClick={onAdd}>
           <Plus className="h-4 w-4 mr-1" /> Adicionar Etiqueta
         </Button>
