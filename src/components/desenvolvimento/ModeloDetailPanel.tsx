@@ -1420,12 +1420,13 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Fichas ocultas — só aparecem no @media print quando token é incrementado */}
+      {/* Fichas ocultas — cada FichaTecnica/CadFichaCorte já usa PrintArea (portal no body).
+          Montar direto (SEM wrapper .print-area), igual à tela de CAD (producao.cad.index). */}
       {draft.enviado_cad && (
-        <div className="print-area">
+        <>
           <PrintFicha modeloId={modeloId} kind="corte" token={printCorteToken} />
           <PrintFicha modeloId={modeloId} kind="tecnica" token={printTecnicaToken} />
-        </div>
+        </>
       )}
     </>
   );
