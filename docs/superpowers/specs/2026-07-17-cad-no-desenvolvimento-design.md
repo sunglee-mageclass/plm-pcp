@@ -130,4 +130,10 @@ A revisão pegou furos reais. Resolvidos assim (a maioria **simplifica**):
 8. **Extinguir `/producao/cad` (F3) quebra ~5 links** (`DownstreamImpactAlert` etapa CAD, `CadActions` voltar, redirect pós-excluir, hub `producao.index`). F3 precisa **redirecionar** `/producao/cad*` → destino novo e **atualizar esses links**. A permissão `producao_cad` do "Corte/desmarcar" no `DownstreamImpactAlert` continua válida (ação, não link).
 9. **Tela Explosão:** permissão nova `criacao_explosao` + rota `/criacao/explosao` + gate módulo (provavelmente `criacao`); registrar em `permissions-catalog`/`PAGE_URLS`.
 
-**Veredito:** design **VIÁVEL** com esses refinamentos — e mais **aditivo/reversível** do que parecia (2 colunas novas em `modelo_tecido_variantes`, 1 entrada de catálogo espelhada, corte NÃO mexe em `grades_reais`, card trava após Enviar). Nenhum refactor de FK; nenhuma dupla-escrita.
+**Veredito:** design **VIÁVEL** com esses refinamentos — e mais **aditivo/reversível** do que parecia. Nenhum refactor de FK; nenhuma dupla-escrita.
+
+### Decisões da revisão (confirmadas pelo dono) — SIMPLIFICAM ainda mais
+- **(1) Card TRAVA o BOM/grade após "Enviar"** (edição = reverter o Enviar). → não precisa de RPC de re-sync `modelo_*↔cad_*`; sem staleness.
+- **(2) Fichas e cálculo do "4. CAD" só ficam disponíveis DEPOIS do "Enviar"** (quando o `cad` já existe). → **cai o refinamento #3** (colunas draft em `modelo_tecido_variantes`: não precisam) **e o #4** (fallback do `useFichaData`: não precisa — lê `cad_*` normalmente).
+
+**Consequência:** o núcleo vira **frontend** — reorganizar o card (seção "4. CAD" pós-Enviar reaproveitando `CadTecidosSection`/`CadGradeSection` + botões de ficha), a nova tela **Explosão** (reaproveita `baixar_estoque_tecido_corte`), e o **sidebar**. A grade já é semeada real (= cheia) na criação do `cad` (no "Enviar", `enviar_modelo_para_cad`), e o corte já existe. **Migration provavelmente mínima ou nula** (só a permissão `criacao_explosao` e a entrada de catálogo `criacao_consumo_oc`; validar no plano se `permissions`/`user_permissions` exige seed). Continua valendo #6/#7/#8/#9 do sidebar/rotas.
