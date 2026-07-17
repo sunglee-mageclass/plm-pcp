@@ -13,16 +13,18 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Trash2, Pencil, Save, ArrowLeft, ImageOff, Send } from "lucide-react";
+import { Plus, Trash2, Pencil, Save, ArrowLeft, ImageOff, Send, X } from "lucide-react";
 import { metragemDisponivel, demandaLinha, saldo } from "@/lib/simulacao";
+import { labelVarianteRow } from "@/lib/variante";
 
 /**
- * Simulador de uso de OC — cenários + árvore Unidade/Linha/Modelo + resultado.
- * Sem write-back (Task 9). Footer: Voltar + Salvar.
+ * Simulador de uso de OC — cenários + árvore Unidade/Linha/Modelo + resultado por cor.
+ * Cores reais (variantes) por subcoleção; resultado per-cor com sobra/estoura.
  */
 
 // ─── Tipos do estado local ────────────────────────────────────────────────────
 
+type VarianteSim = { ocItemId: string };
 type ModeloSim = {
   id: string;
   modeloId: string | null;
@@ -31,13 +33,14 @@ type ModeloSim = {
   nome?: string | null;
   foto?: string | null;
 };
-type LinhaSim = { id: string; linhaId: string | null; profCor: number; cores: number; modelos: ModeloSim[] };
+type LinhaSim = { id: string; linhaId: string | null; profCor: number; modelos: ModeloSim[] };
 type UnidadeSim = {
   id: string;
   dbId?: string;
   subcolecaoId: string | null;
   nomeUnidade: string;
-  ocItemId: string | null;
+  ocId: string | null;
+  variantes: VarianteSim[];
   linhas: LinhaSim[];
 };
 type Cenario = { id: string; nome: string; unidades: UnidadeSim[] };
@@ -127,7 +130,7 @@ export function SimulacaoSheet({
     queryKey: ["otb-simulacoes", colecaoId],
     queryFn: async () => {
       const { data, error } = await supabase.from("otb_simulacoes" as any)
-        .select("id, nome, unidades:otb_simulacao_unidades(id, subcolecao_id, oc_tecido_item_id, linhas:otb_simulacao_linhas(id, linha_id, prof_cor, cores, num_modelos, ordem, modelos:otb_simulacao_modelos(id, modelo_id, slot_index, consumo)))")
+        .select("id, nome, unidades:otb_simulacao_unidades(id, subcolecao_id, oc_tecido_id, variantes:otb_simulacao_variantes(oc_tecido_item_id, ordem), linhas:otb_simulacao_linhas(id, linha_id, prof_cor, num_modelos, ordem, modelos:otb_simulacao_modelos(id, modelo_id, slot_index, consumo)))")
         .eq("colecao_id", colecaoId).order("created_at");
       if (error) throw error;
       return (data ?? []) as any[];
@@ -151,11 +154,12 @@ export function SimulacaoSheet({
       (await supabase.from("modelos").select("id, ref, nome, fotos_modelo, subcolecao, linha_id").eq("colecao_id", colecaoId)).data ?? [],
   });
 
+  // OC com variantes embutidas (Step 1)
   const { data: ocs = [] } = useQuery({
     queryKey: ["otb-sim-ocs"],
     queryFn: async () =>
       (await supabase.from("ocs_tecido" as any)
-        .select("id, numero_pedido, itens:ocs_tecido_itens(id, artigo_id, variante_tecido_id, quantidade_pedida, quantidade_recebida, artigo:artigos(nome, unidade_medida, rendimento))")
+        .select("id, numero_pedido, itens:ocs_tecido_itens(id, quantidade_pedida, quantidade_recebida, artigo:artigos(nome, unidade_medida, rendimento), variante:variante_tecido_id(nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))")
         .order("created_at", { ascending: false })).data ?? [] as any[],
   });
 
@@ -175,8 +179,6 @@ export function SimulacaoSheet({
   const [editNome, setEditNome] = useState(false);
   const [confirmExcluir, setConfirmExcluir] = useState<string | null>(null);
   const [confirmAplicar, setConfirmAplicar] = useState<{ unidadeId: string; nome: string } | null>(null);
-  // OC selecionada por unidade (estado de UI, antes de escolher o item)
-  const [ocPorUnidade, setOcPorUnidade] = useState<Record<string, string>>({});
 
   // ── Helpers de nomeação ────────────────────────────────────────────────────
 
@@ -186,7 +188,18 @@ export function SimulacaoSheet({
     return sub?.nome ?? "Coleção";
   };
 
-  // ── Semear a árvore a partir do plano ──────────────────────────────────────
+  // ── Helper: rótulo de variante a partir do ocItemId ───────────────────────
+
+  const varianteLabelDe = (ocId: string | null, ocItemId: string): string => {
+    const oc = ocId ? (ocs as any[]).find((o) => o.id === ocId) : null;
+    const item = (oc?.itens ?? []).find((it: any) => it.id === ocItemId);
+    if (!item) return ocItemId.slice(0, 8);
+    const artNome = item.artigo?.nome ?? "";
+    const varLabel = labelVarianteRow(item.variante);
+    return [artNome, varLabel].filter(Boolean).join(" · ") || ocItemId.slice(0, 8);
+  };
+
+  // ── Semear a árvore a partir do plano (Step 3) ────────────────────────────
 
   const semear = (): UnidadeSim[] => {
     if (!plano) return [];
@@ -220,11 +233,10 @@ export function SimulacaoSheet({
             id: nid("l"),
             linhaId: it.linha_id ?? null,
             profCor: Number(it.prof_cor) || 0,
-            cores: Number(it.cores) || 0,
             modelos,
           };
         });
-        return { id: nid("u"), subcolecaoId: sc.id, nomeUnidade: sc.nome, ocItemId: null, linhas };
+        return { id: nid("u"), subcolecaoId: sc.id, nomeUnidade: sc.nome, ocId: null, variantes: [], linhas };
       });
     }
 
@@ -245,13 +257,14 @@ export function SimulacaoSheet({
         id: nid("u"),
         subcolecaoId: subId,
         nomeUnidade: nomeSub(subId),
-        ocItemId: null,
-        linhas: [{ id: nid("l"), linhaId: null, profCor: 1, cores: 1, modelos }],
+        ocId: null,
+        variantes: [],
+        linhas: [{ id: nid("l"), linhaId: null, profCor: 1, modelos }],
       };
     });
   };
 
-  // ── mapCenarioFromDb ──────────────────────────────────────────────────────
+  // ── mapCenarioFromDb (Step 4) ─────────────────────────────────────────────
 
   const mapCenarioFromDb = (row: any): Cenario => ({
     id: row.id,
@@ -261,18 +274,19 @@ export function SimulacaoSheet({
       dbId: u.id,
       subcolecaoId: u.subcolecao_id ?? null,
       nomeUnidade: nomeUnidadeDe(u.subcolecao_id),
-      ocItemId: u.oc_tecido_item_id ?? null,
+      ocId: u.oc_tecido_id ?? null,
+      variantes: [...(u.variantes ?? [])]
+        .sort((a: any, b: any) => (a.ordem ?? 0) - (b.ordem ?? 0))
+        .map((v: any) => ({ ocItemId: v.oc_tecido_item_id })),
       linhas: [...(u.linhas ?? [])]
         .sort((a: any, b: any) => (a.ordem ?? 0) - (b.ordem ?? 0))
         .map((l: any) => ({
           id: nid("l"),
           linhaId: l.linha_id ?? null,
           profCor: Number(l.prof_cor) || 0,
-          cores: Number(l.cores) || 0,
           modelos: [...(l.modelos ?? [])]
             .sort((a: any, b: any) => (a.slot_index ?? 0) - (b.slot_index ?? 0))
             .map((m: any) => {
-              // Fix I2: enriquece com ref/nome/foto do modelo real quando disponível
               const modeloReal = m.modelo_id
                 ? (modelosReais as any[]).find((mr: any) => mr.id === m.modelo_id)
                 : null;
@@ -301,23 +315,10 @@ export function SimulacaoSheet({
     if (selId && selId !== draftFor) {
       const row = (cenariosSalvos as any[]).find((x: any) => x.id === selId);
       if (row) {
-        // Fix I1: mapCenarioFromDb primeiro para obter os ids locais frescos,
-        // depois construir ocPorUnidade keyed pelo id LOCAL de cada unidade
         const cenario = mapCenarioFromDb(row);
         setDraft(cenario);
         setDraftFor(selId);
         setDirty(false);
-        // inicializa o mapa OC por unidade com as OCs já vinculadas
-        const ocMap: Record<string, string> = {};
-        for (const u of cenario.unidades) {
-          if (u.ocItemId) {
-            const oc = (ocs as any[]).find((o) =>
-              (o.itens ?? []).some((it: any) => it.id === u.ocItemId)
-            );
-            if (oc) ocMap[u.id] = oc.id;
-          }
-        }
-        setOcPorUnidade(ocMap);
       }
     }
   // nomeUnidadeDe não é estável entre renders, mas a dependência correta é o plano
@@ -382,6 +383,27 @@ export function SimulacaoSheet({
       ),
     }));
 
+  // Adiciona uma variante à unidade (se ainda não estiver)
+  const addVariante = (uid: string, ocItemId: string) =>
+    upd((d) => ({
+      ...d,
+      unidades: d.unidades.map((u) =>
+        u.id !== uid ? u
+          : u.variantes.some((v) => v.ocItemId === ocItemId)
+            ? u
+            : { ...u, variantes: [...u.variantes, { ocItemId }] }
+      ),
+    }));
+
+  // Remove uma variante da unidade
+  const removeVariante = (uid: string, ocItemId: string) =>
+    upd((d) => ({
+      ...d,
+      unidades: d.unidades.map((u) =>
+        u.id !== uid ? u : { ...u, variantes: u.variantes.filter((v) => v.ocItemId !== ocItemId) }
+      ),
+    }));
+
   // ── Re-puxar do OTB ───────────────────────────────────────────────────────
 
   const repuxar = () => {
@@ -409,14 +431,16 @@ export function SimulacaoSheet({
 
   // ── Mutations ─────────────────────────────────────────────────────────────
 
+  // buildArvore (Step 5): cores = variantes.length para compatibilidade
   const buildArvore = (d: Cenario) =>
     d.unidades.map((u) => ({
       subcolecao_id: u.subcolecaoId,
-      oc_tecido_item_id: u.ocItemId,
+      oc_tecido_id: u.ocId,
+      variantes: u.variantes.map((v) => ({ oc_tecido_item_id: v.ocItemId })),
       linhas: u.linhas.map((l) => ({
         linha_id: l.linhaId,
         prof_cor: l.profCor,
-        cores: l.cores,
+        cores: u.variantes.length,
         num_modelos: l.modelos.length,
         modelos: l.modelos.map((m, i) => ({
           modelo_id: m.modeloId,
@@ -493,7 +517,6 @@ export function SimulacaoSheet({
       qc.invalidateQueries({ queryKey: ["colecao-pv", colecaoId] });
       qc.invalidateQueries({ queryKey: ["otb-sim-plano", colecaoId, tipo] });
       qc.invalidateQueries({ queryKey: ["otb-colecoes"] });
-      // write-back muda prof_cor/cores/qtd_semanas → recalcula poder de venda + %/borda do card PV.
       qc.invalidateQueries({ queryKey: ["otb-pv-poder"] });
     },
     onError: (e: any) => {
@@ -502,29 +525,15 @@ export function SimulacaoSheet({
     },
   });
 
-  // ── Helpers de exibição de OC ─────────────────────────────────────────────
+  // ── Helpers de OC ─────────────────────────────────────────────────────────
 
-  const ocById = (ocId: string) => (ocs as any[]).find((o) => o.id === ocId);
+  const ocById = (ocId: string | null) => ocId ? (ocs as any[]).find((o) => o.id === ocId) : null;
 
-  const ocDoItem = (itemId: string | null) => {
-    if (!itemId) return null;
-    return (ocs as any[]).find((o) => (o.itens ?? []).some((it: any) => it.id === itemId));
-  };
-
-  const getMetragem = (itemId: string | null) => {
-    if (!itemId) return null;
-    const oc = ocDoItem(itemId);
-    const item = (oc?.itens ?? []).find((it: any) => it.id === itemId);
-    if (!item) return null;
-    return {
-      disponivel: metragemDisponivel(
-        item.artigo?.unidade_medida ?? null,
-        Number(item.quantidade_pedida) || 0,
-        Number(item.artigo?.rendimento) || 0
-      ),
-      recebida: Number(item.quantidade_recebida) || 0,
-      nome: item.artigo?.nome ?? "Artigo",
-    };
+  // "plano: N cores" = maior `cores` entre as linhas desta subcoleção no plano
+  const planoCoresPara = (subcolecaoId: string | null): number => {
+    if (!plano || !subcolecaoId) return 0;
+    const its = (plano.itens ?? []).filter((it: any) => it.subcolecao_id === subcolecaoId);
+    return its.reduce((mx: number, it: any) => Math.max(mx, Number(it.cores) || 0), 0);
   };
 
   const temSel = !!selId && (cenariosSalvos as any[]).some((x: any) => x.id === selId);
@@ -612,33 +621,31 @@ export function SimulacaoSheet({
 
                 {/* ── Unidades ── */}
                 {draft.unidades.map((u) => {
-                  const met = getMetragem(u.ocItemId);
-                  const demandaTotal = u.linhas.reduce(
-                    (s, l) => s + demandaLinha(l.profCor, l.cores, l.modelos.map((m) => m.consumo)),
+                  const ocSelecionada = ocById(u.ocId);
+                  const todosItens: any[] = ocSelecionada?.itens ?? [];
+                  // Itens ainda não escolhidos (disponíveis p/ adicionar)
+                  const itensDispo = todosItens.filter(
+                    (it: any) => !u.variantes.some((v) => v.ocItemId === it.id)
+                  );
+                  // Cálculo de demanda total (igual para todas as cores = demanda por cor)
+                  const demandaPorCor = u.linhas.reduce(
+                    (s, l) => s + demandaLinha(l.profCor, 1, l.modelos.map((m) => m.consumo)),
                     0
                   );
-                  const dispTotal = met?.disponivel ?? 0;
-                  const saldoVal = saldo(dispTotal, demandaTotal);
-                  const pctUso = dispTotal > 0 ? Math.min(100, (demandaTotal / dispTotal) * 100) : 0;
-
-                  // OC selecionada para este bloco (vem do item se já vinculado, senão do seletor local)
-                  const ocVinculada = u.ocItemId ? ocDoItem(u.ocItemId) : null;
-                  const ocSelecionadaId = ocVinculada?.id ?? ocPorUnidade[u.id] ?? "";
-                  const ocSelecionada = ocSelecionadaId ? ocById(ocSelecionadaId) : null;
+                  const planoNCores = planoCoresPara(u.subcolecaoId);
 
                   return (
                     <Card key={u.id} className="p-4 space-y-3">
-                      {/* Cabeçalho da unidade */}
+                      {/* ── Cabeçalho da unidade ── */}
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-medium text-sm">{u.nomeUnidade}</span>
 
-                        {/* Seletor OC */}
+                        {/* Seletor OC (Step 6) */}
                         <Sel
-                          value={ocSelecionadaId}
+                          value={u.ocId ?? ""}
                           onChange={(ocId) => {
-                            // Troca de OC: limpa item vinculado
-                            patchUnidade(u.id, { ocItemId: null });
-                            setOcPorUnidade((prev) => ({ ...prev, [u.id]: ocId }));
+                            // Troca de OC: limpa variantes escolhidas
+                            patchUnidade(u.id, { ocId, variantes: [] });
                           }}
                           placeholder="— OC —"
                           className="min-w-[10rem]"
@@ -650,40 +657,75 @@ export function SimulacaoSheet({
                           ))}
                         </Sel>
 
-                        {/* Seletor Item da OC */}
-                        {ocSelecionada && (ocSelecionada.itens ?? []).length > 0 && (
-                          <Sel
-                            value={u.ocItemId ?? ""}
-                            onChange={(itemId) => patchUnidade(u.id, { ocItemId: itemId })}
-                            placeholder="— item —"
-                            className="min-w-[12rem]"
-                          >
-                            {(ocSelecionada.itens ?? []).map((it: any) => {
-                              const disp = metragemDisponivel(
-                                it.artigo?.unidade_medida ?? null,
-                                Number(it.quantidade_pedida) || 0,
-                                Number(it.artigo?.rendimento) || 0
-                              );
-                              return (
-                                <SelectItem key={it.id} value={it.id}>
-                                  {it.artigo?.nome ?? "Artigo"} — {fmt2(disp)} m
-                                </SelectItem>
-                              );
-                            })}
-                          </Sel>
-                        )}
-
-                        {/* Metragem disponível / recebida */}
-                        {met && (
-                          <span className="text-xs text-muted-foreground tabular-nums">
-                            {met.nome} · disp: <b>{fmt2(met.disponivel)} m</b> · rec: {fmt2(met.recebida)} m
+                        {/* Referência plano: N cores */}
+                        {planoNCores > 0 && (
+                          <span className="text-xs text-muted-foreground">
+                            plano: {planoNCores} cores
                           </span>
                         )}
                       </div>
 
-                      {/* Linhas */}
+                      {/* ── Multi-select de variantes (Step 6) ── */}
+                      {u.ocId && (
+                        <div className="space-y-1.5">
+                          {/* Chips das variantes escolhidas */}
+                          {u.variantes.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {u.variantes.map((v) => (
+                                <span
+                                  key={v.ocItemId}
+                                  className="inline-flex items-center gap-1 rounded-full border bg-muted/40 px-2 py-0.5 text-xs"
+                                >
+                                  {varianteLabelDe(u.ocId, v.ocItemId)}
+                                  <button
+                                    onClick={() => removeVariante(u.id, v.ocItemId)}
+                                    className="ml-0.5 rounded-full hover:text-destructive"
+                                    aria-label="Remover cor"
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Dropdown para adicionar variante ainda não escolhida */}
+                          {itensDispo.length > 0 && (
+                            <Sel
+                              value=""
+                              onChange={(itemId) => itemId && addVariante(u.id, itemId)}
+                              placeholder="+ Adicionar cor (variante)…"
+                              className="max-w-xs text-xs"
+                            >
+                              {itensDispo.map((it: any) => {
+                                const disp = metragemDisponivel(
+                                  it.artigo?.unidade_medida ?? null,
+                                  Number(it.quantidade_pedida) || 0,
+                                  Number(it.artigo?.rendimento) || 0
+                                );
+                                const artNome = it.artigo?.nome ?? "";
+                                const varLabel = labelVarianteRow(it.variante);
+                                const label = [artNome, varLabel].filter(Boolean).join(" · ");
+                                return (
+                                  <SelectItem key={it.id} value={it.id}>
+                                    {label} — {fmt2(disp)} m
+                                  </SelectItem>
+                                );
+                              })}
+                            </Sel>
+                          )}
+
+                          {itensDispo.length === 0 && u.variantes.length === 0 && (
+                            <p className="text-xs text-muted-foreground">
+                              Esta OC não tem itens cadastrados.
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* ── Linhas (Step 7) ── */}
                       {u.linhas.map((l) => {
-                        const demL = demandaLinha(l.profCor, l.cores, l.modelos.map((m) => m.consumo));
+                        const demL = demandaLinha(l.profCor, 1, l.modelos.map((m) => m.consumo));
                         const consumoPrimeiro = l.modelos[0]?.consumo ?? 0;
 
                         return (
@@ -707,21 +749,13 @@ export function SimulacaoSheet({
                                 />
                               </Lbl>
 
-                              {tipo === "poder_venda" && (
-                                <Lbl t="cores">
-                                  <Input
-                                    className="h-7 w-12 px-1 tabular-nums"
-                                    inputMode="numeric"
-                                    value={l.cores}
-                                    onChange={(e) =>
-                                      patchLinha(u.id, l.id, { cores: Math.max(0, Math.round(num(e.target.value))) })
-                                    }
-                                  />
-                                </Lbl>
-                              )}
+                              {/* cores = derivado (leitura) — Step 7 */}
+                              <span className="text-xs text-muted-foreground">
+                                cores: <b>{u.variantes.length}</b>
+                              </span>
 
                               <span className="text-xs text-muted-foreground tabular-nums">
-                                demanda: <b>{fmt2(demL)} m</b>
+                                demanda/cor: <b>{fmt2(demL)} m</b>
                               </span>
 
                               {l.modelos.length > 1 && (
@@ -742,31 +776,56 @@ export function SimulacaoSheet({
                               </Button>
                             </div>
 
-                            {/* Modelos */}
-                            <div className="space-y-1">
+                            {/* Mini cards por modelo (Step 8) */}
+                            <div className="space-y-2">
                               {l.modelos.map((m, idx) => {
-                                const pecas = l.profCor * l.cores;
                                 const label = m.ref ?? m.nome ?? `Modelo ${idx + 1}`;
-                                const contribuicao = pecas * m.consumo;
+                                const contribuicaoPorCor = l.profCor * m.consumo;
 
                                 return (
-                                  <div key={m.id} className="flex flex-wrap items-center gap-2 pl-2">
-                                    <ModeloThumb path={m.foto} alt={label} />
-                                    <span className="text-xs w-28 truncate text-muted-foreground" title={label}>
-                                      {label}
-                                    </span>
-                                    <span className="text-xs text-muted-foreground tabular-nums">
-                                      {pecas} pç ×
-                                    </span>
-                                    <Lbl t="m/pç">
-                                      <ConsumoInput
-                                        value={m.consumo}
-                                        onCommit={(v) => patchModelo(u.id, l.id, m.id, { consumo: v })}
-                                      />
-                                    </Lbl>
-                                    <span className="text-xs text-muted-foreground tabular-nums">
-                                      = {fmt2(contribuicao)} m
-                                    </span>
+                                  <div key={m.id} className="rounded-md border bg-muted/10 p-2 space-y-1.5">
+                                    {/* Linha de identidade: foto + ref/nome */}
+                                    <div className="flex items-center gap-2">
+                                      <ModeloThumb path={m.foto} alt={label} />
+                                      <span className="text-xs font-medium truncate" title={label}>
+                                        {label}
+                                      </span>
+                                    </div>
+
+                                    {/* Lista de cores com peças por cor */}
+                                    {u.variantes.length > 0 ? (
+                                      <div className="space-y-0.5 pl-1">
+                                        {u.variantes.map((v) => (
+                                          <div key={v.ocItemId} className="flex items-center gap-2 text-xs text-muted-foreground">
+                                            <span className="truncate max-w-[10rem]" title={varianteLabelDe(u.ocId, v.ocItemId)}>
+                                              {varianteLabelDe(u.ocId, v.ocItemId)}
+                                            </span>
+                                            <span className="tabular-nums shrink-0">
+                                              {l.profCor} pç
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <p className="text-xs text-muted-foreground pl-1 italic">
+                                        Escolha as cores acima
+                                      </p>
+                                    )}
+
+                                    {/* Consumo (vale p/ todas as cores) */}
+                                    <div className="flex items-center gap-2 pl-1">
+                                      <Lbl t="m/pç">
+                                        <ConsumoInput
+                                          value={m.consumo}
+                                          onCommit={(v) => patchModelo(u.id, l.id, m.id, { consumo: v })}
+                                        />
+                                      </Lbl>
+                                      {m.consumo > 0 && (
+                                        <span className="text-xs text-muted-foreground tabular-nums">
+                                          = {fmt2(contribuicaoPorCor)} m/cor
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
                                 );
                               })}
@@ -775,33 +834,56 @@ export function SimulacaoSheet({
                         );
                       })}
 
-                      {/* ── Resultado por unidade ── */}
-                      {met && (
-                        <div className="rounded-md border bg-muted/20 p-3 space-y-1.5">
-                          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-sm">
-                            <span>
-                              Demanda: <b className="tabular-nums">{fmt2(demandaTotal)} m</b>
-                            </span>
-                            <span>
-                              Disponível: <b className="tabular-nums">{fmt2(dispTotal)} m</b>
-                            </span>
-                            <span className={saldoVal >= 0 ? "text-green-600 font-medium" : "text-destructive font-medium"}>
-                              {saldoVal >= 0
-                                ? `sobram ${fmt2(saldoVal)} m`
-                                : `faltam ${fmt2(Math.abs(saldoVal))} m`}
-                            </span>
-                          </div>
-                          <div className="h-2 rounded-full bg-muted overflow-hidden">
-                            <div
-                              className={`h-full rounded-full transition-all ${saldoVal >= 0 ? "bg-green-500" : "bg-destructive"}`}
-                              style={{ width: `${pctUso}%` }}
-                            />
-                          </div>
-                          <p className="text-xs text-muted-foreground tabular-nums text-right">
-                            {pctUso.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}% utilizado
+                      {/* ── Resultado por cor (Step 9) ── */}
+                      <div className="rounded-md border bg-muted/20 p-3 space-y-2">
+                        {u.variantes.length === 0 ? (
+                          <p className="text-xs text-muted-foreground text-center py-1">
+                            Escolha as cores (variantes) da OC para ver o resultado.
                           </p>
-                        </div>
-                      )}
+                        ) : (
+                          u.variantes.map((v) => {
+                            const oc = ocById(u.ocId);
+                            const item = (oc?.itens ?? []).find((it: any) => it.id === v.ocItemId);
+                            const disp = item
+                              ? metragemDisponivel(
+                                  item.artigo?.unidade_medida ?? null,
+                                  Number(item.quantidade_pedida) || 0,
+                                  Number(item.artigo?.rendimento) || 0
+                                )
+                              : 0;
+                            const saldoVal = saldo(disp, demandaPorCor);
+                            const pctUso = disp > 0 ? Math.min(100, (demandaPorCor / disp) * 100) : 0;
+                            const varLabel = varianteLabelDe(u.ocId, v.ocItemId);
+
+                            return (
+                              <div key={v.ocItemId} className="space-y-1">
+                                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 text-xs">
+                                  <span className="font-medium truncate max-w-[10rem]" title={varLabel}>
+                                    {varLabel}
+                                  </span>
+                                  <span className="text-muted-foreground tabular-nums">
+                                    disp: <b>{fmt2(disp)} m</b>
+                                  </span>
+                                  <span className="text-muted-foreground tabular-nums">
+                                    demanda: <b>{fmt2(demandaPorCor)} m</b>
+                                  </span>
+                                  <span className={saldoVal >= 0 ? "text-green-600 font-medium tabular-nums" : "text-destructive font-medium tabular-nums"}>
+                                    {saldoVal >= 0
+                                      ? `sobram ${fmt2(saldoVal)} m`
+                                      : `faltam ${fmt2(Math.abs(saldoVal))} m`}
+                                  </span>
+                                </div>
+                                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                                  <div
+                                    className={`h-full rounded-full transition-all ${saldoVal >= 0 ? "bg-green-500" : "bg-destructive"}`}
+                                    style={{ width: `${pctUso}%` }}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
 
                       {/* ── Botão Aplicar no card ── */}
                       <div className="flex justify-end pt-1">
