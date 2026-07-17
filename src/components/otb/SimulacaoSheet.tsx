@@ -13,7 +13,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Trash2, Pencil, Save, ArrowLeft, ImageOff } from "lucide-react";
+import { Plus, Trash2, Pencil, Save, ArrowLeft, ImageOff, Send } from "lucide-react";
 import { metragemDisponivel, demandaLinha, saldo } from "@/lib/simulacao";
 
 /**
@@ -148,6 +148,7 @@ export function SimulacaoSheet({
   const [dirty, setDirty] = useState(false);
   const [editNome, setEditNome] = useState(false);
   const [confirmExcluir, setConfirmExcluir] = useState<string | null>(null);
+  const [confirmAplicar, setConfirmAplicar] = useState<{ unidadeId: string; nome: string } | null>(null);
   // OC selecionada por unidade (estado de UI, antes de escolher o item)
   const [ocPorUnidade, setOcPorUnidade] = useState<Record<string, string>>({});
 
@@ -449,6 +450,28 @@ export function SimulacaoSheet({
       qc.invalidateQueries({ queryKey: ["otb-simulacoes", colecaoId] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar o cenário.")),
+  });
+
+  const aplicar = useMutation({
+    mutationFn: async (unidadeDbId: string) => {
+      const { error } = await supabase.rpc("aplicar_simulacao" as any, {
+        _simulacao_id: selId,
+        _unidade_id: unidadeDbId,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Valores aplicados no card da coleção.");
+      setConfirmAplicar(null);
+      qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
+      qc.invalidateQueries({ queryKey: ["colecao-pv", colecaoId] });
+      qc.invalidateQueries({ queryKey: ["otb-sim-plano", colecaoId, tipo] });
+      qc.invalidateQueries({ queryKey: ["otb-colecoes"] });
+    },
+    onError: (e: any) => {
+      setConfirmAplicar(null);
+      toast.error(mensagemErro(e, "Erro ao aplicar no card."));
+    },
   });
 
   // ── Helpers de exibição de OC ─────────────────────────────────────────────
@@ -756,6 +779,20 @@ export function SimulacaoSheet({
                           </p>
                         </div>
                       )}
+
+                      {/* ── Botão Aplicar no card ── */}
+                      <div className="flex justify-end pt-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={dirty || !u.dbId || aplicar.isPending}
+                          title={dirty ? "Salve o cenário antes de aplicar" : !u.dbId ? "Salve o cenário antes de aplicar" : "Aplicar profundidade, cores e nº de modelos no plano da coleção"}
+                          onClick={() => setConfirmAplicar({ unidadeId: u.dbId!, nome: u.nomeUnidade })}
+                        >
+                          <Send className="h-3.5 w-3.5 mr-1" />
+                          Aplicar no card
+                        </Button>
+                      </div>
                     </Card>
                   );
                 })}
@@ -803,6 +840,28 @@ export function SimulacaoSheet({
               disabled={excluir.isPending}
             >
               Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* AlertDialog de confirmação de aplicação no card */}
+      <AlertDialog open={!!confirmAplicar} onOpenChange={(o) => !o && setConfirmAplicar(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Aplicar no card da coleção?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Isto grava profundidade, cores e nº de modelos desta unidade no plano da coleção.
+              Não altera os cards já criados no Planejamento.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => confirmAplicar && aplicar.mutate(confirmAplicar.unidadeId)}
+              disabled={aplicar.isPending}
+            >
+              Aplicar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
