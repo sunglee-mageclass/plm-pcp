@@ -23,8 +23,8 @@ const MODULOS: { key: string; label: string; path: string; icon: typeof BarChart
   { key: "cadastro", label: "Cadastro", path: "/cadastro", icon: ClipboardList },
   { key: "entrada_saida", label: "Entrada e Saída", path: "/entrada-saida", icon: Package },
   { key: "otb", label: "OTB", path: "/otb", icon: Target },
-  { key: "criacao", label: "Criação", path: "/criacao", icon: Palette },
-  { key: "producao", label: "Produção", path: "/producao", icon: Factory },
+  { key: "criacao", label: "Estilo & Engenharia", path: "/criacao", icon: Palette },
+  { key: "producao", label: "PCP", path: "/producao", icon: Factory },
   { key: "financeiro", label: "Financeiro", path: "/financeiro", icon: DollarSign },
 ];
 

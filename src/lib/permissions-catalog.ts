@@ -50,7 +50,7 @@ export const PAGES_CATALOG: ModuleDef[] = [
   },
   {
     module: "criacao",
-    label: "Criação",
+    label: "Estilo & Engenharia",
     basePath: "/criacao",
     pages: [
       { key: "criacao_planejamento", label: "Planejamento" },
@@ -59,7 +59,7 @@ export const PAGES_CATALOG: ModuleDef[] = [
   },
   {
     module: "producao",
-    label: "Produção",
+    label: "PCP",
     basePath: "/producao",
     pages: [
       { key: "producao_cad", label: "CAD" },
