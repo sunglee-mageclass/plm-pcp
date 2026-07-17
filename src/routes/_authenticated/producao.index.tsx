@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Factory, Scissors, Users, ClipboardCheck, Compass, Rocket } from "lucide-react";
+import { Factory, Users, ClipboardCheck, Compass, Rocket } from "lucide-react";
 import { Card } from "@/components/ui/card";
 
 export const Route = createFileRoute("/_authenticated/producao/")({
@@ -8,8 +8,8 @@ export const Route = createFileRoute("/_authenticated/producao/")({
 
 // Acabamento foi aposentado (virou serviço "pós-costura", aba Pós dentro de Serviços) e a
 // Oficina é acessada dentro de Serviços — nenhum dos dois é card próprio neste hub.
+// CAD foi integrado à tela Explosão (Fase 3 da migração).
 const SECTIONS = {
-  cad: { to: "/producao/cad", title: "CAD", desc: "Modelos enviados ao CAD.", icon: Scissors },
   terceirizados: { to: "/producao/terceirizados", title: "Serviços", desc: "Serviços por REF.", icon: Users },
   cq: { to: "/producao/cq", title: "Controle de Qualidade", desc: "Recebimento, conserto, lavagem, defeito.", icon: ClipboardCheck },
   direcionamento: { to: "/producao/direcionamento", title: "Direcionamento", desc: "E-commerce vs Loja Física.", icon: Compass },
@@ -17,7 +17,7 @@ const SECTIONS = {
 } as const;
 
 function ProducaoIndex() {
-  const ordered: (keyof typeof SECTIONS)[] = ["cad", "terceirizados", "cq", "direcionamento", "lancamentos"];
+  const ordered: (keyof typeof SECTIONS)[] = ["terceirizados", "cq", "direcionamento", "lancamentos"];
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6">

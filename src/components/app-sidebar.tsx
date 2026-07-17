@@ -89,7 +89,6 @@ const PAGE_URLS: Record<string, string> = {
   entrada_estoque: "/entrada-saida/estoque",
   criacao_planejamento: "/criacao/planejamento",
   criacao_desenvolvimento: "/criacao/desenvolvimento",
-  producao_cad: "/producao/cad",
   producao_explosao: "/producao/explosao",
   producao_consumo_oc: "/producao/consumo-oc",
   producao_terceirizados: "/producao/terceirizados",

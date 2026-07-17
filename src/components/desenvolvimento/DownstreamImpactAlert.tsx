@@ -33,7 +33,7 @@ type StageDef = {
 };
 
 const STAGES: StageDef[] = [
-  { key: "cad", label: "CAD", desc: "Metragem planejada, consumos e custo previsto.", href: (id) => `/producao/cad/${id}` },
+  { key: "cad", label: "Explosão", desc: "Metragem planejada, consumos e custo previsto.", href: () => "/producao/explosao" },
   { key: "corte", label: "Corte", desc: (e) => `Já enviado ao corte — ${fmtNum(Number(e.baixa_total ?? 0))}m baixados; a baixa não se desfaz sozinha.` },
   { key: "terceirizados", label: "Serviços", desc: "Quantidades e custos dos serviços.", href: (id) => `/producao/terceirizados/${id}` },
   { key: "oficina", label: "Oficina", desc: "Quantidades e custos da oficina.", href: (id) => `/producao/oficina/${id}` },
