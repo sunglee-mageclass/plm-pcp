@@ -51,7 +51,7 @@ export function ModeloAviamentosSection({
           </div>
         </Card>
       ))}
-      {rows.length < 10 && (
+      {rows.length < 20 && (
         <Button variant="outline" size="sm" onClick={onAdd}>
           <Plus className="h-4 w-4 mr-1" /> Adicionar Aviamento
         </Button>

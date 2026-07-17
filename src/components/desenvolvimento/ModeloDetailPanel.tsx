@@ -890,7 +890,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   };
   const addAviamento = () => {
     setAviamentoAlterado(true);
-    if (aviamentosState.length >= 10) return;
+    if (aviamentosState.length >= 20) return;
     setAviamentosState((rows) => [...rows, { aviamento_id: null, consumo: 0, loss_percent: 0, custo_previsto: 0 }]);
   };
   const removeAviamento = (idx: number) => { setAviamentoAlterado(true); setAviamentosState((rows) => rows.filter((_, i) => i !== idx)); };
