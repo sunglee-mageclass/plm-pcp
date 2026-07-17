@@ -199,6 +199,19 @@ export function AppSidebar() {
   moveTop("/criacao"); // Criação sobe primeiro…
   moveTop("/otb");     // …e OTB fica acima dela.
 
+  // Consumo por OC é feature de Produção (gate producao mantido), mas exibido no grupo
+  // Estilo & Engenharia, logo abaixo de Desenvolvimento (pedido do dono). Move só a exibição.
+  const eng = visibleMainItems.find((x) => x.url === "/criacao");
+  const pcp = visibleMainItems.find((x) => x.url === "/producao");
+  if (eng && pcp) {
+    const ci = pcp.subs.findIndex((s) => s.key === "producao_consumo_oc");
+    if (ci >= 0) {
+      const [consumo] = pcp.subs.splice(ci, 1);
+      const di = eng.subs.findIndex((s) => s.key === "criacao_desenvolvimento");
+      eng.subs.splice(di >= 0 ? di + 1 : eng.subs.length, 0, consumo);
+    }
+  }
+
   // Cadastro vai pro FIM, logo abaixo de Dashboard, separado por uma linha (pedido do dono).
   const cadastroItem = visibleMainItems.find((x) => x.url === "/cadastro");
   const mainItems = visibleMainItems.filter((x) => x.url !== "/cadastro");
