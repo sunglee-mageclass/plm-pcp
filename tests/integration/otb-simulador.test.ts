@@ -113,3 +113,43 @@ describe.skipIf(!hasDb)("OTB Simulador — aplicar_simulacao (PV)", () => {
     });
   });
 });
+
+describe.skipIf(!hasDb)("OTB Simulador — aplicar_simulacao (Orçamento)", () => {
+  it("distribui o total nas semanas de colecao_semanas", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await ligarOtb(c);
+      const col = await um<{ id: string }>(c, `insert into colecoes (nome, tipo, status) values ('C-ORC-SIM','orcamento','rascunho') returning id`, []);
+      const sub = await um<{ id: string }>(c, `insert into colecao_subcolecoes (colecao_id, nome, semanas) values ($1,'S','{1,2}') returning id`, [col.id]);
+      await c.query(`insert into colecao_semanas (colecao_id, subcolecao_id, semana, qtd_planejada) values ($1,$2,'1',0),($1,$2,'2',0)`, [col.id, sub.id]);
+      const arvore = [{ subcolecao_id: sub.id, linhas: [{ linha_id: null, prof_cor: 1, cores: 1, num_modelos: 7, modelos: [] }] }];
+      const simId = (await um<{ id: string }>(c, `select public.salvar_simulacao(null,$1::jsonb,$2::jsonb) as id`,
+        [JSON.stringify({ colecao_id: col.id, nome: "Cen" }), JSON.stringify(arvore)])).id;
+      const unId = (await um<{ id: string }>(c, `select id from otb_simulacao_unidades where simulacao_id=$1`, [simId])).id;
+      await c.query(`select public.aplicar_simulacao($1,$2)`, [simId, unId]);
+      const sem = await um<{ s: string }>(c, `select string_agg(semana||':'||qtd_planejada, ',' order by semana) s from colecao_semanas where colecao_id=$1 and subcolecao_id=$2`, [col.id, sub.id]);
+      expect(sem.s).toBe("1:4,2:3"); // splitEven(7,2)
+    });
+  });
+
+  it("bloqueia se o novo total ficaria abaixo de Σ categorias da semana", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await ligarOtb(c);
+      const cat = await um<{ id: string }>(c, `select id from categorias_produto where tenant_id=$1 limit 1`, [TENANT_TESTE]);
+      const col = await um<{ id: string }>(c, `insert into colecoes (nome, tipo, status) values ('C-ORC-CAT','orcamento','rascunho') returning id`, []);
+      const sub = await um<{ id: string }>(c, `insert into colecao_subcolecoes (colecao_id, nome, semanas) values ($1,'S','{1}') returning id`, [col.id]);
+      await c.query(`insert into colecao_semanas (colecao_id, subcolecao_id, semana, qtd_planejada) values ($1,$2,'1',10)`, [col.id, sub.id]);
+      await c.query(`insert into colecao_semana_categorias (colecao_id, subcolecao_id, semana, categoria_id, qtd) values ($1,$2,'1',$3,8)`, [col.id, sub.id, cat.id]);
+      const arvore = [{ subcolecao_id: sub.id, linhas: [{ linha_id: null, prof_cor: 1, cores: 1, num_modelos: 3, modelos: [] }] }];
+      const simId = (await um<{ id: string }>(c, `select public.salvar_simulacao(null,$1::jsonb,$2::jsonb) as id`,
+        [JSON.stringify({ colecao_id: col.id, nome: "Cen" }), JSON.stringify(arvore)])).id;
+      const unId = (await um<{ id: string }>(c, `select id from otb_simulacao_unidades where simulacao_id=$1`, [simId])).id;
+      await c.query(`savepoint sp1`);
+      await expect(c.query(`select public.aplicar_simulacao($1,$2)`, [simId, unId])).rejects.toThrow();
+      await c.query(`rollback to savepoint sp1`);
+      const q = await um<{ q: string }>(c, `select qtd_planejada::text q from colecao_semanas where colecao_id=$1 and subcolecao_id=$2 and semana='1'`, [col.id, sub.id]);
+      expect(q.q).toBe("10"); // inalterado
+    });
+  });
+});

@@ -156,7 +156,40 @@ begin
       where colecao_id = v_colecao and subcolecao_id = v_sub and linha_id = v_ln.linha_id and tenant_id = v_tenant;
     end loop;
   else
-    raise exception 'Orçamento ainda não implementado.'; -- substituído na Task 5
+    -- Orçamento: distribui Σ num_modelos da unidade nas semanas de colecao_semanas dessa unidade.
+    declare
+      v_total int; v_nweeks int; v_rem int; v_new int; r record;
+    begin
+      select coalesce(sum(num_modelos), 0) into v_total from public.otb_simulacao_linhas where unidade_id = _unidade_id;
+      select count(*) into v_nweeks from public.colecao_semanas
+        where colecao_id = v_colecao and subcolecao_id is not distinct from v_sub and tenant_id = v_tenant;
+      if v_nweeks = 0 then raise exception 'A coleção não tem semanas para aplicar.'; end if;
+      v_rem := v_total - (v_total / v_nweeks) * v_nweeks;
+      -- Guarda: nenhuma semana pode ficar abaixo de Σ categorias.
+      for r in
+        select semana, (row_number() over (order by semana)) - 1 as idx
+        from public.colecao_semanas
+        where colecao_id = v_colecao and subcolecao_id is not distinct from v_sub and tenant_id = v_tenant
+        order by semana
+      loop
+        v_new := (v_total / v_nweeks) + (case when r.idx < v_rem then 1 else 0 end);
+        if (select coalesce(sum(qtd), 0) from public.colecao_semana_categorias
+              where colecao_id = v_colecao and subcolecao_id is not distinct from v_sub and semana = r.semana) > v_new then
+          raise exception 'Ajuste as categorias da semana % no editor da coleção antes de aplicar (o novo total ficaria abaixo do já distribuído).', r.semana;
+        end if;
+      end loop;
+      -- Aplica.
+      for r in
+        select semana, (row_number() over (order by semana)) - 1 as idx
+        from public.colecao_semanas
+        where colecao_id = v_colecao and subcolecao_id is not distinct from v_sub and tenant_id = v_tenant
+        order by semana
+      loop
+        v_new := (v_total / v_nweeks) + (case when r.idx < v_rem then 1 else 0 end);
+        update public.colecao_semanas set qtd_planejada = v_new
+          where colecao_id = v_colecao and subcolecao_id is not distinct from v_sub and semana = r.semana and tenant_id = v_tenant;
+      end loop;
+    end;
   end if;
 
   return jsonb_build_object('aplicado', true);
