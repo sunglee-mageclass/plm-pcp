@@ -78,6 +78,32 @@ function ModeloThumb({ path, alt }: { path: string | null | undefined; alt: stri
   );
 }
 
+// Input de consumo (m/peça) DECIMAL. Mantém um buffer de texto cru p/ preservar estados
+// intermediários ("1," / "1,5"): sem isso o value controlado voltava ao número parseado e
+// "comia" a vírgula, deixando só dar p/ digitar inteiro.
+function ConsumoInput({ value, onCommit }: { value: number; onCommit: (v: number) => void }) {
+  const fmt = (n: number) => (n === 0 ? "" : String(n).replace(".", ","));
+  const [text, setText] = useState(fmt(value));
+  useEffect(() => {
+    // Ressincroniza só quando o valor externo muda de fato (ex.: "aplicar a todos").
+    if (num(text) !== value) setText(fmt(value));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+  return (
+    <Input
+      className="h-7 w-20 px-1 tabular-nums"
+      inputMode="decimal"
+      value={text}
+      placeholder="0,00"
+      onChange={(e) => {
+        const raw = e.target.value.replace(/[^\d.,]/g, "");
+        setText(raw);
+        onCommit(num(raw));
+      }}
+    />
+  );
+}
+
 // ─── Formatação ───────────────────────────────────────────────────────────────
 
 const fmt2 = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -733,14 +759,9 @@ export function SimulacaoSheet({
                                       {pecas} pç ×
                                     </span>
                                     <Lbl t="m/pç">
-                                      <Input
-                                        className="h-7 w-20 px-1 tabular-nums"
-                                        inputMode="decimal"
-                                        value={m.consumo === 0 ? "" : String(m.consumo).replace(".", ",")}
-                                        placeholder="0,00"
-                                        onChange={(e) =>
-                                          patchModelo(u.id, l.id, m.id, { consumo: num(e.target.value) })
-                                        }
+                                      <ConsumoInput
+                                        value={m.consumo}
+                                        onCommit={(v) => patchModelo(u.id, l.id, m.id, { consumo: v })}
                                       />
                                     </Lbl>
                                     <span className="text-xs text-muted-foreground tabular-nums">
@@ -792,7 +813,7 @@ export function SimulacaoSheet({
                           onClick={() => setConfirmAplicar({ unidadeId: u.dbId!, nome: u.nomeUnidade })}
                         >
                           <Send className="h-3.5 w-3.5 mr-1" />
-                          Aplicar no card
+                          Aplicar no plano
                         </Button>
                       </div>
                     </Card>
@@ -851,10 +872,11 @@ export function SimulacaoSheet({
       <AlertDialog open={!!confirmAplicar} onOpenChange={(o) => !o && setConfirmAplicar(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Aplicar no card da coleção?</AlertDialogTitle>
+            <AlertDialogTitle>Aplicar no plano da coleção?</AlertDialogTitle>
             <AlertDialogDescription>
-              Isto grava profundidade, cores e nº de modelos desta unidade no plano da coleção.
-              Não altera os cards já criados no Planejamento.
+              Isto grava <b>profundidade, cores e nº de modelos</b> desta unidade no <b>plano</b> da
+              coleção (os números de <em>Poder de Venda</em> / <em>Orçamento</em>). Não cria nem altera
+              cards do Planejamento.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
