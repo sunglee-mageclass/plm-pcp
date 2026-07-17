@@ -65,8 +65,8 @@ const MODULE_META: Record<string, { title: string; icon: typeof BarChart3 }> = {
   dashboard: { title: "Dashboard", icon: BarChart3 },
   cadastro: { title: "Cadastro", icon: ClipboardList },
   entrada_saida: { title: "Entrada e Saída", icon: Package },
-  criacao: { title: "Criação", icon: Palette },
-  producao: { title: "Produção", icon: Factory },
+  criacao: { title: "Estilo & Engenharia", icon: Palette },
+  producao: { title: "PCP", icon: Factory },
   financeiro: { title: "Financeiro", icon: DollarSign },
   otb: { title: "OTB", icon: Target },
 };
