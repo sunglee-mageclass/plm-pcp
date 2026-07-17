@@ -467,6 +467,8 @@ export function SimulacaoSheet({
       qc.invalidateQueries({ queryKey: ["colecao-pv", colecaoId] });
       qc.invalidateQueries({ queryKey: ["otb-sim-plano", colecaoId, tipo] });
       qc.invalidateQueries({ queryKey: ["otb-colecoes"] });
+      // write-back muda prof_cor/cores/qtd_semanas → recalcula poder de venda + %/borda do card PV.
+      qc.invalidateQueries({ queryKey: ["otb-pv-poder"] });
     },
     onError: (e: any) => {
       setConfirmAplicar(null);

@@ -165,6 +165,7 @@ begin
         where colecao_id = v_colecao and subcolecao_id is not distinct from v_sub and tenant_id = v_tenant;
       if v_nweeks = 0 then raise exception 'A coleção não tem semanas para aplicar.'; end if;
       v_rem := v_total - (v_total / v_nweeks) * v_nweeks;
+      -- Premissa: colecao_semanas.semana é numérica "1".."5" (fluxo OTB) — o order/idx usa semana::int.
       -- Guarda: nenhuma semana pode ficar abaixo de Σ categorias.
       for r in
         select semana, (row_number() over (order by semana::int)) - 1 as idx
@@ -194,5 +195,14 @@ begin
 
   return jsonb_build_object('aplicado', true);
 end $function$;
+
+-- EXECUTE só p/ authenticated. São INVOKER (RLS + auth.uid() já barram anon), mas revogar de
+-- public/anon espelha o irmão salvar_colecao_pv (20260710150000) — defense-in-depth/consistência.
+revoke execute on function public.salvar_simulacao(uuid, jsonb, jsonb) from public, anon;
+revoke execute on function public.excluir_simulacao(uuid) from public, anon;
+revoke execute on function public.aplicar_simulacao(uuid, uuid) from public, anon;
+grant execute on function public.salvar_simulacao(uuid, jsonb, jsonb) to authenticated;
+grant execute on function public.excluir_simulacao(uuid) to authenticated;
+grant execute on function public.aplicar_simulacao(uuid, uuid) to authenticated;
 
 commit;
