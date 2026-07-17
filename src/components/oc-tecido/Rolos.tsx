@@ -29,11 +29,16 @@ import {
 } from "@/components/ui/alert-dialog";
 
 type ArtigoLite = { id: string; nome: string; unidade_medida: string | null; rendimento: number | null };
-type VarLite = { id: string; artigo_id: string; nome_variante: string | null; codigo_variante: string | null };
+type VarLite = { id: string; artigo_id: string; nome_variante: string | null; codigo_variante: string | null; cor?: { nome: string | null } | null; apelido?: { nome: string | null } | null };
 type RoloOcItem = { oc_tecido_item_id: string; artigo_id: string | null; artigo_nome: string | null; variante_tecido_id: string | null; variante: string; disponivel_m: number };
 type RoloOc = { oc_id: string; numero_pedido: string | null; is_rolo?: boolean; label?: string | null; itens: RoloOcItem[] };
 
-const varName = (v?: VarLite | null) => (v ? v.nome_variante || v.codigo_variante || "—" : "—");
+// Rótulo da variante = "cor base - cor apelido" (fonte única variante.ts); cai p/ nome/código se sem cor.
+const varName = (v?: VarLite | null) => {
+  if (!v) return "—";
+  const lbl = corApelidoLabel(v.cor?.nome, v.apelido?.nome);
+  return lbl !== "—" ? lbl : v.nome_variante || v.codigo_variante || "—";
+};
 // quantidade armazenada → metros (kg guarda em kg, ler × rendimento)
 const toMetros = (qtd: number, unidade: string | null, rend: number | null) =>
   unidade === "kg" ? qtd * (rend || 0) : qtd;
@@ -69,7 +74,7 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
     enabled: !!artigoId,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("variantes_tecido").select("id, artigo_id, nome_variante, codigo_variante")
+        .from("variantes_tecido").select("id, artigo_id, nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)")
         .eq("artigo_id", artigoId);
       if (error) throw error;
       return (data ?? []) as VarLite[];
