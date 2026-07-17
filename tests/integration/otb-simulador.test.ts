@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { withTx, comoUsuario, um, hasDb, TENANT_TESTE } from "./db";
+import { withTx, comoUsuario, um, hasDb, TENANT_TESTE, USER_TESTE } from "./db";
 
 const ligarOtb = (c: any) =>
   c.query(`update tenant_config set modules = coalesce(modules,'{}'::jsonb) || '{"otb":true}'::jsonb where tenant_id=$1`, [TENANT_TESTE]);
@@ -54,7 +54,9 @@ describe.skipIf(!hasDb)("OTB Simulador — salvar_simulacao", () => {
   it("bloqueia quando o módulo otb está desligado", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
-      await c.query(`delete from user_roles where user_id=(select id from users where tenant_id=$1 limit 1) and role='super_admin'`, [TENANT_TESTE]);
+      // super_admin faz tenant_module_enabled retornar true incondicionalmente — removê-lo
+      // do USUÁRIO QUE AGE (USER_TESTE, não um arbitrário) p/ o gate de módulo ser avaliado.
+      await c.query(`delete from user_roles where user_id=$1 and role='super_admin'`, [USER_TESTE]);
       await c.query(`update tenant_config set modules = coalesce(modules,'{}'::jsonb) || '{"otb":false}'::jsonb where tenant_id=$1`, [TENANT_TESTE]);
       const col = await um<{ id: string }>(c, `insert into colecoes (nome) values ('C-OFF') returning id`, []);
       await expect(c.query(`select public.salvar_simulacao(null, $1::jsonb, '[]'::jsonb)`,
