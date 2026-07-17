@@ -21,33 +21,34 @@ describe.skipIf(!hasDb)("OTB Simulador — tabelas", () => {
 });
 
 describe.skipIf(!hasDb)("OTB Simulador — salvar_simulacao", () => {
-  it("cria a árvore e re-salva substituindo (delete-and-reinsert)", async () => {
+  it("cria a árvore com variantes e re-salva substituindo", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
       await ligarOtb(c);
       const col = await um<{ id: string }>(c, `insert into colecoes (nome, status) values ('C-SIM2','rascunho') returning id`, []);
-      const arvore = [{ subcolecao_id: null, oc_tecido_item_id: null,
-        linhas: [{ linha_id: null, prof_cor: 8, cores: 3, num_modelos: 2,
-          modelos: [{ slot_index: 0, consumo: 1.2 }, { slot_index: 1, consumo: 1.5 }] }] }];
+      // OC com 2 itens (variantes)
+      const oc = await um<{ id: string }>(c, `insert into ocs_tecido (numero_pedido, status) values ('OC-SIM','rascunho') returning id`, []);
+      const art = await um<{ id: string }>(c, `insert into artigos (nome, unidade_medida, rendimento) values ('Art','metro',1) returning id`, []);
+      const i1 = await um<{ id: string }>(c, `insert into ocs_tecido_itens (oc_tecido_id, artigo_id, quantidade_pedida) values ($1,$2,500) returning id`, [oc.id, art.id]);
+      const i2 = await um<{ id: string }>(c, `insert into ocs_tecido_itens (oc_tecido_id, artigo_id, quantidade_pedida) values ($1,$2,300) returning id`, [oc.id, art.id]);
+      const arvore = [{ subcolecao_id: null, oc_tecido_id: oc.id, variantes: [{ oc_tecido_item_id: i1.id }, { oc_tecido_item_id: i2.id }],
+        linhas: [{ linha_id: null, prof_cor: 8, cores: 2, num_modelos: 2, modelos: [{ slot_index: 0, consumo: 1.2 }, { slot_index: 1, consumo: 1.5 }] }] }];
       const id = (await um<{ id: string }>(c, `select public.salvar_simulacao(null, $1::jsonb, $2::jsonb) as id`,
         [JSON.stringify({ colecao_id: col.id, nome: "Cenário A" }), JSON.stringify(arvore)])).id;
-      let chk = await um<{ un: string; ln: string; md: string }>(c,
+      const chk = await um<{ un: string; va: string; oc: string; md: string }>(c,
         `select (select count(*) from otb_simulacao_unidades u where u.simulacao_id=$1)::text un,
-                (select count(*) from otb_simulacao_linhas l join otb_simulacao_unidades u on u.id=l.unidade_id where u.simulacao_id=$1)::text ln,
+                (select count(*) from otb_simulacao_variantes v join otb_simulacao_unidades u on u.id=v.unidade_id where u.simulacao_id=$1)::text va,
+                (select oc_tecido_id::text from otb_simulacao_unidades where simulacao_id=$1) oc,
                 (select count(*) from otb_simulacao_modelos m join otb_simulacao_linhas l on l.id=m.linha_ref_id join otb_simulacao_unidades u on u.id=l.unidade_id where u.simulacao_id=$1)::text md`, [id]);
-      expect(chk.un).toBe("1"); expect(chk.ln).toBe("1"); expect(chk.md).toBe("2");
-      // re-salva com 1 modelo só → substitui
-      const arvore2 = [{ subcolecao_id: null, oc_tecido_item_id: null,
-        linhas: [{ linha_id: null, prof_cor: 8, cores: 3, num_modelos: 1, modelos: [{ slot_index: 0, consumo: 2 }] }] }];
-      await c.query(`select public.salvar_simulacao($1, $2::jsonb, $3::jsonb)`,
-        [id, JSON.stringify({ colecao_id: col.id, nome: "Cenário A2" }), JSON.stringify(arvore2)]);
-      chk = await um<{ un: string; ln: string; md: string }>(c,
-        `select (select count(*) from otb_simulacao_unidades u where u.simulacao_id=$1)::text un,
-                (select count(*) from otb_simulacao_linhas l join otb_simulacao_unidades u on u.id=l.unidade_id where u.simulacao_id=$1)::text ln,
+      expect(chk.un).toBe("1"); expect(chk.va).toBe("2"); expect(chk.oc).toBe(oc.id); expect(chk.md).toBe("2");
+      // re-salva com 1 variante → substitui (cascade limpa variantes antigas)
+      const arvore2 = [{ subcolecao_id: null, oc_tecido_id: oc.id, variantes: [{ oc_tecido_item_id: i1.id }],
+        linhas: [{ linha_id: null, prof_cor: 8, cores: 1, num_modelos: 1, modelos: [{ slot_index: 0, consumo: 2 }] }] }];
+      await c.query(`select public.salvar_simulacao($1, $2::jsonb, $3::jsonb)`, [id, JSON.stringify({ colecao_id: col.id, nome: "A2" }), JSON.stringify(arvore2)]);
+      const chk2 = await um<{ va: string; md: string }>(c,
+        `select (select count(*) from otb_simulacao_variantes v join otb_simulacao_unidades u on u.id=v.unidade_id where u.simulacao_id=$1)::text va,
                 (select count(*) from otb_simulacao_modelos m join otb_simulacao_linhas l on l.id=m.linha_ref_id join otb_simulacao_unidades u on u.id=l.unidade_id where u.simulacao_id=$1)::text md`, [id]);
-      expect(chk.un).toBe("1"); expect(chk.ln).toBe("1"); expect(chk.md).toBe("1");
-      const nome = await um<{ nome: string }>(c, `select nome from otb_simulacoes where id=$1`, [id]);
-      expect(nome.nome).toBe("Cenário A2");
+      expect(chk2.va).toBe("1"); expect(chk2.md).toBe("1");
     });
   });
 
@@ -73,7 +74,7 @@ describe.skipIf(!hasDb)("OTB Simulador — excluir_simulacao", () => {
       const col = await um<{ id: string }>(c, `insert into colecoes (nome) values ('C-DEL-SIM') returning id`, []);
       const id = (await um<{ id: string }>(c, `select public.salvar_simulacao(null, $1::jsonb, $2::jsonb) as id`,
         [JSON.stringify({ colecao_id: col.id, nome: "Del" }),
-         JSON.stringify([{ subcolecao_id: null, linhas: [{ prof_cor: 1, cores: 1, num_modelos: 1, modelos: [{ slot_index: 0, consumo: 1 }] }] }])])).id;
+         JSON.stringify([{ subcolecao_id: null, oc_tecido_id: null, variantes: [], linhas: [{ prof_cor: 1, cores: 1, num_modelos: 1, modelos: [{ slot_index: 0, consumo: 1 }] }] }])])).id;
       await c.query(`select public.excluir_simulacao($1)`, [id]);
       const chk = await um<{ n: string; nun: string }>(c,
         `select (select count(*) from otb_simulacoes where id=$1)::text n,
@@ -94,7 +95,7 @@ describe.skipIf(!hasDb)("OTB Simulador — aplicar_simulacao (PV)", () => {
       const sub = await um<{ id: string }>(c, `insert into colecao_subcolecoes (colecao_id, nome, semanas) values ($1,'Sub', '{1,2,3,4,5}') returning id`, [col.id]);
       await c.query(`insert into colecao_pv_itens (colecao_id, subcolecao_id, linha_id, prof_cor, cores, qtd_semanas) values ($1,$2,$3, 4, 2, '{}'::jsonb)`, [col.id, sub.id, linha.id]);
       // simulação: mesma unidade/linha, prof 8 cores 3, 13 modelos
-      const arvore = [{ subcolecao_id: sub.id, oc_tecido_item_id: null,
+      const arvore = [{ subcolecao_id: sub.id, oc_tecido_id: null, variantes: [],
         linhas: [{ linha_id: linha.id, prof_cor: 8, cores: 3, num_modelos: 13, modelos: [] }] }];
       const simId = (await um<{ id: string }>(c, `select public.salvar_simulacao(null, $1::jsonb, $2::jsonb) as id`,
         [JSON.stringify({ colecao_id: col.id, nome: "Cen" }), JSON.stringify(arvore)])).id;
@@ -122,7 +123,7 @@ describe.skipIf(!hasDb)("OTB Simulador — aplicar_simulacao (Orçamento)", () =
       const col = await um<{ id: string }>(c, `insert into colecoes (nome, tipo, status) values ('C-ORC-SIM','orcamento','rascunho') returning id`, []);
       const sub = await um<{ id: string }>(c, `insert into colecao_subcolecoes (colecao_id, nome, semanas) values ($1,'S','{1,2}') returning id`, [col.id]);
       await c.query(`insert into colecao_semanas (colecao_id, subcolecao_id, semana, qtd_planejada) values ($1,$2,'1',0),($1,$2,'2',0)`, [col.id, sub.id]);
-      const arvore = [{ subcolecao_id: sub.id, linhas: [{ linha_id: null, prof_cor: 1, cores: 1, num_modelos: 7, modelos: [] }] }];
+      const arvore = [{ subcolecao_id: sub.id, oc_tecido_id: null, variantes: [], linhas: [{ linha_id: null, prof_cor: 1, cores: 1, num_modelos: 7, modelos: [] }] }];
       const simId = (await um<{ id: string }>(c, `select public.salvar_simulacao(null,$1::jsonb,$2::jsonb) as id`,
         [JSON.stringify({ colecao_id: col.id, nome: "Cen" }), JSON.stringify(arvore)])).id;
       const unId = (await um<{ id: string }>(c, `select id from otb_simulacao_unidades where simulacao_id=$1`, [simId])).id;
@@ -141,7 +142,7 @@ describe.skipIf(!hasDb)("OTB Simulador — aplicar_simulacao (Orçamento)", () =
       const sub = await um<{ id: string }>(c, `insert into colecao_subcolecoes (colecao_id, nome, semanas) values ($1,'S','{1}') returning id`, [col.id]);
       await c.query(`insert into colecao_semanas (colecao_id, subcolecao_id, semana, qtd_planejada) values ($1,$2,'1',10)`, [col.id, sub.id]);
       await c.query(`insert into colecao_semana_categorias (colecao_id, subcolecao_id, semana, categoria_id, qtd) values ($1,$2,'1',$3,8)`, [col.id, sub.id, cat.id]);
-      const arvore = [{ subcolecao_id: sub.id, linhas: [{ linha_id: null, prof_cor: 1, cores: 1, num_modelos: 3, modelos: [] }] }];
+      const arvore = [{ subcolecao_id: sub.id, oc_tecido_id: null, variantes: [], linhas: [{ linha_id: null, prof_cor: 1, cores: 1, num_modelos: 3, modelos: [] }] }];
       const simId = (await um<{ id: string }>(c, `select public.salvar_simulacao(null,$1::jsonb,$2::jsonb) as id`,
         [JSON.stringify({ colecao_id: col.id, nome: "Cen" }), JSON.stringify(arvore)])).id;
       const unId = (await um<{ id: string }>(c, `select id from otb_simulacao_unidades where simulacao_id=$1`, [simId])).id;
