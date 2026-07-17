@@ -6,10 +6,13 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
-import { labelVarianteRow } from "@/lib/variante";
+import { labelVarianteRow, varianteLabel } from "@/lib/variante";
 import { somaCustosAdicionais } from "@/lib/custo";
-import { Loader2, Pencil, Send, ArrowLeft } from "lucide-react";
+import { Loader2, Pencil, Printer, Send, ArrowLeft } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { fmtNum } from "@/lib/format";
+import { PrintFicha } from "@/components/producao/PrintFicha";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -296,6 +299,32 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     },
   });
 
+  // Seção 4. CAD — leitura do cálculo pós-Enviar (tamanho da folha, folhas, metragem planejada).
+  // Nota: usa (modelo as any)?.enviado_cad (dado do servidor), pois draft ainda não foi
+  // inicializado quando este hook é registrado. O draft.enviado_cad é atualizado via onSuccess.
+  const { data: cadCalc } = useQuery({
+    queryKey: ["modelo-cad-calc", modeloId],
+    enabled: !!modeloId && !!(modelo as any)?.enviado_cad,
+    queryFn: async () => {
+      // Busca o cad_id do modelo
+      const { data: cadRow, error: eCad } = await (supabase as any)
+        .from("cad")
+        .select("id")
+        .eq("modelo_id", modeloId)
+        .maybeSingle();
+      if (eCad) throw eCad;
+      if (!cadRow?.id) return [];
+      const cadId = cadRow.id;
+      // Tecidos com variantes calculadas
+      const { data: tecidos, error: eTec } = await (supabase as any)
+        .from("cad_tecidos")
+        .select("id, numero, tipo, tamanho_folha, artigos:artigo_id(nome), cad_tecido_variantes(ordem, quantidade_folhas, metragem_planejada, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))")
+        .eq("cad_id", cadId);
+      if (eTec) throw eTec;
+      return (tecidos ?? []) as any[];
+    },
+  });
+
   const [draft, setDraft] = useState<any | null>(null);
   // Subcoleções da coleção escolhida — dropdown de Subcoleção (OTB ligado).
   const { data: subcolecoesOpts = [] } = useQuery({
@@ -312,6 +341,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const [grades, setGrades] = useState<GradeRow[]>([]);
   const [uploading, setUploading] = useState(false);
   const [confirmEnviarCad, setConfirmEnviarCad] = useState(false);
+  const [printCorteToken, setPrintCorteToken] = useState(0);
+  const [printTecnicaToken, setPrintTecnicaToken] = useState(0);
   // Confirmação (AlertDialog) antes de descartar grade preenchida ao trocar/remover
   // o Tecido 1. Guarda a ação adiada até o usuário confirmar.
   const [confirmGrade, setConfirmGrade] = useState<{ msg: string; onConfirm: () => void } | null>(null);
@@ -779,6 +810,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       setDraft((d: any) => ({ ...d, enviado_cad: true }));
       qc.invalidateQueries({ queryKey: ["modelo-detail", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-condicoes-kanban", modeloId] });
+      qc.invalidateQueries({ queryKey: ["modelo-cad-calc", modeloId] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao enviar para CAD")),
   });
@@ -1128,8 +1160,74 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
             </AccordionContent>
           </AccordionItem>
 
+          <AccordionItem value="s-cad">
+            <AccordionTrigger>4. CAD</AccordionTrigger>
+            <AccordionContent>
+              {!draft.enviado_cad ? (
+                <p className="text-sm text-muted-foreground py-2">
+                  Envie o modelo para calcular o corte (folhas, tamanho da folha, metragem).
+                </p>
+              ) : !cadCalc || cadCalc.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-2">Carregando dados do CAD…</p>
+              ) : (
+                <div className="space-y-4">
+                  {(cadCalc as any[])
+                    .slice()
+                    .sort((a: any, b: any) => {
+                      const ord: Record<string, number> = { tecido: 0, forro: 1, entretela: 2 };
+                      return ((ord[a.tipo] ?? 9) - (ord[b.tipo] ?? 9)) || (a.numero - b.numero);
+                    })
+                    .map((t: any) => {
+                      const label = t.tipo === "tecido" ? `Tecido ${t.numero}` : t.numero > 1 ? `${t.tipo.charAt(0).toUpperCase() + t.tipo.slice(1)} ${t.numero}` : t.tipo.charAt(0).toUpperCase() + t.tipo.slice(1);
+                      const variantes: any[] = t.cad_tecido_variantes ?? [];
+                      return (
+                        <div key={t.id} className="space-y-1">
+                          <div className="flex items-center gap-2 text-sm font-medium">
+                            <span>{label}</span>
+                            <span className="text-muted-foreground font-normal">— {t.artigos?.nome ?? "Sem artigo"}</span>
+                            {Number(t.tamanho_folha) > 0 && (
+                              <span className="text-xs text-muted-foreground">· Tam. folha: {fmtNum(t.tamanho_folha)} m</span>
+                            )}
+                          </div>
+                          {variantes.length > 0 && (
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-xs border rounded">
+                                <thead className="bg-muted/50">
+                                  <tr>
+                                    <th className="px-2 py-1 text-left">Variante</th>
+                                    <th className="px-2 py-1 text-right">Qtd Folhas</th>
+                                    <th className="px-2 py-1 text-right">Metr. Planejada (m)</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {variantes
+                                    .slice()
+                                    .sort((a: any, b: any) => (a.ordem ?? 0) - (b.ordem ?? 0))
+                                    .map((v: any, j: number) => {
+                                      const vt = v.variantes_tecido;
+                                      const lbl = vt ? varianteLabel({ nome: vt.nome_variante, cor: vt.cor?.nome, apelido: vt.apelido?.nome }) : `Variante ${j + 1}`;
+                                      return (
+                                        <tr key={`${v.ordem}-${j}`} className="border-t">
+                                          <td className="px-2 py-1">{lbl}</td>
+                                          <td className="px-2 py-1 text-right">{fmtNum(v.quantidade_folhas)}</td>
+                                          <td className="px-2 py-1 text-right">{fmtNum(v.metragem_planejada)}</td>
+                                        </tr>
+                                      );
+                                    })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </AccordionContent>
+          </AccordionItem>
+
           <AccordionItem value="s3">
-            <AccordionTrigger>4. Aviamentos</AccordionTrigger>
+            <AccordionTrigger>5. Aviamentos</AccordionTrigger>
             <AccordionContent>
               <ModeloAviamentosSection
                 rows={aviamentosState}
@@ -1142,7 +1240,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           </AccordionItem>
 
           <AccordionItem value="s3e">
-            <AccordionTrigger>5. Insumos</AccordionTrigger>
+            <AccordionTrigger>6. Insumos</AccordionTrigger>
             <AccordionContent>
               <ModeloEtiquetasSection
                 rows={etiquetasState}
@@ -1156,7 +1254,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           </AccordionItem>
 
           <AccordionItem value="s4">
-            <AccordionTrigger>6. Grade</AccordionTrigger>
+            <AccordionTrigger>7. Grade</AccordionTrigger>
             <AccordionContent>
               <ModeloGradeSection
                 tamanhos={tamanhos}
@@ -1173,7 +1271,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           </AccordionItem>
 
           <AccordionItem value="s5">
-            <AccordionTrigger>7. Custos</AccordionTrigger>
+            <AccordionTrigger>8. Custos</AccordionTrigger>
             <AccordionContent>
               <ModeloCustosSection
                 totals={totals}
@@ -1186,7 +1284,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           </AccordionItem>
 
           <AccordionItem value="s6">
-            <AccordionTrigger>8. Anexos</AccordionTrigger>
+            <AccordionTrigger>9. Anexos</AccordionTrigger>
             <AccordionContent>
               <ModeloAnexosSection
                 fichaMedidaUrl={draft.ficha_medida_url}
@@ -1222,17 +1320,57 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         )}
         {isAprovado && !draft.enviado_cad && cadMissing.length > 0 && (
           <span className="text-xs text-muted-foreground mr-auto max-sm:hidden">
-            Para enviar ao CAD, falta: {cadMissing.join(", ")}
+            Para enviar, falta: {cadMissing.join(", ")}
           </span>
         )}
         <Button variant="outline" onClick={onClose} aria-label="Voltar" className="shrink-0 max-sm:order-first max-sm:mr-auto max-sm:aspect-square max-sm:px-0">
           <ArrowLeft className="h-4 w-4 sm:hidden" />
           <span className="max-sm:sr-only">Fechar</span>
         </Button>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!draft.enviado_cad}
+                  onClick={() => setPrintCorteToken((t) => t + 1)}
+                  aria-label="Imprimir Ficha de Corte"
+                >
+                  <Printer className="h-4 w-4 mr-1" />
+                  <span className="max-sm:hidden">Ficha de Corte</span>
+                </Button>
+              </span>
+            </TooltipTrigger>
+            {!draft.enviado_cad && (
+              <TooltipContent>Disponível após Enviar</TooltipContent>
+            )}
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!draft.enviado_cad}
+                  onClick={() => setPrintTecnicaToken((t) => t + 1)}
+                  aria-label="Imprimir Ficha Técnica"
+                >
+                  <Printer className="h-4 w-4 mr-1" />
+                  <span className="max-sm:hidden">Ficha Técnica</span>
+                </Button>
+              </span>
+            </TooltipTrigger>
+            {!draft.enviado_cad && (
+              <TooltipContent>Disponível após Enviar</TooltipContent>
+            )}
+          </Tooltip>
+        </TooltipProvider>
         {canEnviarCad && (
           <Button variant="secondary" onClick={() => setConfirmEnviarCad(true)} disabled={enviarCad.isPending}>
             {enviarCad.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            <Send className="h-4 w-4 mr-2" /> Enviar para o CAD
+            <Send className="h-4 w-4 mr-2" /> Enviar
           </Button>
         )}
         {locked ? (
@@ -1249,7 +1387,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       <AlertDialog open={confirmEnviarCad} onOpenChange={setConfirmEnviarCad}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Tem certeza que quer enviar ao CAD?</AlertDialogTitle>
+            <AlertDialogTitle>Tem certeza que quer enviar o modelo?</AlertDialogTitle>
             <AlertDialogDescription>
               O modelo sai do Desenvolvimento e vai para o CAD (Produção) com os tecidos,
               variantes e grade atuais. Você ainda poderá ajustar os consumos no CAD.
@@ -1281,6 +1419,14 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Fichas ocultas — só aparecem no @media print quando token é incrementado */}
+      {draft.enviado_cad && (
+        <div className="print-area">
+          <PrintFicha modeloId={modeloId} kind="corte" token={printCorteToken} />
+          <PrintFicha modeloId={modeloId} kind="tecnica" token={printTecnicaToken} />
+        </div>
+      )}
     </>
   );
 }
