@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -9,14 +8,20 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { corApelidoLabel } from "@/lib/variante";
 
 type Obs = { id: string; ordem: number | null; descricao: string | null; observacao: string | null };
+type BlocoComp = { label: string; composicao: string; variantes: string[] };
 
 const tecLabel = (tipo: string, numero: number) => {
   const cap = tipo ? tipo.charAt(0).toUpperCase() + tipo.slice(1) : "Tecido";
   if (tipo === "tecido") return `Tecido ${numero}`;
   return numero > 1 ? `${cap} ${numero}` : cap;
 };
+
+// Ordem fixa dos blocos: Tecido → Forro → Entretela (depois, por número).
+const TIPO_RANK: Record<string, number> = { tecido: 0, forro: 1, entretela: 2 };
+const tipoRank = (t: string) => TIPO_RANK[t] ?? 99;
 
 /**
  * Observações do modelo (descrição | observação), editáveis no Desenvolvimento
@@ -41,25 +46,30 @@ export function ModeloObservacoes({ modeloId, readOnly = false }: { modeloId: st
     },
   });
 
-  // Composição automática a partir dos tecidos do modelo.
-  const { data: composicao = "" } = useQuery({
+  // Composição automática a partir dos tecidos do modelo (+ variantes de cada um).
+  const { data: blocos = [] } = useQuery<BlocoComp[]>({
     queryKey: ["modelo-composicao", modeloId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelo_tecidos")
-        .select("numero, tipo, artigos:artigo_id(composicao)")
-        .eq("modelo_id", modeloId)
-        .order("tipo")
-        .order("numero");
+        .select("numero, tipo, artigos:artigo_id(composicao), variantes:modelo_tecido_variantes(ordem, variantes_tecido:variante_tecido_id(cor:cor_id(nome), apelido:cor_apelido_id(nome)))")
+        .eq("modelo_id", modeloId);
       if (error) throw error;
-      const linhas = (data ?? [])
-        .map((t: any) => {
-          const c = (t.artigos?.composicao ?? "").trim();
-          // Junta tudo numa linha só (quebras → espaço); cada linha = um tecido.
-          return c ? `${tecLabel(t.tipo, t.numero)}: ${c.replace(/\s+/g, " ").trim()}` : null;
-        })
-        .filter(Boolean);
-      return linhas.join("\n");
+      return (data ?? [])
+        .map((t: any) => ({
+          rank: tipoRank(t.tipo),
+          numero: Number(t.numero) || 0,
+          label: tecLabel(t.tipo, t.numero),
+          composicao: (t.artigos?.composicao ?? "").replace(/\s+/g, " ").trim(),
+          variantes: [...(t.variantes ?? [])]
+            .sort((a: any, b: any) => (a.ordem ?? 0) - (b.ordem ?? 0))
+            .map((v: any) => corApelidoLabel(v.variantes_tecido?.cor?.nome, v.variantes_tecido?.apelido?.nome))
+            .filter((s: string) => s && s !== "—"),
+        }))
+        .filter((b: any) => b.composicao || b.variantes.length)
+        // Ordem fixa: Tecido → Forro → Entretela → (outros), depois por número.
+        .sort((a: any, b: any) => a.rank - b.rank || a.numero - b.numero)
+        .map(({ label, composicao, variantes }: any) => ({ label, composicao, variantes }));
     },
   });
 
@@ -92,8 +102,6 @@ export function ModeloObservacoes({ modeloId, readOnly = false }: { modeloId: st
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao remover.")),
   });
 
-  const composicaoText = useMemo(() => composicao || "—", [composicao]);
-
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-2">
@@ -111,7 +119,23 @@ export function ModeloObservacoes({ modeloId, readOnly = false }: { modeloId: st
             <span className="text-sm font-medium">Composição</span>
             <Badge variant="secondary" className="text-[10px]">auto</Badge>
           </div>
-          <div className="text-sm whitespace-pre-wrap">{composicaoText}</div>
+          <div className="text-sm space-y-1.5">
+            {blocos.length === 0 ? (
+              <span className="text-muted-foreground">—</span>
+            ) : (
+              blocos.map((b, i) => (
+                <div key={i}>
+                  <div>
+                    <span className="font-semibold">{b.label}:</span>
+                    {b.composicao ? ` ${b.composicao}` : ""}
+                  </div>
+                  {b.variantes.map((v, j) => (
+                    <div key={j} className="text-xs text-muted-foreground pl-2">{v}</div>
+                  ))}
+                </div>
+              ))
+            )}
+          </div>
         </div>
 
         {isLoading ? (
