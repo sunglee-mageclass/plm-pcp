@@ -94,8 +94,14 @@ describe.skipIf(!hasDb)("OTB Simulador — aplicar_simulacao (PV)", () => {
       const col = await um<{ id: string }>(c, `insert into colecoes (nome, tipo, status) values ('C-PV-SIM','poder_venda','rascunho') returning id`, []);
       const sub = await um<{ id: string }>(c, `insert into colecao_subcolecoes (colecao_id, nome, semanas) values ($1,'Sub', '{1,2,3,4,5}') returning id`, [col.id]);
       await c.query(`insert into colecao_pv_itens (colecao_id, subcolecao_id, linha_id, prof_cor, cores, qtd_semanas) values ($1,$2,$3, 4, 2, '{}'::jsonb)`, [col.id, sub.id, linha.id]);
-      // simulação: mesma unidade/linha, prof 8 cores 3, 13 modelos
-      const arvore = [{ subcolecao_id: sub.id, oc_tecido_id: null, variantes: [],
+      // simulação: mesma unidade/linha, prof 8 cores 3, 13 modelos — 3 variantes (cores = nº variantes)
+      const oc2 = await um<{ id: string }>(c, `insert into ocs_tecido (numero_pedido, status) values ('OC-PV-SIM','rascunho') returning id`, []);
+      const art2 = await um<{ id: string }>(c, `insert into artigos (nome, unidade_medida, rendimento) values ('Art2','metro',1) returning id`, []);
+      const pi1 = await um<{ id: string }>(c, `insert into ocs_tecido_itens (oc_tecido_id, artigo_id, quantidade_pedida) values ($1,$2,100) returning id`, [oc2.id, art2.id]);
+      const pi2 = await um<{ id: string }>(c, `insert into ocs_tecido_itens (oc_tecido_id, artigo_id, quantidade_pedida) values ($1,$2,100) returning id`, [oc2.id, art2.id]);
+      const pi3 = await um<{ id: string }>(c, `insert into ocs_tecido_itens (oc_tecido_id, artigo_id, quantidade_pedida) values ($1,$2,100) returning id`, [oc2.id, art2.id]);
+      const arvore = [{ subcolecao_id: sub.id, oc_tecido_id: oc2.id,
+        variantes: [{ oc_tecido_item_id: pi1.id }, { oc_tecido_item_id: pi2.id }, { oc_tecido_item_id: pi3.id }],
         linhas: [{ linha_id: linha.id, prof_cor: 8, cores: 3, num_modelos: 13, modelos: [] }] }];
       const simId = (await um<{ id: string }>(c, `select public.salvar_simulacao(null, $1::jsonb, $2::jsonb) as id`,
         [JSON.stringify({ colecao_id: col.id, nome: "Cen" }), JSON.stringify(arvore)])).id;
@@ -111,6 +117,31 @@ describe.skipIf(!hasDb)("OTB Simulador — aplicar_simulacao (PV)", () => {
       await c.query(`select public.aplicar_simulacao($1,$2)`, [simId, unId]);
       const it2 = await um<{ q: any }>(c, `select qtd_semanas q from colecao_pv_itens where colecao_id=$1 and subcolecao_id=$2 and linha_id=$3`, [col.id, sub.id, linha.id]);
       expect(it2.q).toEqual({ "1": 3, "2": 3, "3": 3, "4": 2, "5": 2 });
+    });
+  });
+
+  it("grava cores = nº de variantes da unidade em todas as linhas", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c); await ligarOtb(c);
+      const linha = await um<{ id: string }>(c, `insert into linhas (nome) values ('L-VAR') returning id`, []);
+      const col = await um<{ id: string }>(c, `insert into colecoes (nome, tipo, status) values ('C-PV-VAR','poder_venda','rascunho') returning id`, []);
+      const sub = await um<{ id: string }>(c, `insert into colecao_subcolecoes (colecao_id, nome, semanas) values ($1,'S','{1,2,3,4,5}') returning id`, [col.id]);
+      await c.query(`insert into colecao_pv_itens (colecao_id, subcolecao_id, linha_id, prof_cor, cores, qtd_semanas) values ($1,$2,$3, 4, 9, '{}'::jsonb)`, [col.id, sub.id, linha.id]);
+      const oc = await um<{ id: string }>(c, `insert into ocs_tecido (numero_pedido, status) values ('OC-VAR','rascunho') returning id`, []);
+      const art = await um<{ id: string }>(c, `insert into artigos (nome, unidade_medida, rendimento) values ('A','metro',1) returning id`, []);
+      const i1 = await um<{ id: string }>(c, `insert into ocs_tecido_itens (oc_tecido_id, artigo_id, quantidade_pedida) values ($1,$2,100) returning id`, [oc.id, art.id]);
+      const i2 = await um<{ id: string }>(c, `insert into ocs_tecido_itens (oc_tecido_id, artigo_id, quantidade_pedida) values ($1,$2,100) returning id`, [oc.id, art.id]);
+      const i3 = await um<{ id: string }>(c, `insert into ocs_tecido_itens (oc_tecido_id, artigo_id, quantidade_pedida) values ($1,$2,100) returning id`, [oc.id, art.id]);
+      const arvore = [{ subcolecao_id: sub.id, oc_tecido_id: oc.id,
+        variantes: [{ oc_tecido_item_id: i1.id }, { oc_tecido_item_id: i2.id }, { oc_tecido_item_id: i3.id }],
+        linhas: [{ linha_id: linha.id, prof_cor: 8, cores: 99, num_modelos: 5, modelos: [] }] }];
+      const simId = (await um<{ id: string }>(c, `select public.salvar_simulacao(null,$1::jsonb,$2::jsonb) as id`,
+        [JSON.stringify({ colecao_id: col.id, nome: "Cen" }), JSON.stringify(arvore)])).id;
+      const unId = (await um<{ id: string }>(c, `select id from otb_simulacao_unidades where simulacao_id=$1`, [simId])).id;
+      await c.query(`select public.aplicar_simulacao($1,$2)`, [simId, unId]);
+      const it = await um<{ prof: number; cores: number }>(c,
+        `select prof_cor prof, cores from colecao_pv_itens where colecao_id=$1 and subcolecao_id=$2 and linha_id=$3`, [col.id, sub.id, linha.id]);
+      expect(it.prof).toBe(8); expect(it.cores).toBe(3); // = nº de variantes, não o cores do payload
     });
   });
 });
