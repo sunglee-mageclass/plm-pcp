@@ -82,3 +82,34 @@ describe.skipIf(!hasDb)("OTB Simulador — excluir_simulacao", () => {
     });
   });
 });
+
+describe.skipIf(!hasDb)("OTB Simulador — aplicar_simulacao (PV)", () => {
+  it("grava prof/cores e distribui o nº de modelos nas semanas", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await ligarOtb(c);
+      const linha = await um<{ id: string }>(c, `insert into linhas (nome) values ('L-SIM') returning id`, []);
+      // coleção PV com 1 subcoleção (semanas 1..5) e 1 item de linha
+      const col = await um<{ id: string }>(c, `insert into colecoes (nome, tipo, status) values ('C-PV-SIM','poder_venda','rascunho') returning id`, []);
+      const sub = await um<{ id: string }>(c, `insert into colecao_subcolecoes (colecao_id, nome, semanas) values ($1,'Sub', '{1,2,3,4,5}') returning id`, [col.id]);
+      await c.query(`insert into colecao_pv_itens (colecao_id, subcolecao_id, linha_id, prof_cor, cores, qtd_semanas) values ($1,$2,$3, 4, 2, '{}'::jsonb)`, [col.id, sub.id, linha.id]);
+      // simulação: mesma unidade/linha, prof 8 cores 3, 13 modelos
+      const arvore = [{ subcolecao_id: sub.id, oc_tecido_item_id: null,
+        linhas: [{ linha_id: linha.id, prof_cor: 8, cores: 3, num_modelos: 13, modelos: [] }] }];
+      const simId = (await um<{ id: string }>(c, `select public.salvar_simulacao(null, $1::jsonb, $2::jsonb) as id`,
+        [JSON.stringify({ colecao_id: col.id, nome: "Cen" }), JSON.stringify(arvore)])).id;
+      const unId = (await um<{ id: string }>(c, `select id from otb_simulacao_unidades where simulacao_id=$1`, [simId])).id;
+      const r = await um<{ obj: any }>(c, `select public.aplicar_simulacao($1,$2) as obj`, [simId, unId]);
+      expect(r.obj.aplicado).toBe(true);
+      const it = await um<{ prof: number; cores: number; q: any }>(c,
+        `select prof_cor prof, cores, qtd_semanas q from colecao_pv_itens where colecao_id=$1 and subcolecao_id=$2 and linha_id=$3`, [col.id, sub.id, linha.id]);
+      expect(it.prof).toBe(8); expect(it.cores).toBe(3);
+      // splitEven(13,5) = [3,3,3,2,2]
+      expect(it.q).toEqual({ "1": 3, "2": 3, "3": 3, "4": 2, "5": 2 });
+      // idempotente: reaplicar dá o mesmo
+      await c.query(`select public.aplicar_simulacao($1,$2)`, [simId, unId]);
+      const it2 = await um<{ q: any }>(c, `select qtd_semanas q from colecao_pv_itens where colecao_id=$1 and subcolecao_id=$2 and linha_id=$3`, [col.id, sub.id, linha.id]);
+      expect(it2.q).toEqual({ "1": 3, "2": 3, "3": 3, "4": 2, "5": 2 });
+    });
+  });
+});

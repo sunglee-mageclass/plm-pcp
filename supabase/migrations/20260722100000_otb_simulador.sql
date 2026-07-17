@@ -120,4 +120,46 @@ begin
   if not found then raise exception 'Cenário não encontrado.'; end if;
 end $function$;
 
+create or replace function public.aplicar_simulacao(_simulacao_id uuid, _unidade_id uuid)
+returns jsonb language plpgsql set search_path to 'public' as $function$
+declare
+  v_tenant uuid := public.get_user_tenant_id();
+  v_colecao uuid; v_tipo text; v_sub uuid; v_semanas int[];
+  v_ln record; v_q jsonb; v_n int; v_rem int; j int;
+begin
+  if auth.uid() is null then raise exception 'Não autenticado'; end if;
+  if not public.tenant_module_enabled('otb') then raise exception 'Módulo otb não habilitado' using errcode='42501'; end if;
+
+  select s.colecao_id into v_colecao from public.otb_simulacoes s where s.id = _simulacao_id and s.tenant_id = v_tenant;
+  if v_colecao is null then raise exception 'Cenário não encontrado.'; end if;
+  select tipo into v_tipo from public.colecoes where id = v_colecao and tenant_id = v_tenant;
+
+  select subcolecao_id into v_sub from public.otb_simulacao_unidades
+    where id = _unidade_id and simulacao_id = _simulacao_id and tenant_id = v_tenant;
+  if not found then raise exception 'Unidade não encontrada.'; end if;
+
+  if v_tipo = 'poder_venda' then
+    select coalesce(semanas, '{}') into v_semanas from public.colecao_subcolecoes where id = v_sub and colecao_id = v_colecao;
+    for v_ln in select linha_id, prof_cor, cores, num_modelos from public.otb_simulacao_linhas where unidade_id = _unidade_id and linha_id is not null loop
+      v_q := '{}'::jsonb;
+      v_n := coalesce(array_length(v_semanas, 1), 0);
+      if v_n > 0 then
+        v_rem := v_ln.num_modelos - (v_ln.num_modelos / v_n) * v_n;   -- splitEven: resto nas primeiras
+        for j in 1..v_n loop
+          v_q := v_q || jsonb_build_object(v_semanas[j]::text, (v_ln.num_modelos / v_n) + (case when (j-1) < v_rem then 1 else 0 end));
+        end loop;
+      end if;
+      update public.colecao_pv_itens
+        set prof_cor = greatest(0, v_ln.prof_cor),
+            cores    = greatest(0, v_ln.cores),
+            qtd_semanas = case when v_n > 0 then v_q else qtd_semanas end
+      where colecao_id = v_colecao and subcolecao_id = v_sub and linha_id = v_ln.linha_id and tenant_id = v_tenant;
+    end loop;
+  else
+    raise exception 'Orçamento ainda não implementado.'; -- substituído na Task 5
+  end if;
+
+  return jsonb_build_object('aplicado', true);
+end $function$;
+
 commit;
