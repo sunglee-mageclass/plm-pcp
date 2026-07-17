@@ -9,6 +9,10 @@ type N3 = { colecao_id: string; subcolecao: string; tipo3: string; ref_id: strin
 
 const mk = (total: number, realizado: number): Bucket => ({ total, realizado, over: realizado > total });
 
+/** Sufixa o rótulo de uma opção de dropdown com realizado/total do bucket (⚠ quando estoura). */
+export const orcLabel = (nome: string, b: Bucket | null): string =>
+  b ? `${nome} · ${b.realizado}/${b.total}${b.over ? " ⚠" : ""}` : nome;
+
 export function useOrcamento() {
   const { data, isLoading } = useQuery({
     queryKey: ["otb-orcamento"],

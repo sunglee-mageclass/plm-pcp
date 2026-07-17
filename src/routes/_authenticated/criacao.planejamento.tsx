@@ -13,7 +13,6 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { DateField } from "@/components/shared/DateField";
 import { ResumoVenda } from "@/components/shared/ResumoVenda";
@@ -42,7 +41,7 @@ import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { BulkEditDialog } from "@/components/planejamento/BulkEditDialog";
 import { ProdutoRelacionadoSetor } from "@/components/planejamento/ProdutoRelacionadoSetor";
-import { useOrcamento, OrcamentoTag } from "@/components/otb/orcamento";
+import { useOrcamento, orcLabel } from "@/components/otb/orcamento";
 export const Route = createFileRoute("/_authenticated/criacao/planejamento")({
   component: () => (
     <RequirePermission page="criacao_planejamento">
@@ -1248,14 +1247,14 @@ function ModeloDialog({
   if (!draft.data_lancamento) lancarBloqueios.push("Preencha a Data de Lançamento.");
 
   return (
-    <Sheet open onOpenChange={(o) => !o && onClose()}>
-      <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] flex flex-col gap-0 p-0 max-sm:[&>button]:hidden">
-        <SheetHeader className="shrink-0 px-6 pt-6 pb-2">
-          <SheetTitle className="flex flex-wrap items-center gap-2">
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="flex flex-col gap-0 p-0 sm:max-w-[70vw] max-h-[90vh] max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden">
+        <DialogHeader className="shrink-0 px-6 pt-6 pb-2 text-left">
+          <DialogTitle className="flex flex-wrap items-center gap-2">
             <span>{isEdit ? draft.nome || "Modelo" : "Novo Modelo"}</span>
             {draft.versao > 1 && <VersaoBadge versao={draft.versao} />}
-          </SheetTitle>
-        </SheetHeader>
+          </DialogTitle>
+        </DialogHeader>
 
         <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-4 space-y-6">
           {/* SETOR 1 — Informações Gerais do Produto */}
@@ -1331,7 +1330,7 @@ function ModeloDialog({
                     setDraft((d) => ({ ...d, colecao_id: v, colecao: col?.nome ?? d.colecao,
                       mes_id: d.mes_id ?? col?.mes_id ?? null, ano_id: d.ano_id ?? col?.ano_id ?? null }));
                   }}
-                  options={colecoes}
+                  options={colecoes.map((c) => ({ id: c.id, nome: orcLabel(c.nome, orc.colecao(c.id)) }))}
                 />
               ) : (
                 <FieldText label={fl("colecao")} value={draft.colecao} onChange={(v) => setDraft((d) => ({ ...d, colecao: v }))} />
@@ -1341,12 +1340,12 @@ function ModeloDialog({
                   label="Subcoleção"
                   value={draft.subcolecao || null}
                   onChange={(v) => setDraft((d) => ({ ...d, subcolecao: v }))}
-                  options={Array.from(new Set([...subcolecoesOpts, ...(draft.subcolecao ? [draft.subcolecao] : [])])).map((s) => ({ id: s, nome: s }))}
+                  options={Array.from(new Set([...subcolecoesOpts, ...(draft.subcolecao ? [draft.subcolecao] : [])])).map((s) => ({ id: s, nome: orcLabel(s, orc.subcolecao(draft.colecao_id, s)) }))}
                 />
               ) : (
                 <FieldText label="Subcoleção" value={draft.subcolecao ?? ""} onChange={(v) => setDraft((d) => ({ ...d, subcolecao: v }))} />
               )}
-              <FieldSelect label={fl("linha")} value={draft.linha_id} onChange={(v) => setDraft((d) => ({ ...d, linha_id: v }))} options={linhas} />
+              <FieldSelect label={fl("linha")} value={draft.linha_id} onChange={(v) => setDraft((d) => ({ ...d, linha_id: v }))} options={linhas.map((l) => ({ id: l.id, nome: orcLabel(l.nome, orc.nivel3(draft.colecao_id, draft.subcolecao, l.id)) }))} />
               <div className="grid gap-1">
                 <Label>Semana</Label>
                 <Select value={draft.semana || ""} onValueChange={(v) => setDraft((d) => ({ ...d, semana: v }))}>
@@ -1368,21 +1367,6 @@ function ModeloDialog({
                 />
               </div>
             </div>
-            {otbOn && draft.colecao_id && (() => {
-              const cb = orc.colecao(draft.colecao_id);
-              if (!cb) return null;
-              const sb = orc.subcolecao(draft.colecao_id, draft.subcolecao);
-              const ref = draft.linha_id ?? draft.categoria_principal_id;
-              const nb = orc.nivel3(draft.colecao_id, draft.subcolecao, ref);
-              return (
-                <div className="col-span-full flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-muted/40 px-2 py-1 text-xs">
-                  <span className="text-muted-foreground">Orçamento:</span>
-                  <span>{colecoes.find((c) => c.id === draft.colecao_id)?.nome ?? "coleção"} <OrcamentoTag total={cb.total} realizado={cb.realizado} /></span>
-                  {sb && <span>· {draft.subcolecao} <OrcamentoTag total={sb.total} realizado={sb.realizado} /></span>}
-                  {nb && <span>· <OrcamentoTag total={nb.total} realizado={nb.realizado} /></span>}
-                </div>
-              );
-            })()}
           </Secao>
 
           {/* SETOR 3 — Preço */}
@@ -1564,8 +1548,8 @@ function ModeloDialog({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1715,7 +1699,7 @@ function BatchCardsDialog({
                     setSubcolecao("");
                     setLinhaId(null);
                   }}
-                  options={colecoesBatch}
+                  options={colecoesBatch.map((c) => ({ id: c.id, nome: orcLabel(c.nome, orc.colecao(c.id)) }))}
                 />
               ) : (
                 <FieldText label="Coleção" value={colecao} onChange={setColecao} />
@@ -1729,6 +1713,20 @@ function BatchCardsDialog({
                   </SelectContent>
                 </Select>
               </div>
+              {otbOn && (
+                <div className="grid gap-1">
+                  <Label>Subcoleção</Label>
+                  <Select value={subcolecao || "__none__"} onValueChange={(v) => setSubcolecao(v === "__none__" ? "" : v)} disabled={!colecaoId}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">—</SelectItem>
+                      {subOpts.map((s) => (
+                        <SelectItem key={s} value={s}>{orcLabel(s, orc.subcolecao(colecaoId, s))}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="grid gap-1">
                 <Label>Semana</Label>
                 <Select value={semana || ""} onValueChange={setSemana}>
@@ -1742,28 +1740,14 @@ function BatchCardsDialog({
               <FieldSelect label="Ano" value={anoId} onChange={(v) => setAnoId(v)} options={anos} />
               {otbOn && (
                 <div className="grid gap-1">
-                  <Label className="text-xs">Subcoleção</Label>
-                  <Select value={subcolecao || "__none__"} onValueChange={(v) => setSubcolecao(v === "__none__" ? "" : v)} disabled={!colecaoId}>
-                    <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">—</SelectItem>
-                      {subOpts.map((s) => { const b = orc.subcolecao(colecaoId, s); return (
-                        <SelectItem key={s} value={s}>{s}{b ? ` · ${b.realizado}/${b.total}${b.over ? " ⚠" : ""}` : ""}</SelectItem>
-                      ); })}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-              {otbOn && (
-                <div className="grid gap-1">
-                  <Label className="text-xs">Linha</Label>
+                  <Label>Linha</Label>
                   <Select value={linhaId ?? "__none__"} onValueChange={(v) => setLinhaId(v === "__none__" ? null : v)} disabled={!colecaoId}>
-                    <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__none__">—</SelectItem>
-                      {linhas.map((l) => { const b = orc.nivel3(colecaoId, subcolecao, l.id); return (
-                        <SelectItem key={l.id} value={l.id}>{l.nome}{b ? ` · ${b.realizado}/${b.total}${b.over ? " ⚠" : ""}` : ""}</SelectItem>
-                      ); })}
+                      {linhas.map((l) => (
+                        <SelectItem key={l.id} value={l.id}>{orcLabel(l.nome, orc.nivel3(colecaoId, subcolecao, l.id))}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
