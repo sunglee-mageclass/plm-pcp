@@ -1,7 +1,7 @@
 import { SkeletonTableRow } from "@/components/shared/Skeletons";
 import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Layers, Search } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -32,6 +32,11 @@ type Row = {
 function ExplosaoListPage() {
   const fl = useFieldLabels();
   const [sheetId, setSheetId] = useState<string | null>(null);
+  const qc = useQueryClient();
+  // Ao fechar o Sheet, refaz a lista: o CadEditor não invalida ["producao-explosao-list"]
+  // (ele invalida producao-cad-list/estoque/etc.), então um modelo que acabou de ser
+  // cortado (ou revertido) sumiria/reapareceria só no próximo refetch sem isso.
+  const closeSheet = () => { setSheetId(null); qc.invalidateQueries({ queryKey: ["producao-explosao-list"] }); };
   const [q, setQ] = useState("");
   const [fColecao, setFColecao] = useState("all");
   const [fMes, setFMes] = useState("all");
@@ -166,13 +171,13 @@ function ExplosaoListPage() {
         </table>
       </Card>
 
-      <Sheet open={!!sheetId} onOpenChange={(o) => !o && setSheetId(null)}>
+      <Sheet open={!!sheetId} onOpenChange={(o) => !o && closeSheet()}>
         <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] overflow-y-auto p-0 max-md:[&>button]:hidden">
           {sheetId && (
             <CadEditor
               modeloId={sheetId}
-              onAfterDelete={() => setSheetId(null)}
-              onClose={() => setSheetId(null)}
+              onAfterDelete={closeSheet}
+              onClose={closeSheet}
             />
           )}
         </SheetContent>
