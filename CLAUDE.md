@@ -128,16 +128,21 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   Trigger `enforce_pv_itens_tenant` NÃO referencia mais cat/sub. Telas em `/otb-beta` (Padrão do mix) e
   `/otb-beta-colecao` (editor PV) — ainda rotuladas "beta".
   **Simulador de Uso de OC** (`SimulacaoSheet`, botão Simular por card em `otb.index`): "Consumo por OC"
-  SIMULADO (sem baixa real). Atribui um **item de OC real** por unidade (subcoleção, ou coleção inteira) —
-  metragem = espelho de `consumo_por_oc` (`unidade_medida='kg' ? quantidade_pedida × artigo.rendimento : quantidade_pedida`,
-  recebida ao lado) —, digita **consumo por modelo** e vê **sobra/estoura** (`demanda = Σ prof×cores×consumo`,
-  cálculo puro em `src/lib/simulacao.ts`). Cenários nomeados em `otb_simulacoes`/`_unidades`/`_linhas`/`_modelos`
-  (4 tabelas RLS por tenant). RPCs **INVOKER** (espelham `salvar_colecao_pv`, NÃO DEFINER → sem `_core`/REVOKE):
-  `salvar_simulacao` (upsert atômico da árvore, delete-and-reinsert), `excluir_simulacao`, `aplicar_simulacao`.
-  **Write-back** ("Aplicar no card", AlertDialog, disabled até salvar): grava **só o ALVO DO PLANO** —
-  PV → `colecao_pv_itens` (prof_cor/cores + nº via `qtd_semanas` splitEven nas semanas da subcoleção);
+  SIMULADO (sem baixa real). A OC é atribuída à **subcoleção (unidade)**; ali escolhe-se um conjunto de
+  **variantes = as cores** (multi-seleção, identificadas por `labelVarianteRow`/`src/lib/variante.ts` — artigo·cor·apelido)
+  em `otb_simulacao_variantes` (migration `20260723100000`). Essas cores valem p/ **todos os modelos de todas as linhas**
+  da subcoleção; **`cores` deixa de ser por linha** = nº de variantes escolhidas. Metragem por variante = espelho de
+  `consumo_por_oc` (`unidade_medida='kg' ? qtd_pedida × artigo.rendimento : qtd_pedida`). **Consumo por modelo** (igual p/
+  todas as cores). **Resultado POR COR**: cada variante tem sua metragem vs a demanda (`demanda/cor = Σ prof×consumo`,
+  mesma p/ toda cor) → sobra/estoura por cor. Mini card por modelo (foto/ref + cores + peças/cor). Cálculo puro em
+  `src/lib/simulacao.ts`. Cenários em `otb_simulacoes`/`_unidades`(+`oc_tecido_id`)/`_variantes`/`_linhas`/`_modelos`
+  (RLS por tenant). RPCs **INVOKER** (espelham `salvar_colecao_pv`; `revoke public,anon`+`grant authenticated`):
+  `salvar_simulacao` (upsert atômico, unidade traz `oc_tecido_id`+lista de variantes), `excluir_simulacao`,
+  `aplicar_simulacao` (grava `colecao_pv_itens.cores = count(variantes)` autoritativo no servidor).
+  **Write-back** ("Aplicar no plano", AlertDialog, disabled até salvar): grava **só o ALVO DO PLANO** —
+  PV → `colecao_pv_itens` (prof_cor/cores + nº via `qtd_semanas` splitEven; `cores` uniforme = nº variantes);
   Orçamento → `colecao_semanas.qtd_planejada` (splitEven), **bloqueando** (RAISE) se quebraria `Σcat ≤ qtd_planejada`.
-  NUNCA cria/edita cards do Planejamento nem vira BOM. Ao aplicar, front invalida `["otb-orcamento"]` + queries da coleção.
+  NUNCA cria/edita cards do Planejamento nem vira BOM. Ao aplicar, invalida `["otb-orcamento","otb-pv-poder"]` + queries da coleção.
   Front acessa tabelas/RPCs novas com `as any` (types.ts pendente de regen — precisa `supabase login`).
 - **cadastro**: atributos (categorias tecido/aviamento/material/subcategoria, linhas,
   categorias de serviço fixas Corte/Oficina), colaboradores, servicos, tecidos
