@@ -191,7 +191,7 @@ export function AppSidebar() {
       };
     });
 
-  // Topo (a pedido do dono): OTB e Criação logo abaixo de Início.
+  // Topo (a pedido do dono): OTB e Estilo & Engenharia logo abaixo de Início.
   const moveTop = (url: string) => {
     const i = visibleMainItems.findIndex((x) => x.url === url);
     if (i > 0) visibleMainItems.unshift(visibleMainItems.splice(i, 1)[0]);
