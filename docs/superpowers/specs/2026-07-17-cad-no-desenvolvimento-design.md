@@ -85,7 +85,8 @@ Estilo & Engenharia          PCP
   - Botão "Enviar" (cria `cad` automático) no card; remove "Enviar ao CAD".
   - Nova tela "Explosão" (qtd a enviar → `baixar_estoque_tecido_corte` + semear `grades_reais`).
   - Garantir que a grade sai "real" da Explosão (semear `grades_reais` no corte, não só na criação do CAD).
-- **F3 — Extinguir a tela de CAD:** remover a rota `/producao/cad*` (redirecionar/404) e o item do sidebar; **manter as tabelas** `cad`/`cad_grades` e todas as RPCs. Ajustar links internos que apontam pra tela de CAD.
+  - **A tela de CAD antiga CONTINUA funcionando em paralelo durante F1+F2** — nada é removido; o novo fluxo (card + Explosão) roda **ao lado** do antigo até estar validado. Assim dá pra comparar/reverter sem perder nada.
+- **F3 — Extinguir a tela de CAD (só após validar F2 em produção):** remover a rota `/producao/cad*` (redirecionar/404) e o item do sidebar; **manter as tabelas** `cad`/`cad_grades` e todas as RPCs. Ajustar links internos que apontam pra tela de CAD. **Reversível:** restaurar a rota + item = `git revert` da F3; dados intactos.
 
 ## 8. Invariantes e cuidados a preservar
 - **Não quebrar as ~9 FKs de `cad_id`** (estoque_tecido_baixas NO ACTION, cad_grades, controle_qualidade, producao_terceirizados, producao_oficina, lancamentos, cad_tecidos/aviamentos/etiquetas). O `cad` continua existindo.
@@ -104,3 +105,14 @@ Estilo & Engenharia          PCP
 - **Permissão da tela Explosão** (nova vs reuso de `producao_cad`).
 - **Semear `grades_reais` na Explosão**: ajustar `baixar_estoque_tecido_corte` (ou um wrapper) pra garantir `grades_reais` = grade cheia no corte (hoje a semeadura é na criação do CAD; validar que não duplica/conflita com o CQ).
 - **Links internos** que apontam pra `/producao/cad` (Planejamento, dashboards, etc.) — redirecionar pro card/Explosão.
+
+## 10. Reversão / Checkpoint (garantia de rollback)
+Antes de qualquer código da migração, o estado atual foi **etiquetado** como ponto de reversão:
+- **Tag:** `estavel-pre-cad-2026-07-17` (commit `55e7e85`) — sistema conhecido-bom com a **tela de CAD ainda ativa** e o fluxo antigo intacto. Reverter front por completo: `git reset --hard estavel-pre-cad-2026-07-17`.
+
+**Por que a migração é reversível por construção:**
+- **Banco aditivo/não-destrutivo:** as tabelas `cad`/`cad_grades` e as ~9 FKs de `cad_id` **NÃO são removidas** (encanamento). A migração só **adiciona** (ex.: garantir semeadura de `grades_reais` no corte, permissão da tela Explosão). Nada de `DROP` de tabela/coluna com dado. Migration em `BEGIN;…COMMIT;` idempotente.
+- **Front em paralelo:** F1+F2 **não removem** a tela de CAD; o fluxo novo coexiste com o antigo. Dá pra desligar a Explosão/rollback do card e voltar a usar o CAD sem migrar dado.
+- **F3 é a única remoção** e é puramente de UI (rota + item de sidebar). Reverter = `git revert` do commit da F3 (ou `git reset` pro checkpoint); os dados nunca saíram das tabelas `cad_*`.
+
+**Regra:** só avançar pra F3 (extinguir a tela) **depois** de F2 validada em produção. Se algo der errado em F2, `git reset --hard estavel-pre-cad-2026-07-17` restaura o estado pré-migração (backend permanece compatível porque as tabelas ficaram).
