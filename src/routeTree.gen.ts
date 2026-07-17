@@ -31,6 +31,7 @@ import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authentic
 import { Route as AuthenticatedProducaoTerceirizadosRouteImport } from './routes/_authenticated/producao.terceirizados'
 import { Route as AuthenticatedProducaoOficinaRouteImport } from './routes/_authenticated/producao.oficina'
 import { Route as AuthenticatedProducaoLancamentosRouteImport } from './routes/_authenticated/producao.lancamentos'
+import { Route as AuthenticatedProducaoExplosaoRouteImport } from './routes/_authenticated/producao.explosao'
 import { Route as AuthenticatedProducaoDirecionamentoRouteImport } from './routes/_authenticated/producao.direcionamento'
 import { Route as AuthenticatedProducaoCqRouteImport } from './routes/_authenticated/producao.cq'
 import { Route as AuthenticatedProducaoConsumoOcRouteImport } from './routes/_authenticated/producao.consumo-oc'
@@ -59,6 +60,7 @@ import { Route as AuthenticatedAdminConfiguracoesRouteImport } from './routes/_a
 import { Route as AuthenticatedAdminAuditoriaRouteImport } from './routes/_authenticated/admin/auditoria'
 import { Route as AuthenticatedProducaoTerceirizadosIndexRouteImport } from './routes/_authenticated/producao.terceirizados.index'
 import { Route as AuthenticatedProducaoOficinaIndexRouteImport } from './routes/_authenticated/producao.oficina.index'
+import { Route as AuthenticatedProducaoExplosaoIndexRouteImport } from './routes/_authenticated/producao.explosao.index'
 import { Route as AuthenticatedProducaoDirecionamentoIndexRouteImport } from './routes/_authenticated/producao.direcionamento.index'
 import { Route as AuthenticatedProducaoCqIndexRouteImport } from './routes/_authenticated/producao.cq.index'
 import { Route as AuthenticatedProducaoCadIndexRouteImport } from './routes/_authenticated/producao.cad.index'
@@ -186,6 +188,12 @@ const AuthenticatedProducaoLancamentosRoute =
   AuthenticatedProducaoLancamentosRouteImport.update({
     id: '/lancamentos',
     path: '/lancamentos',
+    getParentRoute: () => AuthenticatedProducaoRoute,
+  } as any)
+const AuthenticatedProducaoExplosaoRoute =
+  AuthenticatedProducaoExplosaoRouteImport.update({
+    id: '/explosao',
+    path: '/explosao',
     getParentRoute: () => AuthenticatedProducaoRoute,
   } as any)
 const AuthenticatedProducaoDirecionamentoRoute =
@@ -354,6 +362,12 @@ const AuthenticatedProducaoOficinaIndexRoute =
     path: '/',
     getParentRoute: () => AuthenticatedProducaoOficinaRoute,
   } as any)
+const AuthenticatedProducaoExplosaoIndexRoute =
+  AuthenticatedProducaoExplosaoIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedProducaoExplosaoRoute,
+  } as any)
 const AuthenticatedProducaoDirecionamentoIndexRoute =
   AuthenticatedProducaoDirecionamentoIndexRouteImport.update({
     id: '/',
@@ -454,6 +468,7 @@ export interface FileRoutesByFullPath {
   '/producao/consumo-oc': typeof AuthenticatedProducaoConsumoOcRoute
   '/producao/cq': typeof AuthenticatedProducaoCqRouteWithChildren
   '/producao/direcionamento': typeof AuthenticatedProducaoDirecionamentoRouteWithChildren
+  '/producao/explosao': typeof AuthenticatedProducaoExplosaoRouteWithChildren
   '/producao/lancamentos': typeof AuthenticatedProducaoLancamentosRoute
   '/producao/oficina': typeof AuthenticatedProducaoOficinaRouteWithChildren
   '/producao/terceirizados': typeof AuthenticatedProducaoTerceirizadosRouteWithChildren
@@ -473,6 +488,7 @@ export interface FileRoutesByFullPath {
   '/producao/cad/': typeof AuthenticatedProducaoCadIndexRoute
   '/producao/cq/': typeof AuthenticatedProducaoCqIndexRoute
   '/producao/direcionamento/': typeof AuthenticatedProducaoDirecionamentoIndexRoute
+  '/producao/explosao/': typeof AuthenticatedProducaoExplosaoIndexRoute
   '/producao/oficina/': typeof AuthenticatedProducaoOficinaIndexRoute
   '/producao/terceirizados/': typeof AuthenticatedProducaoTerceirizadosIndexRoute
 }
@@ -523,6 +539,7 @@ export interface FileRoutesByTo {
   '/producao/cad': typeof AuthenticatedProducaoCadIndexRoute
   '/producao/cq': typeof AuthenticatedProducaoCqIndexRoute
   '/producao/direcionamento': typeof AuthenticatedProducaoDirecionamentoIndexRoute
+  '/producao/explosao': typeof AuthenticatedProducaoExplosaoIndexRoute
   '/producao/oficina': typeof AuthenticatedProducaoOficinaIndexRoute
   '/producao/terceirizados': typeof AuthenticatedProducaoTerceirizadosIndexRoute
 }
@@ -567,6 +584,7 @@ export interface FileRoutesById {
   '/_authenticated/producao/consumo-oc': typeof AuthenticatedProducaoConsumoOcRoute
   '/_authenticated/producao/cq': typeof AuthenticatedProducaoCqRouteWithChildren
   '/_authenticated/producao/direcionamento': typeof AuthenticatedProducaoDirecionamentoRouteWithChildren
+  '/_authenticated/producao/explosao': typeof AuthenticatedProducaoExplosaoRouteWithChildren
   '/_authenticated/producao/lancamentos': typeof AuthenticatedProducaoLancamentosRoute
   '/_authenticated/producao/oficina': typeof AuthenticatedProducaoOficinaRouteWithChildren
   '/_authenticated/producao/terceirizados': typeof AuthenticatedProducaoTerceirizadosRouteWithChildren
@@ -586,6 +604,7 @@ export interface FileRoutesById {
   '/_authenticated/producao/cad/': typeof AuthenticatedProducaoCadIndexRoute
   '/_authenticated/producao/cq/': typeof AuthenticatedProducaoCqIndexRoute
   '/_authenticated/producao/direcionamento/': typeof AuthenticatedProducaoDirecionamentoIndexRoute
+  '/_authenticated/producao/explosao/': typeof AuthenticatedProducaoExplosaoIndexRoute
   '/_authenticated/producao/oficina/': typeof AuthenticatedProducaoOficinaIndexRoute
   '/_authenticated/producao/terceirizados/': typeof AuthenticatedProducaoTerceirizadosIndexRoute
 }
@@ -630,6 +649,7 @@ export interface FileRouteTypes {
     | '/producao/consumo-oc'
     | '/producao/cq'
     | '/producao/direcionamento'
+    | '/producao/explosao'
     | '/producao/lancamentos'
     | '/producao/oficina'
     | '/producao/terceirizados'
@@ -649,6 +669,7 @@ export interface FileRouteTypes {
     | '/producao/cad/'
     | '/producao/cq/'
     | '/producao/direcionamento/'
+    | '/producao/explosao/'
     | '/producao/oficina/'
     | '/producao/terceirizados/'
   fileRoutesByTo: FileRoutesByTo
@@ -699,6 +720,7 @@ export interface FileRouteTypes {
     | '/producao/cad'
     | '/producao/cq'
     | '/producao/direcionamento'
+    | '/producao/explosao'
     | '/producao/oficina'
     | '/producao/terceirizados'
   id:
@@ -742,6 +764,7 @@ export interface FileRouteTypes {
     | '/_authenticated/producao/consumo-oc'
     | '/_authenticated/producao/cq'
     | '/_authenticated/producao/direcionamento'
+    | '/_authenticated/producao/explosao'
     | '/_authenticated/producao/lancamentos'
     | '/_authenticated/producao/oficina'
     | '/_authenticated/producao/terceirizados'
@@ -761,6 +784,7 @@ export interface FileRouteTypes {
     | '/_authenticated/producao/cad/'
     | '/_authenticated/producao/cq/'
     | '/_authenticated/producao/direcionamento/'
+    | '/_authenticated/producao/explosao/'
     | '/_authenticated/producao/oficina/'
     | '/_authenticated/producao/terceirizados/'
   fileRoutesById: FileRoutesById
@@ -926,6 +950,13 @@ declare module '@tanstack/react-router' {
       path: '/lancamentos'
       fullPath: '/producao/lancamentos'
       preLoaderRoute: typeof AuthenticatedProducaoLancamentosRouteImport
+      parentRoute: typeof AuthenticatedProducaoRoute
+    }
+    '/_authenticated/producao/explosao': {
+      id: '/_authenticated/producao/explosao'
+      path: '/explosao'
+      fullPath: '/producao/explosao'
+      preLoaderRoute: typeof AuthenticatedProducaoExplosaoRouteImport
       parentRoute: typeof AuthenticatedProducaoRoute
     }
     '/_authenticated/producao/direcionamento': {
@@ -1123,6 +1154,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/producao/oficina/'
       preLoaderRoute: typeof AuthenticatedProducaoOficinaIndexRouteImport
       parentRoute: typeof AuthenticatedProducaoOficinaRoute
+    }
+    '/_authenticated/producao/explosao/': {
+      id: '/_authenticated/producao/explosao/'
+      path: '/'
+      fullPath: '/producao/explosao/'
+      preLoaderRoute: typeof AuthenticatedProducaoExplosaoIndexRouteImport
+      parentRoute: typeof AuthenticatedProducaoExplosaoRoute
     }
     '/_authenticated/producao/direcionamento/': {
       id: '/_authenticated/producao/direcionamento/'
@@ -1372,6 +1410,21 @@ const AuthenticatedProducaoDirecionamentoRouteWithChildren =
     AuthenticatedProducaoDirecionamentoRouteChildren,
   )
 
+interface AuthenticatedProducaoExplosaoRouteChildren {
+  AuthenticatedProducaoExplosaoIndexRoute: typeof AuthenticatedProducaoExplosaoIndexRoute
+}
+
+const AuthenticatedProducaoExplosaoRouteChildren: AuthenticatedProducaoExplosaoRouteChildren =
+  {
+    AuthenticatedProducaoExplosaoIndexRoute:
+      AuthenticatedProducaoExplosaoIndexRoute,
+  }
+
+const AuthenticatedProducaoExplosaoRouteWithChildren =
+  AuthenticatedProducaoExplosaoRoute._addFileChildren(
+    AuthenticatedProducaoExplosaoRouteChildren,
+  )
+
 interface AuthenticatedProducaoOficinaRouteChildren {
   AuthenticatedProducaoOficinaModeloIdRoute: typeof AuthenticatedProducaoOficinaModeloIdRoute
   AuthenticatedProducaoOficinaIndexRoute: typeof AuthenticatedProducaoOficinaIndexRoute
@@ -1413,6 +1466,7 @@ interface AuthenticatedProducaoRouteChildren {
   AuthenticatedProducaoConsumoOcRoute: typeof AuthenticatedProducaoConsumoOcRoute
   AuthenticatedProducaoCqRoute: typeof AuthenticatedProducaoCqRouteWithChildren
   AuthenticatedProducaoDirecionamentoRoute: typeof AuthenticatedProducaoDirecionamentoRouteWithChildren
+  AuthenticatedProducaoExplosaoRoute: typeof AuthenticatedProducaoExplosaoRouteWithChildren
   AuthenticatedProducaoLancamentosRoute: typeof AuthenticatedProducaoLancamentosRoute
   AuthenticatedProducaoOficinaRoute: typeof AuthenticatedProducaoOficinaRouteWithChildren
   AuthenticatedProducaoTerceirizadosRoute: typeof AuthenticatedProducaoTerceirizadosRouteWithChildren
@@ -1425,6 +1479,8 @@ const AuthenticatedProducaoRouteChildren: AuthenticatedProducaoRouteChildren = {
   AuthenticatedProducaoCqRoute: AuthenticatedProducaoCqRouteWithChildren,
   AuthenticatedProducaoDirecionamentoRoute:
     AuthenticatedProducaoDirecionamentoRouteWithChildren,
+  AuthenticatedProducaoExplosaoRoute:
+    AuthenticatedProducaoExplosaoRouteWithChildren,
   AuthenticatedProducaoLancamentosRoute: AuthenticatedProducaoLancamentosRoute,
   AuthenticatedProducaoOficinaRoute:
     AuthenticatedProducaoOficinaRouteWithChildren,

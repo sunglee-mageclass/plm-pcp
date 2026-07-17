@@ -63,6 +63,7 @@ export const PAGES_CATALOG: ModuleDef[] = [
     basePath: "/producao",
     pages: [
       { key: "producao_cad", label: "CAD" },
+      { key: "producao_explosao", label: "Explosão" },
       { key: "producao_consumo_oc", label: "Consumo por OC" },
       { key: "producao_terceirizados", label: "Serviços" },
       // Permissão-só (sem página/menu): libera o checkbox "Aprovação" por bloco em Serviços.
