@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { labelVarianteRow } from "@/lib/variante";
 import { somaCustosAdicionais } from "@/lib/custo";
-import { Loader2, Printer, Send, ArrowLeft } from "lucide-react";
+import { Loader2, Pencil, Printer, Send, ArrowLeft } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { PrintFicha } from "@/components/producao/PrintFicha";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -410,12 +410,14 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   // Salvar volta a travar. Reseta ao abrir outro modelo.
   const [confirmEditOpen, setConfirmEditOpen] = useState(false);
   const [desmarcarOpen, setDesmarcarOpen] = useState(false);
+  // Trava pós-Enviar: quando enviado à Explosão, o card fica read-only até clicar no lápis (Editar).
+  const [editing, setEditing] = useState(false);
   const { hasDownstream } = useEtapasAfetadas(modeloId);
   // Rastreio p/ o alerta inteligente (o que mudou → impacto específico).
   const [gradeAlterada, setGradeAlterada] = useState(false);
   const [consumoAlterado, setConsumoAlterado] = useState(false);
   const [aviamentoAlterado, setAviamentoAlterado] = useState(false);
-  useEffect(() => { setCadSeeded(false); setCadTecidosState([]); setAutoFolhas(false); }, [modeloId]);
+  useEffect(() => { setCadSeeded(false); setCadTecidosState([]); setAutoFolhas(false); setEditing(false); }, [modeloId]);
   // Grade automática: ao digitar uma célula, escala as demais pela proporção.
   const [gradeAuto, setGradeAuto] = useState(false);
 
@@ -887,6 +889,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   }
   // Enviar é sempre visível quando aprovado e sem itens faltando (idempotente: reenviar é ok).
   const canEnviarCad = isAprovado && cadMissing.length === 0;
+  // Read-only quando já enviado à Explosão e fora do modo edição (lápis "Editar").
+  const locked = !!draft?.enviado_cad && !editing;
 
   // Persiste o modelo + BOM (tecidos/variantes/grade/aviamentos) via salvar_modelo_bom.
   // Usado pelo Salvar e também ANTES de Enviar ao CAD, garantindo que a cópia ao CAD
@@ -1122,6 +1126,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       // Printável (Ficha Técnica, useFichaData keys ft-*) lê do banco — invalida p/ refletir o que acabou de salvar.
       qc.invalidateQueries({ predicate: (query) => typeof query.queryKey?.[0] === "string" && (query.queryKey[0] as string).startsWith("ft-") });
       qc.invalidateQueries({ queryKey: ["modelo-observacoes", modeloId] });
+      setEditing(false); // Salvar re-trava quando já foi enviado à Explosão.
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
   });
@@ -1454,6 +1459,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
 
       {/* área rolável (flex-1) — o footer fica fixo embaixo como irmão shrink-0 */}
       <div className="mt-4 flex-1 min-h-0 overflow-y-auto">
+        <fieldset disabled={locked} className="contents">
         <Accordion type="multiple" defaultValue={["s1"]}>
           <AccordionItem value="s1">
             <AccordionTrigger>1. Informações Básicas</AccordionTrigger>
@@ -1619,6 +1625,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         <div className="mt-4">
           <ModeloObservacoes modeloId={modeloId} />
         </div>
+        </fieldset>
       </div>
 
       <div className="bg-background border-t pt-3 mt-3 shrink-0 flex flex-wrap gap-2 justify-end items-center max-sm:flex-nowrap">
@@ -1658,9 +1665,15 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
             <Send className="h-4 w-4 mr-2" /> Enviar
           </Button>
         )}
-        <Button onClick={() => (hasDownstream ? setConfirmEditOpen(true) : save.mutate())} disabled={save.isPending}>
-          {save.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Salvar
-        </Button>
+        {locked ? (
+          <Button variant="secondary" size="icon" onClick={() => setEditing(true)} aria-label="Editar">
+            <Pencil className="h-4 w-4" />
+          </Button>
+        ) : (
+          <Button onClick={() => (hasDownstream ? setConfirmEditOpen(true) : save.mutate())} disabled={save.isPending}>
+            {save.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Salvar
+          </Button>
+        )}
       </div>
 
       <AlertDialog open={confirmEnviarCad} onOpenChange={setConfirmEnviarCad}>

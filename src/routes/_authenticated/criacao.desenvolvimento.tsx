@@ -58,6 +58,7 @@ type Modelo = {
   desenho_tecnico_url: string | null;
   croqui_url: string | null;
   enviado_cad: boolean | null;
+  cad: { enviado_corte: boolean | null }[] | null;
   created_at: string | null;
 };
 
@@ -194,7 +195,7 @@ function DesenvolvimentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, ref, versao, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, linha_id, status_desenvolvimento, fotos_modelo, desenho_tecnico_url, croqui_url, enviado_cad, created_at")
+        .select("id, nome, ref, versao, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, linha_id, status_desenvolvimento, fotos_modelo, desenho_tecnico_url, croqui_url, enviado_cad, cad(enviado_corte), created_at")
         .eq("ordem_criacao_enviada", true)
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -267,8 +268,9 @@ function DesenvolvimentoPage() {
         : firstStatusKey;
       if (eff !== fStatus) return false;
     }
-    if (fCad === "enviado" && !m.enviado_cad) return false;
-    if (fCad === "nao" && m.enviado_cad) return false;
+    const naExplosao = !!m.enviado_cad && !m.cad?.[0]?.enviado_corte;
+    if (fCad === "enviado" && !naExplosao) return false;
+    if (fCad === "nao" && naExplosao) return false;
     if (fEstilista !== "all" && m.estilista_id !== fEstilista) return false;
     if (fModelista !== "all" && m.modelista_id !== fModelista) return false;
     if (fPiloteiro !== "all" &&
@@ -582,9 +584,10 @@ function MobileCard({ modelo, estilistaNome, categoriaNome, onOpen }: {
   const cover = modelo.fotos_modelo?.[0] || modelo.desenho_tecnico_url || modelo.croqui_url || null;
   const url = useSignedUrlBucket(cover);
   const coverIsPdf = /\.pdf$/i.test(cover ?? "");
+  const naExplosao = !!modelo.enviado_cad && !modelo.cad?.[0]?.enviado_corte;
   return (
     <div className="relative bg-card border rounded-md p-2">
-      {modelo.enviado_cad && (
+      {naExplosao && (
         <span className="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full bg-sky-600 ring-2 ring-card" aria-label="Enviado à Explosão" />
       )}
       <div className="flex gap-2" onClick={onOpen} role="button">
@@ -613,7 +616,8 @@ function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: i
   const cover = modelo.fotos_modelo?.[0] || modelo.desenho_tecnico_url || modelo.croqui_url || null;
   const url = useSignedUrlBucket(cover);
   const coverIsPdf = /\.pdf$/i.test(cover ?? "");
-  const { handlers, node } = useCursorTip(modelo.enviado_cad ? "Enviado à Explosão" : null);
+  const naExplosao = !!modelo.enviado_cad && !modelo.cad?.[0]?.enviado_corte;
+  const { handlers, node } = useCursorTip(naExplosao ? "Enviado à Explosão" : null);
   return (
     <>
     <div
@@ -628,7 +632,7 @@ function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: i
       onClick={onOpen}
       {...handlers}
     >
-      {modelo.enviado_cad && (
+      {naExplosao && (
         <span className="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full bg-sky-600 ring-2 ring-card" aria-label="Enviado à Explosão" />
       )}
       <div className="flex gap-2">
