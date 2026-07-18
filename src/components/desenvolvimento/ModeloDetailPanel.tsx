@@ -6,13 +6,19 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
-import { labelVarianteRow, varianteLabel } from "@/lib/variante";
+import { labelVarianteRow } from "@/lib/variante";
 import { somaCustosAdicionais } from "@/lib/custo";
-import { Loader2, Pencil, Printer, Send, ArrowLeft } from "lucide-react";
+import { Loader2, Printer, Send, ArrowLeft } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { fmtNum } from "@/lib/format";
 import { PrintFicha } from "@/components/producao/PrintFicha";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { CadTecidosSection } from "@/components/producao/cad/CadTecidosSection";
+import {
+  calcCusto,
+  type TecidoRow as CadTecidoRow,
+  type VarianteRow as CadVarianteRow,
+  type TipoTec,
+} from "@/components/producao/cad/types";
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -299,31 +305,86 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     },
   });
 
-  // Seção 4. CAD — leitura do cálculo pós-Enviar (tamanho da folha, folhas, metragem planejada).
-  // Nota: usa (modelo as any)?.enviado_cad (dado do servidor), pois draft ainda não foi
-  // inicializado quando este hook é registrado. O draft.enviado_cad é atualizado via onSuccess.
-  const { data: cadCalc } = useQuery({
-    queryKey: ["modelo-cad-calc", modeloId],
-    enabled: !!modeloId && !!(modelo as any)?.enviado_cad,
+  // Seção 4. CAD — row do cad (para saber o cad_id e alimentar queries de cad_tecidos).
+  const { data: cadRowDev } = useQuery({
+    queryKey: ["dev-cad-row", modeloId],
     queryFn: async () => {
-      // Busca o cad_id do modelo
-      const { data: cadRow, error: eCad } = await (supabase as any)
-        .from("cad")
-        .select("id")
-        .eq("modelo_id", modeloId)
-        .maybeSingle();
-      if (eCad) throw eCad;
-      if (!cadRow?.id) return [];
-      const cadId = cadRow.id;
-      // Tecidos com variantes calculadas
-      const { data: tecidos, error: eTec } = await (supabase as any)
-        .from("cad_tecidos")
-        .select("id, numero, tipo, tamanho_folha, artigos:artigo_id(nome), cad_tecido_variantes(ordem, quantidade_folhas, metragem_planejada, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))")
-        .eq("cad_id", cadId);
-      if (eTec) throw eTec;
-      return (tecidos ?? []) as any[];
+      const { data } = await (supabase as any).from("cad").select("id").eq("modelo_id", modeloId).maybeSingle();
+      return data as { id: string } | null;
     },
   });
+
+  const { data: cadTecidosDev = [], isFetched: cadTecidosDevFetched } = useQuery({
+    queryKey: ["dev-cad-tecidos", cadRowDev?.id],
+    enabled: !!cadRowDev?.id,
+    queryFn: async () => {
+      const { data, error } = await (supabase as any)
+        .from("cad_tecidos")
+        .select("*, artigos:artigo_id(nome, preco_por_metro, unidade_medida, etiqueta_lavagem_urls, largura_estimada), cad_tecido_variantes(*, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))")
+        .eq("cad_id", cadRowDev!.id);
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+
+  const { data: cadAviamentosDev = [] } = useQuery({
+    queryKey: ["dev-cad-aviamentos", cadRowDev?.id],
+    enabled: !!cadRowDev?.id,
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from("cad_aviamentos")
+        .select("*, aviamentos:aviamento_id(codigo_nome, preco)")
+        .eq("cad_id", cadRowDev!.id)
+        .order("numero");
+      return (data ?? []) as any[];
+    },
+  });
+
+  const { data: cadEtiquetasDev = [] } = useQuery({
+    queryKey: ["dev-cad-etiquetas", cadRowDev?.id],
+    enabled: !!cadRowDev?.id,
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from("cad_etiquetas")
+        .select("id, etiqueta_id, cor_id, consumo, quantidade_planejada, quantidade_enviar, enviar_por_tamanho, etiquetas:etiqueta_id(nome, tamanho)")
+        .eq("cad_id", cadRowDev!.id);
+      return (data ?? []) as any[];
+    },
+  });
+
+  // Preço congelado pela OC vinculada (mesmo padrão do CadEditor).
+  const { data: frozenPrecosCad = {}, isFetched: frozenPrecosCadFetched } = useQuery({
+    queryKey: ["dev-cad-precos-congelado", modeloId],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("precos_tecido_congelado" as any, { _modelo_id: modeloId });
+      if (error) throw error;
+      return (data ?? {}) as Record<string, number>;
+    },
+  });
+
+  // Etiquetas disponíveis p/ montar o payload do salvar_cad_completo.
+  const { data: etiquetasDisponiveisDev = [] } = useQuery({
+    queryKey: ["etiquetas-opts"],
+    queryFn: async () => {
+      const { data } = await (supabase as any)
+        .from("etiquetas")
+        .select("id, nome, tamanho, formato_tamanho, preco, variantes_etiqueta(tamanho, cor_id, preco, cor:cor_id(nome))")
+        .order("nome");
+      return ((data ?? []) as any[]).map((e: any) => ({
+        id: e.id as string, nome: e.nome as string, tamanho: (e.tamanho ?? null) as string | null,
+        formato_tamanho: (e.formato_tamanho ?? "ambos") as string, preco: e.preco as number | null,
+        variantes: ((e.variantes_etiqueta ?? []) as any[]).map((v: any) => ({
+          tamanho: v.tamanho as string | null, cor_id: v.cor_id as string | null,
+          cor_nome: (v.cor?.nome ?? null) as string | null, preco: v.preco as number | null,
+        })),
+      }));
+    },
+  });
+
+  // Estado editável da seção "4. CAD": tecidos/folhas/metragem (espelha CadEditor).
+  const [cadTecidosState, setCadTecidosState] = useState<CadTecidoRow[]>([]);
+  const [autoFolhas, setAutoFolhas] = useState(false);
+  const [cadSeeded, setCadSeeded] = useState(false);
 
   const [draft, setDraft] = useState<any | null>(null);
   // Subcoleções da coleção escolhida — dropdown de Subcoleção (OTB ligado).
@@ -348,7 +409,6 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const [confirmGrade, setConfirmGrade] = useState<{ msg: string; onConfirm: () => void } | null>(null);
   // Trava por SEGURANÇA após enviar ao CAD: só edita ao clicar "Editar", e o
   // Salvar volta a travar. Reseta ao abrir outro modelo.
-  const [editing, setEditing] = useState(false);
   const [confirmEditOpen, setConfirmEditOpen] = useState(false);
   const [desmarcarOpen, setDesmarcarOpen] = useState(false);
   const { hasDownstream } = useEtapasAfetadas(modeloId);
@@ -356,7 +416,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const [gradeAlterada, setGradeAlterada] = useState(false);
   const [consumoAlterado, setConsumoAlterado] = useState(false);
   const [aviamentoAlterado, setAviamentoAlterado] = useState(false);
-  useEffect(() => { setEditing(false); }, [modeloId]);
+  useEffect(() => { setCadSeeded(false); setCadTecidosState([]); setAutoFolhas(false); }, [modeloId]);
   // Grade automática: ao digitar uma célula, escala as demais pela proporção.
   const [gradeAuto, setGradeAuto] = useState(false);
 
@@ -542,6 +602,185 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     }));
     setGrades(rows);
   }, [gradesData]);
+
+  // --- Semeadura do estado CAD (tecidos/folhas/metragem) ---
+  // Espelha o padrão do CadEditor: prioriza dados do cad_* (quando existe);
+  // senão, semeia a partir do BOM do modelo_tecidos (com folhas/metragem zeradas).
+  // Reset p/ re-semear quando o modelo muda (efeito do modeloId acima).
+  useEffect(() => {
+    if (cadSeeded) return;
+    if (!frozenPrecosCadFetched) return; // espera o preço congelado
+    // Quando já existe um CAD, espera as queries dele terminarem.
+    const hasCad = !!cadRowDev?.id;
+    if (hasCad && !cadTecidosDevFetched) return;
+
+    const precoTec = (tipo: string, numero: number, artigoPpm: number) =>
+      Number((frozenPrecosCad as Record<string, number>)[`${tipo}|${numero}`] ?? artigoPpm);
+
+    const TIPO_ORDER: Record<string, number> = { tecido: 0, forro: 1, entretela: 2 };
+
+    const varFromModelo = (v: any): CadVarianteRow => ({
+      variante_tecido_id: v.variante_tecido_id,
+      variante_nome: v.variantes_tecido?.nome_variante ?? v.variantes_tecido?.codigo_variante,
+      variante_cor: v.variantes_tecido?.cor?.nome ?? null,
+      variante_apelido: v.variantes_tecido?.apelido?.nome ?? null,
+      multiplicador: Number(v.multiplicador ?? 1) || 1,
+      ordem: v.ordem,
+      quantidade_folhas: 0,
+      metragem_planejada: 0,
+      metragem_enviada: 0,
+    });
+
+    let initialTec: CadTecidoRow[];
+
+    if ((cadTecidosDev as any[]).length > 0) {
+      // Semeia do cad_*
+      initialTec = (cadTecidosDev as any[]).map((t: any) => ({
+        id: t.id,
+        numero: t.numero,
+        tipo: t.tipo as TipoTec,
+        artigo_id: t.artigo_id,
+        consumo_cad: Number(t.consumo_cad ?? 0),
+        loss_percent_cad: Number(t.loss_percent_cad ?? 0),
+        custo_cad: Number(t.custo_cad ?? 0),
+        tamanho_folha: Number(t.tamanho_folha ?? 0),
+        preco: precoTec(t.tipo, t.numero, Number(t.artigos?.preco_por_metro ?? 0)),
+        largura: Number(t.artigos?.largura_estimada ?? 0),
+        artigo_nome: t.artigos?.nome
+          ? (t.artigos?.unidade_medida ? `${t.artigos.nome} [${t.artigos.unidade_medida}]` : t.artigos.nome)
+          : null,
+        etiqueta_lavagem_urls: (t.artigos?.etiqueta_lavagem_urls ?? []) as string[],
+        variantes: (t.cad_tecido_variantes ?? []).map((v: any) => ({
+          id: v.id,
+          variante_tecido_id: v.variante_tecido_id,
+          variante_nome: v.variantes_tecido?.nome_variante ?? v.variantes_tecido?.codigo_variante,
+          variante_cor: v.variantes_tecido?.cor?.nome ?? null,
+          variante_apelido: v.variantes_tecido?.apelido?.nome ?? null,
+          multiplicador: Number(v.multiplicador ?? 1) || 1,
+          ordem: v.ordem,
+          quantidade_folhas: Number(v.quantidade_folhas ?? 0),
+          metragem_planejada: Number(v.metragem_planejada ?? 0),
+          metragem_enviada: Number(v.metragem_enviada ?? 0),
+        } as CadVarianteRow)),
+      }));
+      // Mescla variantes/blocos novos do BOM que ainda não estão no CAD.
+      const blockByKey = new Map<string, CadTecidoRow>(initialTec.map((t) => [`${t.tipo}-${t.numero}`, t]));
+      if (tecidosData) {
+        (tecidosData as any).tecidos?.forEach((mt: any) => {
+          const existing = blockByKey.get(`${mt.tipo}-${mt.numero}`);
+          const allVars = (tecidosData as any).variantes?.filter((v: any) => v.modelo_tecido_id === mt.id) ?? [];
+          if (!existing) {
+            const preco = precoTec(mt.tipo, mt.numero, Number(artigoMap[mt.artigo_id]?.preco_por_metro ?? 0));
+            const consumo = Number(mt.consumo ?? 0);
+            const loss = Number(mt.loss_percent ?? 0);
+            initialTec.push({
+              numero: mt.numero, tipo: mt.tipo as TipoTec, artigo_id: mt.artigo_id,
+              consumo_cad: consumo, loss_percent_cad: loss, custo_cad: calcCusto(consumo, loss, preco),
+              tamanho_folha: 0, preco, largura: Number(artigoMap[mt.artigo_id] as any ?? 0),
+              artigo_nome: artigoMap[mt.artigo_id]?.nome ?? null, etiqueta_lavagem_urls: [],
+              variantes: allVars.map((v: any): CadVarianteRow => ({
+                variante_tecido_id: v.variante_tecido_id,
+                variante_nome: null, variante_cor: null, variante_apelido: null,
+                multiplicador: Number(v.multiplicador ?? 1) || 1, ordem: v.ordem,
+                quantidade_folhas: 0, metragem_planejada: 0, metragem_enviada: 0,
+              })),
+            });
+            return;
+          }
+          const have = new Set(existing.variantes.map((v) => v.variante_tecido_id).filter(Boolean));
+          let added = false;
+          allVars.forEach((v: any) => {
+            if (v.variante_tecido_id && !have.has(v.variante_tecido_id)) {
+              existing.variantes.push(varFromModelo(v));
+              added = true;
+            }
+          });
+          if (added) existing.variantes.sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0));
+        });
+      }
+    } else {
+      // Semeia do BOM (modelo_tecidos) — folhas/metragem zerados.
+      if (!tecidosData) return; // espera o BOM
+      initialTec = (tecidosData as any).tecidos?.map((mt: any) => {
+        const allVars = (tecidosData as any).variantes?.filter((v: any) => v.modelo_tecido_id === mt.id) ?? [];
+        const preco = precoTec(mt.tipo, mt.numero, Number(artigoMap[mt.artigo_id]?.preco_por_metro ?? 0));
+        const consumo = Number(mt.consumo ?? 0);
+        const loss = Number(mt.loss_percent ?? 0);
+        return {
+          numero: mt.numero, tipo: mt.tipo as TipoTec, artigo_id: mt.artigo_id,
+          consumo_cad: consumo, loss_percent_cad: loss, custo_cad: calcCusto(consumo, loss, preco),
+          tamanho_folha: 0, preco, largura: Number(artigoMap[mt.artigo_id] as any ?? 0),
+          artigo_nome: artigoMap[mt.artigo_id]?.nome ?? null, etiqueta_lavagem_urls: [],
+          variantes: allVars.map((v: any): CadVarianteRow => ({
+            variante_tecido_id: v.variante_tecido_id,
+            variante_nome: null, variante_cor: null, variante_apelido: null,
+            multiplicador: Number(v.multiplicador ?? 1) || 1, ordem: v.ordem,
+            quantidade_folhas: 0, metragem_planejada: 0, metragem_enviada: 0,
+          })),
+        } as CadTecidoRow;
+      }) ?? [];
+    }
+
+    initialTec.sort((a, b) =>
+      (TIPO_ORDER[a.tipo] ?? 9) - (TIPO_ORDER[b.tipo] ?? 9) || (a.numero - b.numero));
+    setCadTecidosState(initialTec);
+    setCadSeeded(true);
+  }, [cadSeeded, cadRowDev, cadTecidosDev, cadTecidosDevFetched, frozenPrecosCad, frozenPrecosCadFetched, tecidosData, artigoMap]);
+
+  // Helpers p/ editar o estado dos tecidos CAD.
+  const updateCadTec = (i: number, patch: Partial<CadTecidoRow>) => {
+    setCadTecidosState((prev) => {
+      const next = [...prev];
+      const merged = { ...next[i], ...patch };
+      merged.custo_cad = calcCusto(merged.consumo_cad, merged.loss_percent_cad, merged.preco);
+      next[i] = merged;
+      return next;
+    });
+  };
+  const updateCadVar = (i: number, j: number, patch: Partial<CadVarianteRow>) => {
+    setCadTecidosState((prev) => {
+      const next = [...prev];
+      const variantes = [...next[i].variantes];
+      variantes[j] = { ...variantes[j], ...patch };
+      next[i] = { ...next[i], variantes };
+      return next;
+    });
+  };
+
+  // Cálculo automático de folhas/metragem (idêntico ao do CadEditor).
+  const sumProporcoesDev = useMemo(
+    () => Object.values((draft?.proporcoes ?? {}) as Record<string, number>).reduce((a: number, b) => a + (Number(b) || 0), 0),
+    [draft?.proporcoes],
+  );
+  const round2Dev = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+  const gradeTotalByNumeroDev = (n: number) => grades.find((g) => g.variante_numero === n)?.grade_total ?? 0;
+  useEffect(() => {
+    if (!autoFolhas) return;
+    setCadTecidosState((prev) => {
+      let changed = false;
+      const next = prev.map((t) => {
+        const lossFactor = 1 + (Number(t.loss_percent_cad) || 0) / 100;
+        let baseMetragem = 0;
+        const variantes = t.variantes.map((v) => {
+          const mult = Number(v.multiplicador ?? 1) || 1;
+          const pecas = gradeTotalByNumeroDev(v.ordem) * mult;
+          const quantidade_folhas = sumProporcoesDev > 0 ? round2Dev(pecas / sumProporcoesDev) : 0;
+          const base = pecas * (t.consumo_cad || 0);
+          baseMetragem += base;
+          const metragem_planejada = round2Dev(base * lossFactor);
+          if (v.quantidade_folhas !== quantidade_folhas || v.metragem_planejada !== metragem_planejada) changed = true;
+          return { ...v, quantidade_folhas, metragem_planejada };
+        });
+        const totalFolhas = variantes.reduce((a, v) => a + v.quantidade_folhas, 0);
+        const a = totalFolhas > 0 ? baseMetragem / totalFolhas : 0;
+        const largura = Number(t.largura || 0);
+        const tamanho_folha = largura > 0 ? round2Dev(a / largura) : 0;
+        if (t.tamanho_folha !== tamanho_folha) changed = true;
+        return { ...t, variantes, tamanho_folha };
+      });
+      return changed ? next : prev;
+    });
+  }, [autoFolhas, grades, draft?.proporcoes, cadTecidosState]);
 
   const totals = useMemo(() => {
     const sum = (tipo: TecidoBlock["tipo"]) =>
@@ -762,13 +1001,76 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         const { error } = await supabase.from("modelo_etiquetas" as any).delete().in("id", toDelEtq);
         if (error) throw error;
       }
+
+      // Sincroniza o cad_* com as folhas/metragem editadas na seção "4. CAD".
+      // salvar_cad_completo cria o CAD se não existir (idempotente); preserva a
+      // grade real do CQ quando confirmado (invariante #6).
+      // Só sincroniza se o BOM tem ao menos um tecido com variante (evita payload vazio
+      // que criaria um CAD vazio antes do modelo estar pronto).
+      if (cadTecidosState.length > 0) {
+        const cadGradesPayload = gradesPayload.filter(
+          (g) => (g.grade_total || 0) > 0 || Object.values(g.grades || {}).some((v) => (Number(v) || 0) > 0),
+        );
+        // Monta o payload de aviamentos a partir do estado do CAD (se tiver dados do cad_*)
+        // ou do modelo (fallback) — prioriza o que está no cad_* para não perder edições.
+        const cadAviamentosPayload = (cadAviamentosDev as any[]).length > 0
+          ? (cadAviamentosDev as any[]).map((a: any) => ({
+              aviamento_id: a.aviamento_id,
+              numero: a.numero,
+              consumo: Number(a.consumo ?? 0),
+              quantidade_enviar: Number(a.quantidade_enviar ?? 0),
+              quantidade_separar: Number(a.quantidade_separar ?? 0),
+            }))
+          : aviamentosPayload.map((a, i) => ({
+              aviamento_id: a.aviamento_id,
+              numero: i + 1,
+              consumo: a.consumo || 0,
+              quantidade_enviar: 0,
+              quantidade_separar: 0,
+            }));
+        // Etiquetas: usa o que está no cad_* ou vazio.
+        const cadEtiquetasPayload = (cadEtiquetasDev as any[]).map((e: any) => ({
+          etiqueta_id: e.etiqueta_id,
+          cor_id: e.cor_id ?? null,
+          consumo: Number(e.consumo ?? 0),
+          quantidade_planejada: Number(e.quantidade_planejada ?? 0),
+          quantidade_enviar: Number(e.quantidade_enviar ?? 0),
+          enviar_por_tamanho: (e.enviar_por_tamanho ?? {}) as Record<string, number>,
+        }));
+        const { error: eCad } = await supabase.rpc("salvar_cad_completo" as any, {
+          _modelo_id: modeloId,
+          _tecidos: cadTecidosState.map((t) => ({
+            artigo_id: t.artigo_id,
+            numero: t.numero,
+            tipo: t.tipo,
+            consumo_cad: t.consumo_cad,
+            loss_percent_cad: t.loss_percent_cad,
+            custo_cad: t.custo_cad,
+            tamanho_folha: t.tamanho_folha,
+            variantes: t.variantes.map((v) => ({
+              variante_tecido_id: v.variante_tecido_id,
+              ordem: v.ordem,
+              multiplicador: Number(v.multiplicador ?? 1) || 1,
+              quantidade_folhas: v.quantidade_folhas,
+              metragem_planejada: v.metragem_planejada,
+              metragem_enviada: v.metragem_enviada,
+            })),
+          })),
+          _grades: cadGradesPayload,
+          _aviamentos: cadAviamentosPayload,
+          _etiquetas: cadEtiquetasPayload,
+          _proporcoes: draft?.proporcoes ?? {},
+          _observacoes_molde: null,
+          _data_previsao_corte: null,
+        });
+        if (eCad) throw eCad;
+      }
   };
 
   const save = useMutation({
     mutationFn: persistModelo,
     onSuccess: () => {
       toast.success("Modelo salvo");
-      setEditing(false); // salvar trava novamente quando já foi enviado ao CAD
       // Marca revisão pendente (#Erro) nas etapas afetadas — calculado no servidor.
       supabase.rpc("marcar_revisao_por_mudanca" as any, {
         _modelo_id: modeloId, _grade: gradeAlterada, _consumo: consumoAlterado, _aviamentos: aviamentoAlterado,
@@ -787,6 +1089,11 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
       // A reserva de estoque é recalculada a partir do BOM salvo (1ª reserva).
       qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
+      // Invalida o cache do CAD (seção "4. CAD") p/ refletir o cad_* salvo.
+      qc.invalidateQueries({ queryKey: ["dev-cad-row", modeloId] });
+      qc.invalidateQueries({ queryKey: ["dev-cad-tecidos"] });
+      qc.invalidateQueries({ queryKey: ["dev-cad-aviamentos"] });
+      qc.invalidateQueries({ queryKey: ["dev-cad-etiquetas"] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
   });
@@ -1071,7 +1378,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     );
   }
 
-  const locked = !!draft?.enviado_cad && !editing;
+  // Trava removida: o card é sempre editável; salvar sincroniza o cad_*.
+  // (decisão do dono: "card sempre edita→salva")
   return (
     <>
       <SheetHeader>
@@ -1096,7 +1404,6 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         onSave={() => { setDesmarcarOpen(false); save.mutate(); }}
       />
 
-      <fieldset disabled={locked} className="contents">
       {/* área rolável (flex-1) — o footer fica fixo embaixo como irmão shrink-0 */}
       <div className="mt-4 flex-1 min-h-0 overflow-y-auto">
         <Accordion type="multiple" defaultValue={["s1"]}>
@@ -1163,65 +1470,18 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           <AccordionItem value="s-cad">
             <AccordionTrigger>4. CAD</AccordionTrigger>
             <AccordionContent>
-              {!draft.enviado_cad ? (
+              {cadTecidosState.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-2">
-                  Envie o modelo para calcular o corte (folhas, tamanho da folha, metragem).
+                  Nenhum tecido/variante planejado neste modelo. Adicione tecidos na seção 3.
                 </p>
-              ) : !cadCalc || cadCalc.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-2">Carregando dados do CAD…</p>
               ) : (
-                <div className="space-y-4">
-                  {(cadCalc as any[])
-                    .slice()
-                    .sort((a: any, b: any) => {
-                      const ord: Record<string, number> = { tecido: 0, forro: 1, entretela: 2 };
-                      return ((ord[a.tipo] ?? 9) - (ord[b.tipo] ?? 9)) || (a.numero - b.numero);
-                    })
-                    .map((t: any) => {
-                      const label = t.tipo === "tecido" ? `Tecido ${t.numero}` : t.numero > 1 ? `${t.tipo.charAt(0).toUpperCase() + t.tipo.slice(1)} ${t.numero}` : t.tipo.charAt(0).toUpperCase() + t.tipo.slice(1);
-                      const variantes: any[] = t.cad_tecido_variantes ?? [];
-                      return (
-                        <div key={t.id} className="space-y-1">
-                          <div className="flex items-center gap-2 text-sm font-medium">
-                            <span>{label}</span>
-                            <span className="text-muted-foreground font-normal">— {t.artigos?.nome ?? "Sem artigo"}</span>
-                            {Number(t.tamanho_folha) > 0 && (
-                              <span className="text-xs text-muted-foreground">· Tam. folha: {fmtNum(t.tamanho_folha)} m</span>
-                            )}
-                          </div>
-                          {variantes.length > 0 && (
-                            <div className="overflow-x-auto">
-                              <table className="w-full text-xs border rounded">
-                                <thead className="bg-muted/50">
-                                  <tr>
-                                    <th className="px-2 py-1 text-left">Variante</th>
-                                    <th className="px-2 py-1 text-right">Qtd Folhas</th>
-                                    <th className="px-2 py-1 text-right">Metr. Planejada (m)</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {variantes
-                                    .slice()
-                                    .sort((a: any, b: any) => (a.ordem ?? 0) - (b.ordem ?? 0))
-                                    .map((v: any, j: number) => {
-                                      const vt = v.variantes_tecido;
-                                      const lbl = vt ? varianteLabel({ nome: vt.nome_variante, cor: vt.cor?.nome, apelido: vt.apelido?.nome }) : `Variante ${j + 1}`;
-                                      return (
-                                        <tr key={`${v.ordem}-${j}`} className="border-t">
-                                          <td className="px-2 py-1">{lbl}</td>
-                                          <td className="px-2 py-1 text-right">{fmtNum(v.quantidade_folhas)}</td>
-                                          <td className="px-2 py-1 text-right">{fmtNum(v.metragem_planejada)}</td>
-                                        </tr>
-                                      );
-                                    })}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                </div>
+                <CadTecidosSection
+                  tecidos={cadTecidosState}
+                  updateTec={updateCadTec}
+                  updateVar={updateCadVar}
+                  autoFolhas={autoFolhas}
+                  onToggleAutoFolhas={setAutoFolhas}
+                />
               )}
             </AccordionContent>
           </AccordionItem>
@@ -1312,7 +1572,6 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           <ModeloObservacoes modeloId={modeloId} />
         </div>
       </div>
-      </fieldset>
 
       <div className="bg-background border-t pt-3 mt-3 shrink-0 flex flex-wrap gap-2 justify-end items-center max-sm:flex-nowrap">
         {draft.enviado_cad && (
@@ -1373,15 +1632,9 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
             <Send className="h-4 w-4 mr-2" /> Enviar
           </Button>
         )}
-        {locked ? (
-          <Button variant="secondary" size="icon" onClick={() => setEditing(true)} aria-label="Editar">
-            <Pencil className="h-4 w-4" />
-          </Button>
-        ) : (
-          <Button onClick={() => (hasDownstream ? setConfirmEditOpen(true) : save.mutate())} disabled={save.isPending}>
-            {save.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Salvar
-          </Button>
-        )}
+        <Button onClick={() => (hasDownstream ? setConfirmEditOpen(true) : save.mutate())} disabled={save.isPending}>
+          {save.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Salvar
+        </Button>
       </div>
 
       <AlertDialog open={confirmEnviarCad} onOpenChange={setConfirmEnviarCad}>
