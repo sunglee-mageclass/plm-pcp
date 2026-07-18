@@ -1,8 +1,10 @@
 import { SkeletonTableRow } from "@/components/shared/Skeletons";
 import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { Users, Search, Printer } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Users, Search, Printer, Undo2 } from "lucide-react";
+import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { TerceirizadosDetail } from "@/routes/_authenticated/producao.terceirizados.$modeloId";
 import { supabase } from "@/integrations/supabase/client";
@@ -17,6 +19,16 @@ import { PrintFicha } from "@/components/producao/PrintFicha";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useSort, SortTh } from "@/components/shared/sort";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export const Route = createFileRoute("/_authenticated/producao/terceirizados/")({
   component: TercListPage,
@@ -24,6 +36,7 @@ export const Route = createFileRoute("/_authenticated/producao/terceirizados/")(
 
 function TercListPage() {
   const fl = useFieldLabels();
+  const qc = useQueryClient();
   const [sheetId, setSheetId] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [fColecao, setFColecao] = useState("all");
@@ -31,6 +44,26 @@ function TercListPage() {
   const [fAno, setFAno] = useState("all");
   const [fStatus, setFStatus] = useState("all");
   const [printReq, setPrintReq] = useState<{ id: string; token: number } | null>(null);
+  // "Voltar uma etapa": pendente = null; quando o usuário clica abre o AlertDialog com o cad_id alvo.
+  const [voltarCadId, setVoltarCadId] = useState<string | null>(null);
+
+  const voltarMut = useMutation({
+    mutationFn: async (cadId: string) => {
+      const { error } = await supabase.rpc("reverter_corte_tecido" as any, { _cad_id: cadId });
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      toast.success("Modelo voltou para a Explosão");
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["producao-terc-list"] }),
+        qc.invalidateQueries({ queryKey: ["producao-explosao-list"] }),
+        qc.invalidateQueries({ queryKey: ["estoque-tecidos"] }),
+        qc.invalidateQueries({ queryKey: ["dev-cad-row"] }),
+        qc.invalidateQueries({ queryKey: ["dashboard-estoque"] }),
+      ]);
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao voltar etapa")),
+  });
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["producao-terc-list"],
@@ -195,15 +228,28 @@ function TercListPage() {
                 <td className="px-4 py-2 text-muted-foreground" data-label="Coleção">{r.colecao ?? "—"}</td>
                 <td className="px-4 py-2" data-label="Status"><StatusBadge status={r.statusGeral} /></td>
                 <td className="px-4 py-2 text-center" data-label="">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 hidden md:inline-flex"
-                    title="Imprimir Ficha Técnica"
-                    onClick={(e) => { e.stopPropagation(); setPrintReq((prev) => ({ id: r.modelo_id, token: (prev?.token ?? 0) + 1 })); }}
-                  >
-                    <Printer className="h-4 w-4" />
-                  </Button>
+                  <div className="inline-flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 hidden md:inline-flex"
+                      title="Imprimir Ficha Técnica"
+                      onClick={(e) => { e.stopPropagation(); setPrintReq((prev) => ({ id: r.modelo_id, token: (prev?.token ?? 0) + 1 })); }}
+                    >
+                      <Printer className="h-4 w-4" />
+                    </Button>
+                    {r.cad_id && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        title="Voltar uma etapa (volta pra Explosão)"
+                        onClick={(e) => { e.stopPropagation(); setVoltarCadId(r.cad_id); }}
+                      >
+                        <Undo2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -212,6 +258,28 @@ function TercListPage() {
       </Card>
 
       {printReq && <PrintFicha modeloId={printReq.id} kind="tecnica" token={printReq.token} />}
+
+      <AlertDialog open={!!voltarCadId} onOpenChange={(o) => { if (!o) setVoltarCadId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Voltar este modelo para a Explosão?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Isso desfaz a baixa de estoque (corte) realizada no CAD e marca o modelo como
+              "não cortado". Ele voltará a aparecer na fila da Explosão para ser cortado
+              novamente. Registros de serviços já lançados não são removidos automaticamente.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={voltarMut.isPending}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={voltarMut.isPending}
+              onClick={() => { if (voltarCadId) voltarMut.mutate(voltarCadId); setVoltarCadId(null); }}
+            >
+              Voltar uma etapa
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Sheet open={!!sheetId} onOpenChange={(o) => !o && setSheetId(null)}>
         <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] overflow-y-auto p-0 max-md:[&>button]:hidden">
