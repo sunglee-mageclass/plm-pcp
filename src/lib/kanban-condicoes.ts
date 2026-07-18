@@ -61,7 +61,7 @@ export const CONDICOES: Condicao[] = [
   { key: "aviamento_definido", label: "Aviamento definido (≥ 1)", modulo: "desenvolvimento" },
   { key: "desenho_tecnico_anexado", label: "Desenho Técnico anexado", modulo: "desenvolvimento" },
   { key: "ficha_medida_anexada", label: "Ficha de Medida anexada", modulo: "desenvolvimento" },
-  { key: "enviado_cad", label: "Enviado ao CAD", modulo: "desenvolvimento" },
+  { key: "enviado_cad", label: "Enviado à Explosão", modulo: "desenvolvimento" },
 
   // ── CAD ───────────────────────────────────────────────────────
   { key: "cad_confirmado", label: "CAD confirmado (enviado ao corte)", modulo: "cad" },

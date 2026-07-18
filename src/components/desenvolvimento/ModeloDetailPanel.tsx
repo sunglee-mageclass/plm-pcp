@@ -1119,6 +1119,9 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       qc.invalidateQueries({ queryKey: ["dev-cad-tecidos"] });
       qc.invalidateQueries({ queryKey: ["dev-cad-aviamentos"] });
       qc.invalidateQueries({ queryKey: ["dev-cad-etiquetas"] });
+      // Printável (Ficha Técnica, useFichaData keys ft-*) lê do banco — invalida p/ refletir o que acabou de salvar.
+      qc.invalidateQueries({ predicate: (query) => typeof query.queryKey?.[0] === "string" && (query.queryKey[0] as string).startsWith("ft-") });
+      qc.invalidateQueries({ queryKey: ["modelo-observacoes", modeloId] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
   });
@@ -1138,13 +1141,17 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Enviado para o CAD");
+      toast.success("Enviado para a Explosão");
       setDraft((d: any) => ({ ...d, enviado_cad: true }));
       qc.invalidateQueries({ queryKey: ["modelo-detail", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-condicoes-kanban", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-cad-calc", modeloId] });
+      // Ficha Técnica reflete o estado enviado; a Explosão passa a listar o modelo.
+      qc.invalidateQueries({ predicate: (query) => typeof query.queryKey?.[0] === "string" && (query.queryKey[0] as string).startsWith("ft-") });
+      qc.invalidateQueries({ queryKey: ["producao-explosao-list"] });
+      qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao enviar para CAD")),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao enviar")),
   });
 
   const updateBlock = (idx: number, patch: Partial<TecidoBlock>) => {

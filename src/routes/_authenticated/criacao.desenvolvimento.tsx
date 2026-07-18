@@ -457,7 +457,7 @@ function DesenvolvimentoPage() {
             screen="desenvolvimento"
             filters={[
               { label: "Status", value: fStatus, onChange: setFStatus, options: [{ id: "all", nome: "Todos" }, ...statusKanban.map((s) => ({ id: s.key, nome: s.label }))] },
-              { label: "CAD", value: fCad, onChange: setFCad, options: [{ id: "all", nome: "Todos" }, { id: "enviado", nome: "Enviado ao CAD" }, { id: "nao", nome: "Não enviado" }] },
+              { label: "Explosão", value: fCad, onChange: setFCad, options: [{ id: "all", nome: "Todos" }, { id: "enviado", nome: "Enviado à Explosão" }, { id: "nao", nome: "Não enviado" }] },
               { label: "Estilista", value: fEstilista, onChange: setFEstilista, options: [{ id: "all", nome: "Todos" }, ...estilistas] },
               { label: "Modelista", value: fModelista, onChange: setFModelista, options: [{ id: "all", nome: "Todos" }, ...modelistas] },
               { label: "Piloteiro", value: fPiloteiro, onChange: setFPiloteiro, options: [{ id: "all", nome: "Todos" }, ...piloteiros] },
@@ -585,7 +585,7 @@ function MobileCard({ modelo, estilistaNome, categoriaNome, onOpen }: {
   return (
     <div className="relative bg-card border rounded-md p-2">
       {modelo.enviado_cad && (
-        <span className="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full bg-sky-600 ring-2 ring-card" aria-label="Enviado ao CAD" />
+        <span className="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full bg-sky-600 ring-2 ring-card" aria-label="Enviado à Explosão" />
       )}
       <div className="flex gap-2" onClick={onOpen} role="button">
         <CardCover url={url} isPdf={coverIsPdf} nome={modelo.nome} />
@@ -613,7 +613,7 @@ function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: i
   const cover = modelo.fotos_modelo?.[0] || modelo.desenho_tecnico_url || modelo.croqui_url || null;
   const url = useSignedUrlBucket(cover);
   const coverIsPdf = /\.pdf$/i.test(cover ?? "");
-  const { handlers, node } = useCursorTip(modelo.enviado_cad ? "Enviado ao CAD" : null);
+  const { handlers, node } = useCursorTip(modelo.enviado_cad ? "Enviado à Explosão" : null);
   return (
     <>
     <div
@@ -629,7 +629,7 @@ function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: i
       {...handlers}
     >
       {modelo.enviado_cad && (
-        <span className="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full bg-sky-600 ring-2 ring-card" aria-label="Enviado ao CAD" />
+        <span className="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full bg-sky-600 ring-2 ring-card" aria-label="Enviado à Explosão" />
       )}
       <div className="flex gap-2">
         <CardCover url={url} isPdf={coverIsPdf} nome={modelo.nome} />
