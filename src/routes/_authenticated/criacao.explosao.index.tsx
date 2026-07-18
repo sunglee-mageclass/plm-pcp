@@ -14,7 +14,7 @@ import { useSort, SortTh } from "@/components/shared/sort";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { ExplosaoDetail } from "@/components/producao/explosao/ExplosaoDetail";
 
-export const Route = createFileRoute("/_authenticated/producao/explosao/")({
+export const Route = createFileRoute("/_authenticated/criacao/explosao/")({
   component: ExplosaoListPage,
 });
 

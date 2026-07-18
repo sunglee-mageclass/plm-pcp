@@ -3,7 +3,7 @@ import { RequirePermission } from "@/components/RequirePermission";
 
 export const Route = createFileRoute("/_authenticated/producao/cad")({
   beforeLoad: () => {
-    throw redirect({ to: "/producao/explosao" });
+    throw redirect({ to: "/criacao/explosao" });
   },
   component: () => (
     <RequirePermission page="producao_cad">

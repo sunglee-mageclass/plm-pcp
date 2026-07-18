@@ -89,8 +89,8 @@ const PAGE_URLS: Record<string, string> = {
   entrada_estoque: "/entrada-saida/estoque",
   criacao_planejamento: "/criacao/planejamento",
   criacao_desenvolvimento: "/criacao/desenvolvimento",
-  producao_explosao: "/producao/explosao",
-  producao_consumo_oc: "/producao/consumo-oc",
+  producao_explosao: "/criacao/explosao",
+  producao_consumo_oc: "/criacao/consumo-oc",
   producao_terceirizados: "/producao/terceirizados",
   // Oficina é acessada dentro de Serviços; não aparece como item próprio na navegação lateral.
   producao_cq: "/producao/cq",
@@ -198,30 +198,6 @@ export function AppSidebar() {
   };
   moveTop("/criacao"); // Criação sobe primeiro…
   moveTop("/otb");     // …e OTB fica acima dela.
-
-  // Explosão e Consumo por OC são features de Produção (gate producao mantido), mas exibidas
-  // no grupo Estilo & Engenharia, logo abaixo de Desenvolvimento (pedido do dono).
-  // Ordem final: Planejamento · Desenvolvimento · Explosão · Consumo por OC.
-  // Move só a exibição; a permissão continua vinculada ao módulo producao.
-  const eng = visibleMainItems.find((x) => x.url === "/criacao");
-  const pcp = visibleMainItems.find((x) => x.url === "/producao");
-  if (eng && pcp) {
-    // 1. Move Consumo por OC
-    const ci = pcp.subs.findIndex((s) => s.key === "producao_consumo_oc");
-    if (ci >= 0) {
-      const [consumo] = pcp.subs.splice(ci, 1);
-      const di = eng.subs.findIndex((s) => s.key === "criacao_desenvolvimento");
-      eng.subs.splice(di >= 0 ? di + 1 : eng.subs.length, 0, consumo);
-    }
-    // 2. Move Explosão para antes do Consumo por OC (logo após Desenvolvimento)
-    const ei = pcp.subs.findIndex((s) => s.key === "producao_explosao");
-    if (ei >= 0) {
-      const [explosao] = pcp.subs.splice(ei, 1);
-      const di = eng.subs.findIndex((s) => s.key === "criacao_desenvolvimento");
-      // Insere logo após Desenvolvimento (antes do Consumo por OC que acabou de chegar ali)
-      eng.subs.splice(di >= 0 ? di + 1 : eng.subs.length, 0, explosao);
-    }
-  }
 
   // Cadastro vai pro FIM, logo abaixo de Dashboard, separado por uma linha (pedido do dono).
   const cadastroItem = visibleMainItems.find((x) => x.url === "/cadastro");

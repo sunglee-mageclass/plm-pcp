@@ -23,7 +23,7 @@ import { ModeloPhoto } from "@/components/producao/cad/shared";
 import { ModeloDetailPanel } from "@/components/desenvolvimento/ModeloDetailPanel";
 import { CadEditor } from "@/routes/_authenticated/producao.cad.$modeloId";
 
-export const Route = createFileRoute("/_authenticated/producao/consumo-oc")({
+export const Route = createFileRoute("/_authenticated/criacao/consumo-oc")({
   component: () => (
     <RequirePermission page="producao_consumo_oc">
       <ConsumoOcPage />

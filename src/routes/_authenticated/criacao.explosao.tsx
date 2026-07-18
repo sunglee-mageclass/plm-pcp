@@ -1,7 +1,7 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { RequirePermission } from "@/components/RequirePermission";
 
-export const Route = createFileRoute("/_authenticated/producao/explosao")({
+export const Route = createFileRoute("/_authenticated/criacao/explosao")({
   component: () => (
     <RequirePermission page="producao_explosao">
       <Outlet />
