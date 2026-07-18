@@ -877,6 +877,28 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     return out;
   }, [blocks]);
 
+  // Variante nova HERDA a grade da 1ª variante (cores do mesmo modelo costumam ter a mesma
+  // grade) — assim o "cálculo automático" do CAD calcula a variante recém-adicionada na hora,
+  // em vez de deixá-la zerada por falta de grade. Só ADICIONA linhas faltantes; preserva as
+  // existentes (o usuário pode ajustar a grade de cada cor depois).
+  useEffect(() => {
+    if (!cadSeeded || tecido1VarianteIds.length === 0) return;
+    setGrades((prev) => {
+      if (prev.length === 0) return prev; // sem grade base pra herdar ainda
+      const base = prev.find((g) => (g.grade_total || 0) > 0) ?? prev[0];
+      let changed = false;
+      const next = [...prev];
+      for (let i = 0; i < tecido1VarianteIds.length; i++) {
+        const numero = i + 1;
+        if (!next.some((g) => g.variante_numero === numero)) {
+          next.push({ variante_numero: numero, grades: { ...base.grades }, grade_total: base.grade_total });
+          changed = true;
+        }
+      }
+      return changed ? next.sort((a, b) => a.variante_numero - b.variante_numero) : prev;
+    });
+  }, [tecido1VarianteIds, cadSeeded]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const { data: tecido1VariantesLabels = {} } = useQuery({
     queryKey: ["variantes-labels", tecido1VarianteIds.join(",")],
     enabled: tecido1VarianteIds.length > 0,
