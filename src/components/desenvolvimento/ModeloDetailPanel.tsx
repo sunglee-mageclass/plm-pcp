@@ -327,31 +327,6 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     },
   });
 
-  const { data: cadAviamentosDev = [] } = useQuery({
-    queryKey: ["dev-cad-aviamentos", cadRowDev?.id],
-    enabled: !!cadRowDev?.id,
-    queryFn: async () => {
-      const { data } = await (supabase as any)
-        .from("cad_aviamentos")
-        .select("*, aviamentos:aviamento_id(codigo_nome, preco)")
-        .eq("cad_id", cadRowDev!.id)
-        .order("numero");
-      return (data ?? []) as any[];
-    },
-  });
-
-  const { data: cadEtiquetasDev = [] } = useQuery({
-    queryKey: ["dev-cad-etiquetas", cadRowDev?.id],
-    enabled: !!cadRowDev?.id,
-    queryFn: async () => {
-      const { data } = await (supabase as any)
-        .from("cad_etiquetas")
-        .select("id, etiqueta_id, cor_id, consumo, quantidade_planejada, quantidade_enviar, enviar_por_tamanho, etiquetas:etiqueta_id(nome, tamanho)")
-        .eq("cad_id", cadRowDev!.id);
-      return (data ?? []) as any[];
-    },
-  });
-
   // Preço congelado pela OC vinculada (mesmo padrão do CadEditor).
   const { data: frozenPrecosCad = {}, isFetched: frozenPrecosCadFetched } = useQuery({
     queryKey: ["dev-cad-precos-congelado", modeloId],
@@ -1040,30 +1015,24 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         const cadGradesPayload = gradesPayload.filter(
           (g) => (g.grade_total || 0) > 0 || Object.values(g.grades || {}).some((v) => (Number(v) || 0) > 0),
         );
-        // Monta o payload de aviamentos a partir do estado do CAD (se tiver dados do cad_*)
-        // ou do modelo (fallback) — prioriza o que está no cad_* para não perder edições.
-        const cadAviamentosPayload = (cadAviamentosDev as any[]).length > 0
-          ? (cadAviamentosDev as any[]).map((a: any) => ({
-              aviamento_id: a.aviamento_id,
-              numero: a.numero,
-              consumo: Number(a.consumo ?? 0),
-              quantidade_enviar: Number(a.quantidade_enviar ?? 0),
-              quantidade_separar: Number(a.quantidade_separar ?? 0),
-            }))
-          : aviamentosPayload.map((a, i) => ({
-              aviamento_id: a.aviamento_id,
-              numero: i + 1,
-              consumo: a.consumo || 0,
-              quantidade_enviar: 0,
-              quantidade_separar: 0,
-            }));
-        // Etiquetas: usa o que está no cad_* ou vazio.
-        const cadEtiquetasPayload = (cadEtiquetasDev as any[]).map((e: any) => ({
+        // Explosão (quantidade) = consumo × grade total geral — recomputada do ESTADO ATUAL
+        // do card (seções 5. Aviamentos / 6. Insumos), NÃO do cad_* antigo. Assim editar
+        // aviamento/insumo reflete na Ficha Técnica e no downstream. Espelha a fórmula do
+        // _enviar_modelo_para_cad_core (consumo × grade total).
+        const round4 = (n: number) => Math.round(n * 10000) / 10000;
+        const cadAviamentosPayload = aviamentosPayload.map((a, i) => ({
+          aviamento_id: a.aviamento_id,
+          numero: i + 1,
+          consumo: a.consumo || 0,
+          quantidade_enviar: round4((a.consumo || 0) * gradeTotalGeral),
+          quantidade_separar: round4((a.consumo || 0) * gradeTotalGeral),
+        }));
+        const cadEtiquetasPayload = etqRows.map((e: any) => ({
           etiqueta_id: e.etiqueta_id,
           cor_id: e.cor_id ?? null,
           consumo: Number(e.consumo ?? 0),
-          quantidade_planejada: Number(e.quantidade_planejada ?? 0),
-          quantidade_enviar: Number(e.quantidade_enviar ?? 0),
+          quantidade_planejada: round4(Number(e.consumo ?? 0) * gradeTotalGeral),
+          quantidade_enviar: round4(Number(e.consumo ?? 0) * gradeTotalGeral),
           enviar_por_tamanho: (e.enviar_por_tamanho ?? {}) as Record<string, number>,
         }));
         const { error: eCad } = await supabase.rpc("salvar_cad_completo" as any, {

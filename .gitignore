@@ -51,3 +51,5 @@ test-results/
 playwright-report/
 /playwright/.cache/
 .last-run.json
+
+.claude/worktrees/
