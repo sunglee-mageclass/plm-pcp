@@ -51,7 +51,7 @@ import { ModeloEtiquetasSection } from "./modelo-detail/ModeloEtiquetasSection";
 import { ModeloGradeSection } from "./modelo-detail/ModeloGradeSection";
 import { ModeloCustosSection } from "./modelo-detail/ModeloCustosSection";
 import { ModeloAnexosSection } from "./modelo-detail/ModeloAnexosSection";
-import { useEtapasAfetadas, DownstreamConfirmDialog, DesmarcarEtapasDialog } from "./DownstreamImpactAlert";
+import { useEtapasAfetadas } from "./DownstreamImpactAlert";
 import { ModeloObservacoes } from "@/components/shared/ModeloObservacoes";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 
@@ -383,11 +383,9 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const [confirmGrade, setConfirmGrade] = useState<{ msg: string; onConfirm: () => void } | null>(null);
   // Trava por SEGURANÇA após enviar ao CAD: só edita ao clicar "Editar", e o
   // Salvar volta a travar. Reseta ao abrir outro modelo.
-  const [confirmEditOpen, setConfirmEditOpen] = useState(false);
-  const [desmarcarOpen, setDesmarcarOpen] = useState(false);
   // Trava pós-Enviar: quando enviado à Explosão, o card fica read-only até clicar no lápis (Editar).
   const [editing, setEditing] = useState(false);
-  const { hasDownstream } = useEtapasAfetadas(modeloId);
+  const { hasDownstream, etapas } = useEtapasAfetadas(modeloId);
   // Rastreio p/ o alerta inteligente (o que mudou → impacto específico).
   const [gradeAlterada, setGradeAlterada] = useState(false);
   const [consumoAlterado, setConsumoAlterado] = useState(false);
@@ -1127,7 +1125,15 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const save = useMutation({
     mutationFn: persistModelo,
     onSuccess: () => {
-      toast.success("Modelo salvo");
+      if (hasDownstream) {
+        const corteAfetado = !!etapas.corte && (consumoAlterado || gradeAlterada || aviamentoAlterado);
+        const corteMsg = corteAfetado && (etapas.baixa_total ?? 0) > 0
+          ? " O corte/baixa de estoque foi afetado — reveja a Explosão."
+          : "";
+        toast.info(`Salvo. As etapas posteriores foram atualizadas e marcadas para verificação (#Erro) — confira Serviços, CQ e Direcionamento.${corteMsg}`);
+      } else {
+        toast.success("Modelo salvo");
+      }
       // Marca revisão pendente (#Erro) nas etapas afetadas — calculado no servidor.
       supabase.rpc("marcar_revisao_por_mudanca" as any, {
         _modelo_id: modeloId, _grade: gradeAlterada, _consumo: consumoAlterado, _aviamentos: aviamentoAlterado,
@@ -1479,21 +1485,6 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         </SheetTitle>
       </SheetHeader>
 
-      <DownstreamConfirmDialog
-        modeloId={modeloId}
-        open={confirmEditOpen}
-        onOpenChange={setConfirmEditOpen}
-        onConfirm={() => { setConfirmEditOpen(false); save.mutate(); }}
-        onDesmarcar={() => { setConfirmEditOpen(false); setDesmarcarOpen(true); }}
-        changes={{ grade: gradeAlterada, consumo: consumoAlterado, aviamentos: aviamentoAlterado }}
-      />
-      <DesmarcarEtapasDialog
-        modeloId={modeloId}
-        open={desmarcarOpen}
-        onOpenChange={setDesmarcarOpen}
-        onSave={() => { setDesmarcarOpen(false); save.mutate(); }}
-      />
-
       {/* área rolável (flex-1) — o footer fica fixo embaixo como irmão shrink-0 */}
       <div className="mt-4 flex-1 min-h-0 overflow-y-auto">
         <fieldset disabled={locked} className="contents">
@@ -1707,7 +1698,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
             <Pencil className="h-4 w-4" />
           </Button>
         ) : (
-          <Button onClick={() => (hasDownstream ? setConfirmEditOpen(true) : save.mutate())} disabled={save.isPending}>
+          <Button onClick={() => save.mutate()} disabled={save.isPending}>
             {save.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Salvar
           </Button>
         )}
