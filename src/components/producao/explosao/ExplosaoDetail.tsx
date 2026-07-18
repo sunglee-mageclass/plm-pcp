@@ -12,7 +12,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ImageIcon, Printer, Send } from "lucide-react";
+import { ImageIcon, Printer, Save, Send } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { varianteLabel } from "@/lib/variante";
@@ -249,45 +249,63 @@ export function ExplosaoDetail({ modeloId, onEnviado }: Props) {
     return n;
   }, [tecidos]);
 
+  // Monta o payload do salvar_cad_completo — reusado tanto no Salvar quanto no Enviar.
+  const buildPayload = () => ({
+    _modelo_id: modeloId,
+    _tecidos: tecidos.map((t) => ({
+      artigo_id: t.artigo_id,
+      numero: t.numero,
+      tipo: t.tipo,
+      consumo_cad: t.consumo_cad,
+      loss_percent_cad: t.loss_percent_cad,
+      custo_cad: t.custo_cad,
+      tamanho_folha: t.tamanho_folha,
+      variantes: t.variantes.map((v) => ({
+        variante_tecido_id: v.variante_tecido_id,
+        ordem: v.ordem,
+        multiplicador: Number(v.multiplicador ?? 1) || 1,
+        quantidade_folhas: v.quantidade_folhas,
+        metragem_planejada: v.metragem_planejada,
+        metragem_enviada: v.metragem_enviada,
+      })),
+    })),
+    _grades: grades
+      .filter((g) => (g.grade_total || 0) > 0)
+      .map((g) => ({
+        variante_numero: g.variante_numero,
+        grades: g.grades,
+        grade_total: g.grade_total,
+      })),
+    _aviamentos: [],
+    _etiquetas: [],
+    _proporcoes: (modelo as any)?.proporcoes ?? {},
+    _observacoes_molde: (cadRow as any)?.observacoes_molde ?? null,
+    _data_previsao_corte: (cadRow as any)?.data_previsao_corte ?? null,
+  });
+
+  // --- salvar sem baixa ---
+  const salvarMut = useMutation({
+    mutationFn: async () => {
+      if (!cadRow?.id) throw new Error("CAD não carregado");
+      const { error } = await supabase.rpc("salvar_cad_completo" as any, buildPayload());
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Salvo");
+      qc.invalidateQueries({ queryKey: ["explosao-cad-row", modeloId] });
+      qc.invalidateQueries({ queryKey: ["explosao-cad-tecidos", cadRow?.id] });
+      qc.invalidateQueries({ queryKey: ["cad-row", modeloId] });
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
+  });
+
   // --- enviar ao corte ---
-  // Salva só o necessário (metragem_enviada) via salvar_cad_completo e depois baixa.
+  // Salva via salvar_cad_completo e depois baixa o estoque.
   const enviarCorte = useMutation({
     mutationFn: async () => {
       if (!cadRow?.id) throw new Error("CAD não carregado");
       // Primeiro persiste a metragem_enviada atual no banco.
-      // Passa todos os dados do CAD (sem grade nova — mantém a existente).
-      const { data: cadId, error: errSave } = await supabase.rpc("salvar_cad_completo" as any, {
-        _modelo_id: modeloId,
-        _tecidos: tecidos.map((t) => ({
-          artigo_id: t.artigo_id,
-          numero: t.numero,
-          tipo: t.tipo,
-          consumo_cad: t.consumo_cad,
-          loss_percent_cad: t.loss_percent_cad,
-          custo_cad: t.custo_cad,
-          tamanho_folha: t.tamanho_folha,
-          variantes: t.variantes.map((v) => ({
-            variante_tecido_id: v.variante_tecido_id,
-            ordem: v.ordem,
-            multiplicador: Number(v.multiplicador ?? 1) || 1,
-            quantidade_folhas: v.quantidade_folhas,
-            metragem_planejada: v.metragem_planejada,
-            metragem_enviada: v.metragem_enviada,
-          })),
-        })),
-        _grades: grades
-          .filter((g) => (g.grade_total || 0) > 0)
-          .map((g) => ({
-            variante_numero: g.variante_numero,
-            grades: g.grades,
-            grade_total: g.grade_total,
-          })),
-        _aviamentos: [],
-        _etiquetas: [],
-        _proporcoes: (modelo as any)?.proporcoes ?? {},
-        _observacoes_molde: (cadRow as any)?.observacoes_molde ?? null,
-        _data_previsao_corte: (cadRow as any)?.data_previsao_corte ?? null,
-      });
+      const { data: cadId, error: errSave } = await supabase.rpc("salvar_cad_completo" as any, buildPayload());
       if (errSave) throw errSave;
 
       // Depois executa a baixa de estoque.
@@ -344,9 +362,18 @@ export function ExplosaoDetail({ modeloId, onEnviado }: Props) {
               Ficha de Corte
             </Button>
             <Button
+              variant="outline"
+              size="sm"
+              onClick={() => salvarMut.mutate()}
+              disabled={salvarMut.isPending || enviarCorte.isPending || !cadRow?.id}
+            >
+              <Save className="h-4 w-4 mr-1.5" />
+              {salvarMut.isPending ? "Salvando…" : "Salvar"}
+            </Button>
+            <Button
               size="sm"
               onClick={handleEnviar}
-              disabled={enviarCorte.isPending || !cadRow?.id}
+              disabled={enviarCorte.isPending || salvarMut.isPending || !cadRow?.id}
             >
               <Send className="h-4 w-4 mr-1.5" />
               {enviarCorte.isPending ? "Enviando…" : "Enviar ao Corte"}

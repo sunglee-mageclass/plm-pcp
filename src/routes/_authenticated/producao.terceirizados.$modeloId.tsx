@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { brl, fmtNum } from "@/lib/format";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Users, Save, Plus, Trash2, FileText, Pencil, Printer } from "lucide-react";
+import { ArrowLeft, Users, Save, Plus, Trash2, FileText, Pencil, Printer, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { corApelidoLabelServico } from "@/lib/variante";
@@ -20,6 +20,16 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useReadOnly } from "@/components/RequirePermission";
 import { useAuth } from "@/hooks/useAuth";
 import { ModeloObservacoes } from "@/components/shared/ModeloObservacoes";
@@ -552,6 +562,28 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
   });
 
+  // "Voltar uma etapa" — reverte o corte/baixa e volta o modelo para a Explosão.
+  const [voltarOpen, setVoltarOpen] = useState(false);
+  const voltarMut = useMutation({
+    mutationFn: async () => {
+      if (!cad?.id) throw new Error("CAD não encontrado");
+      const { error } = await supabase.rpc("reverter_corte_tecido" as any, { _cad_id: cad.id });
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      toast.success("Modelo voltou para a Explosão");
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["producao-terc-list"] }),
+        qc.invalidateQueries({ queryKey: ["producao-explosao-list"] }),
+        qc.invalidateQueries({ queryKey: ["estoque-tecidos"] }),
+        qc.invalidateQueries({ queryKey: ["dev-cad-row"] }),
+        qc.invalidateQueries({ queryKey: ["dashboard-estoque"] }),
+      ]);
+      onClose?.();
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao voltar etapa")),
+  });
+
   // Aprovação por bloco — persiste na hora (independe do Salvar; salvar_terceirizados
   // NÃO toca em `aprovado`, então nunca sobrescreve uma aprovação).
   const aprovacaoMut = useMutation({
@@ -604,6 +636,11 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
           <Button variant="outline" className="hidden md:inline-flex" onClick={() => { setPrintTarget("os"); printWithImages(); }} disabled={osItens.length === 0}>
             <Printer className="h-4 w-4 mr-2" /> Imprimir OS
           </Button>
+          {cad?.id && (
+            <Button variant="outline" size="icon" onClick={() => setVoltarOpen(true)} disabled={voltarMut.isPending || readOnly} title="Voltar uma etapa (volta pra Explosão)" aria-label="Voltar uma etapa">
+              <Undo2 className="h-4 w-4" />
+            </Button>
+          )}
           {locked ? (
             <Button variant="outline" size="icon" onClick={() => setEditing(true)} disabled={readOnly} aria-label="Editar">
               <Pencil className="h-4 w-4" />
@@ -1115,6 +1152,28 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
       ) : (
         <FichaTecnica modeloId={modeloId} />
       )}
+
+      <AlertDialog open={voltarOpen} onOpenChange={setVoltarOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Voltar este modelo para a Explosão?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Isso desfaz a baixa de estoque (corte) realizada no CAD e marca o modelo como
+              "não cortado". Ele voltará a aparecer na fila da Explosão para ser cortado
+              novamente. Registros de serviços já lançados permanecem.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={voltarMut.isPending}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={voltarMut.isPending}
+              onClick={() => voltarMut.mutate()}
+            >
+              Voltar uma etapa
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
