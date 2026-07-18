@@ -783,6 +783,65 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     });
   }, [autoFolhas, grades, draft?.proporcoes, cadTecidosState]);
 
+  // Sincroniza variantes do BOM (blocks) com o cadTecidosState — roda só após a semeadura.
+  // Quando o usuário adiciona/remove uma variante na seção "3. Tecidos", o cadTecidosState
+  // do tecido correspondente é atualizado: novas variantes ganham folhas/metragem zeradas
+  // (prontas pro autoFolhas calcular) e variantes removidas são descartadas.
+  // Preserva valores já digitados das variantes existentes (casa por variante_tecido_id).
+  useEffect(() => {
+    if (!cadSeeded) return; // só após a semeadura inicial
+    setCadTecidosState((prev) => {
+      let changed = false;
+      const next = prev.map((cadTec) => {
+        // Acha o block correspondente (mesmo tipo+numero)
+        const block = blocks.find((b) => b.tipo === cadTec.tipo && b.numero === cadTec.numero);
+        if (!block) return cadTec;
+
+        // Variantes não-null do block, com sua ordem (1-based)
+        const bomVars: { variante_tecido_id: string; ordem: number; multiplicador: number }[] = [];
+        block.variantes.forEach((vid, i) => {
+          if (vid) bomVars.push({ variante_tecido_id: vid, ordem: i + 1, multiplicador: Number(block.multiplicadores?.[i] ?? 1) || 1 });
+        });
+
+        // Mapa das variantes já no cadTecidosState (por variante_tecido_id)
+        const have = new Map(cadTec.variantes.map((v) => [v.variante_tecido_id, v]));
+
+        // Constrói a nova lista de variantes do cadTec
+        const nextVariantes: CadVarianteRow[] = bomVars.map(({ variante_tecido_id, ordem, multiplicador }) => {
+          const existing = have.get(variante_tecido_id);
+          if (existing) {
+            // Preserva valores já digitados; atualiza ordem/multiplicador se mudou
+            const ord = existing.ordem !== ordem || existing.multiplicador !== multiplicador
+              ? { ...existing, ordem, multiplicador }
+              : existing;
+            return ord;
+          }
+          changed = true;
+          // Nova variante: zerada, pronta pro autoFolhas
+          return {
+            variante_tecido_id,
+            variante_nome: null,
+            variante_cor: null,
+            variante_apelido: null,
+            multiplicador,
+            ordem,
+            quantidade_folhas: 0,
+            metragem_planejada: 0,
+            metragem_enviada: 0,
+          } as CadVarianteRow;
+        });
+
+        // Checa se alguma variante foi removida
+        if (nextVariantes.length !== cadTec.variantes.length) changed = true;
+
+        if (!changed && nextVariantes.every((v, i) => v === cadTec.variantes[i])) return cadTec;
+        changed = true;
+        return { ...cadTec, variantes: nextVariantes };
+      });
+      return changed ? next : prev;
+    });
+  }, [blocks, cadSeeded]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const totals = useMemo(() => {
     const sum = (tipo: TecidoBlock["tipo"]) =>
       blocks.filter((b) => b.tipo === tipo).reduce((s, b) => s + (b.custo_previsto || 0), 0);
@@ -863,7 +922,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     if (piloto3Aberto && (draft?.data_piloto3 ?? "").trim() === "") cadMissing.push("Data Piloto 3");
   }
   // Enviar é sempre visível quando aprovado e sem itens faltando (idempotente: reenviar é ok).
-  const canEnviarCad = isAprovado && cadMissing.length === 0;
+  const canEnviarCad = isAprovado && !draft?.enviado_cad && cadMissing.length === 0;
   // Read-only quando já enviado à Explosão e fora do modo edição (lápis "Editar").
   const locked = !!draft?.enviado_cad && !editing;
 
@@ -1095,6 +1154,11 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       // Printável (Ficha Técnica, useFichaData keys ft-*) lê do banco — invalida p/ refletir o que acabou de salvar.
       qc.invalidateQueries({ predicate: (query) => typeof query.queryKey?.[0] === "string" && (query.queryKey[0] as string).startsWith("ft-") });
       qc.invalidateQueries({ queryKey: ["modelo-observacoes", modeloId] });
+      // Atualiza a Explosão para refletir o CAD recém-salvo.
+      qc.invalidateQueries({ queryKey: ["explosao-cad-row", modeloId] });
+      qc.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "explosao-cad-tecidos" });
+      qc.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "explosao-cad-grades" });
+      qc.invalidateQueries({ queryKey: ["producao-explosao-list"] });
       setEditing(false); // Salvar re-trava quando já foi enviado à Explosão.
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
@@ -1123,6 +1187,10 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       // Ficha Técnica reflete o estado enviado; a Explosão passa a listar o modelo.
       qc.invalidateQueries({ predicate: (query) => typeof query.queryKey?.[0] === "string" && (query.queryKey[0] as string).startsWith("ft-") });
       qc.invalidateQueries({ queryKey: ["producao-explosao-list"] });
+      // Explosão precisa recarregar os dados do CAD recém-criado/atualizado.
+      qc.invalidateQueries({ queryKey: ["explosao-cad-row", modeloId] });
+      qc.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "explosao-cad-tecidos" });
+      qc.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "explosao-cad-grades" });
       qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao enviar")),

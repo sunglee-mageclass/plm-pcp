@@ -12,7 +12,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ImageIcon, Printer, Save, Send } from "lucide-react";
+import { ImageIcon, Printer, RotateCcw, Save, Send } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { varianteLabel } from "@/lib/variante";
@@ -48,6 +48,7 @@ export function ExplosaoDetail({ modeloId, onEnviado }: Props) {
   const qc = useQueryClient();
   const tenantId = useActiveTenantId();
   const [confirmZeroOpen, setConfirmZeroOpen] = useState(false);
+  const [voltarOpen, setVoltarOpen] = useState(false);
 
   // --- queries (mesmo padrão do CadEditor, mas apenas o necessário) ---
   const { data: modelo } = useQuery({
@@ -337,6 +338,27 @@ export function ExplosaoDetail({ modeloId, onEnviado }: Props) {
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao enviar ao corte")),
   });
 
+  // --- voltar ao desenvolvimento ---
+  const voltarMut = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.rpc("voltar_modelo_desenvolvimento" as any, {
+        _modelo_id: modeloId,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Voltou ao Desenvolvimento");
+      qc.invalidateQueries({ queryKey: ["producao-explosao-list"] });
+      qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
+      qc.invalidateQueries({ queryKey: ["explosao-modelo", modeloId] });
+      qc.invalidateQueries({ queryKey: ["explosao-cad-row", modeloId] });
+      qc.invalidateQueries({ queryKey: ["modelo-detail", modeloId] });
+      qc.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && (q.queryKey[0] as string).startsWith("ft-") });
+      onEnviado(); // fecha o painel (mesma callback que enviarCorte usa)
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao voltar ao Desenvolvimento")),
+  });
+
   const handleEnviar = () => {
     if (variantesZeradas > 0) {
       setConfirmZeroOpen(true);
@@ -357,6 +379,15 @@ export function ExplosaoDetail({ modeloId, onEnviado }: Props) {
             <p className="text-xs text-muted-foreground">Preencha "Metr. a Separar/Enviar" e clique em Enviar ao Corte.</p>
           </div>
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setVoltarOpen(true)}
+              disabled={voltarMut.isPending}
+            >
+              <RotateCcw className="h-4 w-4 mr-1.5" />
+              Voltar ao Desenvolvimento
+            </Button>
             <Button variant="outline" size="sm" onClick={() => printWithImages()}>
               <Printer className="h-4 w-4 mr-1.5" />
               Ficha de Corte
@@ -450,6 +481,29 @@ export function ExplosaoDetail({ modeloId, onEnviado }: Props) {
               }}
             >
               Enviar mesmo assim
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={voltarOpen} onOpenChange={setVoltarOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Voltar ao Desenvolvimento?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Voltar este modelo ao Desenvolvimento? Ele sai da Explosão e volta a ser editável.
+              O CAD existente é mantido.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setVoltarOpen(false);
+                voltarMut.mutate();
+              }}
+            >
+              Voltar ao Desenvolvimento
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
