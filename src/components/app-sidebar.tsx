@@ -107,6 +107,9 @@ const BADGE_CLS: Record<string, string> = {
   entrada_oc_aviamento: "bg-red-500 text-white",
   entrada_oc_insumo: "bg-red-500 text-white",
   otb_divergencia: "bg-red-500 text-white",
+  producao_terceirizados: "bg-red-500 text-white",
+  producao_cq: "bg-red-500 text-white",
+  producao_direcionamento: "bg-red-500 text-white",
 };
 
 function NavBadge({ n, className }: { n: number; className?: string }) {
@@ -157,6 +160,9 @@ export function AppSidebar() {
     entrada_oc_aviamento: Number(badges?.oc_aviamento_atrasada ?? 0),
     entrada_oc_insumo: Number(badges?.oc_etiqueta_atrasada ?? 0),
     otb_divergencia: Number(badges?.otb_divergencia ?? 0),
+    producao_terceirizados: Number(badges?.erro_terceirizados ?? 0),
+    producao_cq: Number(badges?.erro_cq ?? 0),
+    producao_direcionamento: Number(badges?.erro_direcionamento ?? 0),
   };
   // Agregado por módulo (quando o grupo está recolhido/ícone): soma + cor da maior urgência.
   const itemBadge = (subs: { key: string }[]) => {
