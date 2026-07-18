@@ -25,7 +25,7 @@ function ProducaoIndex() {
         <Factory className="h-7 w-7 text-primary mt-0.5 shrink-0" />
         <div>
           <h1 className="text-2xl font-bold">PCP</h1>
-          <p className="text-sm text-muted-foreground">CAD, serviços (pré/pós), Controle de Qualidade, direcionamento e lançamentos.</p>
+          <p className="text-sm text-muted-foreground">Serviços (pré/pós), Controle de Qualidade, direcionamento e lançamentos.</p>
         </div>
       </header>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
