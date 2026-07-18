@@ -15,15 +15,17 @@ type Props = {
   updateVar: (i: number, j: number, patch: Partial<VarianteRow>) => void;
   autoFolhas?: boolean;
   onToggleAutoFolhas?: (v: boolean) => void;
+  /** Quando true, todos os campos ficam somente-leitura EXCETO metragem_enviada. */
+  readOnly?: boolean;
 };
 
-export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, onToggleAutoFolhas }: Props) {
-  const ro = !!autoFolhas;
+export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, onToggleAutoFolhas, readOnly }: Props) {
+  const ro = !!autoFolhas || !!readOnly;
   return (
     <Card className="p-5 max-md:p-3 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-semibold">Tecidos / Forros / Entretelas</h2>
-        {onToggleAutoFolhas && (
+        {onToggleAutoFolhas && !readOnly && (
           <label className="flex items-center gap-1.5 text-xs cursor-pointer select-none">
             <input
               type="checkbox"
@@ -63,12 +65,20 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
           {t.artigo_id && <EtiquetaLavagemArtigoView artigoId={t.artigo_id} size="sm" />}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Field label="Consumo CAD (m)">
-              <NumberInput type="number" step="0.01" placeholder="0,00" value={t.consumo_cad || ""}
-                onChange={(e) => updateTec(i, { consumo_cad: Math.max(0, Number(e.target.value)) })} />
+              {readOnly ? (
+                <Input value={fmtNum(t.consumo_cad)} readOnly className="bg-muted" />
+              ) : (
+                <NumberInput type="number" step="0.01" placeholder="0,00" value={t.consumo_cad || ""}
+                  onChange={(e) => updateTec(i, { consumo_cad: Math.max(0, Number(e.target.value)) })} />
+              )}
             </Field>
             <Field label="% Loss CAD">
-              <NumberInput type="number" step="0.01" placeholder="0,00" value={t.loss_percent_cad || ""}
-                onChange={(e) => updateTec(i, { loss_percent_cad: Math.max(0, Number(e.target.value)) })} />
+              {readOnly ? (
+                <Input value={fmtNum(t.loss_percent_cad)} readOnly className="bg-muted" />
+              ) : (
+                <NumberInput type="number" step="0.01" placeholder="0,00" value={t.loss_percent_cad || ""}
+                  onChange={(e) => updateTec(i, { loss_percent_cad: Math.max(0, Number(e.target.value)) })} />
+              )}
             </Field>
             <Field label="Custo CAD (R$)">
               <Input value={fmtNum(t.custo_cad)} readOnly className="bg-muted" />
@@ -88,7 +98,7 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
                 <thead className="bg-muted/50">
                   <tr>
                     <th className="px-2 py-1 text-left">Variante</th>
-                    {compl && <th className="px-2 py-1">× grade</th>}
+                    {compl && !readOnly && <th className="px-2 py-1">× grade</th>}
                     <th className="px-2 py-1">Qtd Folhas</th>
                     <th className="px-2 py-1">Metr. Planejada</th>
                     <th className="px-2 py-1">Metr. a Separar/Enviar</th>
@@ -98,7 +108,7 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
                   {t.variantes.map((v, j) => (
                     <tr key={`${v.variante_tecido_id}-${j}`} className="border-t">
                       <td className="px-2 py-1">{varianteLabel({ nome: v.variante_nome, cor: v.variante_cor, apelido: v.variante_apelido })}</td>
-                      {compl && (
+                      {compl && !readOnly && (
                         <td className="px-2 py-1" data-label="× grade">
                           <NumberInput type="number" step="0.01" min={0} className="w-16 max-md:w-24"
                             value={Number(v.multiplicador ?? 1)}

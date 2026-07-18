@@ -12,7 +12,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useSort, SortTh } from "@/components/shared/sort";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
-import { CadEditor } from "@/routes/_authenticated/producao.cad.$modeloId";
+import { ExplosaoDetail } from "@/components/producao/explosao/ExplosaoDetail";
 
 export const Route = createFileRoute("/_authenticated/producao/explosao/")({
   component: ExplosaoListPage,
@@ -33,10 +33,11 @@ function ExplosaoListPage() {
   const fl = useFieldLabels();
   const [sheetId, setSheetId] = useState<string | null>(null);
   const qc = useQueryClient();
-  // Ao fechar o Sheet, refaz a lista: o CadEditor não invalida ["producao-explosao-list"]
-  // (ele invalida producao-cad-list/estoque/etc.), então um modelo que acabou de ser
-  // cortado (ou revertido) sumiria/reapareceria só no próximo refetch sem isso.
-  const closeSheet = () => { setSheetId(null); qc.invalidateQueries({ queryKey: ["producao-explosao-list"] }); };
+  // Ao fechar o Sheet, refaz a lista para remover modelos já enviados ao corte.
+  const closeSheet = () => {
+    setSheetId(null);
+    qc.invalidateQueries({ queryKey: ["producao-explosao-list"] });
+  };
   const [q, setQ] = useState("");
   const [fColecao, setFColecao] = useState("all");
   const [fMes, setFMes] = useState("all");
@@ -45,7 +46,7 @@ function ExplosaoListPage() {
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["producao-explosao-list"],
     queryFn: async () => {
-      // Modelos enviados ao CAD que ainda NÃO foram cortados (enviado_corte=false/null).
+      // Modelos enviados do Desenvolvimento ao CAD que ainda NÃO foram cortados.
       const { data, error } = await supabase
         .from("modelos")
         .select(
@@ -146,7 +147,7 @@ function ExplosaoListPage() {
                   <EmptyState
                     icon={Layers}
                     title="Nenhum modelo aguardando baixa"
-                    description="Os modelos enviados ao CAD e ainda não cortados aparecem aqui."
+                    description="Os modelos enviados do Desenvolvimento e ainda não cortados aparecem aqui."
                     className="border-0 rounded-none"
                   />
                 </td>
@@ -174,10 +175,9 @@ function ExplosaoListPage() {
       <Sheet open={!!sheetId} onOpenChange={(o) => !o && closeSheet()}>
         <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] overflow-y-auto p-0 max-md:[&>button]:hidden">
           {sheetId && (
-            <CadEditor
+            <ExplosaoDetail
               modeloId={sheetId}
-              onAfterDelete={closeSheet}
-              onClose={closeSheet}
+              onEnviado={closeSheet}
             />
           )}
         </SheetContent>
