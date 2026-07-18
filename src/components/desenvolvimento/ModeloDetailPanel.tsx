@@ -135,9 +135,9 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     queryKey: ["artigos-all"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("artigos").select("id, nome, preco, preco_por_metro, unidade_medida, categoria_tecido_id").order("nome");
+        .from("artigos").select("id, nome, preco, preco_por_metro, unidade_medida, categoria_tecido_id, largura_estimada").order("nome");
       if (error) throw error;
-      return (data ?? []) as { id: string; nome: string; preco: number | null; preco_por_metro: number | null; unidade_medida: string | null; categoria_tecido_id: string | null }[];
+      return (data ?? []) as { id: string; nome: string; preco: number | null; preco_por_metro: number | null; unidade_medida: string | null; categoria_tecido_id: string | null; largura_estimada: number | null }[];
     },
   });
   const artigoMap = useMemo(() => Object.fromEntries(artigos.map((a) => [a.id, a])), [artigos]);
@@ -402,7 +402,6 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const [grades, setGrades] = useState<GradeRow[]>([]);
   const [uploading, setUploading] = useState(false);
   const [confirmEnviarCad, setConfirmEnviarCad] = useState(false);
-  const [printCorteToken, setPrintCorteToken] = useState(0);
   const [printTecnicaToken, setPrintTecnicaToken] = useState(0);
   // Confirmação (AlertDialog) antes de descartar grade preenchida ao trocar/remover
   // o Tecido 1. Guarda a ação adiada até o usuário confirmar.
@@ -676,7 +675,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
             initialTec.push({
               numero: mt.numero, tipo: mt.tipo as TipoTec, artigo_id: mt.artigo_id,
               consumo_cad: consumo, loss_percent_cad: loss, custo_cad: calcCusto(consumo, loss, preco),
-              tamanho_folha: 0, preco, largura: Number(artigoMap[mt.artigo_id] as any ?? 0),
+              tamanho_folha: 0, preco, largura: Number(artigoMap[mt.artigo_id]?.largura_estimada ?? 0),
               artigo_nome: artigoMap[mt.artigo_id]?.nome ?? null, etiqueta_lavagem_urls: [],
               variantes: allVars.map((v: any): CadVarianteRow => ({
                 variante_tecido_id: v.variante_tecido_id,
@@ -709,7 +708,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         return {
           numero: mt.numero, tipo: mt.tipo as TipoTec, artigo_id: mt.artigo_id,
           consumo_cad: consumo, loss_percent_cad: loss, custo_cad: calcCusto(consumo, loss, preco),
-          tamanho_folha: 0, preco, largura: Number(artigoMap[mt.artigo_id] as any ?? 0),
+          tamanho_folha: 0, preco, largura: Number(artigoMap[mt.artigo_id]?.largura_estimada ?? 0),
           artigo_nome: artigoMap[mt.artigo_id]?.nome ?? null, etiqueta_lavagem_urls: [],
           variantes: allVars.map((v: any): CadVarianteRow => ({
             variante_tecido_id: v.variante_tecido_id,
@@ -728,6 +727,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   }, [cadSeeded, cadRowDev, cadTecidosDev, cadTecidosDevFetched, frozenPrecosCad, frozenPrecosCadFetched, tecidosData, artigoMap]);
 
   // Helpers p/ editar o estado dos tecidos CAD.
+  // Ao mudar consumo_cad ou loss_percent_cad, sincroniza também o bloco correspondente
+  // no BOM ("3. Tecidos"), mantendo os dois sempre iguais (mesma fonte de verdade).
   const updateCadTec = (i: number, patch: Partial<CadTecidoRow>) => {
     setCadTecidosState((prev) => {
       const next = [...prev];
@@ -736,6 +737,29 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       next[i] = merged;
       return next;
     });
+    // Propagação bidirecional: consumo/loss no CAD → BOM
+    if (patch.consumo_cad !== undefined || patch.loss_percent_cad !== undefined) {
+      const tec = cadTecidosState[i];
+      if (tec) {
+        const { tipo, numero } = tec;
+        setBlocks((bs) => bs.map((b) => {
+          if (b.tipo !== tipo || b.numero !== numero) return b;
+          let changed = false;
+          const bomPatch: Partial<TecidoBlock> = {};
+          if (patch.consumo_cad !== undefined && b.consumo !== patch.consumo_cad) {
+            bomPatch.consumo = patch.consumo_cad;
+            changed = true;
+          }
+          if (patch.loss_percent_cad !== undefined && b.loss_percent !== patch.loss_percent_cad) {
+            bomPatch.loss_percent = patch.loss_percent_cad;
+            changed = true;
+          }
+          if (!changed) return b;
+          return recomputeBlock({ ...b, ...bomPatch }, artigoMap, varianteArtigoMap, frozenPrecos as Record<string, number>);
+        }));
+        setConsumoAlterado(true);
+      }
+    }
   };
   const updateCadVar = (i: number, j: number, patch: Partial<CadVarianteRow>) => {
     setCadTecidosState((prev) => {
@@ -848,7 +872,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const piloto2Aberto = !!(draft?.piloteiro2_id || (draft?.data_piloto2 ?? "").trim());
   const piloto3Aberto = !!(draft?.piloteiro3_id || (draft?.data_piloto3 ?? "").trim());
   const cadMissing: string[] = [];
-  if (isAprovado && !draft?.enviado_cad) {
+  if (isAprovado) {
     if ((draft?.ref ?? "").trim() === "") cadMissing.push(fl("ref"));
     if ((draft?.nome ?? "").trim() === "") cadMissing.push("Nome");
     if (!(modelo as any)?.estilista_id) cadMissing.push("Estilista");
@@ -861,7 +885,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     if (piloto2Aberto && (draft?.data_piloto2 ?? "").trim() === "") cadMissing.push("Data Piloto 2");
     if (piloto3Aberto && (draft?.data_piloto3 ?? "").trim() === "") cadMissing.push("Data Piloto 3");
   }
-  const canEnviarCad = isAprovado && !draft?.enviado_cad && cadMissing.length === 0;
+  // Enviar é sempre visível quando aprovado e sem itens faltando (idempotente: reenviar é ok).
+  const canEnviarCad = isAprovado && cadMissing.length === 0;
 
   // Persiste o modelo + BOM (tecidos/variantes/grade/aviamentos) via salvar_modelo_bom.
   // Usado pelo Salvar e também ANTES de Enviar ao CAD, garantindo que a cópia ao CAD
@@ -1127,6 +1152,22 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     // consumo/%loss REALMENTE mudam — trocar artigo/substituto não altera a metragem,
     // então não deve disparar revisão pendente nas etapas.
     if (patch.consumo !== undefined || patch.loss_percent !== undefined) setConsumoAlterado(true);
+    // Propagação bidirecional: consumo/loss no BOM → CAD
+    if (patch.consumo !== undefined || patch.loss_percent !== undefined) {
+      const target = blocks[idx];
+      if (target) {
+        const { tipo, numero } = target;
+        setCadTecidosState((prev) => prev.map((t) => {
+          if (t.tipo !== tipo || t.numero !== numero) return t;
+          const cadPatch: Partial<CadTecidoRow> = {};
+          if (patch.consumo !== undefined) cadPatch.consumo_cad = patch.consumo;
+          if (patch.loss_percent !== undefined) cadPatch.loss_percent_cad = patch.loss_percent;
+          const merged = { ...t, ...cadPatch };
+          merged.custo_cad = calcCusto(merged.consumo_cad, merged.loss_percent_cad, merged.preco);
+          return merged;
+        }));
+      }
+    }
     const target = blocks[idx];
     const isTecido1 = target?.tipo === "tecido" && target?.numero === 1;
     const applyPatch = () => {
@@ -1574,10 +1615,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       </div>
 
       <div className="bg-background border-t pt-3 mt-3 shrink-0 flex flex-wrap gap-2 justify-end items-center max-sm:flex-nowrap">
-        {draft.enviado_cad && (
-          <span className="text-xs text-muted-foreground mr-auto max-sm:hidden">✓ Já enviado para o CAD</span>
-        )}
-        {isAprovado && !draft.enviado_cad && cadMissing.length > 0 && (
+        {isAprovado && cadMissing.length > 0 && (
           <span className="text-xs text-muted-foreground mr-auto max-sm:hidden">
             Para enviar, falta: {cadMissing.join(", ")}
           </span>
@@ -1587,25 +1625,6 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           <span className="max-sm:sr-only">Fechar</span>
         </Button>
         <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!draft.enviado_cad}
-                  onClick={() => setPrintCorteToken((t) => t + 1)}
-                  aria-label="Imprimir Ficha de Corte"
-                >
-                  <Printer className="h-4 w-4 mr-1" />
-                  <span className="max-sm:hidden">Ficha de Corte</span>
-                </Button>
-              </span>
-            </TooltipTrigger>
-            {!draft.enviado_cad && (
-              <TooltipContent>Disponível após Enviar</TooltipContent>
-            )}
-          </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
               <span>
@@ -1640,16 +1659,17 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       <AlertDialog open={confirmEnviarCad} onOpenChange={setConfirmEnviarCad}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Tem certeza que quer enviar o modelo?</AlertDialogTitle>
+            <AlertDialogTitle>Enviar modelo para a Explosão?</AlertDialogTitle>
             <AlertDialogDescription>
-              O modelo sai do Desenvolvimento e vai para o CAD (Produção) com os tecidos,
-              variantes e grade atuais. Você ainda poderá ajustar os consumos no CAD.
+              O modelo vai para a Explosão (próxima etapa) com os tecidos, variantes e
+              grade atuais. Na Explosão você define a quantidade a enviar e autoriza a baixa
+              do estoque. Você pode reenviar sempre que precisar atualizar os dados.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Não, quero fazer uma revisão antes</AlertDialogCancel>
             <AlertDialogAction onClick={() => { setConfirmEnviarCad(false); enviarCad.mutate(); }}>
-              Sim
+              Sim, enviar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1673,13 +1693,10 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Fichas ocultas — cada FichaTecnica/CadFichaCorte já usa PrintArea (portal no body).
+      {/* Ficha oculta — FichaTecnica já usa PrintArea (portal no body).
           Montar direto (SEM wrapper .print-area), igual à tela de CAD (producao.cad.index). */}
       {draft.enviado_cad && (
-        <>
-          <PrintFicha modeloId={modeloId} kind="corte" token={printCorteToken} />
-          <PrintFicha modeloId={modeloId} kind="tecnica" token={printTecnicaToken} />
-        </>
+        <PrintFicha modeloId={modeloId} kind="tecnica" token={printTecnicaToken} />
       )}
     </>
   );
