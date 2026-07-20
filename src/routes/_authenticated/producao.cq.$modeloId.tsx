@@ -416,6 +416,9 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
       qc.invalidateQueries({ queryKey: ["dir-list"] }),
       qc.invalidateQueries({ queryKey: ["lancamentos-cards"] }),
       qc.invalidateQueries({ queryKey: ["cad-grades", cad?.id] }),
+      // O trigger de rebaixa re-deriva o snapshot do Direcionamento quando a grade real muda;
+      // invalida a query do detalhe p/ refletir os números novos na hora.
+      qc.invalidateQueries({ queryKey: ["direcionamento", cad?.id] }),
       qc.invalidateQueries({ queryKey: ["plan-cq"] }),
     ]);
   };
