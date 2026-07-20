@@ -20,6 +20,7 @@ import { Plus, Trash2, Pencil, Save, ArrowLeft, ImageOff, Send, X, ChevronRight 
 import { metragemDisponivel, demandaLinha, saldo, agregarUsoOC } from "@/lib/simulacao";
 import type { OcUso } from "@/lib/simulacao";
 import { labelVarianteRow } from "@/lib/variante";
+import { useResizableWidth, useCorCols } from "@/hooks/useResizableWidth";
 
 /**
  * Simulador de uso de OC — cenários + árvore Unidade/Linha/Modelo + resultado por cor.
@@ -264,6 +265,16 @@ export function SimulacaoSheet({
   const [editNome, setEditNome] = useState(false);
   const [confirmExcluir, setConfirmExcluir] = useState<string | null>(null);
   const [confirmAplicar, setConfirmAplicar] = useState<{ unidadeId: string; nome: string } | null>(null);
+
+  // ── Larguras arrastáveis (desktop-only, persistidas em localStorage) ─────────
+  const { width: resumoWidth, startDrag: startDragResumo } = useResizableWidth(
+    "otb-sim-resumo-w",
+    288,
+    220,
+    560,
+    true, // arrastar alça p/ esquerda aumenta o resumo
+  );
+  const { cols: corCols, startDragPecas, startDragMetragem } = useCorCols("otb-sim-cor-cols");
 
   // ── Helpers de nomeação ────────────────────────────────────────────────────
 
@@ -645,7 +656,7 @@ export function SimulacaoSheet({
             <div className="flex flex-col md:flex-row md:items-start md:min-h-full">
 
               {/* ── Coluna esquerda (esquerda principal, rola junto) ── */}
-              <div className="flex-1 min-w-0 p-4 space-y-4">
+              <div className="flex-1 min-w-0 p-4 space-y-4" style={{ minWidth: 0 }}>
 
                 {/* ── Pílulas de cenário ── */}
                 <div className="flex flex-wrap items-center gap-2">
@@ -952,20 +963,67 @@ export function SimulacaoSheet({
 
                                                     {/* Lista de cores com peças por cor */}
                                                     {u.variantes.length > 0 ? (
-                                                      <div className="divide-y divide-border/60 pl-1">
-                                                        {u.variantes.map((v) => (
-                                                          <div key={v.ocItemId} className="flex items-center justify-between gap-3 py-1 text-xs text-muted-foreground">
-                                                            {/* Tecido · cor base · apelido — por extenso no desktop; trunca só no mobile */}
-                                                            <span className="min-w-0 truncate md:whitespace-normal md:overflow-visible" title={varianteLabelDe(u.ocId, v.ocItemId)}>
-                                                              {varianteLabelDe(u.ocId, v.ocItemId)}
-                                                            </span>
-                                                            <span className="tabular-nums shrink-0 text-right whitespace-nowrap">
-                                                              <b className="text-foreground">{l.profCor}</b> pç
-                                                              {m.consumo > 0 && <> · <b className="text-foreground">{fmt2(l.profCor * m.consumo)}</b> m</>}
-                                                            </span>
+                                                      <>
+                                                        {/* Desktop: grid com cabeçalho e alças arrastáveis */}
+                                                        <div className="hidden md:block pl-1">
+                                                          {/* Cabeçalho */}
+                                                          <div
+                                                            className="grid items-center text-[10px] uppercase text-muted-foreground select-none"
+                                                            style={{ gridTemplateColumns: `minmax(0,1fr) 6px ${corCols.pecas}px 6px ${corCols.metragem}px` }}
+                                                          >
+                                                            <span className="truncate">Cor</span>
+                                                            <div
+                                                              className="cursor-col-resize hover:bg-primary/40 bg-transparent rounded transition-colors self-stretch"
+                                                              onPointerDown={startDragPecas}
+                                                            />
+                                                            <span className="text-right pr-0.5">Peças</span>
+                                                            <div
+                                                              className="cursor-col-resize hover:bg-primary/40 bg-transparent rounded transition-colors self-stretch"
+                                                              onPointerDown={startDragMetragem}
+                                                            />
+                                                            <span className="text-right pr-0.5">Metragem</span>
                                                           </div>
-                                                        ))}
-                                                      </div>
+                                                          {/* Linhas de cor */}
+                                                          <div className="divide-y divide-border/60">
+                                                            {u.variantes.map((v) => (
+                                                              <div
+                                                                key={v.ocItemId}
+                                                                className="grid items-center py-1 text-xs text-muted-foreground"
+                                                                style={{ gridTemplateColumns: `minmax(0,1fr) 6px ${corCols.pecas}px 6px ${corCols.metragem}px` }}
+                                                              >
+                                                                <span
+                                                                  className="min-w-0 whitespace-normal"
+                                                                  title={varianteLabelDe(u.ocId, v.ocItemId)}
+                                                                >
+                                                                  {varianteLabelDe(u.ocId, v.ocItemId)}
+                                                                </span>
+                                                                <span />
+                                                                <span className="tabular-nums text-right text-foreground font-medium pr-0.5">
+                                                                  {l.profCor}
+                                                                </span>
+                                                                <span />
+                                                                <span className="tabular-nums text-right text-foreground font-medium pr-0.5">
+                                                                  {m.consumo > 0 ? fmt2(l.profCor * m.consumo) : "—"}
+                                                                </span>
+                                                              </div>
+                                                            ))}
+                                                          </div>
+                                                        </div>
+                                                        {/* Mobile: lista simples (layout original) */}
+                                                        <div className="md:hidden divide-y divide-border/60 pl-1">
+                                                          {u.variantes.map((v) => (
+                                                            <div key={v.ocItemId} className="flex items-center justify-between gap-3 py-1 text-xs text-muted-foreground">
+                                                              <span className="min-w-0 truncate" title={varianteLabelDe(u.ocId, v.ocItemId)}>
+                                                                {varianteLabelDe(u.ocId, v.ocItemId)}
+                                                              </span>
+                                                              <span className="tabular-nums shrink-0 text-right whitespace-nowrap">
+                                                                <b className="text-foreground">{l.profCor}</b> pç
+                                                                {m.consumo > 0 && <> · <b className="text-foreground">{fmt2(l.profCor * m.consumo)}</b> m</>}
+                                                              </span>
+                                                            </div>
+                                                          ))}
+                                                        </div>
+                                                      </>
                                                     ) : (
                                                       <p className="text-xs text-muted-foreground pl-1 italic">
                                                         Escolha as cores acima
@@ -1023,9 +1081,21 @@ export function SimulacaoSheet({
                 )}
               </div>
 
+              {/* ── Alça de redimensionamento (desktop-only) ── */}
+              {temSel && (
+                <div
+                  className="hidden md:flex md:w-1.5 shrink-0 cursor-col-resize bg-border hover:bg-primary/40 transition-colors md:sticky md:top-0 md:self-stretch"
+                  onPointerDown={startDragResumo}
+                  title="Arrastar para redimensionar"
+                />
+              )}
+
               {/* ── Coluna direita: Resumo de OC (desktop: sticky, scroll próprio) ── */}
               {temSel && (
-                <div className="hidden md:block md:w-72 md:shrink-0 md:sticky md:top-0 md:self-start md:max-h-[calc(100vh-8rem)] md:overflow-y-auto p-4 border-l">
+                <div
+                  className="hidden md:block md:shrink-0 md:sticky md:top-0 md:self-start md:max-h-[calc(100vh-8rem)] md:overflow-y-auto p-4 border-l"
+                  style={{ width: resumoWidth }}
+                >
                   <p className="text-xs font-semibold text-muted-foreground mb-3">
                     Resumo de OC <span className="font-normal">(uso somado entre subcoleções)</span>
                   </p>
