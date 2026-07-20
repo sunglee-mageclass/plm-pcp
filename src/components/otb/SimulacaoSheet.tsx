@@ -988,9 +988,10 @@ export function SimulacaoSheet({
                                                                 <span className="min-w-0 flex items-center whitespace-normal py-1 pr-2" title={varianteLabelDe(u.ocId, v.ocItemId)}>
                                                                   {varianteLabelDe(u.ocId, v.ocItemId)}
                                                                 </span>
-                                                                <span className="flex items-center justify-end border-l border-border/70 py-1 pl-1 pr-0.5">
+                                                                <span className="flex items-center justify-end border-l border-border/70 py-1 px-2">
+                                                                  {/* z-20 + inset (px-2) tiram o input de baixo das alças z-10 → clique único; borda/fundo mostram que é editável */}
                                                                   <Input
-                                                                    className="h-6 w-full min-w-0 px-1 text-right tabular-nums text-foreground font-medium border-0 bg-transparent shadow-none focus-visible:ring-1 focus-visible:ring-primary/50"
+                                                                    className="relative z-20 h-6 w-full min-w-0 px-1 text-right tabular-nums text-foreground font-medium border border-input rounded-sm bg-background hover:border-primary/60 focus-visible:ring-1 focus-visible:ring-primary/60"
                                                                     inputMode="numeric"
                                                                     value={m.profPorCor?.[v.ocItemId] ?? l.profCor}
                                                                     onChange={(e) => {
@@ -999,7 +1000,7 @@ export function SimulacaoSheet({
                                                                         profPorCor: { ...(m.profPorCor ?? {}), [v.ocItemId]: val },
                                                                       });
                                                                     }}
-                                                                    title="Profundidade por cor (peças)"
+                                                                    title="Profundidade por cor (peças) — clique para editar"
                                                                   />
                                                                 </span>
                                                                 <span className="flex items-center justify-end tabular-nums text-foreground font-medium border-l border-border/70 py-1 pl-1 pr-0.5">
