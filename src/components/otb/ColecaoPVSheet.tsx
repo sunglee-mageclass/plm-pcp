@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -42,6 +43,93 @@ const splitEven = (total: number, n: number): number[] => {
   const base = Math.floor(total / n), rem = total - base * n;
   return Array.from({ length: n }, (_, i) => base + (i < rem ? 1 : 0));
 };
+
+const SEMANAS_NAO_ATR = ["1", "2", "3", "4", "5"];
+
+/** Modelos da coleção PV que ainda não foram atribuídos a uma subcoleção/semana. */
+function NaoAtribuidosPV({
+  cards,
+  subs,
+  onAssign,
+}: {
+  cards: any[];
+  /** Subcoleções com id REAL do banco (só as já salvas têm id real). */
+  subs: { id: string; nome: string }[];
+  onAssign: (modeloId: string, subcolecaoId: string, semana: string) => Promise<void>;
+}) {
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [bulkSub, setBulkSub] = useState<string>("");
+  const [bulkSem, setBulkSem] = useState<string>("");
+  const [loading, setLoading] = useState(false);
+
+  const hasSubs = subs.length > 0;
+  const toggle = (id: string) => setChecked((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const allChecked = cards.length > 0 && cards.every((c) => checked.has(c.id));
+  const toggleAll = () => setChecked(allChecked ? new Set() : new Set(cards.map((c) => c.id)));
+
+  const atribuir = async () => {
+    if (checked.size === 0) return;
+    if (!hasSubs) { toast.error("Salve as subcoleções primeiro para atribuir."); return; }
+    if (!bulkSub) { toast.error("Escolha a subcoleção."); return; }
+    if (!bulkSem) { toast.error("Escolha a semana."); return; }
+    setLoading(true);
+    try {
+      for (const id of checked) await onAssign(id, bulkSub, bulkSem);
+      toast.success(`${checked.size} atribuído(s).`);
+      setChecked(new Set());
+    } catch (e: any) {
+      toast.error(mensagemErro(e, "Erro ao atribuir."));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border p-3 space-y-2">
+      <div className="text-sm font-medium flex items-center justify-between">
+        <span>Não atribuídos</span>
+        <Badge variant="secondary">{cards.length}</Badge>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Modelos desta coleção sem subcoleção ou sem semana. Selecione e atribua em massa para que entrem no plano PV.
+      </p>
+      {!hasSubs && (
+        <p className="text-xs text-amber-600 font-medium">Salve as subcoleções primeiro para habilitar a atribuição.</p>
+      )}
+      <div className="flex flex-wrap items-center gap-2 rounded-md bg-muted/40 p-2">
+        <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+          <Checkbox checked={allChecked} onCheckedChange={toggleAll} aria-label="Selecionar todos" /> Todos
+        </label>
+        <span className="text-xs text-muted-foreground">{checked.size} selecionado(s)</span>
+        <div className="flex-1" />
+        {hasSubs && (
+          <Select value={bulkSub} onValueChange={setBulkSub}>
+            <SelectTrigger className="w-36 h-8"><SelectValue placeholder="Subcoleção" /></SelectTrigger>
+            <SelectContent>{subs.map((sc) => <SelectItem key={sc.id} value={sc.id}>{sc.nome}</SelectItem>)}</SelectContent>
+          </Select>
+        )}
+        <Select value={bulkSem} onValueChange={setBulkSem}>
+          <SelectTrigger className="w-24 h-8"><SelectValue placeholder="Semana" /></SelectTrigger>
+          <SelectContent>{SEMANAS_NAO_ATR.map((w) => <SelectItem key={w} value={w}>Semana {w}</SelectItem>)}</SelectContent>
+        </Select>
+        <Button size="sm" className="h-8" disabled={checked.size === 0 || loading || !hasSubs} onClick={atribuir}>
+          Atribuir ({checked.size})
+        </Button>
+      </div>
+      <div className="space-y-1">
+        {cards.map((c) => (
+          <label key={c.id} className="flex items-center gap-2 text-sm cursor-pointer rounded px-1 py-0.5 hover:bg-muted/40">
+            <Checkbox checked={checked.has(c.id)} onCheckedChange={() => toggle(c.id)} aria-label="Selecionar" />
+            <span className="flex-1 min-w-0 truncate">
+              {c.ref ?? c.nome ?? "Sem nome"}
+              {(c.categorias_produto as any)?.nome ? ` · ${(c.categorias_produto as any).nome}` : ""}
+            </span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: string | null; onClose: () => void; onSaved?: () => void }) {
   const qc = useQueryClient();
@@ -121,6 +209,23 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
         .eq("id", colecaoId).single();
       if (error) throw error;
       return data as any;
+    },
+  });
+  const { data: colecaoCards = [], refetch: refetchCards } = useQuery({
+    queryKey: ["otb-pv-colecao-cards", colecaoId],
+    enabled: !!colecaoId,
+    queryFn: async () => (await supabase.from("modelos" as any)
+      .select("id, nome, ref, subcolecao, semana, categoria_principal_id, categorias_produto:categoria_principal_id(nome)")
+      .eq("colecao_id", colecaoId!)).data ?? [],
+  });
+  const naoAtribuidos = useMemo(
+    () => (colecaoCards as any[]).filter((c) => !c.subcolecao || !(c.semana && String(c.semana).trim())),
+    [colecaoCards],
+  );
+  const atribuirCard = useMutation({
+    mutationFn: async ({ modeloId, subcolecaoId, semana }: { modeloId: string; subcolecaoId: string; semana: string }) => {
+      const { error } = await supabase.rpc("otb_atribuir_card", { _modelo_id: modeloId, _subcolecao_id: subcolecaoId, _semana: semana });
+      if (error) throw error;
     },
   });
 
@@ -262,6 +367,22 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
     onSuccess: () => { toast.success("Coleção excluída."); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); onSaved?.(); onClose(); },
     onError: (e: any) => { setConfirmDel(false); toast.error(mensagemErro(e, "Erro ao excluir a coleção.")); },
   });
+
+  // Subcoleções com ID REAL do banco (as que já foram salvas têm id real, não o nid local).
+  // Usamos `loaded.subcolecoes` que vem do banco após o save; filtramos pelo nome para
+  // bater com as subcoleções atuais do editor (que podem ter sido renomeadas antes de salvar).
+  const subsReais = useMemo<{ id: string; nome: string }[]>(() => {
+    if (!loaded?.subcolecoes) return [];
+    return (loaded.subcolecoes as any[]).map((sc: any) => ({ id: sc.id, nome: sc.nome }));
+  }, [loaded]);
+
+  const onAssignPV = async (modeloId: string, subcolecaoId: string, semana: string) => {
+    await atribuirCard.mutateAsync({ modeloId, subcolecaoId, semana });
+    await refetchCards();
+    qc.invalidateQueries({ queryKey: ["colecao-pv", savedId] });
+    qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
+    qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+  };
 
   const d = useMemo(() => {
     let poder = 0, custo = 0, modelos = 0;
@@ -453,6 +574,13 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
               })}
               <Button variant="outline" onClick={addSub}><Plus className="h-4 w-4 mr-1" /> Subcoleção</Button>
             </div>
+          )}
+          {colecaoId && naoAtribuidos.length > 0 && (
+            <NaoAtribuidosPV
+              cards={naoAtribuidos}
+              subs={subsReais}
+              onAssign={onAssignPV}
+            />
           )}
         </div>
 
