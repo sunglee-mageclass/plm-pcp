@@ -34,6 +34,8 @@ import { useReadOnly } from "@/components/RequirePermission";
 import { useAuth } from "@/hooks/useAuth";
 import { ModeloObservacoes } from "@/components/shared/ModeloObservacoes";
 import { VerificarRevisao } from "@/components/producao/RevisaoErro";
+import { ReverterImpacto } from "@/components/producao/ReverterImpacto";
+import { useReverterImpacto } from "@/hooks/useReverterImpacto";
 import { printWithImages } from "@/lib/print";
 import { FichaTecnica } from "@/components/producao/FichaTecnica";
 import { OrdemServicoTerceirizados, type OSItem } from "@/components/producao/OrdemServicoTerceirizados";
@@ -564,6 +566,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
 
   // "Voltar uma etapa" — reverte o corte/baixa e volta o modelo para a Explosão.
   const [voltarOpen, setVoltarOpen] = useState(false);
+  const reverterImpacto = useReverterImpacto(cad?.id, voltarOpen);
   const voltarMut = useMutation({
     mutationFn: async () => {
       if (!cad?.id) throw new Error("CAD não encontrado");
@@ -574,10 +577,13 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
       toast.success("Modelo voltou para a Explosão");
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["producao-terc-list"] }),
+        qc.invalidateQueries({ queryKey: ["producao-cq-list"] }),
         qc.invalidateQueries({ queryKey: ["producao-explosao-list"] }),
+        qc.invalidateQueries({ queryKey: ["dir-list"] }),
         qc.invalidateQueries({ queryKey: ["estoque-tecidos"] }),
         qc.invalidateQueries({ queryKey: ["dev-cad-row"] }),
         qc.invalidateQueries({ queryKey: ["dashboard-estoque"] }),
+        qc.invalidateQueries({ queryKey: ["sidebar-badges"] }),
       ]);
       onClose?.();
     },
@@ -1157,16 +1163,14 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Voltar este modelo para a Explosão?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Isso desfaz a baixa de estoque (corte) realizada no CAD e marca o modelo como
-              "não cortado". Ele voltará a aparecer na fila da Explosão para ser cortado
-              novamente. Registros de serviços já lançados permanecem.
+            <AlertDialogDescription asChild>
+              <div><ReverterImpacto cadId={cad?.id} open={voltarOpen} /></div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={voltarMut.isPending}>Cancelar</AlertDialogCancel>
             <AlertDialogAction
-              disabled={voltarMut.isPending}
+              disabled={voltarMut.isPending || reverterImpacto.data?.temPaga}
               onClick={() => voltarMut.mutate()}
             >
               Voltar uma etapa

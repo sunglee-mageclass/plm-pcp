@@ -31,6 +31,8 @@ import { useReadOnly } from "@/components/RequirePermission";
 import { VerificarRevisao } from "@/components/producao/RevisaoErro";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { CqPosView, type CqPosHandle, type CqPosStatus } from "@/components/producao/CqPosView";
+import { ReverterImpacto } from "@/components/producao/ReverterImpacto";
+import { useReverterImpacto } from "@/hooks/useReverterImpacto";
 
 export const Route = createFileRoute("/_authenticated/producao/cq/$modeloId")({
   component: CqDetailPage,
@@ -470,6 +472,7 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
 
   // "Voltar uma etapa" — reverte o corte/baixa e volta o modelo para a Explosão.
   const [voltarOpen, setVoltarOpen] = useState(false);
+  const reverterImpacto = useReverterImpacto(cad?.id, voltarOpen);
   const voltarMut = useMutation({
     mutationFn: async () => {
       if (!cad?.id) throw new Error("CAD não encontrado");
@@ -482,9 +485,11 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
         qc.invalidateQueries({ queryKey: ["producao-cq-list"] }),
         qc.invalidateQueries({ queryKey: ["producao-terc-list"] }),
         qc.invalidateQueries({ queryKey: ["producao-explosao-list"] }),
+        qc.invalidateQueries({ queryKey: ["dir-list"] }),
         qc.invalidateQueries({ queryKey: ["estoque-tecidos"] }),
         qc.invalidateQueries({ queryKey: ["dev-cad-row"] }),
         qc.invalidateQueries({ queryKey: ["dashboard-estoque"] }),
+        qc.invalidateQueries({ queryKey: ["sidebar-badges"] }),
       ]);
       onClose?.();
     },
@@ -821,13 +826,16 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Voltar este modelo para a Explosão?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Isso desfaz a baixa de estoque (corte); o modelo sai do CQ/Serviços e volta pra Explosão. Serviços já lançados permanecem.
+            <AlertDialogDescription asChild>
+              <div><ReverterImpacto cadId={cad?.id} open={voltarOpen} /></div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={voltarMut.isPending}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction disabled={voltarMut.isPending} onClick={() => voltarMut.mutate()}>
+            <AlertDialogAction
+              disabled={voltarMut.isPending || reverterImpacto.data?.temPaga}
+              onClick={() => voltarMut.mutate()}
+            >
               Voltar uma etapa
             </AlertDialogAction>
           </AlertDialogFooter>

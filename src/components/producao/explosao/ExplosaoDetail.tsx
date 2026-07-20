@@ -185,10 +185,12 @@ export function ExplosaoDetail({ modeloId, onEnviado }: Props) {
     );
     setTecidos(initialTec);
 
+    // cad_grades tem grades_planejadas/grade_total_planejada (não "grades"/"grade_total").
+    // Ler as colunas certas — o valor alimenta a Ficha de Corte (gradeTotalGeral) e é READ-ONLY.
     const initialGrades: GradeRow[] = (cadGrades as any[]).map((g) => ({
       variante_numero: g.variante_numero,
-      grades: g.grades ?? {},
-      grade_total: g.grade_total ?? 0,
+      grades: g.grades_planejadas ?? {},
+      grade_total: g.grade_total_planejada ?? 0,
     }));
     setGrades(initialGrades);
 
@@ -250,45 +252,27 @@ export function ExplosaoDetail({ modeloId, onEnviado }: Props) {
     return n;
   }, [tecidos]);
 
-  // Monta o payload do salvar_cad_completo — reusado tanto no Salvar quanto no Enviar.
-  const buildPayload = () => ({
-    _modelo_id: modeloId,
-    _tecidos: tecidos.map((t) => ({
-      artigo_id: t.artigo_id,
-      numero: t.numero,
-      tipo: t.tipo,
-      consumo_cad: t.consumo_cad,
-      loss_percent_cad: t.loss_percent_cad,
-      custo_cad: t.custo_cad,
-      tamanho_folha: t.tamanho_folha,
-      variantes: t.variantes.map((v) => ({
-        variante_tecido_id: v.variante_tecido_id,
-        ordem: v.ordem,
-        multiplicador: Number(v.multiplicador ?? 1) || 1,
-        quantidade_folhas: v.quantidade_folhas,
-        metragem_planejada: v.metragem_planejada,
+  // A Explosão só edita metragem por variante — usa a RPC ESTREITA salvar_explosao_metragem,
+  // que atualiza APENAS cad_tecido_variantes.metragem_enviada/quantidade_folhas. NÃO chamar
+  // salvar_cad_completo daqui: aquela RPC substitui TUDO e, com grade/aviamento/etiqueta vazios,
+  // os APAGAVA (bug 1+4). A grade continua read-only na tela, sem ir no payload.
+  const buildVariantesPayload = () =>
+    tecidos.flatMap((t) =>
+      t.variantes.map((v) => ({
+        id: v.id,
         metragem_enviada: v.metragem_enviada,
+        quantidade_folhas: v.quantidade_folhas,
       })),
-    })),
-    _grades: grades
-      .filter((g) => (g.grade_total || 0) > 0)
-      .map((g) => ({
-        variante_numero: g.variante_numero,
-        grades: g.grades,
-        grade_total: g.grade_total,
-      })),
-    _aviamentos: [],
-    _etiquetas: [],
-    _proporcoes: (modelo as any)?.proporcoes ?? {},
-    _observacoes_molde: (cadRow as any)?.observacoes_molde ?? null,
-    _data_previsao_corte: (cadRow as any)?.data_previsao_corte ?? null,
-  });
+    );
 
   // --- salvar sem baixa ---
   const salvarMut = useMutation({
     mutationFn: async () => {
       if (!cadRow?.id) throw new Error("CAD não carregado");
-      const { error } = await supabase.rpc("salvar_cad_completo" as any, buildPayload());
+      const { error } = await supabase.rpc("salvar_explosao_metragem" as any, {
+        _cad_id: cadRow.id,
+        _variantes: buildVariantesPayload(),
+      });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -300,18 +284,21 @@ export function ExplosaoDetail({ modeloId, onEnviado }: Props) {
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
   });
 
-  // --- enviar ao corte ---
-  // Salva via salvar_cad_completo e depois baixa o estoque.
+  // --- enviar para Serviços (corte) ---
+  // Salva a metragem (RPC estreita) e depois baixa o estoque.
   const enviarCorte = useMutation({
     mutationFn: async () => {
       if (!cadRow?.id) throw new Error("CAD não carregado");
-      // Primeiro persiste a metragem_enviada atual no banco.
-      const { data: cadId, error: errSave } = await supabase.rpc("salvar_cad_completo" as any, buildPayload());
+      // Primeiro persiste a metragem_enviada atual (RPC estreita — não toca grade/aviamento).
+      const { error: errSave } = await supabase.rpc("salvar_explosao_metragem" as any, {
+        _cad_id: cadRow.id,
+        _variantes: buildVariantesPayload(),
+      });
       if (errSave) throw errSave;
 
-      // Depois executa a baixa de estoque.
+      // Depois executa a baixa de estoque (o corte que envia para Serviços).
       const { data, error } = await supabase.rpc("baixar_estoque_tecido_corte" as any, {
-        _cad_id: cadId,
+        _cad_id: cadRow.id,
       });
       if (error) throw error;
       return data as any;
@@ -322,9 +309,9 @@ export function ExplosaoDetail({ modeloId, onEnviado }: Props) {
         const linhas = def
           .map((d) => `${d.variante}: faltaram ${Number(d.deficit).toLocaleString("pt-BR", { maximumFractionDigits: 2 })} m`)
           .join("; ");
-        toast.warning(`Enviado ao corte, mas faltou estoque — ${linhas}`, { duration: 12000 });
+        toast.warning(`Enviado para Serviços, mas faltou estoque — ${linhas}`, { duration: 12000 });
       } else {
-        toast.success("Enviado ao corte");
+        toast.success("Enviado para Serviços");
       }
       qc.invalidateQueries({ queryKey: ["producao-explosao-list"] });
       qc.invalidateQueries({ queryKey: ["producao-cad-list"] });
@@ -335,7 +322,7 @@ export function ExplosaoDetail({ modeloId, onEnviado }: Props) {
       qc.invalidateQueries({ queryKey: ["consumo-por-oc"] });
       onEnviado();
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao enviar ao corte")),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao enviar para Serviços")),
   });
 
   // --- voltar ao desenvolvimento ---
@@ -375,8 +362,8 @@ export function ExplosaoDetail({ modeloId, onEnviado }: Props) {
         {/* Cabeçalho com ações */}
         <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
           <div>
-            <h2 className="text-lg font-semibold">Explosão — Envio ao Corte</h2>
-            <p className="text-xs text-muted-foreground">Preencha "Metr. a Separar/Enviar" e clique em Enviar ao Corte.</p>
+            <h2 className="text-lg font-semibold">Explosão — Envio para Serviços</h2>
+            <p className="text-xs text-muted-foreground">Preencha "Metr. a Separar/Enviar" e clique em Enviar para Serviços.</p>
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -407,7 +394,7 @@ export function ExplosaoDetail({ modeloId, onEnviado }: Props) {
               disabled={enviarCorte.isPending || salvarMut.isPending || !cadRow?.id}
             >
               <Send className="h-4 w-4 mr-1.5" />
-              {enviarCorte.isPending ? "Enviando…" : "Enviar ao Corte"}
+              {enviarCorte.isPending ? "Enviando…" : "Enviar para Serviços"}
             </Button>
           </div>
         </div>
