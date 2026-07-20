@@ -297,6 +297,7 @@ export function SimulacaoSheet({
   const [editNome, setEditNome] = useState(false);
   const [confirmExcluir, setConfirmExcluir] = useState<string | null>(null);
   const [confirmAplicar, setConfirmAplicar] = useState<{ unidadeId: string; nome: string } | null>(null);
+  const [confirmRestaurar, setConfirmRestaurar] = useState(false);
 
   // ── Larguras arrastáveis (desktop-only, persistidas em localStorage) ─────────
   const { width: resumoWidth, startDrag: startDragResumo } = useResizableWidth(
@@ -735,26 +736,64 @@ export function SimulacaoSheet({
 
   // ── Re-puxar do OTB ───────────────────────────────────────────────────────
 
-  const repuxar = () => {
-    const antigos = new Map<string, number>();
-    draft.unidades.forEach((u) =>
-      u.linhas.forEach((l) =>
-        l.modelos.forEach((m, i) => {
-          antigos.set(m.modeloId ?? `${u.subcolecaoId}|${l.linhaId}|${i}`, m.consumo);
-        })
-      )
-    );
-    const unidades = semear().map((u) => ({
-      ...u,
-      linhas: u.linhas.map((l) => ({
-        ...l,
-        modelos: l.modelos.map((m, i) => ({
-          ...m,
-          consumo: antigos.get(m.modeloId ?? `${u.subcolecaoId}|${l.linhaId}|${i}`) ?? 0,
-        })),
-      })),
-    }));
-    setDraft((d) => ({ ...d, unidades }));
+  // Mantém o vínculo de OC/variantes da unidade correspondente (ambos os modos preservam a OC —
+  // é o insumo da simulação, não faz parte do plano/modelos).
+  const preservarOC = (fresh: UnidadeSim[]): UnidadeSim[] =>
+    fresh.map((u) => {
+      const antiga = draft.unidades.find((d) => d.subcolecaoId === u.subcolecaoId);
+      return antiga ? { ...u, ocId: antiga.ocId, variantes: antiga.variantes } : u;
+    });
+
+  // RESTAURAR DO ZERO: re-semeia a árvore inteira do plano (OTB) + modelos avançados. Descarta
+  // as edições (prof/cor, categoria, consumos, vazios preenchidos); mantém só a OC atribuída.
+  const restaurarDoZero = () => {
+    setDraft((d) => ({ ...d, unidades: preservarOC(semear()) }));
+    setDirty(true);
+  };
+
+  // ATUALIZAR (incremental): MANTÉM tudo do cenário atual (edições, OC, vazios preenchidos) e só
+  // ADICIONA o que é novo no plano — modelos reais que avançaram desde a última puxada + o déficit
+  // de vazios por categoria (quando o plano cresceu). Nunca reseta nem remove nada.
+  const atualizar = () => {
+    const fresh = semear();
+    const merged = draft.unidades.map((du) => {
+      const fu = fresh.find((f) => f.subcolecaoId === du.subcolecaoId);
+      if (!fu) return du;
+      const linhas: LinhaSim[] = du.linhas.map((l) => ({ ...l, modelos: [...l.modelos] }));
+      const semLinha = (): LinhaSim => {
+        let sl = linhas.find((l) => l.linhaId === null);
+        if (!sl) { sl = { id: nid("l"), linhaId: null, profCor: 1, modelos: [] }; linhas.push(sl); }
+        return sl;
+      };
+      const existReal = new Set<string>();
+      linhas.forEach((l) => l.modelos.forEach((m) => { if (m.modeloId) existReal.add(m.modeloId); }));
+      // 1. Modelos REAIS novos (avançaram) que ainda não estão no cenário.
+      fu.linhas.forEach((fl) => fl.modelos.forEach((fm) => {
+        if (fm.modeloId && !existReal.has(fm.modeloId)) {
+          const tgt = linhas.find((l) => l.linhaId === fl.linhaId) ?? semLinha();
+          tgt.modelos.push({ ...fm, id: nid("m") });
+          existReal.add(fm.modeloId);
+        }
+      }));
+      // 2. Déficit de vazios por categoria: alvo do plano (fresh) − o que já existe no cenário.
+      const have = new Map<string | null, number>();
+      linhas.forEach((l) => l.modelos.forEach((m) => { const c = m.categoriaId ?? null; have.set(c, (have.get(c) ?? 0) + 1); }));
+      const target = new Map<string | null, number>();
+      fu.linhas.forEach((l) => l.modelos.forEach((m) => { const c = m.categoriaId ?? null; target.set(c, (target.get(c) ?? 0) + 1); }));
+      target.forEach((tgt, cat) => {
+        const deficit = Math.max(0, tgt - (have.get(cat) ?? 0));
+        if (deficit > 0) {
+          const sl = semLinha();
+          const freshEmpty = fu.linhas.flatMap((l) => l.modelos).find((m) => !m.modeloId && (m.categoriaId ?? null) === cat);
+          for (let i = 0; i < deficit; i++) sl.modelos.push({ id: nid("m"), modeloId: null, consumo: freshEmpty?.consumo ?? 0, categoriaId: cat });
+        }
+      });
+      return { ...du, linhas };
+    });
+    // Subcoleções novas no plano (não existem no cenário) → entram completas (do fresh).
+    const draftSubs = new Set(draft.unidades.map((u) => u.subcolecaoId));
+    const novas = preservarOC(fresh.filter((f) => !draftSubs.has(f.subcolecaoId)));
+    setDraft((d) => ({ ...d, unidades: [...merged, ...novas] }));
     setDirty(true);
   };
 
@@ -963,10 +1002,15 @@ export function SimulacaoSheet({
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {/* Re-puxar do OTB */}
-                    <div className="flex justify-end">
-                      <Button variant="outline" size="sm" onClick={repuxar} disabled={!plano}>
-                        Re-puxar do OTB
+                    {/* Puxar do OTB: Atualizar (incremental) OU Restaurar do zero */}
+                    <div className="flex justify-end gap-2">
+                      <Button variant="outline" size="sm" onClick={atualizar} disabled={!plano}
+                        title="Traz modelos novos e categorias do plano, mantendo suas edições">
+                        Atualizar do OTB
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => setConfirmRestaurar(true)} disabled={!plano}
+                        title="Recria tudo do zero a partir do plano — descarta as edições">
+                        Restaurar do zero
                       </Button>
                     </div>
 
@@ -1441,6 +1485,30 @@ export function SimulacaoSheet({
               disabled={excluir.isPending}
             >
               Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* AlertDialog: restaurar do zero (destrutivo — descarta edições) */}
+      <AlertDialog open={confirmRestaurar} onOpenChange={setConfirmRestaurar}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restaurar do zero a partir do OTB?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Recria toda a árvore do plano (subcoleções, categorias) + os modelos que já avançaram.
+              <b> Descarta as edições</b> (profundidade por cor, categorias que você definiu, consumos e
+              vazios preenchidos). A OC atribuída é mantida. Para só trazer o que é novo sem perder nada,
+              use <b>Atualizar do OTB</b>.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { restaurarDoZero(); setConfirmRestaurar(false); }}
+            >
+              Restaurar do zero
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
