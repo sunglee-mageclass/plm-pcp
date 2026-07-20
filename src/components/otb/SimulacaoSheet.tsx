@@ -421,6 +421,21 @@ export function SimulacaoSheet({
         linhas.push({ id: nid("l"), linhaId, profCor: profBase, modelos });
       }
 
+      // Orçamento: completa com slots VAZIOS até a qtd planejada da subcoleção (colecao_semanas),
+      // ALÉM dos modelos reais — pra simular a coleção inteira (reais pré-preenchidos + planejados vazios).
+      if (tipo === "orcamento") {
+        const plannedTotal = (plano.semanas ?? [])
+          .filter((s: any) => (s.subcolecao_id ?? null) === sc.id)
+          .reduce((acc: number, s: any) => acc + (Number(s.qtd_planejada) || 0), 0);
+        const realCount = linhas.reduce((acc, l) => acc + l.modelos.filter((m) => m.modeloId).length, 0);
+        const emptyCount = Math.max(0, plannedTotal - realCount);
+        if (emptyCount > 0) {
+          let semLinha = linhas.find((l) => l.linhaId === null);
+          if (!semLinha) { semLinha = { id: nid("l"), linhaId: null, profCor: 1, modelos: [] }; linhas.push(semLinha); }
+          for (let i = 0; i < emptyCount; i++) semLinha.modelos.push({ id: nid("m"), modeloId: null, consumo: 0 });
+        }
+      }
+
       // If no lines were found, add at least one empty line
       if (linhas.length === 0) {
         linhas.push({ id: nid("l"), linhaId: null, profCor: 1, modelos: [] });
