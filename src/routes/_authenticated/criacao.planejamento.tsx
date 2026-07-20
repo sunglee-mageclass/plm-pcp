@@ -1224,6 +1224,11 @@ function ModeloDialog({
         : { lancado: false };
       const { error } = await supabase.from("modelos").update(payload as any).eq("id", modeloId);
       if (error) throw error;
+      if (send) {
+        // Lançar É a verificação do Lançamentos — limpa o #Erro (setado quando o CQ foi
+        // desmarcado no meio do fluxo); senão o card fica com #Erro mesmo já resolvido.
+        await supabase.rpc("marcar_etapa_verificada" as any, { _modelo_id: modeloId, _etapa: "lancamentos" });
+      }
     },
     onMutate: (send: boolean) => setLancado(send),
     onError: (e: any, send: boolean) => { setLancado(!send); toast.error(mensagemErro(e, "Erro")); },
