@@ -875,19 +875,23 @@ export function SimulacaoSheet({
           existReal.add(fm.modeloId);
         }
       }));
-      // 2. Déficit de vazios por categoria: alvo do plano (fresh) − o que já existe no cenário.
-      const have = new Map<string | null, number>();
-      linhas.forEach((l) => l.modelos.forEach((m) => { const c = m.categoriaId ?? null; have.set(c, (have.get(c) ?? 0) + 1); }));
-      const target = new Map<string | null, number>();
-      fu.linhas.forEach((l) => l.modelos.forEach((m) => { const c = m.categoriaId ?? null; target.set(c, (target.get(c) ?? 0) + 1); }));
-      target.forEach((tgt, cat) => {
-        const deficit = Math.max(0, tgt - (have.get(cat) ?? 0));
-        if (deficit > 0) {
-          const sl = semLinha();
-          const freshEmpty = fu.linhas.flatMap((l) => l.modelos).find((m) => !m.modeloId && (m.categoriaId ?? null) === cat);
-          for (let i = 0; i < deficit; i++) sl.modelos.push({ id: nid("m"), modeloId: null, consumo: freshEmpty?.consumo ?? 0, categoriaId: cat });
-        }
-      });
+      // 2. Déficit de vazios POR CATEGORIA (só Orçamento) — no PV os vazios são por LINHA
+      // (padding do plano PV), então essa etapa não roda (senão criava vazios "sem linha"
+      // fantasma quando o usuário atribui categorias a modelos do PV).
+      if (tipo === "orcamento") {
+        const have = new Map<string | null, number>();
+        linhas.forEach((l) => l.modelos.forEach((m) => { const c = m.categoriaId ?? null; have.set(c, (have.get(c) ?? 0) + 1); }));
+        const target = new Map<string | null, number>();
+        fu.linhas.forEach((l) => l.modelos.forEach((m) => { const c = m.categoriaId ?? null; target.set(c, (target.get(c) ?? 0) + 1); }));
+        target.forEach((tgt, cat) => {
+          const deficit = Math.max(0, tgt - (have.get(cat) ?? 0));
+          if (deficit > 0) {
+            const sl = semLinha();
+            const freshEmpty = fu.linhas.flatMap((l) => l.modelos).find((m) => !m.modeloId && (m.categoriaId ?? null) === cat);
+            for (let i = 0; i < deficit; i++) sl.modelos.push({ id: nid("m"), modeloId: null, consumo: freshEmpty?.consumo ?? 0, categoriaId: cat });
+          }
+        });
+      }
       return { ...du, linhas };
     });
     // Subcoleções novas no plano (não existem no cenário) → entram completas (do fresh).
