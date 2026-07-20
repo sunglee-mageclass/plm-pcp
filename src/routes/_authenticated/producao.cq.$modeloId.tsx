@@ -31,8 +31,6 @@ import { useReadOnly } from "@/components/RequirePermission";
 import { VerificarRevisao } from "@/components/producao/RevisaoErro";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { CqPosView, type CqPosHandle, type CqPosStatus } from "@/components/producao/CqPosView";
-import { ReverterImpacto } from "@/components/producao/ReverterImpacto";
-import { useReverterImpacto } from "@/hooks/useReverterImpacto";
 
 export const Route = createFileRoute("/_authenticated/producao/cq/$modeloId")({
   component: CqDetailPage,
@@ -470,30 +468,26 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desmarcar")),
   });
 
-  // "Voltar uma etapa" — reverte o corte/baixa e volta o modelo para a Explosão.
+  // "Voltar uma etapa" — do CQ volta UMA etapa (para Serviços): reabre os serviços pré e
+  // desfaz o CQ; o corte é mantido (NÃO volta até a Explosão — isso é o botão do Serviços).
   const [voltarOpen, setVoltarOpen] = useState(false);
-  const reverterImpacto = useReverterImpacto(cad?.id, voltarOpen);
   const voltarMut = useMutation({
     mutationFn: async () => {
       if (!cad?.id) throw new Error("CAD não encontrado");
-      const { error } = await supabase.rpc("reverter_corte_tecido" as any, { _cad_id: cad.id });
+      const { error } = await supabase.rpc("voltar_cq_para_servico" as any, { _cad_id: cad.id });
       if (error) throw error;
     },
     onSuccess: async () => {
-      toast.success("Modelo voltou para a Explosão");
+      toast.success("Modelo voltou para Serviços");
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["producao-cq-list"] }),
         qc.invalidateQueries({ queryKey: ["producao-terc-list"] }),
-        qc.invalidateQueries({ queryKey: ["producao-explosao-list"] }),
         qc.invalidateQueries({ queryKey: ["dir-list"] }),
-        qc.invalidateQueries({ queryKey: ["estoque-tecidos"] }),
-        qc.invalidateQueries({ queryKey: ["dev-cad-row"] }),
-        qc.invalidateQueries({ queryKey: ["dashboard-estoque"] }),
         qc.invalidateQueries({ queryKey: ["sidebar-badges"] }),
       ]);
       onClose?.();
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao voltar etapa")),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao voltar para Serviços")),
   });
 
   // Botões de ação (Pré/Pós) — renderizados na barra do topo (desktop) E na
@@ -512,7 +506,7 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
       {view === "pre" && (!confirmado ? (
         <>
           {cad?.id && (
-            <Button variant="outline" size="icon" onClick={() => setVoltarOpen(true)} disabled={voltarMut.isPending || permReadOnly} title="Voltar uma etapa (volta pra Explosão)" aria-label="Voltar uma etapa">
+            <Button variant="outline" size="icon" onClick={() => setVoltarOpen(true)} disabled={voltarMut.isPending || permReadOnly} title="Voltar uma etapa (volta pra Serviços)" aria-label="Voltar uma etapa">
               <Undo2 className="h-4 w-4" />
             </Button>
           )}
@@ -541,7 +535,7 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
             <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar confirmação
           </Button>
           {cad?.id && (
-            <Button variant="outline" size="icon" onClick={() => setVoltarOpen(true)} disabled={voltarMut.isPending || permReadOnly} title="Voltar uma etapa (volta pra Explosão)" aria-label="Voltar uma etapa">
+            <Button variant="outline" size="icon" onClick={() => setVoltarOpen(true)} disabled={voltarMut.isPending || permReadOnly} title="Voltar uma etapa (volta pra Serviços)" aria-label="Voltar uma etapa">
               <Undo2 className="h-4 w-4" />
             </Button>
           )}
@@ -825,18 +819,19 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
       <AlertDialog open={voltarOpen} onOpenChange={setVoltarOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Voltar este modelo para a Explosão?</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div><ReverterImpacto cadId={cad?.id} open={voltarOpen} /></div>
+            <AlertDialogTitle>Voltar este modelo para Serviços?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Isso desfaz o CQ e reabre os serviços (você reinformará o recebimento). O corte é
+              mantido — o modelo volta uma etapa, para Serviços. Serviços e contas a pagar não são apagados.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={voltarMut.isPending}>Cancelar</AlertDialogCancel>
             <AlertDialogAction
-              disabled={voltarMut.isPending || reverterImpacto.data?.temPaga}
+              disabled={voltarMut.isPending}
               onClick={() => voltarMut.mutate()}
             >
-              Voltar uma etapa
+              Voltar para Serviços
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
