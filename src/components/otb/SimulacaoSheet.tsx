@@ -165,8 +165,8 @@ function ResumoOC({
                 const label = varianteLabelDe(oc.ocId, cor.ocItemId);
                 return (
                   <div key={cor.ocItemId} className="space-y-0.5">
-                    <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0 text-xs">
-                      <span className="font-medium truncate max-w-[8rem]" title={label}>
+                    <div className="flex items-center justify-between gap-2 text-xs">
+                      <span className="min-w-0 flex-1 font-medium truncate" title={label}>
                         {label}
                       </span>
                       <span className={`tabular-nums shrink-0 ${cor.saldo >= 0 ? "text-green-600" : "text-destructive"}`}>
