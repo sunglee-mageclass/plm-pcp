@@ -484,6 +484,7 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
         qc.invalidateQueries({ queryKey: ["producao-terc-list"] }),
         qc.invalidateQueries({ queryKey: ["dir-list"] }),
         qc.invalidateQueries({ queryKey: ["sidebar-badges"] }),
+        qc.invalidateQueries({ queryKey: ["etapas-afetadas", modeloId] }),
       ]);
       onClose?.();
     },

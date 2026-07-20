@@ -52,7 +52,7 @@ const FIELD_IMPACT: { key: keyof CamposAlterados; label: string; stages: (keyof 
   { key: "aviamentos", label: "Aviamentos", stages: ["corte"],
     motivo: "a baixa de aviamentos no corte e o custo mudam" },
 ];
-const STAGE_LABEL: Record<string, string> = Object.fromEntries(STAGES.map((s) => [s.key, s.label]));
+export const STAGE_LABEL: Record<string, string> = Object.fromEntries(STAGES.map((s) => [s.key, s.label]));
 
 /** Quais etapas seguintes o modelo já atingiu (a partir do ponto de edição). */
 export function useEtapasAfetadas(modeloId: string, from: "desenvolvimento" | "cad" = "desenvolvimento") {

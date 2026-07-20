@@ -340,6 +340,7 @@ export function ExplosaoDetail({ modeloId, onEnviado }: Props) {
       qc.invalidateQueries({ queryKey: ["explosao-modelo", modeloId] });
       qc.invalidateQueries({ queryKey: ["explosao-cad-row", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-detail", modeloId] });
+      qc.invalidateQueries({ queryKey: ["etapas-afetadas", modeloId] });
       qc.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && (q.queryKey[0] as string).startsWith("ft-") });
       onEnviado(); // fecha o painel (mesma callback que enviarCorte usa)
     },

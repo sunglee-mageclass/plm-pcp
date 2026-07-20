@@ -51,7 +51,7 @@ import { ModeloEtiquetasSection } from "./modelo-detail/ModeloEtiquetasSection";
 import { ModeloGradeSection } from "./modelo-detail/ModeloGradeSection";
 import { ModeloCustosSection } from "./modelo-detail/ModeloCustosSection";
 import { ModeloAnexosSection } from "./modelo-detail/ModeloAnexosSection";
-import { useEtapasAfetadas } from "./DownstreamImpactAlert";
+import { useEtapasAfetadas, STAGE_LABEL } from "./DownstreamImpactAlert";
 import { ModeloObservacoes } from "@/components/shared/ModeloObservacoes";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 
@@ -385,7 +385,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   // Salvar volta a travar. Reseta ao abrir outro modelo.
   // Trava pós-Enviar: quando enviado à Explosão, o card fica read-only até clicar no lápis (Editar).
   const [editing, setEditing] = useState(false);
-  const { hasDownstream, etapas } = useEtapasAfetadas(modeloId);
+  const { etapas } = useEtapasAfetadas(modeloId);
   // Rastreio p/ o alerta inteligente (o que mudou → impacto específico).
   const [gradeAlterada, setGradeAlterada] = useState(false);
   const [consumoAlterado, setConsumoAlterado] = useState(false);
@@ -1146,22 +1146,26 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
 
   const save = useMutation({
     mutationFn: persistModelo,
-    onSuccess: () => {
-      if (hasDownstream) {
-        const corteAfetado = !!etapas.corte && (consumoAlterado || gradeAlterada || aviamentoAlterado);
-        const corteMsg = corteAfetado && (etapas.baixa_total ?? 0) > 0
+    onSuccess: async () => {
+      // Marca revisão (#Erro) nas etapas afetadas — o SERVIDOR retorna EXATAMENTE quais
+      // etapas existem downstream e foram marcadas. A mensagem usa esse retorno (não o
+      // hasDownstream cacheado, que fica stale depois de reverter uma etapa e faria o toast
+      // citar Serviços/CQ/Direcionamento que já não existem).
+      const { data: marcadas } = await supabase.rpc("marcar_revisao_por_mudanca" as any, {
+        _modelo_id: modeloId, _grade: gradeAlterada, _consumo: consumoAlterado, _aviamentos: aviamentoAlterado,
+      });
+      const etapasMarcadas = marcadas && typeof marcadas === "object" ? Object.keys(marcadas as any) : [];
+      if (etapasMarcadas.length > 0) {
+        const nomes = etapasMarcadas.map((k) => STAGE_LABEL[k] ?? k).join(", ");
+        const corteMsg = etapas.corte && (consumoAlterado || gradeAlterada || aviamentoAlterado) && (etapas.baixa_total ?? 0) > 0
           ? " O corte/baixa de estoque foi afetado — reveja a Explosão."
           : "";
-        toast.info(`Salvo. As etapas posteriores foram atualizadas e marcadas para verificação (#Erro) — confira Serviços, CQ e Direcionamento.${corteMsg}`);
+        toast.info(`Salvo. Etapas posteriores atualizadas e marcadas para verificação (#Erro): ${nomes}.${corteMsg}`);
       } else {
         toast.success("Modelo salvo");
       }
-      // Marca revisão pendente (#Erro) nas etapas afetadas — calculado no servidor.
-      supabase.rpc("marcar_revisao_por_mudanca" as any, {
-        _modelo_id: modeloId, _grade: gradeAlterada, _consumo: consumoAlterado, _aviamentos: aviamentoAlterado,
-      }).then(() => {
-        ["producao-terc-list", "producao-cq-list", "dir-list"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
-      });
+      ["producao-terc-list", "producao-cq-list", "dir-list"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+      qc.invalidateQueries({ queryKey: ["etapas-afetadas", modeloId] });
       setGradeAlterada(false); setConsumoAlterado(false); setAviamentoAlterado(false);
       qc.invalidateQueries({ queryKey: ["modelo-detail", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-etiquetas", modeloId] });

@@ -584,6 +584,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
         qc.invalidateQueries({ queryKey: ["dev-cad-row"] }),
         qc.invalidateQueries({ queryKey: ["dashboard-estoque"] }),
         qc.invalidateQueries({ queryKey: ["sidebar-badges"] }),
+        qc.invalidateQueries({ queryKey: ["etapas-afetadas", modeloId] }),
       ]);
       onClose?.();
     },
