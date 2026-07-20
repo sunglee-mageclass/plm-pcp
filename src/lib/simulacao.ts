@@ -31,3 +31,62 @@ export const distribuirNasSemanas = (num: number, semanas: number[]): Record<str
   semanas.forEach((w, i) => { out[String(w)] = shares[i] ?? 0; });
   return out;
 };
+
+// ── Agregação de uso de OC entre subcoleções (para o resumo fixo do Simulador) ──
+// A demanda de uma unidade (subcoleção) é a MESMA para toda cor escolhida (Σ prof×consumo
+// por linha). Quando a mesma OC+cor é usada em várias subcoleções, o uso da cor é a SOMA
+// das demandas dessas unidades — para saber se a metragem daquela cor (item da OC) dá conta
+// do total. Função pura (sem labels/I/O); o componente resolve o rótulo da cor pelo ocItemId.
+
+export type UnidadeUsoInput = {
+  ocId: string | null;
+  variantes: { ocItemId: string }[];
+  linhas: { profCor: number; modelos: { consumo: number }[] }[];
+};
+export type OcUsoInput = {
+  id: string;
+  numero_pedido: string | null;
+  itens: { id: string; quantidade_pedida: number | null; artigo: { unidade_medida: string | null; rendimento: number | null } | null }[];
+};
+export type CorUso = { ocItemId: string; disp: number; dem: number; saldo: number };
+export type OcUso = { ocId: string; numero: string | null; cores: CorUso[]; totalDisp: number; totalDem: number; totalSaldo: number; ok: boolean };
+
+/** Demanda de uma unidade (mesma p/ toda cor) = Σ linhas prof×Σconsumos. */
+export const demandaUnidade = (u: UnidadeUsoInput): number =>
+  u.linhas.reduce((s, l) => s + demandaLinha(l.profCor, 1, l.modelos.map((m) => m.consumo || 0)), 0);
+
+/** Agrega o uso por OC e por cor (item), somando a demanda entre subcoleções. */
+export function agregarUsoOC(unidades: UnidadeUsoInput[], ocs: OcUsoInput[]): OcUso[] {
+  const ocMap = new Map(ocs.map((o) => [o.id, o]));
+  const demByKey = new Map<string, number>(); // `${ocId}|${ocItemId}` -> demanda somada
+  const coresByOc = new Map<string, string[]>(); // ocId -> ocItemIds (ordem de 1º uso)
+
+  for (const u of unidades) {
+    if (!u.ocId) continue;
+    const demU = demandaUnidade(u);
+    for (const v of u.variantes) {
+      const key = `${u.ocId}|${v.ocItemId}`;
+      demByKey.set(key, (demByKey.get(key) ?? 0) + demU);
+      const list = coresByOc.get(u.ocId) ?? [];
+      if (!list.includes(v.ocItemId)) { list.push(v.ocItemId); coresByOc.set(u.ocId, list); }
+    }
+  }
+
+  const out: OcUso[] = [];
+  for (const [ocId, ocItemIds] of coresByOc) {
+    const oc = ocMap.get(ocId);
+    if (!oc) continue;
+    let totalDisp = 0, totalDem = 0;
+    const cores: CorUso[] = ocItemIds.map((ocItemId) => {
+      const item = oc.itens.find((it) => it.id === ocItemId);
+      const disp = item
+        ? metragemDisponivel(item.artigo?.unidade_medida ?? null, Number(item.quantidade_pedida) || 0, Number(item.artigo?.rendimento) || 0)
+        : 0;
+      const dem = demByKey.get(`${ocId}|${ocItemId}`) ?? 0;
+      totalDisp += disp; totalDem += dem;
+      return { ocItemId, disp, dem, saldo: disp - dem };
+    });
+    out.push({ ocId, numero: oc.numero_pedido ?? null, cores, totalDisp, totalDem, totalSaldo: totalDisp - totalDem, ok: cores.every((c) => c.saldo >= 0) });
+  }
+  return out;
+}
