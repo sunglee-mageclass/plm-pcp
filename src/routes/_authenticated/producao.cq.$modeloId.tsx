@@ -882,24 +882,29 @@ function EtapaSection(props: {
         <h3 className="font-semibold text-lg">{title}</h3>
         {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
       </div>
-      <div className="grid gap-4 md:grid-cols-3">
-        {datas.map((d) => (
-          <div key={d.label}>
-            <Label className="text-xs">{d.label}</Label>
-            {readOnlyDatas ? (
-              // Reflexo das datas de Serviços — texto puro, não campo (não é editável aqui).
-              <div className="h-9 flex items-center text-sm">
-                {d.value ? String(d.value).split("-").reverse().join("/") : "—"}
-              </div>
-            ) : (
+      {readOnlyDatas ? (
+        // Reflexo das datas de Serviços — mesmo padrão do CQ Pós (inline "label: valor",
+        // text-xs, label muted + valor foreground). Não é editável aqui.
+        <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+          {datas.map((d) => (
+            <div key={d.label}>
+              {d.label}: <span className="text-foreground">{d.value ? String(d.value).split("-").reverse().join("/") : "—"}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-3">
+          {datas.map((d) => (
+            <div key={d.label}>
+              <Label className="text-xs">{d.label}</Label>
               <DateField
                 value={form?.[d.key as string] ?? ""}
                 onChange={(e) => setForm?.((f: any) => ({ ...f, [d.key as string]: e.target.value }))}
               />
-            )}
-          </div>
-        ))}
-      </div>
+            </div>
+          ))}
+        </div>
+      )}
       <GradeMatrix
         etapa={etapa}
         tamanhos={tamanhos}
