@@ -11,7 +11,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
   Collapsible, CollapsibleTrigger, CollapsibleContent,
@@ -328,6 +328,28 @@ export function SimulacaoSheet({
 
   const nomeLinha = (id: string | null) => linhaOpts.find((l: any) => l.id === id)?.nome ?? "Linha";
   const nomeCategoria = (id: string | null) => categoriaOpts.find((c: any) => c.id === id)?.nome ?? null;
+
+  // ── Feature B: OCs usadas em outras coleções (para aviso no dropdown) ──────
+  const { data: ocsUsadasData } = useQuery({
+    queryKey: ["otb-sim-ocs-usadas", colecaoId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("modelo_tecido_oc_links" as any)
+        .select("oc_tecido_item_id, modelo:modelo_id(colecao_id, colecao:colecao_id(nome))");
+      if (error) throw error;
+      const map = new Map<string, string>();
+      for (const row of data ?? []) {
+        const modelo = (row as any).modelo;
+        if (!modelo || modelo.colecao_id === colecaoId) continue;
+        const ocItemId = (row as any).oc_tecido_item_id;
+        const nomeColecao = modelo.colecao?.nome ?? "outra coleção";
+        if (ocItemId) map.set(ocItemId, nomeColecao);
+      }
+      return map;
+    },
+    enabled: !!colecaoId,
+  });
+  const ocsUsadas = ocsUsadasData ?? new Map<string, string>();
 
   // ── Estado local ───────────────────────────────────────────────────────────
 
@@ -726,6 +748,20 @@ export function SimulacaoSheet({
       ),
     }));
 
+  // ── Feature B: helper para construir o payload de simulação por modelo ────
+  const buildSimPayload = (u: any, l: any, m: any) => {
+    const oc = ocById(u.ocId);
+    const variantes = u.variantes.map((v: any, i: number) => {
+      const item = (oc?.itens ?? []).find((it: any) => it.id === v.ocItemId);
+      return { variante_tecido_id: item?.variante_tecido_id, oc_tecido_item_id: v.ocItemId, ordem: i + 1 };
+    }).filter((x: any) => x.variante_tecido_id);
+    const grade = u.variantes.map((v: any, i: number) => {
+      const varTecId = (oc?.itens ?? []).find((it: any) => it.id === v.ocItemId)?.variante_tecido_id;
+      return { ordem: i + 1, prof: Math.round(effProf(m, l.profCor, v.ocItemId, varTecId)) };
+    });
+    return { oc_id: u.ocId, variantes, grade };
+  };
+
   const addModelo = (uid: string, lid: string) =>
     upd((d) => ({
       ...d,
@@ -934,6 +970,58 @@ export function SimulacaoSheet({
       setConfirmAplicar(null);
       toast.error(mensagemErro(e, "Erro ao aplicar no card."));
     },
+  });
+
+  // ── Feature B: aplicar simulação num modelo específico ────────────────────
+
+  const aplicarModelo = useMutation({
+    mutationFn: async ({ u, l, m }: { u: any; l: any; m: any }) => {
+      const p = buildSimPayload(u, l, m);
+      const { error } = await supabase.rpc("aplicar_simulacao_modelo" as any, {
+        _modelo_id: m.modeloId,
+        _oc_id: p.oc_id,
+        _variantes: p.variantes,
+        _grade: p.grade,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Aplicado no modelo");
+      qc.invalidateQueries({ queryKey: ["otb-sim-modelos", colecaoId] });
+      qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
+      qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
+      qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+    },
+    onError: (e) => toast.error(mensagemErro(e, "Erro ao aplicar")),
+  });
+
+  const criarCard = useMutation({
+    mutationFn: async ({ u, l, m }: { u: any; l: any; m: any }) => {
+      const p = buildSimPayload(u, l, m);
+      const semana = (plano?.semanas ?? []).find(
+        (s: any) => (s.subcolecao_id ?? null) === u.subcolecaoId
+      )?.semana ?? "1";
+      const { data, error } = await supabase.rpc("criar_card_simulacao" as any, {
+        _colecao_id: colecaoId,
+        _subcolecao_id: u.subcolecaoId,
+        _semana: semana,
+        _linha_id: l.linhaId,
+        _categoria_id: m.categoriaId ?? null,
+        _oc_id: p.oc_id,
+        _variantes: p.variantes,
+        _grade: p.grade,
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data, { u, l, m }) => {
+      patchModelo(u.id, l.id, m.id, { modeloId: data as string, ref: null, nome: "Novo modelo" });
+      toast.success("Card criado");
+      qc.invalidateQueries({ queryKey: ["otb-sim-modelos", colecaoId] });
+      qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+      qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
+    },
+    onError: (e) => toast.error(mensagemErro(e, "Criar card falhou")),
   });
 
   // ── Helpers de OC ─────────────────────────────────────────────────────────
@@ -1181,11 +1269,21 @@ export function SimulacaoSheet({
                                     placeholder="— OC —"
                                     className="min-w-[10rem]"
                                   >
-                                    {(ocs as any[]).map((o: any) => (
-                                      <SelectItem key={o.id} value={o.id}>
-                                        OC {o.numero_pedido ?? o.id.slice(0, 6)}
-                                      </SelectItem>
-                                    ))}
+                                    {(ocs as any[]).map((o: any) => {
+                                      const ocData = (ocs as any[]).find((oc: any) => oc.id === o.id);
+                                      const isUsada = (ocData?.itens ?? []).some((it: any) => ocsUsadas.has(it.id));
+                                      const nomeColecaoUsada = isUsada
+                                        ? (ocData?.itens ?? []).map((it: any) => ocsUsadas.get(it.id)).find(Boolean)
+                                        : null;
+                                      return (
+                                        <SelectItem key={o.id} value={o.id}>
+                                          OC {o.numero_pedido ?? o.id.slice(0, 6)}
+                                          {isUsada && (
+                                            <span className="text-amber-600 text-xs ml-1">· usada em {nomeColecaoUsada}</span>
+                                          )}
+                                        </SelectItem>
+                                      );
+                                    })}
                                   </Sel>
 
                                   {/* Referência plano: N cores */}
@@ -1352,6 +1450,57 @@ export function SimulacaoSheet({
                                                             <SelectItem key={cat.id} value={cat.id}>{cat.nome}</SelectItem>
                                                           ))}
                                                         </Sel>
+
+                                                        {/* Feature B: aplicar/criar */}
+                                                        {(() => {
+                                                          const statusReal = (modelosReais as any[]).find((mr: any) => mr.id === m.modeloId)?.status_desenvolvimento;
+                                                          const podeAplicar = !!m.modeloId && statusReal !== "aprovado";
+                                                          return (
+                                                            <div className="flex gap-1 mt-1">
+                                                              {podeAplicar && (
+                                                                <AlertDialog>
+                                                                  <AlertDialogTrigger asChild>
+                                                                    <Button
+                                                                      size="sm"
+                                                                      variant="outline"
+                                                                      className="h-6 text-xs px-2"
+                                                                      disabled={!u.ocId || aplicarModelo.isPending}
+                                                                      title={!u.ocId ? "Atribua uma OC à subcoleção primeiro" : undefined}
+                                                                    >
+                                                                      Aplicar no modelo
+                                                                    </Button>
+                                                                  </AlertDialogTrigger>
+                                                                  <AlertDialogContent>
+                                                                    <AlertDialogHeader>
+                                                                      <AlertDialogTitle>Aplicar simulação?</AlertDialogTitle>
+                                                                      <AlertDialogDescription>
+                                                                        Aplicar OC, cores e grade da simulação neste modelo? Sobrescreve as cores e a grade do Tecido Principal.
+                                                                      </AlertDialogDescription>
+                                                                    </AlertDialogHeader>
+                                                                    <AlertDialogFooter>
+                                                                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                                                      <AlertDialogAction onClick={() => aplicarModelo.mutate({ u, l, m })}>
+                                                                        Aplicar
+                                                                      </AlertDialogAction>
+                                                                    </AlertDialogFooter>
+                                                                  </AlertDialogContent>
+                                                                </AlertDialog>
+                                                              )}
+                                                              {!m.modeloId && (
+                                                                <Button
+                                                                  size="sm"
+                                                                  variant="outline"
+                                                                  className="h-6 text-xs px-2"
+                                                                  disabled={!u.ocId || criarCard.isPending}
+                                                                  title={!u.ocId ? "Atribua uma OC à subcoleção primeiro" : undefined}
+                                                                  onClick={() => criarCard.mutate({ u, l, m })}
+                                                                >
+                                                                  Criar card
+                                                                </Button>
+                                                              )}
+                                                            </div>
+                                                          );
+                                                        })()}
 
                                                     {/* Lista de cores com peças por cor */}
                                                     {u.variantes.length > 0 ? (
