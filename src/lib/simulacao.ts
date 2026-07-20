@@ -24,6 +24,16 @@ export const demandaLinha = (profCor: number, cores: number, consumos: number[])
 /** Saldo = disponível − demanda (≥0 sobra, <0 estoura). */
 export const saldo = (disponivel: number, demanda: number): number => (disponivel || 0) - (demanda || 0);
 
+/**
+ * Consumo estimado de um slot VAZIO de uma categoria = média dos consumos dos modelos REAIS
+ * da mesma categoria (ignora zeros/inexistentes). Sem base → 0 (o usuário preenche à mão).
+ */
+export const mediaConsumoCategoria = (consumos: number[]): number => {
+  const vals = consumos.map((c) => Number(c) || 0).filter((c) => c > 0);
+  if (vals.length === 0) return 0;
+  return vals.reduce((a, c) => a + c, 0) / vals.length;
+};
+
 /** Distribui `num` nas semanas dadas (chaves string), via splitEven. */
 export const distribuirNasSemanas = (num: number, semanas: number[]): Record<string, number> => {
   const shares = splitEven(num, semanas.length);

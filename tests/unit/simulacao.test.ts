@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { splitEven, metragemDisponivel, pecasLinha, demandaLinha, saldo, distribuirNasSemanas, agregarUsoOC, effProf, type UnidadeUsoInput } from "@/lib/simulacao";
+import { splitEven, metragemDisponivel, pecasLinha, demandaLinha, saldo, distribuirNasSemanas, agregarUsoOC, effProf, mediaConsumoCategoria, type UnidadeUsoInput } from "@/lib/simulacao";
 
 describe("simulacao — cálculo puro", () => {
   it("splitEven reparte o resto nas primeiras", () => {
@@ -17,6 +17,12 @@ describe("simulacao — cálculo puro", () => {
     expect(pecasLinha(8, 3)).toBe(24);
     // 2 modelos × 24 peças × consumos 1,2 e 1,5 → 24*1.2 + 24*1.5
     expect(demandaLinha(8, 3, [1.2, 1.5])).toBeCloseTo(24 * 1.2 + 24 * 1.5, 5);
+  });
+  it("mediaConsumoCategoria: média dos consumos > 0; sem base = 0", () => {
+    expect(mediaConsumoCategoria([2, 4])).toBe(3);
+    expect(mediaConsumoCategoria([2, 0, 4])).toBe(3); // ignora zeros
+    expect(mediaConsumoCategoria([])).toBe(0);
+    expect(mediaConsumoCategoria([0, 0])).toBe(0);
   });
   it("saldo e distribuição", () => {
     expect(saldo(900, 172.8)).toBeCloseTo(727.2, 5);

@@ -17,7 +17,7 @@ import {
   Collapsible, CollapsibleTrigger, CollapsibleContent,
 } from "@/components/ui/collapsible";
 import { Plus, Trash2, Pencil, Save, ArrowLeft, ImageOff, Send, X, ChevronRight } from "lucide-react";
-import { metragemDisponivel, demandaLinha, saldo, agregarUsoOC, effProf } from "@/lib/simulacao";
+import { metragemDisponivel, demandaLinha, saldo, agregarUsoOC, effProf, mediaConsumoCategoria } from "@/lib/simulacao";
 import type { OcUso } from "@/lib/simulacao";
 import { labelVarianteRow } from "@/lib/variante";
 import { useResizableWidth, useCorCols } from "@/hooks/useResizableWidth";
@@ -40,6 +40,7 @@ type ModeloSim = {
   ref?: string | null;
   nome?: string | null;
   foto?: string | null;
+  categoriaId?: string | null;
 };
 type LinhaSim = { id: string; linhaId: string | null; profCor: number; modelos: ModeloSim[] };
 type UnidadeSim = {
@@ -237,7 +238,7 @@ export function SimulacaoSheet({
     queryKey: ["otb-simulacoes", colecaoId],
     queryFn: async () => {
       const { data, error } = await supabase.from("otb_simulacoes" as any)
-        .select("id, nome, unidades:otb_simulacao_unidades(id, subcolecao_id, oc_tecido_id, variantes:otb_simulacao_variantes(oc_tecido_item_id, ordem), linhas:otb_simulacao_linhas(id, linha_id, prof_cor, num_modelos, ordem, modelos:otb_simulacao_modelos(id, modelo_id, slot_index, consumo, prof_por_cor)))")
+        .select("id, nome, unidades:otb_simulacao_unidades(id, subcolecao_id, oc_tecido_id, variantes:otb_simulacao_variantes(oc_tecido_item_id, ordem), linhas:otb_simulacao_linhas(id, linha_id, prof_cor, num_modelos, ordem, modelos:otb_simulacao_modelos(id, modelo_id, slot_index, consumo, prof_por_cor, categoria_id)))")
         .eq("colecao_id", colecaoId).order("created_at");
       if (error) throw error;
       return (data ?? []) as any[];
@@ -248,7 +249,7 @@ export function SimulacaoSheet({
     queryKey: ["otb-sim-plano", colecaoId, tipo],
     queryFn: async () => {
       const { data, error } = await supabase.from("colecoes" as any)
-        .select("id, tipo, subcolecoes:colecao_subcolecoes(id, nome, ordem, semanas), itens:colecao_pv_itens(subcolecao_id, linha_id, prof_cor, cores, qtd_semanas), semanas:colecao_semanas(subcolecao_id, semana, qtd_planejada)")
+        .select("id, tipo, subcolecoes:colecao_subcolecoes(id, nome, ordem, semanas), itens:colecao_pv_itens(subcolecao_id, linha_id, prof_cor, cores, qtd_semanas), semanas:colecao_semanas(subcolecao_id, semana, qtd_planejada), categorias:colecao_semana_categorias(subcolecao_id, categoria_id, qtd)")
         .eq("id", colecaoId).single();
       if (error) throw error;
       return data as any;
@@ -259,7 +260,7 @@ export function SimulacaoSheet({
     queryKey: ["otb-sim-modelos", colecaoId],
     queryFn: async () =>
       (await supabase.from("modelos")
-        .select("id, ref, nome, fotos_modelo, subcolecao, linha_id, status_desenvolvimento, modelo_tecidos(numero, tipo, consumo, modelo_tecido_variantes(ordem, variante_tecido_id)), modelo_grades(variante_numero, grade_total)")
+        .select("id, ref, nome, fotos_modelo, subcolecao, linha_id, status_desenvolvimento, categoria_principal_id, modelo_tecidos(numero, tipo, consumo, modelo_tecido_variantes(ordem, variante_tecido_id)), modelo_grades(variante_numero, grade_total)")
         .eq("colecao_id", colecaoId)).data ?? [],
   });
 
@@ -277,7 +278,13 @@ export function SimulacaoSheet({
     queryFn: async () => (await supabase.from("linhas").select("id, nome").order("nome")).data ?? [],
   }).data ?? []) as any[];
 
+  const categoriaOpts = (useQuery({
+    queryKey: ["otb-sim-categorias-produto"],
+    queryFn: async () => (await supabase.from("categorias_produto" as any).select("id, nome").order("nome")).data ?? [],
+  }).data ?? []) as any[];
+
   const nomeLinha = (id: string | null) => linhaOpts.find((l: any) => l.id === id)?.nome ?? "Linha";
+  const nomeCategoria = (id: string | null) => categoriaOpts.find((c: any) => c.id === id)?.nome ?? null;
 
   // ── Estado local ───────────────────────────────────────────────────────────
 
@@ -360,6 +367,7 @@ export function SimulacaoSheet({
           ref: m.ref ?? null,
           nome: m.nome ?? null,
           foto: ((m.fotos_modelo ?? []) as string[])[0] ?? null,
+          categoriaId: m.categoria_principal_id ?? null,
         }));
         linhas.push({ id: nid("l"), linhaId, profCor: 1, modelos });
         reaisLinha.forEach((m) => processadoIds.add(m.id));
@@ -427,6 +435,7 @@ export function SimulacaoSheet({
           ref: m.ref ?? null,
           nome: m.nome ?? null,
           foto: ((m.fotos_modelo ?? []) as string[])[0] ?? null,
+          categoriaId: m.categoria_principal_id ?? null,
         }));
 
         reaisLinha.forEach((m) => processadoIds.add(m.id));
@@ -444,16 +453,56 @@ export function SimulacaoSheet({
 
       // Orçamento: completa com slots VAZIOS até a qtd planejada da subcoleção (colecao_semanas),
       // ALÉM dos modelos reais — pra simular a coleção inteira (reais pré-preenchidos + planejados vazios).
+      // Slots são gerados POR CATEGORIA (do plano), com consumo estimado = média dos reais da categoria.
       if (tipo === "orcamento") {
         const plannedTotal = (plano.semanas ?? [])
           .filter((s: any) => (s.subcolecao_id ?? null) === sc.id)
           .reduce((acc: number, s: any) => acc + (Number(s.qtd_planejada) || 0), 0);
         const realCount = linhas.reduce((acc, l) => acc + l.modelos.filter((m) => m.modeloId).length, 0);
         const emptyCount = Math.max(0, plannedTotal - realCount);
+
         if (emptyCount > 0) {
           let semLinha = linhas.find((l) => l.linhaId === null);
           if (!semLinha) { semLinha = { id: nid("l"), linhaId: null, profCor: 1, modelos: [] }; linhas.push(semLinha); }
-          for (let i = 0; i < emptyCount; i++) semLinha.modelos.push({ id: nid("m"), modeloId: null, consumo: 0 });
+
+          // Qtd planejada por categoria para esta subcoleção
+          const plannedByCat = new Map<string, number>();
+          for (const c of (plano.categorias ?? []).filter((c: any) => (c.subcolecao_id ?? null) === sc.id)) {
+            const catId = c.categoria_id as string;
+            plannedByCat.set(catId, (plannedByCat.get(catId) ?? 0) + (Number(c.qtd) || 0));
+          }
+
+          // Count de modelos REAIS desta subcoleção por categoria
+          const realByCat = new Map<string, number>();
+          for (const mr of reaisSub) {
+            const cid = (mr.categoria_principal_id as string | null) ?? "__sem__";
+            realByCat.set(cid, (realByCat.get(cid) ?? 0) + 1);
+          }
+
+          let totalVaziosGerados = 0;
+
+          for (const [catId, planejado] of plannedByCat) {
+            const realDaquelaCat = realByCat.get(catId) ?? 0;
+            const emptyCat = Math.max(0, planejado - realDaquelaCat);
+            if (emptyCat === 0) continue;
+
+            // Consumo estimado = média dos consumos dos reais desta categoria nesta subcoleção
+            const consumosReaisCat = reaisSub
+              .filter((mr: any) => (mr.categoria_principal_id ?? null) === catId)
+              .map((mr: any) => consumoTec1(mr));
+            const consumoEstimado = mediaConsumoCategoria(consumosReaisCat);
+
+            for (let i = 0; i < emptyCat; i++) {
+              semLinha.modelos.push({ id: nid("m"), modeloId: null, consumo: consumoEstimado, categoriaId: catId });
+            }
+            totalVaziosGerados += emptyCat;
+          }
+
+          // Restante sem categoria no plano (emptyCount - totalVaziosGerados)
+          const emptySemCat = Math.max(0, emptyCount - totalVaziosGerados);
+          for (let i = 0; i < emptySemCat; i++) {
+            semLinha.modelos.push({ id: nid("m"), modeloId: null, consumo: 0, categoriaId: null });
+          }
         }
       }
 
@@ -496,6 +545,7 @@ export function SimulacaoSheet({
           ref: m.ref ?? null,
           nome: m.nome ?? null,
           foto: ((m.fotos_modelo ?? []) as string[])[0] ?? null,
+          categoriaId: m.categoria_principal_id ?? null,
         }));
         linhas.push({ id: nid("l"), linhaId, profCor: 1, modelos });
       }
@@ -551,6 +601,7 @@ export function SimulacaoSheet({
                 ref: modeloReal?.ref ?? null,
                 nome: modeloReal?.nome ?? null,
                 foto: ((modeloReal?.fotos_modelo ?? []) as string[])[0] ?? null,
+                categoriaId: m.categoria_id ?? (modeloReal ? modeloReal.categoria_principal_id ?? null : null),
               };
             }),
         })),
@@ -715,7 +766,8 @@ export function SimulacaoSheet({
           modelo_id: m.modeloId,
           slot_index: i,
           consumo: m.consumo,
-          prof_por_cor: m.profPorCor ?? {}, // prof_por_cor em otb_simulacao_modelos: migration pendente
+          prof_por_cor: m.profPorCor ?? {},
+          categoria_id: m.categoriaId ?? null,
         })),
       })),
     }));
@@ -964,8 +1016,30 @@ export function SimulacaoSheet({
 
                             <CollapsibleContent>
                               <div className="p-4 pt-0 space-y-3 border-t">
+                                {/* ── Mix de categorias desta subcoleção ── */}
+                                {(() => {
+                                  const counts = new Map<string | null, number>();
+                                  for (const l of u.linhas) {
+                                    for (const m of l.modelos) {
+                                      const cid = m.categoriaId ?? null;
+                                      counts.set(cid, (counts.get(cid) ?? 0) + 1);
+                                    }
+                                  }
+                                  const partes: string[] = [];
+                                  for (const [cid, n] of counts) {
+                                    const nome = cid ? (nomeCategoria(cid) ?? cid.slice(0, 6)) : "Sem categoria";
+                                    partes.push(`${nome} ${n}`);
+                                  }
+                                  if (partes.length === 0) return null;
+                                  return (
+                                    <p className="text-xs text-muted-foreground pt-3">
+                                      Mix: {partes.join(" · ")}
+                                    </p>
+                                  );
+                                })()}
+
                                 {/* ── Cabeçalho da unidade (seletor OC) ── */}
-                                <div className="flex flex-wrap items-center gap-2 pt-3">
+                                <div className="flex flex-wrap items-center gap-2 pt-0">
                                   {/* Seletor OC (Step 6) */}
                                   <Sel
                                     value={u.ocId ?? ""}
@@ -1134,6 +1208,19 @@ export function SimulacaoSheet({
                                                         <span className="block text-xs font-medium truncate" title={label}>
                                                           {label}
                                                         </span>
+
+                                                        {/* Categoria do modelo (editável) */}
+                                                        <Sel
+                                                          value={m.categoriaId ?? ""}
+                                                          onChange={(val) => patchModelo(u.id, l.id, m.id, { categoriaId: val || null })}
+                                                          placeholder="Sem categoria"
+                                                          className="h-6 text-xs w-full"
+                                                        >
+                                                          <SelectItem value="">Sem categoria</SelectItem>
+                                                          {categoriaOpts.map((cat: any) => (
+                                                            <SelectItem key={cat.id} value={cat.id}>{cat.nome}</SelectItem>
+                                                          ))}
+                                                        </Sel>
 
                                                     {/* Lista de cores com peças por cor */}
                                                     {u.variantes.length > 0 ? (
