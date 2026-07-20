@@ -58,6 +58,8 @@ type Cenario = { id: string; nome: string; unidades: UnidadeSim[] };
 
 let _seq = 0;
 const nid = (p: string) => `${p}-${++_seq}`;
+// Radix <SelectItem> proíbe value="" — sentinela p/ "Sem categoria" (string vazia é reservada).
+const SEM_CAT = "__sem_categoria__";
 const num = (v: string) => (v === "" ? 0 : Number(v.replace(",", ".")) || 0);
 
 function Lbl({ t, children }: { t: string; children: React.ReactNode }) {
@@ -1211,12 +1213,12 @@ export function SimulacaoSheet({
 
                                                         {/* Categoria do modelo (editável) */}
                                                         <Sel
-                                                          value={m.categoriaId ?? ""}
-                                                          onChange={(val) => patchModelo(u.id, l.id, m.id, { categoriaId: val || null })}
+                                                          value={m.categoriaId ?? SEM_CAT}
+                                                          onChange={(val) => patchModelo(u.id, l.id, m.id, { categoriaId: val === SEM_CAT ? null : val })}
                                                           placeholder="Sem categoria"
                                                           className="h-6 text-xs w-full"
                                                         >
-                                                          <SelectItem value="">Sem categoria</SelectItem>
+                                                          <SelectItem value={SEM_CAT}>Sem categoria</SelectItem>
                                                           {categoriaOpts.map((cat: any) => (
                                                             <SelectItem key={cat.id} value={cat.id}>{cat.nome}</SelectItem>
                                                           ))}
