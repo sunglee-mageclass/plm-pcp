@@ -299,7 +299,7 @@ export function SimulacaoSheet({
     },
   });
 
-  const { data: modelosReais = [], refetch: refetchModelos } = useQuery({
+  const { data: modelosReais = [], refetch: refetchModelos, isFetched: modelosFetched } = useQuery({
     queryKey: ["otb-sim-modelos", colecaoId],
     queryFn: async () =>
       (await supabase.from("modelos")
@@ -692,9 +692,11 @@ export function SimulacaoSheet({
     if (!selId && cenariosSalvos.length) setSelId(cenariosSalvos[0].id);
   }, [cenariosSalvos, selId]);
 
-  // Hidrata o draft ao trocar de cenário
+  // Hidrata o draft ao trocar de cenário — SÓ depois que modelosReais carregou, senão o
+  // mapCenarioFromDb monta um draft incompleto (sem ref/nome/foto/consumo dos modelos reais)
+  // e o guard selId!==draftFor impede re-hidratar quando os modelos chegam.
   useEffect(() => {
-    if (selId && selId !== draftFor) {
+    if (selId && selId !== draftFor && modelosFetched) {
       const row = (cenariosSalvos as any[]).find((x: any) => x.id === selId);
       if (row) {
         const cenario = mapCenarioFromDb(row);
@@ -705,7 +707,7 @@ export function SimulacaoSheet({
     }
   // nomeUnidadeDe não é estável entre renders, mas a dependência correta é o plano
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selId, cenariosSalvos, ocs]);
+  }, [selId, cenariosSalvos, ocs, modelosFetched]);
 
   // ── Helpers de mutação de draft ───────────────────────────────────────────
 
