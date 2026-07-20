@@ -438,6 +438,21 @@ export function SimulacaoSheet({
       ),
     }));
 
+  // "prof/cor" base = editar TODOS de uma vez: seta o base E LIMPA os overrides por célula
+  // (modelos.profPorCor) da linha, pra que os campos já editados também voltem ao novo valor.
+  const setBaseProfCor = (uid: string, lid: string, val: number) =>
+    upd((d) => ({
+      ...d,
+      unidades: d.unidades.map((u) =>
+        u.id !== uid ? u : {
+          ...u,
+          linhas: u.linhas.map((l) =>
+            l.id !== lid ? l : { ...l, profCor: val, modelos: l.modelos.map((m) => ({ ...m, profPorCor: {} })) }
+          ),
+        }
+      ),
+    }));
+
   const patchModelo = (uid: string, lid: string, mid: string, p: Partial<ModeloSim>) =>
     upd((d) => ({
       ...d,
@@ -914,8 +929,9 @@ export function SimulacaoSheet({
                                                   inputMode="numeric"
                                                   value={l.profCor}
                                                   onChange={(e) =>
-                                                    patchLinha(u.id, l.id, { profCor: Math.max(0, Math.round(num(e.target.value))) })
+                                                    setBaseProfCor(u.id, l.id, Math.max(0, Math.round(num(e.target.value))))
                                                   }
+                                                  title="Profundidade base — ao editar, aplica a TODAS as cores/modelos desta linha (limpa os ajustes por célula)"
                                                 />
                                               </Lbl>
 
