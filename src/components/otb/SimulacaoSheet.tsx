@@ -288,7 +288,7 @@ export function SimulacaoSheet({
     },
   });
 
-  const { data: plano } = useQuery({
+  const { data: plano, refetch: refetchPlano } = useQuery({
     queryKey: ["otb-sim-plano", colecaoId, tipo],
     queryFn: async () => {
       const { data, error } = await supabase.from("colecoes" as any)
@@ -299,7 +299,7 @@ export function SimulacaoSheet({
     },
   });
 
-  const { data: modelosReais = [] } = useQuery({
+  const { data: modelosReais = [], refetch: refetchModelos } = useQuery({
     queryKey: ["otb-sim-modelos", colecaoId],
     queryFn: async () =>
       (await supabase.from("modelos")
@@ -393,8 +393,12 @@ export function SimulacaoSheet({
 
   // ── Semear a árvore a partir do plano (Step 3) ────────────────────────────
 
-  const semear = (): UnidadeSim[] => {
-    if (!plano) return [];
+  const semear = (planoArg?: any, reaisArg?: any[]): UnidadeSim[] => {
+    // Usa dado FRESCO quando passado (Atualizar/Restaurar refazem o fetch antes de semear —
+    // a query do Simulador serve cache velho, não é invalidada por edições no editor do OTB).
+    const _plano = planoArg ?? plano;
+    const _reais = reaisArg ?? (modelosReais as any[]);
+    if (!_plano) return [];
 
     // Helper: consumo do tecido 1 (fibra principal)
     const consumoTec1 = (mr: any): number =>
@@ -404,7 +408,7 @@ export function SimulacaoSheet({
     const pecasModelo = (mr: any): number =>
       Math.max(0, ...(mr?.modelo_grades ?? []).map((g: any) => Number(g.grade_total) || 0));
 
-    // Helper (Orçamento): completa `linhas` com slots VAZIOS POR CATEGORIA (do plano), com
+    // Helper (Orçamento): completa `linhas` com slots VAZIOS POR CATEGORIA (do _plano), com
     // consumo estimado = média dos reais da categoria. Usado no branch com-subcoleções E no
     // modo-simples (subcolecao_id NULL). `categorias`/`reaisScope` já vêm filtrados pelo escopo.
     const preencherVaziosPorCategoria = (
@@ -440,8 +444,8 @@ export function SimulacaoSheet({
       for (let i = 0; i < semCat; i++) semLinha.modelos.push({ id: nid("m"), modeloId: null, consumo: 0, categoriaId: null });
     };
 
-    const todosReais = modelosReais as any[];
-    const subs = [...(plano.subcolecoes ?? [])].sort(
+    const todosReais = _reais as any[];
+    const subs = [...(_plano.subcolecoes ?? [])].sort(
       (a: any, b: any) => (a.ordem ?? 0) - (b.ordem ?? 0)
     );
 
@@ -474,15 +478,15 @@ export function SimulacaoSheet({
         linhas.push({ id: nid("l"), linhaId, profCor: 1, modelos });
         reaisLinha.forEach((m) => processadoIds.add(m.id));
       }
-      // Orçamento modo-simples (sem subcoleções): completa com vazios POR CATEGORIA (plano com
+      // Orçamento modo-simples (sem subcoleções): completa com vazios POR CATEGORIA (_plano com
       // subcolecao_id NULL). Antes não gerava vazio nenhum — as categorias não refletiam.
       if (tipo === "orcamento") {
-        const plannedTotal = (plano.semanas ?? [])
+        const plannedTotal = (_plano.semanas ?? [])
           .filter((s: any) => !s.subcolecao_id)
           .reduce((acc: number, s: any) => acc + (Number(s.qtd_planejada) || 0), 0);
         preencherVaziosPorCategoria(
           linhas, plannedTotal, todosReais.length,
-          (plano.categorias ?? []).filter((c: any) => !c.subcolecao_id),
+          (_plano.categorias ?? []).filter((c: any) => !c.subcolecao_id),
           todosReais,
         );
       }
@@ -511,7 +515,7 @@ export function SimulacaoSheet({
 
       if (tipo === "poder_venda") {
         // Also include linha_ids from plan items for this subcollection
-        const planItems = (plano.itens ?? []).filter((it: any) => it.subcolecao_id === sc.id);
+        const planItems = (_plano.itens ?? []).filter((it: any) => it.subcolecao_id === sc.id);
         for (const it of planItems) linhaIds.add(it.linha_id ?? null);
       }
 
@@ -526,7 +530,7 @@ export function SimulacaoSheet({
         let numSlotsPlan = 0;
 
         if (tipo === "poder_venda") {
-          const planItem = (plano.itens ?? []).find(
+          const planItem = (_plano.itens ?? []).find(
             (it: any) => it.subcolecao_id === sc.id && (it.linha_id ?? null) === linhaId
           );
           profBase = Number(planItem?.prof_cor) || 1;
@@ -565,16 +569,16 @@ export function SimulacaoSheet({
         linhas.push({ id: nid("l"), linhaId, profCor: profBase, modelos });
       }
 
-      // Orçamento: completa com slots VAZIOS POR CATEGORIA (do plano desta subcoleção), ALÉM dos
+      // Orçamento: completa com slots VAZIOS POR CATEGORIA (do _plano desta subcoleção), ALÉM dos
       // reais — consumo estimado = média dos reais da categoria. (Mesmo helper do modo-simples.)
       if (tipo === "orcamento") {
-        const plannedTotal = (plano.semanas ?? [])
+        const plannedTotal = (_plano.semanas ?? [])
           .filter((s: any) => (s.subcolecao_id ?? null) === sc.id)
           .reduce((acc: number, s: any) => acc + (Number(s.qtd_planejada) || 0), 0);
         const realCount = linhas.reduce((acc, l) => acc + l.modelos.filter((m) => m.modeloId).length, 0);
         preencherVaziosPorCategoria(
           linhas, plannedTotal, realCount,
-          (plano.categorias ?? []).filter((c: any) => (c.subcolecao_id ?? null) === sc.id),
+          (_plano.categorias ?? []).filter((c: any) => (c.subcolecao_id ?? null) === sc.id),
           reaisSub,
         );
       }
@@ -823,16 +827,21 @@ export function SimulacaoSheet({
 
   // RESTAURAR DO ZERO: re-semeia a árvore inteira do plano (OTB) + modelos avançados. Descarta
   // as edições (prof/cor, categoria, consumos, vazios preenchidos); mantém só a OC atribuída.
-  const restaurarDoZero = () => {
-    setDraft((d) => ({ ...d, unidades: preservarOC(semear()) }));
+  const restaurarDoZero = async () => {
+    // Refaz o fetch do plano/modelos ANTES de semear (o cache do Simulador pode estar velho).
+    const [p, mr] = await Promise.all([refetchPlano(), refetchModelos()]);
+    setDraft((d) => ({ ...d, unidades: preservarOC(semear(p.data, mr.data)) }));
     setDirty(true);
   };
 
   // ATUALIZAR (incremental): MANTÉM tudo do cenário atual (edições, OC, vazios preenchidos) e só
   // ADICIONA o que é novo no plano — modelos reais que avançaram desde a última puxada + o déficit
   // de vazios por categoria (quando o plano cresceu). Nunca reseta nem remove nada.
-  const atualizar = () => {
-    const fresh = semear();
+  const atualizar = async () => {
+    // Refaz o fetch do plano/modelos ANTES de semear (o cache do Simulador pode estar velho —
+    // não é invalidado por edições no editor do OTB) e usa o dado FRESCO.
+    const [p, mr] = await Promise.all([refetchPlano(), refetchModelos()]);
+    const fresh = semear(p.data, mr.data);
     const merged = draft.unidades.map((du) => {
       const fu = fresh.find((f) => f.subcolecaoId === du.subcolecaoId);
       if (!fu) return du;
@@ -899,7 +908,8 @@ export function SimulacaoSheet({
 
   const criar = useMutation({
     mutationFn: async () => {
-      const sementada = semear();
+      const [p, mr] = await Promise.all([refetchPlano(), refetchModelos()]);
+      const sementada = semear(p.data, mr.data);
       const arvore = buildArvore({ id: "", nome: "", unidades: sementada });
       const { data, error } = await supabase.rpc("salvar_simulacao" as any, {
         _id: null,
