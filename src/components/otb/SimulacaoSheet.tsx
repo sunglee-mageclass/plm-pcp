@@ -74,13 +74,13 @@ function Sel({
 
 // ─── Thumbnail de modelo (bucket "modelos") ───────────────────────────────────
 
-function ModeloThumb({ path, alt }: { path: string | null | undefined; alt: string }) {
+function ModeloThumb({ path, alt, className, iconClassName }: { path: string | null | undefined; alt: string; className?: string; iconClassName?: string }) {
   const url = useSignedUrl(path ?? null, "modelos");
   return (
-    <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded border bg-muted/40">
+    <div className={`flex shrink-0 items-center justify-center overflow-hidden rounded border bg-muted/40 ${className ?? "h-8 w-8"}`}>
       {url
         ? <img src={url} alt={alt} className="h-full w-full object-cover" />
-        : <ImageOff className="h-3.5 w-3.5 text-muted-foreground" />}
+        : <ImageOff className={iconClassName ?? "h-3.5 w-3.5 text-muted-foreground"} />}
     </div>
   );
 }
@@ -940,25 +940,28 @@ export function SimulacaoSheet({
                                                 const contribuicaoPorCor = l.profCor * m.consumo;
 
                                                 return (
-                                                  <div key={m.id} className="rounded-md border bg-muted/10 p-2 space-y-1.5">
-                                                    {/* Linha de identidade: foto + ref/nome */}
-                                                    <div className="flex items-center gap-2">
-                                                      <ModeloThumb path={m.foto} alt={label} />
-                                                      <span className="text-xs font-medium truncate" title={label}>
-                                                        {label}
-                                                      </span>
-                                                    </div>
+                                                  <div key={m.id} className="rounded-md border bg-muted/10 p-2">
+                                                    <div className="flex gap-3">
+                                                      {/* Foto grande à esquerda */}
+                                                      <ModeloThumb path={m.foto} alt={label} className="h-20 w-20 md:h-24 md:w-24" iconClassName="h-6 w-6 text-muted-foreground" />
+                                                      {/* Infos à direita da foto */}
+                                                      <div className="min-w-0 flex-1 space-y-1.5">
+                                                        <span className="block text-xs font-medium truncate" title={label}>
+                                                          {label}
+                                                        </span>
 
                                                     {/* Lista de cores com peças por cor */}
                                                     {u.variantes.length > 0 ? (
-                                                      <div className="space-y-0.5 pl-1">
+                                                      <div className="divide-y divide-border/60 pl-1">
                                                         {u.variantes.map((v) => (
-                                                          <div key={v.ocItemId} className="flex items-center gap-2 text-xs text-muted-foreground">
-                                                            <span className="truncate max-w-[10rem]" title={varianteLabelDe(u.ocId, v.ocItemId)}>
+                                                          <div key={v.ocItemId} className="flex items-center justify-between gap-3 py-1 text-xs text-muted-foreground">
+                                                            {/* Tecido · cor base · apelido — por extenso no desktop; trunca só no mobile */}
+                                                            <span className="min-w-0 truncate md:whitespace-normal md:overflow-visible" title={varianteLabelDe(u.ocId, v.ocItemId)}>
                                                               {varianteLabelDe(u.ocId, v.ocItemId)}
                                                             </span>
-                                                            <span className="tabular-nums shrink-0">
-                                                              {l.profCor} pç
+                                                            <span className="tabular-nums shrink-0 text-right whitespace-nowrap">
+                                                              <b className="text-foreground">{l.profCor}</b> pç
+                                                              {m.consumo > 0 && <> · <b className="text-foreground">{fmt2(l.profCor * m.consumo)}</b> m</>}
                                                             </span>
                                                           </div>
                                                         ))}
@@ -982,6 +985,8 @@ export function SimulacaoSheet({
                                                           = {fmt2(contribuicaoPorCor)} m/cor
                                                         </span>
                                                       )}
+                                                        </div>
+                                                      </div>
                                                     </div>
                                                   </div>
                                                 );
