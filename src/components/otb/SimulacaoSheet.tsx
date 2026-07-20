@@ -145,21 +145,61 @@ function consumoTec1Fn(mr: any): number {
 function ResumoOC({
   resumo,
   varianteLabelDe,
+  mix,
+  nomeCategoria,
 }: {
   resumo: OcUso[];
   varianteLabelDe: (ocId: string | null, ocItemId: string) => string;
+  mix: { rows: { cat: string | null; modelos: number; pecas: number; metragem: number; semConsumo: number }[]; totalMetr: number; totalPecas: number; totalModelos: number };
+  nomeCategoria: (id: string | null) => string | null;
 }) {
-  if (resumo.length === 0) {
-    return (
-      <p className="text-xs text-muted-foreground text-center py-3 px-2">
-        Atribua OCs às subcoleções para ver o resumo.
-      </p>
-    );
-  }
-
   return (
     <div className="space-y-2">
-      {resumo.map((oc) => (
+      {/* Mix por categoria (cenário inteiro) — visão do que está sendo simulado. */}
+      {mix.rows.length > 0 && (
+        <Collapsible defaultOpen className="group/mix-resumo">
+          <CollapsibleTrigger asChild>
+            <button className="w-full flex items-center gap-2 rounded-md border bg-muted/20 px-3 py-2 text-left hover:bg-muted/40 transition-colors min-h-[44px] md:min-h-0">
+              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]/mix-resumo:rotate-90" />
+              <span className="flex-1 text-xs font-medium">Mix por categoria</span>
+              <span className="text-xs text-muted-foreground tabular-nums shrink-0">{mix.totalPecas} pç</span>
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="mt-1 space-y-1 pl-2 border-l ml-3" title="Vazios usam consumo estimado (média da categoria); ~ = há modelo sem consumo.">
+              {mix.rows.map((r) => {
+                const nome = r.cat ? (nomeCategoria(r.cat) ?? r.cat.slice(0, 6)) : "Sem categoria";
+                const pct = mix.totalMetr > 0 ? (r.metragem / mix.totalMetr) * 100 : 0;
+                return (
+                  <div key={r.cat ?? "__sem__"} className="space-y-0.5">
+                    <div className="flex items-center justify-between gap-2 text-xs">
+                      <span className={`min-w-0 flex-1 truncate ${r.cat ? "font-medium" : "text-muted-foreground italic"}`}>
+                        {nome} <span className="text-muted-foreground">({r.modelos})</span>
+                      </span>
+                      <span className="tabular-nums shrink-0">{r.pecas} pç · {fmt2(r.metragem)}m{r.semConsumo > 0 ? " ~" : ""}</span>
+                    </div>
+                    <div className="h-1 rounded-full bg-muted overflow-hidden">
+                      <div className="h-full rounded-full bg-primary/40" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+              <div className="flex items-center justify-between gap-2 text-xs border-t mt-1 pt-1 font-semibold">
+                <span>Total ({mix.totalModelos})</span>
+                <span className="tabular-nums">{mix.totalPecas} pç · {fmt2(mix.totalMetr)}m</span>
+              </div>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
+
+      {/* Uso de OC por cor */}
+      {resumo.length === 0 ? (
+        <p className="text-xs text-muted-foreground text-center py-3 px-2">
+          Atribua OCs às subcoleções para ver o uso.
+        </p>
+      ) : (
+        resumo.map((oc) => (
         <Collapsible key={oc.ocId} defaultOpen className="group/oc-resumo">
           {/* Header do card de OC */}
           <CollapsibleTrigger asChild>
@@ -216,7 +256,8 @@ function ResumoOC({
             </div>
           </CollapsibleContent>
         </Collapsible>
-      ))}
+        ))
+      )}
     </div>
   );
 }
@@ -915,6 +956,43 @@ export function SimulacaoSheet({
     [draft.unidades, ocs]
   );
 
+  // ── Mix por categoria (cenário inteiro) — pro topo do Resumo ────────────────
+  // Por categoria: nº de modelos, peças (Σ effProf sobre as cores da unidade) e metragem
+  // (Σ consumo×peças). semConsumo = modelos com consumo 0 (parte estimada/faltante).
+  const mixCategorias = useMemo(() => {
+    const acc = new Map<string | null, { modelos: number; pecas: number; metragem: number; semConsumo: number }>();
+    for (const u of draft.unidades) {
+      const oc = u.ocId ? (ocs as any[]).find((o) => o.id === u.ocId) : null;
+      for (const l of u.linhas) {
+        for (const m of l.modelos) {
+          const cat = m.categoriaId ?? null;
+          let pecas = 0;
+          for (const v of u.variantes) {
+            const varTecId = oc?.itens?.find((it: any) => it.id === v.ocItemId)?.variante_tecido_id;
+            pecas += effProf(m, l.profCor, v.ocItemId, varTecId);
+          }
+          const cur = acc.get(cat) ?? { modelos: 0, pecas: 0, metragem: 0, semConsumo: 0 };
+          cur.modelos += 1;
+          cur.pecas += pecas;
+          cur.metragem += (Number(m.consumo) || 0) * pecas;
+          if (!(Number(m.consumo) > 0)) cur.semConsumo += 1;
+          acc.set(cat, cur);
+        }
+      }
+    }
+    const rows = [...acc.entries()].map(([cat, v]) => ({ cat, ...v }));
+    rows.sort((a, b) => {
+      if ((a.cat === null) !== (b.cat === null)) return a.cat === null ? 1 : -1; // Sem categoria por último
+      return (b.metragem - a.metragem) || (b.pecas - a.pecas);
+    });
+    return {
+      rows,
+      totalMetr: rows.reduce((s, r) => s + r.metragem, 0),
+      totalPecas: rows.reduce((s, r) => s + r.pecas, 0),
+      totalModelos: rows.reduce((s, r) => s + r.modelos, 0),
+    };
+  }, [draft.unidades, ocs]);
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -992,7 +1070,7 @@ export function SimulacaoSheet({
                 {temSel && (
                   <div className="md:hidden sticky top-0 z-10 bg-background border rounded-lg p-3 space-y-1.5">
                     <p className="text-xs font-semibold text-muted-foreground">Resumo de OC</p>
-                    <ResumoOC resumo={resumo} varianteLabelDe={varianteLabelDe} />
+                    <ResumoOC resumo={resumo} varianteLabelDe={varianteLabelDe} mix={mixCategorias} nomeCategoria={nomeCategoria} />
                   </div>
                 )}
 
@@ -1438,7 +1516,7 @@ export function SimulacaoSheet({
                   <p className="text-xs font-semibold text-muted-foreground mb-3">
                     Resumo de OC <span className="font-normal">(uso somado entre subcoleções)</span>
                   </p>
-                  <ResumoOC resumo={resumo} varianteLabelDe={varianteLabelDe} />
+                  <ResumoOC resumo={resumo} varianteLabelDe={varianteLabelDe} mix={mixCategorias} nomeCategoria={nomeCategoria} />
                 </div>
               )}
 
