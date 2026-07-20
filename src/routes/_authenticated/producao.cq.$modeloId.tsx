@@ -887,7 +887,10 @@ function EtapaSection(props: {
           <div key={d.label}>
             <Label className="text-xs">{d.label}</Label>
             {readOnlyDatas ? (
-              <DateField value={d.value ?? ""} readOnly className="bg-muted" />
+              // Reflexo das datas de Serviços — texto puro, não campo (não é editável aqui).
+              <div className="h-9 flex items-center text-sm">
+                {d.value ? String(d.value).split("-").reverse().join("/") : "—"}
+              </div>
             ) : (
               <DateField
                 value={form?.[d.key as string] ?? ""}
