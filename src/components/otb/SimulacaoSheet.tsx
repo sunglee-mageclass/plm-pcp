@@ -642,7 +642,7 @@ export function SimulacaoSheet({
 
           {/* ── Área rolável: layout 2 colunas em desktop, 1 coluna em mobile ── */}
           <div className="flex-1 overflow-y-auto">
-            <div className="flex flex-col md:flex-row md:items-start h-full">
+            <div className="flex flex-col md:flex-row md:items-start md:min-h-full">
 
               {/* ── Coluna esquerda (esquerda principal, rola junto) ── */}
               <div className="flex-1 min-w-0 p-4 space-y-4">
