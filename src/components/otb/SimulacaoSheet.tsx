@@ -966,52 +966,48 @@ export function SimulacaoSheet({
                                                       <>
                                                         {/* Desktop: grid com cabeçalho e alças arrastáveis */}
                                                         <div className="hidden md:block pl-1 relative">
-                                                          {/* Cabeçalho */}
+                                                          {/* Cabeçalho — separador = borda da própria célula (sempre alinhada) */}
                                                           <div
-                                                            className="grid items-center text-[10px] uppercase text-muted-foreground select-none"
+                                                            className="grid text-[10px] uppercase text-muted-foreground select-none"
                                                             style={{ gridTemplateColumns: `minmax(0,1fr) ${corCols.pecas}px ${corCols.metragem}px` }}
                                                           >
-                                                            <span className="truncate">Cor</span>
-                                                            <span className="text-right pr-0.5">Peças</span>
-                                                            <span className="text-right pr-0.5">Metragem</span>
+                                                            <span className="flex items-center truncate pb-1">Cor</span>
+                                                            <span className="flex items-center justify-end border-l border-border/70 pl-1 pr-0.5 pb-1">Peças</span>
+                                                            <span className="flex items-center justify-end border-l border-border/70 pl-1 pr-0.5 pb-1">Metragem</span>
                                                           </div>
                                                           {/* Linhas de cor */}
                                                           <div className="divide-y divide-border/60">
                                                             {u.variantes.map((v) => (
                                                               <div
                                                                 key={v.ocItemId}
-                                                                className="grid items-center py-1 text-xs text-muted-foreground"
+                                                                className="grid text-xs text-muted-foreground"
                                                                 style={{ gridTemplateColumns: `minmax(0,1fr) ${corCols.pecas}px ${corCols.metragem}px` }}
                                                               >
-                                                                <span className="min-w-0 whitespace-normal pr-2" title={varianteLabelDe(u.ocId, v.ocItemId)}>
+                                                                <span className="min-w-0 flex items-center whitespace-normal py-1 pr-2" title={varianteLabelDe(u.ocId, v.ocItemId)}>
                                                                   {varianteLabelDe(u.ocId, v.ocItemId)}
                                                                 </span>
-                                                                <span className="tabular-nums text-right text-foreground font-medium pr-0.5">
+                                                                <span className="flex items-center justify-end tabular-nums text-foreground font-medium border-l border-border/70 py-1 pl-1 pr-0.5">
                                                                   {l.profCor}
                                                                 </span>
-                                                                <span className="tabular-nums text-right text-foreground font-medium pr-0.5">
+                                                                <span className="flex items-center justify-end tabular-nums text-foreground font-medium border-l border-border/70 py-1 pl-1 pr-0.5">
                                                                   {m.consumo > 0 ? fmt2(l.profCor * m.consumo) : "—"}
                                                                 </span>
                                                               </div>
                                                             ))}
                                                           </div>
-                                                          {/* Alças arrastáveis — barras verticais de altura total sobre as fronteiras das colunas */}
+                                                          {/* Alças TRANSPARENTES p/ arrastar (a linha visível é a borda das células) */}
                                                           <div
-                                                            className="group/hp absolute top-0 bottom-0 z-10 w-2.5 -translate-x-1/2 cursor-col-resize touch-none"
+                                                            className="absolute top-0 bottom-0 z-10 w-2.5 -translate-x-1/2 cursor-col-resize touch-none hover:bg-primary/15"
                                                             style={{ right: `${corCols.pecas + corCols.metragem}px` }}
                                                             onPointerDown={startDragPecas}
                                                             title="Arraste para ajustar a largura de Peças"
-                                                          >
-                                                            <div className="mx-auto h-full w-px bg-border transition-all group-hover/hp:w-0.5 group-hover/hp:bg-primary" />
-                                                          </div>
+                                                          />
                                                           <div
-                                                            className="group/hm absolute top-0 bottom-0 z-10 w-2.5 -translate-x-1/2 cursor-col-resize touch-none"
+                                                            className="absolute top-0 bottom-0 z-10 w-2.5 -translate-x-1/2 cursor-col-resize touch-none hover:bg-primary/15"
                                                             style={{ right: `${corCols.metragem}px` }}
                                                             onPointerDown={startDragMetragem}
                                                             title="Arraste para ajustar a largura de Metragem"
-                                                          >
-                                                            <div className="mx-auto h-full w-px bg-border transition-all group-hover/hm:w-0.5 group-hover/hm:bg-primary" />
-                                                          </div>
+                                                          />
                                                         </div>
                                                         {/* Mobile: lista simples (layout original) */}
                                                         <div className="md:hidden divide-y divide-border/60 pl-1">
