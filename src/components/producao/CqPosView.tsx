@@ -9,7 +9,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { NumberInput } from "@/components/shared/NumberInput";
+import { DateField } from "@/components/shared/DateField";
 import { MatrizGradeResponsiva } from "@/components/shared/MatrizGradeResponsiva";
+
+const fmtData = (d?: string | null) => (d ? d.split("-").reverse().join("/") : "—");
 
 // CQ Pós (acabamento). Decisões do dono: NÃO recalcula grade real — só EXIBE a do Pré
 // (base) e registra recebimento/conserto/defeito POR serviço de acabamento. Confirma
@@ -44,6 +47,9 @@ export const CqPosView = forwardRef<CqPosHandle, {
 }>(function CqPosView({ cadId, tamanhos, variantList, labelByNumero, readOnly: permReadOnly, onStatus }, ref) {
   const qc = useQueryClient();
   const [posState, setPosState] = useState<PosState>({});
+  // Datas do Conserto POR SERVIÇO (editável): { [serviceId]: {enviado, prevista, entregue} }.
+  type ConsertoDatas = Record<string, { enviado?: string | null; prevista?: string | null; entregue?: string | null }>;
+  const [consertoDatas, setConsertoDatas] = useState<ConsertoDatas>({});
   const [obs, setObs] = useState("");
   const [statusPos, setStatusPos] = useState("pendente");
   const [editing, setEditing] = useState(false);
@@ -69,7 +75,7 @@ export const CqPosView = forwardRef<CqPosHandle, {
     queryFn: async () => {
       const { data } = await supabase
         .from("producao_terceirizados")
-        .select("id, ativo, categorias_terceirizado(nome, etapa), empresa:empresa_id(nome_fantasia), colaborador:colaborador_id(nome)")
+        .select("id, ativo, data_enviado, data_prevista, data_entregue, categorias_terceirizado(nome, etapa), empresa:empresa_id(nome_fantasia), colaborador:colaborador_id(nome)")
         .eq("cad_id", cadId);
       return (data ?? [])
         .filter((t: any) => t.ativo !== false && (t.categorias_terceirizado?.etapa ?? "ate_costura") === "pos_costura")
@@ -77,6 +83,10 @@ export const CqPosView = forwardRef<CqPosHandle, {
           id: t.id as string,
           categoria: t.categorias_terceirizado?.nome ?? "Serviço",
           responsavel: t.empresa?.nome_fantasia ?? t.colaborador?.nome ?? "—",
+          // Datas do serviço (de Serviços) — refletidas no Recebimento (read-only).
+          enviado: t.data_enviado ?? null,
+          prevista: t.data_prevista ?? null,
+          entregue: t.data_entregue ?? null,
         }));
     },
   });
@@ -85,7 +95,7 @@ export const CqPosView = forwardRef<CqPosHandle, {
   const { data: cqRow, isFetched: cqFetched, isFetching: cqFetching } = useQuery({
     queryKey: ["cqpos-cq", cadId],
     queryFn: async () =>
-      (await supabase.from("controle_qualidade").select("id, status_pos, observacoes_cq_pos").eq("cad_id", cadId).maybeSingle()).data,
+      (await supabase.from("controle_qualidade").select("id, status_pos, observacoes_cq_pos, datas_conserto_pos").eq("cad_id", cadId).maybeSingle()).data,
   });
   const cqId = (cqRow as any)?.id;
   const { data: posItens = [], isFetched: itensFetched, isFetching: itensFetching } = useQuery({
@@ -105,6 +115,7 @@ export const CqPosView = forwardRef<CqPosHandle, {
     if (cqRow) {
       setStatusPos((cqRow as any).status_pos ?? "pendente");
       setObs((cqRow as any).observacoes_cq_pos ?? "");
+      setConsertoDatas(((cqRow as any).datas_conserto_pos ?? {}) as ConsertoDatas);
     }
     const st: PosState = {};
     (posItens as any[]).forEach((it) => {
@@ -137,6 +148,9 @@ export const CqPosView = forwardRef<CqPosHandle, {
       return { ...s, [sid]: { ...svc, [et]: { ...svc[et], [num]: row } } };
     });
   };
+  const setConserto = (sid: string, k: "enviado" | "prevista" | "entregue", v: string | null) =>
+    setConsertoDatas((s) => ({ ...s, [sid]: { ...(s[sid] ?? {}), [k]: v || null } }));
+
   const buildItens = () => {
     const itens: any[] = [];
     (servicos as any[]).forEach((sv) => {
@@ -164,7 +178,7 @@ export const CqPosView = forwardRef<CqPosHandle, {
     mutationFn: async (confirmar: boolean) => {
       const { error } = await supabase.rpc("salvar_cq_pos", {
         _cad_id: cadId,
-        _cq_pos: { observacoes_cq_pos: obs || null, fotografado_variantes_pos: {} },
+        _cq_pos: { observacoes_cq_pos: obs || null, fotografado_variantes_pos: {}, datas_conserto_pos: consertoDatas },
         _itens: buildItens(),
         _confirmar: confirmar,
       });
@@ -262,20 +276,43 @@ export const CqPosView = forwardRef<CqPosHandle, {
             {POS_ETAPAS.map((et) => (
               <div key={et} className="space-y-2">
                 <Label className="text-sm font-medium">{ETAPA_LABEL[et]}</Label>
+                {/* Datas: Recebimento = as do serviço (de Serviços, read-only); Conserto = próprias. */}
+                {et === "recebimento" ? (
+                  <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+                    <div>Enviado: <span className="text-foreground">{fmtData(sv.enviado)}</span></div>
+                    <div>Prevista: <span className="text-foreground">{fmtData(sv.prevista)}</span></div>
+                    <div>Entregue: <span className="text-foreground">{fmtData(sv.entregue)}</span></div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 gap-2">
+                    {(["enviado", "prevista", "entregue"] as const).map((k) => (
+                      <div key={k} className="space-y-1">
+                        <Label className="text-xs text-muted-foreground capitalize">{k}</Label>
+                        <DateField value={consertoDatas[sv.id]?.[k] ?? ""} onChange={(e) => setConserto(sv.id, k, e.target.value || null)} />
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <MatrizGradeResponsiva
                   tamanhos={tamanhos}
                   variantes={variantes}
                   emptyLabel="Sem variantes no Tecido Principal."
                   total={(num) => rowOf(sv.id, et, num).grade_total}
+                  cellClass={(num, t) => {
+                    if (et !== "recebimento") return "";
+                    const val = Number(rowOf(sv.id, et, num).grades?.[t] ?? 0);
+                    const real = realByNum[num]?.grades?.[t] ?? 0;
+                    return val > 0 && val !== real ? "bg-destructive/15" : "";
+                  }}
                   renderCell={(num, t) => {
-                    // Recebimento: célula em vermelho quando o valor preenchido ≠ grade real do Pré.
+                    // Recebimento: campo em vermelho quando o valor preenchido ≠ grade real do Pré.
                     const val = rowOf(sv.id, et, num).grades?.[t];
                     const real = realByNum[num]?.grades?.[t] ?? 0;
                     const diverge = et === "recebimento" && (Number(val) || 0) > 0 && (Number(val) || 0) !== real;
                     return (
                       <NumberInput
                         integer
-                        className={`h-8 max-md:h-11 w-full text-center ${diverge ? "border border-red-500 text-red-600" : "border-0"}`}
+                        className={`h-8 max-md:h-11 w-full border-0 text-center ${diverge ? "text-destructive font-semibold" : ""}`}
                         value={val ?? ""}
                         onChange={(e) => setQtd(sv.id, et, num, t, Number(e.target.value) || 0)}
                       />
