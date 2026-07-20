@@ -132,6 +132,11 @@ function gradePorCorFn(mr: any): Record<string, number> {
   return out;
 }
 
+/** Consumo (m/peça) do tecido nº 1 do modelo real (BOM = CAD, sincronizados). */
+function consumoTec1Fn(mr: any): number {
+  return Number((mr?.modelo_tecidos ?? []).find((t: any) => t.tipo === "tecido" && Number(t.numero) === 1)?.consumo) || 0;
+}
+
 // ─── ResumoOC: coluna/faixa de resumo agregado de uso de OC ──────────────────
 
 function ResumoOC({
@@ -538,7 +543,8 @@ export function SimulacaoSheet({
               return {
                 id: nid("m"),
                 modeloId: m.modelo_id ?? null,
-                consumo: Number(m.consumo) || 0,
+                // Salvo tem prioridade; se for 0 (cenário antigo/sem pull), re-puxa o consumo real do modelo.
+                consumo: Number(m.consumo) || (modeloReal ? consumoTec1Fn(modeloReal) : 0),
                 profPorCor: m.prof_por_cor ?? undefined,
                 profModelo: modeloReal ? pecasModelo(modeloReal) : undefined,
                 gradePorCor: modeloReal ? gradePorCorFn(modeloReal) : undefined,
