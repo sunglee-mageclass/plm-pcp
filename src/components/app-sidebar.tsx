@@ -164,15 +164,16 @@ export function AppSidebar() {
     producao_cq: Number(badges?.erro_cq ?? 0),
     producao_direcionamento: Number(badges?.erro_direcionamento ?? 0),
   };
-  // Agregado por módulo (quando o grupo está recolhido/ícone): soma + cor da maior urgência.
+  // Agregado por módulo (quando o grupo está recolhido/ícone): soma + cor da MAIOR urgência
+  // entre os subs presentes, derivada do BADGE_CLS de cada um (vermelho > âmbar > azul).
+  // Assim os #Erro de produção (producao_cq/terceirizados/direcionamento = bg-red) pintam o
+  // grupo PCP de VERMELHO, em vez de cair no default azul.
   const itemBadge = (subs: { key: string }[]) => {
     const present = subs.filter((s) => (countFor[s.key] ?? 0) > 0);
     const total = present.reduce((a, s) => a + (countFor[s.key] ?? 0), 0);
-    const cls = present.some((s) => s.key === "entrada_oc_tecido" || s.key === "entrada_oc_aviamento" || s.key === "entrada_oc_insumo")
-      ? "bg-red-500 text-white"
-      : present.some((s) => s.key === "entrada_alertas_tecido")
-        ? "bg-amber-500 text-white"
-        : "bg-sky-500 text-white";
+    const hasRed = present.some((s) => (BADGE_CLS[s.key] ?? "").includes("bg-red"));
+    const hasAmber = present.some((s) => (BADGE_CLS[s.key] ?? "").includes("bg-amber"));
+    const cls = hasRed ? "bg-red-500 text-white" : hasAmber ? "bg-amber-500 text-white" : "bg-sky-500 text-white";
     return { total, cls };
   };
 

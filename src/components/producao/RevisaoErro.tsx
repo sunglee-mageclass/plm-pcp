@@ -39,7 +39,7 @@ export function VerificarRevisao({ modeloId, etapa, revisao }: { modeloId: strin
     onSuccess: () => {
       toast.success("Etapa verificada");
       qc.invalidateQueries({ queryKey: ["revisao-pendente", modeloId, etapa] });
-      ["producao-terc-list", "producao-cq-list", "dir-list", "producao-oficina-list", "producao-acab-list", "lancamentos-cards"]
+      ["producao-terc-list", "producao-cq-list", "dir-list", "producao-oficina-list", "producao-acab-list", "lancamentos-cards", "sidebar-badges"]
         .forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao verificar")),
