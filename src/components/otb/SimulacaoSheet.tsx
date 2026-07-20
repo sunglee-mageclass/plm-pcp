@@ -263,7 +263,7 @@ export function SimulacaoSheet({
     queryKey: ["otb-sim-ocs"],
     queryFn: async () =>
       (await supabase.from("ocs_tecido" as any)
-        .select("id, numero_pedido, itens:ocs_tecido_itens(id, quantidade_pedida, quantidade_recebida, artigo:artigos(nome, unidade_medida, rendimento), variante:variante_tecido_id(nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))")
+        .select("id, numero_pedido, itens:ocs_tecido_itens(id, variante_tecido_id, quantidade_pedida, quantidade_recebida, artigo:artigos(nome, unidade_medida, rendimento), variante:variante_tecido_id(nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))")
         .order("created_at", { ascending: false })).data ?? [] as any[],
   });
 
