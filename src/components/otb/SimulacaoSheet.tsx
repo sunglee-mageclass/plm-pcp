@@ -34,11 +34,12 @@ type ModeloSim = {
   id: string;
   modeloId: string | null;
   consumo: number;
+  profPorCor?: Record<string, number>;
   ref?: string | null;
   nome?: string | null;
   foto?: string | null;
 };
-type LinhaSim = { id: string; linhaId: string | null; profCor: number; profPorCor?: Record<string, number>; modelos: ModeloSim[] };
+type LinhaSim = { id: string; linhaId: string | null; profCor: number; modelos: ModeloSim[] };
 type UnidadeSim = {
   id: string;
   dbId?: string;
@@ -380,7 +381,6 @@ export function SimulacaoSheet({
           id: nid("l"),
           linhaId: l.linha_id ?? null,
           profCor: Number(l.prof_cor) || 0,
-          profPorCor: undefined, // prof_por_cor: coluna adicionada por migration pendente
           modelos: [...(l.modelos ?? [])]
             .sort((a: any, b: any) => (a.slot_index ?? 0) - (b.slot_index ?? 0))
             .map((m: any) => {
@@ -391,6 +391,7 @@ export function SimulacaoSheet({
                 id: nid("m"),
                 modeloId: m.modelo_id ?? null,
                 consumo: Number(m.consumo) || 0,
+                profPorCor: undefined, // prof_por_cor em otb_simulacao_modelos: migration pendente
                 ref: modeloReal?.ref ?? null,
                 nome: modeloReal?.nome ?? null,
                 foto: ((modeloReal?.fotos_modelo ?? []) as string[])[0] ?? null,
@@ -537,13 +538,13 @@ export function SimulacaoSheet({
       linhas: u.linhas.map((l) => ({
         linha_id: l.linhaId,
         prof_cor: l.profCor,
-        prof_por_cor: l.profPorCor ?? {},
         cores: u.variantes.length,
         num_modelos: l.modelos.length,
         modelos: l.modelos.map((m, i) => ({
           modelo_id: m.modeloId,
           slot_index: i,
           consumo: m.consumo,
+          prof_por_cor: m.profPorCor ?? {}, // prof_por_cor em otb_simulacao_modelos: migration pendente
         })),
       })),
     }));
@@ -747,7 +748,7 @@ export function SimulacaoSheet({
                       );
                       const planoNCores = planoCoresPara(u.subcolecaoId);
 
-                      // Mini ✓/⚠ da subcoleção: ok se todas as cores têm saldo ≥ 0 (por-cor, usando effProf)
+                      // Mini ✓/⚠ da subcoleção: ok se todas as cores têm saldo ≥ 0 (por-modelo effProf)
                       const subOk = u.variantes.length > 0 && u.variantes.every((v) => {
                         const oc = ocById(u.ocId);
                         const item = (oc?.itens ?? []).find((it: any) => it.id === v.ocItemId);
@@ -758,7 +759,7 @@ export function SimulacaoSheet({
                           Number(item.artigo?.rendimento) || 0
                         );
                         const demCor = u.linhas.reduce(
-                          (s, l) => s + demandaLinha(effProf(l, v.ocItemId), 1, l.modelos.map((m) => m.consumo)),
+                          (s, l) => s + l.modelos.reduce((sm, mo) => sm + effProf(mo, l.profCor, v.ocItemId) * mo.consumo, 0),
                           0
                         );
                         return saldo(disp, demCor) >= 0;
@@ -945,38 +946,6 @@ export function SimulacaoSheet({
                                               </Button>
                                             </div>
 
-                                            {/* Profundidade por cor (override individual) */}
-                                            {u.variantes.length > 0 && (
-                                              <div className="space-y-1 rounded-md border bg-muted/5 p-2">
-                                                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                                                  Profundidade por cor
-                                                </p>
-                                                <div className="flex flex-wrap gap-x-4 gap-y-1">
-                                                  {u.variantes.map((v) => (
-                                                    <div key={v.ocItemId} className="flex items-center gap-1.5 min-h-[44px] md:min-h-0">
-                                                      <span
-                                                        className="text-xs text-muted-foreground max-w-[8rem] truncate"
-                                                        title={varianteLabelDe(u.ocId, v.ocItemId)}
-                                                      >
-                                                        {varianteLabelDe(u.ocId, v.ocItemId)}
-                                                      </span>
-                                                      <Input
-                                                        className="h-7 w-16 px-1 tabular-nums"
-                                                        inputMode="numeric"
-                                                        value={l.profPorCor?.[v.ocItemId] ?? l.profCor}
-                                                        onChange={(e) => {
-                                                          const val = Math.max(0, Math.round(num(e.target.value)));
-                                                          patchLinha(u.id, l.id, {
-                                                            profPorCor: { ...(l.profPorCor ?? {}), [v.ocItemId]: val },
-                                                          });
-                                                        }}
-                                                      />
-                                                    </div>
-                                                  ))}
-                                                </div>
-                                              </div>
-                                            )}
-
                                             {/* Mini cards por modelo (Step 8) */}
                                             <div className="space-y-2">
                                               {l.modelos.map((m, idx) => {
@@ -1019,11 +988,22 @@ export function SimulacaoSheet({
                                                                 <span className="min-w-0 flex items-center whitespace-normal py-1 pr-2" title={varianteLabelDe(u.ocId, v.ocItemId)}>
                                                                   {varianteLabelDe(u.ocId, v.ocItemId)}
                                                                 </span>
-                                                                <span className="flex items-center justify-end tabular-nums text-foreground font-medium border-l border-border/70 py-1 pl-1 pr-0.5">
-                                                                  {effProf(l, v.ocItemId)}
+                                                                <span className="flex items-center justify-end border-l border-border/70 py-1 pl-1 pr-0.5">
+                                                                  <Input
+                                                                    className="h-6 w-full min-w-0 px-1 text-right tabular-nums text-foreground font-medium border-0 bg-transparent shadow-none focus-visible:ring-1 focus-visible:ring-primary/50"
+                                                                    inputMode="numeric"
+                                                                    value={m.profPorCor?.[v.ocItemId] ?? l.profCor}
+                                                                    onChange={(e) => {
+                                                                      const val = Math.max(0, Math.round(num(e.target.value)));
+                                                                      patchModelo(u.id, l.id, m.id, {
+                                                                        profPorCor: { ...(m.profPorCor ?? {}), [v.ocItemId]: val },
+                                                                      });
+                                                                    }}
+                                                                    title="Profundidade por cor (peças)"
+                                                                  />
                                                                 </span>
                                                                 <span className="flex items-center justify-end tabular-nums text-foreground font-medium border-l border-border/70 py-1 pl-1 pr-0.5">
-                                                                  {m.consumo > 0 ? fmt2(effProf(l, v.ocItemId) * m.consumo) : "—"}
+                                                                  {m.consumo > 0 ? fmt2(effProf(m, l.profCor, v.ocItemId) * m.consumo) : "—"}
                                                                 </span>
                                                               </div>
                                                             ))}
@@ -1042,17 +1022,30 @@ export function SimulacaoSheet({
                                                             title="Arraste para ajustar a largura de Metragem"
                                                           />
                                                         </div>
-                                                        {/* Mobile: lista simples (layout original) */}
+                                                        {/* Mobile: lista simples */}
                                                         <div className="md:hidden divide-y divide-border/60 pl-1">
                                                           {u.variantes.map((v) => (
-                                                            <div key={v.ocItemId} className="flex items-center justify-between gap-3 py-1 text-xs text-muted-foreground">
-                                                              <span className="min-w-0 truncate" title={varianteLabelDe(u.ocId, v.ocItemId)}>
+                                                            <div key={v.ocItemId} className="flex items-center gap-2 py-1 min-h-[44px] text-xs text-muted-foreground">
+                                                              <span className="min-w-0 flex-1 truncate" title={varianteLabelDe(u.ocId, v.ocItemId)}>
                                                                 {varianteLabelDe(u.ocId, v.ocItemId)}
                                                               </span>
-                                                              <span className="tabular-nums shrink-0 text-right whitespace-nowrap">
-                                                                <b className="text-foreground">{effProf(l, v.ocItemId)}</b> pç
-                                                                {m.consumo > 0 && <> · <b className="text-foreground">{fmt2(effProf(l, v.ocItemId) * m.consumo)}</b> m</>}
-                                                              </span>
+                                                              <Input
+                                                                className="h-8 w-14 px-1 text-right tabular-nums text-foreground font-medium shrink-0"
+                                                                inputMode="numeric"
+                                                                value={m.profPorCor?.[v.ocItemId] ?? l.profCor}
+                                                                onChange={(e) => {
+                                                                  const val = Math.max(0, Math.round(num(e.target.value)));
+                                                                  patchModelo(u.id, l.id, m.id, {
+                                                                    profPorCor: { ...(m.profPorCor ?? {}), [v.ocItemId]: val },
+                                                                  });
+                                                                }}
+                                                                title="Profundidade por cor (peças)"
+                                                              />
+                                                              {m.consumo > 0 && (
+                                                                <span className="tabular-nums shrink-0 text-right whitespace-nowrap">
+                                                                  <b className="text-foreground">{fmt2(effProf(m, l.profCor, v.ocItemId) * m.consumo)}</b> m
+                                                                </span>
+                                                              )}
                                                             </div>
                                                           ))}
                                                         </div>

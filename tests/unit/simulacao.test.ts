@@ -30,7 +30,7 @@ describe("agregarUsoOC — uso somado da mesma OC entre subcoleções", () => {
   const oc = (id: string, numero: string, itens: any[]) => ({ id, numero_pedido: numero, itens });
   // unidade que usa 1 OC + 1 cor; demanda da unidade = prof×Σconsumo
   const u = (ocId: string | null, ocItemId: string, prof: number, consumo: number, profPorCor?: Record<string, number>) =>
-    ({ ocId, variantes: ocItemId ? [{ ocItemId }] : [], linhas: [{ profCor: prof, profPorCor, modelos: [{ consumo }] }] });
+    ({ ocId, variantes: ocItemId ? [{ ocItemId }] : [], linhas: [{ profCor: prof, modelos: [{ consumo, profPorCor }] }] });
 
   it("soma a demanda da MESMA cor entre 2 subcoleções", () => {
     const ocs = [oc("oc1", "OC-123", [item("verde", 20), item("preto", 30)])];
@@ -84,13 +84,13 @@ describe("agregarUsoOC — uso somado da mesma OC entre subcoleções", () => {
   });
 
   it("profPorCor: override maior estoura, cor sem override sobra", () => {
-    // azul: effProf=10 (override), consumo=2 → dem=20; disp=15 → estoura
+    // azul: effProf=10 (override no modelo), consumo=2 → dem=20; disp=15 → estoura
     // vermelho: effProf=5 (base, sem override), consumo=2 → dem=10; disp=30 → sobra
     const ocs = [oc("oc1", "OC-xyz", [item("azul", 15), item("vermelho", 30)])];
     const unidade = {
       ocId: "oc1",
       variantes: [{ ocItemId: "azul" }, { ocItemId: "vermelho" }],
-      linhas: [{ profCor: 5, profPorCor: { azul: 10 }, modelos: [{ consumo: 2 }] }],
+      linhas: [{ profCor: 5, modelos: [{ consumo: 2, profPorCor: { azul: 10 } }] }],
     };
     const res = agregarUsoOC([unidade], ocs);
     expect(res).toHaveLength(1);

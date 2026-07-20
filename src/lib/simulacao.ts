@@ -41,12 +41,12 @@ export const distribuirNasSemanas = (num: number, semanas: number[]): Record<str
 export type UnidadeUsoInput = {
   ocId: string | null;
   variantes: { ocItemId: string }[];
-  linhas: { profCor: number; profPorCor?: Record<string, number>; modelos: { consumo: number }[] }[];
+  linhas: { profCor: number; modelos: { consumo: number; profPorCor?: Record<string, number> }[] }[];
 };
 
-/** Retorna a profundidade efetiva para a cor `ocItemId`: usa override se existir, senão o base. */
-export const effProf = (l: { profCor: number; profPorCor?: Record<string, number> }, ocItemId: string): number =>
-  l.profPorCor?.[ocItemId] ?? l.profCor;
+/** Retorna a profundidade efetiva para a cor `ocItemId`: usa override do modelo se existir, senão o base. */
+export const effProf = (modelo: { profPorCor?: Record<string, number> }, baseProfCor: number, ocItemId: string): number =>
+  modelo.profPorCor?.[ocItemId] ?? baseProfCor;
 export type OcUsoInput = {
   id: string;
   numero_pedido: string | null;
@@ -70,7 +70,7 @@ export function agregarUsoOC(unidades: UnidadeUsoInput[], ocs: OcUsoInput[]): Oc
     if (!u.ocId) continue;
     for (const v of u.variantes) {
       const demCor = u.linhas.reduce(
-        (s, l) => s + demandaLinha(effProf(l, v.ocItemId), 1, l.modelos.map((m) => m.consumo || 0)),
+        (s, l) => s + l.modelos.reduce((sm, mo) => sm + effProf(mo, l.profCor, v.ocItemId) * (mo.consumo || 0), 0),
         0
       );
       const key = `${u.ocId}|${v.ocItemId}`;
