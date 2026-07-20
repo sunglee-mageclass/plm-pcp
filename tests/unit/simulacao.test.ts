@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { splitEven, metragemDisponivel, pecasLinha, demandaLinha, saldo, distribuirNasSemanas, agregarUsoOC } from "@/lib/simulacao";
+import { splitEven, metragemDisponivel, pecasLinha, demandaLinha, saldo, distribuirNasSemanas, agregarUsoOC, effProf } from "@/lib/simulacao";
 
 describe("simulacao — cálculo puro", () => {
   it("splitEven reparte o resto nas primeiras", () => {
@@ -29,8 +29,8 @@ describe("agregarUsoOC — uso somado da mesma OC entre subcoleções", () => {
   const item = (id: string, qtd: number) => ({ id, quantidade_pedida: qtd, artigo: { unidade_medida: "metro", rendimento: null } });
   const oc = (id: string, numero: string, itens: any[]) => ({ id, numero_pedido: numero, itens });
   // unidade que usa 1 OC + 1 cor; demanda da unidade = prof×Σconsumo
-  const u = (ocId: string | null, ocItemId: string, prof: number, consumo: number) =>
-    ({ ocId, variantes: ocItemId ? [{ ocItemId }] : [], linhas: [{ profCor: prof, modelos: [{ consumo }] }] });
+  const u = (ocId: string | null, ocItemId: string, prof: number, consumo: number, profPorCor?: Record<string, number>) =>
+    ({ ocId, variantes: ocItemId ? [{ ocItemId }] : [], linhas: [{ profCor: prof, profPorCor, modelos: [{ consumo }] }] });
 
   it("soma a demanda da MESMA cor entre 2 subcoleções", () => {
     const ocs = [oc("oc1", "OC-123", [item("verde", 20), item("preto", 30)])];
@@ -63,5 +63,45 @@ describe("agregarUsoOC — uso somado da mesma OC entre subcoleções", () => {
     const res = agregarUsoOC([u("oc1", "v", 8, 1), u(null, "", 8, 1)], ocs);
     expect(res).toHaveLength(1);
     expect(res[0].ocId).toBe("oc1");
+  });
+
+  it("profPorCor: demanda da cor soma as duas subcoleções com profs diferentes", () => {
+    // verde usada em 2 subcoleções, cada uma com profPorCor diferente p/ "verde"
+    // Sub1: effProf("verde")=3, consumo=2 → demCor=6
+    // Sub2: effProf("verde")=7, consumo=2 → demCor=14
+    // Total dem verde = 20; disp=25 → saldo=5, ok=true
+    const ocs = [oc("oc1", "OC-abc", [item("verde", 25)])];
+    const res = agregarUsoOC([
+      u("oc1", "verde", 5, 2, { verde: 3 }),
+      u("oc1", "verde", 5, 2, { verde: 7 }),
+    ], ocs);
+    expect(res).toHaveLength(1);
+    const verde = res[0].cores.find((c) => c.ocItemId === "verde")!;
+    expect(verde.dem).toBe(20);
+    expect(verde.disp).toBe(25);
+    expect(verde.saldo).toBe(5);
+    expect(res[0].ok).toBe(true);
+  });
+
+  it("profPorCor: override maior estoura, cor sem override sobra", () => {
+    // azul: effProf=10 (override), consumo=2 → dem=20; disp=15 → estoura
+    // vermelho: effProf=5 (base, sem override), consumo=2 → dem=10; disp=30 → sobra
+    const ocs = [oc("oc1", "OC-xyz", [item("azul", 15), item("vermelho", 30)])];
+    const unidade = {
+      ocId: "oc1",
+      variantes: [{ ocItemId: "azul" }, { ocItemId: "vermelho" }],
+      linhas: [{ profCor: 5, profPorCor: { azul: 10 }, modelos: [{ consumo: 2 }] }],
+    };
+    const res = agregarUsoOC([unidade], ocs);
+    expect(res).toHaveLength(1);
+    const azul = res[0].cores.find((c) => c.ocItemId === "azul")!;
+    const vermelho = res[0].cores.find((c) => c.ocItemId === "vermelho")!;
+    expect(azul.dem).toBe(20);
+    expect(azul.disp).toBe(15);
+    expect(azul.saldo).toBe(-5);
+    expect(vermelho.dem).toBe(10);
+    expect(vermelho.disp).toBe(30);
+    expect(vermelho.saldo).toBe(20);
+    expect(res[0].ok).toBe(false);
   });
 });

@@ -17,7 +17,7 @@ import {
   Collapsible, CollapsibleTrigger, CollapsibleContent,
 } from "@/components/ui/collapsible";
 import { Plus, Trash2, Pencil, Save, ArrowLeft, ImageOff, Send, X, ChevronRight } from "lucide-react";
-import { metragemDisponivel, demandaLinha, saldo, agregarUsoOC } from "@/lib/simulacao";
+import { metragemDisponivel, demandaLinha, saldo, agregarUsoOC, effProf } from "@/lib/simulacao";
 import type { OcUso } from "@/lib/simulacao";
 import { labelVarianteRow } from "@/lib/variante";
 import { useResizableWidth, useCorCols } from "@/hooks/useResizableWidth";
@@ -38,7 +38,7 @@ type ModeloSim = {
   nome?: string | null;
   foto?: string | null;
 };
-type LinhaSim = { id: string; linhaId: string | null; profCor: number; modelos: ModeloSim[] };
+type LinhaSim = { id: string; linhaId: string | null; profCor: number; profPorCor?: Record<string, number>; modelos: ModeloSim[] };
 type UnidadeSim = {
   id: string;
   dbId?: string;
@@ -380,6 +380,7 @@ export function SimulacaoSheet({
           id: nid("l"),
           linhaId: l.linha_id ?? null,
           profCor: Number(l.prof_cor) || 0,
+          profPorCor: undefined, // prof_por_cor: coluna adicionada por migration pendente
           modelos: [...(l.modelos ?? [])]
             .sort((a: any, b: any) => (a.slot_index ?? 0) - (b.slot_index ?? 0))
             .map((m: any) => {
@@ -536,6 +537,7 @@ export function SimulacaoSheet({
       linhas: u.linhas.map((l) => ({
         linha_id: l.linhaId,
         prof_cor: l.profCor,
+        prof_por_cor: l.profPorCor ?? {},
         cores: u.variantes.length,
         num_modelos: l.modelos.length,
         modelos: l.modelos.map((m, i) => ({
@@ -743,14 +745,9 @@ export function SimulacaoSheet({
                       const itensDispo = todosItens.filter(
                         (it: any) => !u.variantes.some((v) => v.ocItemId === it.id)
                       );
-                      // Cálculo de demanda total (igual para todas as cores = demanda por cor)
-                      const demandaPorCor = u.linhas.reduce(
-                        (s, l) => s + demandaLinha(l.profCor, 1, l.modelos.map((m) => m.consumo)),
-                        0
-                      );
                       const planoNCores = planoCoresPara(u.subcolecaoId);
 
-                      // Mini ✓/⚠ da subcoleção: ok se todas as cores têm saldo ≥ 0
+                      // Mini ✓/⚠ da subcoleção: ok se todas as cores têm saldo ≥ 0 (por-cor, usando effProf)
                       const subOk = u.variantes.length > 0 && u.variantes.every((v) => {
                         const oc = ocById(u.ocId);
                         const item = (oc?.itens ?? []).find((it: any) => it.id === v.ocItemId);
@@ -760,7 +757,11 @@ export function SimulacaoSheet({
                           Number(item.quantidade_pedida) || 0,
                           Number(item.artigo?.rendimento) || 0
                         );
-                        return saldo(disp, demandaPorCor) >= 0;
+                        const demCor = u.linhas.reduce(
+                          (s, l) => s + demandaLinha(effProf(l, v.ocItemId), 1, l.modelos.map((m) => m.consumo)),
+                          0
+                        );
+                        return saldo(disp, demCor) >= 0;
                       });
                       const subTemDados = u.variantes.length > 0;
 
@@ -897,7 +898,7 @@ export function SimulacaoSheet({
                                               prof/cor: <b>{l.profCor}</b>
                                             </span>
                                             <span className="text-xs text-muted-foreground tabular-nums">
-                                              dem: <b>{fmt2(demL)} m</b>
+                                              base/cor: <b>{fmt2(demL)} m</b>
                                             </span>
                                           </button>
                                         </CollapsibleTrigger>
@@ -923,7 +924,7 @@ export function SimulacaoSheet({
                                               </span>
 
                                               <span className="text-xs text-muted-foreground tabular-nums">
-                                                demanda/cor: <b>{fmt2(demL)} m</b>
+                                                base/cor: <b>{fmt2(demL)} m</b>
                                               </span>
 
                                               {l.modelos.length > 1 && (
@@ -943,6 +944,38 @@ export function SimulacaoSheet({
                                                 <Plus className="h-3.5 w-3.5 mr-0.5" /> Modelo
                                               </Button>
                                             </div>
+
+                                            {/* Profundidade por cor (override individual) */}
+                                            {u.variantes.length > 0 && (
+                                              <div className="space-y-1 rounded-md border bg-muted/5 p-2">
+                                                <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                                  Profundidade por cor
+                                                </p>
+                                                <div className="flex flex-wrap gap-x-4 gap-y-1">
+                                                  {u.variantes.map((v) => (
+                                                    <div key={v.ocItemId} className="flex items-center gap-1.5 min-h-[44px] md:min-h-0">
+                                                      <span
+                                                        className="text-xs text-muted-foreground max-w-[8rem] truncate"
+                                                        title={varianteLabelDe(u.ocId, v.ocItemId)}
+                                                      >
+                                                        {varianteLabelDe(u.ocId, v.ocItemId)}
+                                                      </span>
+                                                      <Input
+                                                        className="h-7 w-16 px-1 tabular-nums"
+                                                        inputMode="numeric"
+                                                        value={l.profPorCor?.[v.ocItemId] ?? l.profCor}
+                                                        onChange={(e) => {
+                                                          const val = Math.max(0, Math.round(num(e.target.value)));
+                                                          patchLinha(u.id, l.id, {
+                                                            profPorCor: { ...(l.profPorCor ?? {}), [v.ocItemId]: val },
+                                                          });
+                                                        }}
+                                                      />
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              </div>
+                                            )}
 
                                             {/* Mini cards por modelo (Step 8) */}
                                             <div className="space-y-2">
@@ -987,10 +1020,10 @@ export function SimulacaoSheet({
                                                                   {varianteLabelDe(u.ocId, v.ocItemId)}
                                                                 </span>
                                                                 <span className="flex items-center justify-end tabular-nums text-foreground font-medium border-l border-border/70 py-1 pl-1 pr-0.5">
-                                                                  {l.profCor}
+                                                                  {effProf(l, v.ocItemId)}
                                                                 </span>
                                                                 <span className="flex items-center justify-end tabular-nums text-foreground font-medium border-l border-border/70 py-1 pl-1 pr-0.5">
-                                                                  {m.consumo > 0 ? fmt2(l.profCor * m.consumo) : "—"}
+                                                                  {m.consumo > 0 ? fmt2(effProf(l, v.ocItemId) * m.consumo) : "—"}
                                                                 </span>
                                                               </div>
                                                             ))}
@@ -1017,8 +1050,8 @@ export function SimulacaoSheet({
                                                                 {varianteLabelDe(u.ocId, v.ocItemId)}
                                                               </span>
                                                               <span className="tabular-nums shrink-0 text-right whitespace-nowrap">
-                                                                <b className="text-foreground">{l.profCor}</b> pç
-                                                                {m.consumo > 0 && <> · <b className="text-foreground">{fmt2(l.profCor * m.consumo)}</b> m</>}
+                                                                <b className="text-foreground">{effProf(l, v.ocItemId)}</b> pç
+                                                                {m.consumo > 0 && <> · <b className="text-foreground">{fmt2(effProf(l, v.ocItemId) * m.consumo)}</b> m</>}
                                                               </span>
                                                             </div>
                                                           ))}

@@ -41,8 +41,12 @@ export const distribuirNasSemanas = (num: number, semanas: number[]): Record<str
 export type UnidadeUsoInput = {
   ocId: string | null;
   variantes: { ocItemId: string }[];
-  linhas: { profCor: number; modelos: { consumo: number }[] }[];
+  linhas: { profCor: number; profPorCor?: Record<string, number>; modelos: { consumo: number }[] }[];
 };
+
+/** Retorna a profundidade efetiva para a cor `ocItemId`: usa override se existir, senão o base. */
+export const effProf = (l: { profCor: number; profPorCor?: Record<string, number> }, ocItemId: string): number =>
+  l.profPorCor?.[ocItemId] ?? l.profCor;
 export type OcUsoInput = {
   id: string;
   numero_pedido: string | null;
@@ -55,7 +59,8 @@ export type OcUso = { ocId: string; numero: string | null; cores: CorUso[]; tota
 export const demandaUnidade = (u: UnidadeUsoInput): number =>
   u.linhas.reduce((s, l) => s + demandaLinha(l.profCor, 1, l.modelos.map((m) => m.consumo || 0)), 0);
 
-/** Agrega o uso por OC e por cor (item), somando a demanda entre subcoleções. */
+/** Agrega o uso por OC e por cor (item), somando a demanda entre subcoleções.
+ *  Cada cor pode ter profundidade diferente via `effProf` (override por linha×cor). */
 export function agregarUsoOC(unidades: UnidadeUsoInput[], ocs: OcUsoInput[]): OcUso[] {
   const ocMap = new Map(ocs.map((o) => [o.id, o]));
   const demByKey = new Map<string, number>(); // `${ocId}|${ocItemId}` -> demanda somada
@@ -63,10 +68,13 @@ export function agregarUsoOC(unidades: UnidadeUsoInput[], ocs: OcUsoInput[]): Oc
 
   for (const u of unidades) {
     if (!u.ocId) continue;
-    const demU = demandaUnidade(u);
     for (const v of u.variantes) {
+      const demCor = u.linhas.reduce(
+        (s, l) => s + demandaLinha(effProf(l, v.ocItemId), 1, l.modelos.map((m) => m.consumo || 0)),
+        0
+      );
       const key = `${u.ocId}|${v.ocItemId}`;
-      demByKey.set(key, (demByKey.get(key) ?? 0) + demU);
+      demByKey.set(key, (demByKey.get(key) ?? 0) + demCor);
       const list = coresByOc.get(u.ocId) ?? [];
       if (!list.includes(v.ocItemId)) { list.push(v.ocItemId); coresByOc.set(u.ocId, list); }
     }
