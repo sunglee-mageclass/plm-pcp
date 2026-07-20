@@ -1214,21 +1214,20 @@ function ModeloDialog({
   const lancar = useMutation({
     mutationFn: async (send: boolean) => {
       if (!modeloId) throw new Error("Salve o modelo primeiro.");
+      // Pré-checagens de UX (mensagem imediata); o SERVIDOR re-valida em lancar_modelo.
       if (send) {
         if (!cqConfirmado) throw new Error("Confirme o Controle de Qualidade antes de lançar.");
         if (servicoValorPendente) throw new Error("Aprove o valor dos serviços antes de lançar.");
         if (!draft.data_lancamento) throw new Error("Preencha a Data de Lançamento.");
       }
-      const payload = send
-        ? { lancado: true, data_lancamento: draft.data_lancamento }
-        : { lancado: false };
-      const { error } = await supabase.from("modelos").update(payload as any).eq("id", modeloId);
+      // Gate REAL no servidor (CQ liberado + valor de serviço aprovado + data). Ao lançar,
+      // a RPC também limpa o #Erro de 'lancamentos' (setado quando o CQ foi desmarcado antes).
+      const { error } = await supabase.rpc("lancar_modelo" as any, {
+        _modelo_id: modeloId,
+        _data_lancamento: send ? draft.data_lancamento : null,
+        _send: send,
+      });
       if (error) throw error;
-      if (send) {
-        // Lançar É a verificação do Lançamentos — limpa o #Erro (setado quando o CQ foi
-        // desmarcado no meio do fluxo); senão o card fica com #Erro mesmo já resolvido.
-        await supabase.rpc("marcar_etapa_verificada" as any, { _modelo_id: modeloId, _etapa: "lancamentos" });
-      }
     },
     onMutate: (send: boolean) => setLancado(send),
     onError: (e: any, send: boolean) => { setLancado(!send); toast.error(mensagemErro(e, "Erro")); },

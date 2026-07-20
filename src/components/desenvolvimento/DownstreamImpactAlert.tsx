@@ -230,7 +230,12 @@ export function DesmarcarEtapasDialog({
     },
     onSuccess: () => {
       toast.success("Etapa desmarcada.");
-      ["etapas-afetadas", "cad-grades", "parcelas", "estoque-tecidos", "estoque-aviamentos", "estoque-insumos", "sidebar-badges", "cad-etiquetas-rows"]
+      // Inclui as LISTAS das etapas downstream — senão o card fica FANTASMA em Serviços/CQ/
+      // Direcionamento/Lançamentos/Explosão até o próximo refetch (revert pelo Dev).
+      ["etapas-afetadas", "cad-grades", "parcelas", "estoque-tecidos", "estoque-aviamentos",
+       "estoque-insumos", "sidebar-badges", "cad-etiquetas-rows",
+       "producao-terc-list", "producao-cq-list", "producao-explosao-list", "dir-list",
+       "lancamentos-cards", "modelos-desenvolvimento", "modelos-planejamento"]
         .forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Não foi possível desmarcar")),
