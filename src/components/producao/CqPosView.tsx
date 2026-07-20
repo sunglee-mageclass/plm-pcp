@@ -205,6 +205,14 @@ export const CqPosView = forwardRef<CqPosHandle, {
 
   const variantes = variantList.map((v) => ({ num: v.num, label: labelByNumero[v.num] ?? `Variante ${v.num}` }));
 
+  // Divergência do RECEBIMENTO (por serviço) × grade real do Pré: cada serviço de acabamento
+  // processa todas as peças, então o recebido deve bater com a grade real. Lista as variantes
+  // em que o total recebido ≠ real (faltam/sobram peças) — alimenta o banner de alerta.
+  const divergRecebimento = (svId: string) =>
+    variantes
+      .map((v) => ({ label: v.label, real: realByNum[v.num]?.total ?? 0, recebido: rowOf(svId, "recebimento", v.num).grade_total }))
+      .filter((x) => x.recebido !== x.real);
+
   useImperativeHandle(ref, () => ({
     save: (confirmar: boolean) => save.mutate(confirmar),
     desmarcar: () => desmarcar.mutate(),
@@ -259,17 +267,34 @@ export const CqPosView = forwardRef<CqPosHandle, {
                   variantes={variantes}
                   emptyLabel="Sem variantes no Tecido Principal."
                   total={(num) => rowOf(sv.id, et, num).grade_total}
-                  renderCell={(num, t) => (
-                    <NumberInput
-                      integer
-                      className="h-8 max-md:h-11 w-full border-0 text-center"
-                      value={rowOf(sv.id, et, num).grades?.[t] ?? ""}
-                      onChange={(e) => setQtd(sv.id, et, num, t, Number(e.target.value) || 0)}
-                    />
-                  )}
+                  renderCell={(num, t) => {
+                    // Recebimento: célula em vermelho quando o valor preenchido ≠ grade real do Pré.
+                    const val = rowOf(sv.id, et, num).grades?.[t];
+                    const real = realByNum[num]?.grades?.[t] ?? 0;
+                    const diverge = et === "recebimento" && (Number(val) || 0) > 0 && (Number(val) || 0) !== real;
+                    return (
+                      <NumberInput
+                        integer
+                        className={`h-8 max-md:h-11 w-full text-center ${diverge ? "border border-red-500 text-red-600" : "border-0"}`}
+                        value={val ?? ""}
+                        onChange={(e) => setQtd(sv.id, et, num, t, Number(e.target.value) || 0)}
+                      />
+                    );
+                  }}
                 />
               </div>
             ))}
+
+            {/* Alerta: o recebimento deste serviço não bate com a grade real do Pré. */}
+            {(() => {
+              const diffs = divergRecebimento(sv.id);
+              return diffs.length > 0 ? (
+                <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                  ⚠ Recebimento diverge da grade real:{" "}
+                  {diffs.map((d) => `${d.label} — recebido ${d.recebido} / real ${d.real}`).join("; ")}.
+                </div>
+              ) : null;
+            })()}
           </Card>
         ))}
 
