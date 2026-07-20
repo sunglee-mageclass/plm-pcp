@@ -997,14 +997,14 @@ export function SimulacaoSheet({
                                                           </div>
                                                           {/* Alças TRANSPARENTES p/ arrastar (a linha visível é a borda das células) */}
                                                           <div
-                                                            className="absolute top-0 bottom-0 z-10 w-2.5 -translate-x-1/2 cursor-col-resize touch-none hover:bg-primary/15"
-                                                            style={{ right: `${corCols.pecas + corCols.metragem}px` }}
+                                                            className="absolute top-0 bottom-0 z-10 w-2.5 cursor-col-resize touch-none hover:bg-primary/15"
+                                                            style={{ right: `${corCols.pecas + corCols.metragem - 5}px` }}
                                                             onPointerDown={startDragPecas}
                                                             title="Arraste para ajustar a largura de Peças"
                                                           />
                                                           <div
-                                                            className="absolute top-0 bottom-0 z-10 w-2.5 -translate-x-1/2 cursor-col-resize touch-none hover:bg-primary/15"
-                                                            style={{ right: `${corCols.metragem}px` }}
+                                                            className="absolute top-0 bottom-0 z-10 w-2.5 cursor-col-resize touch-none hover:bg-primary/15"
+                                                            style={{ right: `${corCols.metragem - 5}px` }}
                                                             onPointerDown={startDragMetragem}
                                                             title="Arraste para ajustar a largura de Metragem"
                                                           />
