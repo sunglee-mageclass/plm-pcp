@@ -24,13 +24,15 @@ Grava as decisões da simulação no **Tecido Principal (tipo=tecido, numero=1)*
 do modelo **≠ 'aprovado'** (aprovado = travado). Escondido em slot vazio.
 
 ### 2) "Criar card" — só em SLOT VAZIO
-Cria um modelo novo no Planejamento a partir do slot, **já com o BOM/grade da simulação** como
-ponto de partida:
+Cria um modelo novo no Planejamento a partir do slot, com as **decisões de planejamento** da
+simulação (grade/cores/OC) — mas **SEM consumo estimado** (o consumo se define no Desenvolvimento;
+a média era só um chute de planejamento, não vale gravar como se fosse real):
 - `modelos`: `colecao_id`, `subcolecao` (nome, via subcoleção da unidade), `semana`, `linha_id`,
   `categoria_principal_id` (categoria do slot), `status_desenvolvimento = 'em_modelagem'`,
   `ref`/`nome` placeholder (o dono renomeia no dev).
-- Tecido 1: artigo = artigo da OC da subcoleção; `consumo` = consumo (estimado) do slot; variantes =
-  cores da unidade; vínculo de OC; `modelo_grades` = grade simulada (grade_total por variante).
+- Tecido 1: artigo = artigo da OC da subcoleção; **`consumo = 0` (em branco — definido no dev)**;
+  variantes = cores da unidade; vínculo de OC; `modelo_grades` = grade simulada (grade_total por
+  variante — a profundidade É decisão de planejamento).
 - Depois: o **slot passa a apontar pro novo `modeloId`** (deixa de ser vazio).
 
 ### 3) Item 4 — aviso de OC já usada (dropdown de OC)
@@ -39,27 +41,27 @@ OC com `colecao_id` diferente da atual) com um aviso: "usada na coleção X". N�
 
 ## Backend (RPCs novas, DEFINER, invariante #9)
 
-Núcleo compartilhado `_aplicar_sim_no_modelo_core(_modelo_id, _oc_id, _variantes jsonb, _grade jsonb, _consumo numeric?)`:
+Núcleo compartilhado `_aplicar_sim_no_modelo_core(_modelo_id, _oc_id, _variantes jsonb, _grade jsonb)`
+— **nunca grava consumo** (o consumo é refinado no Desenvolvimento/CAD, não na simulação):
 - `_variantes`: `[{variante_tecido_id, oc_tecido_item_id, ordem}]` (as cores da unidade).
 - `_grade`: `[{ordem, prof}]` (profundidade por cor).
 - Isolamento de tenant (modelo, OC, variantes da loja); RAISE cross-tenant.
-- Garante Tecido 1 (`modelo_tecidos` tipo=tecido numero=1): cria se não existe (artigo = artigo do
-  item de OC; consumo = `_consumo` quando informado, senão preserva/0), senão atualiza consumo só se
-  `_consumo` informado.
+- Garante Tecido 1 (`modelo_tecidos` tipo=tecido numero=1): se não existe, cria com artigo = artigo do
+  item de OC e **`consumo = 0`** (dev/CAD define); se existe, **preserva o consumo** (só troca cores/OC).
 - `modelo_tecido_variantes` do Tecido 1 = `_variantes` (diff por variante_tecido_id, preserva ids).
 - `modelo_tecido_oc_links` do Tecido 1 = os itens de OC (`oc_tecido_item_id`, prioridade 1).
 - `modelo_grades`: upsert por `variante_numero=ordem` com `grade_total=prof`, `grades='{}'`.
 - Reserva de estoque: recomputada como no save do BOM (reusa o caminho de `salvar_modelo_bom` se
-  couber; senão documenta que a reserva se ajusta no próximo save do Desenvolvimento).
+  couber; senão a reserva se ajusta no próximo save do Desenvolvimento).
 
 RPCs públicas (wrapper + gate `otb`):
 - `aplicar_simulacao_modelo(_modelo_id, _oc_id, _variantes, _grade)`:
   - RAISE se `status_desenvolvimento = 'aprovado'`.
-  - chama o core **sem** `_consumo` (não mexe no consumo existente).
-- `criar_card_simulacao(_colecao_id, _subcolecao_id, _semana, _linha_id, _categoria_id, _oc_id, _variantes, _grade, _consumo)`:
+  - chama o core (consumo do modelo é preservado).
+- `criar_card_simulacao(_colecao_id, _subcolecao_id, _semana, _linha_id, _categoria_id, _oc_id, _variantes, _grade)`:
   - INSERT `modelos` (em_modelagem + campos do slot) — reusa a lógica de `otb_atribuir_card`
     (subcolecao nome + semana) para o bucket.
-  - chama o core **com** `_consumo`.
+  - chama o core (Tecido 1 nasce com consumo 0 — **refinado no CAD/dev**).
   - retorna `_modelo_id` novo.
 - `_core` REVOKE de PUBLIC/anon/authenticated; wrappers GRANT authenticated.
 
@@ -87,7 +89,7 @@ RPCs públicas (wrapper + gate `otb`):
 ## Testes (transacional BEGIN/ROLLBACK)
 - Aplicar: modelo não-aprovado recebe variantes/OC-link/grade do Tecido 1; modelo `aprovado` → RAISE.
 - Criar card: cria modelo em_modelagem com subcoleção/semana/linha/categoria + Tecido 1 (artigo da
-  OC, consumo) + variantes + grade; retorna id.
+  OC, **consumo 0**) + variantes + grade; retorna id.
 - Cross-tenant: OC/variante de outra loja → RAISE.
 
 ## Fora de escopo (fases futuras)
