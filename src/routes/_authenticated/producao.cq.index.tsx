@@ -63,14 +63,18 @@ function CqListPage() {
             modelo_id: m.id, ref: m.ref, versao: m.versao, nome: m.nome, colecao: m.colecao,
             mes_id: m.mes_id, ano_id: m.ano_id, revisao_pendente: m.revisao_pendente,
             categoria_nome: m.categorias_produto?.nome ?? null,
+            enviado_corte: m.cad?.[0]?.enviado_corte === true,
             preFinalizado: pre.length > 0 && pre.every(finalizado),
             statusGeral,
           };
         })
+        // Gate de entrada: o modelo precisa ter sido cortado (enviado_corte=true) — o corte
+        // é o gatilho de entrada na produção. Modelos com serviço concluído mas sem corte
+        // ficam fora do CQ (ex.: configurados antes de seguir o fluxo correto).
         // Premissa: todo modelo produzível tem serviço de costura (pré). Um modelo com
         // SÓ serviço pós-costura (sem pré) não entra no CQ por aqui — caso inexistente
         // hoje (etapa default 'ate_costura'); se surgir, relaxar este gate.
-        .filter((r: any) => r.preFinalizado);
+        .filter((r: any) => r.enviado_corte && r.preFinalizado);
     },
   });
 

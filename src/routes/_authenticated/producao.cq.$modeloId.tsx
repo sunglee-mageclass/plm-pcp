@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ClipboardCheck, Save, CheckCircle2, RotateCcw, Camera, Pencil, Wrench } from "lucide-react";
+import { ArrowLeft, ClipboardCheck, Save, CheckCircle2, RotateCcw, Camera, Pencil, Wrench, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { varianteLabel } from "@/lib/variante";
@@ -15,6 +15,16 @@ import { MatrizGradeResponsiva } from "@/components/shared/MatrizGradeResponsiva
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { useReadOnly } from "@/components/RequirePermission";
@@ -458,6 +468,29 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desmarcar")),
   });
 
+  // "Voltar uma etapa" — reverte o corte/baixa e volta o modelo para a Explosão.
+  const [voltarOpen, setVoltarOpen] = useState(false);
+  const voltarMut = useMutation({
+    mutationFn: async () => {
+      if (!cad?.id) throw new Error("CAD não encontrado");
+      const { error } = await supabase.rpc("reverter_corte_tecido" as any, { _cad_id: cad.id });
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      toast.success("Modelo voltou para a Explosão");
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["producao-cq-list"] }),
+        qc.invalidateQueries({ queryKey: ["producao-terc-list"] }),
+        qc.invalidateQueries({ queryKey: ["producao-explosao-list"] }),
+        qc.invalidateQueries({ queryKey: ["estoque-tecidos"] }),
+        qc.invalidateQueries({ queryKey: ["dev-cad-row"] }),
+        qc.invalidateQueries({ queryKey: ["dashboard-estoque"] }),
+      ]);
+      onClose?.();
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao voltar etapa")),
+  });
+
   // Botões de ação (Pré/Pós) — renderizados na barra do topo (desktop) E na
   // MobileActionBar (portal no body). O mesmo fragmento serve os dois; sem duplicar lógica.
   const backButton = onClose ? (
@@ -473,6 +506,11 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
     <>
       {view === "pre" && (!confirmado ? (
         <>
+          {cad?.id && (
+            <Button variant="outline" size="icon" onClick={() => setVoltarOpen(true)} disabled={voltarMut.isPending || permReadOnly} title="Voltar uma etapa (volta pra Explosão)" aria-label="Voltar uma etapa">
+              <Undo2 className="h-4 w-4" />
+            </Button>
+          )}
           <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly}>
             <Save className="h-4 w-4 mr-2" /> Salvar
           </Button>
@@ -497,6 +535,11 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
           <Button variant="outline" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || permReadOnly}>
             <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar confirmação
           </Button>
+          {cad?.id && (
+            <Button variant="outline" size="icon" onClick={() => setVoltarOpen(true)} disabled={voltarMut.isPending || permReadOnly} title="Voltar uma etapa (volta pra Explosão)" aria-label="Voltar uma etapa">
+              <Undo2 className="h-4 w-4" />
+            </Button>
+          )}
         </>
       ))}
       {view === "pos" && (posBtn.confirmado && !posBtn.editing ? (
@@ -773,6 +816,23 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
       </Card>
       </fieldset>
       )}
+
+      <AlertDialog open={voltarOpen} onOpenChange={setVoltarOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Voltar este modelo para a Explosão?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Isso desfaz a baixa de estoque (corte); o modelo sai do CQ/Serviços e volta pra Explosão. Serviços já lançados permanecem.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={voltarMut.isPending}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction disabled={voltarMut.isPending} onClick={() => voltarMut.mutate()}>
+              Voltar uma etapa
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <MobileActionBar>
         {backButton}

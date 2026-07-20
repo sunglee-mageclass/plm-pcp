@@ -1407,7 +1407,8 @@ function ModeloDialog({
             </div>
           </Secao>
 
-          {/* SETOR 3 — Preço */}
+          {/* SETOR 3 — Preço (só na edição; na criação o custo vem do BOM depois) */}
+          {isEdit && (
           <Secao titulo="Preço">
             <div className="grid sm:grid-cols-2 gap-3">
               <CampoRO label={custoReal ? "Custo (real)" : "Custo (previsto)"} value={custo > 0 ? brl(custo) : "—"} />
@@ -1425,6 +1426,7 @@ function ModeloDialog({
               <CampoRO label="Markup real" value={markupReal > 0 ? markupReal.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—"} />
             </div>
           </Secao>
+          )}
 
           {/* SETOR 4 — Tecido Planejado */}
           <Secao titulo="Tecido Planejado">
