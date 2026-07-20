@@ -844,10 +844,22 @@ export function SimulacaoSheet({
     // não é invalidado por edições no editor do OTB) e usa o dado FRESCO.
     const [p, mr] = await Promise.all([refetchPlano(), refetchModelos()]);
     const fresh = semear(p.data, mr.data);
+    // Modelos REAIS frescos por modeloId — pra RE-SINCRONIZAR os avançados com o dado real
+    // (restaura consumo/prof/grade/categoria ao que está no modelo). Vazios ficam preservados.
+    const freshReal = new Map<string, ModeloSim>();
+    fresh.forEach((fu) => fu.linhas.forEach((fl) => fl.modelos.forEach((fm) => {
+      if (fm.modeloId) freshReal.set(fm.modeloId, fm);
+    })));
     const merged = draft.unidades.map((du) => {
       const fu = fresh.find((f) => f.subcolecaoId === du.subcolecaoId);
       if (!fu) return du;
-      const linhas: LinhaSim[] = du.linhas.map((l) => ({ ...l, modelos: [...l.modelos] }));
+      const linhas: LinhaSim[] = du.linhas.map((l) => ({
+        ...l,
+        modelos: l.modelos.map((m) =>
+          // Real avançado → volta ao dado real (mantém só o id p/ estabilidade de key).
+          m.modeloId && freshReal.has(m.modeloId) ? { ...freshReal.get(m.modeloId)!, id: m.id } : m,
+        ),
+      }));
       const semLinha = (): LinhaSim => {
         let sl = linhas.find((l) => l.linhaId === null);
         if (!sl) { sl = { id: nid("l"), linhaId: null, profCor: 1, modelos: [] }; linhas.push(sl); }
@@ -1183,7 +1195,7 @@ export function SimulacaoSheet({
                     {/* Puxar do OTB: Atualizar (incremental) OU Restaurar do zero */}
                     <div className="flex justify-end gap-2">
                       <Button variant="outline" size="sm" onClick={atualizar} disabled={!plano}
-                        title="Traz modelos novos e categorias do plano, mantendo suas edições">
+                        title="Re-sincroniza os modelos avançados com o dado real e traz o que é novo; mantém os vazios que você preencheu">
                         Atualizar do OTB
                       </Button>
                       <Button variant="outline" size="sm" onClick={() => setConfirmRestaurar(true)} disabled={!plano}
