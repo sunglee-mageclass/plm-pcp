@@ -27,6 +27,7 @@ type Row = {
   mes_id: string | null;
   ano_id: string | null;
   categoria_nome: string | null;
+  enviado_corte: boolean;
 };
 
 function ExplosaoListPage() {
@@ -56,11 +57,7 @@ function ExplosaoListPage() {
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? [])
-        .filter((m: any) => {
-          // Só modelos cujo CAD existe e ainda não foi enviado ao corte.
-          const cad = m.cad?.[0];
-          return cad && cad.enviado_corte !== true;
-        })
+        .filter((m: any) => !!m.cad?.[0]) // qualquer modelo cujo CAD exista (cortado ou não)
         .map((m: any) => ({
           modelo_id: m.id,
           ref: m.ref,
@@ -70,6 +67,8 @@ function ExplosaoListPage() {
           mes_id: m.mes_id,
           ano_id: m.ano_id,
           categoria_nome: (m.categorias_produto as any)?.nome ?? null,
+          // Enviado para Serviços (já cortado) → fica na lista com bolinha verde, editável.
+          enviado_corte: m.cad?.[0]?.enviado_corte === true,
         }));
     },
   });
@@ -160,8 +159,15 @@ function ExplosaoListPage() {
                 onClick={() => setSheetId(r.modelo_id)}
               >
                 <td className="px-4 py-2">
-                  <span className="font-mono text-primary">{r.ref ?? "—"}</span>
-                  <VersaoBadge versao={r.versao} className="ml-2 text-[10px]" />
+                  <span className="inline-flex items-center gap-2">
+                    <span
+                      className={`h-2 w-2 rounded-full shrink-0 ${r.enviado_corte ? "bg-green-500" : "bg-transparent"}`}
+                      title={r.enviado_corte ? "Enviado para Serviços — clique para editar" : undefined}
+                      aria-label={r.enviado_corte ? "Enviado para Serviços" : undefined}
+                    />
+                    <span className="font-mono text-primary">{r.ref ?? "—"}</span>
+                    <VersaoBadge versao={r.versao} className="text-[10px]" />
+                  </span>
                 </td>
                 <td className="px-4 py-2" data-label="Nome">{r.nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground" data-label="Categoria">{r.categoria_nome ?? "—"}</td>

@@ -363,8 +363,19 @@ export function ExplosaoDetail({ modeloId, onEnviado }: Props) {
         {/* Cabeçalho com ações */}
         <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
           <div>
-            <h2 className="text-lg font-semibold">Explosão — Envio para Serviços</h2>
-            <p className="text-xs text-muted-foreground">Preencha "Metr. a Separar/Enviar" e clique em Enviar para Serviços.</p>
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              Explosão — Envio para Serviços
+              {(cadRow as any)?.enviado_corte && (
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 border border-green-600/40 rounded-full px-2 py-0.5">
+                  <span className="h-2 w-2 rounded-full bg-green-500" /> Enviado para Serviços
+                </span>
+              )}
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              {(cadRow as any)?.enviado_corte
+                ? 'Já enviado. Edite a metragem se precisar e clique em "Reenviar para Serviços" (refaz a baixa com a metragem atual).'
+                : 'Preencha "Metr. a Separar/Enviar" e clique em Enviar para Serviços.'}
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -395,7 +406,7 @@ export function ExplosaoDetail({ modeloId, onEnviado }: Props) {
               disabled={enviarCorte.isPending || salvarMut.isPending || !cadRow?.id}
             >
               <Send className="h-4 w-4 mr-1.5" />
-              {enviarCorte.isPending ? "Enviando…" : "Enviar para Serviços"}
+              {enviarCorte.isPending ? "Enviando…" : (cadRow as any)?.enviado_corte ? "Reenviar para Serviços" : "Enviar para Serviços"}
             </Button>
           </div>
         </div>
