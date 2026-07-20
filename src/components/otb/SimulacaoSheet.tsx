@@ -35,6 +35,7 @@ type ModeloSim = {
   modeloId: string | null;
   consumo: number;
   profPorCor?: Record<string, number>;
+  profModelo?: number;
   ref?: string | null;
   nome?: string | null;
   foto?: string | null;
@@ -217,7 +218,7 @@ export function SimulacaoSheet({
     queryKey: ["otb-simulacoes", colecaoId],
     queryFn: async () => {
       const { data, error } = await supabase.from("otb_simulacoes" as any)
-        .select("id, nome, unidades:otb_simulacao_unidades(id, subcolecao_id, oc_tecido_id, variantes:otb_simulacao_variantes(oc_tecido_item_id, ordem), linhas:otb_simulacao_linhas(id, linha_id, prof_cor, num_modelos, ordem, modelos:otb_simulacao_modelos(id, modelo_id, slot_index, consumo)))")
+        .select("id, nome, unidades:otb_simulacao_unidades(id, subcolecao_id, oc_tecido_id, variantes:otb_simulacao_variantes(oc_tecido_item_id, ordem), linhas:otb_simulacao_linhas(id, linha_id, prof_cor, num_modelos, ordem, modelos:otb_simulacao_modelos(id, modelo_id, slot_index, consumo, prof_por_cor)))")
         .eq("colecao_id", colecaoId).order("created_at");
       if (error) throw error;
       return (data ?? []) as any[];
@@ -238,7 +239,9 @@ export function SimulacaoSheet({
   const { data: modelosReais = [] } = useQuery({
     queryKey: ["otb-sim-modelos", colecaoId],
     queryFn: async () =>
-      (await supabase.from("modelos").select("id, ref, nome, fotos_modelo, subcolecao, linha_id").eq("colecao_id", colecaoId)).data ?? [],
+      (await supabase.from("modelos")
+        .select("id, ref, nome, fotos_modelo, subcolecao, linha_id, status_desenvolvimento, modelo_tecidos(numero, tipo, consumo), modelo_grades(variante_numero, grade_total)")
+        .eq("colecao_id", colecaoId)).data ?? [],
   });
 
   // OC com variantes embutidas (Step 1)
@@ -301,64 +304,175 @@ export function SimulacaoSheet({
   const semear = (): UnidadeSim[] => {
     if (!plano) return [];
 
-    const modByKey = (subNome: string, linhaId: string | null) =>
-      (modelosReais as any[]).filter(
-        (m) => (m.subcolecao ?? "") === subNome && (m.linha_id ?? null) === linhaId
+    // Helper: consumo do tecido 1 (fibra principal)
+    const consumoTec1 = (mr: any): number =>
+      Number((mr?.modelo_tecidos ?? []).find((t: any) => t.tipo === "tecido" && Number(t.numero) === 1)?.consumo) || 0;
+
+    // Helper: maior grade_total entre as variantes do modelo
+    const pecasModelo = (mr: any): number =>
+      Math.max(0, ...(mr?.modelo_grades ?? []).map((g: any) => Number(g.grade_total) || 0));
+
+    const todosReais = modelosReais as any[];
+    const subs = [...(plano.subcolecoes ?? [])].sort(
+      (a: any, b: any) => (a.ordem ?? 0) - (b.ordem ?? 0)
+    );
+
+    const unidades: UnidadeSim[] = [];
+
+    // Modelos já processados (para calcular fallback)
+    const processadoIds = new Set<string>();
+
+    if (subs.length === 0) {
+      // Sem subcoleções: bucket único "Coleção" agrupado por linha
+      const byLinha = new Map<string | null, any[]>();
+      for (const m of todosReais) {
+        const lid = m.linha_id ?? null;
+        if (!byLinha.has(lid)) byLinha.set(lid, []);
+        byLinha.get(lid)!.push(m);
+      }
+      const linhas: LinhaSim[] = [];
+      for (const [linhaId, reaisLinha] of byLinha) {
+        const modelos: ModeloSim[] = reaisLinha.map((m) => ({
+          id: nid("m"),
+          modeloId: m.id,
+          consumo: consumoTec1(m),
+          profModelo: pecasModelo(m),
+          ref: m.ref ?? null,
+          nome: m.nome ?? null,
+          foto: ((m.fotos_modelo ?? []) as string[])[0] ?? null,
+        }));
+        linhas.push({ id: nid("l"), linhaId, profCor: 1, modelos });
+        reaisLinha.forEach((m) => processadoIds.add(m.id));
+      }
+      if (linhas.length === 0) {
+        linhas.push({ id: nid("l"), linhaId: null, profCor: 1, modelos: [] });
+      }
+      unidades.push({
+        id: nid("u"),
+        subcolecaoId: null,
+        nomeUnidade: "Coleção",
+        ocId: null,
+        variantes: [],
+        linhas,
+      });
+      return unidades;
+    }
+
+    for (const sc of subs) {
+      const reaisSub = todosReais.filter(
+        (m) => (m.subcolecao ?? "") === sc.nome
       );
 
-    if (tipo === "poder_venda") {
-      const subs = [...(plano.subcolecoes ?? [])].sort(
-        (a: any, b: any) => (a.ordem ?? 0) - (b.ordem ?? 0)
-      );
-      return subs.map((sc: any) => {
-        const its = (plano.itens ?? []).filter((it: any) => it.subcolecao_id === sc.id);
-        const linhas: LinhaSim[] = its.map((it: any) => {
-          const qtdSemanas = (it.qtd_semanas ?? {}) as Record<string, number>;
-          const numSlots = Object.values(qtdSemanas).reduce(
-            (s, v) => s + (Number(v) || 0), 0
+      // Collect linha_ids from real models + from PV plan items for this subcollection
+      const linhaIds = new Set<string | null>();
+      for (const m of reaisSub) linhaIds.add(m.linha_id ?? null);
+
+      if (tipo === "poder_venda") {
+        // Also include linha_ids from plan items for this subcollection
+        const planItems = (plano.itens ?? []).filter((it: any) => it.subcolecao_id === sc.id);
+        for (const it of planItems) linhaIds.add(it.linha_id ?? null);
+      }
+
+      const linhas: LinhaSim[] = [];
+
+      for (const linhaId of linhaIds) {
+        const reaisLinha = reaisSub.filter(
+          (m) => (m.linha_id ?? null) === linhaId
+        );
+
+        let profBase = 1;
+        let numSlotsPlan = 0;
+
+        if (tipo === "poder_venda") {
+          const planItem = (plano.itens ?? []).find(
+            (it: any) => it.subcolecao_id === sc.id && (it.linha_id ?? null) === linhaId
           );
-          const reais = modByKey(sc.nome, it.linha_id);
-          const modelos: ModeloSim[] = Array.from({ length: numSlots }, (_, i) => ({
-            id: nid("m"),
-            modeloId: reais[i]?.id ?? null,
-            consumo: 0,
-            ref: reais[i]?.ref ?? null,
-            nome: reais[i]?.nome ?? null,
-            foto: ((reais[i]?.fotos_modelo ?? []) as string[])[0] ?? null,
-          }));
-          return {
-            id: nid("l"),
-            linhaId: it.linha_id ?? null,
-            profCor: Number(it.prof_cor) || 0,
-            modelos,
-          };
-        });
-        return { id: nid("u"), subcolecaoId: sc.id, nomeUnidade: sc.nome, ocId: null, variantes: [], linhas };
+          profBase = Number(planItem?.prof_cor) || 1;
+
+          if (planItem) {
+            const qtdSemanas = (planItem.qtd_semanas ?? {}) as Record<string, number>;
+            numSlotsPlan = Object.values(qtdSemanas).reduce(
+              (s, v) => s + (Number(v) || 0), 0
+            );
+          }
+        }
+
+        // Build models from real models first
+        const modelos: ModeloSim[] = reaisLinha.map((m) => ({
+          id: nid("m"),
+          modeloId: m.id,
+          consumo: consumoTec1(m),
+          profModelo: pecasModelo(m),
+          ref: m.ref ?? null,
+          nome: m.nome ?? null,
+          foto: ((m.fotos_modelo ?? []) as string[])[0] ?? null,
+        }));
+
+        reaisLinha.forEach((m) => processadoIds.add(m.id));
+
+        // PV mode: if plan has more slots than real models, pad with empty slots
+        if (tipo === "poder_venda" && numSlotsPlan > modelos.length) {
+          const toAdd = numSlotsPlan - modelos.length;
+          for (let i = 0; i < toAdd; i++) {
+            modelos.push({ id: nid("m"), modeloId: null, consumo: 0 });
+          }
+        }
+
+        linhas.push({ id: nid("l"), linhaId, profCor: profBase, modelos });
+      }
+
+      // If no lines were found, add at least one empty line
+      if (linhas.length === 0) {
+        linhas.push({ id: nid("l"), linhaId: null, profCor: 1, modelos: [] });
+      }
+
+      unidades.push({
+        id: nid("u"),
+        subcolecaoId: sc.id,
+        nomeUnidade: sc.nome,
+        ocId: null,
+        variantes: [],
+        linhas,
       });
     }
 
-    // Orçamento
-    const bySub = new Map<string | null, number>();
-    for (const s of (plano.semanas ?? [])) {
-      const k = s.subcolecao_id ?? null;
-      bySub.set(k, (bySub.get(k) ?? 0) + (Number(s.qtd_planejada) || 0));
-    }
-    const nomeSub = (id: string | null) =>
-      (plano.subcolecoes ?? []).find((x: any) => x.id === id)?.nome ?? "Coleção";
+    // Fallback: models with null/empty subcolecao OR that don't match any sc.nome
+    const subcNomes = new Set(subs.map((sc: any) => sc.nome));
+    const semSub = todosReais.filter(
+      (m) => !processadoIds.has(m.id) && (!(m.subcolecao) || !subcNomes.has(m.subcolecao))
+    );
 
-    return [...bySub.entries()].map(([subId, numSlots]) => {
-      const modelos: ModeloSim[] = Array.from({ length: numSlots }, () => ({
-        id: nid("m"), modeloId: null, consumo: 0,
-      }));
-      return {
+    if (semSub.length > 0) {
+      const byLinha = new Map<string | null, any[]>();
+      for (const m of semSub) {
+        const lid = m.linha_id ?? null;
+        if (!byLinha.has(lid)) byLinha.set(lid, []);
+        byLinha.get(lid)!.push(m);
+      }
+      const linhas: LinhaSim[] = [];
+      for (const [linhaId, reaisLinha] of byLinha) {
+        const modelos: ModeloSim[] = reaisLinha.map((m) => ({
+          id: nid("m"),
+          modeloId: m.id,
+          consumo: consumoTec1(m),
+          profModelo: pecasModelo(m),
+          ref: m.ref ?? null,
+          nome: m.nome ?? null,
+          foto: ((m.fotos_modelo ?? []) as string[])[0] ?? null,
+        }));
+        linhas.push({ id: nid("l"), linhaId, profCor: 1, modelos });
+      }
+      unidades.push({
         id: nid("u"),
-        subcolecaoId: subId,
-        nomeUnidade: nomeSub(subId),
+        subcolecaoId: null,
+        nomeUnidade: "Sem subcoleção",
         ocId: null,
         variantes: [],
-        linhas: [{ id: nid("l"), linhaId: null, profCor: 1, modelos }],
-      };
-    });
+        linhas,
+      });
+    }
+
+    return unidades;
   };
 
   // ── mapCenarioFromDb (Step 4) ─────────────────────────────────────────────
@@ -387,11 +501,14 @@ export function SimulacaoSheet({
               const modeloReal = m.modelo_id
                 ? (modelosReais as any[]).find((mr: any) => mr.id === m.modelo_id)
                 : null;
+              const pecasModelo = (mr: any): number =>
+                Math.max(0, ...(mr?.modelo_grades ?? []).map((g: any) => Number(g.grade_total) || 0));
               return {
                 id: nid("m"),
                 modeloId: m.modelo_id ?? null,
                 consumo: Number(m.consumo) || 0,
-                profPorCor: undefined, // prof_por_cor em otb_simulacao_modelos: migration pendente
+                profPorCor: m.prof_por_cor ?? undefined,
+                profModelo: modeloReal ? pecasModelo(modeloReal) : undefined,
                 ref: modeloReal?.ref ?? null,
                 nome: modeloReal?.nome ?? null,
                 foto: ((modeloReal?.fotos_modelo ?? []) as string[])[0] ?? null,
@@ -447,7 +564,7 @@ export function SimulacaoSheet({
         u.id !== uid ? u : {
           ...u,
           linhas: u.linhas.map((l) =>
-            l.id !== lid ? l : { ...l, profCor: val, modelos: l.modelos.map((m) => ({ ...m, profPorCor: {} })) }
+            l.id !== lid ? l : { ...l, profCor: val, modelos: l.modelos.map((m) => ({ ...m, profPorCor: {}, profModelo: undefined })) }
           ),
         }
       ),

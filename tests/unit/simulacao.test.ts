@@ -29,8 +29,8 @@ describe("agregarUsoOC — uso somado da mesma OC entre subcoleções", () => {
   const item = (id: string, qtd: number) => ({ id, quantidade_pedida: qtd, artigo: { unidade_medida: "metro", rendimento: null } });
   const oc = (id: string, numero: string, itens: any[]) => ({ id, numero_pedido: numero, itens });
   // unidade que usa 1 OC + 1 cor; demanda da unidade = prof×Σconsumo
-  const u = (ocId: string | null, ocItemId: string, prof: number, consumo: number, profPorCor?: Record<string, number>) =>
-    ({ ocId, variantes: ocItemId ? [{ ocItemId }] : [], linhas: [{ profCor: prof, modelos: [{ consumo, profPorCor }] }] });
+  const u = (ocId: string | null, ocItemId: string, prof: number, consumo: number, profPorCor?: Record<string, number>, profModelo?: number) =>
+    ({ ocId, variantes: ocItemId ? [{ ocItemId }] : [], linhas: [{ profCor: prof, modelos: [{ consumo, profPorCor, profModelo }] }] });
 
   it("soma a demanda da MESMA cor entre 2 subcoleções", () => {
     const ocs = [oc("oc1", "OC-123", [item("verde", 20), item("preto", 30)])];
@@ -103,5 +103,27 @@ describe("agregarUsoOC — uso somado da mesma OC entre subcoleções", () => {
     expect(vermelho.disp).toBe(30);
     expect(vermelho.saldo).toBe(20);
     expect(res[0].ok).toBe(false);
+  });
+
+  it("profModelo: quando não há override por cor, usa profModelo em vez da base", () => {
+    // profModelo=12 (grade real), baseProfCor=5
+    // demCor = 12 × consumo(2) = 24; disp=30 → saldo=6
+    const ocs = [oc("oc1", "OC-pm", [item("verde", 30)])];
+    const res = agregarUsoOC([u("oc1", "verde", 5, 2, undefined, 12)], ocs);
+    expect(res).toHaveLength(1);
+    const verde = res[0].cores.find((c) => c.ocItemId === "verde")!;
+    expect(verde.dem).toBe(24); // 12 × 2, não 5 × 2 = 10
+    expect(verde.saldo).toBe(6);
+  });
+
+  it("profPorCor vence profModelo", () => {
+    // profPorCor[verde]=3 vence profModelo=12 e base=5
+    // demCor = 3 × consumo(2) = 6; disp=10 → saldo=4
+    const ocs = [oc("oc1", "OC-pm2", [item("verde", 10)])];
+    const res = agregarUsoOC([u("oc1", "verde", 5, 2, { verde: 3 }, 12)], ocs);
+    expect(res).toHaveLength(1);
+    const verde = res[0].cores.find((c) => c.ocItemId === "verde")!;
+    expect(verde.dem).toBe(6); // 3 × 2
+    expect(verde.saldo).toBe(4);
   });
 });

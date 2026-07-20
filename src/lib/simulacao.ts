@@ -41,12 +41,12 @@ export const distribuirNasSemanas = (num: number, semanas: number[]): Record<str
 export type UnidadeUsoInput = {
   ocId: string | null;
   variantes: { ocItemId: string }[];
-  linhas: { profCor: number; modelos: { consumo: number; profPorCor?: Record<string, number> }[] }[];
+  linhas: { profCor: number; modelos: { consumo: number; profPorCor?: Record<string, number>; profModelo?: number }[] }[];
 };
 
-/** Retorna a profundidade efetiva para a cor `ocItemId`: usa override do modelo se existir, senão o base. */
-export const effProf = (modelo: { profPorCor?: Record<string, number> }, baseProfCor: number, ocItemId: string): number =>
-  modelo.profPorCor?.[ocItemId] ?? baseProfCor;
+/** Retorna a profundidade efetiva para a cor `ocItemId`: usa override por cor se existir, senão profModelo (grade real), senão o base. */
+export const effProf = (modelo: { profPorCor?: Record<string, number>; profModelo?: number }, baseProfCor: number, ocItemId: string): number =>
+  modelo.profPorCor?.[ocItemId] ?? modelo.profModelo ?? baseProfCor;
 export type OcUsoInput = {
   id: string;
   numero_pedido: string | null;
