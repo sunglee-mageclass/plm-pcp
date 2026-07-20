@@ -232,8 +232,10 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
       toast.success("Confirmação desmarcada — voltou a editável");
       setStatus("pendente");
       setEditing(false);
+      setHydrated(false); // re-hidrata do dado fresco (igual save/confirm)
       await qc.invalidateQueries({ queryKey: ["dir-cad", modeloId] });
       await qc.invalidateQueries({ queryKey: ["dir-list"] });
+      await qc.invalidateQueries({ queryKey: ["sidebar-badges"] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desmarcar")),
   });

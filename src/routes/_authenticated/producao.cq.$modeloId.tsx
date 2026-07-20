@@ -420,6 +420,12 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
       // invalida a query do detalhe p/ refletir os números novos na hora.
       qc.invalidateQueries({ queryKey: ["direcionamento", cad?.id] }),
       qc.invalidateQueries({ queryKey: ["plan-cq"] }),
+      // A visão CQ Pós usa key própria (cqpos-*) — desmarcar o Pré rebaixa o Pós; refresca.
+      qc.invalidateQueries({ queryKey: ["cqpos-cadgrades", cad?.id] }),
+      qc.invalidateQueries({ queryKey: ["cqpos-cq", cad?.id] }),
+      // Gate "Lançar" no Planejamento (prontidão) + badge da sidebar.
+      qc.invalidateQueries({ queryKey: ["plan-cq-pronto"] }),
+      qc.invalidateQueries({ queryKey: ["sidebar-badges"] }),
     ]);
   };
 
