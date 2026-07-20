@@ -1156,11 +1156,17 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       });
       const etapasMarcadas = marcadas && typeof marcadas === "object" ? Object.keys(marcadas as any) : [];
       if (etapasMarcadas.length > 0) {
+        // Grade mudou → etapas de PEÇA marcadas p/ re-verificação (o CQ é contagem física,
+        // precisa ser refeito por quem conta; o resto — split, metragem — re-deriva sozinho).
         const nomes = etapasMarcadas.map((k) => STAGE_LABEL[k] ?? k).join(", ");
-        const corteMsg = etapas.corte && (consumoAlterado || gradeAlterada || aviamentoAlterado) && (etapas.baixa_total ?? 0) > 0
-          ? " O corte/baixa de estoque foi afetado — reveja a Explosão."
+        const corteMsg = etapas.corte && (etapas.baixa_total ?? 0) > 0
+          ? " O corte/baixa de estoque também foi afetado — reveja a Explosão."
           : "";
-        toast.info(`Salvo. Etapas posteriores atualizadas e marcadas para verificação (#Erro): ${nomes}.${corteMsg}`);
+        toast.info(`Salvo. Etapas posteriores marcadas para verificação (#Erro): ${nomes}.${corteMsg}`);
+      } else if ((consumoAlterado || aviamentoAlterado) && etapas.corte) {
+        // Consumo/aviamento mudou num modelo já cortado → afeta SÓ a metragem do corte; as
+        // etapas de peça (Serviços/CQ/Direcionamento) NÃO precisam ser refeitas.
+        toast.info("Salvo. A metragem/baixa do corte mudou — reveja a Explosão (reenvie se necessário).");
       } else {
         toast.success("Modelo salvo");
       }
