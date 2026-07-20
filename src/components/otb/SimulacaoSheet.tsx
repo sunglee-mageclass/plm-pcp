@@ -340,6 +340,42 @@ export function SimulacaoSheet({
     const pecasModelo = (mr: any): number =>
       Math.max(0, ...(mr?.modelo_grades ?? []).map((g: any) => Number(g.grade_total) || 0));
 
+    // Helper (Orçamento): completa `linhas` com slots VAZIOS POR CATEGORIA (do plano), com
+    // consumo estimado = média dos reais da categoria. Usado no branch com-subcoleções E no
+    // modo-simples (subcolecao_id NULL). `categorias`/`reaisScope` já vêm filtrados pelo escopo.
+    const preencherVaziosPorCategoria = (
+      linhas: LinhaSim[], plannedTotal: number, realCount: number, categorias: any[], reaisScope: any[],
+    ) => {
+      const emptyCount = Math.max(0, plannedTotal - realCount);
+      if (emptyCount <= 0) return;
+      let semLinha = linhas.find((l) => l.linhaId === null);
+      if (!semLinha) { semLinha = { id: nid("l"), linhaId: null, profCor: 1, modelos: [] }; linhas.push(semLinha); }
+
+      const plannedByCat = new Map<string, number>();
+      for (const c of categorias) {
+        const cid = c.categoria_id as string;
+        if (!cid) continue;
+        plannedByCat.set(cid, (plannedByCat.get(cid) ?? 0) + (Number(c.qtd) || 0));
+      }
+      const realByCat = new Map<string, number>();
+      for (const mr of reaisScope) {
+        const cid = (mr.categoria_principal_id as string | null) ?? "__sem__";
+        realByCat.set(cid, (realByCat.get(cid) ?? 0) + 1);
+      }
+      let gerados = 0;
+      for (const [catId, planejado] of plannedByCat) {
+        const emptyCat = Math.max(0, planejado - (realByCat.get(catId) ?? 0));
+        if (emptyCat === 0) continue;
+        const consumoEst = mediaConsumoCategoria(
+          reaisScope.filter((mr: any) => (mr.categoria_principal_id ?? null) === catId).map((mr: any) => consumoTec1(mr)),
+        );
+        for (let i = 0; i < emptyCat; i++) semLinha.modelos.push({ id: nid("m"), modeloId: null, consumo: consumoEst, categoriaId: catId });
+        gerados += emptyCat;
+      }
+      const semCat = Math.max(0, emptyCount - gerados);
+      for (let i = 0; i < semCat; i++) semLinha.modelos.push({ id: nid("m"), modeloId: null, consumo: 0, categoriaId: null });
+    };
+
     const todosReais = modelosReais as any[];
     const subs = [...(plano.subcolecoes ?? [])].sort(
       (a: any, b: any) => (a.ordem ?? 0) - (b.ordem ?? 0)
@@ -373,6 +409,18 @@ export function SimulacaoSheet({
         }));
         linhas.push({ id: nid("l"), linhaId, profCor: 1, modelos });
         reaisLinha.forEach((m) => processadoIds.add(m.id));
+      }
+      // Orçamento modo-simples (sem subcoleções): completa com vazios POR CATEGORIA (plano com
+      // subcolecao_id NULL). Antes não gerava vazio nenhum — as categorias não refletiam.
+      if (tipo === "orcamento") {
+        const plannedTotal = (plano.semanas ?? [])
+          .filter((s: any) => !s.subcolecao_id)
+          .reduce((acc: number, s: any) => acc + (Number(s.qtd_planejada) || 0), 0);
+        preencherVaziosPorCategoria(
+          linhas, plannedTotal, todosReais.length,
+          (plano.categorias ?? []).filter((c: any) => !c.subcolecao_id),
+          todosReais,
+        );
       }
       if (linhas.length === 0) {
         linhas.push({ id: nid("l"), linhaId: null, profCor: 1, modelos: [] });
@@ -453,59 +501,18 @@ export function SimulacaoSheet({
         linhas.push({ id: nid("l"), linhaId, profCor: profBase, modelos });
       }
 
-      // Orçamento: completa com slots VAZIOS até a qtd planejada da subcoleção (colecao_semanas),
-      // ALÉM dos modelos reais — pra simular a coleção inteira (reais pré-preenchidos + planejados vazios).
-      // Slots são gerados POR CATEGORIA (do plano), com consumo estimado = média dos reais da categoria.
+      // Orçamento: completa com slots VAZIOS POR CATEGORIA (do plano desta subcoleção), ALÉM dos
+      // reais — consumo estimado = média dos reais da categoria. (Mesmo helper do modo-simples.)
       if (tipo === "orcamento") {
         const plannedTotal = (plano.semanas ?? [])
           .filter((s: any) => (s.subcolecao_id ?? null) === sc.id)
           .reduce((acc: number, s: any) => acc + (Number(s.qtd_planejada) || 0), 0);
         const realCount = linhas.reduce((acc, l) => acc + l.modelos.filter((m) => m.modeloId).length, 0);
-        const emptyCount = Math.max(0, plannedTotal - realCount);
-
-        if (emptyCount > 0) {
-          let semLinha = linhas.find((l) => l.linhaId === null);
-          if (!semLinha) { semLinha = { id: nid("l"), linhaId: null, profCor: 1, modelos: [] }; linhas.push(semLinha); }
-
-          // Qtd planejada por categoria para esta subcoleção
-          const plannedByCat = new Map<string, number>();
-          for (const c of (plano.categorias ?? []).filter((c: any) => (c.subcolecao_id ?? null) === sc.id)) {
-            const catId = c.categoria_id as string;
-            plannedByCat.set(catId, (plannedByCat.get(catId) ?? 0) + (Number(c.qtd) || 0));
-          }
-
-          // Count de modelos REAIS desta subcoleção por categoria
-          const realByCat = new Map<string, number>();
-          for (const mr of reaisSub) {
-            const cid = (mr.categoria_principal_id as string | null) ?? "__sem__";
-            realByCat.set(cid, (realByCat.get(cid) ?? 0) + 1);
-          }
-
-          let totalVaziosGerados = 0;
-
-          for (const [catId, planejado] of plannedByCat) {
-            const realDaquelaCat = realByCat.get(catId) ?? 0;
-            const emptyCat = Math.max(0, planejado - realDaquelaCat);
-            if (emptyCat === 0) continue;
-
-            // Consumo estimado = média dos consumos dos reais desta categoria nesta subcoleção
-            const consumosReaisCat = reaisSub
-              .filter((mr: any) => (mr.categoria_principal_id ?? null) === catId)
-              .map((mr: any) => consumoTec1(mr));
-            const consumoEstimado = mediaConsumoCategoria(consumosReaisCat);
-
-            for (let i = 0; i < emptyCat; i++) {
-              semLinha.modelos.push({ id: nid("m"), modeloId: null, consumo: consumoEstimado, categoriaId: catId });
-            }
-            totalVaziosGerados += emptyCat;
-          }
-
-          // Restante sem categoria no plano (emptyCount - totalVaziosGerados)
-          const emptySemCat = Math.max(0, emptyCount - totalVaziosGerados);
-          for (let i = 0; i < emptySemCat; i++) {
-            semLinha.modelos.push({ id: nid("m"), modeloId: null, consumo: 0, categoriaId: null });
-          }
-        }
+        preencherVaziosPorCategoria(
+          linhas, plannedTotal, realCount,
+          (plano.categorias ?? []).filter((c: any) => (c.subcolecao_id ?? null) === sc.id),
+          reaisSub,
+        );
       }
 
       // If no lines were found, add at least one empty line
