@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -13,8 +13,12 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Trash2, Pencil, Save, ArrowLeft, ImageOff, Send, X } from "lucide-react";
-import { metragemDisponivel, demandaLinha, saldo } from "@/lib/simulacao";
+import {
+  Collapsible, CollapsibleTrigger, CollapsibleContent,
+} from "@/components/ui/collapsible";
+import { Plus, Trash2, Pencil, Save, ArrowLeft, ImageOff, Send, X, ChevronRight } from "lucide-react";
+import { metragemDisponivel, demandaLinha, saldo, agregarUsoOC } from "@/lib/simulacao";
+import type { OcUso } from "@/lib/simulacao";
 import { labelVarianteRow } from "@/lib/variante";
 
 /**
@@ -110,6 +114,87 @@ function ConsumoInput({ value, onCommit }: { value: number; onCommit: (v: number
 // ─── Formatação ───────────────────────────────────────────────────────────────
 
 const fmt2 = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// ─── ResumoOC: coluna/faixa de resumo agregado de uso de OC ──────────────────
+
+function ResumoOC({
+  resumo,
+  varianteLabelDe,
+}: {
+  resumo: OcUso[];
+  varianteLabelDe: (ocId: string | null, ocItemId: string) => string;
+}) {
+  if (resumo.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground text-center py-3 px-2">
+        Atribua OCs às subcoleções para ver o resumo.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {resumo.map((oc) => (
+        <Collapsible key={oc.ocId} defaultOpen className="group/oc-resumo">
+          {/* Header do card de OC */}
+          <CollapsibleTrigger asChild>
+            <button className="w-full flex items-center gap-2 rounded-md border bg-muted/20 px-3 py-2 text-left hover:bg-muted/40 transition-colors min-h-[44px] md:min-h-0">
+              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]/oc-resumo:rotate-90" />
+              <span className="flex-1 text-xs font-medium truncate">
+                OC {oc.numero ?? oc.ocId.slice(0, 6)}
+              </span>
+              {/* Badge ✓ / ⚠ */}
+              <span className={`text-xs font-medium shrink-0 ${oc.ok ? "text-green-600" : "text-amber-600"}`}>
+                {oc.ok ? "✓" : "⚠"}
+              </span>
+              {/* Total saldo */}
+              <span className={`text-xs tabular-nums shrink-0 ${oc.totalSaldo >= 0 ? "text-green-600" : "text-destructive"}`}>
+                {oc.totalSaldo >= 0
+                  ? `+${fmt2(oc.totalSaldo)}m`
+                  : `−${fmt2(Math.abs(oc.totalSaldo))}m`}
+              </span>
+            </button>
+          </CollapsibleTrigger>
+
+          {/* Cores da OC */}
+          <CollapsibleContent>
+            <div className="mt-1 space-y-2 pl-2 border-l ml-3">
+              {oc.cores.map((cor) => {
+                const pctUso = cor.disp > 0 ? Math.min(100, (cor.dem / cor.disp) * 100) : 0;
+                const label = varianteLabelDe(oc.ocId, cor.ocItemId);
+                return (
+                  <div key={cor.ocItemId} className="space-y-0.5">
+                    <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0 text-xs">
+                      <span className="font-medium truncate max-w-[8rem]" title={label}>
+                        {label}
+                      </span>
+                      <span className={`tabular-nums shrink-0 ${cor.saldo >= 0 ? "text-green-600" : "text-destructive"}`}>
+                        {cor.saldo >= 0
+                          ? `sobram ${fmt2(cor.saldo)} m`
+                          : `faltam ${fmt2(Math.abs(cor.saldo))} m`}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground tabular-nums">
+                      <span>disp: {fmt2(cor.disp)} m</span>
+                      <span>dem: {fmt2(cor.dem)} m</span>
+                    </div>
+                    {/* Barrinha (mesmo estilo do resultado por-cor local) */}
+                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${cor.saldo >= 0 ? "bg-green-500" : "bg-destructive"}`}
+                        style={{ width: `${pctUso}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      ))}
+    </div>
+  );
+}
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
@@ -538,6 +623,13 @@ export function SimulacaoSheet({
 
   const temSel = !!selId && (cenariosSalvos as any[]).some((x: any) => x.id === selId);
 
+  // ── Resumo agregado de OC (para a coluna direita / faixa mobile) ───────────
+
+  const resumo = useMemo(
+    () => agregarUsoOC(draft.unidades, ocs as any),
+    [draft.unidades, ocs]
+  );
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -548,361 +640,445 @@ export function SimulacaoSheet({
             <SheetTitle className="text-base sm:text-lg">Simulador de uso de OC</SheetTitle>
           </SheetHeader>
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {/* ── Área rolável: layout 2 colunas em desktop, 1 coluna em mobile ── */}
+          <div className="flex-1 overflow-y-auto">
+            <div className="flex flex-col md:flex-row md:items-start h-full">
 
-            {/* ── Pílulas de cenário ── */}
-            <div className="flex flex-wrap items-center gap-2">
-              {(cenariosSalvos as any[]).map((c) => {
-                const isSel = c.id === selId;
-                return (
-                  <div
-                    key={c.id}
-                    className={`flex items-center gap-1 rounded-full border px-1 ${isSel ? "border-primary bg-primary/5" : ""}`}
-                  >
-                    {isSel && editNome ? (
-                      <Input
-                        autoFocus
-                        value={draft.nome}
-                        onChange={(e) => upd((d) => ({ ...d, nome: e.target.value }))}
-                        onBlur={() => setEditNome(false)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === "Escape") setEditNome(false);
-                        }}
-                        className="h-7 w-36"
-                      />
-                    ) : (
-                      <button className="px-2 py-1 text-sm font-medium" onClick={() => setSelId(c.id)}>
-                        {isSel ? draft.nome : c.nome}
-                        {isSel && dirty && (
-                          <span className="ml-1 text-amber-600" title="não salvo">•</span>
+              {/* ── Coluna esquerda (esquerda principal, rola junto) ── */}
+              <div className="flex-1 min-w-0 p-4 space-y-4">
+
+                {/* ── Pílulas de cenário ── */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {(cenariosSalvos as any[]).map((c) => {
+                    const isSel = c.id === selId;
+                    return (
+                      <div
+                        key={c.id}
+                        className={`flex items-center gap-1 rounded-full border px-1 ${isSel ? "border-primary bg-primary/5" : ""}`}
+                      >
+                        {isSel && editNome ? (
+                          <Input
+                            autoFocus
+                            value={draft.nome}
+                            onChange={(e) => upd((d) => ({ ...d, nome: e.target.value }))}
+                            onBlur={() => setEditNome(false)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === "Escape") setEditNome(false);
+                            }}
+                            className="h-7 w-36"
+                          />
+                        ) : (
+                          <button className="px-2 py-1 text-sm font-medium" onClick={() => setSelId(c.id)}>
+                            {isSel ? draft.nome : c.nome}
+                            {isSel && dirty && (
+                              <span className="ml-1 text-amber-600" title="não salvo">•</span>
+                            )}
+                          </button>
                         )}
-                      </button>
-                    )}
-                    {isSel && (
-                      <>
-                        <Button
-                          variant="ghost" size="iconSm" className="h-8 w-8"
-                          onClick={() => setEditNome(true)}
-                        >
-                          <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-                        </Button>
-                        <Button
-                          variant="ghost" size="iconSm" className="h-8 w-8"
-                          onClick={() => setConfirmExcluir(c.id)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                );
-              })}
-              <Button
-                variant="outline" size="sm"
-                onClick={() => criar.mutate()}
-                disabled={criar.isPending || !plano}
-              >
-                <Plus className="h-4 w-4 mr-1" /> Cenário
-              </Button>
-            </div>
-
-            {!temSel ? (
-              <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-                Nenhum cenário ainda. Clique em <strong>+ Cenário</strong> pra criar o primeiro.
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {/* Re-puxar do OTB */}
-                <div className="flex justify-end">
-                  <Button variant="outline" size="sm" onClick={repuxar} disabled={!plano}>
-                    Re-puxar do OTB
+                        {isSel && (
+                          <>
+                            <Button
+                              variant="ghost" size="iconSm" className="h-8 w-8"
+                              onClick={() => setEditNome(true)}
+                            >
+                              <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                            </Button>
+                            <Button
+                              variant="ghost" size="iconSm" className="h-8 w-8"
+                              onClick={() => setConfirmExcluir(c.id)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                  <Button
+                    variant="outline" size="sm"
+                    onClick={() => criar.mutate()}
+                    disabled={criar.isPending || !plano}
+                  >
+                    <Plus className="h-4 w-4 mr-1" /> Cenário
                   </Button>
                 </div>
 
-                {/* ── Unidades ── */}
-                {draft.unidades.map((u) => {
-                  const ocSelecionada = ocById(u.ocId);
-                  const todosItens: any[] = ocSelecionada?.itens ?? [];
-                  // Itens ainda não escolhidos (disponíveis p/ adicionar)
-                  const itensDispo = todosItens.filter(
-                    (it: any) => !u.variantes.some((v) => v.ocItemId === it.id)
-                  );
-                  // Cálculo de demanda total (igual para todas as cores = demanda por cor)
-                  const demandaPorCor = u.linhas.reduce(
-                    (s, l) => s + demandaLinha(l.profCor, 1, l.modelos.map((m) => m.consumo)),
-                    0
-                  );
-                  const planoNCores = planoCoresPara(u.subcolecaoId);
+                {/* ── Faixa de resumo de OC (mobile: sticky no topo, dentro da col esq) ── */}
+                {temSel && (
+                  <div className="md:hidden sticky top-0 z-10 bg-background border rounded-lg p-3 space-y-1.5">
+                    <p className="text-xs font-semibold text-muted-foreground">Resumo de OC</p>
+                    <ResumoOC resumo={resumo} varianteLabelDe={varianteLabelDe} />
+                  </div>
+                )}
 
-                  return (
-                    <Card key={u.id} className="p-4 space-y-3">
-                      {/* ── Cabeçalho da unidade ── */}
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium text-sm">{u.nomeUnidade}</span>
+                {!temSel ? (
+                  <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+                    Nenhum cenário ainda. Clique em <strong>+ Cenário</strong> pra criar o primeiro.
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* Re-puxar do OTB */}
+                    <div className="flex justify-end">
+                      <Button variant="outline" size="sm" onClick={repuxar} disabled={!plano}>
+                        Re-puxar do OTB
+                      </Button>
+                    </div>
 
-                        {/* Seletor OC (Step 6) */}
-                        <Sel
-                          value={u.ocId ?? ""}
-                          onChange={(ocId) => {
-                            // Troca de OC: limpa variantes escolhidas
-                            patchUnidade(u.id, { ocId, variantes: [] });
-                          }}
-                          placeholder="— OC —"
-                          className="min-w-[10rem]"
-                        >
-                          {(ocs as any[]).map((o: any) => (
-                            <SelectItem key={o.id} value={o.id}>
-                              OC {o.numero_pedido ?? o.id.slice(0, 6)}
-                            </SelectItem>
-                          ))}
-                        </Sel>
+                    {/* ── Unidades (Subcoleções) — Collapsible ── */}
+                    {draft.unidades.map((u) => {
+                      const ocSelecionada = ocById(u.ocId);
+                      const todosItens: any[] = ocSelecionada?.itens ?? [];
+                      // Itens ainda não escolhidos (disponíveis p/ adicionar)
+                      const itensDispo = todosItens.filter(
+                        (it: any) => !u.variantes.some((v) => v.ocItemId === it.id)
+                      );
+                      // Cálculo de demanda total (igual para todas as cores = demanda por cor)
+                      const demandaPorCor = u.linhas.reduce(
+                        (s, l) => s + demandaLinha(l.profCor, 1, l.modelos.map((m) => m.consumo)),
+                        0
+                      );
+                      const planoNCores = planoCoresPara(u.subcolecaoId);
 
-                        {/* Referência plano: N cores */}
-                        {planoNCores > 0 && (
-                          <span className="text-xs text-muted-foreground">
-                            plano: {planoNCores} cores
-                          </span>
-                        )}
-                      </div>
+                      // Mini ✓/⚠ da subcoleção: ok se todas as cores têm saldo ≥ 0
+                      const subOk = u.variantes.length > 0 && u.variantes.every((v) => {
+                        const oc = ocById(u.ocId);
+                        const item = (oc?.itens ?? []).find((it: any) => it.id === v.ocItemId);
+                        if (!item) return false;
+                        const disp = metragemDisponivel(
+                          item.artigo?.unidade_medida ?? null,
+                          Number(item.quantidade_pedida) || 0,
+                          Number(item.artigo?.rendimento) || 0
+                        );
+                        return saldo(disp, demandaPorCor) >= 0;
+                      });
+                      const subTemDados = u.variantes.length > 0;
 
-                      {/* ── Multi-select de variantes (Step 6) ── */}
-                      {u.ocId && (
-                        <div className="space-y-1.5">
-                          {/* Chips das variantes escolhidas */}
-                          {u.variantes.length > 0 && (
-                            <div className="flex flex-wrap gap-1.5">
-                              {u.variantes.map((v) => (
-                                <span
-                                  key={v.ocItemId}
-                                  className="inline-flex items-center gap-1 rounded-full border bg-muted/40 px-2 py-0.5 text-xs"
-                                >
-                                  {varianteLabelDe(u.ocId, v.ocItemId)}
-                                  <button
-                                    onClick={() => removeVariante(u.id, v.ocItemId)}
-                                    className="ml-0.5 rounded-full hover:text-destructive"
-                                    aria-label="Remover cor"
-                                  >
-                                    <X className="h-3 w-3" />
-                                  </button>
+                      return (
+                        <Collapsible key={u.id} defaultOpen className="group/subcol">
+                          {/* Header da subcoleção */}
+                          <Card className="overflow-hidden">
+                            <CollapsibleTrigger asChild>
+                              <button className="w-full flex items-center gap-2 p-3 text-left hover:bg-muted/30 transition-colors min-h-[44px]">
+                                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]/subcol:rotate-90" />
+                                <span className="flex-1 font-medium text-sm truncate">
+                                  {u.nomeUnidade}
                                 </span>
-                              ))}
-                            </div>
-                          )}
+                                {/* OC atribuída */}
+                                {u.ocId && ocSelecionada && (
+                                  <span className="text-xs text-muted-foreground shrink-0">
+                                    OC {ocSelecionada.numero_pedido ?? u.ocId.slice(0, 6)}
+                                  </span>
+                                )}
+                                {/* Mini ✓/⚠ */}
+                                {subTemDados && (
+                                  <span className={`text-xs font-semibold shrink-0 ${subOk ? "text-green-600" : "text-amber-600"}`}>
+                                    {subOk ? "✓" : "⚠"}
+                                  </span>
+                                )}
+                              </button>
+                            </CollapsibleTrigger>
 
-                          {/* Dropdown para adicionar variante ainda não escolhida */}
-                          {itensDispo.length > 0 && (
-                            <Sel
-                              value=""
-                              onChange={(itemId) => itemId && addVariante(u.id, itemId)}
-                              placeholder="+ Adicionar cor (variante)…"
-                              className="max-w-xs text-xs"
-                            >
-                              {itensDispo.map((it: any) => {
-                                const disp = metragemDisponivel(
-                                  it.artigo?.unidade_medida ?? null,
-                                  Number(it.quantidade_pedida) || 0,
-                                  Number(it.artigo?.rendimento) || 0
-                                );
-                                const artNome = it.artigo?.nome ?? "";
-                                const varLabel = labelVarianteRow(it.variante);
-                                const label = [artNome, varLabel].filter(Boolean).join(" · ");
-                                return (
-                                  <SelectItem key={it.id} value={it.id}>
-                                    {label} — {fmt2(disp)} m
-                                  </SelectItem>
-                                );
-                              })}
-                            </Sel>
-                          )}
+                            <CollapsibleContent>
+                              <div className="p-4 pt-0 space-y-3 border-t">
+                                {/* ── Cabeçalho da unidade (seletor OC) ── */}
+                                <div className="flex flex-wrap items-center gap-2 pt-3">
+                                  {/* Seletor OC (Step 6) */}
+                                  <Sel
+                                    value={u.ocId ?? ""}
+                                    onChange={(ocId) => {
+                                      // Troca de OC: limpa variantes escolhidas
+                                      patchUnidade(u.id, { ocId, variantes: [] });
+                                    }}
+                                    placeholder="— OC —"
+                                    className="min-w-[10rem]"
+                                  >
+                                    {(ocs as any[]).map((o: any) => (
+                                      <SelectItem key={o.id} value={o.id}>
+                                        OC {o.numero_pedido ?? o.id.slice(0, 6)}
+                                      </SelectItem>
+                                    ))}
+                                  </Sel>
 
-                          {itensDispo.length === 0 && u.variantes.length === 0 && (
-                            <p className="text-xs text-muted-foreground">
-                              Esta OC não tem itens cadastrados.
-                            </p>
-                          )}
-                        </div>
-                      )}
+                                  {/* Referência plano: N cores */}
+                                  {planoNCores > 0 && (
+                                    <span className="text-xs text-muted-foreground">
+                                      plano: {planoNCores} cores
+                                    </span>
+                                  )}
+                                </div>
 
-                      {/* ── Linhas (Step 7) ── */}
-                      {u.linhas.map((l) => {
-                        const demL = demandaLinha(l.profCor, 1, l.modelos.map((m) => m.consumo));
-                        const consumoPrimeiro = l.modelos[0]?.consumo ?? 0;
-
-                        return (
-                          <div key={l.id} className="space-y-2 pl-3 border-l">
-                            {/* Cabeçalho da linha */}
-                            <div className="flex flex-wrap items-center gap-2 text-sm">
-                              {tipo === "poder_venda" && l.linhaId ? (
-                                <span className="font-medium">{nomeLinha(l.linhaId)}</span>
-                              ) : (
-                                <span className="font-medium text-muted-foreground">Modelos</span>
-                              )}
-
-                              <Lbl t="prof/cor">
-                                <Input
-                                  className="h-7 w-14 px-1 tabular-nums"
-                                  inputMode="numeric"
-                                  value={l.profCor}
-                                  onChange={(e) =>
-                                    patchLinha(u.id, l.id, { profCor: Math.max(0, Math.round(num(e.target.value))) })
-                                  }
-                                />
-                              </Lbl>
-
-                              {/* cores = derivado (leitura) — Step 7 */}
-                              <span className="text-xs text-muted-foreground">
-                                cores: <b>{u.variantes.length}</b>
-                              </span>
-
-                              <span className="text-xs text-muted-foreground tabular-nums">
-                                demanda/cor: <b>{fmt2(demL)} m</b>
-                              </span>
-
-                              {l.modelos.length > 1 && (
-                                <Button
-                                  variant="outline" size="sm" className="h-7 text-xs"
-                                  onClick={() => aplicarConsumoTodos(u.id, l.id, consumoPrimeiro)}
-                                  title="Aplica o consumo do 1º modelo a todos os modelos desta linha"
-                                >
-                                  Aplicar a todos
-                                </Button>
-                              )}
-
-                              <Button
-                                variant="outline" size="sm" className="h-7 text-xs"
-                                onClick={() => addModelo(u.id, l.id)}
-                              >
-                                <Plus className="h-3.5 w-3.5 mr-0.5" /> Modelo
-                              </Button>
-                            </div>
-
-                            {/* Mini cards por modelo (Step 8) */}
-                            <div className="space-y-2">
-                              {l.modelos.map((m, idx) => {
-                                const label = m.ref ?? m.nome ?? `Modelo ${idx + 1}`;
-                                const contribuicaoPorCor = l.profCor * m.consumo;
-
-                                return (
-                                  <div key={m.id} className="rounded-md border bg-muted/10 p-2 space-y-1.5">
-                                    {/* Linha de identidade: foto + ref/nome */}
-                                    <div className="flex items-center gap-2">
-                                      <ModeloThumb path={m.foto} alt={label} />
-                                      <span className="text-xs font-medium truncate" title={label}>
-                                        {label}
-                                      </span>
-                                    </div>
-
-                                    {/* Lista de cores com peças por cor */}
-                                    {u.variantes.length > 0 ? (
-                                      <div className="space-y-0.5 pl-1">
+                                {/* ── Multi-select de variantes (Step 6) ── */}
+                                {u.ocId && (
+                                  <div className="space-y-1.5">
+                                    {/* Chips das variantes escolhidas */}
+                                    {u.variantes.length > 0 && (
+                                      <div className="flex flex-wrap gap-1.5">
                                         {u.variantes.map((v) => (
-                                          <div key={v.ocItemId} className="flex items-center gap-2 text-xs text-muted-foreground">
-                                            <span className="truncate max-w-[10rem]" title={varianteLabelDe(u.ocId, v.ocItemId)}>
-                                              {varianteLabelDe(u.ocId, v.ocItemId)}
-                                            </span>
-                                            <span className="tabular-nums shrink-0">
-                                              {l.profCor} pç
-                                            </span>
-                                          </div>
+                                          <span
+                                            key={v.ocItemId}
+                                            className="inline-flex items-center gap-1 rounded-full border bg-muted/40 px-2 py-0.5 text-xs"
+                                          >
+                                            {varianteLabelDe(u.ocId, v.ocItemId)}
+                                            <button
+                                              onClick={() => removeVariante(u.id, v.ocItemId)}
+                                              className="ml-0.5 rounded-full hover:text-destructive"
+                                              aria-label="Remover cor"
+                                            >
+                                              <X className="h-3 w-3" />
+                                            </button>
+                                          </span>
                                         ))}
                                       </div>
-                                    ) : (
-                                      <p className="text-xs text-muted-foreground pl-1 italic">
-                                        Escolha as cores acima
-                                      </p>
                                     )}
 
-                                    {/* Consumo (vale p/ todas as cores) */}
-                                    <div className="flex items-center gap-2 pl-1">
-                                      <Lbl t="m/pç">
-                                        <ConsumoInput
-                                          value={m.consumo}
-                                          onCommit={(v) => patchModelo(u.id, l.id, m.id, { consumo: v })}
-                                        />
-                                      </Lbl>
-                                      {m.consumo > 0 && (
-                                        <span className="text-xs text-muted-foreground tabular-nums">
-                                          = {fmt2(contribuicaoPorCor)} m/cor
-                                        </span>
-                                      )}
-                                    </div>
+                                    {/* Dropdown para adicionar variante ainda não escolhida */}
+                                    {itensDispo.length > 0 && (
+                                      <Sel
+                                        value=""
+                                        onChange={(itemId) => itemId && addVariante(u.id, itemId)}
+                                        placeholder="+ Adicionar cor (variante)…"
+                                        className="max-w-xs text-xs"
+                                      >
+                                        {itensDispo.map((it: any) => {
+                                          const disp = metragemDisponivel(
+                                            it.artigo?.unidade_medida ?? null,
+                                            Number(it.quantidade_pedida) || 0,
+                                            Number(it.artigo?.rendimento) || 0
+                                          );
+                                          const artNome = it.artigo?.nome ?? "";
+                                          const varLabel = labelVarianteRow(it.variante);
+                                          const label = [artNome, varLabel].filter(Boolean).join(" · ");
+                                          return (
+                                            <SelectItem key={it.id} value={it.id}>
+                                              {label} — {fmt2(disp)} m
+                                            </SelectItem>
+                                          );
+                                        })}
+                                      </Sel>
+                                    )}
+
+                                    {itensDispo.length === 0 && u.variantes.length === 0 && (
+                                      <p className="text-xs text-muted-foreground">
+                                        Esta OC não tem itens cadastrados.
+                                      </p>
+                                    )}
                                   </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        );
-                      })}
+                                )}
 
-                      {/* ── Resultado por cor (Step 9) ── */}
-                      <div className="rounded-md border bg-muted/20 p-3 space-y-2">
-                        {u.variantes.length === 0 ? (
-                          <p className="text-xs text-muted-foreground text-center py-1">
-                            Escolha as cores (variantes) da OC para ver o resultado.
-                          </p>
-                        ) : (
-                          u.variantes.map((v) => {
-                            const oc = ocById(u.ocId);
-                            const item = (oc?.itens ?? []).find((it: any) => it.id === v.ocItemId);
-                            const disp = item
-                              ? metragemDisponivel(
-                                  item.artigo?.unidade_medida ?? null,
-                                  Number(item.quantidade_pedida) || 0,
-                                  Number(item.artigo?.rendimento) || 0
-                                )
-                              : 0;
-                            const saldoVal = saldo(disp, demandaPorCor);
-                            const pctUso = disp > 0 ? Math.min(100, (demandaPorCor / disp) * 100) : 0;
-                            const varLabel = varianteLabelDe(u.ocId, v.ocItemId);
+                                {/* ── Linhas — cada linha colapsável ── */}
+                                {u.linhas.map((l) => {
+                                  const demL = demandaLinha(l.profCor, 1, l.modelos.map((m) => m.consumo));
+                                  const consumoPrimeiro = l.modelos[0]?.consumo ?? 0;
 
-                            return (
-                              <div key={v.ocItemId} className="space-y-1">
-                                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 text-xs">
-                                  <span className="font-medium truncate max-w-[10rem]" title={varLabel}>
-                                    {varLabel}
-                                  </span>
-                                  <span className="text-muted-foreground tabular-nums">
-                                    disp: <b>{fmt2(disp)} m</b>
-                                  </span>
-                                  <span className="text-muted-foreground tabular-nums">
-                                    demanda: <b>{fmt2(demandaPorCor)} m</b>
-                                  </span>
-                                  <span className={saldoVal >= 0 ? "text-green-600 font-medium tabular-nums" : "text-destructive font-medium tabular-nums"}>
-                                    {saldoVal >= 0
-                                      ? `sobram ${fmt2(saldoVal)} m`
-                                      : `faltam ${fmt2(Math.abs(saldoVal))} m`}
-                                  </span>
+                                  return (
+                                    <Collapsible key={l.id} defaultOpen className="group/linha">
+                                      <div className="border-l pl-3 space-y-2">
+                                        {/* Header da linha */}
+                                        <CollapsibleTrigger asChild>
+                                          <button className="w-full flex flex-wrap items-center gap-2 text-sm text-left min-h-[44px] hover:text-foreground/80 transition-colors">
+                                            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]/linha:rotate-90" />
+                                            {tipo === "poder_venda" && l.linhaId ? (
+                                              <span className="font-medium">{nomeLinha(l.linhaId)}</span>
+                                            ) : (
+                                              <span className="font-medium text-muted-foreground">Modelos</span>
+                                            )}
+                                            <span className="text-xs text-muted-foreground">
+                                              prof/cor: <b>{l.profCor}</b>
+                                            </span>
+                                            <span className="text-xs text-muted-foreground tabular-nums">
+                                              dem: <b>{fmt2(demL)} m</b>
+                                            </span>
+                                          </button>
+                                        </CollapsibleTrigger>
+
+                                        <CollapsibleContent>
+                                          <div className="space-y-2">
+                                            {/* Controles de linha */}
+                                            <div className="flex flex-wrap items-center gap-2 text-sm">
+                                              <Lbl t="prof/cor">
+                                                <Input
+                                                  className="h-7 w-14 px-1 tabular-nums"
+                                                  inputMode="numeric"
+                                                  value={l.profCor}
+                                                  onChange={(e) =>
+                                                    patchLinha(u.id, l.id, { profCor: Math.max(0, Math.round(num(e.target.value))) })
+                                                  }
+                                                />
+                                              </Lbl>
+
+                                              {/* cores = derivado (leitura) — Step 7 */}
+                                              <span className="text-xs text-muted-foreground">
+                                                cores: <b>{u.variantes.length}</b>
+                                              </span>
+
+                                              <span className="text-xs text-muted-foreground tabular-nums">
+                                                demanda/cor: <b>{fmt2(demL)} m</b>
+                                              </span>
+
+                                              {l.modelos.length > 1 && (
+                                                <Button
+                                                  variant="outline" size="sm" className="h-7 text-xs"
+                                                  onClick={() => aplicarConsumoTodos(u.id, l.id, consumoPrimeiro)}
+                                                  title="Aplica o consumo do 1º modelo a todos os modelos desta linha"
+                                                >
+                                                  Aplicar a todos
+                                                </Button>
+                                              )}
+
+                                              <Button
+                                                variant="outline" size="sm" className="h-7 text-xs"
+                                                onClick={() => addModelo(u.id, l.id)}
+                                              >
+                                                <Plus className="h-3.5 w-3.5 mr-0.5" /> Modelo
+                                              </Button>
+                                            </div>
+
+                                            {/* Mini cards por modelo (Step 8) */}
+                                            <div className="space-y-2">
+                                              {l.modelos.map((m, idx) => {
+                                                const label = m.ref ?? m.nome ?? `Modelo ${idx + 1}`;
+                                                const contribuicaoPorCor = l.profCor * m.consumo;
+
+                                                return (
+                                                  <div key={m.id} className="rounded-md border bg-muted/10 p-2 space-y-1.5">
+                                                    {/* Linha de identidade: foto + ref/nome */}
+                                                    <div className="flex items-center gap-2">
+                                                      <ModeloThumb path={m.foto} alt={label} />
+                                                      <span className="text-xs font-medium truncate" title={label}>
+                                                        {label}
+                                                      </span>
+                                                    </div>
+
+                                                    {/* Lista de cores com peças por cor */}
+                                                    {u.variantes.length > 0 ? (
+                                                      <div className="space-y-0.5 pl-1">
+                                                        {u.variantes.map((v) => (
+                                                          <div key={v.ocItemId} className="flex items-center gap-2 text-xs text-muted-foreground">
+                                                            <span className="truncate max-w-[10rem]" title={varianteLabelDe(u.ocId, v.ocItemId)}>
+                                                              {varianteLabelDe(u.ocId, v.ocItemId)}
+                                                            </span>
+                                                            <span className="tabular-nums shrink-0">
+                                                              {l.profCor} pç
+                                                            </span>
+                                                          </div>
+                                                        ))}
+                                                      </div>
+                                                    ) : (
+                                                      <p className="text-xs text-muted-foreground pl-1 italic">
+                                                        Escolha as cores acima
+                                                      </p>
+                                                    )}
+
+                                                    {/* Consumo (vale p/ todas as cores) */}
+                                                    <div className="flex items-center gap-2 pl-1">
+                                                      <Lbl t="m/pç">
+                                                        <ConsumoInput
+                                                          value={m.consumo}
+                                                          onCommit={(v) => patchModelo(u.id, l.id, m.id, { consumo: v })}
+                                                        />
+                                                      </Lbl>
+                                                      {m.consumo > 0 && (
+                                                        <span className="text-xs text-muted-foreground tabular-nums">
+                                                          = {fmt2(contribuicaoPorCor)} m/cor
+                                                        </span>
+                                                      )}
+                                                    </div>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          </div>
+                                        </CollapsibleContent>
+                                      </div>
+                                    </Collapsible>
+                                  );
+                                })}
+
+                                {/* ── Resultado por cor (Step 9) ── */}
+                                <div className="rounded-md border bg-muted/20 p-3 space-y-2">
+                                  {u.variantes.length === 0 ? (
+                                    <p className="text-xs text-muted-foreground text-center py-1">
+                                      Escolha as cores (variantes) da OC para ver o resultado.
+                                    </p>
+                                  ) : (
+                                    u.variantes.map((v) => {
+                                      const oc = ocById(u.ocId);
+                                      const item = (oc?.itens ?? []).find((it: any) => it.id === v.ocItemId);
+                                      const disp = item
+                                        ? metragemDisponivel(
+                                            item.artigo?.unidade_medida ?? null,
+                                            Number(item.quantidade_pedida) || 0,
+                                            Number(item.artigo?.rendimento) || 0
+                                          )
+                                        : 0;
+                                      const saldoVal = saldo(disp, demandaPorCor);
+                                      const pctUso = disp > 0 ? Math.min(100, (demandaPorCor / disp) * 100) : 0;
+                                      const varLabel = varianteLabelDe(u.ocId, v.ocItemId);
+
+                                      return (
+                                        <div key={v.ocItemId} className="space-y-1">
+                                          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 text-xs">
+                                            <span className="font-medium truncate max-w-[10rem]" title={varLabel}>
+                                              {varLabel}
+                                            </span>
+                                            <span className="text-muted-foreground tabular-nums">
+                                              disp: <b>{fmt2(disp)} m</b>
+                                            </span>
+                                            <span className="text-muted-foreground tabular-nums">
+                                              demanda: <b>{fmt2(demandaPorCor)} m</b>
+                                            </span>
+                                            <span className={saldoVal >= 0 ? "text-green-600 font-medium tabular-nums" : "text-destructive font-medium tabular-nums"}>
+                                              {saldoVal >= 0
+                                                ? `sobram ${fmt2(saldoVal)} m`
+                                                : `faltam ${fmt2(Math.abs(saldoVal))} m`}
+                                            </span>
+                                          </div>
+                                          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                                            <div
+                                              className={`h-full rounded-full transition-all ${saldoVal >= 0 ? "bg-green-500" : "bg-destructive"}`}
+                                              style={{ width: `${pctUso}%` }}
+                                            />
+                                          </div>
+                                        </div>
+                                      );
+                                    })
+                                  )}
                                 </div>
-                                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                                  <div
-                                    className={`h-full rounded-full transition-all ${saldoVal >= 0 ? "bg-green-500" : "bg-destructive"}`}
-                                    style={{ width: `${pctUso}%` }}
-                                  />
+
+                                {/* ── Botão Aplicar no card ── */}
+                                <div className="flex justify-end pt-1">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={dirty || !u.dbId || aplicar.isPending}
+                                    title={dirty ? "Salve o cenário antes de aplicar" : !u.dbId ? "Salve o cenário antes de aplicar" : "Aplicar profundidade, cores e nº de modelos no plano da coleção"}
+                                    onClick={() => setConfirmAplicar({ unidadeId: u.dbId!, nome: u.nomeUnidade })}
+                                  >
+                                    <Send className="h-3.5 w-3.5 mr-1" />
+                                    Aplicar no plano
+                                  </Button>
                                 </div>
                               </div>
-                            );
-                          })
-                        )}
-                      </div>
-
-                      {/* ── Botão Aplicar no card ── */}
-                      <div className="flex justify-end pt-1">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={dirty || !u.dbId || aplicar.isPending}
-                          title={dirty ? "Salve o cenário antes de aplicar" : !u.dbId ? "Salve o cenário antes de aplicar" : "Aplicar profundidade, cores e nº de modelos no plano da coleção"}
-                          onClick={() => setConfirmAplicar({ unidadeId: u.dbId!, nome: u.nomeUnidade })}
-                        >
-                          <Send className="h-3.5 w-3.5 mr-1" />
-                          Aplicar no plano
-                        </Button>
-                      </div>
-                    </Card>
-                  );
-                })}
+                            </CollapsibleContent>
+                          </Card>
+                        </Collapsible>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            )}
+
+              {/* ── Coluna direita: Resumo de OC (desktop: sticky, scroll próprio) ── */}
+              {temSel && (
+                <div className="hidden md:block md:w-72 md:shrink-0 md:sticky md:top-0 md:self-start md:max-h-[calc(100vh-8rem)] md:overflow-y-auto p-4 border-l">
+                  <p className="text-xs font-semibold text-muted-foreground mb-3">
+                    Resumo de OC <span className="font-normal">(uso somado entre subcoleções)</span>
+                  </p>
+                  <ResumoOC resumo={resumo} varianteLabelDe={varianteLabelDe} />
+                </div>
+              )}
+
+            </div>
           </div>
 
           {/* ── Footer ── */}
