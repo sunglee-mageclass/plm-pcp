@@ -994,56 +994,6 @@ export function SimulacaoSheet({
                                   );
                                 })}
 
-                                {/* ── Resultado por cor (Step 9) ── */}
-                                <div className="rounded-md border bg-muted/20 p-3 space-y-2">
-                                  {u.variantes.length === 0 ? (
-                                    <p className="text-xs text-muted-foreground text-center py-1">
-                                      Escolha as cores (variantes) da OC para ver o resultado.
-                                    </p>
-                                  ) : (
-                                    u.variantes.map((v) => {
-                                      const oc = ocById(u.ocId);
-                                      const item = (oc?.itens ?? []).find((it: any) => it.id === v.ocItemId);
-                                      const disp = item
-                                        ? metragemDisponivel(
-                                            item.artigo?.unidade_medida ?? null,
-                                            Number(item.quantidade_pedida) || 0,
-                                            Number(item.artigo?.rendimento) || 0
-                                          )
-                                        : 0;
-                                      const saldoVal = saldo(disp, demandaPorCor);
-                                      const pctUso = disp > 0 ? Math.min(100, (demandaPorCor / disp) * 100) : 0;
-                                      const varLabel = varianteLabelDe(u.ocId, v.ocItemId);
-
-                                      return (
-                                        <div key={v.ocItemId} className="space-y-1">
-                                          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 text-xs">
-                                            <span className="font-medium truncate max-w-[10rem]" title={varLabel}>
-                                              {varLabel}
-                                            </span>
-                                            <span className="text-muted-foreground tabular-nums">
-                                              disp: <b>{fmt2(disp)} m</b>
-                                            </span>
-                                            <span className="text-muted-foreground tabular-nums">
-                                              demanda: <b>{fmt2(demandaPorCor)} m</b>
-                                            </span>
-                                            <span className={saldoVal >= 0 ? "text-green-600 font-medium tabular-nums" : "text-destructive font-medium tabular-nums"}>
-                                              {saldoVal >= 0
-                                                ? `sobram ${fmt2(saldoVal)} m`
-                                                : `faltam ${fmt2(Math.abs(saldoVal))} m`}
-                                            </span>
-                                          </div>
-                                          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                                            <div
-                                              className={`h-full rounded-full transition-all ${saldoVal >= 0 ? "bg-green-500" : "bg-destructive"}`}
-                                              style={{ width: `${pctUso}%` }}
-                                            />
-                                          </div>
-                                        </div>
-                                      );
-                                    })
-                                  )}
-                                </div>
 
                                 {/* ── Botão Aplicar no card ── */}
                                 <div className="flex justify-end pt-1">
