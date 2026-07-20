@@ -41,16 +41,28 @@ export const distribuirNasSemanas = (num: number, semanas: number[]): Record<str
 export type UnidadeUsoInput = {
   ocId: string | null;
   variantes: { ocItemId: string }[];
-  linhas: { profCor: number; modelos: { consumo: number; profPorCor?: Record<string, number>; profModelo?: number }[] }[];
+  linhas: { profCor: number; modelos: { consumo: number; profPorCor?: Record<string, number>; profModelo?: number; gradePorCor?: Record<string, number> }[] }[];
 };
 
-/** Retorna a profundidade efetiva para a cor `ocItemId`: usa override por cor se existir, senão profModelo (grade real), senão o base. */
-export const effProf = (modelo: { profPorCor?: Record<string, number>; profModelo?: number }, baseProfCor: number, ocItemId: string): number =>
-  modelo.profPorCor?.[ocItemId] ?? modelo.profModelo ?? baseProfCor;
+/** Retorna a profundidade efetiva para a cor `ocItemId`:
+ *  1) override manual por cor (profPorCor)
+ *  2) grade real da cor pelo variante_tecido_id (gradePorCor)
+ *  3) grade geral do modelo (profModelo)
+ *  4) base da linha (baseProfCor) */
+export const effProf = (
+  modelo: { profPorCor?: Record<string, number>; profModelo?: number; gradePorCor?: Record<string, number> },
+  baseProfCor: number,
+  ocItemId: string,
+  ocVarTecId?: string | null,
+): number =>
+  modelo.profPorCor?.[ocItemId] ??
+  (ocVarTecId ? modelo.gradePorCor?.[ocVarTecId] : undefined) ??
+  modelo.profModelo ??
+  baseProfCor;
 export type OcUsoInput = {
   id: string;
   numero_pedido: string | null;
-  itens: { id: string; quantidade_pedida: number | null; artigo: { unidade_medida: string | null; rendimento: number | null } | null }[];
+  itens: { id: string; quantidade_pedida: number | null; variante_tecido_id?: string | null; artigo: { unidade_medida: string | null; rendimento: number | null } | null }[];
 };
 export type CorUso = { ocItemId: string; disp: number; dem: number; saldo: number };
 export type OcUso = { ocId: string; numero: string | null; cores: CorUso[]; totalDisp: number; totalDem: number; totalSaldo: number; ok: boolean };
@@ -69,8 +81,9 @@ export function agregarUsoOC(unidades: UnidadeUsoInput[], ocs: OcUsoInput[]): Oc
   for (const u of unidades) {
     if (!u.ocId) continue;
     for (const v of u.variantes) {
+      const ocVarTecId = ocMap.get(u.ocId!)?.itens.find((it) => it.id === v.ocItemId)?.variante_tecido_id ?? null;
       const demCor = u.linhas.reduce(
-        (s, l) => s + l.modelos.reduce((sm, mo) => sm + effProf(mo, l.profCor, v.ocItemId) * (mo.consumo || 0), 0),
+        (s, l) => s + l.modelos.reduce((sm, mo) => sm + effProf(mo, l.profCor, v.ocItemId, ocVarTecId) * (mo.consumo || 0), 0),
         0
       );
       const key = `${u.ocId}|${v.ocItemId}`;

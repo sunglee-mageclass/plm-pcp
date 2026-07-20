@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { splitEven, metragemDisponivel, pecasLinha, demandaLinha, saldo, distribuirNasSemanas, agregarUsoOC, effProf } from "@/lib/simulacao";
+import { splitEven, metragemDisponivel, pecasLinha, demandaLinha, saldo, distribuirNasSemanas, agregarUsoOC, effProf, type UnidadeUsoInput } from "@/lib/simulacao";
 
 describe("simulacao — cálculo puro", () => {
   it("splitEven reparte o resto nas primeiras", () => {
@@ -26,7 +26,7 @@ describe("simulacao — cálculo puro", () => {
 });
 
 describe("agregarUsoOC — uso somado da mesma OC entre subcoleções", () => {
-  const item = (id: string, qtd: number) => ({ id, quantidade_pedida: qtd, artigo: { unidade_medida: "metro", rendimento: null } });
+  const item = (id: string, qtd: number, vt?: string) => ({ id, quantidade_pedida: qtd, variante_tecido_id: vt ?? null, artigo: { unidade_medida: "metro", rendimento: null } });
   const oc = (id: string, numero: string, itens: any[]) => ({ id, numero_pedido: numero, itens });
   // unidade que usa 1 OC + 1 cor; demanda da unidade = prof×Σconsumo
   const u = (ocId: string | null, ocItemId: string, prof: number, consumo: number, profPorCor?: Record<string, number>, profModelo?: number) =>
@@ -125,5 +125,47 @@ describe("agregarUsoOC — uso somado da mesma OC entre subcoleções", () => {
     const verde = res[0].cores.find((c) => c.ocItemId === "verde")!;
     expect(verde.dem).toBe(6); // 3 × 2
     expect(verde.saldo).toBe(4);
+  });
+
+  it("gradePorCor: demanda usa a grade da cor certa (por variante_tecido_id)", () => {
+    // corA (ocItemId="item-a") → variante_tecido_id "vt-a" → gradePorCor[vt-a]=60
+    // corB (ocItemId="item-b") → variante_tecido_id "vt-b" → gradePorCor[vt-b]=40
+    // consumo=2 → demCor-a=120, demCor-b=80
+    const ocs = [oc("oc1", "OC-gc", [item("item-a", 200, "vt-a"), item("item-b", 100, "vt-b")])];
+    const unidade: UnidadeUsoInput = {
+      ocId: "oc1",
+      variantes: [{ ocItemId: "item-a" }, { ocItemId: "item-b" }],
+      linhas: [{
+        profCor: 10, // base (deve ser ignorado quando gradePorCor casa)
+        modelos: [{ consumo: 2, gradePorCor: { "vt-a": 60, "vt-b": 40 } }],
+      }],
+    };
+    const res = agregarUsoOC([unidade], ocs);
+    expect(res).toHaveLength(1);
+    const corA = res[0].cores.find((c) => c.ocItemId === "item-a")!;
+    const corB = res[0].cores.find((c) => c.ocItemId === "item-b")!;
+    expect(corA.dem).toBe(120); // 60 × 2
+    expect(corB.dem).toBe(80);  // 40 × 2
+    expect(corA.saldo).toBe(80);  // 200 − 120
+    expect(corB.saldo).toBe(20);  // 100 − 80
+  });
+
+  it("gradePorCor: cor da OC sem match no modelo cai no profModelo/base", () => {
+    // item-x → variante_tecido_id "vt-x" — NÃO está em gradePorCor (só tem vt-a)
+    // profModelo=15 → demCor = 15 × 2 = 30
+    const ocs = [oc("oc1", "OC-gcf", [item("item-x", 50, "vt-x")])];
+    const unidade: UnidadeUsoInput = {
+      ocId: "oc1",
+      variantes: [{ ocItemId: "item-x" }],
+      linhas: [{
+        profCor: 5, // base
+        modelos: [{ consumo: 2, gradePorCor: { "vt-a": 60 }, profModelo: 15 }],
+      }],
+    };
+    const res = agregarUsoOC([unidade], ocs);
+    expect(res).toHaveLength(1);
+    const corX = res[0].cores.find((c) => c.ocItemId === "item-x")!;
+    expect(corX.dem).toBe(30); // profModelo=15 × 2 (não cai no base=5 porque profModelo existe)
+    expect(corX.saldo).toBe(20); // 50 − 30
   });
 });

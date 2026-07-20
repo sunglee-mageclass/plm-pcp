@@ -36,6 +36,7 @@ type ModeloSim = {
   consumo: number;
   profPorCor?: Record<string, number>;
   profModelo?: number;
+  gradePorCor?: Record<string, number>;  // grade exata por variante_tecido_id
   ref?: string | null;
   nome?: string | null;
   foto?: string | null;
@@ -117,6 +118,19 @@ function ConsumoInput({ value, onCommit }: { value: number; onCommit: (v: number
 // ─── Formatação ───────────────────────────────────────────────────────────────
 
 const fmt2 = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** Monta um mapa variante_tecido_id → grade_total a partir do tecido nº 1 do modelo real. */
+function gradePorCorFn(mr: any): Record<string, number> {
+  const t1 = (mr?.modelo_tecidos ?? []).find((t: any) => t.tipo === "tecido" && Number(t.numero) === 1);
+  const ordemToVar = new Map<number, string>();
+  for (const v of (t1?.modelo_tecido_variantes ?? [])) ordemToVar.set(Number(v.ordem), v.variante_tecido_id);
+  const out: Record<string, number> = {};
+  for (const g of (mr?.modelo_grades ?? [])) {
+    const vt = ordemToVar.get(Number(g.variante_numero));
+    if (vt) out[vt] = Number(g.grade_total) || 0;
+  }
+  return out;
+}
 
 // ─── ResumoOC: coluna/faixa de resumo agregado de uso de OC ──────────────────
 
@@ -240,7 +254,7 @@ export function SimulacaoSheet({
     queryKey: ["otb-sim-modelos", colecaoId],
     queryFn: async () =>
       (await supabase.from("modelos")
-        .select("id, ref, nome, fotos_modelo, subcolecao, linha_id, status_desenvolvimento, modelo_tecidos(numero, tipo, consumo), modelo_grades(variante_numero, grade_total)")
+        .select("id, ref, nome, fotos_modelo, subcolecao, linha_id, status_desenvolvimento, modelo_tecidos(numero, tipo, consumo, modelo_tecido_variantes(ordem, variante_tecido_id)), modelo_grades(variante_numero, grade_total)")
         .eq("colecao_id", colecaoId)).data ?? [],
   });
 
@@ -337,6 +351,7 @@ export function SimulacaoSheet({
           modeloId: m.id,
           consumo: consumoTec1(m),
           profModelo: pecasModelo(m),
+          gradePorCor: gradePorCorFn(m),
           ref: m.ref ?? null,
           nome: m.nome ?? null,
           foto: ((m.fotos_modelo ?? []) as string[])[0] ?? null,
@@ -403,6 +418,7 @@ export function SimulacaoSheet({
           modeloId: m.id,
           consumo: consumoTec1(m),
           profModelo: pecasModelo(m),
+          gradePorCor: gradePorCorFn(m),
           ref: m.ref ?? null,
           nome: m.nome ?? null,
           foto: ((m.fotos_modelo ?? []) as string[])[0] ?? null,
@@ -471,6 +487,7 @@ export function SimulacaoSheet({
           modeloId: m.id,
           consumo: consumoTec1(m),
           profModelo: pecasModelo(m),
+          gradePorCor: gradePorCorFn(m),
           ref: m.ref ?? null,
           nome: m.nome ?? null,
           foto: ((m.fotos_modelo ?? []) as string[])[0] ?? null,
@@ -524,6 +541,7 @@ export function SimulacaoSheet({
                 consumo: Number(m.consumo) || 0,
                 profPorCor: m.prof_por_cor ?? undefined,
                 profModelo: modeloReal ? pecasModelo(modeloReal) : undefined,
+                gradePorCor: modeloReal ? gradePorCorFn(modeloReal) : undefined,
                 ref: modeloReal?.ref ?? null,
                 nome: modeloReal?.nome ?? null,
                 foto: ((modeloReal?.fotos_modelo ?? []) as string[])[0] ?? null,
@@ -579,7 +597,7 @@ export function SimulacaoSheet({
         u.id !== uid ? u : {
           ...u,
           linhas: u.linhas.map((l) =>
-            l.id !== lid ? l : { ...l, profCor: val, modelos: l.modelos.map((m) => ({ ...m, profPorCor: {}, profModelo: undefined })) }
+            l.id !== lid ? l : { ...l, profCor: val, modelos: l.modelos.map((m) => ({ ...m, profPorCor: {}, profModelo: undefined, gradePorCor: undefined })) }
           ),
         }
       ),
@@ -906,7 +924,7 @@ export function SimulacaoSheet({
                           Number(item.artigo?.rendimento) || 0
                         );
                         const demCor = u.linhas.reduce(
-                          (s, l) => s + l.modelos.reduce((sm, mo) => sm + effProf(mo, l.profCor, v.ocItemId) * mo.consumo, 0),
+                          (s, l) => s + l.modelos.reduce((sm, mo) => sm + effProf(mo, l.profCor, v.ocItemId, ocById(u.ocId)?.itens?.find((it: any) => it.id === v.ocItemId)?.variante_tecido_id) * mo.consumo, 0),
                           0
                         );
                         return saldo(disp, demCor) >= 0;
@@ -1152,7 +1170,7 @@ export function SimulacaoSheet({
                                                                   />
                                                                 </span>
                                                                 <span className="flex items-center justify-end tabular-nums text-foreground font-medium border-l border-border/70 py-1 pl-1 pr-0.5">
-                                                                  {m.consumo > 0 ? fmt2(effProf(m, l.profCor, v.ocItemId) * m.consumo) : "—"}
+                                                                  {m.consumo > 0 ? fmt2(effProf(m, l.profCor, v.ocItemId, ocById(u.ocId)?.itens?.find((it: any) => it.id === v.ocItemId)?.variante_tecido_id) * m.consumo) : "—"}
                                                                 </span>
                                                               </div>
                                                             ))}
@@ -1192,7 +1210,7 @@ export function SimulacaoSheet({
                                                               />
                                                               {m.consumo > 0 && (
                                                                 <span className="tabular-nums shrink-0 text-right whitespace-nowrap">
-                                                                  <b className="text-foreground">{fmt2(effProf(m, l.profCor, v.ocItemId) * m.consumo)}</b> m
+                                                                  <b className="text-foreground">{fmt2(effProf(m, l.profCor, v.ocItemId, ocById(u.ocId)?.itens?.find((it: any) => it.id === v.ocItemId)?.variante_tecido_id) * m.consumo)}</b> m
                                                                 </span>
                                                               )}
                                                             </div>
