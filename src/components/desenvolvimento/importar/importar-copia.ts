@@ -1,4 +1,4 @@
-import { makeEmptyBlocks, type TecidoBlock, type AviamentoRow, type GradeRow, type ModeloEtiquetaRow } from "@/components/desenvolvimento/modelo-detail/types";
+import { type TecidoBlock, type AviamentoRow, type GradeRow, type ModeloEtiquetaRow } from "@/components/desenvolvimento/modelo-detail/types";
 
 export type ModeloParaCopia = {
   observacoes_tecnicas: string;

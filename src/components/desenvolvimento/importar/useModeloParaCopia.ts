@@ -10,7 +10,7 @@ export function useModeloParaCopia(modeloId: string | null) {
     queryFn: async () => {
       const [m, tec, avi, etq, gra, obs] = await Promise.all([
         supabase.from("modelos").select("observacoes_tecnicas, custos_adicionais, proporcoes").eq("id", modeloId!).single(),
-        supabase.from("modelo_tecidos").select("id, artigo_id, numero, tipo, consumo, loss_percent, custo_previsto, modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador)").eq("modelo_id", modeloId!),
+        supabase.from("modelo_tecidos").select("artigo_id, numero, tipo, consumo, loss_percent, custo_previsto, modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador)").eq("modelo_id", modeloId!),
         supabase.from("modelo_aviamentos").select("aviamento_id, consumo, loss_percent, custo_previsto").eq("modelo_id", modeloId!).order("numero"),
         supabase.from("modelo_etiquetas" as any).select("etiqueta_id, cor_id, consumo, loss_percent, custo_previsto").eq("modelo_id", modeloId!).order("numero"),
         supabase.from("modelo_grades").select("variante_numero, grades, grade_total").eq("modelo_id", modeloId!),

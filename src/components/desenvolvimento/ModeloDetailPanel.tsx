@@ -1213,7 +1213,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     if (patch.observacoes_tecnicas !== undefined) setDraft((d: any) => ({ ...d, observacoes_tecnicas: patch.observacoes_tecnicas }));
     if (patch.custos_adicionais !== undefined) setDraft((d: any) => ({ ...d, custos_adicionais: patch.custos_adicionais }));
     if (patch.proporcoes !== undefined) setDraft((d: any) => ({ ...d, proporcoes: patch.proporcoes }));
-    if (patch.blocks !== undefined) setBlocks(patch.blocks);
+    if (patch.blocks !== undefined) setBlocks(patch.blocks.map((b) => recomputeBlock(b, artigoMap, varianteArtigoMap, frozenPrecos as Record<string, number>)));
     if (patch.aviamentos !== undefined) setAviamentosState(patch.aviamentos);
     if (patch.etiquetas !== undefined) setEtiquetasState(patch.etiquetas);
     if (patch.grades !== undefined) setGrades(patch.grades);
@@ -1234,6 +1234,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     const out: string[] = [];
     if (patch.observacoes_tecnicas !== undefined && (draft?.observacoes_tecnicas ?? "").trim()) out.push("Observações técnicas");
     if (patch.custos_adicionais !== undefined && (draft?.custos_adicionais ?? []).length) out.push("Custos adicionais");
+    if (patch.proporcoes !== undefined && Object.keys(draft?.proporcoes ?? {}).length > 0) out.push("Proporções");
     if (patch.grades !== undefined && grades.some((g) => (g.grade_total ?? 0) > 0)) out.push("Grade");
     if (patch.aviamentos !== undefined && aviamentosState.some((a) => a.aviamento_id)) out.push("Aviamentos");
     if (patch.etiquetas !== undefined && etiquetasState.some((e) => e.etiqueta_id)) out.push("Insumos/Etiquetas");
@@ -1268,6 +1269,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       }
     };
     const itens = overwritesDoPatch(r.patch);
+    if (sel?.obsBloco) itens.push("Observações (bloco)");
     if (itens.length === 0) { aplicar(); return; }
     setConfirmSobrescrita({ itens, aplicar: () => { aplicar(); setConfirmSobrescrita(null); } });
   };
@@ -1874,7 +1876,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
           <AlertDialogHeader>
             <AlertDialogTitle>Sobrescrever dados existentes?</AlertDialogTitle>
             <AlertDialogDescription>
-              A importação vai substituir: {confirmSobrescrita?.itens.join(" · ")}. Nada é gravado até você Salvar.
+              A importação vai substituir: {confirmSobrescrita?.itens.join(" · ")}. Os campos entram para revisão (só o Salvar grava); as Observações (bloco), se marcadas, são aplicadas na hora.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

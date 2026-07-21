@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { construirCopia, gradeAplicavel, type ModeloParaCopia, type Selecao } from "@/components/desenvolvimento/importar/importar-copia";
 import { classeCopiado } from "@/components/desenvolvimento/importar/highlight";
 import type { AviamentoRow, GradeRow, ModeloEtiquetaRow } from "@/components/desenvolvimento/modelo-detail/types";
-import { makeEmptyBlocks } from "@/components/desenvolvimento/modelo-detail/types";
+import { makeEmptyBlocks, recomputeBlock } from "@/components/desenvolvimento/modelo-detail/types";
 
 function origemVazia(): ModeloParaCopia {
   return { observacoes_tecnicas: "", custos_adicionais: [], proporcoes: {}, blocks: makeEmptyBlocks(), aviamentos: [], etiquetas: [], grades: [], obsBlocoLinhas: [] };
@@ -100,5 +100,32 @@ describe("classeCopiado", () => {
     const s = new Set(["obs_tecnicas"]);
     expect(classeCopiado(s, "obs_tecnicas")).toContain("yellow");
     expect(classeCopiado(s, "aviamentos")).toBe("");
+  });
+});
+
+describe("recomputeBlock — invariante do custo copiado", () => {
+  it("calcula custo_previsto = preco * consumo * (1 + loss/100) para um bloco com artigo copiado", () => {
+    // Documenta o invariante que aplicarPatch agora garante ao chamar recomputeBlock
+    // sobre os blocos retornados por construirCopia.
+    const blocks = makeEmptyBlocks();
+    const t1 = blocks.find((b) => b.tipo === "tecido" && b.numero === 1)!;
+    // Bloco copiado: artigo A1, consumo 1.5 m, loss 10%, custo_previsto obsoleto (0)
+    const blocoCopiado = { ...t1, artigo_id: "A1", consumo: 1.5, loss_percent: 10, custo_previsto: 0 };
+    const artigoMap = { A1: { preco: null, preco_por_metro: 20 } };
+    const result = recomputeBlock(blocoCopiado, artigoMap);
+    // custo esperado = 20 * 1.5 * (1 + 10/100) = 20 * 1.5 * 1.1 = 33
+    expect(result.custo_previsto).toBe(33);
+  });
+
+  it("usa frozenPrecos quando fornecido (OC vinculada congela o preço)", () => {
+    const blocks = makeEmptyBlocks();
+    const t1 = blocks.find((b) => b.tipo === "tecido" && b.numero === 1)!;
+    const blocoCopiado = { ...t1, artigo_id: "A1", consumo: 2, loss_percent: 0, custo_previsto: 0 };
+    const artigoMap = { A1: { preco: null, preco_por_metro: 30 } };
+    // frozenPrecos sobrepõe o preço do artigo
+    const frozenPrecos = { "tecido|1": 15 };
+    const result = recomputeBlock(blocoCopiado, artigoMap, {}, frozenPrecos);
+    // custo esperado = 15 * 2 * 1.0 = 30 (não 60 do artigo)
+    expect(result.custo_previsto).toBe(30);
   });
 });
