@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Field } from "./shared";
 import type { GradeRow } from "./types";
+import { classeCopiado } from "@/components/desenvolvimento/importar/highlight";
 
 export type GradeVarianteInfo = { numero: number; label: string };
 
@@ -18,6 +19,8 @@ export function ModeloGradeSection({
   tecido1Variantes,
   gradeAuto,
   onToggleGradeAuto,
+  camposCopiados = new Set(),
+  onCampoEditado,
 }: {
   tamanhos: string[];
   proporcoes: Record<string, number>;
@@ -28,6 +31,8 @@ export function ModeloGradeSection({
   tecido1Variantes: GradeVarianteInfo[];
   gradeAuto: boolean;
   onToggleGradeAuto: (v: boolean) => void;
+  camposCopiados?: Set<string>;
+  onCampoEditado?: (k: string) => void;
 }) {
   const ensureGrade = (n: number): GradeRow =>
     grades.find((g) => g.variante_numero === n) ?? { variante_numero: n, grades: {}, grade_total: 0 };
@@ -84,7 +89,7 @@ export function ModeloGradeSection({
           {tecido1Variantes.map(({ numero: n, label }) => {
             const g = ensureGrade(n);
             return (
-              <Card key={n} className="p-3 space-y-2">
+              <Card key={n} className={`p-3 space-y-2 ${classeCopiado(camposCopiados, "grade")}`}>
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-semibold">
                     Variante {n}
@@ -98,7 +103,7 @@ export function ModeloGradeSection({
                       readOnly={!totalEditavel}
                       tabIndex={totalEditavel ? undefined : -1}
                       value={g.grade_total}
-                      onChange={totalEditavel ? (e) => onChangeGradeTotal(n, Math.max(0, Number(e.target.value) || 0)) : undefined}
+                      onChange={totalEditavel ? (e) => { onChangeGradeTotal(n, Math.max(0, Number(e.target.value) || 0)); onCampoEditado?.("grade"); } : undefined}
                     />
                   </div>
                 </div>
@@ -112,7 +117,7 @@ export function ModeloGradeSection({
                         integer
                         placeholder="0"
                         value={g.grades[t] || ""}
-                        onChange={(e) => onChangeGradeCell(n, t, Math.max(0, Number(e.target.value) || 0))}
+                        onChange={(e) => { onChangeGradeCell(n, t, Math.max(0, Number(e.target.value) || 0)); onCampoEditado?.("grade"); }}
                       />
                     </Field>
                   ))}

@@ -15,6 +15,7 @@ import { TIPOS, TIPO_LABEL, type TecidoBlock, type GradeRow, type OcAlloc } from
 import { EtiquetaLavagemArtigoView } from "@/components/shared/EtiquetaLavagemArtigo";
 import { fmtNum } from "@/lib/format";
 import { labelVarianteRow } from "@/lib/variante";
+import { classeCopiado } from "@/components/desenvolvimento/importar/highlight";
 
 type ArtigoOpt = { id: string; nome: string; unidade_medida?: string | null };
 
@@ -30,6 +31,8 @@ export function ModeloTecidosSection({
   onChangeBlock,
   onChangeVariante,
   onChangeOcLinks,
+  camposCopiados = new Set(),
+  onCampoEditado,
 }: {
   modeloId: string;
   blocks: TecidoBlock[];
@@ -40,6 +43,8 @@ export function ModeloTecidosSection({
   onChangeBlock: (idx: number, patch: Partial<TecidoBlock>) => void;
   onChangeVariante: (idx: number, vIdx: number, value: string | null) => void;
   onChangeOcLinks: (idx: number, vIdx: number, allocs: OcAlloc[]) => void;
+  camposCopiados?: Set<string>;
+  onCampoEditado?: (k: string) => void;
 }) {
   const artigoNomeById = new Map(artigos.map((a) => [a.id, a.nome] as const));
   // Peças por posição de variante (grade_total por variante_numero), p/ a
@@ -116,6 +121,8 @@ export function ModeloTecidosSection({
                     onChangeOcLinks={(vi, allocs) => onChangeOcLinks(idx, vi, allocs)}
                     onRemove={() => hideBlock(idx, tipo, b.numero)}
                     removable={!(tipo === "tecido" && b.numero === 1)}
+                    camposCopiados={camposCopiados}
+                    onCampoEditado={onCampoEditado}
                   />
                 );
               })}
@@ -154,6 +161,8 @@ function TecidoBlockEditor({
   onChangeOcLinks,
   onRemove,
   removable,
+  camposCopiados = new Set(),
+  onCampoEditado,
 }: {
   modeloId: string;
   block: TecidoBlock;
@@ -166,7 +175,12 @@ function TecidoBlockEditor({
   onChangeOcLinks: (vIdx: number, allocs: OcAlloc[]) => void;
   onRemove: () => void;
   removable: boolean;
+  camposCopiados?: Set<string>;
+  onCampoEditado?: (k: string) => void;
 }) {
+  const keyArtigo = `tecido:${block.tipo}:${block.numero}:artigo`;
+  const keyConsumo = `tecido:${block.tipo}:${block.numero}:consumo`;
+  const keyVariantes = `tecido:${block.tipo}:${block.numero}:variantes`;
   // Tecido e forro podem ser feitos de mais de um artigo (substitutos): quando
   // um acaba, completa-se com outro. O pool de variantes de CADA bloco é ESTRITO:
   // o artigo principal do bloco + os substitutos adicionados manualmente ali.
@@ -223,17 +237,19 @@ function TecidoBlockEditor({
         </div>
       )}
       <div className="grid sm:grid-cols-2 gap-2">
-        <FieldSelectOpt
-          label={`${TIPO_LABEL[block.tipo]} ${block.numero}`}
-          value={block.artigo_id}
-          onChange={(v) => onChangeBlock({ artigo_id: v, variantes: Array(10).fill(null) })}
-          options={artigos.map((a) => ({ id: a.id, nome: artigoLabel(a) }))}
-        />
+        <div className={classeCopiado(camposCopiados, keyArtigo)}>
+          <FieldSelectOpt
+            label={`${TIPO_LABEL[block.tipo]} ${block.numero}`}
+            value={block.artigo_id}
+            onChange={(v) => { onChangeBlock({ artigo_id: v, variantes: Array(10).fill(null) }); onCampoEditado?.(keyArtigo); }}
+            options={artigos.map((a) => ({ id: a.id, nome: artigoLabel(a) }))}
+          />
+        </div>
         <Field label="Custo Previsto">
           <Input readOnly placeholder="0,00" value={block.custo_previsto ? fmtNum(block.custo_previsto) : ""} />
         </Field>
         <Field label="Consumo">
-          <NumberInput type="number" step="0.001" placeholder="0,000" value={block.consumo || ""} onChange={(e) => onChangeBlock({ consumo: Number(e.target.value) || 0 })} />
+          <NumberInput type="number" step="0.001" placeholder="0,000" className={classeCopiado(camposCopiados, keyConsumo)} value={block.consumo || ""} onChange={(e) => { onChangeBlock({ consumo: Number(e.target.value) || 0 }); onCampoEditado?.(keyConsumo); }} />
         </Field>
         <Field label="% Loss">
           <NumberInput type="number" step="0.01" placeholder="0,00" value={block.loss_percent || ""} onChange={(e) => onChangeBlock({ loss_percent: Number(e.target.value) || 0 })} />
@@ -292,10 +308,10 @@ function TecidoBlockEditor({
                 (v) => v.id === current || !usedElsewhere.has(v.id),
               );
                 return (
-                  <div key={i} className="space-y-1">
+                  <div key={i} className={`space-y-1 ${classeCopiado(camposCopiados, keyVariantes)}`}>
                     <Select
                       value={current ?? ""}
-                      onValueChange={(v) => onChangeVariante(i, v === "__none__" ? null : v)}
+                      onValueChange={(v) => { onChangeVariante(i, v === "__none__" ? null : v); onCampoEditado?.(keyVariantes); }}
                     >
                       <SelectTrigger><SelectValue placeholder={`Variante ${i + 1}`} /></SelectTrigger>
                       <SelectContent>

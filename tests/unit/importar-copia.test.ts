@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { construirCopia, gradeAplicavel, type ModeloParaCopia, type Selecao } from "@/components/desenvolvimento/importar/importar-copia";
+import { classeCopiado } from "@/components/desenvolvimento/importar/highlight";
 import type { AviamentoRow, GradeRow, ModeloEtiquetaRow } from "@/components/desenvolvimento/modelo-detail/types";
 import { makeEmptyBlocks } from "@/components/desenvolvimento/modelo-detail/types";
 
@@ -91,5 +92,13 @@ describe("construirCopia — blocos de tecido", () => {
     expect(campos.has("tecido:tecido:1:artigo")).toBe(true);
     expect(campos.has("tecido:tecido:1:variantes")).toBe(true);
     expect(campos.has("tecido:tecido:1:consumo")).toBe(false);
+  });
+});
+
+describe("classeCopiado", () => {
+  it("amarelo só quando a chave está no conjunto", () => {
+    const s = new Set(["obs_tecnicas"]);
+    expect(classeCopiado(s, "obs_tecnicas")).toContain("yellow");
+    expect(classeCopiado(s, "aviamentos")).toBe("");
   });
 });

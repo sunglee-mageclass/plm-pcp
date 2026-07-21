@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Field, FieldSelectOpt } from "./shared";
 import { STATUS_DESENV_OPTS, type Opt } from "./types";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
+import { classeCopiado } from "@/components/desenvolvimento/importar/highlight";
 
 type StatusOpt = { value: string; label: string };
 type SubOpt = { id: string; nome: string; categoria_id: string | null };
@@ -32,6 +33,8 @@ export function ModeloInfoSection({
   otbOn,
   colecoes,
   subcolecoes,
+  camposCopiados = new Set(),
+  onCampoEditado,
 }: {
   draft: Draft;
   setDraft: (d: Draft) => void;
@@ -49,6 +52,8 @@ export function ModeloInfoSection({
   otbOn?: boolean;
   colecoes?: { id: string; nome: string; mes_id: string | null; ano_id: string | null }[];
   subcolecoes?: string[];
+  camposCopiados?: Set<string>;
+  onCampoEditado?: (k: string) => void;
 }) {
   const fl = useFieldLabels();
   const [visiblePilotos, setVisiblePilotos] = useState<Set<number>>(() => {
@@ -228,7 +233,12 @@ export function ModeloInfoSection({
         </Field>
       </div>
       <Field label="Observações Técnicas" full>
-        <Textarea rows={3} value={draft.observacoes_tecnicas} onChange={(e) => setDraft({ ...draft, observacoes_tecnicas: e.target.value })} />
+        <Textarea
+          rows={3}
+          className={classeCopiado(camposCopiados, "obs_tecnicas")}
+          value={draft.observacoes_tecnicas}
+          onChange={(e) => { setDraft({ ...draft, observacoes_tecnicas: e.target.value }); onCampoEditado?.("obs_tecnicas"); }}
+        />
       </Field>
     </div>
   );

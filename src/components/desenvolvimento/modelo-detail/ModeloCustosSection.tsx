@@ -6,6 +6,7 @@ import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Plus, Trash2 } from "lucide-react";
 import { Row } from "./shared";
+import { classeCopiado } from "@/components/desenvolvimento/importar/highlight";
 
 export type CustoAdicional = { descricao: string; valor: number };
 
@@ -15,17 +16,23 @@ export function ModeloCustosSection({
   onChangeTerceirizados,
   custosAdicionais,
   onChangeCustos,
+  camposCopiados = new Set(),
+  onCampoEditado,
 }: {
   totals: { tecido: number; forro: number; entretela: number; aviamento: number; etiqueta: number; peca: number };
   custoTerceirizados: number;
   onChangeTerceirizados: (v: number) => void;
   custosAdicionais: CustoAdicional[];
   onChangeCustos: (v: CustoAdicional[]) => void;
+  camposCopiados?: Set<string>;
+  onCampoEditado?: (k: string) => void;
 }) {
-  const patch = (i: number, p: Partial<CustoAdicional>) =>
+  const patch = (i: number, p: Partial<CustoAdicional>) => {
     onChangeCustos(custosAdicionais.map((c, idx) => (idx === i ? { ...c, ...p } : c)));
-  const add = () => onChangeCustos([...custosAdicionais, { descricao: "", valor: 0 }]);
-  const remove = (i: number) => onChangeCustos(custosAdicionais.filter((_, idx) => idx !== i));
+    onCampoEditado?.("custos_adicionais");
+  };
+  const add = () => { onChangeCustos([...custosAdicionais, { descricao: "", valor: 0 }]); onCampoEditado?.("custos_adicionais"); };
+  const remove = (i: number) => { onChangeCustos(custosAdicionais.filter((_, idx) => idx !== i)); onCampoEditado?.("custos_adicionais"); };
 
   return (
     <Card className="p-4 space-y-1.5 text-sm">
@@ -46,25 +53,27 @@ export function ModeloCustosSection({
       </div>
 
       {/* Custos adicionais (descrição + valor por peça) — entram no Custo de 1 Peça E no custo real. */}
-      {custosAdicionais.map((c, i) => (
-        <div key={i} className="flex items-center gap-2">
-          <Input
-            className="flex-1 h-9"
-            placeholder="Descrição do custo"
-            value={c.descricao}
-            onChange={(e) => patch(i, { descricao: e.target.value })}
-          />
-          <NumberInput
-            className="w-28 text-right h-9"
-            placeholder="0,00"
-            value={c.valor || ""}
-            onChange={(e) => patch(i, { valor: Number(e.target.value) || 0 })}
-          />
-          <Button variant="ghost" size="iconSm" onClick={() => remove(i)} aria-label="Remover custo" title="Remover">
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        </div>
-      ))}
+      <div className={classeCopiado(camposCopiados, "custos_adicionais")}>
+        {custosAdicionais.map((c, i) => (
+          <div key={i} className="flex items-center gap-2 mb-1">
+            <Input
+              className="flex-1 h-9"
+              placeholder="Descrição do custo"
+              value={c.descricao}
+              onChange={(e) => patch(i, { descricao: e.target.value })}
+            />
+            <NumberInput
+              className="w-28 text-right h-9"
+              placeholder="0,00"
+              value={c.valor || ""}
+              onChange={(e) => patch(i, { valor: Number(e.target.value) || 0 })}
+            />
+            <Button variant="ghost" size="iconSm" onClick={() => remove(i)} aria-label="Remover custo" title="Remover">
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        ))}
+      </div>
       <Button variant="outline" size="sm" onClick={add} className="w-full">
         <Plus className="h-4 w-4" /> Adicionar custo
       </Button>

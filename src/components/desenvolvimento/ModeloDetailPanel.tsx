@@ -56,6 +56,7 @@ import { ModeloObservacoes } from "@/components/shared/ModeloObservacoes";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { ImportarDadosDialog } from "./importar/ImportarDadosDialog";
 import type { PatchCopia, ResultadoCopia } from "./importar/importar-copia";
+import { classeCopiado } from "./importar/highlight";
 
 export function ModeloDetailPanel({ modeloId, onClose }: {
   modeloId: string | null;
@@ -1178,6 +1179,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       ["producao-terc-list", "producao-cq-list", "dir-list"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
       qc.invalidateQueries({ queryKey: ["etapas-afetadas", modeloId] });
       setGradeAlterada(false); setConsumoAlterado(false); setAviamentoAlterado(false);
+      setCamposCopiados(new Set());
       qc.invalidateQueries({ queryKey: ["modelo-detail", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-etiquetas", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-condicoes-kanban", modeloId] });
@@ -1222,6 +1224,11 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     if (patch.aviamentos) setAviamentoAlterado(true);
     setCamposCopiados((prev) => new Set([...prev, ...campos]));
   };
+
+  const onCampoEditado = (chave: string) => setCamposCopiados((prev) => {
+    if (!prev.has(chave)) return prev;
+    const n = new Set(prev); n.delete(chave); return n;
+  });
 
   // Lista o que já tem valor e será substituído (para o AlertDialog de confirmação).
   const overwritesDoPatch = (patch: PatchCopia): string[] => {
@@ -1596,6 +1603,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 otbOn={otbOn}
                 colecoes={colecoes}
                 subcolecoes={subcolecoesOpts}
+                camposCopiados={camposCopiados}
+                onCampoEditado={onCampoEditado}
               />
             </AccordionContent>
           </AccordionItem>
@@ -1632,6 +1641,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 onChangeBlock={updateBlock}
                 onChangeVariante={updateBlockVariante}
                 onChangeOcLinks={updateBlockOcLinks}
+                camposCopiados={camposCopiados}
+                onCampoEditado={onCampoEditado}
               />
             </AccordionContent>
           </AccordionItem>
@@ -1664,6 +1675,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 onChangeRow={updateAviamento}
                 onAdd={addAviamento}
                 onRemove={removeAviamento}
+                camposCopiados={camposCopiados}
+                onCampoEditado={onCampoEditado}
               />
             </AccordionContent>
           </AccordionItem>
@@ -1678,6 +1691,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 onChangeRow={updateEtiqueta}
                 onAdd={addEtiqueta}
                 onRemove={removeEtiqueta}
+                camposCopiados={camposCopiados}
+                onCampoEditado={onCampoEditado}
               />
             </AccordionContent>
           </AccordionItem>
@@ -1695,6 +1710,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 tecido1Variantes={tecido1VariantesInfo}
                 gradeAuto={gradeAuto}
                 onToggleGradeAuto={setGradeAuto}
+                camposCopiados={camposCopiados}
+                onCampoEditado={onCampoEditado}
               />
             </AccordionContent>
           </AccordionItem>
@@ -1708,6 +1725,8 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 onChangeTerceirizados={(v) => setDraft({ ...draft, custo_terceirizados_previsto: v })}
                 custosAdicionais={draft.custos_adicionais ?? []}
                 onChangeCustos={(v) => setDraft({ ...draft, custos_adicionais: v })}
+                camposCopiados={camposCopiados}
+                onCampoEditado={onCampoEditado}
               />
             </AccordionContent>
           </AccordionItem>
