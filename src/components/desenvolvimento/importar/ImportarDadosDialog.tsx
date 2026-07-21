@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { Check, ChevronsUpDown } from "lucide-react";
 import { useModeloParaCopia } from "./useModeloParaCopia";
 import { construirCopia, gradeAplicavel, type Selecao, type ItemTecido, type ResultadoCopia, type ModeloParaCopia } from "./importar-copia";
 import { TIPOS, TIPO_LABEL, type TecidoBlock } from "@/components/desenvolvimento/modelo-detail/types";
@@ -21,7 +23,9 @@ export function ImportarDadosDialog({ open, onOpenChange, modeloDestinoId, desti
   onCopiar: (r: ResultadoCopia, origem: ModeloParaCopia, sel: Selecao) => void;
 }) {
   const [termo, setTermo] = useState("");
+  const [origemOpen, setOrigemOpen] = useState(false);
   const [origemId, setOrigemId] = useState<string | null>(null);
+  const [origemSel, setOrigemSel] = useState<{ id: string; nome: string; ref: string | null; versao: number | null } | null>(null);
   const [sel, setSel] = useState<Selecao>(selVazia());
   const { data: origem } = useModeloParaCopia(origemId);
 
@@ -48,8 +52,11 @@ export function ImportarDadosDialog({ open, onOpenChange, modeloDestinoId, desti
     if (!origem) return;
     onCopiar(construirCopia(origem, destinoBlocks, { ...sel, grade: sel.grade && podeGrade }), origem, sel);
     onOpenChange(false);
-    setSel(selVazia()); setOrigemId(null); setTermo("");
+    setSel(selVazia()); setOrigemId(null); setOrigemSel(null); setTermo("");
   };
+
+  const origemLabel = (m: { nome: string; ref: string | null; versao: number | null }) =>
+    `${m.nome}${m.ref ? ` · ${m.ref}` : ""}${m.versao ? ` · v${m.versao}` : ""}`;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -58,15 +65,34 @@ export function ImportarDadosDialog({ open, onOpenChange, modeloDestinoId, desti
         <div className="space-y-4">
           <div>
             <Label>Origem</Label>
-            <Input placeholder="buscar por nome / ref…" value={termo} onChange={(e) => setTermo(e.target.value)} />
-            <div className="max-h-40 overflow-auto mt-1 rounded-md border divide-y">
-              {opcoes.map((m) => (
-                <button key={m.id} type="button" onClick={() => setOrigemId(m.id)}
-                  className={`w-full text-left px-2 py-1.5 text-sm hover:bg-muted ${origemId === m.id ? "bg-muted" : ""}`}>
-                  {m.nome} {m.ref ? `· ${m.ref}` : ""} {m.versao ? `· v${m.versao}` : ""}
-                </button>
-              ))}
-            </div>
+            <Popover open={origemOpen} onOpenChange={setOrigemOpen}>
+              <PopoverTrigger asChild>
+                <Button type="button" variant="outline" role="combobox" aria-expanded={origemOpen}
+                  className="w-full justify-between font-normal">
+                  <span className="truncate">{origemSel ? origemLabel(origemSel) : "Selecione um modelo…"}</span>
+                  <ChevronsUpDown className="h-4 w-4 opacity-50 shrink-0" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="p-0 w-[var(--radix-popover-trigger-width)]" align="start">
+                <div className="p-2 border-b">
+                  <Input placeholder="buscar por nome / ref…" value={termo} onChange={(e) => setTermo(e.target.value)} autoFocus />
+                </div>
+                <div className="max-h-56 overflow-auto py-1">
+                  {opcoes.length === 0 ? (
+                    <div className="px-3 py-2 text-sm text-muted-foreground">Nenhum modelo encontrado.</div>
+                  ) : (
+                    opcoes.map((m) => (
+                      <button key={m.id} type="button"
+                        onClick={() => { setOrigemSel(m); setOrigemId(m.id); setOrigemOpen(false); }}
+                        className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-muted ${origemId === m.id ? "bg-muted" : ""}`}>
+                        <Check className={`h-4 w-4 shrink-0 ${origemId === m.id ? "opacity-100" : "opacity-0"}`} />
+                        <span className="truncate">{origemLabel(m)}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
 
           <fieldset disabled={!origemId} className="space-y-2 disabled:opacity-50">

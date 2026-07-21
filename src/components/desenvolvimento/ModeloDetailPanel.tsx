@@ -1195,6 +1195,10 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       qc.invalidateQueries({ queryKey: ["dev-cad-tecidos"] });
       qc.invalidateQueries({ queryKey: ["dev-cad-aviamentos"] });
       qc.invalidateQueries({ queryKey: ["dev-cad-etiquetas"] });
+      // Re-semeia a seção "4. CAD" a partir do cad_* recém-criado/salvo. Sem isso, o
+      // cadSeeded (one-shot, só reseta ao trocar de modelo) trava a re-semeadura e a
+      // seção CAD fica defasada até fechar+reabrir o card (bug pós-importação/1º save).
+      setCadSeeded(false);
       // Printável (Ficha Técnica, useFichaData keys ft-*) lê do banco — invalida p/ refletir o que acabou de salvar.
       qc.invalidateQueries({ predicate: (query) => typeof query.queryKey?.[0] === "string" && (query.queryKey[0] as string).startsWith("ft-") });
       qc.invalidateQueries({ queryKey: ["modelo-observacoes", modeloId] });
@@ -1678,6 +1682,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                   updateVar={updateCadVar}
                   autoFolhas={autoFolhas}
                   onToggleAutoFolhas={setAutoFolhas}
+                  hideSeparar
                 />
               )}
             </AccordionContent>

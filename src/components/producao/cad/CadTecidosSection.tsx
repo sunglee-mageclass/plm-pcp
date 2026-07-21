@@ -17,9 +17,11 @@ type Props = {
   onToggleAutoFolhas?: (v: boolean) => void;
   /** Quando true, todos os campos ficam somente-leitura EXCETO metragem_enviada. */
   readOnly?: boolean;
+  /** Esconde a coluna "Metr. a Separar/Enviar" — é etapa da Explosão, não do cálculo do CAD. */
+  hideSeparar?: boolean;
 };
 
-export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, onToggleAutoFolhas, readOnly }: Props) {
+export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, onToggleAutoFolhas, readOnly, hideSeparar }: Props) {
   const ro = !!autoFolhas || !!readOnly;
   return (
     <Card className="p-5 max-md:p-3 space-y-4">
@@ -101,7 +103,7 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
                     {compl && !readOnly && <th className="px-2 py-1">× grade</th>}
                     <th className="px-2 py-1">Qtd Folhas</th>
                     <th className="px-2 py-1">Metr. Planejada</th>
-                    <th className="px-2 py-1">Metr. a Separar/Enviar</th>
+                    {!hideSeparar && <th className="px-2 py-1">Metr. a Separar/Enviar</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -131,10 +133,12 @@ export function CadTecidosSection({ tecidos, updateTec, updateVar, autoFolhas, o
                             onChange={(e) => updateVar(i, j, { metragem_planejada: Math.max(0, Number(e.target.value)) })} />
                         )}
                       </td>
-                      <td className="px-2 py-1" data-label="Metr. a Separar/Enviar">
-                        <NumberInput type="number" step="0.01" className="max-md:w-24" placeholder="0,00" value={v.metragem_enviada || ""}
-                          onChange={(e) => updateVar(i, j, { metragem_enviada: Math.max(0, Number(e.target.value)) })} />
-                      </td>
+                      {!hideSeparar && (
+                        <td className="px-2 py-1" data-label="Metr. a Separar/Enviar">
+                          <NumberInput type="number" step="0.01" className="max-md:w-24" placeholder="0,00" value={v.metragem_enviada || ""}
+                            onChange={(e) => updateVar(i, j, { metragem_enviada: Math.max(0, Number(e.target.value)) })} />
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

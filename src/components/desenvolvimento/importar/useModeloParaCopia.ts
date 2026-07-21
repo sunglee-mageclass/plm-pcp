@@ -10,7 +10,7 @@ export function useModeloParaCopia(modeloId: string | null) {
     queryFn: async () => {
       const [m, tec, avi, etq, gra, obs] = await Promise.all([
         supabase.from("modelos").select("observacoes_tecnicas, custos_adicionais, proporcoes").eq("id", modeloId!).single(),
-        supabase.from("modelo_tecidos").select("artigo_id, numero, tipo, consumo, loss_percent, custo_previsto, modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador)").eq("modelo_id", modeloId!),
+        supabase.from("modelo_tecidos").select("artigo_id, numero, tipo, consumo, loss_percent, custo_previsto, modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variantes_tecido:variante_tecido_id(artigo_id))").eq("modelo_id", modeloId!),
         supabase.from("modelo_aviamentos").select("aviamento_id, consumo, loss_percent, custo_previsto").eq("modelo_id", modeloId!).order("numero"),
         supabase.from("modelo_etiquetas" as any).select("etiqueta_id, cor_id, consumo, loss_percent, custo_previsto").eq("modelo_id", modeloId!).order("numero"),
         supabase.from("modelo_grades").select("variante_numero, grades, grade_total").eq("modelo_id", modeloId!),
@@ -25,12 +25,20 @@ export function useModeloParaCopia(modeloId: string | null) {
         b.loss_percent = Number(t.loss_percent ?? 0);
         b.custo_previsto = Number(t.custo_previsto ?? 0);
         const vs = [...(t.modelo_tecido_variantes ?? [])].sort((a: any, c: any) => (a.ordem ?? 0) - (c.ordem ?? 0));
+        const varArtigos = new Set<string>();
         for (const v of vs) {
           const i = (v.ordem ?? 1) - 1;
           if (i >= 0 && i < b.variantes.length) { b.variantes[i] = v.variante_tecido_id ?? null; b.multiplicadores[i] = Number(v.multiplicador ?? 1) || 1; }
+          const aid = v.variantes_tecido?.artigo_id;
+          if (aid) varArtigos.add(aid);
         }
-        // artigoIdsExtra é derivado das variantes pelo card ao recompor; na origem fica vazio.
-        b.artigoIdsExtra = [];
+        // Pool de variantes é ESTRITO (artigo + substitutos): todo artigo de uma variante
+        // que não seja o principal vira substituto, senão a variante some (mostra "-").
+        // Mesma lógica da carga normal do card (ModeloDetailPanel).
+        b.artigoIdsExtra =
+          t.tipo === "tecido" || t.tipo === "forro"
+            ? Array.from(varArtigos).filter((aid) => aid && aid !== t.artigo_id)
+            : [];
       }
       return {
         observacoes_tecnicas: (m.data as any)?.observacoes_tecnicas ?? "",
