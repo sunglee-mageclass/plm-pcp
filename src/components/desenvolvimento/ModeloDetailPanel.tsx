@@ -1253,10 +1253,16 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const onCopiar = (r: ResultadoCopia, origem?: ModeloParaCopia, sel?: Selecao) => {
     const aplicar = async () => {
       aplicarPatch(r.patch, r.campos);
-      if (sel?.obsBloco && origem && (origem.obsBlocoLinhas ?? []).length > 0) {
-        const rows = origem.obsBlocoLinhas.map((o) => ({ modelo_id: modeloId, ordem: o.ordem, descricao: o.descricao, observacao: o.observacao }));
-        const { error } = await supabase.from("modelo_observacoes" as any).insert(rows);
-        if (error) { toast.error("Erro ao copiar observações: " + error.message); return; }
+      if (sel?.obsBloco && origem) {
+        // REPLACE semantics: delete destination's existing manual rows, then insert source's rows.
+        // Always delete (even if source is empty) so a copy of an empty source clears the destination.
+        const { error: eDel } = await supabase.from("modelo_observacoes" as any).delete().eq("modelo_id", modeloId);
+        if (eDel) { toast.error(mensagemErro(eDel, "Erro ao substituir observações")); return; }
+        const rows = (origem.obsBlocoLinhas ?? []).map((o) => ({ modelo_id: modeloId, ordem: o.ordem, descricao: o.descricao, observacao: o.observacao }));
+        if (rows.length > 0) {
+          const { error: eIns } = await supabase.from("modelo_observacoes" as any).insert(rows);
+          if (eIns) { toast.error(mensagemErro(eIns, "Erro ao copiar observações")); return; }
+        }
         qc.invalidateQueries({ queryKey: ["modelo-observacoes", modeloId] });
         toast.info("Observações copiadas.");
       }
