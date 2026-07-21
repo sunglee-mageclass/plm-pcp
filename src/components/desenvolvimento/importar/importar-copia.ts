@@ -51,7 +51,6 @@ export function construirCopia(origem: ModeloParaCopia, _destinoBlocks: TecidoBl
     patch.grades = origem.grades.map((g) => ({ variante_numero: g.variante_numero, grades: { ...g.grades }, grade_total: g.grade_total }));
     patch.proporcoes = { ...origem.proporcoes };
     campos.add("grade");
-    campos.add("proporcoes");
   }
   const tipos = Object.keys(sel.tecidos) as TecidoBlock["tipo"][];
   const algumTecido = tipos.some((t) => sel.tecidos[t].artigo || sel.tecidos[t].consumo || sel.tecidos[t].variantes);
