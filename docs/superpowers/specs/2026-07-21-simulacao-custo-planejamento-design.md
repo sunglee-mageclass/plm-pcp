@@ -13,12 +13,13 @@ o custo nem o preço real**.
 
 ## Onde
 
-Nova seção **"Simulação de custo"** dentro do Dialog de detalhe do card, como a
-**última** seção — abaixo de "Produto Relacionado". O detalhe já abre ao clicar no
-card (`setOpenId(m.id)` → Dialog).
+Nova seção **"Simulação de custo"** dentro do Dialog de detalhe do card, **logo após
+Tecido Planejado** (revisão 21/jul: era a última; movida pra ficar abaixo dos seus
+insumos — Linha e Tecido — e perto do Preço real). O detalhe abre ao clicar no card
+(`setOpenId(m.id)` → Dialog).
 
 Ordem final das seções: Informações Gerais → Coleção → Preço → Tecido Planejado →
-Anexos → Lançamento → Produto Relacionado → **Simulação de custo**.
+**Simulação de custo** → Anexos → Lançamento → Produto Relacionado.
 
 ## Dados (persistidos por modelo)
 
@@ -26,12 +27,16 @@ Nova coluna `custo_simulado jsonb` em `modelos` (default `NULL`, tudo opcional):
 
 ```json
 {
-  "consumo_tecido": 1.35,   // metros
-  "preco_tecido_m": 28.90,  // R$/m
+  "consumo_tecido": 1.35,   // metros — OVERRIDE manual (quando nulo, a tela usa o consumo real do BOM)
   "aviamento": 4.50,        // R$
   "mao_obra": 12.00         // R$
 }
 ```
+
+> **Refinamento (21/jul):** `preco_tecido_m` **não é gravado** — é derivado do Tecido
+> Planejado mais caro. `consumo_tecido` guarda só o **override**; sem override, a tela
+> puxa o consumo real do BOM ao vivo. O tipo `CustoSimInput` ainda carrega `preco_tecido_m`
+> porque é parâmetro da função pura `custoSimulado` (o chamador resolve e passa).
 
 - Migration aditiva (só adiciona a coluna; nada destrutivo).
 - Sem RLS nova: é uma coluna de `modelos`, já isolada por tenant nas policies
@@ -63,27 +68,39 @@ export function custoSimulado(i: CustoSimInput): { tecido: number; total: number
 Preço estimado: reusa o `precoInfo` existente:
 
 ```ts
-const { total: custoEst } = custoSimulado(sim);
-const markupLinha = draft.linha_id ? linhaMarkupMap[draft.linha_id] : 0;
-const pi = precoInfo(custoEst, markupLinha, null);
+const { total: custoEst } = custoSimulado({ consumo_tecido: consumoUsado, preco_tecido_m: precoTecidoM, aviamento, mao_obra });
+const pi = precoInfo(custoEst, markup, null); // markup = markup da linha, já em escopo
 // pi.sugerido = custoEst × markup → arredonda 4,90/9,90 (0 se falta custo ou markup)
 ```
 
-- markup = `linhas.markup` da linha do modelo (`draft.linha_id`).
+- markup = `linhas.markup` da linha do modelo (`draft.linha_id`) — **exibido read-only** na seção.
 - Sem linha/markup ou sem custo → preço estimado exibe "—" + nota
   "defina a Linha pra ver o preço".
+
+### Refinamentos do bloco de tecido (21/jul)
+
+- **Preço/m = o Tecido Planejado MAIS CARO** (`max(artigos.preco_por_metro)` entre
+  `draft.tecidos_planejados`). Read-only, derivado do cadastro — **não é digitado**. Mostra o
+  nome do tecido escolhido. Sem tecido planejado → "—".
+- **Consumo = override do usuário, senão o consumo REAL do BOM** (`modelo_tecidos.consumo`
+  do artigo do tecido mais caro, `tipo='tecido'`), carregado por query nova
+  `["modelo-tecidos-consumo", modeloId]`. Pré-preenche quando o modelo avançou; **editável**
+  (o override persiste; limpar volta ao real). Legenda "do BOM — edite para simular".
+- **Aviamento e mão de obra** seguem manuais (R$).
+- **Markup da linha** aparece como campo read-only na linha de resultados.
 
 ## UI da seção
 
 - **Banner** no topo (muted/aviso):
   > ⚠️ Estimativa — não é o custo nem o preço real (esses vêm do BOM/CAD).
-- **4 inputs** (numéricos, piso 0), no grid padrão do detalhe:
-  - Consumo de tecido (m)
-  - Preço do tecido (R$/m)
-  - Aviamento (R$)
-  - Mão de obra (R$)
-- **Saídas read-only** (componente `CampoRO` já existe, `brl()` p/ moeda):
+- **Linha de campos** (grid 4), no grid padrão do detalhe:
+  - Consumo de tecido (m) — input; pré-preenche do BOM (legenda), editável
+  - Preço do tecido (R$/m) — **read-only** (tecido planejado mais caro; nome na legenda)
+  - Aviamento (R$) — input manual
+  - Mão de obra (R$) — input manual
+- **Saídas read-only** (grid 4; `CampoRO`, `brl()` p/ moeda):
   - Custo do tecido (= consumo × preço/m)
+  - **Markup da linha** (da linha selecionada)
   - **Custo estimado** (destaque)
   - **Preço estimado** (destaque; "—" se falta linha/markup/custo)
 - Reatividade: recalcula ao digitar (deriva do `draft.custo_simulado`, sem estado

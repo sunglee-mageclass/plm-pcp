@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, Save, ChevronDown, ChevronRight } from "lucide-react";
+import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, Save, ChevronDown, ChevronRight, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -18,7 +18,7 @@ import { DateField } from "@/components/shared/DateField";
 import { ResumoVenda } from "@/components/shared/ResumoVenda";
 import { HeaderActions } from "@/components/shared/HeaderActions";
 import { useCursorTip } from "@/components/shared/CursorTip";
-import { precoInfo } from "@/lib/preco";
+import { precoInfo, custoSimulado, type CustoSimInput } from "@/lib/preco";
 import { cqLiberado } from "@/lib/cq-status";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -936,6 +936,7 @@ type Draft = {
   observacoes_gerais: string;
   versao: number;
   modelo_base_id: string | null;
+  custo_simulado: CustoSimInput;
 };
 const emptyDraft = (): Draft => ({
   nome: "", estilista_id: null, linha_id: null, colecao: "", colecao_id: null, subcolecao: "", semana: "", mes_id: null, ano_id: null,
@@ -945,6 +946,7 @@ const emptyDraft = (): Draft => ({
   status_planejamento: "em_planejamento", croqui_url: "", desenho_tecnico_url: "", fotos_modelo: [], fotos_referencia: [],
   observacoes_gerais: "",
   versao: 1, modelo_base_id: null,
+  custo_simulado: {},
 });
 
 type ArtigoOpt = { id: string; nome: string; unidade_medida: string | null; preco_por_metro: number | null };
@@ -954,11 +956,35 @@ type SubOpt = { id: string; nome: string; categoria_id: string | null };
 
 const numOr0 = (v: any) => Number(v ?? 0) || 0;
 
+// Normaliza a simulação de custo p/ salvar: só valores > 0; se tudo vazio → null.
+// preco_tecido_m NÃO é gravado (é derivado do Tecido Planejado mais caro); consumo_tecido
+// aqui é só o OVERRIDE manual (quando nulo, a tela usa o consumo real do BOM).
+function limparCustoSim(s: CustoSimInput | null | undefined): CustoSimInput | null {
+  const n = (v: any) => { const x = Number(v); return Number.isFinite(x) && x > 0 ? x : null; };
+  const out: CustoSimInput = {
+    consumo_tecido: n(s?.consumo_tecido),
+    aviamento: n(s?.aviamento),
+    mao_obra: n(s?.mao_obra),
+  };
+  return Object.values(out).some((v) => v != null) ? out : null;
+}
+
+// Seção colapsável do detalhe do card — expandida por default; estado local por seção
+// (não persiste). Colapsar só esconde os filhos; o draft vive no diálogo, nada se perde.
 function Secao({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(true);
   return (
     <section className="space-y-3">
-      <h3 className="text-sm font-semibold text-foreground border-b pb-1.5">{titulo}</h3>
-      {children}
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="w-full flex items-center gap-1.5 text-sm font-semibold text-foreground border-b pb-1.5 text-left"
+      >
+        {open ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
+        <span>{titulo}</span>
+      </button>
+      {open && children}
     </section>
   );
 }
@@ -1052,10 +1078,49 @@ function ModeloDialog({
     },
   });
 
+  // Consumo real do BOM (Desenvolvimento/CAD) por artigo — alimenta o pré-preenchimento
+  // do consumo na Simulação de custo quando o modelo já avançou.
+  const { data: bomTecidos = [] } = useQuery({
+    queryKey: ["modelo-tecidos-consumo", modeloId],
+    enabled: !!modeloId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("modelo_tecidos")
+        .select("artigo_id, consumo")
+        .eq("modelo_id", modeloId as string)
+        .eq("tipo", "tecido");
+      if (error) throw error;
+      return (data ?? []) as { artigo_id: string | null; consumo: number | null }[];
+    },
+  });
+
   // Cálculo de preço (Setor "Preço") — mesma lógica usada na lista e nos Lançamentos.
   const custoReal = !!custoData?.confirmado;
   const { custo, markupLinha: markup, preco, sugerido: precoSug, markupReal } =
     precoInfo(custoData?.real, linhas.find((l) => l.id === draft.linha_id)?.markup, draft.preco_venda);
+
+  // Simulação de custo (isolada do real). Tecido: preço/m = o TECIDO PLANEJADO MAIS CARO
+  // (auto do cadastro); consumo = override do usuário, senão o consumo REAL do BOM (editável).
+  // Aviamento e mão de obra são manuais. Custo estimado × markup da linha → preço estimado.
+  const tecidoMaisCaro = draft.tecidos_planejados
+    .map((id) => artigos.find((a) => a.id === id))
+    .filter((a): a is ArtigoOpt => !!a)
+    .reduce<ArtigoOpt | null>((best, a) => ((Number(a.preco_por_metro) || 0) > (Number(best?.preco_por_metro) || 0) ? a : best), null);
+  const precoTecidoM = Number(tecidoMaisCaro?.preco_por_metro) || 0;
+  const consumoRealBOM = tecidoMaisCaro
+    ? Number(bomTecidos.find((t) => t.artigo_id === tecidoMaisCaro.id)?.consumo) || 0
+    : 0;
+  const consumoOverride = draft.custo_simulado.consumo_tecido ?? null;
+  const consumoUsado = consumoOverride ?? consumoRealBOM;
+  const simCalc = custoSimulado({
+    consumo_tecido: consumoUsado,
+    preco_tecido_m: precoTecidoM,
+    aviamento: draft.custo_simulado.aviamento,
+    mao_obra: draft.custo_simulado.mao_obra,
+  });
+  const piSim = precoInfo(simCalc.total, markup, null);
+  const setSim = (patch: Partial<CustoSimInput>) =>
+    setDraft((d) => ({ ...d, custo_simulado: { ...d.custo_simulado, ...patch } }));
 
   // Preço para venda é PLACEHOLDER (mostra o sugerido); só vira valor real se o usuário
   // digitar. Não auto-preenche o draft (isso causava o flip-flop preenchido↔placeholder).
@@ -1129,6 +1194,7 @@ function ModeloDialog({
           observacoes_gerais: data.observacoes_gerais ?? "",
           versao: (data as any).versao ?? 1,
           modelo_base_id: (data as any).modelo_base_id ?? null,
+          custo_simulado: ((data as any).custo_simulado ?? {}) as CustoSimInput,
         });
         // Pré-seleciona o Grupo da categoria carregada (deriva de categorias_produto.grupo_id).
         setGrupoSel(categorias.find((c) => c.id === data.categoria_principal_id)?.grupo_id ?? null);
@@ -1168,6 +1234,7 @@ function ModeloDialog({
         desenho_tecnico_url: draft.desenho_tecnico_url || null,
         preco_venda: numOr0(draft.preco_venda) > 0 ? numOr0(draft.preco_venda) : null,
         data_lancamento: draft.data_lancamento || null,
+        custo_simulado: limparCustoSim(draft.custo_simulado),
       };
       if (isEdit && modeloId) {
         const { error } = await supabase.from("modelos").update(payload).eq("id", modeloId);
@@ -1441,6 +1508,52 @@ function ModeloDialog({
               artigos={artigos}
               estoque={estoqueMap}
             />
+          </Secao>
+
+          {/* SETOR — Simulação de custo (após Tecido Planejado; isolada do custo/preço real do BOM/CAD) */}
+          <Secao titulo="Simulação de custo">
+            <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200 flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>Estimativa — <strong>não</strong> é o custo nem o preço real (esses vêm do BOM/CAD).</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="grid gap-1">
+                <Label>Consumo de tecido (m)</Label>
+                <NumberInput
+                  value={consumoOverride ?? (consumoRealBOM > 0 ? consumoRealBOM : "")}
+                  onChange={(e) => { const v = e.target.value; setSim({ consumo_tecido: numOr0(v) > 0 ? Number(v) : null }); }}
+                />
+              </div>
+              <div className="grid gap-1">
+                <Label>Preço do tecido (R$/m)</Label>
+                <div className="h-9 px-3 flex items-center rounded-md border bg-muted text-sm tabular-nums">
+                  {precoTecidoM > 0 ? brl(precoTecidoM) : "—"}
+                </div>
+              </div>
+              <div className="grid gap-1">
+                <Label>Aviamento &amp; Insumo (R$)</Label>
+                <NumberInput
+                  value={draft.custo_simulado.aviamento ?? ""}
+                  onChange={(e) => { const v = e.target.value; setSim({ aviamento: numOr0(v) > 0 ? Number(v) : null }); }}
+                />
+              </div>
+              <div className="grid gap-1">
+                <Label>Mão de obra (R$)</Label>
+                <NumberInput
+                  value={draft.custo_simulado.mao_obra ?? ""}
+                  onChange={(e) => { const v = e.target.value; setSim({ mao_obra: numOr0(v) > 0 ? Number(v) : null }); }}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <CampoRO label="Custo do tecido" value={simCalc.tecido > 0 ? brl(simCalc.tecido) : "—"} />
+              <CampoRO label="Markup da linha" value={markup > 0 ? markup.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—"} />
+              <CampoRO label="Custo estimado" value={simCalc.total > 0 ? brl(simCalc.total) : "—"} />
+              <CampoRO label="Preço estimado" value={piSim.sugerido > 0 ? brl(piSim.sugerido) : "—"} />
+            </div>
+            {simCalc.total > 0 && !(markup > 0) && (
+              <p className="text-xs text-muted-foreground">Defina a Linha (com markup) para ver o preço estimado.</p>
+            )}
           </Secao>
 
           {/* SETOR 5 — Anexos */}

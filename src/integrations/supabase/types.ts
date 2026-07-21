@@ -2605,6 +2605,7 @@ export type Database = {
           custo_aviamento_total: number | null
           custo_entretela_total: number | null
           custo_forro_total: number | null
+          custo_simulado: Json | null
           custo_peca_previsto: number | null
           custo_tecido_total: number | null
           custo_terceirizados_previsto: number | null
@@ -2664,6 +2665,7 @@ export type Database = {
           custo_aviamento_total?: number | null
           custo_entretela_total?: number | null
           custo_forro_total?: number | null
+          custo_simulado?: Json | null
           custo_peca_previsto?: number | null
           custo_tecido_total?: number | null
           custo_terceirizados_previsto?: number | null
@@ -2723,6 +2725,7 @@ export type Database = {
           custo_aviamento_total?: number | null
           custo_entretela_total?: number | null
           custo_forro_total?: number | null
+          custo_simulado?: Json | null
           custo_peca_previsto?: number | null
           custo_tecido_total?: number | null
           custo_terceirizados_previsto?: number | null

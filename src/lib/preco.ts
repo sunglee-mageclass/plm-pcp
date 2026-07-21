@@ -37,3 +37,26 @@ export function precoInfo(custo: unknown, markupLinha: unknown, precoVenda: unkn
   const markupExibir = markupReal > 0 ? markupReal : mk;
   return { custo: c, markupLinha: mk, preco, sugerido, efetivo, markupReal, markupExibir };
 }
+
+/**
+ * Simulação de custo do Planejamento (manual, isolada do custo real do BOM/CAD).
+ * Valores previstos que o usuário digita no card. Ver design 2026-07-21.
+ */
+export type CustoSimInput = {
+  consumo_tecido?: number | null; // metros
+  preco_tecido_m?: number | null; // R$/m
+  aviamento?: number | null; // R$
+  mao_obra?: number | null; // R$
+};
+
+/**
+ * Custo estimado por peça: tecido (consumo × preço/m) + aviamento + mão de obra.
+ * Tecido só conta se consumo E preço/m forem > 0. Nulos/negativos = 0.
+ */
+export function custoSimulado(i: CustoSimInput | null | undefined): { tecido: number; total: number } {
+  const consumo = Math.max(0, Number(i?.consumo_tecido) || 0);
+  const precoM = Math.max(0, Number(i?.preco_tecido_m) || 0);
+  const tecido = consumo > 0 && precoM > 0 ? consumo * precoM : 0;
+  const total = tecido + Math.max(0, Number(i?.aviamento) || 0) + Math.max(0, Number(i?.mao_obra) || 0);
+  return { tecido, total };
+}
