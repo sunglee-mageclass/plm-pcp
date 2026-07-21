@@ -39,5 +39,19 @@ export function construirCopia(origem: ModeloParaCopia, _destinoBlocks: TecidoBl
   const campos = new Set<string>();
   if (sel.obsTecnica) { patch.observacoes_tecnicas = origem.observacoes_tecnicas; campos.add("obs_tecnicas"); }
   if (sel.custosAdicionais) { patch.custos_adicionais = origem.custos_adicionais.map((c) => ({ ...c })); campos.add("custos_adicionais"); }
+  if (sel.aviamentos) {
+    patch.aviamentos = origem.aviamentos.map((r) => ({ aviamento_id: r.aviamento_id, consumo: r.consumo, loss_percent: r.loss_percent, custo_previsto: r.custo_previsto }));
+    campos.add("aviamentos");
+  }
+  if (sel.etiquetas) {
+    patch.etiquetas = origem.etiquetas.map((r) => ({ etiqueta_id: r.etiqueta_id, cor_id: r.cor_id, consumo: r.consumo, loss_percent: r.loss_percent, custo_previsto: r.custo_previsto }));
+    campos.add("etiquetas");
+  }
+  if (sel.grade && gradeAplicavel(sel)) {
+    patch.grades = origem.grades.map((g) => ({ variante_numero: g.variante_numero, grades: { ...g.grades }, grade_total: g.grade_total }));
+    patch.proporcoes = { ...origem.proporcoes };
+    campos.add("grade");
+    campos.add("proporcoes");
+  }
   return { patch, campos };
 }
