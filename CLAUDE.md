@@ -216,7 +216,14 @@ e verifique** — o repo muda rápido.
 3. **Itens de OC** — diff incremental por id (update/insert/delete seletivo); IDs preservados.
 4. **Estoque** — físico = recebido − baixa POR ITEM; baixa **sempre** no ledger
    `estoque_tecido_baixas` (nunca subtrair de coluna agregada). Reserva por `grade_total`/
-   `variante_numero`. "- Metragem" = baixa de ajuste; zerar libera reserva.
+   `variante_numero`. "- Metragem" = baixa de ajuste. **Fonte única = `_estoque_tecido_core`**:
+   a tela (`estoque_tecido`), `estoque_tecido_por_artigo`, o dashboard (`dashboard_estoque`,
+   `_dashboard_estoque_parado_core`) e `detalhe_estoque_variante` TODOS rolam esse core — nenhum
+   re-implementa a conta (senão dá drift, ex.: ignorar `estoque_zerado` → +147 m fantasma).
+   **Zerar um lote (`estoque_zerado`) libera só o FÍSICO daquele lote (receb/baixa por item),
+   NÃO a reserva** (reserva = demanda de modelo/OS, não pertence a lote) — antes colapsava a
+   reserva da variante inteira. `previsto` NÃO é clampado (pode ficar negativo: reserva > físico
+   é sinal legítimo, ex.: cortou mais que comprou / lote zerado); só `fisico` clampa em ≥0.
    ⚠️ Excluir tecido/cor (Cadastro > Tecidos) é **só via RPC com guarda** `excluir_tecido`/
    `excluir_variante_tecido` (contam uso em OC/estoque/modelo/CAD/ordem e bloqueiam; senão
    apagam e devolvem as fotos p/ limpar storage DEPOIS). `estoque_tecido_baixas.variante_tecido_id`
