@@ -8,6 +8,7 @@ export type ModeloParaCopia = {
   aviamentos: AviamentoRow[];
   etiquetas: ModeloEtiquetaRow[];
   grades: GradeRow[];
+  obsBlocoLinhas: { ordem: number | null; descricao: string | null; observacao: string | null }[];
 };
 
 export type ItemTecido = { artigo: boolean; consumo: boolean; variantes: boolean };
@@ -18,6 +19,7 @@ export type Selecao = {
   etiquetas: boolean;
   grade: boolean;
   custosAdicionais: boolean;
+  obsBloco: boolean;
 };
 export type PatchCopia = {
   observacoes_tecnicas?: string;

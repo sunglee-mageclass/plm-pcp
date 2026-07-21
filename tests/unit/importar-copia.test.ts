@@ -5,13 +5,13 @@ import type { AviamentoRow, GradeRow, ModeloEtiquetaRow } from "@/components/des
 import { makeEmptyBlocks } from "@/components/desenvolvimento/modelo-detail/types";
 
 function origemVazia(): ModeloParaCopia {
-  return { observacoes_tecnicas: "", custos_adicionais: [], proporcoes: {}, blocks: makeEmptyBlocks(), aviamentos: [], etiquetas: [], grades: [] };
+  return { observacoes_tecnicas: "", custos_adicionais: [], proporcoes: {}, blocks: makeEmptyBlocks(), aviamentos: [], etiquetas: [], grades: [], obsBlocoLinhas: [] };
 }
 function selNada(): Selecao {
   return {
     obsTecnica: false,
     tecidos: { tecido: { artigo: false, consumo: false, variantes: false }, forro: { artigo: false, consumo: false, variantes: false }, entretela: { artigo: false, consumo: false, variantes: false } },
-    aviamentos: false, etiquetas: false, grade: false, custosAdicionais: false,
+    aviamentos: false, etiquetas: false, grade: false, custosAdicionais: false, obsBloco: false,
   };
 }
 

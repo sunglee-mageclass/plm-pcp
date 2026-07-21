@@ -55,7 +55,7 @@ import { useEtapasAfetadas, STAGE_LABEL } from "./DownstreamImpactAlert";
 import { ModeloObservacoes } from "@/components/shared/ModeloObservacoes";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { ImportarDadosDialog } from "./importar/ImportarDadosDialog";
-import type { PatchCopia, ResultadoCopia } from "./importar/importar-copia";
+import type { PatchCopia, ResultadoCopia, ModeloParaCopia, Selecao } from "./importar/importar-copia";
 
 export function ModeloDetailPanel({ modeloId, onClose }: {
   modeloId: string | null;
@@ -1250,10 +1250,20 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     return out;
   };
 
-  const onCopiar = (r: ResultadoCopia) => {
+  const onCopiar = (r: ResultadoCopia, origem?: ModeloParaCopia, sel?: Selecao) => {
+    const aplicar = async () => {
+      aplicarPatch(r.patch, r.campos);
+      if (sel?.obsBloco && origem && (origem.obsBlocoLinhas ?? []).length > 0) {
+        const rows = origem.obsBlocoLinhas.map((o) => ({ modelo_id: modeloId, ordem: o.ordem, descricao: o.descricao, observacao: o.observacao }));
+        const { error } = await supabase.from("modelo_observacoes" as any).insert(rows);
+        if (error) { toast.error("Erro ao copiar observações: " + error.message); return; }
+        qc.invalidateQueries({ queryKey: ["modelo-observacoes", modeloId] });
+        toast.info("Observações copiadas.");
+      }
+    };
     const itens = overwritesDoPatch(r.patch);
-    if (itens.length === 0) { aplicarPatch(r.patch, r.campos); return; }
-    setConfirmSobrescrita({ itens, aplicar: () => { aplicarPatch(r.patch, r.campos); setConfirmSobrescrita(null); } });
+    if (itens.length === 0) { aplicar(); return; }
+    setConfirmSobrescrita({ itens, aplicar: () => { aplicar(); setConfirmSobrescrita(null); } });
   };
 
   const enviarCad = useMutation({
@@ -1851,7 +1861,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         onOpenChange={setImportOpen}
         modeloDestinoId={modeloId}
         destinoBlocks={blocks}
-        onCopiar={(r) => onCopiar(r)}
+        onCopiar={(r, origem, sel) => onCopiar(r, origem, sel)}
       />
       <AlertDialog open={!!confirmSobrescrita} onOpenChange={(o) => !o && setConfirmSobrescrita(null)}>
         <AlertDialogContent>

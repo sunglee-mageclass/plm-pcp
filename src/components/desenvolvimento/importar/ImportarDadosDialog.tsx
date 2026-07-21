@@ -13,7 +13,7 @@ import { TIPOS, TIPO_LABEL, type TecidoBlock } from "@/components/desenvolviment
 
 function selVazia(): Selecao {
   const item = (): ItemTecido => ({ artigo: false, consumo: false, variantes: false });
-  return { obsTecnica: false, tecidos: { tecido: item(), forro: item(), entretela: item() }, aviamentos: false, etiquetas: false, grade: false, custosAdicionais: false };
+  return { obsTecnica: false, tecidos: { tecido: item(), forro: item(), entretela: item() }, aviamentos: false, etiquetas: false, grade: false, custosAdicionais: false, obsBloco: false };
 }
 
 export function ImportarDadosDialog({ open, onOpenChange, modeloDestinoId, destinoBlocks, onCopiar }: {
@@ -40,7 +40,7 @@ export function ImportarDadosDialog({ open, onOpenChange, modeloDestinoId, desti
     setSel((s) => ({ ...s, tecidos: { ...s.tecidos, [tipo]: { ...s.tecidos[tipo], [k]: v } } }));
 
   const selecionarTudo = () => setSel({
-    obsTecnica: true, aviamentos: true, etiquetas: true, grade: true, custosAdicionais: true,
+    obsTecnica: true, aviamentos: true, etiquetas: true, grade: true, custosAdicionais: true, obsBloco: true,
     tecidos: { tecido: { artigo: true, consumo: true, variantes: true }, forro: { artigo: true, consumo: true, variantes: true }, entretela: { artigo: true, consumo: true, variantes: true } },
   });
 
@@ -93,6 +93,7 @@ export function ImportarDadosDialog({ open, onOpenChange, modeloDestinoId, desti
               <Checkbox disabled={!podeGrade} checked={sel.grade && podeGrade} onCheckedChange={(v) => setSel((s) => ({ ...s, grade: !!v }))} /> Grade {!podeGrade && <span className="text-xs text-muted-foreground">(requer Variantes do Tecido)</span>}
             </label>
             <label className="flex items-center gap-2 text-sm"><Checkbox checked={sel.custosAdicionais} onCheckedChange={(v) => setSel((s) => ({ ...s, custosAdicionais: !!v }))} /> Custos adicionais</label>
+            <label className="flex items-center gap-2 text-sm"><Checkbox checked={sel.obsBloco} onCheckedChange={(v) => setSel((s) => ({ ...s, obsBloco: !!v }))} /> Observações (bloco) <span className="text-xs text-muted-foreground">(menos a Composição auto)</span></label>
           </fieldset>
         </div>
         <DialogFooter>
