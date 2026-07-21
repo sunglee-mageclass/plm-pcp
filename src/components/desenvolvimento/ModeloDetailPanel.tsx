@@ -786,6 +786,32 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     });
   }, [autoFolhas, grades, draft?.proporcoes, cadTecidosState]);
 
+  // Rótulos (nome/cor/apelido) de TODAS as variantes dos blocos, p/ a seção "4. CAD"
+  // exibir o nome da variante ao adicioná-la ao vivo (o block só carrega o id). Sem isso,
+  // uma variante nova sincronizada pro CAD aparece com "-" até salvar+reabrir.
+  const allBlockVarianteIds = useMemo(() => {
+    const s = new Set<string>();
+    blocks.forEach((b) => b.variantes.forEach((v) => { if (v) s.add(v); }));
+    return Array.from(s).sort();
+  }, [blocks]);
+
+  const { data: blockVariantesInfo = {} } = useQuery({
+    queryKey: ["variantes-info-blocks", allBlockVarianteIds.join(",")],
+    enabled: allBlockVarianteIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("variantes_tecido")
+        .select("id, nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)")
+        .in("id", allBlockVarianteIds);
+      if (error) throw error;
+      const map: Record<string, { nome: string | null; cor: string | null; apelido: string | null }> = {};
+      (data ?? []).forEach((v: any) => {
+        map[v.id] = { nome: v.nome_variante ?? v.codigo_variante ?? null, cor: v.cor?.nome ?? null, apelido: v.apelido?.nome ?? null };
+      });
+      return map;
+    },
+  });
+
   // Sincroniza variantes do BOM (blocks) com o cadTecidosState — roda só após a semeadura.
   // Quando o usuário adiciona/remove uma variante na seção "3. Tecidos", o cadTecidosState
   // do tecido correspondente é atualizado: novas variantes ganham folhas/metragem zeradas
@@ -812,20 +838,27 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         // Constrói a nova lista de variantes do cadTec
         const nextVariantes: CadVarianteRow[] = bomVars.map(({ variante_tecido_id, ordem, multiplicador }) => {
           const existing = have.get(variante_tecido_id);
+          const info = blockVariantesInfo[variante_tecido_id];
+          // Rótulo vem do mapa; se ainda não carregou, preserva o que houver (não zera).
+          const nome = info?.nome ?? existing?.variante_nome ?? null;
+          const cor = info?.cor ?? existing?.variante_cor ?? null;
+          const apelido = info?.apelido ?? existing?.variante_apelido ?? null;
           if (existing) {
-            // Preserva valores já digitados; atualiza ordem/multiplicador se mudou
-            const ord = existing.ordem !== ordem || existing.multiplicador !== multiplicador
-              ? { ...existing, ordem, multiplicador }
-              : existing;
-            return ord;
+            // Preserva valores já digitados; atualiza ordem/multiplicador e rótulos se mudaram
+            if (existing.ordem !== ordem || existing.multiplicador !== multiplicador
+              || existing.variante_nome !== nome || existing.variante_cor !== cor || existing.variante_apelido !== apelido) {
+              changed = true;
+              return { ...existing, ordem, multiplicador, variante_nome: nome, variante_cor: cor, variante_apelido: apelido };
+            }
+            return existing;
           }
           changed = true;
-          // Nova variante: zerada, pronta pro autoFolhas
+          // Nova variante: zerada (pronta pro autoFolhas) mas já com o rótulo resolvido
           return {
             variante_tecido_id,
-            variante_nome: null,
-            variante_cor: null,
-            variante_apelido: null,
+            variante_nome: nome,
+            variante_cor: cor,
+            variante_apelido: apelido,
             multiplicador,
             ordem,
             quantidade_folhas: 0,
@@ -843,7 +876,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
       });
       return changed ? next : prev;
     });
-  }, [blocks, cadSeeded]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [blocks, cadSeeded, blockVariantesInfo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const totals = useMemo(() => {
     const sum = (tipo: TecidoBlock["tipo"]) =>
