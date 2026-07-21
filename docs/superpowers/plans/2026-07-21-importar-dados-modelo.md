@@ -374,7 +374,7 @@ export function useModeloParaCopia(modeloId: string | null) {
           const i = (v.ordem ?? 1) - 1;
           if (i >= 0 && i < b.variantes.length) { b.variantes[i] = v.variante_tecido_id ?? null; b.multiplicadores[i] = Number(v.multiplicador ?? 1) || 1; }
         }
-        const usados = new Set<string>(); vs.forEach((v: any) => { if (v.variante_tecido_id) usados.add(v.variante_tecido_id); });
+        // artigoIdsExtra é derivado das variantes pelo card ao recompor; na origem fica vazio.
         b.artigoIdsExtra = [];
       }
       return {
