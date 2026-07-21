@@ -22,56 +22,40 @@ describe.skipIf(!hasDb)("OTB — coleções", () => {
   });
 });
 
-describe.skipIf(!hasDb)("OTB — otb_confirmar (geração/reconciliação)", () => {
-  it("cria a qtd por semana; reconfirmar é idempotente; diminuir só apaga branco; não apaga preenchido", async () => {
+describe.skipIf(!hasDb)("OTB — otb_confirmar (marca confirmada, sem gerar/remover cards)", () => {
+  // Desde 20260721110000 (otb_confirmar_enxuto) o fluxo mudou: confirmar NÃO gera
+  // nem remove cards (o auto-apagar de brancos foi eliminado de propósito) — só marca
+  // a coleção como confirmada. Cards manuais sobrevivem.
+  it("marca a coleção como confirmada; é idempotente; não cria nem remove cards", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
-      // módulo otb ligado no tenant de teste (dentro da txn)
       await c.query(`update tenant_config set modules = coalesce(modules,'{}'::jsonb) || '{"otb":true}'::jsonb where tenant_id=$1`, [TENANT_TESTE]);
-      const col = await um<{ id: string }>(c, `insert into colecoes (nome, status) values ('C-OTB-TEST','rascunho') returning id`, []);
-      await c.query(`insert into colecao_semanas (colecao_id, semana, qtd_planejada) values ($1,'1',3)`, [col.id]);
+      const col = await um<{ id: string }>(c, `insert into colecoes (nome, status) values ('C-OTB-CONFIRMA','rascunho') returning id`, []);
+      // card manual existente: confirmar não pode tocá-lo nem apagá-lo
+      await c.query(`insert into modelos (colecao_id, nome, status_planejamento, versao) values ($1,'Card manual','em_planejamento',1)`, [col.id]);
 
-      // 1) gera 3
-      let r = await um<{ obj: any }>(c, `select public.otb_confirmar($1) as obj`, [col.id]);
-      expect(r.obj.criados).toBe(3);
-      let cnt = await um<{ n: string }>(c, `select count(*)::text n from modelos where colecao_id=$1 and semana='1'`, [col.id]);
-      expect(cnt.n).toBe("3");
-
-      // 2) idempotente: reconfirmar não cria/remove nada
-      r = await um<{ obj: any }>(c, `select public.otb_confirmar($1) as obj`, [col.id]);
-      expect(r.obj.criados).toBe(0); expect(r.obj.removidos).toBe(0); expect(r.obj.mantidos).toBe(0);
-
-      // 3) preenche 1 card (toca), baixa alvo p/ 1 → remove só os brancos, mantém o preenchido
-      // Postgres não tem UPDATE ... LIMIT; usar subselect:
-      await c.query(`update modelos set nome='PREENCHIDO' where id = (select id from modelos where colecao_id=$1 and semana='1' and coalesce(nome,'')='' limit 1)`, [col.id]);
-      await c.query(`update colecao_semanas set qtd_planejada=1 where colecao_id=$1 and semana='1'`, [col.id]);
-      r = await um<{ obj: any }>(c, `select public.otb_confirmar($1) as obj`, [col.id]);
-      // existiam 3, alvo 1, diff -2; brancos = 2 → remove 2, sobra o preenchido (mantidos reflete o excesso não-removível=0)
-      expect(r.obj.removidos).toBe(2); expect(r.obj.mantidos).toBe(0);
-      cnt = await um<{ n: string }>(c, `select count(*)::text n from modelos where colecao_id=$1 and semana='1'`, [col.id]);
+      const r = await um<{ obj: any }>(c, `select public.otb_confirmar($1) as obj`, [col.id]);
+      expect(r.obj.confirmada).toBe(true);
+      const st = await um<{ status: string }>(c, `select status from colecoes where id=$1`, [col.id]);
+      expect(st.status).toBe("confirmada");
+      // nada gerado nem removido: segue só o card manual
+      let cnt = await um<{ n: string }>(c, `select count(*)::text n from modelos where colecao_id=$1`, [col.id]);
       expect(cnt.n).toBe("1");
-      const nome = await um<{ nome: string }>(c, `select nome from modelos where colecao_id=$1 and semana='1'`, [col.id]);
-      expect(nome.nome).toBe("PREENCHIDO");
+
+      // idempotente: reconfirmar não altera contagem nem status
+      await c.query(`select public.otb_confirmar($1)`, [col.id]);
+      cnt = await um<{ n: string }>(c, `select count(*)::text n from modelos where colecao_id=$1`, [col.id]);
+      expect(cnt.n).toBe("1");
     });
   });
 
-  it("protege card tocado só via campo do preenchimento em massa (linha_id) no shrink", async () => {
+  it("levanta erro quando a coleção não existe (ou é de outro tenant)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
       await c.query(`update tenant_config set modules = coalesce(modules,'{}'::jsonb) || '{"otb":true}'::jsonb where tenant_id=$1`, [TENANT_TESTE]);
-      const col = await um<{ id: string }>(c, `insert into colecoes (nome, status) values ('C-OTB-LINHA','rascunho') returning id`, []);
-      await c.query(`insert into colecao_semanas (colecao_id, semana, qtd_planejada) values ($1,'1',3)`, [col.id]);
-      await c.query(`select public.otb_confirmar($1)`, [col.id]);
-      // "toca" um card definindo SÓ a linha (como faz o preenchimento em massa)
-      const linha = await um<{ id: string }>(c, `insert into linhas (nome) values ('L-OTB-TEST') returning id`, []);
-      await c.query(`update modelos set linha_id=$2 where id = (select id from modelos where colecao_id=$1 and semana='1' limit 1)`, [col.id, linha.id]);
-      // baixa alvo p/ 1 → só os 2 brancos podem sair; o de linha definida fica protegido
-      await c.query(`update colecao_semanas set qtd_planejada=1 where colecao_id=$1 and semana='1'`, [col.id]);
-      const r = await um<{ obj: any }>(c, `select public.otb_confirmar($1) as obj`, [col.id]);
-      expect(r.obj.removidos).toBe(2);
-      const kept = await um<{ n: string; linha: string | null }>(c, `select count(*)::text n, max(linha_id::text) linha from modelos where colecao_id=$1 and semana='1'`, [col.id]);
-      expect(kept.n).toBe("1");
-      expect(kept.linha).toBe(linha.id);
+      await expect(
+        c.query(`select public.otb_confirmar($1)`, ["00000000-0000-0000-0000-000000000000"]),
+      ).rejects.toThrow();
     });
   });
 
