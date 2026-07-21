@@ -53,5 +53,27 @@ export function construirCopia(origem: ModeloParaCopia, _destinoBlocks: TecidoBl
     campos.add("grade");
     campos.add("proporcoes");
   }
+  const tipos = Object.keys(sel.tecidos) as TecidoBlock["tipo"][];
+  const algumTecido = tipos.some((t) => sel.tecidos[t].artigo || sel.tecidos[t].consumo || sel.tecidos[t].variantes);
+  if (algumTecido) {
+    const blocks = _destinoBlocks.map((b) => ({ ...b, variantes: [...b.variantes], multiplicadores: [...b.multiplicadores], oc_links: b.oc_links.map((l) => [...l]), artigoIdsExtra: [...b.artigoIdsExtra] }));
+    for (const tipo of tipos) {
+      const item = sel.tecidos[tipo];
+      if (!item.artigo && !item.consumo && !item.variantes) continue;
+      for (const orig of origem.blocks.filter((b) => b.tipo === tipo)) {
+        const dest = blocks.find((b) => b.tipo === tipo && b.numero === orig.numero);
+        if (!dest) continue;
+        if (item.artigo) { dest.artigo_id = orig.artigo_id; dest.artigoIdsExtra = [...orig.artigoIdsExtra]; campos.add(`tecido:${tipo}:${orig.numero}:artigo`); }
+        if (item.consumo) { dest.consumo = orig.consumo; dest.loss_percent = orig.loss_percent; campos.add(`tecido:${tipo}:${orig.numero}:consumo`); }
+        if (item.variantes) {
+          dest.variantes = [...orig.variantes];
+          dest.multiplicadores = [...orig.multiplicadores];
+          dest.oc_links = Array.from({ length: dest.variantes.length }, () => []); // sem OC-links
+          campos.add(`tecido:${tipo}:${orig.numero}:variantes`);
+        }
+      }
+    }
+    patch.blocks = blocks;
+  }
   return { patch, campos };
 }

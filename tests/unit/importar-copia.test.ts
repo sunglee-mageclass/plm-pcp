@@ -61,3 +61,35 @@ describe("construirCopia — listas e grade", () => {
     expect(comVar.campos.has("grade")).toBe(true);
   });
 });
+
+function blocoTecido1(over: Partial<import("@/components/desenvolvimento/modelo-detail/types").TecidoBlock>) {
+  const bs = makeEmptyBlocks();
+  const i = bs.findIndex((b) => b.tipo === "tecido" && b.numero === 1);
+  bs[i] = { ...bs[i], ...over };
+  return bs;
+}
+
+describe("construirCopia — blocos de tecido", () => {
+  it("copia só os itens marcados do Tecido 1 e zera oc_links das variantes", () => {
+    const origemBlocks = blocoTecido1({
+      artigo_id: "ART", artigoIdsExtra: ["SUB"], consumo: 1.5, loss_percent: 5,
+      variantes: ["V1", "V2", ...Array(8).fill(null)],
+      multiplicadores: [1, 2, ...Array(8).fill(1)],
+      oc_links: Array.from({ length: 10 }, (_, i) => (i < 2 ? [{ oc_tecido_item_id: "OC", quantidade_m: 3, prioridade: 1 }] : [])),
+    });
+    const origem = { ...origemVazia(), blocks: origemBlocks };
+    const sel = { ...selNada() };
+    sel.tecidos.tecido = { artigo: true, consumo: false, variantes: true };
+
+    const { patch, campos } = construirCopia(origem, makeEmptyBlocks(), sel);
+    const t1 = patch.blocks!.find((b) => b.tipo === "tecido" && b.numero === 1)!;
+    expect(t1.artigo_id).toBe("ART");
+    expect(t1.artigoIdsExtra).toEqual(["SUB"]);
+    expect(t1.consumo).toBe(0); // consumo NÃO marcado → mantém destino (0)
+    expect(t1.variantes.slice(0, 2)).toEqual(["V1", "V2"]);
+    expect(t1.oc_links.every((l) => l.length === 0)).toBe(true); // oc-links zerados
+    expect(campos.has("tecido:tecido:1:artigo")).toBe(true);
+    expect(campos.has("tecido:tecido:1:variantes")).toBe(true);
+    expect(campos.has("tecido:tecido:1:consumo")).toBe(false);
+  });
+});
