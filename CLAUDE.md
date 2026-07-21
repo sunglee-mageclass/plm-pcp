@@ -157,7 +157,13 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   No card (`ModeloDetailPanel`), a seção **"2. Ajustes na Prova"** é um FIO DE COMENTÁRIOS
   (tabela `modelo_prova_comentarios`, RPCs `prova_comentar`/`prova_resolver`/`prova_excluir`;
   fio de 2 níveis via `parent_id`, abas Abertos/Resolvidos, excluir só-autor, badge nº abertos).
-  A coluna `modelos.ajustes_prova` virou LEGADA (dropar depois). Ver [[project_ajustes_prova_comentarios]]
+  A coluna `modelos.ajustes_prova` virou LEGADA (dropar depois). Ver [[project_ajustes_prova_comentarios]].
+  O card tem **"Importar dados"** (cabeçalho, só com card editável): copia de outro modelo por áreas/itens
+  (obs técnicas manual, obs bloco, tecidos/forros/entretelas granular, aviamentos, insumos, grade, custos
+  adicionais). É **staging** — preenche o rascunho (realce amarelo que some ao editar; só o Salvar grava via
+  `salvar_modelo_bom`), com AlertDialog de sobrescrita. Regras: **sem OC-links**, **Grade só com Variantes do
+  Tecido**, anexos/identidade/Ajustes fora. Exceção: **obs bloco grava na hora** (substitui, idempotente) por o
+  `ModeloObservacoes` ser auto-save. `src/components/desenvolvimento/importar/` (`construirCopia` pura + testes).
 - **entrada-saida**: oc-tecido, oc-aviamento, rolos, estoque
 - **producao**: cad, terceirizados=**Serviços** (abas pré/pós-costura por `categorias_terceirizado.etapa`),
   oficina, cq (abas **Pré/Pós** dentro do item — ver invariante 6), direcionamento, lancamentos,
