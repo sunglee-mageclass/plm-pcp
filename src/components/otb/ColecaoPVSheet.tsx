@@ -14,6 +14,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { DateField } from "@/components/shared/DateField";
 import { brl } from "@/lib/format";
+import { SubcolecaoResumo } from "./orcamento";
 import { Plus, Trash2, ChevronRight, Save, Check, ArrowLeft } from "lucide-react";
 
 /**
@@ -466,27 +467,28 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
               {mixLinha.rows.length > 0 && (
                 <div className="border-t pt-2">
                   <div className="mb-1 text-xs font-medium text-muted-foreground">Mix por linha — % real vs meta do padrão</div>
-                  <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2">
+                  <div className="grid gap-x-4 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
                     {mixLinha.rows.map((r) => {
                       const off = r.meta != null && Math.abs(r.real - r.meta) > 3;
                       return (
-                        <div key={r.linhaId} className="flex items-center justify-between text-sm">
-                          <span>
+                        <div key={r.linhaId} className="flex items-center gap-2 text-sm">
+                          <span className="truncate min-w-0">
                             {r.linhaId ? nomeLinha(r.linhaId) : "— sem linha —"}
                             {r.aParte && <span className="ml-1 text-xs text-muted-foreground">(à parte)</span>}
                             <span className="text-xs text-muted-foreground"> · {int(r.modelos)} mod</span>
                           </span>
-                          <span className={`tabular-nums ${off ? "text-amber-600" : "text-foreground"}`}>{pct1(r.real)}{r.meta != null && <span className="text-muted-foreground"> / meta {pct1(r.meta)}</span>}</span>
+                          <span className={`tabular-nums shrink-0 ${off ? "text-amber-600" : "text-foreground"}`}>{pct1(r.real)}{r.meta != null && <span className="text-muted-foreground"> / meta {pct1(r.meta)}</span>}</span>
                         </div>
                       );
                     })}
-                    <div className="flex items-center justify-between border-t pt-1 text-sm font-semibold sm:col-span-2">
+                    <div className="flex items-center justify-between border-t pt-1 text-sm font-semibold sm:col-span-2 lg:col-span-3">
                       <span>Mix (sem à parte) <span className="text-xs font-normal text-muted-foreground">· {int(mixLinha.totalPool)} mod</span></span>
                       <span className="tabular-nums">{pct1(mixLinha.sumReal)}</span>
                     </div>
                   </div>
                 </div>
               )}
+              <SubcolecaoResumo colecaoId={savedId} className="border-t pt-2" />
             </div>
           </Card>
 

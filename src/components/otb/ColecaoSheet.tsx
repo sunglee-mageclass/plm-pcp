@@ -21,6 +21,7 @@ import { DateField } from "@/components/shared/DateField";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { computeColecaoResumo } from "./otb-resumo";
+import { SubcolecaoResumo } from "./orcamento";
 import { brl } from "@/lib/format";
 
 const WEEKS = ["1", "2", "3", "4", "5"];
@@ -576,6 +577,7 @@ export function ColecaoSheet({
             <div className="flex justify-between border-t pt-1"><span className="text-muted-foreground">Saldo (orç. − previsto)</span><span className="tabular-nums">{saldo != null ? brl(saldo) : "—"}</span></div>
             <div className={`flex justify-between font-medium ${statusCor}`}><span>Status</span><span>{statusTxt}</span></div>
             <div className="text-xs text-muted-foreground pt-1">{resumo.qtdModelos} modelo(s) · {resumo.qtdPecas} peça(s)</div>
+            <SubcolecaoResumo colecaoId={colecaoId} className="border-t pt-1 mt-1" />
           </div>
         </div>
         <div className="p-4 border-t shrink-0 flex justify-end gap-2">

@@ -46,3 +46,52 @@ export function OrcamentoTag({ total, realizado, className = "" }: { total: numb
   const over = realizado > total;
   return <span className={`tabular-nums ${over ? "text-amber-600 font-semibold" : "text-muted-foreground"} ${className}`}>{realizado}/{total}</span>;
 }
+
+/**
+ * Resumo por subcoleção (realizado / planejada) de uma coleção — subcoleção + nível-3
+ * (linha no PV, categoria no Orçamento), âmbar quando estoura. Vem de `useOrcamento()`,
+ * então só popula em coleção CONFIRMADA; retorna null quando não há bucket (rascunho/nova).
+ * Usado dentro dos editores (ColecaoPVSheet abaixo do "Mix por linha"; ColecaoSheet no
+ * painel de resumo).
+ */
+export function SubcolecaoResumo({
+  colecaoId,
+  title = "Subcoleções — realizado / planejado",
+  className = "",
+}: {
+  colecaoId: string | null;
+  title?: string;
+  className?: string;
+}) {
+  const orc = useOrcamento();
+  const subs = colecaoId ? orc.subcolecoesDe(colecaoId) : [];
+  if (!subs.length) return null;
+  return (
+    <div className={className}>
+      <div className="mb-1 text-xs font-medium text-muted-foreground">{title}</div>
+      <div className="grid gap-x-4 gap-y-1.5 sm:grid-cols-2 lg:grid-cols-3">
+        {subs.map((s) => {
+          const sover = s.realizado > s.total;
+          const n3 = colecaoId ? orc.niveis3De(colecaoId, s.subcolecao) : [];
+          return (
+            <div key={s.subcolecao} className="text-[11px]">
+              <div className="flex items-center gap-2">
+                <span className="truncate min-w-0">{s.subcolecao}</span>
+                <span className={`tabular-nums shrink-0 ${sover ? "text-amber-600 font-semibold" : "text-muted-foreground"}`}>{s.realizado}/{s.total}</span>
+              </div>
+              {n3.map((n) => {
+                const nover = n.realizado > n.total;
+                return (
+                  <div key={`${n.tipo3}-${n.ref_id}`} className="flex items-center gap-2 pl-3 text-muted-foreground/80">
+                    <span className="truncate min-w-0">{n.label ?? "—"}</span>
+                    <span className={`tabular-nums shrink-0 ${nover ? "text-amber-600 font-semibold" : ""}`}>{n.realizado}/{n.total}</span>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

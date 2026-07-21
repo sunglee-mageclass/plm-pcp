@@ -258,35 +258,6 @@ function OtbPage() {
                     </div>
                   );
                 })()}
-                {(() => {
-                  const subs = orcHook.subcolecoesDe(c.id);
-                  if (!subs.length) return null;
-                  return (
-                    <div className="mt-1 space-y-0.5 border-t pt-1">
-                      {subs.map((s) => {
-                        const sover = s.realizado > s.total;
-                        const n3 = orcHook.niveis3De(c.id, s.subcolecao);
-                        return (
-                          <div key={s.subcolecao} className="text-[11px]">
-                            <div className="flex items-center justify-between">
-                              <span className="truncate">{s.subcolecao}</span>
-                              <span className={`tabular-nums ${sover ? "text-amber-600 font-semibold" : "text-muted-foreground"}`}>{s.realizado}/{s.total}</span>
-                            </div>
-                            {n3.map((n) => {
-                              const nover = n.realizado > n.total;
-                              return (
-                                <div key={`${n.tipo3}-${n.ref_id}`} className="flex items-center justify-between pl-3 text-muted-foreground/80">
-                                  <span className="truncate">{n.label ?? "—"}</span>
-                                  <span className={`tabular-nums ${nover ? "text-amber-600 font-semibold" : ""}`}>{n.realizado}/{n.total}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })()}
               </div>
             );
           })}
