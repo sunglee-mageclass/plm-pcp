@@ -295,9 +295,9 @@ export function ColecaoSheet({
     queryKey: ["otb-colecao-modelos", colecaoId],
     enabled: !!colecaoId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("modelos").select("id, linha_id, preco_venda, status_planejamento").eq("colecao_id", colecaoId!);
+      const { data, error } = await supabase.from("modelos").select("id, linha_id, preco_venda, status_planejamento, subcolecao").eq("colecao_id", colecaoId!);
       if (error) throw error;
-      return data as { id: string; linha_id: string | null; preco_venda: number | null; status_planejamento: string | null }[];
+      return data as { id: string; linha_id: string | null; preco_venda: number | null; status_planejamento: string | null; subcolecao: string | null }[];
     },
   });
   // Todos os cards da coleção (p/ achar os "não classificados" — fora de qualquer bucket).
@@ -367,6 +367,16 @@ export function ColecaoSheet({
   const linhaMarkupMap = Object.fromEntries(linhas.map((l) => [l.id, l.markup]));
 
   const resumo = computeColecaoResumo(modelos, custoMap as any, gradeMap as any, linhaMarkupMap as any);
+  // Poder de venda REALIZADO por subcoleção (dos cards já criados) = mesma conta do total,
+  // agrupada por modelos.subcolecao. O editor de Orçamento não planeja poder de venda; este
+  // é o realizado, coerente com a linha "Poder de venda" do painel de resumo.
+  const poderPorSub = useMemo(() => {
+    const bySub: Record<string, typeof modelos> = {};
+    for (const m of modelos) (bySub[(m.subcolecao ?? "").trim()] ??= []).push(m);
+    const out: Record<string, number> = {};
+    for (const [sub, ms] of Object.entries(bySub)) out[sub] = computeColecaoResumo(ms, custoMap as any, gradeMap as any, linhaMarkupMap as any).poder;
+    return out;
+  }, [modelos, custoMap, gradeMap, linhaMarkupMap]);
   // Contagens p/ o diálogo de exclusão: modelos planejados bloqueiam; os demais são apagados.
   const nPlanejado = modelos.filter((m) => m.status_planejamento === "planejado").length;
   const nExcluir = modelos.length - nPlanejado;
@@ -534,6 +544,7 @@ export function ColecaoSheet({
                     <div className="flex items-center gap-2">
                       <Input value={s.nome} placeholder="Nome da subcoleção (ex.: Praia)"
                         onChange={(e) => setSubs((p) => p.map((x, j) => (j === i ? { ...x, nome: e.target.value } : x)))} />
+                      <span className="text-xs tabular-nums shrink-0"><span className="text-muted-foreground">Poder:</span> {brl(poderPorSub[s.nome.trim()] || 0)}</span>
                       <Button type="button" variant="ghost" size="icon" className="shrink-0 text-muted-foreground hover:text-destructive"
                         onClick={() => setSubs((p) => p.filter((_, j) => j !== i))} aria-label="Remover subcoleção">
                         <Trash2 className="h-4 w-4" />

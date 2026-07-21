@@ -498,11 +498,13 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
             <div className="space-y-2">
               {subs.map((s) => {
                 const open = aberta[s.id] ?? true;
+                const poderSub = s.linhas.reduce((acc, l) => acc + totLinha(l, s.semanas) * l.profCor * l.cores * ((l.min + l.max) / 2), 0);
                 return (
                   <Card key={s.id} className="overflow-hidden">
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
                       <button className="p-2 -m-2" onClick={() => setAberta((a) => ({ ...a, [s.id]: !open }))}><ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} /></button>
                       <Input className="h-8 w-48 max-sm:w-full font-medium" value={s.nome} onChange={(e) => patchSub(s.id, { nome: e.target.value })} />
+                      <span className="text-xs tabular-nums"><span className="text-muted-foreground">Poder:</span> {brl(poderSub)}</span>
                       <span className="text-xs text-muted-foreground">{s.semanas.length} lançamento{s.semanas.length === 1 ? "" : "s"}</span>
                       <Button variant="ghost" size="iconSm" className="ml-auto max-sm:h-11 max-sm:w-11" onClick={() => delSub(s.id)}><Trash2 className="h-4 w-4 text-muted-foreground" /></Button>
                     </div>
