@@ -56,7 +56,6 @@ import { ModeloObservacoes } from "@/components/shared/ModeloObservacoes";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { ImportarDadosDialog } from "./importar/ImportarDadosDialog";
 import type { PatchCopia, ResultadoCopia } from "./importar/importar-copia";
-import { classeCopiado } from "./importar/highlight";
 
 export function ModeloDetailPanel({ modeloId, onClose }: {
   modeloId: string | null;
