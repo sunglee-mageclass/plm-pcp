@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { labelVarianteRow } from "@/lib/variante";
 import { somaCustosAdicionais } from "@/lib/custo";
-import { Loader2, Pencil, Printer, Send, ArrowLeft } from "lucide-react";
+import { Loader2, Pencil, Printer, Send, ArrowLeft, Download } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { PrintFicha } from "@/components/producao/PrintFicha";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -54,6 +54,8 @@ import { ModeloAnexosSection } from "./modelo-detail/ModeloAnexosSection";
 import { useEtapasAfetadas, STAGE_LABEL } from "./DownstreamImpactAlert";
 import { ModeloObservacoes } from "@/components/shared/ModeloObservacoes";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
+import { ImportarDadosDialog } from "./importar/ImportarDadosDialog";
+import type { PatchCopia, ResultadoCopia } from "./importar/importar-copia";
 
 export function ModeloDetailPanel({ modeloId, onClose }: {
   modeloId: string | null;
@@ -390,6 +392,9 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const [gradeAlterada, setGradeAlterada] = useState(false);
   const [consumoAlterado, setConsumoAlterado] = useState(false);
   const [aviamentoAlterado, setAviamentoAlterado] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [camposCopiados, setCamposCopiados] = useState<Set<string>>(new Set());
+  const [confirmSobrescrita, setConfirmSobrescrita] = useState<{ itens: string[]; aplicar: () => void } | null>(null);
   useEffect(() => { setCadSeeded(false); setCadTecidosState([]); setAutoFolhas(false); setEditing(false); }, [modeloId]);
   // Grade automática: ao digitar uma célula, escala as demais pela proporção.
   const [gradeAuto, setGradeAuto] = useState(false);
@@ -1202,6 +1207,49 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
   });
 
+  // Aplica um patch de importação nos estados locais (NÃO grava no banco — o Salvar existente comita).
+  const aplicarPatch = (patch: PatchCopia, campos: Set<string>) => {
+    if (patch.observacoes_tecnicas !== undefined) setDraft((d: any) => ({ ...d, observacoes_tecnicas: patch.observacoes_tecnicas }));
+    if (patch.custos_adicionais !== undefined) setDraft((d: any) => ({ ...d, custos_adicionais: patch.custos_adicionais }));
+    if (patch.proporcoes !== undefined) setDraft((d: any) => ({ ...d, proporcoes: patch.proporcoes }));
+    if (patch.blocks !== undefined) setBlocks(patch.blocks);
+    if (patch.aviamentos !== undefined) setAviamentosState(patch.aviamentos);
+    if (patch.etiquetas !== undefined) setEtiquetasState(patch.etiquetas);
+    if (patch.grades !== undefined) setGrades(patch.grades);
+    // Marca alterações p/ o alerta de revisão downstream (mesma semântica do editar à mão)
+    if (patch.blocks) setConsumoAlterado(true);
+    if (patch.grades) setGradeAlterada(true);
+    if (patch.aviamentos) setAviamentoAlterado(true);
+    setCamposCopiados((prev) => new Set([...prev, ...campos]));
+  };
+
+  // Lista o que já tem valor e será substituído (para o AlertDialog de confirmação).
+  const overwritesDoPatch = (patch: PatchCopia): string[] => {
+    const out: string[] = [];
+    if (patch.observacoes_tecnicas !== undefined && (draft?.observacoes_tecnicas ?? "").trim()) out.push("Observações técnicas");
+    if (patch.custos_adicionais !== undefined && (draft?.custos_adicionais ?? []).length) out.push("Custos adicionais");
+    if (patch.grades !== undefined && grades.some((g) => (g.grade_total ?? 0) > 0)) out.push("Grade");
+    if (patch.aviamentos !== undefined && aviamentosState.some((a) => a.aviamento_id)) out.push("Aviamentos");
+    if (patch.etiquetas !== undefined && etiquetasState.some((e) => e.etiqueta_id)) out.push("Insumos/Etiquetas");
+    if (patch.blocks !== undefined) {
+      for (const nb of patch.blocks) {
+        const old = blocks.find((b) => b.tipo === nb.tipo && b.numero === nb.numero);
+        if (!old) continue;
+        const mudouArtigo = old.artigo_id && nb.artigo_id !== old.artigo_id;
+        const mudouConsumo = (old.consumo ?? 0) > 0 && nb.consumo !== old.consumo;
+        const mudouVar = old.variantes.some((v) => v) && JSON.stringify(nb.variantes) !== JSON.stringify(old.variantes);
+        if (mudouArtigo || mudouConsumo || mudouVar) out.push(`${nb.tipo === "tecido" ? "Tecido" : nb.tipo === "forro" ? "Forro" : "Entretela"} ${nb.numero}`);
+      }
+    }
+    return out;
+  };
+
+  const onCopiar = (r: ResultadoCopia) => {
+    const itens = overwritesDoPatch(r.patch);
+    if (itens.length === 0) { aplicarPatch(r.patch, r.campos); return; }
+    setConfirmSobrescrita({ itens, aplicar: () => { aplicarPatch(r.patch, r.campos); setConfirmSobrescrita(null); } });
+  };
+
   const enviarCad = useMutation({
     mutationFn: async () => {
       // Salva o BOM atual antes de copiar para o CAD (consumos/variantes corretos).
@@ -1511,10 +1559,17 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   return (
     <>
       <SheetHeader>
-        <SheetTitle className="flex flex-wrap items-center gap-2">
-          <span>{draft.nome || "Modelo"}</span>
-          <VersaoBadge versao={(modelo as any)?.versao} />
-        </SheetTitle>
+        <div className="flex items-center justify-between gap-2">
+          <SheetTitle className="flex flex-wrap items-center gap-2">
+            <span>{draft.nome || "Modelo"}</span>
+            <VersaoBadge versao={(modelo as any)?.versao} />
+          </SheetTitle>
+          {!locked && (
+            <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+              <Download className="h-4 w-4 mr-2" /> Importar dados
+            </Button>
+          )}
+        </div>
       </SheetHeader>
 
       {/* área rolável (flex-1) — o footer fica fixo embaixo como irmão shrink-0 */}
@@ -1769,6 +1824,28 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
             >
               Continuar
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <ImportarDadosDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        modeloDestinoId={modeloId}
+        destinoBlocks={blocks}
+        onCopiar={(r) => onCopiar(r)}
+      />
+      <AlertDialog open={!!confirmSobrescrita} onOpenChange={(o) => !o && setConfirmSobrescrita(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Sobrescrever dados existentes?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A importação vai substituir: {confirmSobrescrita?.itens.join(" · ")}. Nada é gravado até você Salvar.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => confirmSobrescrita?.aplicar()}>Substituir</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
