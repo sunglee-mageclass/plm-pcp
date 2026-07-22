@@ -1,7 +1,17 @@
 import { useState } from "react";
-import type { PtSlot } from "@/lib/plan-tecido/types";
+import type { PtSlot, PtMaterial } from "@/lib/plan-tecido/types";
 import { ChevronRight, ImageIcon } from "lucide-react";
 import { necessidadePorTecido } from "@/lib/plan-tecido/calc";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Button } from "@/components/ui/button";
+import { MaterialBlock } from "./MaterialBlock";
+import { GradeSection } from "./GradeSection";
+import { CustoSection } from "./CustoSection";
+
+function novoMaterial(existentes: PtMaterial[], tipo: "tecido" | "forro"): PtMaterial {
+  const numero = existentes.filter((m) => m.tipo === tipo).length + 1;
+  return { artigo_id: null, tipo, numero, consumo: 0, loss_percent: 0, ordem: existentes.length, variantes: [] };
+}
 
 export function ModelCard({ slot, onChange }: { slot: PtSlot; onChange: (s: PtSlot) => void }) {
   const [open, setOpen] = useState(false);
@@ -18,7 +28,32 @@ export function ModelCard({ slot, onChange }: { slot: PtSlot; onChange: (s: PtSl
           <div className="text-xs text-muted-foreground">{total ? `${total.toFixed(0)} m` : "—"} · {temGrade ? "✓ grade" : "⚠ falta"}</div>
         </div>
       </button>
-      {open && <div className="border-t p-2 text-xs text-muted-foreground">Abas na Task 8. onChange disponível: {typeof onChange}</div>}
+      {open && (
+        <Accordion type="multiple" defaultValue={["mat"]} className="border-t px-2">
+          <AccordionItem value="mat">
+            <AccordionTrigger className="py-2 text-xs">1. Tecidos &amp; Forros</AccordionTrigger>
+            <AccordionContent>
+              {slot.materiais.map((m, i) => (
+                <MaterialBlock key={m.id ?? i} material={m} onChange={(nm) => {
+                  const materiais = slot.materiais.slice(); materiais[i] = nm; onChange({ ...slot, materiais });
+                }} onRemove={() => onChange({ ...slot, materiais: slot.materiais.filter((_, j) => j !== i) })} />
+              ))}
+              <div className="mt-2 flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => onChange({ ...slot, materiais: [...slot.materiais, novoMaterial(slot.materiais, "tecido")] })}>+ tecido</Button>
+                <Button variant="outline" size="sm" onClick={() => onChange({ ...slot, materiais: [...slot.materiais, novoMaterial(slot.materiais, "forro")] })}>+ forro</Button>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+          <AccordionItem value="grade">
+            <AccordionTrigger className="py-2 text-xs">2. Grade</AccordionTrigger>
+            <AccordionContent><GradeSection slot={slot} onChange={onChange} /></AccordionContent>
+          </AccordionItem>
+          <AccordionItem value="custo">
+            <AccordionTrigger className="py-2 text-xs">3. Custo &amp; Preço</AccordionTrigger>
+            <AccordionContent><CustoSection slot={slot} onChange={onChange} /></AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      )}
     </div>
   );
 }
