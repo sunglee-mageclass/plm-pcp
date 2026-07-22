@@ -7,6 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { RequirePermission } from "@/components/RequirePermission";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { ChevronRight, ArrowLeft } from "lucide-react";
 import { semearArvore, mergeArvore, type SeedInput } from "@/lib/plan-tecido/engine";
@@ -27,6 +28,7 @@ function PlanTecidoPanel() {
   const qc = useQueryClient();
   const [arvore, setArvore] = useState<PtArvore | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [confirmSair, setConfirmSair] = useState(false);
 
   const { data: colecao } = useQuery({
     queryKey: ["plan-tecido-colecao", colecaoId],
@@ -70,6 +72,7 @@ function PlanTecidoPanel() {
   });
 
   const patch = (next: PtArvore) => { setArvore(next); setDirty(true); };
+  const voltar = () => { if (dirty) setConfirmSair(true); else history.back(); };
 
   if (!arvore) return <div className="p-6 text-sm text-muted-foreground">Carregando…</div>;
 
@@ -111,9 +114,22 @@ function PlanTecidoPanel() {
       </div>
 
       <MobileActionBar>
-        <Button variant="ghost" size="sm" onClick={() => history.back()}><ArrowLeft className="mr-1 h-4 w-4" />Voltar</Button>
+        <Button variant="ghost" size="sm" onClick={voltar}><ArrowLeft className="mr-1 h-4 w-4" />Voltar</Button>
         <Button className="ml-auto" disabled={!dirty || salvarMut.isPending} onClick={() => salvarMut.mutate()}>{dirty ? "Salvar" : "Salvo"}</Button>
       </MobileActionBar>
+
+      <AlertDialog open={confirmSair} onOpenChange={setConfirmSair}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Descartar alterações?</AlertDialogTitle>
+            <AlertDialogDescription>Há alterações não salvas no planejamento de tecido.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Continuar editando</AlertDialogCancel>
+            <AlertDialogAction onClick={() => history.back()}>Descartar</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
