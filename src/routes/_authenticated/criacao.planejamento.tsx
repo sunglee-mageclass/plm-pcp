@@ -1187,18 +1187,18 @@ function ModeloDialog({
   // gate do Direcionamento (predicado único em @/lib/cq-status).
   const cqConfirmado = cqLiberado(cqInfo as any);
 
-  // Aprovação do VALOR dos serviços externos (mesma fonte da bolinha do card:
-  // servico_aprovacao_por_modelo). {tem, todos} → pendente = tem externo e nem todos aprovados.
-  const { data: servicoAprov } = useQuery({
-    queryKey: ["plan-servico-aprov", modeloId],
+  // Aprovação da MÃO DE OBRA (feita no card do Planejamento): flag por modelo.
+  // 3 estados; lançar exige aprovado(true). pendente(null)/reprovado(false) = bloqueia.
+  const { data: maoObraAprov } = useQuery({
+    queryKey: ["plan-mao-obra-aprov", modeloId],
     enabled: !!modeloId,
     queryFn: async () => {
-      const { data, error } = await supabase.rpc("servico_aprovacao_por_modelo" as any, { _ids: [modeloId] });
+      const { data, error } = await (supabase.from("modelos") as any).select("custo_terceirizados_aprovado").eq("id", modeloId).maybeSingle();
       if (error) throw error;
-      return ((data ?? {}) as Record<string, { tem: boolean; todos: boolean }>)[modeloId!] ?? null;
+      return (data?.custo_terceirizados_aprovado ?? null) as boolean | null;
     },
   });
-  const servicoValorPendente = !!servicoAprov?.tem && !servicoAprov?.todos;
+  const maoObraPendente = maoObraAprov !== true;
 
   useQuery({
     queryKey: ["modelo", modeloId],
@@ -1323,7 +1323,7 @@ function ModeloDialog({
       // Pré-checagens de UX (mensagem imediata); o SERVIDOR re-valida em lancar_modelo.
       if (send) {
         if (!cqConfirmado) throw new Error("Confirme o Controle de Qualidade antes de lançar.");
-        if (servicoValorPendente) throw new Error("Aprove o valor dos serviços antes de lançar.");
+        if (maoObraPendente) throw new Error("Aprove a mão de obra antes de lançar.");
         if (!draft.data_lancamento) throw new Error("Preencha a Data de Lançamento.");
       }
       // Gate REAL no servidor (CQ liberado + valor de serviço aprovado + data). Ao lançar,
@@ -1391,7 +1391,7 @@ function ModeloDialog({
   // do botão desabilitado no setor Lançamento.
   const lancarBloqueios: string[] = [];
   if (!cqConfirmado) lancarBloqueios.push("Confirme o Controle de Qualidade (Pré e, se houver acabamento, o Pós).");
-  if (servicoValorPendente) lancarBloqueios.push("Aprove o valor dos serviços (em Produção › Serviços).");
+  if (maoObraPendente) lancarBloqueios.push("Aprove a mão de obra (no card do Planejamento).");
   if (!draft.data_lancamento) lancarBloqueios.push("Preencha a Data de Lançamento.");
 
   return (
