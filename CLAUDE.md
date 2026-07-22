@@ -324,9 +324,11 @@ e enforcement leem daí; NÃO duplicar em doc). Avaliação por modelo na RPC `a
 config guarda `tenant_config.status_kanban[i].requisitos`. **Ao adicionar condição/módulo:**
 catálogo TS + branch na RPC — o **teste anti-drift** (Vitest) falha se as chaves não casarem.
 Enforcement no Select de status E no arraste (colunas inválidas esmaecidas). Atualizar este bloco +
-a memória a cada mudança (papel do `docs-keeper`). ⚠️ A condição `servico_aprovado` (label "Mão de
-obra aprovada") foi REPONTADA (jul/2026) p/ `coalesce(modelos.custo_terceirizados_aprovado,false)`
-— null/false não liberam; a key foi MANTIDA (requisitos já configurados + anti-drift seguem).
+a memória a cada mudança (papel do `docs-keeper`). ⚠️ A condição `servico_aprovado` (key histórica,
+label **"Aprovação de custo"**, módulo **Planejamento**) foi REPONTADA (jul/2026) p/
+`coalesce(modelos.custo_terceirizados_aprovado,false)` — null/false não liberam; key MANTIDA
+(requisitos já configurados + anti-drift seguem). Condição `grade_todas_variantes` (Desenvolvimento):
+toda variante do Tecido 1 tem `modelo_grades.grade_total > 0` (mais estrita que `grade_preenchida`).
 
 ## O que NÃO fazer
 

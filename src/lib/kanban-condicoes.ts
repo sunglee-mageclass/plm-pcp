@@ -47,6 +47,9 @@ export const CONDICOES: Condicao[] = [
   { key: "preco_venda_preenchido", label: "Preço para venda preenchido", modulo: "planejamento" },
   { key: "data_lancamento_preenchida", label: "Data de Lançamento preenchida", modulo: "planejamento" },
   { key: "lancado", label: "Lançado", modulo: "planejamento" },
+  // A key `servico_aprovado` (histórica) É a APROVAÇÃO DE CUSTO/mão de obra, feita no card
+  // do Planejamento (modelos.custo_terceirizados_aprovado). Módulo Planejamento; key mantida.
+  { key: "servico_aprovado", label: "Aprovação de custo", modulo: "planejamento", descricao: "custo_terceirizados_aprovado = true" },
 
   // ── Desenvolvimento ───────────────────────────────────────────
   { key: "modelista_definido", label: "Modelista definido", modulo: "desenvolvimento" },
@@ -57,6 +60,7 @@ export const CONDICOES: Condicao[] = [
   { key: "data_piloto3", label: "Data de Piloto III preenchida", modulo: "desenvolvimento" },
   { key: "data_aprovacao", label: "Data de Aprovação preenchida", modulo: "desenvolvimento" },
   { key: "grade_preenchida", label: "Grade preenchida", modulo: "desenvolvimento", descricao: "soma de modelo_grades.grade_total > 0" },
+  { key: "grade_todas_variantes", label: "Grade preenchida (todas as variantes)", modulo: "desenvolvimento", descricao: "toda variante do Tecido 1 tem grade_total > 0" },
   { key: "tecido_com_variante", label: "Tecido com variante (≥ 1)", modulo: "desenvolvimento" },
   { key: "aviamento_definido", label: "Aviamento definido (≥ 1)", modulo: "desenvolvimento" },
   { key: "desenho_tecnico_anexado", label: "Desenho Técnico anexado", modulo: "desenvolvimento" },
@@ -67,7 +71,6 @@ export const CONDICOES: Condicao[] = [
   { key: "cad_confirmado", label: "CAD confirmado (enviado ao corte)", modulo: "cad" },
 
   // ── Serviços ──────────────────────────────────────────────────
-  { key: "servico_aprovado", label: "Mão de obra aprovada", modulo: "servicos" },
   { key: "servico_finalizado", label: "Serviços finalizados", modulo: "servicos" },
 
   // ── Controle de Qualidade ─────────────────────────────────────
