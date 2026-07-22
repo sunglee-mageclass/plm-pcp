@@ -152,7 +152,7 @@ export function BulkEditDialog({
             {field("Estilista", estilista, setEstilista, estilistas)}
             {field("Linha", linha, setLinha, linhas)}
             {field("Origem", origem, setOrigem, [{ id: "interno", nome: "Interno" }, { id: "revenda", nome: "Revenda" }])}
-            {field("Semana", semana, setSemana, ["1","2","3","4","5"].map((s) => ({ id: s, nome: s })))}
+            {field("Lançamento", semana, setSemana, ["1","2","3","4","5"].map((s) => ({ id: s, nome: s })))}
             {field("Mês", mes, setMes, meses)}
             {field("Ano", ano, setAno, anos)}
             {field("Status", status, setStatus, statusOpts)}

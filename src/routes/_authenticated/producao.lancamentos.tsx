@@ -453,7 +453,7 @@ function LancamentosPage() {
               { label: "Linha", value: fLinha, onChange: setFLinha, options: [{ id: "all", nome: "Todas" }, ...linhas] },
               { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...(meses as any[]).map((m) => ({ id: m.id, nome: m.nome }))] },
               { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...(anos as any[]).map((a) => ({ id: a.id, nome: a.nome }))] },
-              { label: "Semana", value: fSemana, onChange: setFSemana, options: [{ id: "all", nome: "Todas" }, ...["1", "2", "3", "4", "5"].map((n) => ({ id: n, nome: n }))] },
+              { label: "Lançamento", value: fSemana, onChange: setFSemana, options: [{ id: "all", nome: "Todas" }, ...["1", "2", "3", "4", "5"].map((n) => ({ id: n, nome: n }))] },
               { label: "Repetição", value: fRep, onChange: setFRep, options: [{ id: "all", nome: "Todos" }, { id: "rep", nome: "Repetidos" }, { id: "uni", nome: "Únicos" }] },
             ]}
           >
@@ -647,7 +647,7 @@ function LancamentoCard(props: { card: LancCard; markup: number | null; preco: n
               <p className="text-muted-foreground truncate">{[card.colecao, card.subcolecao].filter(Boolean).join(" · ") || "—"}</p>
               {(card.semana || card.data_lancamento) && (
                 <p className="text-muted-foreground truncate">
-                  {[card.semana ? `Semana ${card.semana}` : null, fmtDataBR(card.data_lancamento)].filter(Boolean).join(" · ")}
+                  {[card.semana ? `Lançamento ${card.semana}` : null, fmtDataBR(card.data_lancamento)].filter(Boolean).join(" · ")}
                 </p>
               )}
               <p className="text-muted-foreground truncate">{[card.linha, card.categoria_nome, card.subcategoria1_nome].filter(Boolean).join(" · ") || "—"}</p>

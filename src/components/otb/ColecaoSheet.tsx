@@ -22,6 +22,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { computeColecaoResumo } from "./otb-resumo";
 import { SubcolecaoResumo } from "./orcamento";
+import { proximoLancamento, removerLancamento, normalizar, remapChaves } from "@/lib/lancamentos";
 import { brl } from "@/lib/format";
 
 const WEEKS = ["1", "2", "3", "4", "5"];
@@ -96,51 +97,72 @@ function CategoriaDistribuicaoDialog({
   );
 }
 
-// Editor das 5 semanas (reutilizado no modo simples e em cada subcoleção). Cada semana
-// ligada tem qtd + botão de categorias (distribui a qtd por categoria).
-function WeeksEditor({
-  value, onChange, meta, onMetaChange, cats, onCatsChange, grupos, categorias,
+// Dados de um conjunto de lançamentos: qtd por ordinal + texto/data + distribuição por categoria.
+type LancData = { weeks: Record<string, number | null>; meta: WeekMeta; cats: CatDist };
+
+// Editor de LANÇAMENTOS sequenciais (reutilizado no modo simples e em cada subcoleção).
+// Cada lançamento é um ordinal contíguo (1..N) com texto + data + qtd + categorias.
+// "+ Lançamento" acrescenta o próximo; remover renumera contíguo (remapeia os três mapas).
+function LancamentosEditor({
+  value, onChange, grupos, categorias,
 }: {
-  value: Record<string, number | null>; onChange: (w: Record<string, number | null>) => void;
-  meta: WeekMeta; onMetaChange: (m: WeekMeta) => void;
-  cats: CatDist; onCatsChange: (c: CatDist) => void;
+  value: LancData; onChange: (v: LancData) => void;
   grupos: Grupo[]; categorias: Categoria[];
 }) {
   const [dlgWeek, setDlgWeek] = useState<string | null>(null);
+  const { weeks, meta, cats } = value;
+  const ords = Object.keys(weeks).map(Number).sort((a, b) => a - b);
+
+  const add = () => {
+    const prox = proximoLancamento(ords);
+    if (prox == null) return;
+    onChange({ ...value, weeks: { ...weeks, [String(prox)]: null } });
+  };
+  const remove = (alvo: number) => {
+    const { remap } = removerLancamento(ords, alvo);
+    onChange({ weeks: remapChaves(weeks, remap), meta: remapChaves(meta, remap), cats: remapChaves(cats, remap) });
+  };
+
   return (
     <div className="space-y-2">
-      {WEEKS.map((s) => {
-        const on = s in value; // marcada = chave presente (valor pode ser null = vazio)
-        const total = value[s] ?? 0;
+      {ords.length === 0 && <p className="text-xs text-muted-foreground">Nenhum lançamento — clique em "+ Lançamento".</p>}
+      {ords.map((n) => {
+        const s = String(n);
+        const total = weeks[s] ?? 0;
         const dist = somaCats(cats[s]);
         const distFecha = dist <= total; // parcial é ok (resto = sem categoria); vermelho só se passar
         const m = meta[s] ?? { texto: "", data: "" };
         const setMeta = (patch: Partial<{ texto: string; data: string }>) =>
-          onMetaChange({ ...meta, [s]: { ...m, ...patch } });
+          onChange({ ...value, meta: { ...meta, [s]: { ...m, ...patch } } });
         return (
           <div key={s} className="flex items-center gap-2 flex-wrap">
-            <Checkbox checked={on} onCheckedChange={(v) => { const n = { ...value }; if (v) n[s] = n[s] ?? null; else delete n[s]; onChange(n); }} />
-            <span className="w-16 text-sm">Semana {s}</span>
-            {on && <Input className="h-8 w-32" placeholder="Texto" value={m.texto} onChange={(e) => setMeta({ texto: e.target.value })} />}
-            {on && <div className="w-36"><DateField value={m.data} onChange={(e) => setMeta({ data: e.target.value })} /></div>}
-            {on && <div className="w-24"><NumberInput integer placeholder="0" value={value[s] == null ? "" : String(value[s])} onChange={(e) => onChange({ ...value, [s]: e.target.value === "" ? null : Number(e.target.value) })} /></div>}
-            {on && total > 0 && (
+            <span className="w-28 text-sm font-medium">Lançamento {n}</span>
+            <Input className="h-8 w-32" placeholder="Texto" value={m.texto} onChange={(e) => setMeta({ texto: e.target.value })} />
+            <div className="w-36"><DateField value={m.data} onChange={(e) => setMeta({ data: e.target.value })} /></div>
+            <div className="w-24"><NumberInput integer placeholder="0" value={weeks[s] == null ? "" : String(weeks[s])} onChange={(e) => onChange({ ...value, weeks: { ...weeks, [s]: e.target.value === "" ? null : Number(e.target.value) } })} /></div>
+            {total > 0 && (
               <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setDlgWeek(s)}>
                 <Tags className="h-3.5 w-3.5 mr-1" />
                 {dist > 0 ? <span className={distFecha ? "" : "text-destructive"}>{dist}/{total}</span> : "Categorias"}
               </Button>
             )}
+            <Button type="button" variant="ghost" size="iconSm" className="text-muted-foreground hover:text-destructive" onClick={() => remove(n)} aria-label="Remover lançamento">
+              <Trash2 className="h-4 w-4" />
+            </Button>
           </div>
         );
       })}
+      <Button type="button" variant="outline" size="sm" onClick={add} disabled={ords.length >= 5}>
+        <Plus className="h-4 w-4 mr-1" /> Lançamento
+      </Button>
       {dlgWeek && (
         <CategoriaDistribuicaoDialog
-          total={value[dlgWeek] ?? 0}
+          total={weeks[dlgWeek] ?? 0}
           value={cats[dlgWeek] ?? {}}
           grupos={grupos}
           categorias={categorias}
           onClose={() => setDlgWeek(null)}
-          onSave={(m) => { onCatsChange({ ...cats, [dlgWeek]: m }); setDlgWeek(null); }}
+          onSave={(m) => { onChange({ ...value, cats: { ...cats, [dlgWeek]: m } }); setDlgWeek(null); }}
         />
       )}
     </div>
@@ -197,8 +219,8 @@ function NaoClassificados({
           </Select>
         )}
         <Select value={bulkSem} onValueChange={setBulkSem}>
-          <SelectTrigger className="w-24 h-8"><SelectValue placeholder="Semana" /></SelectTrigger>
-          <SelectContent>{WEEKS.map((w) => <SelectItem key={w} value={w}>Semana {w}</SelectItem>)}</SelectContent>
+          <SelectTrigger className="w-28 h-8"><SelectValue placeholder="Lançamento" /></SelectTrigger>
+          <SelectContent>{WEEKS.map((w) => <SelectItem key={w} value={w}>Lançamento {w}</SelectItem>)}</SelectContent>
         </Select>
         <Button size="sm" className="h-8" disabled={checked.size === 0} onClick={atribuir}>Atribuir ({checked.size})</Button>
       </div>
@@ -271,20 +293,28 @@ export function ColecaoSheet({
       for (const s of allSem) if ((s.subcolecao_id ?? null) === subId) out[s.semana] = { texto: s.texto ?? "", data: s.data ?? "" };
       return out;
     };
-    // Semanas de nível coleção (modo simples).
+    // Normaliza os lançamentos p/ ordinais contíguos (dado antigo pode ter buraco),
+    // remapeando qtd + texto/data + distribuição por categoria juntos.
+    const normalizarTrio = (weeks: Record<string, number | null>, meta: WeekMeta, cats: CatDist) => {
+      const { remap } = normalizar(Object.keys(weeks).map(Number));
+      return { weeks: remapChaves(weeks, remap), meta: remapChaves(meta, remap), cats: remapChaves(cats, remap) };
+    };
+    // Lançamentos de nível coleção (modo simples).
     const flat: Record<string, number | null> = {};
     for (const s of allSem) if (!s.subcolecao_id) flat[s.semana] = s.qtd_planejada > 0 ? s.qtd_planejada : null;
-    setWeeks(flat);
-    setWeeksMeta(metaFor(null));
-    setWeekCats(catsFor(null));
-    // Subcoleções ordenadas, cada uma com as suas semanas + distribuição por categoria.
+    const simples = normalizarTrio(flat, metaFor(null), catsFor(null));
+    setWeeks(simples.weeks);
+    setWeeksMeta(simples.meta);
+    setWeekCats(simples.cats);
+    // Subcoleções ordenadas, cada uma com os seus lançamentos + distribuição por categoria.
     const subList = ((data.colecao_subcolecoes ?? []) as { id: string; nome: string; ordem: number }[])
       .slice()
       .sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0))
       .map((sc) => {
         const wk: Record<string, number | null> = {};
         for (const s of allSem) if (s.subcolecao_id === sc.id) wk[s.semana] = s.qtd_planejada > 0 ? s.qtd_planejada : null;
-        return { key: crypto.randomUUID(), id: sc.id, nome: sc.nome, weeks: wk, meta: metaFor(sc.id), cats: catsFor(sc.id) } as SubBlock;
+        const t = normalizarTrio(wk, metaFor(sc.id), catsFor(sc.id));
+        return { key: crypto.randomUUID(), id: sc.id, nome: sc.nome, weeks: t.weeks, meta: t.meta, cats: t.cats } as SubBlock;
       });
     setSubs(subList);
     setPendingAssign({}); // recarregou do banco → zera atribuições pendentes (já refletidas)
@@ -400,7 +430,7 @@ export function ColecaoSheet({
         if (!(s in wk)) continue;
         const total = wk[s] ?? 0;
         const dist = somaCats(cats[s]);
-        if (dist > total) throw new Error(`${ctx}Semana ${s}: a distribuição por categoria (${dist}) passou da quantidade (${total}).`);
+        if (dist > total) throw new Error(`${ctx}Lançamento ${s}: a distribuição por categoria (${dist}) passou da quantidade (${total}).`);
       }
     };
     if (cleanSubs.length > 0) cleanSubs.forEach((s) => validarCats(s.weeks, s.cats, `Subcoleção "${s.nome}" · `));
@@ -527,15 +557,18 @@ export function ColecaoSheet({
           </div>
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <Label className="block">Subcoleções e Modelos por Semana</Label>
+              <Label className="block">Subcoleções e Modelos por Lançamento</Label>
               <Button type="button" variant="outline" size="sm" onClick={() => setSubs((p) => [...p, { key: crypto.randomUUID(), id: null, nome: "", weeks: {}, meta: {}, cats: {} }])}>
                 <Plus className="h-4 w-4 mr-1" /> Subcoleção
               </Button>
             </div>
             {subs.length === 0 ? (
               <div className="rounded-lg border p-3 space-y-2">
-                <p className="text-xs text-muted-foreground">Sem subcoleção: informe os modelos por semana da coleção. Ou clique em “Subcoleção” para dividir a coleção.</p>
-                <WeeksEditor value={weeks} onChange={setWeeks} meta={weeksMeta} onMetaChange={setWeeksMeta} cats={weekCats} onCatsChange={setWeekCats} grupos={grupos} categorias={categorias} />
+                <p className="text-xs text-muted-foreground">Sem subcoleção: informe os modelos por lançamento da coleção. Ou clique em “Subcoleção” para dividir a coleção.</p>
+                <LancamentosEditor
+                  value={{ weeks, meta: weeksMeta, cats: weekCats }}
+                  onChange={(v) => { setWeeks(v.weeks); setWeeksMeta(v.meta); setWeekCats(v.cats); }}
+                  grupos={grupos} categorias={categorias} />
               </div>
             ) : (
               <div className="space-y-3">
@@ -550,13 +583,9 @@ export function ColecaoSheet({
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
-                    <WeeksEditor
-                      value={s.weeks}
-                      onChange={(w) => setSubs((p) => p.map((x, j) => (j === i ? { ...x, weeks: w } : x)))}
-                      meta={s.meta}
-                      onMetaChange={(mm) => setSubs((p) => p.map((x, j) => (j === i ? { ...x, meta: mm } : x)))}
-                      cats={s.cats}
-                      onCatsChange={(c) => setSubs((p) => p.map((x, j) => (j === i ? { ...x, cats: c } : x)))}
+                    <LancamentosEditor
+                      value={{ weeks: s.weeks, meta: s.meta, cats: s.cats }}
+                      onChange={(v) => setSubs((p) => p.map((x, j) => (j === i ? { ...x, weeks: v.weeks, meta: v.meta, cats: v.cats } : x)))}
                       grupos={grupos}
                       categorias={categorias}
                     />

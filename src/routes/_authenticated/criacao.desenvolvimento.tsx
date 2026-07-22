@@ -468,7 +468,7 @@ function DesenvolvimentoPage() {
               { label: "Grupo", value: fGrupo, onChange: (v) => { setFGrupo(v); setFCat("all"); }, options: [{ id: "all", nome: "Todos" }, ...grupos] },
               { label: "Categoria", value: fCat, onChange: setFCat, options: [{ id: "all", nome: "Todas" }, ...(fGrupo === "all" ? categorias : categorias.filter((c) => c.grupo_id === fGrupo))] },
               { label: "Subcategoria", value: fSub1, onChange: setFSub1, options: [{ id: "all", nome: "Todas" }, ...sub1Opts.map((s) => ({ id: s.id, nome: s.nome }))] },
-              { label: "Semana", value: fSemana || "all", onChange: (v) => setFSemana(v === "all" ? "" : v), options: [{ id: "all", nome: "Todas" }, ...["1","2","3","4","5"].map((s) => ({ id: s, nome: s }))] },
+              { label: "Lançamento", value: fSemana || "all", onChange: (v) => setFSemana(v === "all" ? "" : v), options: [{ id: "all", nome: "Todas" }, ...["1","2","3","4","5"].map((s) => ({ id: s, nome: s }))] },
               { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
               { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...anos] },
             ]}

@@ -468,7 +468,7 @@ function PlanejamentoPage() {
     { key: "colecao", label: fl("colecao") },
     { key: "categoria", label: "Categoria" },
     { key: "linha", label: "Linha" },
-    { key: "semana", label: "Semana" },
+    { key: "semana", label: "Lançamento" },
     { key: "status", label: "Status" },
   ];
 
@@ -655,7 +655,7 @@ function PlanejamentoPage() {
               { label: "Status", value: fStatus, onChange: setFStatus, options: [{ id: "all", nome: "Todos" }, ...STATUS_OPTS.map((s) => ({ id: s.value, nome: s.label }))] },
               { label: "Lançamento", value: fLancamento, onChange: setFLancamento, options: [{ id: "all", nome: "Todos" }, { id: "pronto", nome: "Prontos para lançar" }, { id: "lancado", nome: "Lançados" }] },
               { label: fl("estilista"), value: fEstilista, onChange: setFEstilista, options: [{ id: "all", nome: "Todos" }, ...estilistas] },
-              { label: "Semana", value: fSemana || "all", onChange: (v) => setFSemana(v === "all" ? "" : v), options: [{ id: "all", nome: "Todas" }, ...["1","2","3","4","5"].map((s) => ({ id: s, nome: s }))] },
+              { label: "Lançamento", value: fSemana || "all", onChange: (v) => setFSemana(v === "all" ? "" : v), options: [{ id: "all", nome: "Todas" }, ...["1","2","3","4","5"].map((s) => ({ id: s, nome: s }))] },
               { label: "Mês de Planejamento", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
               { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...anos] },
               { label: "Grupo", value: fGrupo, onChange: (v) => { setFGrupo(v); setFCat("all"); }, options: [{ id: "all", nome: "Todos" }, ...grupos] },
@@ -866,7 +866,7 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
           <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
           <p className="text-xs text-muted-foreground truncate">{modelo.colecao ?? "Sem coleção"}</p>
           <p className="text-xs text-muted-foreground truncate">{modelo.subcolecao || "—"}</p>
-          <p className="text-xs text-muted-foreground truncate">{modelo.semana ? `Semana ${modelo.semana}` : "—"}</p>
+          <p className="text-xs text-muted-foreground truncate">{modelo.semana ? `Lançamento ${modelo.semana}` : "—"}</p>
           <p className="text-xs text-muted-foreground truncate">{[mesNome, anoNome].filter(Boolean).join(" / ") || "—"}</p>
           <p className="text-xs text-muted-foreground truncate">{categoriaNome ?? "Sem categoria"}</p>
           <p className="text-xs text-muted-foreground truncate">{linhaNome ?? "Sem linha"}</p>
@@ -1456,7 +1456,7 @@ function ModeloDialog({
               )}
               <FieldSelect label={fl("linha")} value={draft.linha_id} onChange={(v) => setDraft((d) => ({ ...d, linha_id: v }))} options={linhas.map((l) => ({ id: l.id, nome: orcLabel(l.nome, orc.nivel3(draft.colecao_id, draft.subcolecao, l.id)) }))} />
               <div className="grid gap-1">
-                <Label>Semana</Label>
+                <Label>Lançamento</Label>
                 <Select value={draft.semana || ""} onValueChange={(v) => setDraft((d) => ({ ...d, semana: v }))}>
                   <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
                   <SelectContent>
@@ -1885,7 +1885,7 @@ function BatchCardsDialog({
                 </div>
               )}
               <div className="grid gap-1">
-                <Label>Semana</Label>
+                <Label>Lançamento</Label>
                 <Select value={semana || ""} onValueChange={setSemana}>
                   <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
                   <SelectContent>

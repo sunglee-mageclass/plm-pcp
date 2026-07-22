@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { startOfWeek, addWeeks, addDays, format } from "date-fns";
+import { format } from "date-fns";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { proximoLancamento, removerLancamento, normalizar, remapChaves } from "@/lib/lancamentos";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,13 +20,13 @@ import { Plus, Trash2, ChevronRight, Save, Check, ArrowLeft } from "lucide-react
 
 /**
  * Editor da coleção por PODER DE VENDA, em MODAL. Herda um "Padrão do mix"; árvore
- * Subcoleção ▸ Linha × Semana (SEM categoria/sub). Por linha: prof/cor, cores, preço,
+ * Subcoleção ▸ Linha × Lançamento (SEM categoria/sub). Por linha: prof/cor, cores, preço,
  * toggle "à parte" (Acessórios = 100% sozinha). O nº de modelos do padrão é DISTRIBUÍDO
- * automaticamente ÷ subcoleções e repartido nas semanas. Data de lançamento POR SEMANA
- * (semanas do calendário dom–sáb, derivada do mês/ano, editável). Confirmar gera os cards.
+ * automaticamente ÷ subcoleções e repartido nos lançamentos. Lançamentos são slots
+ * SEQUENCIAIS e contíguos (1..N), cada um com sua data livre (sem mapear semana do
+ * calendário). Confirmar gera os cards. Internamente o ordinal segue na coluna `semana`.
  */
 
-const SEMANAS = [1, 2, 3, 4, 5];
 type LinhaSub = { id: string; linhaId: string; aParte: boolean; profCor: number; cores: number; min: number; max: number; q: Record<string, number> };
 type Subcolecao = { id: string; nome: string; semanas: number[]; datasSemanas: Record<string, string>; linhas: LinhaSub[] };
 
@@ -110,8 +111,8 @@ function NaoAtribuidosPV({
           </Select>
         )}
         <Select value={bulkSem} onValueChange={setBulkSem}>
-          <SelectTrigger className="w-24 h-8"><SelectValue placeholder="Semana" /></SelectTrigger>
-          <SelectContent>{SEMANAS_NAO_ATR.map((w) => <SelectItem key={w} value={w}>Semana {w}</SelectItem>)}</SelectContent>
+          <SelectTrigger className="w-28 h-8"><SelectValue placeholder="Lançamento" /></SelectTrigger>
+          <SelectContent>{SEMANAS_NAO_ATR.map((w) => <SelectItem key={w} value={w}>Lançamento {w}</SelectItem>)}</SelectContent>
         </Select>
         <Button size="sm" className="h-8" disabled={checked.size === 0 || loading || !hasSubs} onClick={atribuir}>
           Atribuir ({checked.size})
@@ -167,32 +168,11 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
 
   const mesOrdem = useMemo(() => Number((meses as any[]).find((m) => m.id === mesId)?.ordem) || 0, [meses, mesId]);
   const anoNum = useMemo(() => Number((anos as any[]).find((a) => a.id === anoId)?.ano) || 0, [anos, anoId]);
-  // Semana N do mês = a N-ª semana do calendário (dom–sáb) que toca o mês.
-  const semanaRange = (w: number) => {
-    if (!anoNum || !mesOrdem) return null;
-    const first = new Date(anoNum, mesOrdem - 1, 1);
-    const mon = addWeeks(startOfWeek(first, { weekStartsOn: 0 }), w - 1);
-    return { inicio: mon, fim: addDays(mon, 6), first };
-  };
-  const dataDefault = (w: number) => {
-    const r = semanaRange(w);
-    if (!r) return "";
-    return format(r.inicio < r.first ? r.first : r.inicio, "yyyy-MM-dd"); // Sem1 clampa ao dia 1
-  };
-  const rangeLabel = (w: number) => { const r = semanaRange(w); return r ? `${format(r.inicio, "dd/MM")}–${format(r.fim, "dd/MM")}` : ""; };
-  const dataSemana = (s: Subcolecao, w: number) => s.datasSemanas[String(w)] ?? dataDefault(w);
-  // Mês/ano da coleção em ISO — o calendário do DateField abre nele (o mês já está escolhido).
+  // Data do lançamento = campo livre por ordinal (sem mapear semana do calendário).
+  const dataSemana = (s: Subcolecao, w: number) => s.datasSemanas[String(w)] ?? "";
+  // Mês/ano da coleção em ISO — o calendário do DateField abre nele (conveniência de
+  // abertura; NÃO deriva mais a data do lançamento).
   const colMesIso = anoNum && mesOrdem ? format(new Date(anoNum, mesOrdem - 1, 1), "yyyy-MM-dd") : "";
-  // Inverso: dada uma data, qual semana (1–5) do mês/ano da coleção ela cai? null = fora.
-  const semanaDaData = (dateStr: string): number | null => {
-    if (!dateStr || !anoNum || !mesOrdem) return null;
-    const d = new Date(`${dateStr}T00:00:00`);
-    if (Number.isNaN(d.getTime())) return null;
-    const week1 = startOfWeek(new Date(anoNum, mesOrdem - 1, 1), { weekStartsOn: 0 });
-    const diff = Math.round((startOfWeek(d, { weekStartsOn: 0 }).getTime() - week1.getTime()) / (7 * 24 * 3600 * 1000));
-    const n = diff + 1;
-    return n >= 1 && n <= 5 ? n : null;
-  };
 
   const numByLinha = useMemo(() => {
     const p = (padroes as any[]).find((x) => x.id === padraoId);
@@ -244,8 +224,12 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
         id: nid("l"), linhaId: it.linha_id ?? "", aParte: !!it.a_parte, profCor: Number(it.prof_cor) || 0, cores: Number(it.cores) || 0,
         min: Number(it.preco_min) || 0, max: Number(it.preco_max) || 0, q: (it.qtd_semanas ?? {}) as Record<string, number>,
       }));
-      const semanas: number[] = Array.isArray(sc.semanas) ? sc.semanas.map(Number).sort((a: number, b: number) => a - b) : [];
-      return { id: nid("s"), nome: sc.nome, semanas, datasSemanas: (sc.datas_semanas ?? {}) as Record<string, string>, linhas };
+      // Normaliza p/ ordinais contíguos (dado antigo pode ter buraco); remapeia datas + qtd.
+      const rawSemanas: number[] = Array.isArray(sc.semanas) ? sc.semanas.map(Number) : [];
+      const { ordinais: semanas, remap } = normalizar(rawSemanas);
+      const datasSemanas = remapChaves((sc.datas_semanas ?? {}) as Record<string, string>, remap);
+      const linhasNorm = linhas.map((l) => ({ ...l, q: remapChaves(l.q, remap) }));
+      return { id: nid("s"), nome: sc.nome, semanas, datasSemanas, linhas: linhasNorm };
     });
     setSubs(mapped); setHydrated(true);
   }, [colecaoId, loaded, hydrated]);
@@ -301,34 +285,21 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
       return { ...ns, linhas };
     });
   });
-  // Lançamento = semana + data (unificado). Adiciona a próxima semana livre.
+  // Lançamento sequencial: acrescenta o próximo ordinal contíguo.
   const addSemana = (sid: string) => mutSubResplit(sid, (s) => {
-    const free = SEMANAS.find((w) => !s.semanas.includes(w));
-    return free == null ? s : { ...s, semanas: [...s.semanas, free].sort((a, b) => a - b) };
+    const prox = proximoLancamento(s.semanas);
+    return prox == null ? s : { ...s, semanas: [...s.semanas, prox].sort((a, b) => a - b) };
   });
+  // Remover renumera contíguo (1..N-1), remapeando datas + qtd de cada linha.
   const removerSemana = (sid: string, w: number) => mutSubResplit(sid, (s) => {
-    const datasSemanas = { ...s.datasSemanas }; delete datasSemanas[String(w)];
-    return { ...s, semanas: s.semanas.filter((x) => x !== w), datasSemanas };
+    const { ordinais, remap } = removerLancamento(s.semanas, w);
+    return {
+      ...s,
+      semanas: ordinais,
+      datasSemanas: remapChaves(s.datasSemanas, remap),
+      linhas: s.linhas.map((l) => ({ ...l, q: remapChaves(l.q, remap) })),
+    };
   });
-  const moverSemana = (sid: string, from: number, to: number) => mutSubResplit(sid, (s) => {
-    if (from === to || s.semanas.includes(to)) return s;
-    const datasSemanas = { ...s.datasSemanas };
-    if (datasSemanas[String(from)] != null) { datasSemanas[String(to)] = datasSemanas[String(from)]; delete datasSemanas[String(from)]; }
-    return { ...s, semanas: s.semanas.map((x) => (x === from ? to : x)).sort((a, b) => a - b), datasSemanas };
-  });
-  // Editar a DATA: se cair em OUTRA semana livre, MOVE o lançamento pra ela; senão fixa a data.
-  const onDataChange = (sid: string, w: number, date: string) => {
-    const x = semanaDaData(date);
-    if (x && x !== w) {
-      mutSubResplit(sid, (s) => {
-        if (s.semanas.includes(x)) return { ...s, datasSemanas: { ...s.datasSemanas, [String(w)]: date } };
-        const datasSemanas = { ...s.datasSemanas }; delete datasSemanas[String(w)]; datasSemanas[String(x)] = date;
-        return { ...s, semanas: s.semanas.map((y) => (y === w ? x : y)).sort((a, b) => a - b), datasSemanas };
-      });
-    } else {
-      setDataSemana(sid, w, date);
-    }
-  };
   const mapLinha = (sid: string, lid: string, fn: (l: LinhaSub) => LinhaSub) => setSubs((xs) => xs.map((s) => s.id !== sid ? s : { ...s, linhas: s.linhas.map((l) => (l.id === lid ? fn(l) : l)) }));
   const patchLinha = (sid: string, lid: string, p: Partial<LinhaSub>) => mapLinha(sid, lid, (l) => ({ ...l, ...p }));
   const setQ = (sid: string, lid: string, w: number, v: number) => mapLinha(sid, lid, (l) => ({ ...l, q: { ...l.q, [String(w)]: v } }));
@@ -511,24 +482,20 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
 
                     {open && (
                       <div className="border-t bg-muted/10 px-3 py-2 space-y-2">
-                        {/* Lançamentos UNIFICADOS: cada linha = Semana + Data (mão dupla). Escolha a
-                            semana → a data vem do calendário; ou escolha a data → a semana se ajusta. */}
+                        {/* Lançamentos SEQUENCIAIS: cada um é um ordinal contíguo (1..N) com sua
+                            data livre. Sem mapear semana do calendário. */}
                         <div className="space-y-1.5">
-                          <span className="text-xs font-medium text-muted-foreground">Lançamentos <span className="font-normal">— semana ou data (um define o outro)</span></span>
+                          <span className="text-xs font-medium text-muted-foreground">Lançamentos <span className="font-normal">— um por data</span></span>
                           {s.semanas.length === 0 && <p className="text-xs text-muted-foreground">Nenhum ainda — clique em "+ Lançamento".</p>}
                           {s.semanas.map((w) => (
                             <div key={w} className="flex flex-wrap items-center gap-2">
-                              <Sel value={String(w)} onChange={(v) => moverSemana(s.id, w, Number(v))} className="w-32">
-                                {SEMANAS.map((x) => <SelectItem key={x} value={String(x)} disabled={x !== w && s.semanas.includes(x)}>Semana {x}</SelectItem>)}
-                              </Sel>
-                              <span className="w-32 inline-block"><DateField value={dataSemana(s, w)} defaultMonth={colMesIso} onChange={(e) => onDataChange(s.id, w, e.target.value)} /></span>
-                              {rangeLabel(w) && <span className="text-xs text-muted-foreground/70">{rangeLabel(w)}</span>}
+                              <span className="w-28 text-sm font-medium">Lançamento {w}</span>
+                              <span className="w-32 inline-block"><DateField value={dataSemana(s, w)} defaultMonth={colMesIso} onChange={(e) => setDataSemana(s.id, w, e.target.value)} /></span>
                               <Button variant="ghost" size="iconSm" onClick={() => removerSemana(s.id, w)}><Trash2 className="h-4 w-4 text-muted-foreground" /></Button>
                             </div>
                           ))}
                           <div className="flex items-center gap-3">
                             <Button variant="outline" size="sm" onClick={() => addSemana(s.id)} disabled={s.semanas.length >= 5}><Plus className="h-4 w-4 mr-1" /> Lançamento</Button>
-                            {!mesOrdem && <span className="text-xs text-amber-600">Defina Mês e Ano acima pra calcular as datas.</span>}
                           </div>
                         </div>
                         <div className="overflow-x-auto">
@@ -536,7 +503,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
                             <thead className="text-xs text-muted-foreground">
                               <tr className="[&>th]:px-2 [&>th]:py-1 [&>th]:font-medium [&>th]:text-left">
                                 <th className="min-w-[9rem]">Linha</th><th>à parte</th><th>prof/cor</th><th>cores</th><th>Mín</th><th>Máx</th>
-                                {s.semanas.map((w) => <th key={w}>Sem {w}</th>)}<th>Total</th><th>Poder</th><th />
+                                {s.semanas.map((w) => <th key={w}>Lan {w}</th>)}<th>Total</th><th>Poder</th><th />
                               </tr>
                             </thead>
                             <tbody>
@@ -559,7 +526,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
                                     <td data-label="Preço mín"><Input className="h-8 w-20 max-sm:h-9 px-1 text-left tabular-nums" inputMode="decimal" value={l.min} onChange={(e) => patchLinha(s.id, l.id, { min: num(e.target.value) })} /></td>
                                     <td data-label="Preço máx"><Input className="h-8 w-20 max-sm:h-9 px-1 text-left tabular-nums" inputMode="decimal" value={l.max} onChange={(e) => patchLinha(s.id, l.id, { max: num(e.target.value) })} /></td>
                                     {s.semanas.map((w) => (
-                                      <td key={w} data-label={`Sem ${w}`}><Input className="h-8 w-12 max-sm:h-9 max-sm:w-16 px-1 text-left tabular-nums" inputMode="numeric" value={l.q[String(w)] ?? 0} onChange={(e) => setQ(s.id, l.id, w, Math.max(0, Math.round(num(e.target.value))))} /></td>
+                                      <td key={w} data-label={`Lan ${w}`}><Input className="h-8 w-12 max-sm:h-9 max-sm:w-16 px-1 text-left tabular-nums" inputMode="numeric" value={l.q[String(w)] ?? 0} onChange={(e) => setQ(s.id, l.id, w, Math.max(0, Math.round(num(e.target.value))))} /></td>
                                     ))}
                                     <td data-label="Total" className="font-semibold tabular-nums">{int(tot)}</td>
                                     <td data-label="Poder" className="tabular-nums text-muted-foreground">{brl(pod)}</td>
