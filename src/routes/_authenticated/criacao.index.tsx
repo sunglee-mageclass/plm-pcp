@@ -7,7 +7,7 @@ export const Route = createFileRoute("/_authenticated/criacao/")({
 });
 
 const sections = [
-  { to: "/criacao/planejamento", title: "Planejamento", desc: "Cards de modelos em planejamento.", icon: ClipboardList },
+  { to: "/criacao/planejamento", title: "Planejamento de Produto", desc: "Cards de modelos em planejamento.", icon: ClipboardList },
   { to: "/criacao/desenvolvimento", title: "Desenvolvimento", desc: "Modelos aprovados em desenvolvimento.", icon: Hammer },
 ];
 
