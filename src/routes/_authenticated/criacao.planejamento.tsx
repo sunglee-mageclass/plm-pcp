@@ -213,7 +213,8 @@ function PlanejamentoPage() {
   const [groupByLinha, setGroupByLinha] = useState(false);
   const [groupBySub1, setGroupBySub1] = useState(false);
   const [groupByRep, setGroupByRep] = useState(false);
-  const [groupByTecido, setGroupByTecido] = useState(false);
+  // Default: agrupa por Tecido (nível 1) > Categoria (nível 2).
+  const [groupByTecido, setGroupByTecido] = useState(true);
   // Grupos recolhidos (por caminho único pai/filho). Vazio = todos expandidos.
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const toggleGroup = (path: string) =>
@@ -563,11 +564,12 @@ function PlanejamentoPage() {
       .sort(sortSplits);
   };
   // Ordem de aninhamento fixa (amplo→fino); os toggles só escolhem quais níveis entram.
+  // Ordem = hierarquia de aninhamento. Tecido primeiro (nível 1), depois Categoria.
   const splitters: ((items: Modelo[]) => Split[])[] = [
+    groupByTecido ? byTecido : null,
     groupByLinha ? byLinha : null,
     groupByCat ? byCat : null,
     groupBySub1 ? bySub1 : null,
-    groupByTecido ? byTecido : null,
     groupByRep ? byRep : null,
   ].filter(Boolean) as ((items: Modelo[]) => Split[])[];
   type Grupo = { key: string; nome: string; resumo: ReturnType<typeof computeResumo>; items?: Modelo[]; subgroups?: Grupo[] };
