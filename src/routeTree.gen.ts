@@ -42,6 +42,7 @@ import { Route as AuthenticatedEntradaSaidaOcAviamentoRouteImport } from './rout
 import { Route as AuthenticatedEntradaSaidaEstoqueRouteImport } from './routes/_authenticated/entrada-saida.estoque'
 import { Route as AuthenticatedEntradaSaidaAlertasTecidoRouteImport } from './routes/_authenticated/entrada-saida.alertas-tecido'
 import { Route as AuthenticatedCriacaoPlanejamentoRouteImport } from './routes/_authenticated/criacao.planejamento'
+import { Route as AuthenticatedCriacaoPlanTecidoRouteImport } from './routes/_authenticated/criacao.plan-tecido'
 import { Route as AuthenticatedCriacaoExplosaoRouteImport } from './routes/_authenticated/criacao.explosao'
 import { Route as AuthenticatedCriacaoDesenvolvimentoRouteImport } from './routes/_authenticated/criacao.desenvolvimento'
 import { Route as AuthenticatedCriacaoConsumoOcRouteImport } from './routes/_authenticated/criacao.consumo-oc'
@@ -70,6 +71,7 @@ import { Route as AuthenticatedProducaoOficinaModeloIdRouteImport } from './rout
 import { Route as AuthenticatedProducaoDirecionamentoModeloIdRouteImport } from './routes/_authenticated/producao.direcionamento.$modeloId'
 import { Route as AuthenticatedProducaoCqModeloIdRouteImport } from './routes/_authenticated/producao.cq.$modeloId'
 import { Route as AuthenticatedProducaoCadModeloIdRouteImport } from './routes/_authenticated/producao.cad.$modeloId'
+import { Route as AuthenticatedCriacaoPlanTecidoColecaoIdRouteImport } from './routes/_authenticated/criacao.plan-tecido.$colecaoId'
 import { Route as AuthenticatedCadastroTecidosArtigoIdRouteImport } from './routes/_authenticated/cadastro.tecidos.$artigoId'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
@@ -255,6 +257,12 @@ const AuthenticatedCriacaoPlanejamentoRoute =
     path: '/planejamento',
     getParentRoute: () => AuthenticatedCriacaoRoute,
   } as any)
+const AuthenticatedCriacaoPlanTecidoRoute =
+  AuthenticatedCriacaoPlanTecidoRouteImport.update({
+    id: '/plan-tecido',
+    path: '/plan-tecido',
+    getParentRoute: () => AuthenticatedCriacaoRoute,
+  } as any)
 const AuthenticatedCriacaoExplosaoRoute =
   AuthenticatedCriacaoExplosaoRouteImport.update({
     id: '/explosao',
@@ -422,6 +430,12 @@ const AuthenticatedProducaoCadModeloIdRoute =
     path: '/$modeloId',
     getParentRoute: () => AuthenticatedProducaoCadRoute,
   } as any)
+const AuthenticatedCriacaoPlanTecidoColecaoIdRoute =
+  AuthenticatedCriacaoPlanTecidoColecaoIdRouteImport.update({
+    id: '/$colecaoId',
+    path: '/$colecaoId',
+    getParentRoute: () => AuthenticatedCriacaoPlanTecidoRoute,
+  } as any)
 const AuthenticatedCadastroTecidosArtigoIdRoute =
   AuthenticatedCadastroTecidosArtigoIdRouteImport.update({
     id: '/$artigoId',
@@ -458,6 +472,7 @@ export interface FileRoutesByFullPath {
   '/criacao/consumo-oc': typeof AuthenticatedCriacaoConsumoOcRoute
   '/criacao/desenvolvimento': typeof AuthenticatedCriacaoDesenvolvimentoRoute
   '/criacao/explosao': typeof AuthenticatedCriacaoExplosaoRouteWithChildren
+  '/criacao/plan-tecido': typeof AuthenticatedCriacaoPlanTecidoRouteWithChildren
   '/criacao/planejamento': typeof AuthenticatedCriacaoPlanejamentoRoute
   '/entrada-saida/alertas-tecido': typeof AuthenticatedEntradaSaidaAlertasTecidoRoute
   '/entrada-saida/estoque': typeof AuthenticatedEntradaSaidaEstoqueRoute
@@ -479,6 +494,7 @@ export interface FileRoutesByFullPath {
   '/otb/': typeof AuthenticatedOtbIndexRoute
   '/producao/': typeof AuthenticatedProducaoIndexRoute
   '/cadastro/tecidos/$artigoId': typeof AuthenticatedCadastroTecidosArtigoIdRoute
+  '/criacao/plan-tecido/$colecaoId': typeof AuthenticatedCriacaoPlanTecidoColecaoIdRoute
   '/producao/cad/$modeloId': typeof AuthenticatedProducaoCadModeloIdRoute
   '/producao/cq/$modeloId': typeof AuthenticatedProducaoCqModeloIdRoute
   '/producao/direcionamento/$modeloId': typeof AuthenticatedProducaoDirecionamentoModeloIdRoute
@@ -514,6 +530,7 @@ export interface FileRoutesByTo {
   '/cadastro/servico': typeof AuthenticatedCadastroServicoRoute
   '/criacao/consumo-oc': typeof AuthenticatedCriacaoConsumoOcRoute
   '/criacao/desenvolvimento': typeof AuthenticatedCriacaoDesenvolvimentoRoute
+  '/criacao/plan-tecido': typeof AuthenticatedCriacaoPlanTecidoRouteWithChildren
   '/criacao/planejamento': typeof AuthenticatedCriacaoPlanejamentoRoute
   '/entrada-saida/alertas-tecido': typeof AuthenticatedEntradaSaidaAlertasTecidoRoute
   '/entrada-saida/estoque': typeof AuthenticatedEntradaSaidaEstoqueRoute
@@ -530,6 +547,7 @@ export interface FileRoutesByTo {
   '/otb': typeof AuthenticatedOtbIndexRoute
   '/producao': typeof AuthenticatedProducaoIndexRoute
   '/cadastro/tecidos/$artigoId': typeof AuthenticatedCadastroTecidosArtigoIdRoute
+  '/criacao/plan-tecido/$colecaoId': typeof AuthenticatedCriacaoPlanTecidoColecaoIdRoute
   '/producao/cad/$modeloId': typeof AuthenticatedProducaoCadModeloIdRoute
   '/producao/cq/$modeloId': typeof AuthenticatedProducaoCqModeloIdRoute
   '/producao/direcionamento/$modeloId': typeof AuthenticatedProducaoDirecionamentoModeloIdRoute
@@ -574,6 +592,7 @@ export interface FileRoutesById {
   '/_authenticated/criacao/consumo-oc': typeof AuthenticatedCriacaoConsumoOcRoute
   '/_authenticated/criacao/desenvolvimento': typeof AuthenticatedCriacaoDesenvolvimentoRoute
   '/_authenticated/criacao/explosao': typeof AuthenticatedCriacaoExplosaoRouteWithChildren
+  '/_authenticated/criacao/plan-tecido': typeof AuthenticatedCriacaoPlanTecidoRouteWithChildren
   '/_authenticated/criacao/planejamento': typeof AuthenticatedCriacaoPlanejamentoRoute
   '/_authenticated/entrada-saida/alertas-tecido': typeof AuthenticatedEntradaSaidaAlertasTecidoRoute
   '/_authenticated/entrada-saida/estoque': typeof AuthenticatedEntradaSaidaEstoqueRoute
@@ -595,6 +614,7 @@ export interface FileRoutesById {
   '/_authenticated/otb/': typeof AuthenticatedOtbIndexRoute
   '/_authenticated/producao/': typeof AuthenticatedProducaoIndexRoute
   '/_authenticated/cadastro/tecidos/$artigoId': typeof AuthenticatedCadastroTecidosArtigoIdRoute
+  '/_authenticated/criacao/plan-tecido/$colecaoId': typeof AuthenticatedCriacaoPlanTecidoColecaoIdRoute
   '/_authenticated/producao/cad/$modeloId': typeof AuthenticatedProducaoCadModeloIdRoute
   '/_authenticated/producao/cq/$modeloId': typeof AuthenticatedProducaoCqModeloIdRoute
   '/_authenticated/producao/direcionamento/$modeloId': typeof AuthenticatedProducaoDirecionamentoModeloIdRoute
@@ -639,6 +659,7 @@ export interface FileRouteTypes {
     | '/criacao/consumo-oc'
     | '/criacao/desenvolvimento'
     | '/criacao/explosao'
+    | '/criacao/plan-tecido'
     | '/criacao/planejamento'
     | '/entrada-saida/alertas-tecido'
     | '/entrada-saida/estoque'
@@ -660,6 +681,7 @@ export interface FileRouteTypes {
     | '/otb/'
     | '/producao/'
     | '/cadastro/tecidos/$artigoId'
+    | '/criacao/plan-tecido/$colecaoId'
     | '/producao/cad/$modeloId'
     | '/producao/cq/$modeloId'
     | '/producao/direcionamento/$modeloId'
@@ -695,6 +717,7 @@ export interface FileRouteTypes {
     | '/cadastro/servico'
     | '/criacao/consumo-oc'
     | '/criacao/desenvolvimento'
+    | '/criacao/plan-tecido'
     | '/criacao/planejamento'
     | '/entrada-saida/alertas-tecido'
     | '/entrada-saida/estoque'
@@ -711,6 +734,7 @@ export interface FileRouteTypes {
     | '/otb'
     | '/producao'
     | '/cadastro/tecidos/$artigoId'
+    | '/criacao/plan-tecido/$colecaoId'
     | '/producao/cad/$modeloId'
     | '/producao/cq/$modeloId'
     | '/producao/direcionamento/$modeloId'
@@ -754,6 +778,7 @@ export interface FileRouteTypes {
     | '/_authenticated/criacao/consumo-oc'
     | '/_authenticated/criacao/desenvolvimento'
     | '/_authenticated/criacao/explosao'
+    | '/_authenticated/criacao/plan-tecido'
     | '/_authenticated/criacao/planejamento'
     | '/_authenticated/entrada-saida/alertas-tecido'
     | '/_authenticated/entrada-saida/estoque'
@@ -775,6 +800,7 @@ export interface FileRouteTypes {
     | '/_authenticated/otb/'
     | '/_authenticated/producao/'
     | '/_authenticated/cadastro/tecidos/$artigoId'
+    | '/_authenticated/criacao/plan-tecido/$colecaoId'
     | '/_authenticated/producao/cad/$modeloId'
     | '/_authenticated/producao/cq/$modeloId'
     | '/_authenticated/producao/direcionamento/$modeloId'
@@ -1029,6 +1055,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedCriacaoPlanejamentoRouteImport
       parentRoute: typeof AuthenticatedCriacaoRoute
     }
+    '/_authenticated/criacao/plan-tecido': {
+      id: '/_authenticated/criacao/plan-tecido'
+      path: '/plan-tecido'
+      fullPath: '/criacao/plan-tecido'
+      preLoaderRoute: typeof AuthenticatedCriacaoPlanTecidoRouteImport
+      parentRoute: typeof AuthenticatedCriacaoRoute
+    }
     '/_authenticated/criacao/explosao': {
       id: '/_authenticated/criacao/explosao'
       path: '/explosao'
@@ -1225,6 +1258,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedProducaoCadModeloIdRouteImport
       parentRoute: typeof AuthenticatedProducaoCadRoute
     }
+    '/_authenticated/criacao/plan-tecido/$colecaoId': {
+      id: '/_authenticated/criacao/plan-tecido/$colecaoId'
+      path: '/$colecaoId'
+      fullPath: '/criacao/plan-tecido/$colecaoId'
+      preLoaderRoute: typeof AuthenticatedCriacaoPlanTecidoColecaoIdRouteImport
+      parentRoute: typeof AuthenticatedCriacaoPlanTecidoRoute
+    }
     '/_authenticated/cadastro/tecidos/$artigoId': {
       id: '/_authenticated/cadastro/tecidos/$artigoId'
       path: '/$artigoId'
@@ -1323,10 +1363,26 @@ const AuthenticatedCriacaoExplosaoRouteWithChildren =
     AuthenticatedCriacaoExplosaoRouteChildren,
   )
 
+interface AuthenticatedCriacaoPlanTecidoRouteChildren {
+  AuthenticatedCriacaoPlanTecidoColecaoIdRoute: typeof AuthenticatedCriacaoPlanTecidoColecaoIdRoute
+}
+
+const AuthenticatedCriacaoPlanTecidoRouteChildren: AuthenticatedCriacaoPlanTecidoRouteChildren =
+  {
+    AuthenticatedCriacaoPlanTecidoColecaoIdRoute:
+      AuthenticatedCriacaoPlanTecidoColecaoIdRoute,
+  }
+
+const AuthenticatedCriacaoPlanTecidoRouteWithChildren =
+  AuthenticatedCriacaoPlanTecidoRoute._addFileChildren(
+    AuthenticatedCriacaoPlanTecidoRouteChildren,
+  )
+
 interface AuthenticatedCriacaoRouteChildren {
   AuthenticatedCriacaoConsumoOcRoute: typeof AuthenticatedCriacaoConsumoOcRoute
   AuthenticatedCriacaoDesenvolvimentoRoute: typeof AuthenticatedCriacaoDesenvolvimentoRoute
   AuthenticatedCriacaoExplosaoRoute: typeof AuthenticatedCriacaoExplosaoRouteWithChildren
+  AuthenticatedCriacaoPlanTecidoRoute: typeof AuthenticatedCriacaoPlanTecidoRouteWithChildren
   AuthenticatedCriacaoPlanejamentoRoute: typeof AuthenticatedCriacaoPlanejamentoRoute
   AuthenticatedCriacaoIndexRoute: typeof AuthenticatedCriacaoIndexRoute
 }
@@ -1337,6 +1393,8 @@ const AuthenticatedCriacaoRouteChildren: AuthenticatedCriacaoRouteChildren = {
     AuthenticatedCriacaoDesenvolvimentoRoute,
   AuthenticatedCriacaoExplosaoRoute:
     AuthenticatedCriacaoExplosaoRouteWithChildren,
+  AuthenticatedCriacaoPlanTecidoRoute:
+    AuthenticatedCriacaoPlanTecidoRouteWithChildren,
   AuthenticatedCriacaoPlanejamentoRoute: AuthenticatedCriacaoPlanejamentoRoute,
   AuthenticatedCriacaoIndexRoute: AuthenticatedCriacaoIndexRoute,
 }

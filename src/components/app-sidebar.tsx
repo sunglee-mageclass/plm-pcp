@@ -87,6 +87,7 @@ const PAGE_URLS: Record<string, string> = {
   entrada_os_tecido: "/entrada-saida/os-tecido",
   entrada_os_aviamento: "/entrada-saida/os-aviamento",
   entrada_estoque: "/entrada-saida/estoque",
+  criacao_plan_tecido: "/criacao/plan-tecido",
   criacao_planejamento: "/criacao/planejamento",
   criacao_desenvolvimento: "/criacao/desenvolvimento",
   producao_explosao: "/criacao/explosao",
@@ -142,6 +143,7 @@ export function AppSidebar() {
   // (o nome por extenso segue no catálogo/permissões e no título da tela).
   const labelFor = (key: string, fallback: string) => {
     if (tabLabels[key]) return tabLabels[key];
+    if (key === "criacao_plan_tecido") return "Plan. Tecido";
     if (key === "criacao_planejamento") return "Plan. Produto";
     if (key === "producao_consumo_oc" && modoOcRolo === "rolo") return "Consumo por Rolo";
     return fallback;
