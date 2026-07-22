@@ -139,7 +139,7 @@ export function BulkEditDialog({
                   <SelectContent>
                     <SelectItem value={NONE}>{effColecaoId ? "Não alterar" : "Escolha a coleção"}</SelectItem>
                     {subcolOpts.map((o) => (
-                      <SelectItem key={o.nome} value={o.nome}>{o.nome}{o.autoWeek ? ` · Sem ${o.autoWeek}` : ""}</SelectItem>
+                      <SelectItem key={o.nome} value={o.nome}>{o.nome}{o.autoWeek ? ` · Lan ${o.autoWeek}` : ""}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
