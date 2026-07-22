@@ -21,14 +21,21 @@ export function MaterialBlock({ material, onChange, onRemove }: { material: PtMa
     enabled: !!material.artigo_id,
     queryFn: async () => ((await supabase.from("variantes_tecido")
       .select("id, nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)")
-      .eq("artigo_id", material.artigo_id).order("id")).data ?? []) as unknown as VarRow[],
+      .eq("artigo_id", material.artigo_id!).order("id")).data ?? []) as unknown as VarRow[],
   });
 
   const marcada = (vid: string) => material.variantes.some((v) => v.variante_tecido_id === vid);
   const toggle = (vid: string) => {
-    if (marcada(vid)) return onChange({ ...material, variantes: material.variantes.filter((v) => v.variante_tecido_id !== vid) });
-    const nova: PtVariante = { variante_tecido_id: vid, ordem: material.variantes.length + 1, multiplicador: 1, grades: {}, grade_total: 0 };
-    onChange({ ...material, variantes: [...material.variantes, nova] });
+    let next: PtVariante[];
+    if (marcada(vid)) {
+      next = material.variantes.filter((v) => v.variante_tecido_id !== vid);
+    } else {
+      const nova: PtVariante = { variante_tecido_id: vid, ordem: 0, multiplicador: 1, grades: {}, grade_total: 0 };
+      next = [...material.variantes, nova];
+    }
+    // renumerate 1..n to avoid gaps that would violate uq_plan_var (material_id, ordem)
+    next = next.map((v, i) => ({ ...v, ordem: i + 1 }));
+    onChange({ ...material, variantes: next });
   };
   const setVar = (vid: string, patch: Partial<PtVariante>) =>
     onChange({ ...material, variantes: material.variantes.map((v) => (v.variante_tecido_id === vid ? { ...v, ...patch } : v)) });
