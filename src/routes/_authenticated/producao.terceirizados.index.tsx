@@ -69,8 +69,9 @@ function TercListPage() {
           else if (sPos === "vazio") statusGeral = m.cad?.[0]?.sem_acabamento === true ? "finalizado" : "pre_finalizado";
           else statusGeral = "pendente";
         }
-        // Aprovação: reflete a flag de modelo (aprovada no Planejamento).
-        const aprovacao: "verde" | "vermelha" = (m as any).custo_terceirizados_aprovado ? "verde" : "vermelha";
+        // Aprovação da mão de obra (feita no Planejamento): 3 estados — aprovado/reprovado/pendente(null).
+        const _mo = (m as any).custo_terceirizados_aprovado;
+        const aprovacao: "verde" | "vermelha" | "amarela" = _mo == null ? "amarela" : _mo ? "verde" : "vermelha";
         return {
           modelo_id: m.id,
           ref: m.ref,
@@ -178,8 +179,8 @@ function TercListPage() {
                 <td className="px-4 py-2">
                   <span className="inline-flex items-center gap-2">
                     <span
-                      className={`h-2.5 w-2.5 shrink-0 rounded-full ${r.aprovacao === "verde" ? "bg-emerald-500" : "bg-red-500"}`}
-                      title={r.aprovacao === "verde" ? "Mão de obra aprovada" : "Mão de obra reprovada"}
+                      className={`h-2.5 w-2.5 shrink-0 rounded-full ${r.aprovacao === "verde" ? "bg-emerald-500" : r.aprovacao === "vermelha" ? "bg-red-500" : "bg-amber-400"}`}
+                      title={r.aprovacao === "verde" ? "Mão de obra aprovada" : r.aprovacao === "vermelha" ? "Mão de obra reprovada" : "Mão de obra pendente"}
                     />
                     <span className="font-mono text-primary">{r.ref ?? "—"}</span>
                     <VersaoBadge versao={r.versao} className="text-[10px]" />

@@ -14,6 +14,7 @@ export function ModeloCustosSection({
   totals,
   custoTerceirizados,
   onChangeTerceirizados,
+  maoObraAprovado,
   custosAdicionais,
   onChangeCustos,
   camposCopiados = new Set(),
@@ -22,6 +23,7 @@ export function ModeloCustosSection({
   totals: { tecido: number; forro: number; entretela: number; aviamento: number; etiqueta: number; peca: number };
   custoTerceirizados: number;
   onChangeTerceirizados: (v: number) => void;
+  maoObraAprovado?: boolean | null;
   custosAdicionais: CustoAdicional[];
   onChangeCustos: (v: CustoAdicional[]) => void;
   camposCopiados?: Set<string>;
@@ -42,7 +44,14 @@ export function ModeloCustosSection({
       <Row label="Aviamento" value={totals.aviamento} />
       <Row label="Etiquetas" value={totals.etiqueta} />
       <div className="flex justify-between items-center">
-        <Label>Previsão de Mão de Obra</Label>
+        <div className="flex items-center gap-2">
+          <Label>Previsão de Mão de Obra</Label>
+          {/* Reflexo (read-only) da aprovação feita no Planejamento. */}
+          <span className={`text-[10px] rounded px-1.5 py-0.5 ${maoObraAprovado === true ? "bg-emerald-100 text-emerald-700" : maoObraAprovado === false ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}
+            title="Aprovação da mão de obra (no Planejamento)">
+            {maoObraAprovado === true ? "Aprovada" : maoObraAprovado === false ? "Reprovada" : "Pendente"}
+          </span>
+        </div>
         <NumberInput
           className="w-32 text-right"
           placeholder="0,00"

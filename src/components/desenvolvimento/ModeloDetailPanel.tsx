@@ -1796,6 +1796,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 totals={totals}
                 custoTerceirizados={draft.custo_terceirizados_previsto}
                 onChangeTerceirizados={(v) => setDraft({ ...draft, custo_terceirizados_previsto: v })}
+                maoObraAprovado={(modelo as any)?.custo_terceirizados_aprovado ?? null}
                 custosAdicionais={draft.custos_adicionais ?? []}
                 onChangeCustos={(v) => setDraft({ ...draft, custos_adicionais: v })}
                 camposCopiados={camposCopiados}
