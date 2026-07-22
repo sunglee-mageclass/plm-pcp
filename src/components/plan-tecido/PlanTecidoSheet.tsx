@@ -75,7 +75,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
     queryKey: ["plan-tecido-modelos", colecaoId],
     queryFn: async () =>
       ((await supabase.from("modelos")
-        .select("id, ref, nome, subcolecao, linha_id, categoria_principal_id, proporcoes, fotos_modelo, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador)), modelo_grades(variante_numero, grades, grade_total)")
+        .select("id, ref, nome, subcolecao, linha_id, categoria_principal_id, proporcoes, fotos_modelo, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(cor:cor_id(nome)))), modelo_grades(variante_numero, grades, grade_total)")
         .eq("colecao_id", colecaoId)).data ?? []) as any[],
   });
 
@@ -94,12 +94,17 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
           tipo: t.tipo as "tecido" | "forro",
           numero: Number(t.numero) || 1,
           artigo_id: t.artigo_id ?? null,
+          artigo_nome: (t.artigo?.nome ?? null) as string | null,
+          artigo_unidade_medida: (t.artigo?.unidade_medida ?? null) as string | null,
+          artigo_rendimento: t.artigo?.rendimento != null ? Number(t.artigo.rendimento) : null,
+          preco_por_metro: t.artigo?.preco_por_metro != null ? Number(t.artigo.preco_por_metro) : null,
           consumo: Number(t.consumo) || 0,
           loss_percent: Number(t.loss_percent) || 0,
           variantes: (t.modelo_tecido_variantes ?? []).map((v: any) => ({
             variante_tecido_id: v.variante_tecido_id,
             ordem: Number(v.ordem) || 0,
             multiplicador: Number(v.multiplicador) || 1,
+            cor_nome: (v.variante?.cor?.nome ?? null) as string | null,
           })),
         }));
       return {

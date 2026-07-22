@@ -11,10 +11,14 @@ export type ModeloRealMaterial = {
   tipo: "tecido" | "forro";
   numero: number;
   artigo_id: string | null;
+  artigo_nome?: string | null;
+  artigo_unidade_medida?: string | null;
+  artigo_rendimento?: number | null;
+  preco_por_metro?: number | null;
   consumo: number;
   loss_percent: number;
-  // variantes do BOM: variante_tecido_id + ordem (=variante_numero na grade) + multiplicador
-  variantes: { variante_tecido_id: string; ordem: number; multiplicador: number }[];
+  // variantes do BOM: variante_tecido_id + ordem (=variante_numero na grade) + multiplicador + cor_nome
+  variantes: { variante_tecido_id: string; ordem: number; multiplicador: number; cor_nome?: string | null }[];
 };
 export type ModeloReal = {
   id: string;
@@ -46,10 +50,15 @@ export function slotDeModeloReal(mr: ModeloReal, slotIndex: number): PtSlot {
           multiplicador: Number(v.multiplicador) || 1,
           grades: g?.grades ?? {},
           grade_total: Number(g?.grade_total) || 0,
+          cor_nome: v.cor_nome ?? null,
         };
       });
     return {
       artigo_id: mat.artigo_id,
+      artigo_nome: mat.artigo_nome ?? null,
+      unidade_medida: mat.artigo_unidade_medida ?? null,
+      rendimento: mat.artigo_rendimento ?? null,
+      preco_por_metro: mat.preco_por_metro ?? null,
       tipo: mat.tipo,
       numero: mat.numero,
       consumo: Number(mat.consumo) || 0,
@@ -65,6 +74,7 @@ export function slotDeModeloReal(mr: ModeloReal, slotIndex: number): PtSlot {
     nome: mr.nome ?? null,
     proporcoes: mr.proporcoes ?? null,
     custos_adicionais: [],
+    categoria_id: mr.categoria_id ?? null,
     materiais,
   };
 }
