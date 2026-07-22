@@ -209,7 +209,7 @@ function PlanejamentoPage() {
     },
     onError: (e: any) => { setConfirmBulkDel(false); toast.error(mensagemErro(e, "Erro ao excluir os cards")); },
   });
-  const [groupByCat, setGroupByCat] = useState(true);
+  const [groupByCat, setGroupByCat] = useState(false);
   const [groupByLinha, setGroupByLinha] = useState(false);
   const [groupBySub1, setGroupBySub1] = useState(false);
   const [groupByRep, setGroupByRep] = useState(false);
