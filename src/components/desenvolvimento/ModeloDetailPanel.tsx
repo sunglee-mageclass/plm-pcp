@@ -224,14 +224,6 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
     },
   });
 
-  // Resumo (nomes resolvidos por embed) p/ o cabeçalho do card. Reflete o estado salvo.
-  const { data: resumoModelo } = useQuery({
-    queryKey: ["modelo-detail-resumo", modeloId],
-    queryFn: async () => (await (supabase.from("modelos") as any)
-      .select("colecao, subcolecao, semana, estilista:estilista_id(nome), modelista:modelista_id(nome), linha:linha_id(nome), cat:categoria_principal_id(nome, grupo:grupo_id(nome)), sub1:subcategoria1_id(nome), sub2:subcategoria2_id(nome), mes:mes_id(mes), ano:ano_id(ano)")
-      .eq("id", modeloId).maybeSingle()).data as any,
-  });
-
   const { data: tecidosData } = useQuery({
     queryKey: ["modelo-tecidos", modeloId],
     queryFn: async () => {
@@ -1639,38 +1631,6 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
             </Button>
           )}
         </div>
-        {resumoModelo && (
-          <div className="mt-1 text-xs text-muted-foreground space-y-0.5 text-left [&_.linha>span]:truncate">
-            {(resumoModelo.estilista?.nome || resumoModelo.modelista?.nome) && (
-              <div className="linha grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-0.5">
-                <span>{resumoModelo.estilista?.nome ? `Estilista: ${resumoModelo.estilista.nome}` : ""}</span>
-                <span>{resumoModelo.modelista?.nome ? `Modelista: ${resumoModelo.modelista.nome}` : ""}</span>
-              </div>
-            )}
-            {(resumoModelo.cat?.grupo?.nome || resumoModelo.cat?.nome || resumoModelo.sub1?.nome || resumoModelo.sub2?.nome) && (
-              <div className="linha grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-0.5">
-                <span>{resumoModelo.cat?.grupo?.nome ? `Grupo: ${resumoModelo.cat.grupo.nome}` : ""}</span>
-                <span>{resumoModelo.cat?.nome ? `Categoria: ${resumoModelo.cat.nome}` : ""}</span>
-                <span>{resumoModelo.sub1?.nome ? `Subcategoria 1: ${resumoModelo.sub1.nome}` : ""}</span>
-                <span>{resumoModelo.sub2?.nome ? `Subcategoria 2: ${resumoModelo.sub2.nome}` : ""}</span>
-              </div>
-            )}
-            {(resumoModelo.semana || resumoModelo.mes?.mes || resumoModelo.ano?.ano) && (
-              <div className="linha grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-0.5">
-                <span>{resumoModelo.semana ? `Lançamento: ${resumoModelo.semana}` : ""}</span>
-                <span>{resumoModelo.mes?.mes ? `Mês: ${resumoModelo.mes.mes}` : ""}</span>
-                <span>{resumoModelo.ano?.ano ? `Ano: ${resumoModelo.ano.ano}` : ""}</span>
-              </div>
-            )}
-            {(resumoModelo.colecao || resumoModelo.subcolecao || resumoModelo.linha?.nome) && (
-              <div className="linha grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-0.5">
-                <span>{resumoModelo.colecao ? `Coleção: ${resumoModelo.colecao}` : ""}</span>
-                <span>{resumoModelo.subcolecao ? `Subcoleção: ${resumoModelo.subcolecao}` : ""}</span>
-                <span>{resumoModelo.linha?.nome ? `Linha: ${resumoModelo.linha.nome}` : ""}</span>
-              </div>
-            )}
-          </div>
-        )}
       </SheetHeader>
 
       {/* área rolável (flex-1) — o footer fica fixo embaixo como irmão shrink-0 */}
