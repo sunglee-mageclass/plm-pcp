@@ -4,7 +4,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
-import { RequirePermission } from "@/components/RequirePermission";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -16,12 +15,10 @@ import { ModelCard } from "@/components/plan-tecido/ModelCard";
 import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
 
 export const Route = createFileRoute("/_authenticated/criacao/plan-tecido/$colecaoId")({
-  component: () => (
-    <RequirePermission page="criacao_plan_tecido">
-      <PlanTecidoPanel />
-    </RequirePermission>
-  ),
+  component: PlanTecidoPanel,
 });
+
+type Nome = { id: string; nome: string };
 
 function PlanTecidoPanel() {
   const { colecaoId } = Route.useParams();
@@ -58,6 +55,21 @@ function PlanTecidoPanel() {
     queryFn: async () => ((await supabase.rpc("plan_tecido_arvore" as any, { _colecao_id: colecaoId })).data ?? null) as PtArvore | null,
   });
 
+  // nomes p/ rótulos da árvore (subcoleção/linha/categoria)
+  const { data: subNomes = [] } = useQuery({
+    queryKey: ["plan-tecido-subnomes", colecaoId],
+    queryFn: async () => ((await supabase.from("colecao_subcolecoes" as any).select("id, nome").eq("colecao_id", colecaoId)).data ?? []) as unknown as Nome[],
+  });
+  const { data: linhaNomes = [] } = useQuery({
+    queryKey: ["plan-tecido-linha-nomes"],
+    queryFn: async () => ((await supabase.from("linhas").select("id, nome")).data ?? []) as Nome[],
+  });
+  const { data: catNomes = [] } = useQuery({
+    queryKey: ["plan-tecido-cat-nomes"],
+    queryFn: async () => ((await supabase.from("categorias_produto").select("id, nome")).data ?? []) as Nome[],
+  });
+  const nameOf = (arr: Nome[], id: string | null | undefined) => (id ? arr.find((x) => x.id === id)?.nome ?? null : null);
+
   useEffect(() => {
     if (seed && salvo !== undefined && arvore === null) setArvore(mergeArvore(semearArvore(seed), salvo));
   }, [seed, salvo, arvore]);
@@ -89,12 +101,14 @@ function PlanTecidoPanel() {
           {arvore.subcolecoes.map((sub, si) => (
             <Collapsible key={sub.id ?? si} defaultOpen>
               <CollapsibleTrigger className="flex min-h-[44px] w-full items-center gap-2 rounded-md border px-3 text-sm font-medium [&[data-state=open]>svg]:rotate-90">
-                <ChevronRight className="h-4 w-4 transition-transform" /> Subcoleção
+                <ChevronRight className="h-4 w-4 transition-transform" /> {nameOf(subNomes, sub.subcolecao_id) ?? "Sem subcoleção"}
               </CollapsibleTrigger>
               <CollapsibleContent className="pt-2">
                 {sub.linhas.map((ln, li) => (
                   <div key={ln.id ?? li} className="mb-2">
-                    <div className="mb-1 px-1 text-xs text-muted-foreground">{ln.linha_id ? "Linha" : ln.categoria_id ? "Categoria" : "Sem classificação"}</div>
+                    <div className="mb-1 px-1 text-xs text-muted-foreground">
+                      {ln.linha_id ? (nameOf(linhaNomes, ln.linha_id) ?? "Linha") : ln.categoria_id ? (nameOf(catNomes, ln.categoria_id) ?? "Categoria") : "Sem classificação"}
+                    </div>
                     <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-2">
                       {ln.slots.map((slot, sli) => (
                         <ModelCard key={slot.id ?? sli} slot={slot} onChange={(ns) => {
