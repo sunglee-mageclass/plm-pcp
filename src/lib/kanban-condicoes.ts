@@ -67,7 +67,7 @@ export const CONDICOES: Condicao[] = [
   { key: "cad_confirmado", label: "CAD confirmado (enviado ao corte)", modulo: "cad" },
 
   // ── Serviços ──────────────────────────────────────────────────
-  { key: "servico_aprovado", label: "Serviço aprovado (todos os blocos externos)", modulo: "servicos" },
+  { key: "servico_aprovado", label: "Mão de obra aprovada", modulo: "servicos" },
   { key: "servico_finalizado", label: "Serviços finalizados", modulo: "servicos" },
 
   // ── Controle de Qualidade ─────────────────────────────────────
