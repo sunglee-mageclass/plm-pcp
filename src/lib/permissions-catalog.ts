@@ -53,7 +53,7 @@ export const PAGES_CATALOG: ModuleDef[] = [
     label: "Estilo & Engenharia",
     basePath: "/criacao",
     pages: [
-      { key: "criacao_planejamento", label: "Planejamento" },
+      { key: "criacao_planejamento", label: "Planejamento de Produto" },
       { key: "criacao_desenvolvimento", label: "Desenvolvimento" },
       { key: "producao_explosao", label: "Explosão" },
       { key: "producao_consumo_oc", label: "Consumo por OC" },
