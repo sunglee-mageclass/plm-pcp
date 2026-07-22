@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, Save, ChevronDown, ChevronRight, AlertTriangle } from "lucide-react";
+import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, Save, ChevronDown, ChevronRight, AlertTriangle, Rocket, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -154,6 +154,8 @@ async function uploadFile(file: File, prefix: string) {
   return path;
 }
 
+const fmtDataBR = (s: string | null) => s ? s.split("-").reverse().join("/") : null;
+
 function useOpts(table: string, key = "nome") {
   return useQuery({
     queryKey: ["opt", table, key],
@@ -208,6 +210,14 @@ function PlanejamentoPage() {
       qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
     },
     onError: (e: any) => { setConfirmBulkDel(false); toast.error(mensagemErro(e, "Erro ao excluir os cards")); },
+  });
+  const setMaoObra = useMutation({
+    mutationFn: async ({ id, aprovado }: { id: string; aprovado: boolean }) => {
+      const { error } = await supabase.from("modelos").update({ custo_terceirizados_aprovado: aprovado } as any).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["modelos-planejamento"] }); },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao aprovar mão de obra")),
   });
   const [groupByCat, setGroupByCat] = useState(false);
   const [groupByLinha, setGroupByLinha] = useState(false);
@@ -301,10 +311,10 @@ function PlanejamentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, estilista_id, linha_id, colecao, colecao_id, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, origem, tecidos_planejados, lancado")
+        .select("id, nome, estilista_id, linha_id, colecao, colecao_id, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, origem, tecidos_planejados, lancado, custo_terceirizados_previsto, custo_terceirizados_aprovado, data_lancamento")
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as Modelo[];
+      return (data ?? []) as unknown as Modelo[];
     },
   });
 
@@ -332,17 +342,6 @@ function PlanejamentoPage() {
       return m;
     },
   });
-  // Aprovação de serviço por modelo (bolinha na foto): {id: {tem, todos}}.
-  const { data: aprovacaoMap = {} } = useQuery({
-    queryKey: ["plan-servico-aprovacao", modeloIdsAll],
-    enabled: modeloIdsAll.length > 0,
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc("servico_aprovacao_por_modelo" as any, { _ids: modeloIdsAll });
-      if (error) throw error;
-      return (data ?? {}) as Record<string, { tem: boolean; todos: boolean }>;
-    },
-  });
-
   // CQ liberado por modelo (Pré + Pós se há serviço pós-costura) → "pronto para lançar".
   // Reusa o SSOT `cqLiberado` (@/lib/cq-status) sobre o CAD embedado, p/ não divergir do
   // gate do setor Lançamento. Map modelo_id → boolean (CQ liberado, ainda sem olhar lançado).
@@ -365,9 +364,7 @@ function PlanejamentoPage() {
   const lancStatusDe = (m: Modelo): "lancado" | "pronto" | null => {
     if (m.lancado) return "lancado";
     const cqOk = !!(cqProntoMap as Record<string, boolean>)[m.id];
-    const a = (aprovacaoMap as any)[m.id];
-    const servicoOk = !(a?.tem && !a?.todos); // sem serviço externo ou todos aprovados
-    return cqOk && servicoOk ? "pronto" : null;
+    return cqOk && !!(m as any).custo_terceirizados_aprovado ? "pronto" : null;
   };
 
   const colecoes = useMemo(() => {
@@ -489,7 +486,24 @@ function PlanejamentoPage() {
         custoReal={!!(custoMap as any)[m.id]?.confirmado}
         markup={(() => { const p = piFor(m); return p.markupExibir > 0 ? p.markupExibir : null; })()}
         preco={(() => { const p = piFor(m); return p.efetivo > 0 ? p.efetivo : null; })()}
-        aprovacao={(() => { const a = (aprovacaoMap as any)[m.id]; return a?.tem ? (a.todos ? "verde" : "amarela") : null; })()}
+        maoObra={(() => {
+          const ls = lancStatusDe(m);
+          const c = (custoMap as any)[m.id];
+          return ls != null ? (c?.mao_obra_real ?? null) : (c?.mao_obra_previsto ?? null);
+        })()}
+        custoMat={(() => {
+          const p = piFor(m);
+          const custo = p.custo > 0 ? p.custo : null;
+          if (custo == null) return null;
+          const ls = lancStatusDe(m);
+          const c = (custoMap as any)[m.id];
+          const maoObra = ls != null ? (c?.mao_obra_real ?? null) : (c?.mao_obra_previsto ?? null);
+          return maoObra != null ? custo - maoObra : custo;
+        })()}
+        maoObraAprovado={!!(m as any).custo_terceirizados_aprovado}
+        dataLancamento={(m as any).data_lancamento ?? null}
+        onAprovar={() => setMaoObra.mutate({ id: m.id, aprovado: true })}
+        onReprovar={() => setMaoObra.mutate({ id: m.id, aprovado: false })}
         lancStatus={lancStatusDe(m)}
         mesNome={m.mes_id ? mesMap[m.mes_id] : null}
         anoNome={m.ano_id ? anoMap[m.ano_id] : null}
@@ -806,8 +820,8 @@ function PlanejamentoPage() {
 }
 
 
-function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, custoReal, markup, preco, aprovacao, lancStatus, mesNome, anoNome, onOpen, compact }: {
-  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; aprovacao: "verde" | "amarela" | null; lancStatus: "lancado" | "pronto" | null; mesNome: string | null; anoNome: string | null; onOpen: () => void; compact?: boolean;
+function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, custoReal, markup, preco, maoObra, custoMat, maoObraAprovado, dataLancamento, onAprovar, onReprovar, lancStatus, mesNome, anoNome, onOpen, compact }: {
+  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; maoObra: number | null; custoMat: number | null; maoObraAprovado: boolean; dataLancamento: string | null; onAprovar: () => void; onReprovar: () => void; lancStatus: "lancado" | "pronto" | null; mesNome: string | null; anoNome: string | null; onOpen: () => void; compact?: boolean;
 }) {
   // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
   const cover = (modelo.fotos_modelo?.[0]) || modelo.desenho_tecnico_url || modelo.croqui_url || null;
@@ -816,9 +830,7 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
   const meta = statusMeta(modelo.status_planejamento);
   // Tooltip que SEGUE o cursor (sem atraso): status + aprovação de serviço numa string só —
   // não precisa mirar a bolinha. \n vira quebra de linha.
-  const tip = aprovacao
-    ? `${meta.label}\n${aprovacao === "verde" ? "Serviços aprovados" : "Aprovação de serviço pendente"}`
-    : meta.label;
+  const tip = `${meta.label}\n${maoObraAprovado ? "Mão de obra aprovada" : "Mão de obra reprovada"}`;
   const { handlers, node } = useCursorTip(tip);
   return (
     <>
@@ -828,20 +840,10 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
       {...handlers}
     >
       <div className="relative aspect-[3/4] bg-muted flex items-center justify-center overflow-hidden">
-        {lancStatus && (
-          <span
-            className={`absolute top-1.5 left-1.5 z-10 rounded px-1.5 py-0.5 text-[10px] font-semibold leading-none shadow ${lancStatus === "lancado" ? "bg-emerald-600 text-white" : "bg-sky-500 text-white"}`}
-            title={lancStatus === "lancado" ? "Lançado" : "Pronto para lançar (CQ liberado)"}
-          >
-            {lancStatus === "lancado" ? "Lançado" : "Pronto"}
-          </span>
-        )}
-        {aprovacao && (
-          <span
-            className={`absolute top-1.5 right-1.5 z-10 h-3 w-3 rounded-full ring-2 ring-white shadow ${aprovacao === "verde" ? "bg-emerald-500" : "bg-amber-400"}`}
-            aria-label={aprovacao === "verde" ? "Serviços aprovados" : "Aprovação de serviço pendente"}
-          />
-        )}
+        <span
+          className={`absolute top-1.5 right-1.5 z-10 h-3 w-3 rounded-full ring-2 ring-white shadow ${maoObraAprovado ? "bg-emerald-500" : "bg-red-500"}`}
+          title={maoObraAprovado ? "Mão de obra aprovada" : "Mão de obra reprovada"}
+        />
         {!url ? (
           <ImageIcon className="h-10 w-10 text-muted-foreground" />
         ) : coverIsPdf ? (
@@ -866,21 +868,31 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
             <VersaoBadge versao={modelo.versao} />
           </div>
           <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
-          <p className="text-xs text-muted-foreground truncate">{modelo.colecao ?? "Sem coleção"}</p>
-          <p className="text-xs text-muted-foreground truncate">{modelo.subcolecao || "—"}</p>
+          {/* Coleção | Subcoleção */}
+          <div className="grid grid-cols-2 gap-x-3 [&>span]:truncate text-xs text-muted-foreground">
+            <span>{modelo.colecao ?? "—"}</span><span>{modelo.subcolecao || "—"}</span>
+          </div>
           <p className="text-xs text-muted-foreground truncate">{modelo.semana ? `Lançamento ${modelo.semana}` : "—"}</p>
           <p className="text-xs text-muted-foreground truncate">{[mesNome, anoNome].filter(Boolean).join(" / ") || "—"}</p>
-          <p className="text-xs text-muted-foreground truncate">{categoriaNome ?? "Sem categoria"}</p>
-          <p className="text-xs text-muted-foreground truncate">{linhaNome ?? "Sem linha"}</p>
-          {/* custo/markup/preço renderizam SEMPRE (— quando vazio) p/ todo card ter a
-              mesma altura, como se estivesse todo preenchido. */}
-          <p className="text-xs text-muted-foreground truncate">{custoReal ? "Custo" : "Custo prev."}: {custo != null ? brl(custo) : "—"}</p>
-          <p className="text-xs text-muted-foreground truncate">Markup: {markup != null ? Number(markup).toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—"}</p>
-          {preco != null ? (
-            <p className="text-xs font-medium truncate">{brl(preco)}</p>
-          ) : (
-            <p className="text-xs text-muted-foreground truncate">Preço: —</p>
-          )}
+          {/* Linha | Categoria | Markup */}
+          <div className="grid grid-cols-3 gap-x-3 [&>span]:truncate text-xs text-muted-foreground">
+            <span>{linhaNome ?? "—"}</span><span>{categoriaNome ?? "—"}</span>
+            <span>Markup: {markup != null ? Number(markup).toLocaleString("pt-BR",{maximumFractionDigits:2}) : "—"}</span>
+          </div>
+          <p className="text-xs text-muted-foreground truncate">{custoReal ? "Custo" : "Custo prev."}: {custoMat != null ? brl(custoMat) : "—"}</p>
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="truncate">Mão de obra{custoReal ? "" : " prev."}: {maoObra != null ? brl(maoObra) : "—"}</span>
+            <button type="button" aria-label="Aprovar mão de obra" onClick={(e) => { e.stopPropagation(); onAprovar(); }}
+              className={`shrink-0 ${maoObraAprovado ? "text-emerald-600" : "text-muted-foreground/40 hover:text-emerald-600"}`}><Check className="h-3.5 w-3.5" /></button>
+            <button type="button" aria-label="Reprovar mão de obra" onClick={(e) => { e.stopPropagation(); onReprovar(); }}
+              className={`shrink-0 ${!maoObraAprovado ? "text-red-600" : "text-muted-foreground/40 hover:text-red-600"}`}><X className="h-3.5 w-3.5" /></button>
+          </div>
+          {preco != null ? <p className="text-xs font-medium truncate">{brl(preco)}</p> : <p className="text-xs text-muted-foreground truncate">Preço: —</p>}
+          {/* Lançamento: data + foguete (âmbar=pronto, verde=lançado) */}
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="truncate">Lançamento: {dataLancamento ? fmtDataBR(dataLancamento) : "—"}</span>
+            {lancStatus && <Rocket className={`h-3.5 w-3.5 shrink-0 ${lancStatus === "lancado" ? "text-emerald-600" : "text-amber-500"}`} />}
+          </div>
         </div>
       )}
     </Card>
