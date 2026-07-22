@@ -57,7 +57,7 @@ export function ExplosaoDetail({ modeloId, onEnviado }: Props) {
       const { data, error } = await supabase
         .from("modelos")
         .select(
-          "*, estilista:estilista_id(nome), linha:linha_id(nome), cat_p:categoria_principal_id(nome, grupo:grupo_id(nome)), sub1:subcategoria1_id(nome), sub2:subcategoria2_id(nome)",
+          "*, estilista:estilista_id(nome), linha:linha_id(nome), cat_p:categoria_principal_id(nome, grupo:grupo_id(nome)), sub1:subcategoria1_id(nome), sub2:subcategoria2_id(nome), mes:mes_id(mes), ano:ano_id(ano)",
         )
         .eq("id", modeloId)
         .single();
@@ -426,14 +426,26 @@ export function ExplosaoDetail({ modeloId, onEnviado }: Props) {
               <Badge variant="outline" className="font-mono">{modelo?.ref ?? "sem REF"}</Badge>
               <VersaoBadge versao={modelo?.versao} />
             </div>
-            <div className="text-sm text-muted-foreground grid grid-cols-2 max-md:grid-cols-1 gap-x-6 gap-y-1 mt-2">
-              <span className="col-span-2">Estilista: {modelo?.estilista?.nome ?? "—"}</span>
-              <span>Coleção: {modelo?.colecao ?? "—"}</span>
-              <span>Linha: {modelo?.linha?.nome ?? "—"}</span>
-              {modelo?.cat_p?.grupo?.nome && <span>Grupo: {modelo.cat_p.grupo.nome}</span>}
-              <span>Categoria: {modelo?.cat_p?.nome ?? "—"}</span>
-              {modelo?.sub1?.nome && <span>Subcategoria 1: {modelo.sub1.nome}</span>}
-              {modelo?.sub2?.nome && <span>Subcategoria 2: {modelo.sub2.nome}</span>}
+            <div className="text-sm text-muted-foreground space-y-1 mt-2">
+              <div>Estilista: {modelo?.estilista?.nome ?? "—"}</div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-1 [&>span]:truncate">
+                <span>Coleção: {modelo?.colecao ?? "—"}</span>
+                <span>{modelo?.subcolecao ? `Subcoleção: ${modelo.subcolecao}` : ""}</span>
+                <span>Linha: {modelo?.linha?.nome ?? "—"}</span>
+              </div>
+              {(modelo?.semana || modelo?.mes?.mes || modelo?.ano?.ano) && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-1 [&>span]:truncate">
+                  <span>{modelo?.semana ? `Lançamento: ${modelo.semana}` : ""}</span>
+                  <span>{modelo?.mes?.mes ? `Mês: ${modelo.mes.mes}` : ""}</span>
+                  <span>{modelo?.ano?.ano ? `Ano: ${modelo.ano.ano}` : ""}</span>
+                </div>
+              )}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-1 [&>span]:truncate">
+                <span>{modelo?.cat_p?.grupo?.nome ? `Grupo: ${modelo.cat_p.grupo.nome}` : ""}</span>
+                <span>Categoria: {modelo?.cat_p?.nome ?? "—"}</span>
+                <span>{modelo?.sub1?.nome ? `Subcategoria 1: ${modelo.sub1.nome}` : ""}</span>
+                <span>{modelo?.sub2?.nome ? `Subcategoria 2: ${modelo.sub2.nome}` : ""}</span>
+              </div>
             </div>
           </div>
         </Card>

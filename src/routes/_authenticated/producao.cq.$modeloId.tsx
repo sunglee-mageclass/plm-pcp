@@ -13,6 +13,8 @@ import { DateField } from "@/components/shared/DateField";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { MatrizGradeResponsiva } from "@/components/shared/MatrizGradeResponsiva";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
+import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
+import { ModeloResumoMeta } from "@/components/shared/ModeloResumoMeta";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
@@ -80,7 +82,7 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, ref, nome, colecao, categorias_produto:categoria_principal_id(nome)")
+        .select("id, ref, nome, colecao, subcolecao, semana, categorias_produto:categoria_principal_id(nome), fotos_modelo, desenho_tecnico_url, croqui_url, mes:mes_id(mes), ano:ano_id(ano)")
         .eq("id", modeloId)
         .single();
       if (error) throw error;
@@ -606,11 +608,19 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
 
       <header className="flex items-start gap-3">
         <ClipboardCheck className="h-7 w-7 text-primary mt-0.5 shrink-0" />
-        <div className="flex-1">
+        <ModeloResumoFoto
+          fontes={[(modelo as any)?.fotos_modelo?.[0], (modelo as any)?.desenho_tecnico_url, (modelo as any)?.croqui_url]}
+          nome={modelo?.nome} className="h-14 w-14"
+        />
+        <div className="flex-1 min-w-0">
           <h1 className="text-2xl font-bold">{modelo?.ref ?? "…"} — {modelo?.nome ?? ""}</h1>
           <p className="text-sm text-muted-foreground">
             {(modelo as any)?.categorias_produto?.nome ?? "—"} • {modelo?.colecao ?? "—"}
           </p>
+          <ModeloResumoMeta
+            subcolecao={(modelo as any)?.subcolecao} lancamento={(modelo as any)?.semana}
+            mesNome={(modelo as any)?.mes?.mes} anoNome={(modelo as any)?.ano?.ano}
+          />
         </div>
         <Badge className={(view === "pos" ? posBtn.confirmado : confirmado) ? "bg-emerald-500 hover:bg-emerald-500 text-white" : "bg-amber-500 hover:bg-amber-500 text-white"}>
           {(view === "pos" ? posBtn.confirmado : confirmado) ? "Confirmado" : "Pendente"}

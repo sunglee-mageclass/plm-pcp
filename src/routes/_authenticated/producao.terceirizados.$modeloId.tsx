@@ -15,6 +15,8 @@ import { Input } from "@/components/ui/input";
 import { DateField } from "@/components/shared/DateField";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
+import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
+import { ModeloResumoMeta } from "@/components/shared/ModeloResumoMeta";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
@@ -119,7 +121,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
     queryKey: ["terc-modelo", modeloId],
     queryFn: async () => {
       const { data, error } = await (supabase.from("modelos") as any)
-        .select("id, ref, nome, colecao, categoria_principal_id, custos_adicionais")
+        .select("id, ref, nome, colecao, subcolecao, semana, categoria_principal_id, custos_adicionais, fotos_modelo, desenho_tecnico_url, croqui_url, mes:mes_id(mes), ano:ano_id(ano)")
         .eq("id", modeloId)
         .maybeSingle();
       if (error) throw error;
@@ -702,13 +704,21 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
 
       <header className="flex items-start gap-3">
         <Users className="h-7 w-7 text-primary mt-0.5 shrink-0" />
-        <div className="flex-1">
+        <ModeloResumoFoto
+          fontes={[(modelo as any)?.fotos_modelo?.[0], (modelo as any)?.desenho_tecnico_url, (modelo as any)?.croqui_url]}
+          nome={modelo?.nome} className="h-14 w-14"
+        />
+        <div className="flex-1 min-w-0">
           <h1 className="text-2xl font-bold">
             {modelo?.ref ?? "…"} — {modelo?.nome ?? ""}
           </h1>
           <p className="text-sm text-muted-foreground">
             {(modelo as any)?.categoria_nome ?? "—"} • {modelo?.colecao ?? "—"}
           </p>
+          <ModeloResumoMeta
+            subcolecao={(modelo as any)?.subcolecao} lancamento={(modelo as any)?.semana}
+            mesNome={(modelo as any)?.mes?.mes} anoNome={(modelo as any)?.ano?.ano}
+          />
         </div>
       </header>
 

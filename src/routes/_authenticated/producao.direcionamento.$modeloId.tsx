@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
+import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
+import { ModeloResumoMeta } from "@/components/shared/ModeloResumoMeta";
 import { useReadOnly } from "@/components/RequirePermission";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { VerificarRevisao } from "@/components/producao/RevisaoErro";
@@ -43,7 +45,7 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
 
   const { data: modelo } = useQuery({
     queryKey: ["dir-modelo", modeloId],
-    queryFn: async () => (await supabase.from("modelos").select("id, ref, nome, colecao").eq("id", modeloId).single()).data,
+    queryFn: async () => (await (supabase.from("modelos") as any).select("id, ref, nome, colecao, subcolecao, semana, fotos_modelo, desenho_tecnico_url, croqui_url, mes:mes_id(mes), ano:ano_id(ano)").eq("id", modeloId).single()).data,
   });
 
   const { data: cad } = useQuery({
@@ -319,9 +321,17 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
 
       <header className="flex items-start gap-3">
         <Compass className="h-7 w-7 text-primary mt-0.5 shrink-0" />
-        <div className="flex-1">
+        <ModeloResumoFoto
+          fontes={[(modelo as any)?.fotos_modelo?.[0], (modelo as any)?.desenho_tecnico_url, (modelo as any)?.croqui_url]}
+          nome={modelo?.nome} className="h-14 w-14"
+        />
+        <div className="flex-1 min-w-0">
           <h1 className="text-2xl font-bold">{modelo?.ref ?? "…"} — {modelo?.nome ?? ""}</h1>
           <p className="text-sm text-muted-foreground">{modelo?.colecao ?? "—"}</p>
+          <ModeloResumoMeta
+            subcolecao={(modelo as any)?.subcolecao} lancamento={(modelo as any)?.semana}
+            mesNome={(modelo as any)?.mes?.mes} anoNome={(modelo as any)?.ano?.ano}
+          />
         </div>
         <Badge className={confirmado ? "bg-emerald-500 hover:bg-emerald-500 text-white" : "bg-amber-500 hover:bg-amber-500 text-white"}>
           {confirmado ? "Separado" : "Pendente"}
