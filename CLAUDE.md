@@ -273,6 +273,15 @@ e verifique** — o repo muda rápido.
    `deficit[]` por variante.
 8. **Serviços no financeiro** — serviços terceirizados externos viram contas a pagar
    (`parcelas_servico` + RPC `servicos_financeiro`); oficina entra após CQ confirmado.
+   **Aprovação de mão de obra (jul/2026):** consolidada num flag POR MODELO
+   `modelos.custo_terceirizados_aprovado` (`true`/`false`/**`null`=pendente**, 3 estados),
+   aprovado/reprovado nos ícones do **card do Planejamento** (o checkbox por-bloco
+   `producao_terceirizados.aprovado` foi APOSENTADO — coluna órfã). **Lançar (`lancar_modelo`)
+   exige CQ liberado E mão de obra aprovada** (gate no servidor + pré-check no detalhe); o
+   botão-foguete do card lança/cancela com data. `custo_unitario_modelos` devolve
+   `mao_obra_previsto`/`mao_obra_real` → o card separa **materiais (= total − mão de obra)** da
+   mão de obra, trocando previsto→real quando pronto/lançado. **Markup/Preço seguem no custo
+   TOTAL** (materiais + mão de obra) — não mexer em `preco.ts`.
 9. **Segurança / RPC** — padrão **wrapper + `_core`**: o wrapper checa
    `user_can_view(_pagina)` (dashboards) ou `tenant_module_enabled(_module)` (módulos
    desligáveis) e o `_core` tem EXECUTE revogado. ⚠️ **Revogue dos TRÊS: `REVOKE EXECUTE ON FUNCTION
@@ -315,7 +324,9 @@ e enforcement leem daí; NÃO duplicar em doc). Avaliação por modelo na RPC `a
 config guarda `tenant_config.status_kanban[i].requisitos`. **Ao adicionar condição/módulo:**
 catálogo TS + branch na RPC — o **teste anti-drift** (Vitest) falha se as chaves não casarem.
 Enforcement no Select de status E no arraste (colunas inválidas esmaecidas). Atualizar este bloco +
-a memória a cada mudança (papel do `docs-keeper`).
+a memória a cada mudança (papel do `docs-keeper`). ⚠️ A condição `servico_aprovado` (label "Mão de
+obra aprovada") foi REPONTADA (jul/2026) p/ `coalesce(modelos.custo_terceirizados_aprovado,false)`
+— null/false não liberam; a key foi MANTIDA (requisitos já configurados + anti-drift seguem).
 
 ## O que NÃO fazer
 

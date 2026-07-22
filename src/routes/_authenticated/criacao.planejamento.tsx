@@ -909,7 +909,8 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
               Foguete âmbar=pronto (clicável), verde=lançado (clica p/ cancelar), cinza=indisponível. */}
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground" onClick={(e) => e.stopPropagation()}>
             <span className="shrink-0">Lançamento:</span>
-            <span className="w-[6.5rem] inline-block"><DateField value={dtLanc} onChange={(e) => setDtLanc(e.target.value)} className="h-7 text-xs px-1.5" /></span>
+            <DateField value={dtLanc} onChange={(e) => setDtLanc(e.target.value)}
+              className="h-5 w-[6.4rem] shrink-0 [&_input]:h-5 [&_input]:border-0 [&_input]:bg-transparent [&_input]:shadow-none [&_input]:px-0 [&_input]:pr-5 [&_input]:text-xs [&_input]:text-muted-foreground [&_input]:focus-visible:ring-0 [&>button]:w-5 [&>button]:place-items-center" />
             <button type="button" disabled={lancStatus == null}
               aria-label={lancStatus === "lancado" ? "Cancelar lançamento" : "Lançar"}
               title={lancStatus === "lancado" ? "Cancelar lançamento" : lancStatus === "pronto" ? "Lançar" : "Pronto só com CQ liberado e mão de obra aprovada"}
