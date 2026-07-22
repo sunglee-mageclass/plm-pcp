@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +24,9 @@ export function ModeloInfoSection({
   modelistas,
   piloteiros,
   categorias,
+  grupos,
+  meses,
+  anos,
   sub1Opts,
   sub2Opts,
   isAprovado,
@@ -42,7 +45,10 @@ export function ModeloInfoSection({
   estilistas: Opt[];
   modelistas: Opt[];
   piloteiros: Opt[];
-  categorias: Opt[];
+  categorias: { id: string; nome: string; grupo_id: string | null }[];
+  grupos: Opt[];
+  meses: Opt[];
+  anos: Opt[];
   sub1Opts: SubOpt[];
   sub2Opts: SubOpt[];
   isAprovado: boolean;
@@ -56,6 +62,13 @@ export function ModeloInfoSection({
   onCampoEditado?: (k: string) => void;
 }) {
   const fl = useFieldLabels();
+  // Grupo é um FILTRO da Categoria (não é salvo no modelo) — deriva da categoria atual.
+  const [grupoId, setGrupoId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!draft.categoria_principal_id) return;
+    const cat = categorias.find((c) => c.id === draft.categoria_principal_id);
+    if (cat?.grupo_id) setGrupoId(cat.grupo_id);
+  }, [draft.categoria_principal_id, categorias]);
   const [visiblePilotos, setVisiblePilotos] = useState<Set<number>>(() => {
     const has2 = !!(draft.piloteiro2_id || draft.data_piloto2);
     const has3 = !!(draft.piloteiro3_id || draft.data_piloto3);
@@ -126,7 +139,18 @@ export function ModeloInfoSection({
         )}
         <FieldSelectOpt label={fl("estilista")} value={draft.estilista_id} onChange={(v) => setDraft({ ...draft, estilista_id: v })} options={estilistas} />
         <FieldSelectOpt label={fl("modelista")} value={draft.modelista_id} onChange={(v) => setDraft({ ...draft, modelista_id: v })} options={modelistas} />
-        {/* Categoria (vem do Planejamento, editável aqui) + Subcategorias 1/2 deste modelo. */}
+        {/* Grupo FILTRA a Categoria (não é salvo). Categoria vem do Planejamento, editável aqui. */}
+        <FieldSelectOpt
+          label="Grupo"
+          value={grupoId}
+          onChange={(v) => {
+            setGrupoId(v);
+            const cat = categorias.find((c) => c.id === draft.categoria_principal_id);
+            // Se a categoria atual não pertence ao novo grupo, limpa categoria + subcategorias.
+            if (cat && cat.grupo_id !== v) setDraft({ ...draft, categoria_principal_id: null, subcategoria1_id: null, subcategoria2_id: null });
+          }}
+          options={grupos}
+        />
         <FieldSelectOpt
           label="Categoria"
           value={draft.categoria_principal_id}
@@ -134,7 +158,7 @@ export function ModeloInfoSection({
             // Trocar a categoria invalida as subcategorias (que pertencem a ela).
             setDraft({ ...draft, categoria_principal_id: v, subcategoria1_id: null, subcategoria2_id: null })
           }
-          options={categorias}
+          options={grupoId ? categorias.filter((c) => c.grupo_id === grupoId) : categorias}
         />
         <FieldSelectOpt
           label="Subcategoria 1"
@@ -148,6 +172,9 @@ export function ModeloInfoSection({
           onChange={(v) => setDraft({ ...draft, subcategoria2_id: v })}
           options={sub2Opts.filter((s) => s.categoria_id === draft.categoria_principal_id)}
         />
+        <FieldSelectOpt label="Lançamento" value={draft.semana || null} onChange={(v) => setDraft({ ...draft, semana: v })} options={["1", "2", "3", "4", "5"].map((s) => ({ id: s, nome: s }))} />
+        <FieldSelectOpt label="Mês" value={draft.mes_id || null} onChange={(v) => setDraft({ ...draft, mes_id: v })} options={meses} />
+        <FieldSelectOpt label="Ano" value={draft.ano_id || null} onChange={(v) => setDraft({ ...draft, ano_id: v })} options={anos} />
         {otbOn && (
           <FieldSelectOpt
             label="Coleção"

@@ -89,7 +89,19 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   });
 
   const linhas = useOpts("linhas");
-  const categorias = useOpts("categorias_produto");
+  const categorias = useQuery({
+    queryKey: ["opt", "categorias_produto", "grupo"],
+    queryFn: async () => ((await supabase.from("categorias_produto").select("id, nome, grupo_id").order("nome")).data ?? []) as { id: string; nome: string; grupo_id: string | null }[],
+  });
+  const grupos = useOpts("grupos_produto");
+  const meses = useQuery({
+    queryKey: ["opt-panel", "meses"],
+    queryFn: async () => (((await supabase.from("meses").select("id, mes").order("ordem")).data ?? []) as any[]).map((m) => ({ id: m.id, nome: m.mes })) as Opt[],
+  });
+  const anos = useQuery({
+    queryKey: ["opt-panel", "anos"],
+    queryFn: async () => (((await supabase.from("anos").select("id, ano").order("ano", { ascending: false })).data ?? []) as any[]).map((a) => ({ id: a.id, nome: String(a.ano) })) as Opt[],
+  });
   const sub1Opts = useSubOpts("subcategorias1_produto");
   const sub2Opts = useSubOpts("subcategorias2_produto");
   const estilistas = useColabs("estilista");
@@ -1016,6 +1028,9 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
         subcategoria2_id: draft.subcategoria2_id || null,
         colecao_id: draft.colecao_id || null,
         subcolecao: draft.subcolecao || null,
+        mes_id: draft.mes_id || null,
+        ano_id: draft.ano_id || null,
+        semana: draft.semana || null,
         custo_terceirizados_previsto: draft.custo_terceirizados_previsto || 0,
         custos_adicionais: draft.custos_adicionais ?? [],
         custo_tecido_total: totals.tecido,
@@ -1648,6 +1663,9 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
                 modelistas={modelistas.data ?? []}
                 piloteiros={piloteiros.data ?? []}
                 categorias={categorias.data ?? []}
+                grupos={grupos.data ?? []}
+                meses={meses.data ?? []}
+                anos={anos.data ?? []}
                 sub1Opts={sub1Opts.data ?? []}
                 sub2Opts={sub2Opts.data ?? []}
                 isAprovado={isAprovado}
