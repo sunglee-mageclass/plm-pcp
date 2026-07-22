@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>sisTrama — Padrões de UI (Navy Trust)</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap');
+
+  /* ── Tokens reais do app (src/styles.css — tema claro "Navy Trust") ── */
+  :root {
+    --radius: 0.625rem;
+    --background: oklch(0.984 0.003 248);
+    --foreground: oklch(0.20 0.04 265);
+    --card: #fff;
+    --card-foreground: oklch(0.20 0.04 265);
+    --primary: oklch(0.52 0.09 248);
+    --primary-foreground: oklch(0.99 0.003 248);
+    --secondary: oklch(0.96 0.005 248);
+    --secondary-foreground: oklch(0.22 0.05 265);
+    --muted: oklch(0.965 0.005 248);
+    --muted-foreground: oklch(0.5 0.02 260);
+    --accent: oklch(0.94 0.012 248);
+    --accent-foreground: oklch(0.22 0.05 265);
+    --destructive: oklch(0.58 0.21 27);
+    --destructive-foreground: oklch(0.99 0.003 248);
+    --success: oklch(0.62 0.14 152);
+    --success-foreground: oklch(0.99 0.003 248);
+    --warning: oklch(0.78 0.14 80);
+    --warning-foreground: oklch(0.2 0.04 80);
+    --border: oklch(0.90 0.01 248);
+    --input: oklch(0.93 0.008 248);
+    --ring: oklch(0.52 0.09 248);
+    --sidebar: oklch(0.21 0.07 265);
+    --sidebar-foreground: oklch(0.93 0.012 248);
+    --sidebar-accent: oklch(0.3 0.06 256);
+  }
+
+  * { box-sizing: border-box; }
+  html { font-family: "Figtree", system-ui, -apple-system, sans-serif; }
+  body {
+    margin: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: "Figtree", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+  }
+  h1, h2, h3, h4 { font-family: "Outfit", "Figtree", sans-serif; letter-spacing: -0.01em; margin: 0; }
+
+  /* ── Layout ── */
+  .shell { display: flex; min-height: 100vh; }
+  .sidebar {
+    width: 250px; flex-shrink: 0; background: var(--sidebar); color: var(--sidebar-foreground);
+    padding: 24px 16px; position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  }
+  .sidebar .brand { font-family: "Outfit"; font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+  .sidebar .brand b { color: #fff; }
+  .sidebar .tag { font-size: 12px; opacity: 0.7; margin-bottom: 24px; }
+  .sidebar nav a {
+    display: block; padding: 8px 12px; border-radius: 8px; color: var(--sidebar-foreground);
+    text-decoration: none; font-size: 14px; margin-bottom: 2px; opacity: 0.85;
+  }
+  .sidebar nav a:hover { background: var(--sidebar-accent); opacity: 1; }
+  .main { flex: 1; min-width: 0; padding: 40px 48px; max-width: 1100px; }
+
+  header.page { margin-bottom: 36px; }
+  header.page h1 { font-size: 30px; }
+  header.page p { color: var(--muted-foreground); max-width: 70ch; }
+
+  section.pattern {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 24px; margin-bottom: 28px; box-shadow: 0 1px 2px rgba(15,27,61,0.04);
+  }
+  section.pattern > h2 { font-size: 19px; margin-bottom: 4px; }
+  .letter {
+    display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px;
+    border-radius: 7px; background: var(--primary); color: var(--primary-foreground);
+    font-size: 13px; font-weight: 700; margin-right: 10px; font-family: "Outfit";
+  }
+  .when {
+    font-size: 13px; color: var(--muted-foreground); margin: 8px 0 18px; padding: 8px 12px;
+    background: var(--muted); border-radius: 8px; border-left: 3px solid var(--primary);
+  }
+  .when b { color: var(--foreground); }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
+  .demo {
+    border: 1px dashed var(--border); border-radius: 8px; padding: 20px; background: var(--background);
+  }
+  .demo-label, .code-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted-foreground); margin-bottom: 10px; font-weight: 600; }
+  pre {
+    margin: 0; background: oklch(0.21 0.07 265); color: #e6ecf5; border-radius: 8px;
+    padding: 16px; overflow-x: auto; font-size: 12.5px; line-height: 1.6;
+    font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  }
+  code.inline { background: var(--muted); padding: 1px 6px; border-radius: 5px; font-size: 12.5px; font-family: ui-monospace, monospace; }
+  .note { font-size: 12.5px; color: var(--muted-foreground); margin-top: 14px; }
+  .note b { color: var(--foreground); }
+  .ref { font-family: ui-monospace, monospace; font-size: 12px; color: var(--primary); }
+
+  /* ─────────── Componentes reais reconstruídos p/ o guia ─────────── */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    height: 36px; padding: 0 16px; border-radius: 8px; font-size: 14px; font-weight: 500;
+    border: none; cursor: pointer; font-family: inherit; transition: background .15s;
+  }
+  .btn-primary { background: var(--primary); color: var(--primary-foreground); }
+  .btn-primary:hover { background: color-mix(in oklab, var(--primary) 90%, black); }
+  .btn-outline { background: var(--card); color: var(--foreground); border: 1px solid var(--input); box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+  .btn-outline:hover { background: var(--accent); }
+  .btn-destructive { background: var(--destructive); color: var(--destructive-foreground); }
+  .btn[disabled] { opacity: .5; cursor: not-allowed; }
+  .icon { width: 16px; height: 16px; display: inline-block; }
+
+  .dot-warning { color: var(--warning); font-size: 15px; line-height: 1; }
+  /* o app usa text-amber-600; o token --warning é o equivalente semântico */
+
+  .field { display: grid; gap: 4px; margin-bottom: 12px; }
+  .field label { font-size: 13px; font-weight: 500; }
+  .input {
+    height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--input);
+    background: var(--card); font-size: 14px; font-family: inherit; width: 100%;
+  }
+  .campo-ro {
+    height: 36px; padding: 0 12px; display: flex; align-items: center; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--muted); font-size: 14px;
+    font-variant-numeric: tabular-nums; color: var(--foreground);
+  }
+
+  .badge {
+    display: inline-flex; align-items: center; border-radius: 6px; border: 1px solid transparent;
+    padding: 1px 8px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .badge.b-success { background: color-mix(in oklab, var(--success) 15%, transparent); color: var(--success); }
+  .badge.b-warning { background: color-mix(in oklab, var(--warning) 20%, transparent); color: color-mix(in oklab, var(--warning) 70%, black 30%); }
+  .badge.b-danger  { background: color-mix(in oklab, var(--destructive) 15%, transparent); color: var(--destructive); }
+  .badge.b-info    { background: color-mix(in oklab, var(--primary) 12%, transparent); color: var(--primary); }
+  .badge.b-neutral { background: var(--muted); color: var(--muted-foreground); }
+
+  .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; border: 1px solid rgba(15,27,61,0.18); vertical-align: middle; flex-shrink: 0; }
+
+  .amber-banner {
+    display: flex; align-items: flex-start; gap: 8px; border-radius: 8px;
+    border: 1px solid color-mix(in oklab, var(--warning) 55%, white);
+    background: color-mix(in oklab, var(--warning) 22%, white);
+    color: color-mix(in oklab, var(--warning) 70%, black 40%);
+    padding: 8px 12px; font-size: 12.5px;
+  }
+
+  .collapsible-head {
+    display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+    border: 1px solid var(--border); background: color-mix(in oklab, var(--muted) 60%, transparent);
+    border-radius: 8px; padding: 8px 12px; cursor: pointer; font-family: inherit;
+  }
+  .collapsible-head:hover { background: var(--accent); }
+  .collapsible-head .chev { color: var(--muted-foreground); transition: transform .15s; }
+  .collapsible-head.open .chev { transform: rotate(90deg); }
+  .collapsible-body { margin: 4px 0 0 12px; padding-left: 8px; border-left: 1px solid var(--border); }
+  .flex1 { flex: 1; }
+  .tnum { font-variant-numeric: tabular-nums; }
+
+  .mock-bar {
+    display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--border);
+    background: var(--card); padding: 12px; border-radius: 0 0 8px 8px;
+    box-shadow: 0 -2px 8px rgba(15,27,61,0.08);
+  }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+  @media (max-width: 620px) { .grid2 { grid-template-columns: 1fr; } }
+  .mini-card { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--card); font-size: 13px; }
+
+  .bc { font-size: 13px; color: var(--muted-foreground); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .bc .sep { opacity: 0.5; }
+  .bc .cur { color: var(--foreground); font-weight: 600; }
+
+  .swatch-row { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .muted { color: var(--muted-foreground); }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">sis<b>Trama</b></div>
+    <div class="tag">Padrões de UI · Navy Trust</div>
+    <nav>
+      <a href="#tokens">Tokens &amp; fundação</a>
+      <a href="#A">A · Dirty / Salvar</a>
+      <a href="#B">B · Breadcrumb</a>
+      <a href="#C">C · Swatch de cor</a>
+      <a href="#D">D · Editável vs derivado</a>
+      <a href="#E">E · Banner de estimativa</a>
+      <a href="#F">F · Densidade colapsável</a>
+      <a href="#G">G · MobileActionBar</a>
+      <a href="#H">H · Badges de status</a>
+      <a href="#I">I · Cartões 2 colunas</a>
+    </nav>
+  </aside>
+
+  <main class="main">
+    <header class="page">
+      <h1>Padrões de UI — sisTrama</h1>
+      <p>
+        Guia visual do tema claro <b>Navy Trust</b>. Cada padrão abaixo mostra o exemplo renderizado ao vivo + o trecho de
+        código a copiar. Os tokens são os mesmos de <span class="ref">src/styles.css</span>. Onde um padrão ainda não tem
+        componente próprio (breadcrumb, indicador dirty, swatch), propomos um componente pequeno em
+        <span class="ref">src/components/shared/</span> — ver o <span class="ref">.md</span> ao lado para o código completo.
+      </p>
+    </header>
+
+    <!-- ─────────── Tokens ─────────── -->
+    <section class="pattern" id="tokens">
+      <h2>Fundação — tokens de cor</h2>
+      <div class="when">Fonte de verdade: <span class="ref">src/styles.css</span> (bloco <code class="inline">:root</code>). Use sempre a variável semântica (<code class="inline">bg-primary</code>, <code class="inline">text-muted-foreground</code>), nunca um hex solto.</div>
+      <div style="display:flex; flex-wrap:wrap; gap:10px;">
+        <div style="text-align:center;font-size:11px;"><div style="width:70px;height:44px;border-radius:8px;background:var(--primary);border:1px solid var(--border)"></div>primary</div>
+        <div style="text-align:center;font-size:11px;"><div style="width:70px;height:44px;border-radius:8px;background:var(--sidebar);border:1px solid var(--border)"></div>sidebar</div>
+        <div style="text-align:center;font-size:11px;"><div style="width:70px;height:44px;border-radius:8px;background:var(--success);border:1px solid var(--border)"></div>success</div>
+        <div style="text-align:center;font-size:11px;"><div style="width:70px;height:44px;border-radius:8px;background:var(--warning);border:1px solid var(--border)"></div>warning</div>
+        <div style="text-align:center;font-size:11px;"><div style="width:70px;height:44px;border-radius:8px;background:var(--destructive);border:1px solid var(--border)"></div>destructive</div>
+        <div style="text-align:center;font-size:11px;"><div style="width:70px;height:44px;border-radius:8px;background:var(--muted);border:1px solid var(--border)"></div>muted</div>
+        <div style="text-align:center;font-size:11px;"><div style="width:70px;height:44px;border-radius:8px;background:var(--accent);border:1px solid var(--border)"></div>accent</div>
+        <div style="text-align:center;font-size:11px;"><div style="width:70px;height:44px;border-radius:8px;background:var(--card);border:1px solid var(--border)"></div>card</div>
+      </div>
+    </section>
+
+    <!-- ─────────── A ─────────── -->
+    <section class="pattern" id="A">
+      <h2><span class="letter">A</span>Indicador "alterações não salvas" + Salvar/Salvo + guarda de descarte</h2>
+      <div class="when"><b>Quando usar:</b> em qualquer tela/Sheet com <em>rascunho local</em> editável. Ponto âmbar (<code class="inline">--warning</code>) enquanto <code class="inline">dirty</code>; botão <b>Salvar</b> desabilitado quando <code class="inline">!dirty</code> e vira "Salvo"; ao sair com alterações pendentes, um <code class="inline">AlertDialog</code> confirma o descarte.</div>
+      <div class="split">
+        <div class="demo">
+          <div class="demo-label">Exemplo</div>
+          <div class="swatch-row" style="margin-bottom:12px;">
+            Cenário Verão 26 <span class="dot-warning" title="não salvo">●</span>
+            <span class="muted" style="font-size:12px;">alterações não salvas</span>
+          </div>
+          <div class="mock-bar" style="box-shadow:none;border:1px solid var(--border);border-radius:8px;">
+            <button class="btn btn-outline" style="margin-right:auto;">← Voltar</button>
+            <button class="btn btn-primary">💾 Salvar</button>
+          </div>
+          <div style="height:10px;"></div>
+          <div class="mock-bar" style="box-shadow:none;border:1px solid var(--border);border-radius:8px;">
+            <span class="muted" style="font-size:12px;margin-right:auto;">sem alterações</span>
+            <button class="btn btn-primary" disabled>💾 Salvo</button>
+          </div>
+        </div>
+        <div>
+          <div class="code-label">Código</div>
+<pre>const [dirty, setDirty] = useState(false);
+// toda mutação do rascunho passa por aqui:
+const upd = (fn) =&gt; { setDraft(fn); setDirty(true); };
+
+// Título com o ponto âmbar
+&lt;span&gt;{nome}
+  {dirty &amp;&amp; (
+    &lt;span className="ml-1 text-amber-600" title="não salvo"&gt;•&lt;/span&gt;
+  )}
+&lt;/span&gt;
+
+// Botão Salvar/Salvo (footer)
+&lt;Button
+  onClick={() =&gt; salvar.mutate()}
+  disabled={!dirty || salvar.isPending}&gt;
+  &lt;Save className="h-4 w-4 mr-1" /&gt;
+  {dirty ? (salvar.isPending ? "Salvando…" : "Salvar") : "Salvo"}
+&lt;/Button&gt;
+
+// Guarda de descarte ao sair
+&lt;AlertDialog open={confirmSair} onOpenChange={setConfirmSair}&gt;
+  &lt;AlertDialogContent&gt;
+    &lt;AlertDialogHeader&gt;
+      &lt;AlertDialogTitle&gt;Descartar alterações?&lt;/AlertDialogTitle&gt;
+      &lt;AlertDialogDescription&gt;
+        Há alterações não salvas neste rascunho.
+      &lt;/AlertDialogDescription&gt;
+    &lt;/AlertDialogHeader&gt;
+    &lt;AlertDialogFooter&gt;
+      &lt;AlertDialogCancel&gt;Continuar editando&lt;/AlertDialogCancel&gt;
+      &lt;AlertDialogAction
+        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+        onClick={onClose}&gt;Descartar&lt;/AlertDialogAction&gt;
+    &lt;/AlertDialogFooter&gt;
+  &lt;/AlertDialogContent&gt;
+&lt;/AlertDialog&gt;</pre>
+          <div class="note">Referência viva: <span class="ref">src/components/otb/SimulacaoSheet.tsx:359</span> (<code class="inline">dirty</code>/<code class="inline">upd</code>), <span class="ref">:1152</span> (ponto âmbar), <span class="ref">:1713</span> (botão), <span class="ref">:1749</span> (AlertDialog de descarte). O AlertDialog é <span class="ref">src/components/ui/alert-dialog.tsx</span>.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────── B ─────────── -->
+    <section class="pattern" id="B">
+      <h2><span class="letter">B</span>Breadcrumb de contexto "Módulo › Tela › Entidade"</h2>
+      <div class="when"><b>Quando usar:</b> no topo de uma tela de detalhe/Sheet, para ancorar o usuário. Texto <code class="inline">muted-foreground</code>; a <b>entidade atual</b> em <code class="inline">foreground</code> e negrito. <b>Ainda não existe</b> componente — proposta: criar <span class="ref">src/components/shared/Breadcrumb.tsx</span>.</div>
+      <div class="split">
+        <div class="demo">
+          <div class="demo-label">Exemplo</div>
+          <div class="bc">
+            <span>Estilo &amp; Engenharia</span><span class="sep">›</span>
+            <span>Plan. Tecido</span><span class="sep">›</span>
+            <span class="cur">Coleção Verão 26</span>
+          </div>
+        </div>
+        <div>
+          <div class="code-label">Código (componente proposto)</div>
+<pre>// src/components/shared/Breadcrumb.tsx
+import { ChevronRight } from "lucide-react";
+
+type Crumb = { label: string; href?: string };
+
+export function Breadcrumb({ items }: { items: Crumb[] }) {
+  return (
+    &lt;nav className="flex items-center flex-wrap gap-1.5
+                    text-sm text-muted-foreground"&gt;
+      {items.map((c, i) =&gt; {
+        const last = i === items.length - 1;
+        return (
+          &lt;span key={i} className="flex items-center gap-1.5"&gt;
+            {i &gt; 0 &amp;&amp; (
+              &lt;ChevronRight className="h-3.5 w-3.5 opacity-50" /&gt;
+            )}
+            &lt;span className={last
+              ? "text-foreground font-semibold"
+              : ""}&gt;{c.label}&lt;/span&gt;
+          &lt;/span&gt;
+        );
+      })}
+    &lt;/nav&gt;
+  );
+}
+
+// uso
+&lt;Breadcrumb items={[
+  { label: "Estilo &amp; Engenharia" },
+  { label: "Plan. Tecido" },
+  { label: "Coleção Verão 26" },
+]} /&gt;</pre>
+          <div class="note"><b>Verificado:</b> não há breadcrumb em <span class="ref">src/</span> hoje (o <code class="inline">ChevronRight</code> só aparece em menus/collapsibles). O separador "›" fica no CSS/ícone, não no texto dos itens.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────── C ─────────── -->
+    <section class="pattern" id="C">
+      <h2><span class="letter">C</span>Swatch de cor ao lado da variante</h2>
+      <div class="when"><b>Quando usar:</b> ao listar variantes de tecido. Quadradinho 12px, arredondado, borda sutil + rótulo. O rótulo vem SEMPRE de <span class="ref">src/lib/variante.ts</span> (<code class="inline">labelVarianteRow</code>/<code class="inline">varianteLabel</code>) no formato <b>"nome - cor - apelido"</b>. <b>Atenção:</b> hoje as tabelas <code class="inline">cores</code>/<code class="inline">variantes_tecido</code> <b>não têm coluna hex</b> — o swatch cai num neutro (<code class="inline">--muted</code>) até existir hex.</div>
+      <div class="split">
+        <div class="demo">
+          <div class="demo-label">Exemplo</div>
+          <div class="swatch-row" style="margin-bottom:8px;">
+            <span class="swatch" style="background:#2f5d34;"></span>
+            <span>Malha PV · Verde Musgo - Verde - Floresta</span>
+          </div>
+          <div class="swatch-row" style="margin-bottom:8px;">
+            <span class="swatch" style="background:#c0392b;"></span>
+            <span>Malha PV · Vermelho - Vermelho</span>
+          </div>
+          <div class="swatch-row">
+            <span class="swatch" style="background:var(--muted);"></span>
+            <span class="muted">Malha PV · Off White <span style="font-size:11px;">(sem hex → neutro)</span></span>
+          </div>
+        </div>
+        <div>
+          <div class="code-label">Código (componente proposto)</div>
+<pre>// src/components/shared/VarianteSwatch.tsx
+import { labelVarianteRow } from "@/lib/variante";
+
+// row = linha embedada de variantes_tecido:
+//   { nome_variante, codigo_variante,
+//     cor: { nome, hex? }, apelido: { nome } }
+export function VarianteSwatch({ row }: { row: any }) {
+  const hex = row?.cor?.hex ?? null; // placeholder: coluna
+                                     // hex ainda NÃO existe no banco
+  return (
+    &lt;span className="inline-flex items-center gap-2"&gt;
+      &lt;span
+        className="h-3 w-3 rounded-[3px] border shrink-0"
+        style={{ backgroundColor: hex ?? "var(--muted)" }}
+        aria-hidden
+      /&gt;
+      &lt;span className="truncate"&gt;{labelVarianteRow(row)}&lt;/span&gt;
+    &lt;/span&gt;
+  );
+}</pre>
+          <div class="note"><code class="inline">labelVarianteRow</code> (<span class="ref">src/lib/variante.ts:32</span>) já resolve cor base (<code class="inline">cor.nome</code>/<code class="inline">cores.nome</code>) + apelido (<code class="inline">apelido.nome</code>), junta com " - " e cai p/ <code class="inline">codigo_variante</code> → "—". Não montar o texto à mão.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────── D ─────────── -->
+    <section class="pattern" id="D">
+      <h2><span class="letter">D</span>Campo editável (branco) vs derivado (cinza)</h2>
+      <div class="when"><b>Quando usar:</b> em formulários com mistura de entradas e valores calculados. <b>Editável</b> = <code class="inline">Input</code>/<code class="inline">NumberInput</code> fundo <code class="inline">card</code>. <b>Derivado</b> (não editável) = caixa <code class="inline">bg-muted</code> via helper <code class="inline">CampoRO</code>. A convenção deixa claro, à distância, o que o usuário controla.</div>
+      <div class="split">
+        <div class="demo">
+          <div class="demo-label">Exemplo</div>
+          <div class="field">
+            <label>Consumo de tecido (m) <span class="muted" style="font-weight:400;font-size:11px;">— editável</span></label>
+            <input class="input" value="1,85" />
+          </div>
+          <div class="field">
+            <label>Custo estimado <span class="muted" style="font-weight:400;font-size:11px;">— derivado</span></label>
+            <div class="campo-ro">R$ 42,90</div>
+          </div>
+        </div>
+        <div>
+          <div class="code-label">Código</div>
+<pre>// Editável
+&lt;div className="grid gap-1"&gt;
+  &lt;Label&gt;Consumo de tecido (m)&lt;/Label&gt;
+  &lt;NumberInput value={consumo} onChange={...} /&gt;
+&lt;/div&gt;
+
+// Derivado (calculado) — helper CampoRO
+function CampoRO({ label, value }: { label: string; value: string }) {
+  return (
+    &lt;div className="grid gap-1"&gt;
+      &lt;Label&gt;{label}&lt;/Label&gt;
+      &lt;div className="h-9 px-3 flex items-center rounded-md
+                      border bg-muted text-sm tabular-nums"&gt;
+        {value}
+      &lt;/div&gt;
+    &lt;/div&gt;
+  );
+}
+
+&lt;CampoRO label="Custo estimado" value={brl(total)} /&gt;</pre>
+          <div class="note">Referência viva: <span class="ref">src/routes/_authenticated/criacao.planejamento.tsx:1033</span> (def de <code class="inline">CampoRO</code>) e <span class="ref">:1589</span> (uso na "Simulação de custo"). <code class="inline">NumberInput</code> em <span class="ref">src/components/shared/NumberInput.tsx</span>.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────── E ─────────── -->
+    <section class="pattern" id="E">
+      <h2><span class="letter">E</span>Banner âmbar de estimativa / aviso</h2>
+      <div class="when"><b>Quando usar:</b> sobre um bloco cujos números são estimados/provisórios (não o dado real). Ícone <code class="inline">AlertTriangle</code>, borda + fundo âmbar (<code class="inline">--warning</code>), texto curto.</div>
+      <div class="split">
+        <div class="demo">
+          <div class="demo-label">Exemplo</div>
+          <div class="amber-banner">
+            <span class="icon">⚠️</span>
+            <span>Estimativa — <strong>não</strong> é o custo nem o preço real (esses vêm do BOM/CAD).</span>
+          </div>
+        </div>
+        <div>
+          <div class="code-label">Código</div>
+<pre>&lt;div className="rounded-md border border-amber-300 bg-amber-50
+                px-3 py-2 text-xs text-amber-800
+                dark:border-amber-800 dark:bg-amber-950/40
+                dark:text-amber-200 flex items-start gap-2"&gt;
+  &lt;AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" /&gt;
+  &lt;span&gt;
+    Estimativa — &lt;strong&gt;não&lt;/strong&gt; é o custo nem o preço real
+    (esses vêm do BOM/CAD).
+  &lt;/span&gt;
+&lt;/div&gt;</pre>
+          <div class="note">Referência viva: <span class="ref">src/routes/_authenticated/criacao.planejamento.tsx:1555</span>. As classes <code class="inline">amber-*</code> do Tailwind casam com o token <code class="inline">--warning</code>. O <code class="inline">mt-0.5</code> no ícone alinha com a 1ª linha do texto (ver padrão mobile: ícone <code class="inline">items-start</code>).</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────── F ─────────── -->
+    <section class="pattern" id="F">
+      <h2><span class="letter">F</span>Densidade colapsável (Collapsible / Accordion)</h2>
+      <div class="when"><b>Quando usar:</b> <code class="inline">Collapsible</code> para nós de árvore (OC, subcoleção…); <code class="inline">Accordion</code> para seções de formulário. O <b>header colapsado carrega um resumo</b> — ref · total · ✓/⚠ — pro usuário não precisar abrir p/ decidir.</div>
+      <div class="split">
+        <div class="demo">
+          <div class="demo-label">Exemplo</div>
+          <button class="collapsible-head open" onclick="this.classList.toggle('open');var b=this.nextElementSibling;b.style.display=b.style.display==='none'?'block':'none';">
+            <span class="chev">›</span>
+            <span class="flex1" style="font-size:13px;font-weight:500;">OC 2060</span>
+            <span style="color:var(--warning);font-weight:600;font-size:13px;">⚠</span>
+            <span class="tnum" style="color:var(--destructive);font-size:13px;">−12,40 m</span>
+          </button>
+          <div class="collapsible-body">
+            <div class="swatch-row" style="font-size:12px;justify-content:space-between;">
+              <span>Verde Musgo</span><span class="tnum muted">disp 40 · dem 52,4</span>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="code-label">Código</div>
+<pre>&lt;Collapsible defaultOpen className="group/oc"&gt;
+  &lt;CollapsibleTrigger asChild&gt;
+    &lt;button className="w-full flex items-center gap-2 rounded-md
+                       border bg-muted/20 px-3 py-2 text-left
+                       hover:bg-muted/40 min-h-[44px] md:min-h-0"&gt;
+      &lt;ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground
+        transition-transform group-data-[state=open]/oc:rotate-90" /&gt;
+      &lt;span className="flex-1 text-xs font-medium truncate"&gt;OC {num}&lt;/span&gt;
+      {/* resumo: ✓/⚠ + total */}
+      &lt;span className={ok ? "text-green-600" : "text-amber-600"}&gt;
+        {ok ? "✓" : "⚠"}
+      &lt;/span&gt;
+      &lt;span className={saldo &gt;= 0 ? "text-green-600" : "text-destructive"}&gt;
+        {fmt(saldo)}m
+      &lt;/span&gt;
+    &lt;/button&gt;
+  &lt;/CollapsibleTrigger&gt;
+  &lt;CollapsibleContent&gt;…&lt;/CollapsibleContent&gt;
+&lt;/Collapsible&gt;</pre>
+          <div class="note">Componentes: <span class="ref">src/components/ui/collapsible.tsx</span>, <span class="ref">src/components/ui/accordion.tsx</span> (o Accordion já traz o chevron que rotaciona). Referência viva do header-com-resumo: <span class="ref">src/components/otb/SimulacaoSheet.tsx:203</span>.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────── G ─────────── -->
+    <section class="pattern" id="G">
+      <h2><span class="letter">G</span>MobileActionBar + toque 44px</h2>
+      <div class="when"><b>Quando usar:</b> em toda tela com ação primária. No desktop a ação fica no header; no mobile (&lt;sm) ela desce para uma barra fixa no rodapé (portal). Regra de toque: alvos ≥ 44px (<code class="inline">max-md:h-11</code>). O container precisa de <code class="inline">max-sm:pb-24</code> e o botão do header de <code class="inline">max-sm:hidden</code>.</div>
+      <div class="split">
+        <div class="demo">
+          <div class="demo-label">Exemplo (simulação do rodapé mobile)</div>
+          <div style="max-width:320px;border:1px solid var(--border);border-radius:12px;overflow:hidden;">
+            <div style="padding:16px;font-size:13px;color:var(--muted-foreground);height:90px;">conteúdo da tela… (com <code class="inline">pb-24</code>)</div>
+            <div class="mock-bar">
+              <button class="btn btn-outline" style="height:44px;">←</button>
+              <button class="btn btn-primary flex1" style="height:44px;">💾 Salvar</button>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="code-label">Código</div>
+<pre>// no container da página:
+&lt;div className="… max-sm:pb-24"&gt; … &lt;/div&gt;
+
+// botão do header sumindo no mobile:
+&lt;Button className="max-sm:hidden" onClick={salvar}&gt;Salvar&lt;/Button&gt;
+
+// ao final da página, a versão mobile:
+&lt;MobileActionBar&gt;
+  &lt;Button variant="outline" size="icon" onClick={voltar}
+          aria-label="Voltar"&gt;
+    &lt;ArrowLeft className="h-4 w-4" /&gt;
+  &lt;/Button&gt;
+  &lt;Button className="flex-1" onClick={salvar}&gt;Salvar&lt;/Button&gt;
+&lt;/MobileActionBar&gt;</pre>
+          <div class="note">Componente: <span class="ref">src/components/shared/MobileActionBar.tsx</span> (renderiza <code class="inline">fixed bottom-0</code> via <code class="inline">createPortal</code> no <code class="inline">body</code> — a sidebar seria "containing block" senão). O <code class="inline">Button</code> já é 44px no mobile (<span class="ref">src/components/ui/button.tsx:21</span> <code class="inline">max-md:h-11</code>), assim como <code class="inline">Input</code>/<code class="inline">SelectTrigger</code>.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────── H ─────────── -->
+    <section class="pattern" id="H">
+      <h2><span class="letter">H</span>Badges de status / procedência</h2>
+      <div class="when"><b>Quando usar:</b> chips pequenos para procedência de valor (BOM/CAD/est.) ou estado (rascunho/confirmada, status de pedido). Cores <b>semânticas</b>: verde=ok/confirmado, âmbar=atenção/rascunho, vermelho=erro/atrasado, azul=informativo. Reutilize <code class="inline">StatusBadge</code> (que já usa os tokens via <code class="inline">color-mix</code>).</div>
+      <div class="split">
+        <div class="demo">
+          <div class="demo-label">Exemplo</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;">
+            <span class="badge b-info">BOM</span>
+            <span class="badge b-info">CAD</span>
+            <span class="badge b-neutral">est.</span>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;">
+            <span class="badge b-success">Confirmada</span>
+            <span class="badge b-warning">Rascunho</span>
+            <span class="badge b-danger">Atrasado 3 dias</span>
+          </div>
+          <div style="display:flex;gap:14px;align-items:center;font-size:13px;">
+            <span class="swatch-row"><span style="color:var(--success)">🟢</span> No prazo</span>
+            <span class="swatch-row"><span style="color:var(--warning)">🟡</span> Atenção</span>
+            <span class="swatch-row"><span style="color:var(--destructive)">🔴</span> Atrasado</span>
+          </div>
+        </div>
+        <div>
+          <div class="code-label">Código</div>
+<pre>// Preferir o componente compartilhado:
+&lt;StatusBadge tone="success"&gt;Confirmada&lt;/StatusBadge&gt;
+&lt;StatusBadge tone="warning"&gt;Rascunho&lt;/StatusBadge&gt;
+&lt;StatusBadge tone="danger"&gt;Atrasado 3 dias&lt;/StatusBadge&gt;
+&lt;StatusBadge tone="info"&gt;CAD&lt;/StatusBadge&gt;
+&lt;StatusBadge tone="neutral"&gt;est.&lt;/StatusBadge&gt;
+
+// tone → token (color-mix):
+//  success  → --color-success
+//  warning  → --color-warning
+//  danger   → --color-destructive
+//  info     → --primary
+//  neutral  → --muted
+
+// Semáforo de status de pedido (texto/emoji):
+&lt;span className={
+  atrasado ? "text-destructive"
+  : atencao ? "text-amber-600"
+  : "text-green-600"
+}&gt;●&lt;/span&gt;</pre>
+          <div class="note">Componente: <span class="ref">src/components/shared/StatusBadge.tsx</span> (tones <code class="inline">success|warning|danger|info|neutral</code>). Base <code class="inline">Badge</code>: <span class="ref">src/components/ui/badge.tsx</span> (variants <code class="inline">default|secondary|destructive|outline</code>). Usos reais de semáforo: <span class="ref">src/components/otb/SimulacaoSheet.tsx:212</span>, <span class="ref">src/components/otb/ColecaoSheet.tsx:416</span>. Prazo de OC: <span class="ref">src/components/shared/oc-prazo-badge.tsx:31</span>.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────── I ─────────── -->
+    <section class="pattern" id="I">
+      <h2><span class="letter">I</span>Cartões em 2 colunas que expandem na própria coluna</h2>
+      <div class="when"><b>Quando usar:</b> páginas de config/detalhe com blocos independentes. <code class="inline">md:grid-cols-2</code> + <code class="inline">items-start</code> — cada card cresce sozinho, sem esticar o vizinho (sem <code class="inline">items-start</code> os dois ficam da altura do maior).</div>
+      <div class="split">
+        <div class="demo">
+          <div class="demo-label">Exemplo</div>
+          <div class="grid2">
+            <div class="mini-card">
+              <b>Módulos</b>
+              <p class="muted" style="margin:6px 0 0;">card curto</p>
+            </div>
+            <div class="mini-card">
+              <b>Fuso horário</b>
+              <p class="muted" style="margin:6px 0 0;">este card tem mais conteúdo e cresce só na sua coluna, sem forçar o vizinho a esticar.</p>
+              <p class="muted" style="margin:6px 0 0;">linha extra…</p>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="code-label">Código</div>
+<pre>&lt;div className="grid grid-cols-1 gap-4 lg:grid-cols-2 items-start"&gt;
+  &lt;Card&gt; … &lt;/Card&gt;
+  &lt;Card&gt; … &lt;/Card&gt;
+&lt;/div&gt;</pre>
+          <div class="note">Referência viva: <span class="ref">src/routes/_authenticated/admin/configuracoes.tsx:267</span> e <span class="ref">src/routes/_authenticated/admin/identidade.tsx:158</span>. O <code class="inline">items-start</code> é o detalhe que faz o padrão funcionar.</div>
+        </div>
+      </div>
+    </section>
+
+    <p class="note" style="margin-top:40px;">
+      Referência escrita (tokens, componentes reais e snippets copiáveis) em
+      <span class="ref">docs/design/ui-padroes.md</span>.
+    </p>
+  </main>
+</div>
+</body>
+</html>
