@@ -219,6 +219,20 @@ function PlanejamentoPage() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["modelos-planejamento"] }); },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao aprovar mão de obra")),
   });
+  // Lançar/cancelar direto do card (botão foguete) — mesma RPC do detalhe (gate no servidor).
+  const lancarCard = useMutation({
+    mutationFn: async ({ id, data, send }: { id: string; data: string | null; send: boolean }) => {
+      const { error } = await supabase.rpc("lancar_modelo" as any, { _modelo_id: id, _data_lancamento: send ? data : null, _send: send });
+      if (error) throw error;
+    },
+    onSuccess: (_d, v) => {
+      toast.success(v.send ? "Modelo lançado" : "Lançamento cancelado");
+      qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+      qc.invalidateQueries({ queryKey: ["lancamentos-cards"] });
+      qc.invalidateQueries({ queryKey: ["sidebar-badges"] });
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao lançar")),
+  });
   const [groupByCat, setGroupByCat] = useState(false);
   const [groupByLinha, setGroupByLinha] = useState(false);
   const [groupBySub1, setGroupBySub1] = useState(false);
@@ -500,10 +514,11 @@ function PlanejamentoPage() {
           const maoObra = ls != null ? (c?.mao_obra_real ?? null) : (c?.mao_obra_previsto ?? null);
           return maoObra != null ? custo - maoObra : custo;
         })()}
-        maoObraAprovado={!!(m as any).custo_terceirizados_aprovado}
+        maoObraAprovado={((m as any).custo_terceirizados_aprovado ?? null) as boolean | null}
         dataLancamento={(m as any).data_lancamento ?? null}
         onAprovar={() => setMaoObra.mutate({ id: m.id, aprovado: true })}
         onReprovar={() => setMaoObra.mutate({ id: m.id, aprovado: false })}
+        onLancar={(data, send) => lancarCard.mutate({ id: m.id, data, send })}
         lancStatus={lancStatusDe(m)}
         mesNome={m.mes_id ? mesMap[m.mes_id] : null}
         anoNome={m.ano_id ? anoMap[m.ano_id] : null}
@@ -820,17 +835,19 @@ function PlanejamentoPage() {
 }
 
 
-function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, custoReal, markup, preco, maoObra, custoMat, maoObraAprovado, dataLancamento, onAprovar, onReprovar, lancStatus, mesNome, anoNome, onOpen, compact }: {
-  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; maoObra: number | null; custoMat: number | null; maoObraAprovado: boolean; dataLancamento: string | null; onAprovar: () => void; onReprovar: () => void; lancStatus: "lancado" | "pronto" | null; mesNome: string | null; anoNome: string | null; onOpen: () => void; compact?: boolean;
+function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, custoReal, markup, preco, maoObra, custoMat, maoObraAprovado, dataLancamento, onAprovar, onReprovar, onLancar, lancStatus, mesNome, anoNome, onOpen, compact }: {
+  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; maoObra: number | null; custoMat: number | null; maoObraAprovado: boolean | null; dataLancamento: string | null; onAprovar: () => void; onReprovar: () => void; onLancar: (data: string | null, send: boolean) => void; lancStatus: "lancado" | "pronto" | null; mesNome: string | null; anoNome: string | null; onOpen: () => void; compact?: boolean;
 }) {
   // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
   const cover = (modelo.fotos_modelo?.[0]) || modelo.desenho_tecnico_url || modelo.croqui_url || null;
   const url = useSignedUrlBucket(cover);
   const coverIsPdf = /\.pdf$/i.test(cover ?? "");
   const meta = statusMeta(modelo.status_planejamento);
-  // Tooltip que SEGUE o cursor (sem atraso): status + aprovação de serviço numa string só —
-  // não precisa mirar a bolinha. \n vira quebra de linha.
-  const tip = `${meta.label}\n${maoObraAprovado ? "Mão de obra aprovada" : "Mão de obra reprovada"}`;
+  const [dtLanc, setDtLanc] = useState(dataLancamento ?? "");
+  // Mão de obra: 3 estados — aprovado(true)/reprovado(false)/pendente(null).
+  const moTxt = maoObraAprovado === true ? "Mão de obra aprovada" : maoObraAprovado === false ? "Mão de obra reprovada" : "Mão de obra pendente";
+  // Tooltip que SEGUE o cursor (sem atraso): status + mão de obra numa string só. \n = quebra.
+  const tip = `${meta.label}\n${moTxt}`;
   const { handlers, node } = useCursorTip(tip);
   return (
     <>
@@ -841,8 +858,8 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
     >
       <div className="relative aspect-[3/4] bg-muted flex items-center justify-center overflow-hidden">
         <span
-          className={`absolute top-1.5 right-1.5 z-10 h-3 w-3 rounded-full ring-2 ring-white shadow ${maoObraAprovado ? "bg-emerald-500" : "bg-red-500"}`}
-          title={maoObraAprovado ? "Mão de obra aprovada" : "Mão de obra reprovada"}
+          className={`absolute top-1.5 right-1.5 z-10 h-3 w-3 rounded-full ring-2 ring-white shadow ${maoObraAprovado === true ? "bg-emerald-500" : maoObraAprovado === false ? "bg-red-500" : "bg-amber-400"}`}
+          title={moTxt}
         />
         {!url ? (
           <ImageIcon className="h-10 w-10 text-muted-foreground" />
@@ -883,15 +900,23 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <span className="truncate">Mão de obra{custoReal ? "" : " prev."}: {maoObra != null ? brl(maoObra) : "—"}</span>
             <button type="button" aria-label="Aprovar mão de obra" onClick={(e) => { e.stopPropagation(); onAprovar(); }}
-              className={`shrink-0 ${maoObraAprovado ? "text-emerald-600" : "text-muted-foreground/40 hover:text-emerald-600"}`}><Check className="h-3.5 w-3.5" /></button>
+              className={`shrink-0 ${maoObraAprovado === true ? "text-emerald-600" : "text-muted-foreground/40 hover:text-emerald-600"}`}><Check className="h-3.5 w-3.5" /></button>
             <button type="button" aria-label="Reprovar mão de obra" onClick={(e) => { e.stopPropagation(); onReprovar(); }}
-              className={`shrink-0 ${!maoObraAprovado ? "text-red-600" : "text-muted-foreground/40 hover:text-red-600"}`}><X className="h-3.5 w-3.5" /></button>
+              className={`shrink-0 ${maoObraAprovado === false ? "text-red-600" : "text-muted-foreground/40 hover:text-red-600"}`}><X className="h-3.5 w-3.5" /></button>
           </div>
           {preco != null ? <p className="text-xs font-medium truncate">{brl(preco)}</p> : <p className="text-xs text-muted-foreground truncate">Preço: —</p>}
-          {/* Lançamento: data + foguete (âmbar=pronto, verde=lançado) */}
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="truncate">Lançamento: {dataLancamento ? fmtDataBR(dataLancamento) : "—"}</span>
-            {lancStatus && <Rocket className={`h-3.5 w-3.5 shrink-0 ${lancStatus === "lancado" ? "text-emerald-600" : "text-amber-500"}`} />}
+          {/* Lançamento: escolhe a data + botão foguete = Lançar/Cancelar (mesma RPC do detalhe).
+              Foguete âmbar=pronto (clicável), verde=lançado (clica p/ cancelar), cinza=indisponível. */}
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground" onClick={(e) => e.stopPropagation()}>
+            <span className="shrink-0">Lançamento:</span>
+            <span className="w-[6.5rem] inline-block"><DateField value={dtLanc} onChange={(e) => setDtLanc(e.target.value)} className="h-7 text-xs px-1.5" /></span>
+            <button type="button" disabled={lancStatus == null}
+              aria-label={lancStatus === "lancado" ? "Cancelar lançamento" : "Lançar"}
+              title={lancStatus === "lancado" ? "Cancelar lançamento" : lancStatus === "pronto" ? "Lançar" : "Pronto só com CQ liberado e mão de obra aprovada"}
+              onClick={(e) => { e.stopPropagation(); onLancar(dtLanc || null, lancStatus !== "lancado"); }}
+              className={`shrink-0 ${lancStatus === "lancado" ? "text-emerald-600 hover:text-emerald-700" : lancStatus === "pronto" ? "text-amber-500 hover:text-amber-600" : "text-muted-foreground/30 cursor-not-allowed"}`}>
+              <Rocket className="h-4 w-4" />
+            </button>
           </div>
         </div>
       )}
