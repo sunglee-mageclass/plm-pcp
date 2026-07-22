@@ -137,8 +137,12 @@ export function ModeloInfoSection({
             <Textarea rows={2} value={draft.motivo_cancelamento} onChange={(e) => setDraft({ ...draft, motivo_cancelamento: e.target.value })} />
           </Field>
         )}
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <FieldSelectOpt label={fl("estilista")} value={draft.estilista_id} onChange={(v) => setDraft({ ...draft, estilista_id: v })} options={estilistas} />
         <FieldSelectOpt label={fl("modelista")} value={draft.modelista_id} onChange={(v) => setDraft({ ...draft, modelista_id: v })} options={modelistas} />
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {/* Grupo FILTRA a Categoria (não é salvo). Categoria vem do Planejamento, editável aqui. */}
         <FieldSelectOpt
           label="Grupo"
@@ -172,9 +176,13 @@ export function ModeloInfoSection({
           onChange={(v) => setDraft({ ...draft, subcategoria2_id: v })}
           options={sub2Opts.filter((s) => s.categoria_id === draft.categoria_principal_id)}
         />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <FieldSelectOpt label="Lançamento" value={draft.semana || null} onChange={(v) => setDraft({ ...draft, semana: v })} options={["1", "2", "3", "4", "5"].map((s) => ({ id: s, nome: s }))} />
         <FieldSelectOpt label="Mês" value={draft.mes_id || null} onChange={(v) => setDraft({ ...draft, mes_id: v })} options={meses} />
         <FieldSelectOpt label="Ano" value={draft.ano_id || null} onChange={(v) => setDraft({ ...draft, ano_id: v })} options={anos} />
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {otbOn && (
           <FieldSelectOpt
             label="Coleção"
@@ -200,6 +208,8 @@ export function ModeloInfoSection({
           </Field>
         )}
         <FieldSelectOpt label={fl("linha")} value={draft.linha_id} onChange={(v) => setDraft({ ...draft, linha_id: v })} options={linhas} />
+      </div>
+      <div className="grid sm:grid-cols-2 gap-3">
         <div className="sm:col-span-2 grid sm:grid-cols-2 gap-3">
           <FieldSelectOpt label={`${fl("piloteiro")} 1`} value={draft.piloteiro1_id} onChange={(v) => setDraft({ ...draft, piloteiro1_id: v })} options={piloteiros} />
           <Field label="Data Piloto 1">
