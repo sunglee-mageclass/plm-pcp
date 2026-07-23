@@ -6,15 +6,16 @@ import { necessidadeVariante } from "@/lib/plan-tecido/calc";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { ModeloThumb } from "./ModeloThumb";
 
+export type SlotPath = { si: number; li: number; sli: number };
 type VarLinha = { variante_tecido_id: string; label: string; cor_nome: string | null; metros: number };
-type ModeloCard = { key: string; nome: string; ref: string | null; thumb_path: string | null; gradeTotal: number; variantes: VarLinha[]; totalMetros: number };
+type ModeloCard = { key: string; path: SlotPath; nome: string; ref: string | null; thumb_path: string | null; gradeTotal: number; variantes: VarLinha[]; totalMetros: number };
 type TecidoBloco = { artigo_id: string; artigo_nome: string; unidade_medida: string | null; categoria: string | null; modelos: ModeloCard[]; totalMetros: number };
 
 /**
  * Visão "Por tecido": para cada tecido, mini-cards por modelo com foto, nome, ref, grade total,
- * variantes usadas e metragem por variante. Dá a leitura "quais modelos vão em cada tecido/variante".
+ * variantes usadas e metragem por variante. Clicar no card abre a edição rápida (onAbrirCard).
  */
-export function VisaoPorTecido({ arvore }: { arvore: PtArvore }) {
+export function VisaoPorTecido({ arvore, onAbrirCard }: { arvore: PtArvore; onAbrirCard?: (p: SlotPath) => void }) {
   // categoria do tecido (por artigo) — reconhecida do cadastro
   const { data: catPorArtigo = {} } = useQuery({
     queryKey: ["plan-tecido-artigo-categoria"],
@@ -28,9 +29,9 @@ export function VisaoPorTecido({ arvore }: { arvore: PtArvore }) {
 
   const blocos = useMemo<TecidoBloco[]>(() => {
     const byArtigo = new Map<string, TecidoBloco>();
-    for (const sub of arvore.subcolecoes ?? [])
-      for (const ln of sub.linhas ?? [])
-        for (const slot of ln.slots ?? []) {
+    (arvore.subcolecoes ?? []).forEach((sub, si) =>
+      (sub.linhas ?? []).forEach((ln, li) =>
+        (ln.slots ?? []).forEach((slot, sli) => {
           const gradeTotal = (slot.materiais ?? [])
             .filter((m) => m.tipo === "tecido" && m.numero === 1)
             .flatMap((m) => m.variantes ?? [])
@@ -53,13 +54,14 @@ export function VisaoPorTecido({ arvore }: { arvore: PtArvore }) {
             if (variantes.length === 0) continue;
             const totalMetros = variantes.reduce((s, x) => s + x.metros, 0);
             bloco.modelos.push({
-              key: slot.modelo_id ?? `${sub.subcolecao_id}-${ln.linha_id}-${ln.slots.indexOf(slot)}`,
+              key: `${si}-${li}-${sli}-${mat.artigo_id}`,
+              path: { si, li, sli },
               nome: slot.nome ?? "Modelo sem nome", ref: slot.ref ?? null, thumb_path: slot.thumb_path ?? null,
               gradeTotal, variantes, totalMetros,
             });
             bloco.totalMetros += totalMetros;
           }
-        }
+        })));
     return [...byArtigo.values()].sort((a, b) => b.totalMetros - a.totalMetros);
   }, [arvore, catPorArtigo]);
 
@@ -80,7 +82,8 @@ export function VisaoPorTecido({ arvore }: { arvore: PtArvore }) {
           </div>
           <div className="grid grid-cols-2 gap-2 p-2 md:grid-cols-3 lg:grid-cols-4">
             {t.modelos.map((m) => (
-              <div key={m.key} className="flex gap-2 rounded border p-2">
+              <button key={m.key} type="button" onClick={() => onAbrirCard?.(m.path)} title="Clique para editar"
+                className="flex gap-2 rounded border p-2 text-left transition-colors hover:border-primary hover:bg-muted/30">
                 <ModeloThumb path={m.thumb_path} className="h-10 w-10" />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-xs font-medium">
@@ -99,7 +102,7 @@ export function VisaoPorTecido({ arvore }: { arvore: PtArvore }) {
                     ))}
                   </div>
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         </div>

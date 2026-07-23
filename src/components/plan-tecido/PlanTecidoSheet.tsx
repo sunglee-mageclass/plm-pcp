@@ -25,7 +25,8 @@ import type { PtArvore, PtMaterial, PtVariante } from "@/lib/plan-tecido/types";
 import { ModelCard } from "@/components/plan-tecido/ModelCard";
 import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
 import { PaletaColecao } from "@/components/plan-tecido/PaletaColecao";
-import { VisaoPorTecido } from "@/components/plan-tecido/VisaoPorTecido";
+import { VisaoPorTecido, type SlotPath } from "@/components/plan-tecido/VisaoPorTecido";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
 import { tecidosDaArvore } from "@/lib/plan-tecido/calc";
 import { FazerPedidoWizard, type PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
@@ -187,6 +188,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
   const [confirmSair, setConfirmSair] = useState(false);
   const [viewMode, setViewMode] = useState<"linha" | "tecido">("linha");
   const [selecao, setSelecao] = useState<Set<string>>(new Set());
+  const [editPath, setEditPath] = useState<SlotPath | null>(null); // edição rápida (dialog) da visão por tecido
   const [formTipo, setFormTipo] = useState<"tecido" | "forro" | null>(null);
   const [previaOpen, setPreviaOpen] = useState(false);
   const [previaData, setPreviaData] = useState<PreviaRpc | null>(null);
@@ -610,7 +612,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                     </Collapsible>
                   ))
                 ) : (
-                  <VisaoPorTecido arvore={arvore} />
+                  <VisaoPorTecido arvore={arvore} onAbrirCard={setEditPath} />
                 )}
               </div>
               <div className="hidden w-80 shrink-0 md:block lg:w-96 md:sticky md:top-3 md:self-start md:max-h-[calc(100dvh-1.5rem)] md:overflow-y-auto">
@@ -667,6 +669,37 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Edição rápida (dialog) a partir da visão "Por tecido" */}
+        {editPath && arvore && (() => {
+          const { si, li, sli } = editPath;
+          const slot = arvore.subcolecoes[si]?.linhas[li]?.slots[sli];
+          if (!slot) return null;
+          return (
+            <Dialog open onOpenChange={(o) => { if (!o) setEditPath(null); }}>
+              <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+                <ModelCard
+                  slot={slot}
+                  defaultOpen
+                  colecaoId={colecaoId}
+                  subcolecaoId={arvore.subcolecoes[si].subcolecao_id}
+                  paleta={paleta}
+                  tamanhos={tamanhos}
+                  ocsAplicadas={ocsAplicadas}
+                  slotOcIds={slot.id ? (slotOcMap[slot.id] ?? []) : []}
+                  vinculos={slot.modelo_id ? (vinculosMap[slot.modelo_id] ?? []) : []}
+                  lancado={slot.modelo_id ? lancadoSet.has(slot.modelo_id) : false}
+                  onEnsureSaved={ensureSaved}
+                  onChange={(ns) => {
+                    const next = structuredClone(arvore) as PtArvore;
+                    next.subcolecoes[si].linhas[li].slots[sli] = ns;
+                    patch(next);
+                  }}
+                />
+              </DialogContent>
+            </Dialog>
+          );
+        })()}
 
         {/* Mini-form: aplicar tecido/forro em massa (respeita a paleta) */}
         <AlertDialog open={!!formTipo} onOpenChange={(o) => { if (!o) setFormTipo(null); }}>

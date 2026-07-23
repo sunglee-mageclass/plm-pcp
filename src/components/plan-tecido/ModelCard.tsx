@@ -38,6 +38,7 @@ export function ModelCard({
   vinculos,
   lancado,
   onEnsureSaved,
+  defaultOpen,
 }: {
   slot: PtSlot;
   onChange: (s: PtSlot) => void;
@@ -52,9 +53,10 @@ export function ModelCard({
   vinculos?: { oc_id: string; numero_pedido: string | null; tecidos: string | null }[];
   lancado?: boolean;
   onEnsureSaved?: () => Promise<boolean>;
+  defaultOpen?: boolean;
 }) {
   const qc = useQueryClient();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen ?? false);
   const [confirmGrade, setConfirmGrade] = useState(false);
   const [aplicandoGrade, setAplicandoGrade] = useState(false);
   const [criandoCard, setCriandoCard] = useState(false);
