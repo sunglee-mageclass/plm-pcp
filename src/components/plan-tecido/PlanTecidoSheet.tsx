@@ -234,7 +234,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
       ((await supabase
         .from("modelos")
         .select(
-          "id, ref, nome, subcolecao, linha_id, categoria_principal_id, proporcoes, fotos_modelo, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(cor:cor_id(nome)))), modelo_grades(variante_numero, grades, grade_total)",
+          "id, ref, nome, subcolecao, linha_id, categoria_principal_id, proporcoes, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(cor:cor_id(nome)))), modelo_grades(variante_numero, grades, grade_total)",
         )
         .eq("colecao_id", colecaoId)).data ?? []) as any[],
   });
@@ -270,7 +270,13 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
         id: m.id,
         ref: m.ref ?? null,
         nome: m.nome ?? null,
-        thumb_path: Array.isArray(m.fotos_modelo) ? (m.fotos_modelo[0] ?? null) : null,
+        // hierarquia de imagem: croqui → desenho técnico → foto de modelo → foto de referência
+        thumb_path:
+          m.croqui_url ||
+          m.desenho_tecnico_url ||
+          (Array.isArray(m.fotos_modelo) ? m.fotos_modelo[0] : null) ||
+          (Array.isArray(m.fotos_referencia) ? m.fotos_referencia[0] : null) ||
+          null,
         subcolecao: m.subcolecao ?? null,
         subcolecao_id: m.subcolecao ? (subIdPorNome.get(m.subcolecao) ?? null) : null,
         linha_id: m.linha_id ?? null,

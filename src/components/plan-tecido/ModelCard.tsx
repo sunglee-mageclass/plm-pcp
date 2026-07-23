@@ -70,6 +70,7 @@ export function ModelCard({
 
   const temGrade = slot.materiais.some((m) => m.variantes.some((v) => v.grade_total > 0));
   const usarEstoque = slot.usar_estoque ?? false;
+  const catNome = categorias.find((c) => c.id === slot.categoria_id)?.nome ?? null;
   const borderClass = open ? "border-primary" : usarEstoque ? "border-amber-500" : "";
 
   // Estado do botão "Aplicar grade ao modelo"
@@ -134,7 +135,11 @@ export function ModelCard({
           <ChevronRight className={`h-4 w-4 transition-transform ${open ? "rotate-90" : ""}`} />
           <ModeloThumb path={slot.thumb_path} />
           <div className={`min-w-0 ${onToggleSelect ? "ml-4" : ""}`}>
-            <div className="truncate text-sm font-medium">{slot.ref ?? slot.nome ?? "Modelo"}</div>
+            <div className="truncate text-sm font-medium">
+              {slot.nome ?? "Modelo"}
+              {slot.ref ? <span className="font-normal text-muted-foreground"> · {slot.ref}</span> : null}
+            </div>
+            {catNome && <div className="truncate text-[11px] text-muted-foreground">{catNome}</div>}
             <div className="text-xs text-muted-foreground">
               {total ? `${total.toFixed(0)} m` : "—"} · {temGrade ? "✓ grade" : "⚠ falta"}
               {usarEstoque ? " · estoque" : ""}
