@@ -28,8 +28,9 @@ function NecBlock({
 }) {
   const totalNec = nec.reduce((s, t) => s + t.totalMetros, 0);
   // conta agregada (só quando há estoque = bloco "a comprar")
-  // falta = max(0, necessidade − max(0, previsto)) — MESMA fórmula da prévia do pedido
-  const faltaDe = (metros: number, prev: number) => Math.max(0, metros - Math.max(0, prev));
+  // "a comprar" = necessidade CHEIA (cards marcados p/ comprar pedem tudo; estoque é só informativo).
+  // Mesma regra da prévia (déficit = necessidade). O 2º arg (previsto) fica só p/ assinatura.
+  const faltaDe = (metros: number, _prev: number) => metros;
   let totalReceber = 0, totalFalta = 0, totalCoberto = 0;
   if (estoque) {
     for (const t of nec) for (const v of t.variantes) {
@@ -70,7 +71,7 @@ function NecBlock({
                         {cobertura && (cobertura[v.variante_tecido_id] ?? 0) > 0 && (
                           <span className="text-sky-700">coberto por OC {(cobertura[v.variante_tecido_id] ?? 0).toFixed(0)} m</span>
                         )}
-                        <span className={falta > 0 ? "font-medium text-red-600" : ""}>falta {falta.toFixed(0)} m</span>
+                        <span className={falta > 0 ? "font-medium text-red-600" : ""}>a comprar {falta.toFixed(0)} m</span>
                       </div>
                     )}
                     {coberturaOcs && (coberturaOcs[v.variante_tecido_id]?.length ?? 0) > 0 && (
@@ -93,7 +94,7 @@ function NecBlock({
                 {cobertura && totalCoberto > 0 && (
                   <div className="flex justify-between font-normal text-sky-700"><span>Coberto por OCs aplicadas</span><span>{totalCoberto.toFixed(0)} m</span></div>
                 )}
-                <div className={`flex justify-between ${totalFalta > 0 ? "text-red-600" : ""}`}><span>Falta comprar</span><span>{totalFalta.toFixed(0)} m</span></div>
+                <div className={`flex justify-between font-semibold ${totalFalta > 0 ? "text-red-600" : ""}`}><span>A comprar</span><span>{totalFalta.toFixed(0)} m</span></div>
               </>
             )}
           </div>
