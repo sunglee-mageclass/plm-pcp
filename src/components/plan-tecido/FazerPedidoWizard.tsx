@@ -179,7 +179,11 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
                   </tr>
                 </thead>
                 <tbody>
-                  {pg.itens.map((it) => (
+                  {pg.itens.map((it) => {
+                    // artigo em kg → mostra "N m / K kg" (kg = metros ÷ rendimento)
+                    const emKg = it.unidade_medida === "kg" && (it.rendimento ?? 0) > 0;
+                    const mkg = (m: number) => emKg ? `${m.toFixed(0)} m / ${(m / (it.rendimento || 1)).toFixed(0)} kg` : `${m.toFixed(0)} m`;
+                    return (
                     <tr key={keyItem(it)} className="border-t">
                       <td className="p-1.5">
                         <div className="font-medium">{it.artigo_nome}</div>
@@ -187,9 +191,9 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
                           <VarianteSwatch nome={it.label} /> {it.label || "—"}
                         </span>
                       </td>
-                      <td className="p-1.5 text-right">{it.necessidade_m.toFixed(0)} m</td>
-                      <td className="p-1.5 text-right">{it.estoque_m.toFixed(0)} m</td>
-                      <td className="p-1.5 text-right text-red-600">{it.deficit_m.toFixed(0)} m</td>
+                      <td className="p-1.5 text-right whitespace-nowrap">{mkg(it.necessidade_m)}</td>
+                      <td className="p-1.5 text-right whitespace-nowrap">{mkg(it.estoque_m)}</td>
+                      <td className="p-1.5 text-right whitespace-nowrap text-red-600">{mkg(it.deficit_m)}</td>
                       <td className="p-1.5 text-right">
                         <NumberInput blankZero placeholder="0" className="h-7 w-20 text-right" value={resp.qtd[keyItem(it)] ?? 0}
                           onChange={(e) => setQtd(keyItem(it), Number(e.target.value) || 0)} />
@@ -197,7 +201,8 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
                       <td className="p-1.5">{it.unidade}</td>
                       <td className="p-1.5 text-right">{it.preco > 0 ? it.preco.toFixed(2) : "—"}</td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
