@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { necessidadeVariante, necessidadePorTecido, metrosParaKg, abaterEstoque, custoMateriaisPrevisto } from "@/lib/plan-tecido/calc";
+import { necessidadeVariante, necessidadePorTecido, metrosParaKg, abaterEstoque, custoMateriaisPrevisto, distribuirGrade } from "@/lib/plan-tecido/calc";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
 
 describe("plan-tecido/calc", () => {
@@ -100,5 +100,48 @@ describe("plan-tecido/calc", () => {
     // Forro: 0.8 × 90 × 1 = 72  (grade_total do Tecido 1 do slot)
     expect(forro.variantes[0].metros).toBeCloseTo(72, 5);
     expect(forro.totalMetros).toBeCloseTo(72, 5);
+  });
+});
+
+describe("distribuirGrade", () => {
+  it("distribui proporcionalmente, soma = gradeTotal", () => {
+    const r = distribuirGrade(100, { PP: 1, M: 2, G: 1 });
+    // PP=25, M=50, G=25
+    expect(Object.values(r).reduce((s, n) => s + n, 0)).toBe(100);
+    expect(r["M"]).toBe(50);
+    expect(r["PP"]).toBe(25);
+    expect(r["G"]).toBe(25);
+  });
+
+  it("resto de arredondamento vai pro tamanho de maior peso", () => {
+    // PP:1, M:2, G:1 → pesos=[1,2,1] soma=4; 10÷4=2,5 → PP=2, M=5, G=2 + resto=1 → M (maior peso)
+    const r = distribuirGrade(10, { PP: 1, M: 2, G: 1 });
+    expect(Object.values(r).reduce((s, n) => s + n, 0)).toBe(10);
+    expect(r["M"]).toBe(6); // 5 + resto 1
+    expect(r["PP"]).toBe(2);
+    expect(r["G"]).toBe(2);
+  });
+
+  it("proporcoes null → {}", () => {
+    expect(distribuirGrade(100, null)).toEqual({});
+  });
+
+  it("proporcoes undefined → {}", () => {
+    expect(distribuirGrade(100, undefined)).toEqual({});
+  });
+
+  it("proporcoes vazio → {}", () => {
+    expect(distribuirGrade(100, {})).toEqual({});
+  });
+
+  it("gradeTotal 0 → todos 0", () => {
+    const r = distribuirGrade(0, { PP: 1, M: 2, G: 1 });
+    expect(Object.values(r).reduce((s, n) => s + n, 0)).toBe(0);
+  });
+
+  it("tamanho com peso 0 fica 0", () => {
+    const r = distribuirGrade(10, { PP: 0, M: 1 });
+    expect(r["PP"]).toBe(0);
+    expect(r["M"]).toBe(10);
   });
 });

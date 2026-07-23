@@ -60,3 +60,38 @@ export function necessidadePorTecido(arvore: PtArvore, filtroSlot?: (slot: PtSlo
   }
   return [...byArtigo.values()];
 }
+
+/**
+ * Distribui gradeTotal pelos tamanhos de proporcoes, proporcional ao peso.
+ * Resto de arredondamento vai pro tamanho de maior peso.
+ * proporcoes null/undefined/vazio → retorna {}.
+ */
+export function distribuirGrade(
+  gradeTotal: number,
+  proporcoes: Record<string, number> | null | undefined,
+): Record<string, number> {
+  if (!proporcoes) return {};
+  const entradas = Object.entries(proporcoes);
+  if (entradas.length === 0) return {};
+  const soma = entradas.reduce((s, [, p]) => s + (Number(p) || 0), 0);
+  if (soma <= 0 || gradeTotal <= 0) {
+    return Object.fromEntries(entradas.map(([tam]) => [tam, 0]));
+  }
+  // distribuição base (floor)
+  const resultado: Record<string, number> = {};
+  let distribuido = 0;
+  for (const [tam, peso] of entradas) {
+    const val = Math.floor((gradeTotal * (Number(peso) || 0)) / soma);
+    resultado[tam] = val;
+    distribuido += val;
+  }
+  // resto vai pro maior peso
+  const resto = gradeTotal - distribuido;
+  if (resto > 0) {
+    const [tamMaior] = entradas.reduce(([bestTam, bestP], [tam, p]) =>
+      (Number(p) || 0) > (Number(bestP) || 0) ? [tam, p] : [bestTam, bestP],
+    );
+    resultado[tamMaior] = (resultado[tamMaior] ?? 0) + resto;
+  }
+  return resultado;
+}
