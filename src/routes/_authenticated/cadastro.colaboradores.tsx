@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Users, Plus, Trash2, Pencil, MoreVertical } from "lucide-react";
+import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -106,6 +107,21 @@ function ColaboradoresPage() {
   const [novaCategoria, setNovaCategoria] = useState<string>("");
   const [delTab, setDelTab] = useState<Tab | null>(null);
   const [typeMenuOpen, setTypeMenuOpen] = useState(false); // kebab de tipos (mobile)
+
+  // Detecção de alterações (Case B — formulário simples com 2 campos).
+  const dirty = addOpen && (
+    novoTipo !== (editTab?.tipo ?? "") ||
+    novaCategoria !== (editTab?.categoriaId ?? "")
+  );
+  const { requestClose: requestCloseType, confirm: confirmType } = useUnsavedGuard({
+    dirty,
+    onClose: () => {
+      setAddOpen(false);
+      setEditTab(null);
+      setNovoTipo("");
+      setNovaCategoria("");
+    },
+  });
 
   const openCreate = () => {
     setEditTab(null);
@@ -410,10 +426,7 @@ function ColaboradoresPage() {
       {/* Novo / editar tipo */}
       <Dialog
         open={addOpen}
-        onOpenChange={(o) => {
-          setAddOpen(o);
-          if (!o) { setEditTab(null); setNovoTipo(""); setNovaCategoria(""); }
-        }}
+        onOpenChange={(o) => { if (o) setAddOpen(true); else requestCloseType(); }}
       >
         <DialogContent className="max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
           <DialogHeader className="max-sm:shrink-0">
@@ -453,7 +466,7 @@ function ColaboradoresPage() {
             </div>
           </div>
           <DialogFooter className="max-sm:shrink-0 max-sm:border-t max-sm:bg-background max-sm:-mx-6 max-sm:-mb-6 max-sm:px-6 max-sm:py-3">
-            <Button variant="outline" onClick={() => setAddOpen(false)}>Cancelar</Button>
+            <Button variant="outline" onClick={requestCloseType}>Cancelar</Button>
             {!readOnly && (
               <Button onClick={submitType} disabled={addType.isPending || editType.isPending}>
                 {editTab
@@ -488,6 +501,8 @@ function ColaboradoresPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <UnsavedChangesGuard dirty={dirty} confirm={confirmType} message="Há alterações não salvas neste tipo de colaborador." />
 
       <MobileActionBar>
         <Button onClick={openCreate} disabled={readOnly} className="ml-auto">

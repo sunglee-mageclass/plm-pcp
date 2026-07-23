@@ -225,14 +225,14 @@
 
     <!-- ─────────── A ─────────── -->
     <section class="pattern" id="A">
-      <h2><span class="letter">A</span>Indicador "alterações não salvas" + Salvar/Salvo + guarda de descarte</h2>
-      <div class="when"><b>Quando usar:</b> em qualquer tela/Sheet com <em>rascunho local</em> editável. Ponto âmbar (<code class="inline">--warning</code>) enquanto <code class="inline">dirty</code>; botão <b>Salvar</b> desabilitado quando <code class="inline">!dirty</code> e vira "Salvo"; ao sair com alterações pendentes, um <code class="inline">AlertDialog</code> confirma o descarte.</div>
+      <h2><span class="letter">A</span>Guarda de "alterações não salvas" (dirty) — PADRÃO DO SISTEMA</h2>
+      <div class="when"><b>Regra:</b> TODO formulário com botão <b>Salvar</b> usa o guarda compartilhado. Enquanto há edições pendentes, um <b>indicador âmbar flutuante</b> ("● alterações não salvas") aparece no canto inferior direito, <b>acima da barra de ações</b> (não sobrepõe Salvar/Voltar). Ao fechar (X, ESC, clicar fora, Cancelar/Voltar) — ou, em página inteira, ao <b>navegar</b> para fora — com pendências, um <code class="inline">AlertDialog</code> confirma: <b>Descartar alterações?</b> → Continuar editando / Descartar.</div>
       <div class="split">
         <div class="demo">
           <div class="demo-label">Exemplo</div>
           <div class="swatch-row" style="margin-bottom:12px;">
-            Cenário Verão 26 <span class="dot-warning" title="não salvo">●</span>
-            <span class="muted" style="font-size:12px;">alterações não salvas</span>
+            <span class="dot-warning" title="não salvo">●</span>
+            <span class="muted" style="font-size:12px;">alterações não salvas — flutua acima da barra</span>
           </div>
           <div class="mock-bar" style="box-shadow:none;border:1px solid var(--border);border-radius:8px;">
             <button class="btn btn-outline" style="margin-right:auto;">← Voltar</button>
@@ -240,49 +240,40 @@
           </div>
           <div style="height:10px;"></div>
           <div class="mock-bar" style="box-shadow:none;border:1px solid var(--border);border-radius:8px;">
-            <span class="muted" style="font-size:12px;margin-right:auto;">sem alterações</span>
-            <button class="btn btn-primary" disabled>💾 Salvo</button>
+            <span class="muted" style="font-size:12px;margin-right:auto;">Descartar alterações?</span>
+            <button class="btn btn-outline">Continuar editando</button>
+            <button class="btn btn-primary">Descartar</button>
           </div>
         </div>
         <div>
           <div class="code-label">Código</div>
-<pre>const [dirty, setDirty] = useState(false);
-// toda mutação do rascunho passa por aqui:
-const upd = (fn) =&gt; { setDraft(fn); setDirty(true); };
+<pre>// Primitivos: src/components/shared/UnsavedChangesGuard.tsx
+//             src/hooks/useDirtySnapshot.ts
 
-// Título com o ponto âmbar
-&lt;span&gt;{nome}
-  {dirty &amp;&amp; (
-    &lt;span className="ml-1 text-amber-600" title="não salvo"&gt;•&lt;/span&gt;
-  )}
-&lt;/span&gt;
+// Modal (Sheet/Dialog) — Caso B (poucos campos)
+const dirty = open &amp;&amp; nome !== (editing?.nome ?? "");
+const { requestClose, confirm } =
+  useUnsavedGuard({ dirty, onClose: () =&gt; setOpen(false) });
 
-// Botão Salvar/Salvo (footer)
-&lt;Button
-  onClick={() =&gt; salvar.mutate()}
-  disabled={!dirty || salvar.isPending}&gt;
-  &lt;Save className="h-4 w-4 mr-1" /&gt;
-  {dirty ? (salvar.isPending ? "Salvando…" : "Salvar") : "Salvo"}
-&lt;/Button&gt;
+&lt;Dialog open={open}
+  onOpenChange={(o) =&gt; { if (!o) requestClose(); }}&gt;
+  …
+  &lt;Button variant="outline" onClick={requestClose}&gt;Cancelar&lt;/Button&gt;
+&lt;/Dialog&gt;
+&lt;UnsavedChangesGuard dirty={dirty} confirm={confirm}
+  message="Há alterações não salvas neste cadastro." /&gt;
 
-// Guarda de descarte ao sair
-&lt;AlertDialog open={confirmSair} onOpenChange={setConfirmSair}&gt;
-  &lt;AlertDialogContent&gt;
-    &lt;AlertDialogHeader&gt;
-      &lt;AlertDialogTitle&gt;Descartar alterações?&lt;/AlertDialogTitle&gt;
-      &lt;AlertDialogDescription&gt;
-        Há alterações não salvas neste rascunho.
-      &lt;/AlertDialogDescription&gt;
-    &lt;/AlertDialogHeader&gt;
-    &lt;AlertDialogFooter&gt;
-      &lt;AlertDialogCancel&gt;Continuar editando&lt;/AlertDialogCancel&gt;
-      &lt;AlertDialogAction
-        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-        onClick={onClose}&gt;Descartar&lt;/AlertDialogAction&gt;
-    &lt;/AlertDialogFooter&gt;
-  &lt;/AlertDialogContent&gt;
-&lt;/AlertDialog&gt;</pre>
-          <div class="note">Referência viva: <span class="ref">src/components/plan-tecido/PlanTecidoSheet.tsx</span> (<code class="inline">dirty</code>/<code class="inline">upd</code>), <span class="ref">:1152</span> (ponto âmbar), <span class="ref">:1713</span> (botão), <span class="ref">:1749</span> (AlertDialog de descarte). O AlertDialog é <span class="ref">src/components/ui/alert-dialog.tsx</span>.</div>
+// Formulário grande / async — Caso C
+const { dirty, markClean, reset } = useDirtySnapshot(form);
+// reset(next) ao semear (query/abrir-editar); markClean() no onSuccess
+
+// Página inteira — bloqueia navegação
+const { confirm } = useUnsavedGuard({ dirty, blockNav: true });
+
+// OC: OcModalShell já guarda — só passe dirty:
+&lt;OcModalShell isEdit onClose={…} dirty={dirty}
+  discardMessage="Há alterações não salvas nesta OC." /&gt;</pre>
+          <div class="note">Aplicado em ~30 formulários (Sheets, Dialogs e 4 páginas inteiras) — jul/2026. Fora de escopo: confirmações puras ("Excluir?", "Salvar mesmo assim") e pickers cujo botão principal é "Aplicar"/"Confirmar". Refs vivas: <span class="ref">src/components/shared/UnsavedChangesGuard.tsx</span>, <span class="ref">src/hooks/useDirtySnapshot.ts</span>, <span class="ref">src/components/shared/OcModalShell.tsx</span>; exemplos <span class="ref">cadastro.destinos.tsx</span> (B), <span class="ref">admin/configuracoes.tsx</span> (C + blockNav), <span class="ref">plan-tecido/PlanTecidoSheet.tsx</span> (dirty próprio).</div>
         </div>
       </div>
     </section>

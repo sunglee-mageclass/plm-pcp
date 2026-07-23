@@ -27,6 +27,8 @@ import { useSort, SortHead } from "@/components/shared/sort";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useAuth } from "@/hooks/useAuth";
 import { fmtNum } from "@/lib/format";
+import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
+import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 
 export const Route = createFileRoute("/_authenticated/cadastro/etiquetas")({
   component: () => (
@@ -155,11 +157,23 @@ function EtiquetasPage() {
     qc.invalidateQueries({ queryKey: ["etiquetas-opts"] });
   };
 
+  // Snapshot do formulário para detecção de alterações (Case C — muitos campos + async).
+  const formSnapshot = { nome: fNome, unidade: fUnidade, empresa: fEmpresa, rep: fRep, preco: fPreco, formato: fFormato, obs: fObs, blocks: fBlocks };
+  const { dirty: snapshotDirty, markClean, reset: resetBaseline } = useDirtySnapshot(formSnapshot);
+  const dirty = open && snapshotDirty;
+  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose: () => setOpen(false) });
+
   const resetForm = () => {
     setFNome(""); setFUnidade("unidade"); setFEmpresa(null); setFRep(null); setFPreco(null);
     setFFormato("ambos"); setFObs(""); setFBlocks([]);
   };
-  const openCreate = () => { setEditing(null); resetForm(); setOpen(true); };
+  const openCreate = () => {
+    setEditing(null);
+    resetForm();
+    setOpen(true);
+    // Baseline limpa (formulário vazio) para detecção de alterações.
+    resetBaseline({ nome: "", unidade: "unidade", empresa: null, rep: null, preco: null, formato: "ambos", obs: "", blocks: [] });
+  };
   const openEdit = async (e: Etiqueta) => {
     setEditing(e);
     setFNome(e.nome); setFUnidade(e.unidade); setFEmpresa(e.empresa_id); setFRep(e.representante_id);
@@ -175,7 +189,14 @@ function EtiquetasPage() {
       if (v.tamanho) b.tamanhos.push(v.tamanho);
       if (b.preco == null && v.preco != null) b.preco = v.preco;
     }
-    setFBlocks([...byCor.values()]);
+    const blocks = [...byCor.values()];
+    setFBlocks(blocks);
+    // Passa o valor completo (incluindo blocos recém carregados) como baseline —
+    // não confiar no estado ainda-não-renderizado (stale no mesmo tick).
+    resetBaseline({
+      nome: e.nome, unidade: e.unidade, empresa: e.empresa_id, rep: e.representante_id,
+      preco: e.preco, formato: e.formato_tamanho ?? "ambos", obs: e.observacoes ?? "", blocks,
+    });
   };
 
   const usedCors = (except: number) => new Set(fBlocks.filter((_, j) => j !== except).map((b) => b.cor_id));
@@ -231,6 +252,7 @@ function EtiquetasPage() {
     },
     onSuccess: () => {
       toast.success(editing ? "Etiqueta atualizada." : "Etiqueta criada.");
+      markClean();
       setOpen(false); invalidate();
     },
     onError: (e: any) =>
@@ -366,7 +388,7 @@ function EtiquetasPage() {
       </div>
 
       {/* Criar / editar */}
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
         <DialogContent className="sm:max-w-2xl max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
           <DialogHeader className="max-sm:shrink-0">
             <DialogTitle>{editing ? "Editar etiqueta" : "Nova etiqueta"}</DialogTitle>
@@ -464,7 +486,7 @@ function EtiquetasPage() {
             </div>
           </div>
           <DialogFooter className="max-sm:shrink-0 max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
+            <Button variant="outline" onClick={requestClose}>Cancelar</Button>
             {!readOnly && (
               <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
                 {saveMut.isPending ? "Salvando…" : "Salvar"}
@@ -503,6 +525,8 @@ function EtiquetasPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas neste cadastro de insumo." />
 
       <MobileActionBar>
         <Button onClick={openCreate} className="ml-auto" disabled={readOnly}><Plus className="h-4 w-4 mr-1" /> Novo</Button>

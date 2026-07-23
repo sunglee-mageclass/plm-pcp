@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ClipboardCheck, Search } from "lucide-react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { CqDetail } from "@/routes/_authenticated/producao.cq.$modeloId";
+import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { supabase } from "@/integrations/supabase/client";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { RevisaoErroBadge } from "@/components/producao/RevisaoErro";
@@ -23,6 +24,11 @@ export const Route = createFileRoute("/_authenticated/producao/cq/")({
 function CqListPage() {
   const fl = useFieldLabels();
   const [sheetId, setSheetId] = useState<string | null>(null);
+  // Guarda de "alterações não salvas" do CQ aberto no Sheet: o CqDetail reporta se há
+  // edições pendentes; fechar (X/ESC/fora) com pendências pede confirmação.
+  const [cqDirty, setCqDirty] = useState(false);
+  const closeSheet = () => { setCqDirty(false); setSheetId(null); };
+  const { requestClose, confirm } = useUnsavedGuard({ dirty: cqDirty, onClose: closeSheet });
   const [q, setQ] = useState("");
   const [fColecao, setFColecao] = useState("all");
   const [fMes, setFMes] = useState("all");
@@ -173,11 +179,12 @@ function CqListPage() {
         </table>
       </Card>
 
-      <Sheet open={!!sheetId} onOpenChange={(o) => !o && setSheetId(null)}>
+      <Sheet open={!!sheetId} onOpenChange={(o) => { if (!o) requestClose(); }}>
         <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] overflow-y-auto p-0 max-md:[&>button]:hidden">
-          {sheetId && <CqDetail modeloId={sheetId} onClose={() => setSheetId(null)} />}
+          {sheetId && <CqDetail modeloId={sheetId} onClose={requestClose} onForceClose={closeSheet} onDirtyChange={setCqDirty} />}
         </SheetContent>
       </Sheet>
+      <UnsavedChangesGuard dirty={cqDirty} confirm={confirm} message="Há alterações não salvas no Controle de Qualidade." />
     </div>
   );
 }

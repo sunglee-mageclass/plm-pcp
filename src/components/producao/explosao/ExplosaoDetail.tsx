@@ -12,6 +12,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { ImageIcon, Printer, RotateCcw, Save, Send } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -42,9 +43,11 @@ import { calcCusto } from "@/components/producao/cad/types";
 type Props = {
   modeloId: string;
   onEnviado: () => void;
+  /** Reporta ao pai (que dona o Sheet) se há edições de metragem pendentes. */
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
-export function ExplosaoDetail({ modeloId, onEnviado }: Props) {
+export function ExplosaoDetail({ modeloId, onEnviado, onDirtyChange }: Props) {
   const qc = useQueryClient();
   const tenantId = useActiveTenantId();
   const [confirmZeroOpen, setConfirmZeroOpen] = useState(false);
@@ -139,6 +142,15 @@ export function ExplosaoDetail({ modeloId, onEnviado }: Props) {
   const [grades, setGrades] = useState<GradeRow[]>([]);
   const [seeded, setSeeded] = useState(false);
 
+  // Guarda de "alterações não salvas": só metragem_enviada/quantidade_folhas por variante
+  // são editáveis; o resto é read-only. Snapshot enxuto dessas duas colunas.
+  const metragemSnapshot = useMemo(
+    () => tecidos.map((t) => t.variantes.map((v) => `${v.id ?? ""}:${v.metragem_enviada}:${v.quantidade_folhas}`)),
+    [tecidos],
+  );
+  const { dirty, markClean, reset: resetBaseline } = useDirtySnapshot(metragemSnapshot);
+  useEffect(() => { onDirtyChange?.(seeded && dirty); }, [seeded, dirty, onDirtyChange]);
+
   useEffect(() => {
     if (seeded) return;
     if (!cadRow?.id) return;
@@ -194,6 +206,9 @@ export function ExplosaoDetail({ modeloId, onEnviado }: Props) {
     }));
     setGrades(initialGrades);
 
+    // Re-baseline o guarda a partir do estado semeado (valor explícito — o setState
+    // acima ainda está stale neste tick).
+    resetBaseline(initialTec.map((t) => t.variantes.map((v) => `${v.id ?? ""}:${v.metragem_enviada}:${v.quantidade_folhas}`)));
     setSeeded(true);
   }, [cadRow, cadTecidos, cadGrades, cadTecidosFetched, cadGradesFetched, seeded]);
 
@@ -277,6 +292,7 @@ export function ExplosaoDetail({ modeloId, onEnviado }: Props) {
     },
     onSuccess: () => {
       toast.success("Salvo");
+      markClean(); // limpa o indicador de "alterações não salvas"
       qc.invalidateQueries({ queryKey: ["explosao-cad-row", modeloId] });
       qc.invalidateQueries({ queryKey: ["explosao-cad-tecidos", cadRow?.id] });
       qc.invalidateQueries({ queryKey: ["cad-row", modeloId] });

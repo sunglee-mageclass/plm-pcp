@@ -59,6 +59,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
 
 const MODULE_META: Record<string, { title: string; icon: typeof BarChart3 }> = {
   dashboard: { title: "Dashboard", icon: BarChart3 },
@@ -462,7 +463,14 @@ function TrocarSenhaDialog({ collapsed }: { collapsed: boolean }) {
   const [conf, setConf] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const reset = () => { setSenha(""); setConf(""); };
+  const clearFields = () => { setSenha(""); setConf(""); };
+  // Campos de senha são transientes (não vêm de um registro); dirty = qualquer campo preenchido.
+  const dirty = open && (senha !== "" || conf !== "");
+  const { requestClose, confirm } = useUnsavedGuard({
+    dirty,
+    onClose: () => { setOpen(false); clearFields(); },
+  });
+
   const submit = async () => {
     if (senha.length < 6) { toast.error("A senha deve ter ao menos 6 caracteres."); return; }
     if (senha !== conf) { toast.error("As senhas não conferem."); return; }
@@ -472,35 +480,38 @@ function TrocarSenhaDialog({ collapsed }: { collapsed: boolean }) {
     if (error) { toast.error(mensagemErro(error, "Erro ao trocar a senha.")); return; }
     toast.success("Senha alterada.");
     setOpen(false);
-    reset();
+    clearFields();
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }}>
-      <DialogTrigger asChild>
-        <Button variant="ghost" size={collapsed ? "icon" : "sm"} className="justify-start gap-2" aria-label="Trocar senha">
-          <KeyRound className="h-4 w-4" aria-hidden="true" />
-          {!collapsed && <span>Trocar senha</span>}
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader><DialogTitle>Trocar senha</DialogTitle></DialogHeader>
-        <div className="space-y-3">
-          <div className="space-y-1.5">
-            <Label htmlFor="nova-senha">Nova senha</Label>
-            <Input id="nova-senha" type="password" autoComplete="new-password" value={senha} onChange={(e) => setSenha(e.target.value)} />
+    <>
+      <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="A nova senha ainda não foi salva." />
+      <Dialog open={open} onOpenChange={(o) => { if (o) setOpen(true); else requestClose(); }}>
+        <DialogTrigger asChild>
+          <Button variant="ghost" size={collapsed ? "icon" : "sm"} className="justify-start gap-2" aria-label="Trocar senha">
+            <KeyRound className="h-4 w-4" aria-hidden="true" />
+            {!collapsed && <span>Trocar senha</span>}
+          </Button>
+        </DialogTrigger>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Trocar senha</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="nova-senha">Nova senha</Label>
+              <Input id="nova-senha" type="password" autoComplete="new-password" value={senha} onChange={(e) => setSenha(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="conf-senha">Confirmar nova senha</Label>
+              <Input id="conf-senha" type="password" autoComplete="new-password" value={conf} onChange={(e) => setConf(e.target.value)} />
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="conf-senha">Confirmar nova senha</Label>
-            <Input id="conf-senha" type="password" autoComplete="new-password" value={conf} onChange={(e) => setConf(e.target.value)} />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>
-          <Button onClick={submit} disabled={busy}>{busy ? "Salvando…" : "Salvar"}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          <DialogFooter>
+            <Button variant="ghost" onClick={requestClose}>Cancelar</Button>
+            <Button onClick={submit} disabled={busy}>{busy ? "Salvando…" : "Salvar"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

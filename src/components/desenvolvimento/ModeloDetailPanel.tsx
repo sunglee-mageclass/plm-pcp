@@ -23,6 +23,8 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
+import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { useTenantModules } from "@/hooks/useTenantModules";
@@ -62,16 +64,22 @@ export function ModeloDetailPanel({ modeloId, onClose }: {
   onClose: () => void;
 }) {
   const open = !!modeloId;
+  // Guarda de "alterações não salvas": o PanelContent reporta se o rascunho/BOM tem
+  // edições pendentes; fechar (X/ESC/fora/Fechar) com pendências pede confirmação.
+  const [dirty, setDirty] = useState(false);
+  const close = () => { setDirty(false); onClose(); };
+  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose: close });
   return (
-    <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
+    <Sheet open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
       <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] flex flex-col max-sm:[&>button]:hidden">
-        {modeloId && <PanelContent modeloId={modeloId} onClose={onClose} />}
+        {modeloId && <PanelContent modeloId={modeloId} onClose={requestClose} onDirtyChange={setDirty} />}
+        <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas neste modelo." />
       </SheetContent>
     </Sheet>
   );
 }
 
-function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => void }) {
+function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; onClose: () => void; onDirtyChange?: (dirty: boolean) => void }) {
   const qc = useQueryClient();
   const fl = useFieldLabels();
   const tenantId = useActiveTenantId();
@@ -408,6 +416,12 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const [camposCopiados, setCamposCopiados] = useState<Set<string>>(new Set());
   const [confirmSobrescrita, setConfirmSobrescrita] = useState<{ itens: string[]; aplicar: () => void } | null>(null);
   useEffect(() => { setCadSeeded(false); setCadTecidosState([]); setAutoFolhas(false); setEditing(false); }, [modeloId]);
+
+  // Guarda de "alterações não salvas": snapshot do rascunho + BOM editável. O baseline é
+  // re-tirado quando as queries semeiam o estado (efeito abaixo, keyed nas fontes) e no
+  // markClean() após salvar. Read-only (enviado ao CAD, sem "Editar") não altera nada.
+  const guardSnapshot = { draft, blocks, aviamentosState, etiquetasState, grades, cadTecidosState };
+  const { dirty: changed, markClean, reset: resetGuardBaseline } = useDirtySnapshot(guardSnapshot);
   // Grade automática: ao digitar uma célula, escala as demais pela proporção.
   const [gradeAuto, setGradeAuto] = useState(false);
 
@@ -996,6 +1010,20 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   // Read-only quando já enviado à Explosão e fora do modo edição (lápis "Editar").
   const locked = !!draft?.enviado_cad && !editing;
 
+  // Re-baseline o guarda de alterações quando as QUERIES semeiam o estado (não em cada
+  // edição do usuário — este efeito depende só das fontes de dados + mapas de rótulo que
+  // as effects de semeadura/sincronização consomem, nunca do `draft`). Assim uma edição
+  // manual permanece "suja"; carregar/refetch/salvar re-baselina para o estado gravado.
+  useEffect(() => {
+    if (!draft || !cadSeeded) return;
+    resetGuardBaseline({ draft, blocks, aviamentosState, etiquetasState, grades, cadTecidosState });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelo, tecidosData, ocLinksData, aviamentosData, modeloEtiquetasData, gradesData, cadTecidosDev, frozenPrecosCad, blockVariantesInfo, tecido1VariantesLabels, cadSeeded]);
+
+  // Reporta ao pai (dono do Sheet) se há edições pendentes. Read-only não altera nada.
+  const dirty = !locked && !!draft && changed;
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
+
   // Persiste o modelo + BOM (tecidos/variantes/grade/aviamentos) via salvar_modelo_bom.
   // Usado pelo Salvar e também ANTES de Enviar ao CAD, garantindo que a cópia ao CAD
   // use exatamente o que está no Desenvolvimento (a validação usa estado local; a
@@ -1200,6 +1228,7 @@ function PanelContent({ modeloId, onClose }: { modeloId: string; onClose: () => 
   const save = useMutation({
     mutationFn: persistModelo,
     onSuccess: async () => {
+      markClean(); // limpa o indicador de "alterações não salvas" já no sucesso
       // Marca revisão (#Erro) nas etapas afetadas — o SERVIDOR retorna EXATAMENTE quais
       // etapas existem downstream e foram marcadas. A mensagem usa esse retorno (não o
       // hasDownstream cacheado, que fica stale depois de reverter uma etapa e faria o toast

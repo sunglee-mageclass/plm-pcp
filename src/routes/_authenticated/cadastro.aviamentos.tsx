@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useRef, useState, useEffect } from "react";
+import { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -61,6 +61,8 @@ import {
 import { FilterButton, SearchToggle, AgrupamentoButton } from "@/components/shared/filters";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
+import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 
 import { RequirePermission } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/cadastro/aviamentos")({
@@ -662,6 +664,19 @@ function AviamentoModal({
   // usuário trocar a foto ou fechar o diálogo sem salvar (evita órfãos).
   const sessionUploads = useRef<string[]>([]);
   const savedRef = useRef(false);
+
+  // Guarda de alterações não salvas (Case C: muitos campos, snapshot do objeto form).
+  const { dirty: formChanged, markClean, reset: resetBaseline } = useDirtySnapshot(form);
+  const dirty = open && formChanged;
+  const closeAndCleanup = useCallback(() => {
+    if (!savedRef.current && sessionUploads.current.length > 0) {
+      const orphans = sessionUploads.current;
+      sessionUploads.current = [];
+      void supabase.storage.from("aviamentos").remove(orphans);
+    }
+    onOpenChange(false);
+  }, [onOpenChange]);
+  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose: closeAndCleanup });
   const signedUrl = useSignedUrl(form.foto_url, "aviamentos");
   const fotoUrl = localPreview ?? signedUrl;
 
@@ -675,7 +690,7 @@ function AviamentoModal({
     sessionUploads.current = [];
     savedRef.current = false;
     if (initial) {
-      setForm({
+      const next: FormState = {
         codigo_nome: initial.codigo_nome ?? "",
         empresa_id: initial.empresa_id ?? "",
         representante_id: initial.representante_id ?? "",
@@ -694,15 +709,18 @@ function AviamentoModal({
         cor_id: initial.cor_id ?? "",
         cor_apelido_id: initial.cor_apelido_id ?? "",
         foto_url: initial.foto_url,
-      });
+      };
+      setForm(next);
+      resetBaseline(next);
     } else {
       setForm(emptyForm);
+      resetBaseline(emptyForm);
     }
     setLocalPreview((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return null;
     });
-  }, [initial, open]);
+  }, [initial, open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const filteredSub = subcategorias.filter(
     (s) => !form.categoria_aviamento_id || s.categoria_aviamento_id === form.categoria_aviamento_id,
@@ -830,6 +848,7 @@ function AviamentoModal({
       // Uploads desta sessão agora estão persistidos: não devem ser removidos.
       savedRef.current = true;
       sessionUploads.current = [];
+      markClean();
       toast.success(initial ? "Aviamento atualizado." : "Aviamento criado.");
       onSaved();
     },
@@ -842,13 +861,8 @@ function AviamentoModal({
   });
 
   const handleOpenChange = (o: boolean) => {
-    // Fechou sem salvar: remove fotos enviadas nesta sessão (órfãs).
-    if (!o && !savedRef.current && sessionUploads.current.length > 0) {
-      const orphans = sessionUploads.current;
-      sessionUploads.current = [];
-      void supabase.storage.from("aviamentos").remove(orphans);
-    }
-    onOpenChange(o);
+    if (!o) requestClose();
+    else onOpenChange(true);
   };
 
   const isSheet = !!initial;
@@ -858,7 +872,7 @@ function AviamentoModal({
           // Sheet (editar): cabeçalho com botões no topo (igual ao detalhe do Tecido).
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <Button variant="outline" size="icon" className="max-sm:hidden" onClick={() => handleOpenChange(false)} aria-label="Fechar">
+              <Button variant="outline" size="icon" className="max-sm:hidden" onClick={requestClose} aria-label="Fechar">
                 <ArrowLeft className="h-4 w-4" />
               </Button>
               <DialogTitle className="text-xl font-bold">Editar Aviamento</DialogTitle>
@@ -1080,7 +1094,7 @@ function AviamentoModal({
           // Sheet (editar): no desktop os botões estão no cabeçalho; no mobile, barra fixa
           // com voltar + excluir + salvar (igual ao detalhe do Tecido).
           <MobileActionBar>
-            <Button variant="outline" size="icon" aria-label="Voltar" onClick={() => handleOpenChange(false)}>
+            <Button variant="outline" size="icon" aria-label="Voltar" onClick={requestClose}>
               <ArrowLeft className="h-4 w-4" />
             </Button>
             {!readOnly && initial && onDelete && (
@@ -1097,10 +1111,10 @@ function AviamentoModal({
         ) : (
           <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
             {/* Desktop: Cancelar em texto. Mobile: ícone de voltar (igual às outras barras). */}
-            <Button variant="outline" className="max-sm:hidden" onClick={() => handleOpenChange(false)}>
+            <Button variant="outline" className="max-sm:hidden" onClick={requestClose}>
               Cancelar
             </Button>
-            <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={() => handleOpenChange(false)}>
+            <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={requestClose}>
               <ArrowLeft className="h-4 w-4" />
             </Button>
             {!readOnly && (
@@ -1110,6 +1124,11 @@ function AviamentoModal({
             )}
           </DialogFooter>
         )}
+      <UnsavedChangesGuard
+        dirty={dirty}
+        confirm={confirm}
+        message="Há alterações não salvas neste aviamento."
+      />
     </ModalShell>
   );
 }

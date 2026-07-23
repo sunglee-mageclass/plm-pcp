@@ -30,49 +30,59 @@ Raios: `--radius: 0.625rem` → utilitários `rounded-md` (~8px) são o padrão 
 
 ---
 
-## A. Indicador "alterações não salvas" (dirty) + Salvar/Salvo + guarda de descarte
+## A. Guarda de "alterações não salvas" (dirty) — PADRÃO DO SISTEMA
 
-**Uso:** telas/Sheets com rascunho local editável. Enquanto `dirty`, mostra um **ponto âmbar (`--warning`)** no título e o botão **Salvar**; quando `!dirty`, botão fica desabilitado e vira "Salvo". Ao fechar com alterações pendentes, um `AlertDialog` confirma o descarte.
+**Regra:** TODO formulário com botão **Salvar** usa o guarda compartilhado. Enquanto há
+edições pendentes, aparece um **indicador âmbar flutuante** (`● alterações não salvas`,
+canto inferior direito, **acima da barra de ações** p/ não sobrepor os botões
+Salvar/Voltar). Ao fechar (X, ESC, clicar fora, Cancelar/Voltar) — ou, em página inteira,
+ao NAVEGAR para fora — com pendências, um `AlertDialog` confirma:
+**"Descartar alterações?"** → `Continuar editando` (fica) / `Descartar` (fecha).
 
-**Reutilizar:**
-- Padrão dirty completo (estado, indicador, botão Salvar/Salvo, guarda de descarte): **`src/components/plan-tecido/PlanTecidoSheet.tsx`**
-  - `const [dirty, setDirty] = useState(false)` + `patch = (next) => { setArvore(next); setDirty(true); }` (todo patch passa aqui)
-  - indicador `<UnsavedIndicator show={dirty} />` — no Plan. Tecido FLUTUA no canto inferior direito (`fixed bottom-4 right-4`, desktop); reutilizável de **`src/components/shared/UnsavedIndicator.tsx`**
-  - botão Salvar/Salvo (`disabled={!dirty || salvarMut.isPending}`) + `AlertDialog` de descarte (`confirmSair`) ao fechar com pendências
-  - ações de servidor (criar/aplicar/fazer-pedido) **auto-salvam** antes (`ensureSaved`) em vez de bloquear
-- `AlertDialog` base: **`src/components/ui/alert-dialog.tsx`** (`AlertDialog`, `AlertDialogContent/Header/Title/Description/Footer/Cancel/Action`).
+**Primitivos compartilhados (NÃO reinventar):**
+- **`src/components/shared/UnsavedChangesGuard.tsx`** exporta:
+  - `useUnsavedGuard({ dirty, onClose?, blockNav? })` → `{ requestClose, confirm }`.
+    `requestClose()` vai em todo caminho de fechar (Radix `onOpenChange`, Cancelar/X/Voltar);
+    abre a confirmação se `dirty`, senão fecha. `blockNav: true` (só página inteira) bloqueia
+    a navegação de rota via `useBlocker` do TanStack Router.
+  - `<UnsavedChangesGuard dirty confirm message="…" />`: renderiza o indicador flutuante + o
+    `AlertDialog`. Um por formulário. `message` específico da tela.
+- **`src/hooks/useDirtySnapshot.ts`**: `useDirtySnapshot(value)` → `{ dirty, markClean, reset }`.
+  Compara um instantâneo (JSON) do estado do formulário. `reset(seed)` ao semear (query async
+  ou abrir-para-editar); `markClean()` no `onSuccess` do Salvar.
+- **`src/components/shared/OcModalShell.tsx`**: já guarda internamente — telas de OC só passam
+  `dirty` (e `discardMessage`) ao shell; não renderizam `<UnsavedChangesGuard>`.
+
+**Como detectar `dirty` (escolha o mais simples):**
+- **Caso A** — a tela já tem um booleano `dirty` próprio (ex.: `PlanTecidoSheet`, `PadraoMixSheet`):
+  passe-o direto. Zere no `onSuccess` (o próprio já faz `setDirty(false)`).
+- **Caso B** — modal simples (1–poucos campos): calcule inline, gated por `open`:
+  `const dirty = open && nome !== (editing?.nome ?? "")`. Ref.: `cadastro.destinos.tsx`.
+- **Caso C** — formulário grande / estado aninhado / carregado async: `useDirtySnapshot(form)`,
+  `dirty = open && changed` (modal) ou `changed` (página); `reset(next)` ao semear; `markClean()`
+  no save. Ref.: `admin/configuracoes.tsx` (página inteira + `blockNav`).
 
 ```tsx
-const [dirty, setDirty] = useState(false);
-const upd = (fn) => { setDraft(fn); setDirty(true); }; // toda mutação do rascunho
+// Modal (Sheet/Dialog)
+const dirty = open && formNome !== (editing?.nome ?? "");        // Caso B
+const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose: () => setOpen(false) });
+<Dialog open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
+  …
+  <Button variant="outline" onClick={requestClose}>Cancelar</Button>
+</Dialog>
+<UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas neste cadastro." />
 
-// Ponto âmbar no título
-<span>{nome}{dirty && <span className="ml-1 text-amber-600" title="não salvo">•</span>}</span>
-
-// Botão Salvar / Salvo
-<Button onClick={() => salvar.mutate()} disabled={!dirty || salvar.isPending}>
-  <Save className="h-4 w-4 mr-1" />
-  {dirty ? (salvar.isPending ? "Salvando…" : "Salvar") : "Salvo"}
-</Button>
-
-// Guarda de descarte ao sair
-<AlertDialog open={confirmSair} onOpenChange={setConfirmSair}>
-  <AlertDialogContent>
-    <AlertDialogHeader>
-      <AlertDialogTitle>Descartar alterações?</AlertDialogTitle>
-      <AlertDialogDescription>Há alterações não salvas neste rascunho.</AlertDialogDescription>
-    </AlertDialogHeader>
-    <AlertDialogFooter>
-      <AlertDialogCancel>Continuar editando</AlertDialogCancel>
-      <AlertDialogAction
-        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-        onClick={onClose}>Descartar</AlertDialogAction>
-    </AlertDialogFooter>
-  </AlertDialogContent>
-</AlertDialog>
+// Página inteira (bloqueia navegação)
+const { dirty, markClean, reset } = useDirtySnapshot(cfg);
+const { confirm } = useUnsavedGuard({ dirty, blockNav: true });  // sem onClose
+// reset(next) ao carregar; markClean() no onSuccess do Salvar
+<UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas nas configurações." />
 ```
 
-> `text-amber-600` do Tailwind é o equivalente prático do token `--warning`. Em mutations de Salvar, zere `dirty` no `onSuccess` (`setDirty(false)` — ver `PlanTecidoSheet.tsx` `salvarMut.onSuccess`).
+> Fora de escopo: `AlertDialog`s de confirmação pura ("Excluir?", "Salvar mesmo assim") e
+> pickers/formulários cujo botão principal é "Aplicar"/"Confirmar" e commita na hora.
+> Aplicado em ~30 formulários (Sheets, Dialogs e 4 páginas inteiras) — jul/2026.
+> O botão Salvar/Salvo em si (desabilita quando `!dirty`) segue como no `PlanTecidoSheet`.
 
 ---
 
@@ -354,6 +364,6 @@ Três passos (documentados no próprio componente):
 - [ ] Ação primária: header desktop (`max-sm:hidden`) + `<MobileActionBar>` mobile + `max-sm:pb-24` no container.
 - [ ] Toque ≥ 44px no mobile (`max-md:h-11` / `min-h-[44px] md:min-h-0`).
 - [ ] Status via `StatusBadge` (tone semântico), não classes soltas.
-- [ ] Rascunho editável: estado `dirty`, ponto âmbar, Salvar/Salvo, `AlertDialog` de descarte.
+- [ ] Formulário com Salvar: guarda de descarte via `useUnsavedGuard` + `<UnsavedChangesGuard>` (§A); nunca refazer à mão.
 - [ ] Componentes novos (Breadcrumb, VarianteSwatch): criar em `src/components/shared/`, não em `src/components/ui/`.
 ```

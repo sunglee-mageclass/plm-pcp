@@ -1,7 +1,7 @@
 import { SkeletonTableRow } from "@/components/shared/Skeletons";
 import { filtroAtivoClass } from "@/components/shared/filters";
 import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, type MutableRefObject } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Users, Plus, KeyRound, ShieldCheck, ArrowLeft, Pencil, Trash2, LogOut } from "lucide-react";
@@ -36,6 +36,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { useSort, SortHead } from "@/components/shared/sort";
+import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 
 export const Route = createFileRoute("/_authenticated/admin/usuarios")({
   component: UsuariosPage,
@@ -58,6 +60,8 @@ function UsuariosPage() {
   const qc = useQueryClient();
   const [tenantFilter, setTenantFilter] = useState<string>("all");
   const [open, setOpen] = useState(false);
+  const novoRequestCloseRef = useRef<(() => void) | null>(null);
+  const editRequestCloseRef = useRef<(() => void) | null>(null);
   const [resetting, setResetting] = useState<AppUser | null>(null);
   const [permUser, setPermUser] = useState<AppUser | null>(null);
   const [editing, setEditing] = useState<AppUser | null>(null);
@@ -178,11 +182,11 @@ function UsuariosPage() {
             </p>
           </div>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={(o) => { if (!o) { const rc = novoRequestCloseRef.current; if (rc) rc(); else setOpen(false); } else setOpen(true); }}>
           <DialogTrigger asChild>
             <Button className="max-sm:hidden"><Plus className="h-4 w-4" /> Novo Usuário</Button>
           </DialogTrigger>
-          <NovoUsuarioModal tenants={tenants} onClose={() => setOpen(false)} />
+          <NovoUsuarioModal tenants={tenants} onClose={() => setOpen(false)} requestCloseRef={novoRequestCloseRef} />
         </Dialog>
       </div>
 
@@ -271,8 +275,8 @@ function UsuariosPage() {
         )}
       </Dialog>
 
-      <Dialog open={!!editing} onOpenChange={(v) => !v && setEditing(null)}>
-        {editing && <EditUsuarioModal tenants={tenants} user={editing} isSelf={editing.id === user?.id} onClose={() => setEditing(null)} />}
+      <Dialog open={!!editing} onOpenChange={(v) => { if (!v) { const rc = editRequestCloseRef.current; if (rc) rc(); else setEditing(null); } }}>
+        {editing && <EditUsuarioModal tenants={tenants} user={editing} isSelf={editing.id === user?.id} onClose={() => setEditing(null)} requestCloseRef={editRequestCloseRef} />}
       </Dialog>
 
       <Dialog open={!!deleting} onOpenChange={(v) => !v && setDeleting(null)}>
@@ -347,8 +351,8 @@ function UsuariosPage() {
 }
 
 function NovoUsuarioModal({
-  tenants, onClose,
-}: { tenants: Tenant[]; onClose: () => void }) {
+  tenants, onClose, requestCloseRef,
+}: { tenants: Tenant[]; onClose: () => void; requestCloseRef: MutableRefObject<(() => void) | null> }) {
   const qc = useQueryClient();
   const call = useServerFn(createTenantUser);
   const [nome, setNome] = useState("");
@@ -357,6 +361,10 @@ function NovoUsuarioModal({
   const [tenantId, setTenantId] = useState<string>("");
   const [role, setRole] = useState<(typeof ROLES)[number]>("user");
   const [submitting, setSubmitting] = useState(false);
+
+  const dirty = nome !== "" || email !== "" || password !== "" || tenantId !== "" || role !== "user";
+  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
+  requestCloseRef.current = requestClose;
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -422,20 +430,21 @@ function NovoUsuarioModal({
           </div>
         </div>
         <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
-          <Button type="button" variant="outline" className="max-sm:hidden" onClick={onClose}>Cancelar</Button>
-          <Button type="button" variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={onClose}>
+          <Button type="button" variant="outline" className="max-sm:hidden" onClick={requestClose}>Cancelar</Button>
+          <Button type="button" variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={requestClose}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <Button type="submit" className="max-sm:ml-auto" disabled={submitting}>{submitting ? "Salvando…" : "Criar"}</Button>
         </DialogFooter>
       </form>
+      <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas neste cadastro de usuário." />
     </DialogContent>
   );
 }
 
 function EditUsuarioModal({
-  tenants, user, isSelf, onClose,
-}: { tenants: Tenant[]; user: AppUser; isSelf: boolean; onClose: () => void }) {
+  tenants, user, isSelf, onClose, requestCloseRef,
+}: { tenants: Tenant[]; user: AppUser; isSelf: boolean; onClose: () => void; requestCloseRef: MutableRefObject<(() => void) | null> }) {
   const qc = useQueryClient();
   const call = useServerFn(updateUser);
   const [nome, setNome] = useState(user.nome);
@@ -443,6 +452,10 @@ function EditUsuarioModal({
   const [tenantId, setTenantId] = useState<string>(user.tenant_id ?? "");
   const [role, setRole] = useState<(typeof ROLES)[number]>(user.role as (typeof ROLES)[number]);
   const [submitting, setSubmitting] = useState(false);
+
+  const { dirty, markClean } = useDirtySnapshot({ nome, email, tenantId, role });
+  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
+  requestCloseRef.current = requestClose;
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -459,6 +472,7 @@ function EditUsuarioModal({
       await call({ data: { user_id: user.id, nome, email, role, tenant_id: role === "super_admin" ? null : tenantId } });
       toast.success("Usuário atualizado");
       qc.invalidateQueries({ queryKey: ["admin", "users"] });
+      markClean();
       onClose();
     } catch (err) {
       toast.error(mensagemErro(err));
@@ -507,13 +521,14 @@ function EditUsuarioModal({
           </div>
         </div>
         <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
-          <Button type="button" variant="outline" className="max-sm:hidden" onClick={onClose}>Cancelar</Button>
-          <Button type="button" variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={onClose}>
+          <Button type="button" variant="outline" className="max-sm:hidden" onClick={requestClose}>Cancelar</Button>
+          <Button type="button" variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={requestClose}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <Button type="submit" className="max-sm:ml-auto" disabled={submitting}>{submitting ? "Salvando…" : "Salvar"}</Button>
         </DialogFooter>
       </form>
+      <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas neste cadastro de usuário." />
     </DialogContent>
   );
 }

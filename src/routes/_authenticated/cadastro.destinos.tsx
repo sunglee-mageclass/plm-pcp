@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/table";
 import { useSort, SortHead } from "@/components/shared/sort";
 import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
+import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 
 export const Route = createFileRoute("/_authenticated/cadastro/destinos")({
   component: () => (
@@ -41,6 +42,9 @@ function DestinosPage() {
   const [editing, setEditing] = useState<Destino | null>(null);
   const [formNome, setFormNome] = useState("");
   const [deleteRow, setDeleteRow] = useState<Destino | null>(null);
+
+  const dirty = open && formNome !== (editing?.nome ?? "");
+  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose: () => setOpen(false) });
 
   const { data: destinos = [], isLoading } = useQuery({
     queryKey: ["destinos-saida"],
@@ -175,7 +179,7 @@ function DestinosPage() {
         <Badge variant="secondary">{filtered.length}</Badge> registro(s)
       </div>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{editing ? "Editar destino" : "Novo destino"}</DialogTitle>
@@ -194,7 +198,7 @@ function DestinosPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
+            <Button variant="outline" onClick={requestClose}>Cancelar</Button>
             {!readOnly && (
               <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
                 {saveMut.isPending ? "Salvando…" : "Salvar"}
@@ -203,6 +207,8 @@ function DestinosPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <UnsavedChangesGuard dirty={dirty} confirm={confirm} />
 
       <AlertDialog open={!!deleteRow} onOpenChange={(o) => !o && setDeleteRow(null)}>
         <AlertDialogContent>

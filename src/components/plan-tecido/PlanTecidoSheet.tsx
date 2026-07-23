@@ -16,7 +16,7 @@ import {
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
-import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
+import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { ChevronRight, ArrowLeft, ShoppingCart, Undo2 } from "lucide-react";
 import {
   semearComModelos, mergeArvore, type SeedInput, type ModeloReal, type ModeloRealMaterial,
@@ -185,7 +185,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
   const qc = useQueryClient();
   const [arvore, setArvore] = useState<PtArvore | null>(null);
   const [dirty, setDirty] = useState(false);
-  const [confirmSair, setConfirmSair] = useState(false);
+  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
   const [viewMode, setViewMode] = useState<"linha" | "tecido">("linha");
   const [selecao, setSelecao] = useState<Set<string>>(new Set());
   const [editPath, setEditPath] = useState<SlotPath | null>(null); // edição rápida (dialog) da visão por tecido
@@ -429,7 +429,6 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
   });
 
   const patch = (next: PtArvore) => { setArvore(next); setDirty(true); };
-  const fechar = () => { if (dirty) setConfirmSair(true); else onClose(); };
 
   // Aplica um material (Tecido 1) em todos os slots selecionados (estado local)
   function aplicarTecidoEmMassa(material: PtMaterial) {
@@ -475,7 +474,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
   }
 
   return (
-    <Sheet open onOpenChange={(o) => { if (!o) fechar(); }}>
+    <Sheet open onOpenChange={(o) => { if (!o) requestClose(); }}>
       <SheetContent side="right" className="w-full sm:max-w-[70vw] flex flex-col p-0 max-sm:[&>button]:hidden">
         <div className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background p-3">
           <Breadcrumb items={[{ label: "Estilo & Engenharia" }, { label: "Plan. Tecido" }, { label: colecao?.nome ?? "…" }]} />
@@ -518,12 +517,6 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
           </Button>
         </div>
 
-        {/* indicador "alterações não salvas" flutuante (canto inferior direito, desktop) */}
-        {dirty && (
-          <div className="pointer-events-none fixed bottom-4 right-4 z-20 hidden md:block">
-            <UnsavedIndicator show={dirty} />
-          </div>
-        )}
 
         {/* Barra de seleção múltipla */}
         {selecao.size > 0 && (
@@ -621,7 +614,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
             </div>
 
             <MobileActionBar>
-              <Button variant="ghost" size="sm" onClick={fechar}>
+              <Button variant="ghost" size="sm" onClick={requestClose}>
                 <ArrowLeft className="mr-1 h-4 w-4" />
                 Voltar
               </Button>
@@ -653,22 +646,11 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
           </div>
         )}
 
-        <AlertDialog open={confirmSair} onOpenChange={setConfirmSair}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Descartar alterações?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Há alterações não salvas no planejamento de tecido.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Continuar editando</AlertDialogCancel>
-              <AlertDialogAction onClick={() => { setConfirmSair(false); onClose(); }}>
-                Descartar
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        <UnsavedChangesGuard
+          dirty={dirty}
+          confirm={confirm}
+          message="Há alterações não salvas no planejamento de tecido."
+        />
 
         {/* Edição rápida (dialog) a partir da visão "Por tecido" */}
         {editPath && arvore && (() => {

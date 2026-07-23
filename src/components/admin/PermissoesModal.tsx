@@ -14,6 +14,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
+import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
+import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
 
 type PermState = Record<string, { pode_ver: boolean; pode_editar: boolean }>;
 
@@ -59,6 +61,10 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
 
   useEffect(() => { setState(initial); }, [initial]);
 
+  const { dirty: changed, markClean, reset: resetBaseline } = useDirtySnapshot(state);
+  useEffect(() => { resetBaseline(initial); }, [initial]); // re-baseline quando dados chegam
+  const { requestClose, confirm } = useUnsavedGuard({ dirty: changed, onClose: onClose });
+
   const toggle = (key: string, field: "pode_ver" | "pode_editar", v: boolean) => {
     setState((s) => {
       const next = { ...s, [key]: { ...s[key], [field]: v } };
@@ -95,6 +101,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
         await callTenant({ data: { user_id: user.id, perms } });
       }
       toast.success("Permissões salvas");
+      markClean();
       qc.invalidateQueries({ queryKey: ["perms", user.id] });
       onClose();
     } catch (err) {
@@ -105,7 +112,11 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
   };
 
   return (
-    <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
+    <DialogContent
+      className="max-w-3xl max-h-[85vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden"
+      onInteractOutside={(e) => { if (changed) { e.preventDefault(); requestClose(); } }}
+      onEscapeKeyDown={(e) => { if (changed) { e.preventDefault(); requestClose(); } }}
+    >
       <DialogHeader className="max-sm:shrink-0">
         <DialogTitle>Permissões — {user.nome}</DialogTitle>
       </DialogHeader>
@@ -180,9 +191,10 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
         )}
       </div>
       </div>
+      <UnsavedChangesGuard dirty={changed} confirm={confirm} message="Há permissões não salvas para este usuário." />
       <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
-        <Button variant="outline" className="max-sm:hidden" onClick={onClose}>Cancelar</Button>
-        <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={onClose}>
+        <Button variant="outline" className="max-sm:hidden" onClick={requestClose}>Cancelar</Button>
+        <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={requestClose}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <Button className="max-sm:ml-auto" onClick={onSave} disabled={submitting || isAdminRole}>{submitting ? "Salvando…" : "Salvar"}</Button>

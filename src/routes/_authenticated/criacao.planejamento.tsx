@@ -13,6 +13,8 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { DateField } from "@/components/shared/DateField";
 import { ResumoVenda } from "@/components/shared/ResumoVenda";
@@ -1051,6 +1053,8 @@ function ModeloDialog({
   const qc = useQueryClient();
   const fl = useFieldLabels();
   const [draft, setDraft] = useState<Draft>(emptyDraft());
+  const { dirty, markClean, reset: resetDraftBaseline } = useDirtySnapshot(draft);
+  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
   // Grupo é transiente (não é coluna do modelo) — filtra as Categorias na cascata.
   const [grupoSel, setGrupoSel] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState(false);
@@ -1209,7 +1213,7 @@ function ModeloDialog({
       const { data, error } = await supabase.from("modelos").select("*").eq("id", modeloId).maybeSingle();
       if (error) throw error;
       if (data) {
-        setDraft({
+        const seeded: Draft = {
           nome: data.nome ?? "",
           estilista_id: data.estilista_id,
           linha_id: (data as any).linha_id ?? null,
@@ -1235,7 +1239,9 @@ function ModeloDialog({
           versao: (data as any).versao ?? 1,
           modelo_base_id: (data as any).modelo_base_id ?? null,
           custo_simulado: ((data as any).custo_simulado ?? {}) as CustoSimInput,
-        });
+        };
+        setDraft(seeded);
+        resetDraftBaseline(seeded);
         // Pré-seleciona o Grupo da categoria carregada (deriva de categorias_produto.grupo_id).
         setGrupoSel(categorias.find((c) => c.id === data.categoria_principal_id)?.grupo_id ?? null);
         setEnviada(!!(data as any).ordem_criacao_enviada);
@@ -1288,6 +1294,7 @@ function ModeloDialog({
     },
     onSuccess: () => {
       toast.success("Modelo salvo");
+      markClean();
       qc.invalidateQueries({ queryKey: ["modelo"] });
       qc.invalidateQueries({ queryKey: ["modelo-tecidos"] });
       qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
@@ -1396,7 +1403,7 @@ function ModeloDialog({
   if (!draft.data_lancamento) lancarBloqueios.push("Preencha a Data de Lançamento.");
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
+    <Dialog open onOpenChange={(o) => { if (!o) requestClose(); }}>
       <DialogContent className="flex flex-col gap-0 p-0 sm:max-w-[70vw] max-h-[90vh] max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden">
         <DialogHeader className="shrink-0 px-6 pt-6 pb-2 text-left">
           <DialogTitle className="flex flex-wrap items-center gap-2">
@@ -1678,7 +1685,7 @@ function ModeloDialog({
 
         <div className="shrink-0 border-t bg-background px-6 py-3 flex flex-wrap items-center gap-2 sm:justify-end max-sm:flex-nowrap">
           {/* Voltar: desktop "Cancelar" texto, mobile ícone de voltar. */}
-          <Button variant="outline" onClick={onClose} aria-label="Voltar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
+          <Button variant="outline" onClick={requestClose} aria-label="Voltar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
             <ArrowLeft className="h-4 w-4 sm:hidden" />
             <span className="max-sm:sr-only">Cancelar</span>
           </Button>
@@ -1745,6 +1752,8 @@ function ModeloDialog({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas neste card." />
       </DialogContent>
     </Dialog>
   );
@@ -1804,6 +1813,9 @@ function BatchCardsDialog({
   const [mesId, setMesId] = useState<string | null>(null);
   const [anoId, setAnoId] = useState<string | null>(null);
   const [rows, setRows] = useState<CatRow[]>([emptyCatRow()]);
+
+  const { dirty } = useDirtySnapshot({ colecao, colecaoId, subcolecao, linhaId, status, semana, mesId, anoId, rows });
+  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
 
   const total = rows.reduce(
     (sum, r) => sum + (r.categoria_id ? parseQtd(r.quantidade) : 0),
@@ -1872,7 +1884,7 @@ function BatchCardsDialog({
   });
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
+    <Dialog open onOpenChange={(o) => { if (!o) requestClose(); }}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
         <DialogHeader className="max-sm:shrink-0">
           <DialogTitle>Criar vários cards</DialogTitle>
@@ -2033,7 +2045,7 @@ function BatchCardsDialog({
         </div>
 
         <DialogFooter className="gap-2 max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
-          <Button variant="outline" onClick={onClose} aria-label="Voltar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
+          <Button variant="outline" onClick={requestClose} aria-label="Voltar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
             <ArrowLeft className="h-4 w-4 sm:hidden" />
             <span className="max-sm:sr-only">Cancelar</span>
           </Button>
@@ -2041,6 +2053,8 @@ function BatchCardsDialog({
             {create.isPending ? "Criando…" : `Criar ${total} ${total === 1 ? "card" : "cards"}`}
           </Button>
         </DialogFooter>
+
+        <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há dados não salvos na criação de cards." />
       </DialogContent>
     </Dialog>
   );

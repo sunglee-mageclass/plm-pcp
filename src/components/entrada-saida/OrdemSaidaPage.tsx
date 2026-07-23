@@ -20,6 +20,8 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
+import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { useSort, SortHead } from "@/components/shared/sort";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -91,6 +93,13 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
 
   // baixa state: utilizado por item id
   const [utilizado, setUtilizado] = useState<Record<string, string>>({});
+
+  // Guarda de "alterações não salvas" do formulário de criar/editar OS. Snapshot de
+  // todos os campos editáveis, gated por formOpen (não mostra o indicador na lista).
+  const osForm = { fNumero, fResponsavel, fSolicitacao, fCorte, fDestino, fObs, fItens };
+  const { dirty: osChanged, markClean, reset: resetBaseline } = useDirtySnapshot(osForm);
+  const dirty = formOpen && osChanged;
+  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose: () => setFormOpen(false) });
 
   const listKey = [`os-${tipo}`];
 
@@ -232,27 +241,38 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
     setEditing(null);
     // sugere o próximo número (editável no formulário).
     const proximo = ordens.reduce((m, o) => Math.max(m, o.numero ?? 0), 0) + 1;
+    const fItensSeed: ItemForm[] = [{ _key: newKey(), itemId: "", reserva: "" }];
     setFNumero(String(proximo));
     setFResponsavel(""); setFSolicitacao(""); setFCorte(""); setFDestino("none"); setFObs("");
-    setFItens([{ _key: newKey(), itemId: "", reserva: "" }]);
+    setFItens(fItensSeed);
+    // Baseline = formulário recém-semeado (o número sugerido não conta como "alteração").
+    resetBaseline({ fNumero: String(proximo), fResponsavel: "", fSolicitacao: "", fCorte: "", fDestino: "none", fObs: "", fItens: fItensSeed });
     setFormOpen(true);
   };
 
   const openEdit = (o: OSRow) => {
     setEditing(o);
-    setFNumero(o.numero != null ? String(o.numero) : "");
-    setFResponsavel(o.responsavel ?? "");
-    setFSolicitacao(o.data_solicitacao ?? "");
-    setFCorte(o.data_corte ?? "");
-    setFDestino(o.destino_id ?? "none");
-    setFObs(o.observacao ?? "");
-    setFItens(
-      (o.itens ?? []).map((it) => ({
+    const seed = {
+      fNumero: o.numero != null ? String(o.numero) : "",
+      fResponsavel: o.responsavel ?? "",
+      fSolicitacao: o.data_solicitacao ?? "",
+      fCorte: o.data_corte ?? "",
+      fDestino: o.destino_id ?? "none",
+      fObs: o.observacao ?? "",
+      fItens: (o.itens ?? []).map((it) => ({
         _key: newKey(),
         itemId: it[cfg.itemFk] ?? "",
         reserva: it.reserva != null ? String(it.reserva) : "",
       })),
-    );
+    };
+    setFNumero(seed.fNumero);
+    setFResponsavel(seed.fResponsavel);
+    setFSolicitacao(seed.fSolicitacao);
+    setFCorte(seed.fCorte);
+    setFDestino(seed.fDestino);
+    setFObs(seed.fObs);
+    setFItens(seed.fItens);
+    resetBaseline(seed);
     setFormOpen(true);
   };
 
@@ -282,6 +302,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
     },
     onSuccess: () => {
       toast.success(editing ? "OS atualizada." : "OS criada.");
+      markClean();
       setFormOpen(false);
       invalidate();
     },
@@ -439,7 +460,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
       </div>
 
       {/* Criar / editar OS */}
-      <Dialog open={formOpen} onOpenChange={setFormOpen}>
+      <Dialog open={formOpen} onOpenChange={(o) => { if (o) setFormOpen(true); else requestClose(); }}>
         <DialogContent className="max-w-2xl max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
           <DialogHeader className="max-sm:shrink-0">
             <DialogTitle>{editing ? `Editar OS #${editing.numero ?? ""}` : "Nova Ordem de Saída"}</DialogTitle>
@@ -514,8 +535,8 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
             </div>
           </div>
           <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
-            <Button variant="outline" className="max-sm:hidden" onClick={() => setFormOpen(false)}>Cancelar</Button>
-            <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={() => setFormOpen(false)}>
+            <Button variant="outline" className="max-sm:hidden" onClick={requestClose}>Cancelar</Button>
+            <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={requestClose}>
               <ArrowLeft className="h-4 w-4" />
             </Button>
             <Button className="max-sm:ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
@@ -524,6 +545,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas nesta ordem de saída." />
 
       {/* Dar baixa */}
       <Dialog open={!!baixaOS} onOpenChange={(o) => { if (!o) { setBaixaOS(null); setUtilizado({}); } }}>

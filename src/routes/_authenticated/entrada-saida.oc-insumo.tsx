@@ -22,6 +22,7 @@ import { NfList } from "@/components/oc-tecido/NfList";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { OcModalShell } from "@/components/shared/OcModalShell";
+import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -285,6 +286,11 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
   const [confirmUnmark, setConfirmUnmark] = useState(false);
   const savingRef = useRef(false);
 
+  // Guarda de "alterações não salvas": snapshot de TODO o estado editável (cabeçalho +
+  // parcelas + NFs + blocos de insumo). Re-baseline ao semear (query async) e após salvar.
+  const formState = { numero, empresaId, repId, respNome, dataPedido, dataPrevista, prazo, qtdPrazos, nfs, parcelas, blocks };
+  const { dirty: changed, markClean, reset: resetBaseline } = useDirtySnapshot(formState);
+
   const canShowRecebimento = isEdit && (status === "encomendado" || status === "recebido");
   const isReadOnlyRecebimento = isEdit && status === "recebido";
 
@@ -326,6 +332,14 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
           bs.push({ etiquetaId: etqId, selectedCores, rows });
         }
         setBlocks(bs);
+        // Re-baseline no MESMO tick com os valores semeados (estado recém-setado está stale).
+        resetBaseline({
+          numero: oc.numero_pedido ?? "", empresaId: oc.empresa_id, repId: oc.representante_id,
+          respNome: oc.responsavel_nome ?? "", dataPedido: oc.data_pedido ?? "", dataPrevista: oc.data_prevista_entrega ?? "",
+          prazo: oc.prazo_pagamento ?? "", qtdPrazos: oc.quantidade_prazos ?? 1, nfs: (oc.nfs ?? []) as any,
+          parcelas: Array.isArray(oc.parcelas_recebimento) && oc.parcelas_recebimento.length > 0 ? oc.parcelas_recebimento : [{ data: "", recebido: false }],
+          blocks: bs,
+        });
       }
       return oc ?? null;
     },
@@ -388,7 +402,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
       const { error } = await supabase.rpc("salvar_oc_etiqueta" as any, { _oc_id: isEdit ? ocId : null, _oc: payload, _itens: itens });
       if (error) throw error;
     },
-    onSuccess: () => { toast.success("OC salva"); onSaved(); },
+    onSuccess: () => { toast.success("OC salva"); markClean(); onSaved(); },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
   });
   const unmark = useMutation({
@@ -411,9 +425,13 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
     setParcelas((prev) => Array.from({ length: q }, (_, i) => prev[i] ?? { data: "", recebido: false }));
   };
 
+  // O OcDialog só monta quando aberto; em modo somente-leitura os inputs ficam
+  // desabilitados, então `changed` permanece falso naturalmente.
+  const dirty = changed;
+
   return (
     <>
-    <OcModalShell isEdit={isEdit} onClose={onClose}>
+    <OcModalShell isEdit={isEdit} onClose={onClose} dirty={dirty} discardMessage="Há alterações não salvas nesta OC de insumo.">
         <DialogHeader className="shrink-0">
           <DialogTitle>{isEdit ? `OC ${numero || "Insumo"}` : "Nova OC de Insumo"}</DialogTitle>
         </DialogHeader>

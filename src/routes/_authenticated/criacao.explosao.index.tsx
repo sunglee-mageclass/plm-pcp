@@ -13,6 +13,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useSort, SortTh } from "@/components/shared/sort";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { ExplosaoDetail } from "@/components/producao/explosao/ExplosaoDetail";
+import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 
 export const Route = createFileRoute("/_authenticated/criacao/explosao/")({
   component: ExplosaoListPage,
@@ -34,11 +35,16 @@ function ExplosaoListPage() {
   const fl = useFieldLabels();
   const [sheetId, setSheetId] = useState<string | null>(null);
   const qc = useQueryClient();
+  // Guarda de "alterações não salvas": o ExplosaoDetail reporta edições de metragem
+  // pendentes; fechar (X/ESC/fora) com pendências pede confirmação de descarte.
+  const [explDirty, setExplDirty] = useState(false);
   // Ao fechar o Sheet, refaz a lista para remover modelos já enviados ao corte.
   const closeSheet = () => {
+    setExplDirty(false);
     setSheetId(null);
     qc.invalidateQueries({ queryKey: ["producao-explosao-list"] });
   };
+  const { requestClose, confirm } = useUnsavedGuard({ dirty: explDirty, onClose: closeSheet });
   const [q, setQ] = useState("");
   const [fColecao, setFColecao] = useState("all");
   const [fMes, setFMes] = useState("all");
@@ -178,16 +184,18 @@ function ExplosaoListPage() {
         </table>
       </Card>
 
-      <Sheet open={!!sheetId} onOpenChange={(o) => !o && closeSheet()}>
+      <Sheet open={!!sheetId} onOpenChange={(o) => { if (!o) requestClose(); }}>
         <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] overflow-y-auto p-0 max-md:[&>button]:hidden">
           {sheetId && (
             <ExplosaoDetail
               modeloId={sheetId}
               onEnviado={closeSheet}
+              onDirtyChange={setExplDirty}
             />
           )}
         </SheetContent>
       </Sheet>
+      <UnsavedChangesGuard dirty={explDirty} confirm={confirm} message="Há alterações de metragem não salvas nesta Explosão." />
     </div>
   );
 }

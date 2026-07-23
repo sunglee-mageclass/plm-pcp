@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Wrench,
@@ -61,6 +61,8 @@ import {
 import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
 import { useSort, SortHead } from "@/components/shared/sort";
 import { useAuth } from "@/hooks/useAuth";
+import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
+import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 export const Route = createFileRoute("/_authenticated/cadastro/servico")({
   component: () => (
     <RequirePermission page="cadastro_servico">
@@ -445,6 +447,14 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
 
+  // Guarda de alterações não salvas (Case C).
+  const { dirty: formChanged, markClean, reset: resetBaseline } = useDirtySnapshot(form);
+  const dirty = open && formChanged;
+  const { requestClose, confirm } = useUnsavedGuard({
+    dirty,
+    onClose: useCallback(() => setOpen(false), []),
+  });
+
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["representantes"],
     queryFn: async () => {
@@ -508,11 +518,12 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
 
   const openCreate = () => {
     setForm(emptyForm);
+    resetBaseline(emptyForm);
     setOpen(true);
   };
 
   const openEdit = (r: Representante) => {
-    setForm({
+    const next = {
       id: r.id,
       empresa_id: r.empresa_id ?? "",
       nome: r.nome ?? "",
@@ -528,9 +539,11 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
       contato: r.contato ?? "",
       observacoes: r.observacoes ?? "",
       novaEmpresa: "",
-      novaEmpresaCategorias: [],
+      novaEmpresaCategorias: [] as string[],
       modoNovaEmpresa: false,
-    });
+    };
+    setForm(next);
+    resetBaseline(next);
     setOpen(true);
   };
 
@@ -582,6 +595,7 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
       }
     },
     onSuccess: () => {
+      markClean();
       toast.success(form.id ? "Representante atualizado." : "Representante criado.");
       setOpen(false);
       qc.invalidateQueries({ queryKey: ["representantes"] });
@@ -753,7 +767,7 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
       </div>
 
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
           <DialogHeader className="max-sm:shrink-0">
             <DialogTitle>{form.id ? "Editar representante" : "Novo representante"}</DialogTitle>
@@ -833,7 +847,7 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
           </div>
 
           <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
-            <Button variant="outline" onClick={() => setOpen(false)}>
+            <Button variant="outline" onClick={requestClose}>
               Cancelar
             </Button>
             {!readOnly && (
@@ -844,6 +858,12 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <UnsavedChangesGuard
+        dirty={dirty}
+        confirm={confirm}
+        message="Há alterações não salvas neste representante."
+      />
 
       <AlertDialog open={!!deleteRow} onOpenChange={(o) => { if (!o) { setDeleteRow(null); setDeleteUsage(null); } }}>
         <AlertDialogContent>
@@ -1030,6 +1050,18 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
 
+  // Guarda de alterações não salvas (Case C).
+  const { dirty: formChanged, markClean, reset: resetBaseline } = useDirtySnapshot(form);
+  const dirty = open && formChanged;
+  const { requestClose, confirm } = useUnsavedGuard({
+    dirty,
+    onClose: useCallback(() => {
+      setOpen(false);
+      setEditingId(null);
+      setForm(emptyEmpresaForm);
+    }, []),
+  });
+
   const { data: empresas = [], isLoading } = useQuery({
     queryKey: ["empresas-multi"],
     queryFn: async () => {
@@ -1138,6 +1170,7 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
   const resetForm = () => {
     setEditingId(null);
     setForm(emptyEmpresaForm);
+    resetBaseline(emptyEmpresaForm);
   };
 
   const openCreate = () => {
@@ -1160,7 +1193,7 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
       return;
     }
     const tipo = (data.tipo as EmpresaTipo) ?? "material";
-    setForm({
+    const next = {
       tipo,
       nome_fantasia: data.nome_fantasia ?? "",
       cnpj: data.cnpj ?? "",
@@ -1175,7 +1208,9 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
       contato: data.contato ?? "",
       observacoes: data.observacoes ?? "",
       cats: (tipo === "servico" ? servByEmpresa.get(e.id) : fornByEmpresa.get(e.id)) ?? [],
-    });
+    };
+    setForm(next);
+    resetBaseline(next);
     setOpen(true);
   };
 
@@ -1218,6 +1253,7 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
       if (error) throw error;
     },
     onSuccess: () => {
+      markClean();
       toast.success(editingId ? "Empresa atualizada." : "Empresa criada.");
       setOpen(false);
       resetForm();
@@ -1446,7 +1482,7 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
       </div>
 
 
-      <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) resetForm(); }}>
+      <Dialog open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
           <DialogHeader className="max-sm:shrink-0">
             <DialogTitle>{editingId ? "Editar empresa" : "Nova empresa"}</DialogTitle>
@@ -1518,7 +1554,7 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
             </div>
           </div>
           <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
-            <Button variant="outline" onClick={() => setOpen(false)}>
+            <Button variant="outline" onClick={requestClose}>
               Cancelar
             </Button>
             {!readOnly && (
@@ -1529,6 +1565,12 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <UnsavedChangesGuard
+        dirty={dirty}
+        confirm={confirm}
+        message="Há alterações não salvas nesta empresa."
+      />
 
       <AlertDialog
         open={!!deleteRow}

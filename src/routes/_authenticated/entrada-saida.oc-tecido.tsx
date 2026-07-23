@@ -30,6 +30,7 @@ import { OcTecidoForm } from "@/components/oc-tecido/OcTecidoForm";
 import { OcTecidoRecebimento } from "@/components/oc-tecido/OcTecidoRecebimento";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { OcModalShell } from "@/components/shared/OcModalShell";
+import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { useModoOcRolo } from "@/hooks/useModoOcRolo";
 import {
   emptyDraft, uploadFile,
@@ -320,6 +321,10 @@ function OcDialog({
   // cada artigo da OC pode ter, ou não, etiqueta de lavagem.
   const [semEtiquetaPorArtigo, setSemEtiquetaPorArtigo] = useState<Record<string, boolean>>({});
 
+  // Guarda de "alterações não salvas": compara o rascunho editável (cabeçalho + itens)
+  // com um baseline. Re-baseline ao semear a OC (query async) e após salvar (markClean).
+  const { dirty: changed, markClean, reset: resetBaseline } = useDirtySnapshot({ draft, items });
+
   useQuery({
     queryKey: ["oc-tecido", ocId],
     enabled: !!ocId,
@@ -329,8 +334,9 @@ function OcDialog({
       if (e1) throw e1;
       const { data: its, error: e2 } = await supabase.from("ocs_tecido_itens").select("*").eq("oc_tecido_id", ocId);
       if (e2) throw e2;
+      let nextDraft: Draft | null = null;
       if (oc) {
-        setDraft({
+        nextDraft = {
           numero_pedido: oc.numero_pedido ?? "",
           responsavel_id: oc.responsavel_id,
           responsavel_nome: oc.responsavel_nome ?? "",
@@ -350,7 +356,8 @@ function OcDialog({
           parcelas_recebimento: (Array.isArray((oc as any).parcelas_recebimento) && (oc as any).parcelas_recebimento.length > 0)
             ? ((oc as any).parcelas_recebimento as { data: string; recebido: boolean }[])
             : [{ data: "", recebido: false }],
-        });
+        };
+        setDraft(nextDraft);
         setStatus((oc.status as OCStatus) ?? "encomendado");
       }
       const mapped: ItemDraft[] = ((its ?? []) as unknown as OCItem[]).map((i) => ({
@@ -366,6 +373,8 @@ function OcDialog({
         preco: (i as any).preco == null ? null : Number((i as any).preco),
       }));
       setItems(mapped);
+      // Itens finais (após eventual recomputo por rolo abaixo) que alimentam o baseline.
+      let finalItems: ItemDraft[] = mapped;
       setOriginalItemIds(mapped.map((m) => m.id).filter((x): x is string => !!x));
       if (mapped.some((m) => m.artigo_numero === 2)) setTecido2Aberto(true);
 
@@ -426,9 +435,13 @@ function OcDialog({
           setRolosPorItem(planned);
           // Recomputa a quantidade recebida do item a partir do planejamento (mantém
           // a validação de "marcar recebido" coerente ao reabrir).
-          setItems((prev) => prev.map((i) => (i.id && recebidaByItem[i.id] != null) ? { ...i, quantidade_recebida: recebidaByItem[i.id] } : i));
+          finalItems = mapped.map((i) => (i.id && recebidaByItem[i.id] != null) ? { ...i, quantidade_recebida: recebidaByItem[i.id] } : i);
+          setItems(finalItems);
         }
       }
+      // Re-baseline no MESMO tick com os valores semeados (o estado recém-setado ainda
+      // está stale aqui). Assim uma OC recém-aberta não aparece como "não salva".
+      if (nextDraft) resetBaseline({ draft: nextDraft, items: finalItems });
       return oc;
     },
   });
@@ -483,6 +496,9 @@ function OcDialog({
         }
         return i;
       });
+      // Ao EDITAR, o preenchimento de preço vindo do cadastro é normalização de carga
+      // (não edição do usuário): re-baseline p/ a OC não nascer "não salva".
+      if (changed && isEdit) resetBaseline({ draft, items: next });
       return changed ? next : prev;
     });
   }, [varianteMap]);
@@ -722,6 +738,7 @@ function OcDialog({
     },
     onSuccess: () => {
       toast.success("OC salva");
+      markClean();
       qc.invalidateQueries({ queryKey: ["ocs_tecido"] });
       qc.invalidateQueries({ queryKey: ["ocs_tecido_qtd_recebida"] });
       qc.invalidateQueries({ queryKey: ["parcelas"] });
@@ -896,9 +913,12 @@ function OcDialog({
     saveMutation.mutate(true, { onSettled: () => { savingRef.current = false; } });
   };
 
+  // O OcDialog só monta quando aberto, logo `changed` já basta (sem gate por `open`).
+  const dirty = changed;
+
   return (
     <>
-    <OcModalShell isEdit={isEdit} onClose={onClose}>
+    <OcModalShell isEdit={isEdit} onClose={onClose} dirty={dirty} discardMessage="Há alterações não salvas nesta OC de tecido.">
         <DialogHeader className="shrink-0">
           <DialogTitle>{isEdit ? `OC ${draft.numero_pedido || ""}` : "Nova OC de Tecido"}</DialogTitle>
         </DialogHeader>

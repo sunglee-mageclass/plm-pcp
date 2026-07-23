@@ -3,6 +3,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
+import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { proximoLancamento, removerLancamento, normalizar, remapChaves } from "@/lib/lancamentos";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -166,6 +168,11 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
   const [metaFocus, setMetaFocus] = useState(false);
   const [metaText, setMetaText] = useState("");
 
+  const formSnapshot = { nome, mesId, anoId, padraoId, meta, perda, subs };
+  const { dirty: changed, markClean, reset: resetBaseline } = useDirtySnapshot(formSnapshot);
+  const dirty = changed;
+  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
+
   const mesOrdem = useMemo(() => Number((meses as any[]).find((m) => m.id === mesId)?.ordem) || 0, [meses, mesId]);
   const anoNum = useMemo(() => Number((anos as any[]).find((a) => a.id === anoId)?.ano) || 0, [anos, anoId]);
   // Data do lançamento = campo livre por ordinal (sem mapear semana do calendário).
@@ -232,6 +239,8 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
       return { id: nid("s"), nome: sc.nome, semanas, datasSemanas, linhas: linhasNorm };
     });
     setSubs(mapped); setHydrated(true);
+    // Re-baseline do snapshot com os dados carregados (evita falso-dirty ao abrir).
+    resetBaseline({ nome: c.nome ?? "", mesId: c.mes_id ?? "", anoId: c.ano_id ?? "", padraoId: c.mix_padrao_id ?? "", meta: Number(c.poder_venda_meta) || 0, perda: Number(c.perda_markup) || 25, subs: mapped });
   }, [colecaoId, loaded, hydrated]);
 
   const cloneDoPadrao = (): LinhaSub[] => {
@@ -323,10 +332,10 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
     return data as string;
   };
   const feito = (cid: string) => { setSavedId(cid); qc.invalidateQueries({ queryKey: ["colecao-pv", cid] }); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); onSaved?.(); };
-  const salvar = useMutation({ mutationFn: salvarRaw, onSuccess: (cid) => { toast.success("Coleção salva."); feito(cid); }, onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar a coleção.")) });
+  const salvar = useMutation({ mutationFn: salvarRaw, onSuccess: (cid) => { toast.success("Coleção salva."); markClean(); feito(cid); }, onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar a coleção.")) });
   const confirmar = useMutation({
     mutationFn: async () => { const cid = await salvarRaw(); const { error } = await supabase.rpc("otb_confirmar_pv" as any, { _colecao_id: cid }); if (error) throw error; return cid; },
-    onSuccess: (cid) => { toast.success("Coleção confirmada."); setConfirmada(true); feito(cid); },
+    onSuccess: (cid) => { toast.success("Coleção confirmada."); markClean(); setConfirmada(true); feito(cid); },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao confirmar a coleção.")),
   });
   const desconfirmar = useMutation({
@@ -388,7 +397,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
   const temPadrao = !!padraoId && !!(padroes as any[]).find((p) => p.id === padraoId);
 
   return (
-    <Sheet open onOpenChange={(o) => !o && onClose()}>
+    <Sheet open onOpenChange={(o) => { if (!o) requestClose(); }}>
       <SheetContent side="right" className="w-full sm:max-w-[70vw] flex flex-col p-0 max-sm:[&>button]:hidden">
         <SheetHeader className="p-4 border-b shrink-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -556,7 +565,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
         </div>
 
         <div className="p-4 border-t shrink-0 flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose} className="mr-auto shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Voltar">
+          <Button variant="outline" onClick={requestClose} className="mr-auto shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Voltar">
             <ArrowLeft className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Voltar</span>
           </Button>
           {savedId && (
@@ -597,6 +606,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas nesta coleção por Poder de Venda." />
     </Sheet>
   );
 }

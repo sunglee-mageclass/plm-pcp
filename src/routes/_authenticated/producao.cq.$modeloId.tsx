@@ -33,6 +33,8 @@ import { useReadOnly } from "@/components/RequirePermission";
 import { VerificarRevisao } from "@/components/producao/RevisaoErro";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { CqPosView, type CqPosHandle, type CqPosStatus } from "@/components/producao/CqPosView";
+import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 
 export const Route = createFileRoute("/_authenticated/producao/cq/$modeloId")({
   component: CqDetailPage,
@@ -72,7 +74,7 @@ function CqDetailPage() {
   return <CqDetail modeloId={modeloId} />;
 }
 
-export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: () => void }) {
+export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { modeloId: string; onClose?: () => void; onForceClose?: () => void; onDirtyChange?: (dirty: boolean) => void }) {
   const qc = useQueryClient();
   const permReadOnly = useReadOnly();
   const tenantId = useActiveTenantId();
@@ -238,6 +240,16 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
   // Confirmado trava a edição; "Editar" reabre sem desmarcar a confirmação.
   const readOnly = permReadOnly || (confirmado && !editing);
 
+  // Guarda de "alterações não salvas": snapshot do estado editável (form + grades +
+  // fotografado). status/confirmação seguem por mutations próprias, fora do snapshot.
+  const { dirty: changed, markClean, reset: resetBaseline } = useDirtySnapshot({ form, grades, fotografado });
+  // Só marca sujo depois de hidratar e enquanto editável (readOnly não altera nada).
+  const dirty = hydrated && !readOnly && changed;
+  // Full-page (rota /producao/cq/$modeloId): bloqueia navegação. Modal (Sheet no index):
+  // o guarda vive no pai, que recebe `dirty` via onDirtyChange — aqui fica inerte.
+  const { confirm } = useUnsavedGuard({ dirty: onClose ? false : dirty, blockNav: !onClose });
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
+
   // Só hidrata quando as queries ASSENTARAM (fetched && !fetching) — senão, ao
   // salvar, rehidratava do cache vazio/antigo e os números digitados sumiam.
   const cqSettled = cqFetched && !cqFetching;
@@ -246,9 +258,22 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
   useEffect(() => {
     if (hydrated || !cad?.id) return;
     if (!cqSettled || !varsSettled) return;
+    // Estado semeado (usado também p/ re-baselinar o guarda de alterações).
+    let nextForm = {
+      data_conserto_enviado: "",
+      data_conserto_prevista: "",
+      data_conserto_entregue: "",
+      data_lavagem_enviado: "",
+      data_lavagem_entregue: "",
+      observacoes_cq: "",
+      pecas_incompletas: 0,
+      pecas_faltantes: 0,
+      pecas_sem_etiqueta: 0,
+    };
+    let nextFoto: Record<number, boolean> = {};
     if (cqRow !== undefined) {
       if (cqRow) {
-        setForm({
+        nextForm = {
           data_conserto_enviado: cqRow.data_conserto_enviado ?? "",
           data_conserto_prevista: cqRow.data_conserto_prevista ?? "",
           data_conserto_entregue: cqRow.data_conserto_entregue ?? "",
@@ -258,11 +283,13 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
           pecas_incompletas: Number(cqRow.pecas_incompletas ?? 0),
           pecas_faltantes: Number(cqRow.pecas_faltantes ?? 0),
           pecas_sem_etiqueta: Number(cqRow.pecas_sem_etiqueta ?? 0),
-        });
+        };
+        setForm(nextForm);
         setStatus((cqRow as any).status ?? "pendente");
         const fv = (cqRow as any).fotografado_variantes ?? {};
         const fmap: Record<number, boolean> = {};
         Object.entries(fv).forEach(([k, v]) => { fmap[Number(k)] = Boolean(v); });
+        nextFoto = fmap;
         setFotografado(fmap);
       }
       const g = emptyGrades();
@@ -278,6 +305,9 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
         };
       });
       setGrades(g);
+      // Re-baseline o guarda de alterações a partir do estado semeado (passa o valor
+      // explícito — o estado recém-setado ainda está stale neste tick).
+      resetBaseline({ form: nextForm, grades: g, fotografado: nextFoto });
       setHydrated(true);
     }
   }, [cqRow, varRows, cad?.id, hydrated, cqSettled, varsSettled]);
@@ -436,6 +466,7 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
     onSuccess: async () => {
       toast.success("Salvo");
       setEditing(false);
+      markClean(); // limpa o indicador de "alterações não salvas" já no sucesso
       // Busca os dados frescos ANTES de liberar a hidratação (senão re-hidrata do
       // cache antigo/vazio e zera os números).
       await qc.invalidateQueries({ queryKey: ["cq", cad?.id] });
@@ -497,7 +528,8 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
         qc.invalidateQueries({ queryKey: ["sidebar-badges"] }),
         qc.invalidateQueries({ queryKey: ["etapas-afetadas", modeloId] }),
       ]);
-      onClose?.();
+      // A RPC já desfez o CQ no servidor — fecha SEM pedir confirmação de descarte.
+      (onForceClose ?? onClose)?.();
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao voltar para Serviços")),
   });
@@ -861,6 +893,12 @@ export function CqDetail({ modeloId, onClose }: { modeloId: string; onClose?: ()
         {backButton}
         {actionButtons}
       </MobileActionBar>
+
+      {/* Full-page: guarda o "sair sem salvar" (bloqueia navegação de rota). No modal
+          (Sheet no index) o guarda é renderizado pelo pai — aqui não duplica. */}
+      {!onClose && (
+        <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas no Controle de Qualidade." />
+      )}
     </div>
   );
 }
@@ -982,7 +1020,19 @@ function OficinaServicoDialog({ cadId, open, onClose }: { cadId: string; open: b
   });
   const [desc, setDesc] = useState(0);
   const [multa, setMulta] = useState(0);
-  useEffect(() => { if (serv) { setDesc(Number(serv.desconto ?? 0)); setMulta(Number(serv.multa ?? 0)); } }, [serv]);
+  const { dirty: changed, markClean, reset: resetBaseline } = useDirtySnapshot({ desc, multa });
+  useEffect(() => {
+    if (serv) {
+      const nd = Number(serv.desconto ?? 0);
+      const nm = Number(serv.multa ?? 0);
+      setDesc(nd); setMulta(nm);
+      resetBaseline({ desc: nd, multa: nm });
+    }
+  }, [serv]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Guarda: só há edição quando aberto e há serviço (campos aparecem). Fechar com
+  // pendências pede confirmação de descarte.
+  const dirty = open && !!serv && changed;
+  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
   const brl = (v: number) => Number(v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   const bruto = Number(serv?.custo_bruto ?? 0);
   const liquido = bruto - (Number(desc) || 0) + (Number(multa) || 0);
@@ -1000,12 +1050,13 @@ function OficinaServicoDialog({ cadId, open, onClose }: { cadId: string; open: b
       ["producao-terc", "producao-terc-list", "terceirizados-multi", "terceirizados-all"]
         .forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
       toast.success("Oficina atualizada");
+      markClean();
       onClose();
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
   });
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
       <DialogContent className="max-w-sm">
         <DialogHeader><DialogTitle>Oficina — desconto / multa</DialogTitle></DialogHeader>
         {!serv ? (
@@ -1028,12 +1079,13 @@ function OficinaServicoDialog({ cadId, open, onClose }: { cadId: string; open: b
           </div>
         )}
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} aria-label="Voltar" className="max-sm:aspect-square max-sm:px-0">
+          <Button variant="outline" onClick={requestClose} aria-label="Voltar" className="max-sm:aspect-square max-sm:px-0">
             <ArrowLeft className="h-4 w-4 sm:hidden" />
             <span className="max-sm:sr-only">Fechar</span>
           </Button>
           {serv && <Button onClick={() => save.mutate()} disabled={save.isPending}>Salvar</Button>}
         </DialogFooter>
+        <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações de desconto/multa não salvas nesta oficina." />
       </DialogContent>
     </Dialog>
   );

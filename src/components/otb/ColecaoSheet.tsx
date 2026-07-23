@@ -4,6 +4,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
+import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Trash2, ArrowLeft, Check, Save, Plus, Tags } from "lucide-react";
@@ -255,6 +257,11 @@ export function ColecaoSheet({
   const [pendingAssign, setPendingAssign] = useState<PendingAssign>({}); // atribuições feitas no editor, gravadas no Save
   const [confirmDel, setConfirmDel] = useState(false);
 
+  const formSnapshot = { nome, anoId, mesId, orcamento, weeks, weeksMeta, weekCats, subs, pendingAssign };
+  const { dirty: changed, markClean, reset: resetBaseline } = useDirtySnapshot(formSnapshot);
+  const dirty = changed; // sheet é sempre montada-aberta quando ativa — sem gate extra necessário
+  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
+
   const { data: grupos = [] } = useQuery({
     queryKey: ["otb-grupos"],
     queryFn: async () => ((await supabase.from("grupos_produto").select("id, nome").order("nome")).data ?? []) as Grupo[],
@@ -318,6 +325,12 @@ export function ColecaoSheet({
       });
     setSubs(subList);
     setPendingAssign({}); // recarregou do banco → zera atribuições pendentes (já refletidas)
+    // Re-baseline do snapshot com os dados carregados (evita falso-dirty ao abrir).
+    const nextNome = data.nome ?? "";
+    const nextAnoId = data.ano_id ?? null;
+    const nextMesId = data.mes_id ?? null;
+    const nextOrcamento = data.orcamento != null ? String(data.orcamento) : "";
+    resetBaseline({ nome: nextNome, anoId: nextAnoId, mesId: nextMesId, orcamento: nextOrcamento, weeks: simples.weeks, weeksMeta: simples.meta, weekCats: simples.cats, subs: subList, pendingAssign: {} });
   }, [data]);
 
   // Queries para painel de resumo (só quando editando coleção existente)
@@ -480,6 +493,7 @@ export function ColecaoSheet({
     onSuccess: (r) => {
       const partes = r ? [r.criados ? `${r.criados} criado(s)` : "", r.removidos ? `${r.removidos} removido(s)` : ""].filter(Boolean) : [];
       toast.success(`Coleção salva.${partes.length ? " " + partes.join(" · ") : ""}`);
+      markClean();
       qc.invalidateQueries({ queryKey: ["otb-colecoes"] });
       qc.invalidateQueries({ queryKey: ["otb-semanas-todas"] });
       if (isConfirmada) {
@@ -500,6 +514,7 @@ export function ColecaoSheet({
     },
     onSuccess: () => {
       toast.success("Coleção confirmada.");
+      markClean();
       qc.invalidateQueries({ queryKey: ["otb-colecoes"] });
       qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
       onSaved(); onClose();
@@ -536,7 +551,7 @@ export function ColecaoSheet({
   });
 
   return (
-    <Sheet open onOpenChange={(o) => !o && onClose()}>
+    <Sheet open onOpenChange={(o) => { if (!o) requestClose(); }}>
       <SheetContent side="right" className="w-full sm:max-w-[70vw] flex flex-col p-0 max-sm:[&>button]:hidden">
         <SheetHeader className="p-4 border-b shrink-0">
           <SheetTitle className="flex items-center gap-2">
@@ -621,7 +636,7 @@ export function ColecaoSheet({
           </div>
         </div>
         <div className="p-4 border-t shrink-0 flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose} aria-label="Voltar" className="mr-auto shrink-0 max-sm:aspect-square max-sm:px-0">
+          <Button variant="outline" onClick={requestClose} aria-label="Voltar" className="mr-auto shrink-0 max-sm:aspect-square max-sm:px-0">
             <ArrowLeft className="h-4 w-4 sm:hidden" />
             <span className="max-sm:sr-only">Cancelar</span>
           </Button>
@@ -678,6 +693,7 @@ export function ColecaoSheet({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas nesta coleção." />
     </Sheet>
   );
 }

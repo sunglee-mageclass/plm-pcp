@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -57,6 +57,8 @@ import {
 } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useReadOnly } from "@/components/RequirePermission";
+import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
+import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 
 // Datas antigas do histórico foram gravadas com offset '+00' (não-ISO) → new Date() dava
 // Invalid Date. Normaliza '+00' → '+00:00' antes de parsear (o trigger novo já grava certo).
@@ -136,6 +138,16 @@ export function TecidoDetail({ artigoId, onClose }: { artigoId: string; onClose:
 
   const [form, setForm] = useState<Artigo | null>(null);
   const [catIds, setCatIds] = useState<string[]>([]);
+
+  // Guarda de alterações não salvas (Case C: full-page — não há open gate).
+  // Snapshot cobre o form inteiro + catIds (categorias também são editáveis).
+  const formSnapshot = useMemo(() => ({ form, catIds }), [form, catIds]);
+  const { dirty, markClean, reset: resetBaseline } = useDirtySnapshot(formSnapshot);
+  const { requestClose, confirm } = useUnsavedGuard({
+    dirty,
+    onClose: useCallback(() => onClose(), [onClose]),
+  });
+
   useEffect(() => {
     if (artigo) setForm(artigo);
   }, [artigo]);
@@ -157,6 +169,14 @@ export function TecidoDetail({ artigoId, onClose }: { artigoId: string; onClose:
   useEffect(() => {
     if (catLinks) setCatIds(catLinks);
   }, [catLinks]);
+
+  // Rebaixa o baseline quando ambos (form E categorias) são carregados do servidor.
+  // Depende de artigo/catLinks (valores carregados), não do estado local que pode ter edições.
+  useEffect(() => {
+    if (artigo && catLinks) {
+      resetBaseline({ form: artigo, catIds: catLinks });
+    }
+  }, [artigo, catLinks]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: empresasBase = [] } = useQuery({
     queryKey: ["empresas-options", "tecido-forro-entretela"],
@@ -244,6 +264,7 @@ export function TecidoDetail({ artigoId, onClose }: { artigoId: string; onClose:
       if (catErr) throw catErr;
     },
     onSuccess: () => {
+      markClean();
       toast.success("Tecido atualizado.");
       qc.invalidateQueries({ queryKey: ["artigo", artigoId] });
       qc.invalidateQueries({ queryKey: ["artigos"] });
@@ -318,7 +339,7 @@ export function TecidoDetail({ artigoId, onClose }: { artigoId: string; onClose:
     <div className="space-y-6 max-sm:pb-24">
       <header className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Button variant="outline" size="icon" className="max-sm:hidden" onClick={onClose} aria-label="Fechar">
+          <Button variant="outline" size="icon" className="max-sm:hidden" onClick={requestClose} aria-label="Fechar">
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
@@ -345,7 +366,7 @@ export function TecidoDetail({ artigoId, onClose }: { artigoId: string; onClose:
 
       {/* Mobile: voltar + excluir + salvar na barra fixa do rodapé. */}
       <MobileActionBar>
-        <Button variant="outline" size="icon" aria-label="Voltar" onClick={onClose}>
+        <Button variant="outline" size="icon" aria-label="Voltar" onClick={requestClose}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         {!readOnly && (
@@ -378,6 +399,12 @@ export function TecidoDetail({ artigoId, onClose }: { artigoId: string; onClose:
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <UnsavedChangesGuard
+        dirty={dirty}
+        confirm={confirm}
+        message="Há alterações não salvas neste tecido."
+      />
 
       <Card>
         <CardHeader>

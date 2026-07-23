@@ -22,6 +22,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { OcModalShell } from "@/components/shared/OcModalShell";
+import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -481,6 +482,10 @@ function OcDialog({
   const [status, setStatus] = useState<OCStatus>("encomendado");
   const [confirmUnmark, setConfirmUnmark] = useState(false);
 
+  // Guarda de "alterações não salvas": compara o rascunho editável (cabeçalho + itens)
+  // com um baseline. Re-baseline ao semear a OC (query async) e após salvar (markClean).
+  const { dirty: changed, markClean, reset: resetBaseline } = useDirtySnapshot({ draft, items });
+
   useQuery({
     queryKey: ["oc-avi", ocId],
     enabled: !!ocId,
@@ -490,8 +495,9 @@ function OcDialog({
       if (e1) throw e1;
       const { data: its, error: e2 } = await supabase.from("ocs_aviamento_itens").select("*").eq("oc_aviamento_id", ocId);
       if (e2) throw e2;
+      let nextDraft: Draft | null = null;
       if (oc) {
-        setDraft({
+        nextDraft = {
           numero_pedido: oc.numero_pedido ?? "",
           responsavel_nome: oc.responsavel_nome ?? "",
           responsavel_id: null,
@@ -507,7 +513,8 @@ function OcDialog({
           parcelas_recebimento: (Array.isArray((oc as any).parcelas_recebimento) && (oc as any).parcelas_recebimento.length > 0)
             ? ((oc as any).parcelas_recebimento as ParcelaRecebimento[])
             : [{ data: "", recebido: false }],
-        });
+        };
+        setDraft(nextDraft);
         setStatus((oc.status as OCStatus) ?? "encomendado");
       }
       const mapped: ItemDraft[] = (its ?? []).map((i: any) => ({
@@ -520,6 +527,8 @@ function OcDialog({
       }));
       setItems(mapped);
       setOriginalItemIds(mapped.map((m) => m.id).filter((x): x is string => !!x));
+      // Re-baseline no MESMO tick com os valores semeados (estado recém-setado está stale).
+      if (nextDraft) resetBaseline({ draft: nextDraft, items: mapped });
       return oc;
     },
   });
@@ -612,6 +621,7 @@ function OcDialog({
     },
     onSuccess: () => {
       toast.success("OC salva");
+      markClean();
       qc.invalidateQueries({ queryKey: ["ocs_aviamento"] });
       qc.invalidateQueries({ queryKey: ["ocs-avi-totals"] });
       qc.invalidateQueries({ queryKey: ["oc-avi"] });
@@ -696,9 +706,12 @@ function OcDialog({
     saveMutation.mutate(true, { onSettled: () => { savingRef.current = false; } });
   };
 
+  // O OcDialog só monta quando aberto, logo `changed` já basta (sem gate por `open`).
+  const dirty = changed;
+
   return (
     <>
-    <OcModalShell isEdit={isEdit} onClose={onClose}>
+    <OcModalShell isEdit={isEdit} onClose={onClose} dirty={dirty} discardMessage="Há alterações não salvas nesta OC de aviamento.">
         <DialogHeader className="shrink-0">
           <DialogTitle>{isEdit ? `OC ${draft.numero_pedido || ""}` : "Nova OC de Aviamento"}</DialogTitle>
         </DialogHeader>

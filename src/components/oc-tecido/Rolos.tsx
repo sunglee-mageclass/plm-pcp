@@ -27,6 +27,8 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 
 type ArtigoLite = { id: string; nome: string; unidade_medida: string | null; rendimento: number | null };
 type VarLite = { id: string; artigo_id: string; nome_variante: string | null; codigo_variante: string | null; cor?: { nome: string | null } | null; apelido?: { nome: string | null } | null };
@@ -59,6 +61,11 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
   const [ocId, setOcId] = useState("");
   const [ocItemId, setOcItemId] = useState("");
   const [metragemSep, setMetragemSep] = useState("");
+
+  // Guarda de "alterações não salvas": baseline = formulário vazio (criação); fica sujo
+  // assim que o usuário digita/seleciona. markClean não é preciso (fecha ao criar).
+  const { dirty } = useDirtySnapshot({ modo, codigo, rua, prateleira, artigoId, varId, metAvulso, ocId, ocItemId, metragemSep });
+  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
 
   const { data: artigos = [] } = useQuery({
     queryKey: ["rolo-artigos"],
@@ -149,7 +156,7 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
   });
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
+    <Dialog open onOpenChange={(o) => !o && requestClose()}>
       <DialogContent className="max-w-lg">
         <DialogHeader><DialogTitle>Novo Rolo</DialogTitle></DialogHeader>
         <div className="space-y-4">
@@ -262,10 +269,11 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
           )}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button variant="outline" onClick={requestClose}>Cancelar</Button>
           <Button onClick={() => criar.mutate()} disabled={criar.isPending}>Criar rolo</Button>
         </DialogFooter>
       </DialogContent>
+      <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas neste rolo." />
     </Dialog>
   );
 }
@@ -556,6 +564,10 @@ function RoloEditDialog({ rolo, onClose }: { rolo: RoloRow; onClose: () => void 
   const [rua, setRua] = useState(rolo.rolo_rua ?? "");
   const [prateleira, setPrateleira] = useState(rolo.rolo_prateleira ?? "");
 
+  // Guarda de "alterações não salvas": estado seedado da prop (síncrono), sem gate de open.
+  const { dirty, markClean } = useDirtySnapshot({ codigo, rua, prateleira });
+  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
+
   const salvar = useMutation({
     mutationFn: async () => {
       const { error } = await supabase
@@ -571,6 +583,7 @@ function RoloEditDialog({ rolo, onClose }: { rolo: RoloRow; onClose: () => void 
     },
     onSuccess: () => {
       toast.success("Rolo atualizado");
+      markClean();
       qc.invalidateQueries({ queryKey: ["rolos"] });
       qc.invalidateQueries({ queryKey: ["consumo-por-oc"] });
       onClose();
@@ -579,7 +592,7 @@ function RoloEditDialog({ rolo, onClose }: { rolo: RoloRow; onClose: () => void 
   });
 
   return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
+    <Dialog open onOpenChange={(o) => !o && requestClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader><DialogTitle>Editar rolo</DialogTitle></DialogHeader>
         <div className="space-y-4">
@@ -602,10 +615,11 @@ function RoloEditDialog({ rolo, onClose }: { rolo: RoloRow; onClose: () => void 
           </p>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button variant="outline" onClick={requestClose}>Cancelar</Button>
           <Button onClick={() => salvar.mutate()} disabled={salvar.isPending}>Salvar</Button>
         </DialogFooter>
       </DialogContent>
+      <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas neste rolo." />
     </Dialog>
   );
 }

@@ -45,6 +45,8 @@ import {
 } from "@/components/ui/select";
 import { PAGES_CATALOG } from "@/lib/permissions-catalog";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
+import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { resolveStatusKey } from "@/lib/kanban-status";
 import { isServicoConfeccao } from "@/lib/servico-confeccao";
 import { RequisitosStatusButton } from "@/components/admin/RequisitosStatusDialog";
@@ -128,6 +130,9 @@ function ConfiguracoesLojaPage() {
   // acabamento, baixa) — confirma antes de gravar.
   const [confirmSalvar, setConfirmSalvar] = useState(false);
 
+  const { dirty, markClean, reset: resetCfgBaseline } = useDirtySnapshot(cfg);
+  const { confirm } = useUnsavedGuard({ dirty, blockNav: true });
+
   const { data, isLoading } = useQuery({
     queryKey: ["tenant-config", user?.id],
     enabled: !!user,
@@ -151,7 +156,7 @@ function ConfiguracoesLojaPage() {
   useEffect(() => {
     if (!data?.cfg) return;
     const r = data.cfg as any;
-    setCfg({
+    const next: ConfigState = {
       timezone: r.timezone ?? DEFAULTS.timezone,
       etapas_acabamento: Array.isArray(r.etapas_acabamento)
         ? r.etapas_acabamento
@@ -176,7 +181,9 @@ function ConfiguracoesLojaPage() {
         (r as any).leadtime && Array.isArray((r as any).leadtime.etapas)
           ? { etapas: (r as any).leadtime.etapas, slaServico: (r as any).leadtime.slaServico ?? null }
           : DEFAULTS.leadtime,
-    });
+    };
+    setCfg(next);
+    resetCfgBaseline(next);
   }, [data?.cfg]);
 
   const save = useMutation({
@@ -194,6 +201,7 @@ function ConfiguracoesLojaPage() {
     },
     onSuccess: () => {
       toast.success("Configurações salvas");
+      markClean();
       // Invalida TODA leitura de config para refletir na hora. As leituras usam
       // prefixos divergentes (tenant_config, tenant-config-grade, cad-tenant-config-grade,
       // tenant-config-threshold, tenant-status-kanban, ft-tamanhos…), então casamos
@@ -438,6 +446,12 @@ function ConfiguracoesLojaPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <UnsavedChangesGuard
+        dirty={dirty}
+        confirm={confirm}
+        message="Há alterações não salvas nas configurações da loja."
+      />
     </div>
   );
 }
@@ -806,6 +820,10 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
   const enabledModules = PAGES_CATALOG.filter((m) => modules[m.module] !== false);
   const [selModule, setSelModule] = useState<string>(enabledModules[0]?.module ?? "");
 
+  const { dirty: nomChanged, markClean, reset: resetNomBaseline } = useDirtySnapshot({ tabs, campos });
+  const dirty = open && nomChanged;
+  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose: () => setOpen(false) });
+
   const { data: current } = useQuery({
     queryKey: ["tenant_config", "nomenclaturas_edit"],
     enabled: open && !!tenantId,
@@ -822,6 +840,7 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
     if (open && current && !hydrated) {
       setTabs(current.tab_labels);
       setCampos(current.campos_editaveis);
+      resetNomBaseline({ tabs: current.tab_labels, campos: current.campos_editaveis });
       if (!selModule && enabledModules[0]) setSelModule(enabledModules[0].module);
       setHydrated(true);
     }
@@ -846,6 +865,7 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
     },
     onSuccess: () => {
       toast.success("Nomenclaturas salvas");
+      markClean();
       qc.invalidateQueries({
         predicate: (q) => {
           const k = q.queryKey?.[0];
@@ -858,7 +878,7 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
   });
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(o) => (o ? setOpen(true) : requestClose())}>
       <DialogTrigger asChild>
         <Button type="button" variant="outline" disabled={!tenantId}>
           <Settings className="h-4 w-4 mr-2" /> Editar nomenclaturas por módulo
@@ -915,11 +935,16 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
 
         <p className="text-xs text-muted-foreground">Em branco = nome padrão.</p>
         <DialogFooter className="max-sm:sticky max-sm:bottom-0 max-sm:-mx-4 max-sm:border-t max-sm:bg-background max-sm:px-4 max-sm:py-3">
-          <Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>
+          <Button variant="ghost" onClick={requestClose}>Cancelar</Button>
           <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
             <Save className="h-4 w-4 mr-2" /> Salvar
           </Button>
         </DialogFooter>
+        <UnsavedChangesGuard
+          dirty={dirty}
+          confirm={confirm}
+          message="Há alterações não salvas nas nomenclaturas."
+        />
       </DialogContent>
     </Dialog>
   );

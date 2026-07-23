@@ -46,6 +46,7 @@ import { useReadOnly } from "@/components/RequirePermission";
 import { useSort, SortHead } from "@/components/shared/sort";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/hooks/useAuth";
+import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
 
 export type UsageRef = { table: string; column: string };
 
@@ -114,6 +115,13 @@ export function AttributeTab({
   const [selected, setSelected] = useState<Set<string>>(new Set()); // seleção p/ exclusão em massa
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
+
+  // Guarda de alterações não salvas no diálogo "Novo …"
+  const createDirty = createOpen && (newName !== "" || newExtra !== "" || newExtraNum !== "" || newEnum !== "");
+  const { requestClose: requestCreateClose, confirm: createConfirm } = useUnsavedGuard({
+    dirty: createDirty,
+    onClose: () => setCreateOpen(false),
+  });
 
   const listKey = ["attr", config.table, config.fixedFilter?.value ?? ""];
 
@@ -583,7 +591,8 @@ export function AttributeTab({
       </div>
 
       {/* Create modal */}
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+      <UnsavedChangesGuard dirty={createDirty} confirm={createConfirm} message="Há dados não salvos no formulário de criação." />
+      <Dialog open={createOpen} onOpenChange={(o) => { if (!o) requestCreateClose(); else setCreateOpen(true); }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Novo {config.singular}</DialogTitle>
@@ -649,7 +658,7 @@ export function AttributeTab({
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>
+            <Button variant="outline" onClick={requestCreateClose}>
               Cancelar
             </Button>
             <Button onClick={() => createMut.mutate()} disabled={createMut.isPending}>

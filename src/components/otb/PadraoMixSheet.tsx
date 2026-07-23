@@ -10,6 +10,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { brl } from "@/lib/format";
 import { Plus, Trash2, Pencil, Save, ArrowLeft } from "lucide-react";
+import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
 
 /**
  * "Padrão do mix" em MODAL (Sheet lateral). Template de defaults que a coleção por Poder
@@ -57,6 +58,8 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
   const [dirty, setDirty] = useState(false);
   const [editNome, setEditNome] = useState(false);
 
+  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
+
   useEffect(() => { if (!selId && padroes.length) setSelId(padroes[0].id); }, [padroes, selId]);
   useEffect(() => {
     if (selId && selId !== draftFor) {
@@ -103,7 +106,7 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
   const temSel = !!selId && !!padroes.find((p) => p.id === selId);
 
   return (
-    <Sheet open onOpenChange={(o) => !o && onClose()}>
+    <Sheet open onOpenChange={(o) => { if (!o) requestClose(); }}>
       <SheetContent side="right" className="w-full sm:max-w-[70vw] flex flex-col p-0 max-sm:[&>button]:hidden">
         <SheetHeader className="p-4 border-b shrink-0">
           <SheetTitle className="text-base sm:text-lg">Padrão do mix</SheetTitle>
@@ -196,13 +199,14 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="p-4 border-t shrink-0 flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose} className="mr-auto shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Voltar">
+          <Button variant="outline" onClick={requestClose} className="mr-auto shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Voltar">
             <ArrowLeft className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Voltar</span>
           </Button>
           <Button onClick={() => salvar.mutate()} disabled={!temSel || !dirty || salvar.isPending} className="shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Salvar">
             <Save className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">{dirty ? (salvar.isPending ? "Salvando…" : "Salvar") : "Salvo"}</span>
           </Button>
         </div>
+        <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas no padrão do mix." />
       </SheetContent>
     </Sheet>
   );

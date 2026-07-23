@@ -1,6 +1,6 @@
 import { SkeletonTableRow } from "@/components/shared/Skeletons";
 import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef, type MutableRefObject } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Store, Plus, Search, Upload, Pencil, RotateCcw, Trash2, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
@@ -29,6 +29,8 @@ import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { PAGES_CATALOG } from "@/lib/permissions-catalog";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { useSort, SortHead } from "@/components/shared/sort";
+import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 
 // Toggles de módulo (chaves batem com tenant_config.modules e PAGES_CATALOG).
 const MODULE_TOGGLES = PAGES_CATALOG.map((m) => ({ key: m.module, label: m.label }));
@@ -75,6 +77,8 @@ function LojasPage() {
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
+  const novaLojaRequestCloseRef = useRef<(() => void) | null>(null);
+  const editLojaRequestCloseRef = useRef<(() => void) | null>(null);
   const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
   const [resetTarget, setResetTarget] = useState<Tenant | null>(null);
   const [resetConfirm, setResetConfirm] = useState("");
@@ -174,13 +178,13 @@ function LojasPage() {
             </p>
           </div>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog open={open} onOpenChange={(o) => { if (!o) { const rc = novaLojaRequestCloseRef.current; if (rc) rc(); else setOpen(false); } else setOpen(true); }}>
           <DialogTrigger asChild>
             <Button className="max-sm:hidden">
               <Plus className="h-4 w-4" /> Nova Loja
             </Button>
           </DialogTrigger>
-          <NovaLojaModal onClose={() => setOpen(false)} />
+          <NovaLojaModal onClose={() => setOpen(false)} requestCloseRef={novaLojaRequestCloseRef} />
         </Dialog>
       </div>
 
@@ -267,9 +271,9 @@ function LojasPage() {
         </Table>
       </div>
 
-      <Dialog open={!!editingTenant} onOpenChange={(o) => !o && setEditingTenant(null)}>
+      <Dialog open={!!editingTenant} onOpenChange={(o) => { if (!o) { const rc = editLojaRequestCloseRef.current; if (rc) rc(); else setEditingTenant(null); } }}>
         {editingTenant && (
-          <EditarLojaModal key={editingTenant.id} tenant={editingTenant} onClose={() => setEditingTenant(null)} />
+          <EditarLojaModal key={editingTenant.id} tenant={editingTenant} onClose={() => setEditingTenant(null)} requestCloseRef={editLojaRequestCloseRef} />
         )}
       </Dialog>
 
@@ -278,7 +282,7 @@ function LojasPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {ativoTarget?.ativo ? "Inativar" : "Ativar"} a loja “{ativoTarget?.nome}”?
+              {ativoTarget?.ativo ? "Inativar" : "Ativar"} a loja "{ativoTarget?.nome}"?
             </AlertDialogTitle>
             <AlertDialogDescription>
               {ativoTarget?.ativo ? (
@@ -312,7 +316,7 @@ function LojasPage() {
       <AlertDialog open={!!resetTarget} onOpenChange={(o) => { if (!o) { setResetTarget(null); setResetConfirm(""); } }}>
         <AlertDialogContent className="max-h-[90dvh] overflow-y-auto">
           <AlertDialogHeader>
-            <AlertDialogTitle>Resetar a loja “{resetTarget?.nome}”?</AlertDialogTitle>
+            <AlertDialogTitle>Resetar a loja "{resetTarget?.nome}"?</AlertDialogTitle>
             <AlertDialogDescription>
               <span className="mb-1 block rounded bg-muted px-2 py-1 text-xs">
                 {resetTarget?.nome}{resetTarget?.cnpj ? ` · ${resetTarget.cnpj}` : ""}
@@ -347,7 +351,7 @@ function LojasPage() {
       <AlertDialog open={!!deleteTarget} onOpenChange={(o) => { if (!o) { setDeleteTarget(null); setDeleteConfirm(""); } }}>
         <AlertDialogContent className="max-h-[90dvh] overflow-y-auto">
           <AlertDialogHeader>
-            <AlertDialogTitle>Excluir a loja “{deleteTarget?.nome}”?</AlertDialogTitle>
+            <AlertDialogTitle>Excluir a loja "{deleteTarget?.nome}"?</AlertDialogTitle>
             <AlertDialogDescription>
               Remove a loja e <strong>todos os seus dados e usuários</strong>, de forma
               permanente. <strong>Irreversível.</strong> Para confirmar, digite o nome da loja:
@@ -384,13 +388,17 @@ function LojasPage() {
   );
 }
 
-function NovaLojaModal({ onClose }: { onClose: () => void }) {
+function NovaLojaModal({ onClose, requestCloseRef }: { onClose: () => void; requestCloseRef: MutableRefObject<(() => void) | null> }) {
   const qc = useQueryClient();
   const [nome, setNome] = useState("");
   const [cnpj, setCnpj] = useState("");
   const [contato, setContato] = useState("");
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const dirty = nome !== "" || cnpj !== "" || contato !== "" || logoFile !== null;
+  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
+  requestCloseRef.current = requestClose;
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -458,18 +466,19 @@ function NovaLojaModal({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
-          <Button type="button" variant="outline" className="max-sm:hidden" onClick={onClose}>Cancelar</Button>
-          <Button type="button" variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={onClose}>
+          <Button type="button" variant="outline" className="max-sm:hidden" onClick={requestClose}>Cancelar</Button>
+          <Button type="button" variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={requestClose}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <Button type="submit" className="max-sm:ml-auto" disabled={submitting}>{submitting ? "Salvando…" : "Salvar"}</Button>
         </DialogFooter>
       </form>
+      <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas neste cadastro de loja." />
     </DialogContent>
   );
 }
 
-function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => void }) {
+function EditarLojaModal({ tenant, onClose, requestCloseRef }: { tenant: Tenant; onClose: () => void; requestCloseRef: MutableRefObject<(() => void) | null> }) {
   const qc = useQueryClient();
   const [nome, setNome] = useState(tenant.nome);
   const [cnpj, setCnpj] = useState(formatCNPJ(tenant.cnpj ?? ""));
@@ -511,6 +520,11 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
     return MODULE_TOGGLES.some((m) => !!base[m.key] !== !!modules[m.key]);
   })();
 
+  const { dirty: fieldsDirty, markClean } = useDirtySnapshot({ nome, cnpj, contato });
+  const dirty = fieldsDirty || logoFile !== null || modulesChanged;
+  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
+  requestCloseRef.current = requestClose;
+
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!nome.trim()) { toast.error("Nome obrigatório"); return; }
@@ -549,6 +563,7 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
       qc.invalidateQueries({ queryKey: ["tenant-switcher"] });
       qc.invalidateQueries({ queryKey: ["admin", "tenant-modules", tenant.id] });
       qc.invalidateQueries({ queryKey: ["tenant_config", "modules"] });
+      markClean();
       onClose();
     } catch (err) {
       toast.error(mensagemErro(err));
@@ -625,8 +640,8 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
           </div>
         </div>
         <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
-          <Button type="button" variant="outline" className="max-sm:hidden" onClick={onClose}>Cancelar</Button>
-          <Button type="button" variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={onClose}>
+          <Button type="button" variant="outline" className="max-sm:hidden" onClick={requestClose}>Cancelar</Button>
+          <Button type="button" variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={requestClose}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <Button type="submit" className="max-sm:ml-auto" disabled={submitting || !cfgFetched}>{submitting ? "Salvando…" : "Salvar"}</Button>
@@ -637,7 +652,7 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
       <AlertDialog open={confirmModules} onOpenChange={setConfirmModules}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Alterar os módulos da loja “{tenant.nome}”?</AlertDialogTitle>
+            <AlertDialogTitle>Alterar os módulos da loja "{tenant.nome}"?</AlertDialogTitle>
             <AlertDialogDescription>
               Você mudou os <strong>módulos habilitados</strong>. Desligar um módulo
               <strong> esconde seções inteiras</strong> para todos os usuários da loja. Os
@@ -655,6 +670,8 @@ function EditarLojaModal({ tenant, onClose }: { tenant: Tenant; onClose: () => v
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas neste cadastro de loja." />
     </DialogContent>
   );
 }
