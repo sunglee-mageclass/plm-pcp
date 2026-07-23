@@ -35,12 +35,11 @@ Raios: `--radius: 0.625rem` → utilitários `rounded-md` (~8px) são o padrão 
 **Uso:** telas/Sheets com rascunho local editável. Enquanto `dirty`, mostra um **ponto âmbar (`--warning`)** no título e o botão **Salvar**; quando `!dirty`, botão fica desabilitado e vira "Salvo". Ao fechar com alterações pendentes, um `AlertDialog` confirma o descarte.
 
 **Reutilizar:**
-- Padrão dirty completo (estado, ponto âmbar, botão): **`src/components/otb/SimulacaoSheet.tsx`**
-  - `:359` — `const [dirty, setDirty] = useState(false)`
-  - `:714` — `const upd = (fn) => { setDraft(fn); setDirty(true); }` (todo patch do rascunho passa aqui)
-  - `:1152` — ponto âmbar: `<span className="ml-1 text-amber-600" title="não salvo">•</span>`
-  - `:1713` — botão Salvar/Salvo (`disabled={!dirty || salvar.isPending}`)
-  - `:1749` — `AlertDialog` de descarte destrutivo ("Restaurar do zero")
+- Padrão dirty completo (estado, indicador, botão Salvar/Salvo, guarda de descarte): **`src/components/plan-tecido/PlanTecidoSheet.tsx`**
+  - `const [dirty, setDirty] = useState(false)` + `patch = (next) => { setArvore(next); setDirty(true); }` (todo patch passa aqui)
+  - indicador `<UnsavedIndicator show={dirty} />` — no Plan. Tecido FLUTUA no canto inferior direito (`fixed bottom-4 right-4`, desktop); reutilizável de **`src/components/shared/UnsavedIndicator.tsx`**
+  - botão Salvar/Salvo (`disabled={!dirty || salvarMut.isPending}`) + `AlertDialog` de descarte (`confirmSair`) ao fechar com pendências
+  - ações de servidor (criar/aplicar/fazer-pedido) **auto-salvam** antes (`ensureSaved`) em vez de bloquear
 - `AlertDialog` base: **`src/components/ui/alert-dialog.tsx`** (`AlertDialog`, `AlertDialogContent/Header/Title/Description/Footer/Cancel/Action`).
 
 ```tsx
@@ -73,7 +72,7 @@ const upd = (fn) => { setDraft(fn); setDirty(true); }; // toda mutação do rasc
 </AlertDialog>
 ```
 
-> `text-amber-600` do Tailwind é o equivalente prático do token `--warning`. Em mutations de Salvar, zere `dirty` no `onSuccess` (`setDirty(false)` — ver `SimulacaoSheet.tsx:973`).
+> `text-amber-600` do Tailwind é o equivalente prático do token `--warning`. Em mutations de Salvar, zere `dirty` no `onSuccess` (`setDirty(false)` — ver `PlanTecidoSheet.tsx` `salvarMut.onSuccess`).
 
 ---
 
@@ -214,7 +213,7 @@ function CampoRO({ label, value }: { label: string; value: string }) {
 **Reutilizar:**
 - **`src/components/ui/collapsible.tsx`** (`Collapsible`, `CollapsibleTrigger`, `CollapsibleContent` — Radix puro).
 - **`src/components/ui/accordion.tsx`** (`Accordion`, `AccordionItem`, `AccordionTrigger`, `AccordionContent` — já inclui o chevron que rotaciona no `data-state=open`).
-- Header-com-resumo (referência viva): **`src/components/otb/SimulacaoSheet.tsx:203`** (OC com ✓/⚠ + saldo) e `:160` (mix por categoria com total).
+- Header-com-resumo (referência viva): **`src/components/plan-tecido/PlanTecidoSheet.tsx`** (Collapsible por subcoleção e por linha, com contador "N modelo(s)") e **`src/components/plan-tecido/ModelCard.tsx`** (Accordion "Tecidos/Grade/Custo" dentro do card).
 
 ```tsx
 <Collapsible defaultOpen className="group/oc">
@@ -283,7 +282,7 @@ Três passos (documentados no próprio componente):
 **Reutilizar:**
 - **`src/components/shared/StatusBadge.tsx`** — `<StatusBadge tone="success|warning|danger|info|neutral">…</StatusBadge>`. Já mapeia cada tone ao token via `color-mix` (fundo translúcido + texto na cor) — **prefira este** a montar classes à mão.
 - Base: **`src/components/ui/badge.tsx`** (variants `default | secondary | destructive | outline`).
-- Semáforo inline (texto): **`src/components/otb/SimulacaoSheet.tsx:212`**, **`src/components/otb/ColecaoSheet.tsx:416`**.
+- Semáforo inline (texto/ícone): **`src/components/plan-tecido/PaletaColecao.tsx`** (OC ⏰ encomendado / 🏠 em casa, via `Clock`/`Home`), **`src/components/otb/ColecaoSheet.tsx:416`**.
 - Prazo de OC (badge dinâmico atrasado/adiantado): **`src/components/shared/oc-prazo-badge.tsx:31`**.
 
 ```tsx
@@ -315,6 +314,35 @@ Três passos (documentados no próprio componente):
 ```
 
 > Use `md:grid-cols-2` quando quer 2 colunas já em tablet; `lg:grid-cols-2` quando os cards têm conteúdo largo (config/identidade preferem `lg`). O `items-start` é o detalhe que faz o padrão.
+
+---
+
+## J. Dialog PAGINADO (wizard) — 1 página por item a confirmar
+
+**Uso:** confirmar/gerar N artefatos de uma vez, cada um com campos próprios, quando os dados já-sabidos vêm pré-preenchidos e o usuário só completa o que falta (ex.: **Fazer pedido** do Plan. Tecido = 1 página por OC). Um `Dialog` com **cabeçalho "X de N"**, navegação **Anterior/Próxima** e, na última página, a ação final (**"Gerar N …"**), desabilitada quando não há nada a confirmar.
+
+**Regras:**
+- Pré-computar as páginas no cliente com a MESMA regra do servidor (ex.: split ≤2 tecidos por OC), pra que "1 página = 1 artefato" não minta.
+- Estado por página em `Record<number, Resposta>` (respostas independentes); o dado pré-preenchido (imutável) vem da prévia, o "a preencher" é por página.
+- Campos já-sabidos = read-only; campos a preencher = editáveis. Reusar os inputs padrão (`DateField`, `NumberInput`, `ResponsavelSelect`) — **igual à tela do artefato final** (não inventar campos diferentes da OC).
+- Avisos que não geram artefato (ex.: "sem fornecedor", "bloqueios") aparecem na 1ª página, e a ação final conta só o que de fato gera.
+
+**Reutilizar:** **`src/components/plan-tecido/FazerPedidoWizard.tsx`** (páginas via `paginasDe(previa)`, `passo`/`respostas`, footer Anterior/Próxima/Gerar). Base: **`src/components/ui/dialog.tsx`**.
+
+```tsx
+<Dialog open onOpenChange={(o) => { if (!o && !mut.isPending) onClose(); }}>
+  <DialogContent className="max-w-2xl">
+    <DialogHeader><DialogTitle>Fazer pedido — OC {passo + 1} de {total}</DialogTitle></DialogHeader>
+    {/* campos a preencher desta página + tabela pré-preenchida (read-only) */}
+    <DialogFooter className="justify-between">
+      <Button variant="ghost" disabled={passo === 0} onClick={() => setPasso((p) => p - 1)}>Anterior</Button>
+      {ultima
+        ? <Button disabled={n === 0} onClick={() => mut.mutate()}>Gerar {n} OC(s)</Button>
+        : <Button onClick={() => setPasso((p) => p + 1)}>Próxima</Button>}
+    </DialogFooter>
+  </DialogContent>
+</Dialog>
+```
 
 ---
 
