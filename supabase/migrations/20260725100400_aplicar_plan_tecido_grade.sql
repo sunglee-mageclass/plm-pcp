@@ -48,6 +48,13 @@ begin
       values (v_modelo, v_ordem, v_grades, v_gt);
   end loop;
 
+  -- purge variantes no longer present in the plan
+  delete from modelo_grades
+  where modelo_id = v_modelo
+    and variante_numero not in (
+      select (e->>'ordem')::int from jsonb_array_elements(coalesce(_variantes, '[]'::jsonb)) e
+    );
+
   if v_changed then
     perform public.marcar_revisao_por_mudanca(v_modelo, true, false, false);
   end if;
