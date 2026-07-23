@@ -184,7 +184,12 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
             proporcoes: saved.proporcoes ?? slot.proporcoes,
             // custo de materiais pré-preenchido do BOM não é apagado por save antigo (null)
             custo_simulado: saved.custo_simulado ?? slot.custo_simulado,
-            materiais: (saved.materiais?.length ? saved.materiais : slot.materiais),
+            // Consistência (a.1): modelo REAL usa o BOM VIVO do Desenvolvimento (seed), não o snapshot
+            // salvo — assim que o card avança/muda o BOM, o plano reflete. Slot de planejamento (sem
+            // modelo) mantém o rascunho salvo.
+            materiais: slot.modelo_id
+              ? (slot.materiais?.length ? slot.materiais : (saved.materiais ?? []))
+              : (saved.materiais?.length ? saved.materiais : slot.materiais),
           };
         }) };
       }) };

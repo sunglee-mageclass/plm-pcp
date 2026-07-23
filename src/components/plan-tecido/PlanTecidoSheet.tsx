@@ -327,6 +327,18 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
         })),
   });
 
+  // OCs VINCULADAS no Desenvolvimento (read-only) → Map<modelo_id, [{oc_id, numero, tecidos}]>
+  const { data: vinculosMap = {} } = useQuery({
+    queryKey: ["plan-tecido-vinculos", colecaoId],
+    refetchOnWindowFocus: true,
+    queryFn: async () => {
+      const rows = ((await supabase.rpc("plan_tecido_vinculos_modelo" as any, { _colecao_id: colecaoId })).data ?? []) as { modelo_id: string; oc_tecido_id: string; numero_pedido: string | null; tecidos: string | null }[];
+      const map: Record<string, { oc_id: string; numero_pedido: string | null; tecidos: string | null }[]> = {};
+      for (const r of rows) (map[r.modelo_id] ??= []).push({ oc_id: r.oc_tecido_id, numero_pedido: r.numero_pedido, tecidos: r.tecidos });
+      return map;
+    },
+  });
+
   // hint OC por SLOT → Map<slot_id, oc_ids[]>
   const { data: slotOcMap = {} } = useQuery({
     queryKey: ["plan-tecido-slot-oc", colecaoId],
@@ -654,6 +666,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                                     tamanhos={tamanhos}
                                     ocsAplicadas={ocsAplicadas}
                                     slotOcIds={slot.id ? (slotOcMap[slot.id] ?? []) : []}
+                                    vinculos={slot.modelo_id ? (vinculosMap[slot.modelo_id] ?? []) : []}
                                     onChange={(ns) => {
                                       const next = structuredClone(arvore) as PtArvore;
                                       next.subcolecoes[si].linhas[li].slots[sli] = ns;

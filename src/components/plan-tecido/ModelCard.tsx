@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import type { PtSlot, PtMaterial } from "@/lib/plan-tecido/types";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Lock } from "lucide-react";
 import { necessidadePorTecido, distribuirGrade } from "@/lib/plan-tecido/calc";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
@@ -35,6 +35,7 @@ export function ModelCard({
   tamanhos,
   ocsAplicadas,
   slotOcIds,
+  vinculos,
 }: {
   slot: PtSlot;
   onChange: (s: PtSlot) => void;
@@ -46,6 +47,7 @@ export function ModelCard({
   tamanhos?: string[];
   ocsAplicadas?: { id: string; numero_pedido: string | null; tecidos: string[] }[];
   slotOcIds?: string[];
+  vinculos?: { oc_id: string; numero_pedido: string | null; tecidos: string | null }[];
 }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -258,10 +260,27 @@ export function ModelCard({
                     {criandoCard ? "Criando…" : "Criar card no Planejamento"}
                   </Button>
                 )}
-                {/* Hint de OC (planejamento) — em qualquer card salvo */}
+                {/* OC vinculada no Desenvolvimento (read-only, congela custo) — ou hint do plano */}
                 {colecaoId && (
                   <div className="mt-2">
-                    <SlotOcHint colecaoId={colecaoId} slotId={slot.id} ocsAplicadas={ocsAplicadas ?? []} selected={slotOcIds ?? []} />
+                    {(vinculos?.length ?? 0) > 0 ? (
+                      <div>
+                        <div className="mb-1 flex items-center gap-1 text-[10px] text-muted-foreground">
+                          <Lock className="h-3 w-3" /> OC do Desenvolvimento
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {vinculos!.map((v) => (
+                            <span key={v.oc_id} className="inline-flex items-center gap-1 rounded-full border bg-muted px-2 py-0.5 text-[10px] text-muted-foreground"
+                              title={`Vínculo do Desenvolvimento — congela o custo${v.tecidos ? ` · ${v.tecidos}` : ""}`}>
+                              <Lock className="h-2.5 w-2.5" />
+                              {v.numero_pedido || v.oc_id.slice(0, 8)}{v.tecidos ? ` — ${v.tecidos}` : ""}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <SlotOcHint colecaoId={colecaoId} slotId={slot.id} ocsAplicadas={ocsAplicadas ?? []} selected={slotOcIds ?? []} />
+                    )}
                   </div>
                 )}
               </div>
