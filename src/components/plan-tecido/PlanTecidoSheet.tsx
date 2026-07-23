@@ -308,12 +308,18 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
     },
   });
 
-  // OCs aplicadas (lista com nº) — oferecidas como hint de OC por modelo (#3)
+  // OCs aplicadas (nº + tecidos que contém) — oferecidas como hint de OC por card (#5)
   const { data: ocsAplicadas = [] } = useQuery({
     queryKey: ["plan-tecido-oc-aplicada-lista", colecaoId],
     queryFn: async () =>
-      (((await supabase.from("plan_tecido_oc_aplicada" as any).select("oc_tecido_id, oc:oc_tecido_id(numero_pedido)").eq("colecao_id", colecaoId)).data ?? []) as unknown as { oc_tecido_id: string; oc: { numero_pedido: string | null } | null }[])
-        .map((r) => ({ id: r.oc_tecido_id, numero_pedido: r.oc?.numero_pedido ?? null })),
+      (((await supabase.from("plan_tecido_oc_aplicada" as any)
+        .select("oc_tecido_id, oc:oc_tecido_id(numero_pedido, itens:ocs_tecido_itens(cancelado, artigo:artigo_id(nome)))")
+        .eq("colecao_id", colecaoId)).data ?? []) as unknown as { oc_tecido_id: string; oc: { numero_pedido: string | null; itens: { cancelado: boolean | null; artigo: { nome: string | null } | null }[] | null } | null }[])
+        .map((r) => ({
+          id: r.oc_tecido_id,
+          numero_pedido: r.oc?.numero_pedido ?? null,
+          tecidos: [...new Set((r.oc?.itens ?? []).filter((i) => !i.cancelado && i.artigo?.nome).map((i) => i.artigo!.nome as string))],
+        })),
   });
 
   // hint OC por SLOT → Map<slot_id, oc_ids[]>

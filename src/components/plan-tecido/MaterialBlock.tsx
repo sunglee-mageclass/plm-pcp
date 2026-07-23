@@ -8,34 +8,24 @@ import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
 import { labelVarianteRow } from "@/lib/variante";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
+import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
 import type { PtMaterial, PtVariante } from "@/lib/plan-tecido/types";
 
-type ArtigoRow = { id: string; nome: string; unidade_medida: string | null; rendimento: number | null; categoria_tecido_id: string | null };
 type VarRow = { id: string; nome_variante: string | null; codigo_variante: string | null; cor: { nome: string | null } | null; apelido: { nome: string | null } | null };
 
 export function MaterialBlock({ material, onChange, onRemove, paleta }: { material: PtMaterial; onChange: (m: PtMaterial) => void; onRemove: () => void; paleta?: { artigo_id: string; papel: string }[] }) {
   const [verTodos, setVerTodos] = useState(false);
-  const { data: artigos = [] } = useQuery({
-    queryKey: ["plan-tecido-artigos", material.tipo],
-    queryFn: async () => ((await supabase.from("artigos").select("id, nome, unidade_medida, rendimento, categoria_tecido_id").order("nome")).data ?? []) as ArtigoRow[],
-  });
-  // categoria do tecido (cadastrada no artigo) — reconhecida automaticamente
-  const { data: catTecido = {} } = useQuery({
-    queryKey: ["plan-tecido-cats-tecido"],
-    queryFn: async () => {
-      const rows = ((await supabase.from("categorias_tecido").select("id, nome")).data ?? []) as { id: string; nome: string }[];
-      return Object.fromEntries(rows.map((r) => [r.id, r.nome])) as Record<string, string>;
-    },
-  });
-  const artigoSel = artigos.find((a) => a.id === material.artigo_id) ?? null;
-  const categoriaNome = artigoSel?.categoria_tecido_id ? catTecido[artigoSel.categoria_tecido_id] : null;
-  // paleta SOFT filtrada pelo PAPEL do material (tecido só tecidos, forro só forros);
-  // artigo já escolhido sempre aparece; "ver todos" escapa a paleta
+  const { tecidoArtigos, forroArtigos, categoriaNomeDe } = useArtigosTecido();
+  const rotulo = material.tipo === "forro" ? "forro" : "tecido";
+  // lista-base pelo PAPEL do bloco: TEC só tecidos (sem forro/entretela); FOR só forros
+  const base = material.tipo === "forro" ? forroArtigos : tecidoArtigos;
+  const categoriaNome = material.artigo_id ? categoriaNomeDe(material.artigo_id) : null;
+  // paleta SOFT (dentro do papel); artigo já escolhido sempre aparece; "ver todos" escapa a paleta
   const paletaDoTipo = (paleta ?? []).filter((p) => p.papel === material.tipo).map((p) => p.artigo_id);
   const temPaleta = paletaDoTipo.length > 0;
   const artigosVisiveis = !temPaleta || verTodos
-    ? artigos
-    : artigos.filter((a) => paletaDoTipo.includes(a.id) || a.id === material.artigo_id);
+    ? base
+    : base.filter((a) => paletaDoTipo.includes(a.id) || a.id === material.artigo_id);
   const { data: variantesArtigo = [] } = useQuery({
     queryKey: ["plan-tecido-variantes-artigo", material.artigo_id],
     enabled: !!material.artigo_id,
@@ -65,7 +55,7 @@ export function MaterialBlock({ material, onChange, onRemove, paleta }: { materi
       <div className="flex items-center gap-2 bg-muted/60 p-2">
         <span className="rounded bg-primary px-1.5 text-[10px] font-bold text-primary-foreground">{material.tipo === "tecido" ? "TEC" : "FOR"} {material.numero}</span>
         <select className="rounded border bg-background px-2 py-1 text-xs" value={material.artigo_id ?? ""} onChange={(e) => onChange({ ...material, artigo_id: e.target.value || null, variantes: [] })}>
-          <option value="">Escolher artigo…</option>
+          <option value="">Escolher {rotulo}…</option>
           {artigosVisiveis.map((a) => (<option key={a.id} value={a.id}>{a.nome}{a.unidade_medida === "kg" ? " [kg]" : ""}</option>))}
         </select>
         {temPaleta && (

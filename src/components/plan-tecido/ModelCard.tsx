@@ -44,7 +44,7 @@ export function ModelCard({
   subcolecaoId?: string | null;
   paleta?: { artigo_id: string; papel: string }[];
   tamanhos?: string[];
-  ocsAplicadas?: { id: string; numero_pedido: string | null }[];
+  ocsAplicadas?: { id: string; numero_pedido: string | null; tecidos: string[] }[];
   slotOcIds?: string[];
 }) {
   const qc = useQueryClient();
