@@ -582,6 +582,8 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                                   <ModelCard
                                     key={slot.id ?? sli}
                                     slot={slot}
+                                    colecaoId={colecaoId}
+                                    subcolecaoId={sub.subcolecao_id}
                                     onChange={(ns) => {
                                       const next = structuredClone(arvore) as PtArvore;
                                       next.subcolecoes[si].linhas[li].slots[sli] = ns;

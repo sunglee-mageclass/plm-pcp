@@ -37,16 +37,69 @@ export function ModelCard({
   onChange,
   selected,
   onToggleSelect,
+  colecaoId,
+  subcolecaoId,
 }: {
   slot: PtSlot;
   onChange: (s: PtSlot) => void;
   selected?: boolean;
   onToggleSelect?: () => void;
+  colecaoId?: string;
+  subcolecaoId?: string | null;
 }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [confirmGrade, setConfirmGrade] = useState(false);
   const [aplicandoGrade, setAplicandoGrade] = useState(false);
+  const [criandoCard, setCriandoCard] = useState(false);
+
+  // "Criar card" no Planejamento: só p/ slot ainda não ligado a um modelo, com nome ou tecido.
+  const podeCriarCard = !slot.modelo_id && (!!slot.nome || slot.materiais.some((m) => m.artigo_id));
+
+  async function criarCard() {
+    if (!colecaoId) return;
+    const _slot = {
+      nome: slot.nome ?? null,
+      ref: slot.ref ?? null,
+      linha_id: slot.linha_id ?? null,
+      categoria_id: slot.categoria_id ?? null,
+      subcolecao_id: subcolecaoId ?? null,
+      preco_venda: slot.preco_venda ?? null,
+      custo_terceirizados_previsto: slot.custo_terceirizados_previsto ?? 0,
+      custo_simulado: slot.custo_simulado ?? {},
+      materiais: slot.materiais.map((m) => ({
+        tipo: m.tipo,
+        numero: m.numero,
+        artigo_id: m.artigo_id,
+        consumo: m.consumo,
+        loss_percent: m.loss_percent,
+        variantes: m.variantes.map((v) => ({
+          variante_tecido_id: v.variante_tecido_id,
+          ordem: v.ordem,
+          multiplicador: v.multiplicador,
+          // distribui a grade por tamanho (proporção) igual ao "Aplicar grade"
+          grades: v.grades && Object.keys(v.grades).length ? v.grades : distribuirGrade(v.grade_total, slot.proporcoes),
+          grade_total: v.grade_total,
+        })),
+      })),
+    };
+    setCriandoCard(true);
+    try {
+      const { data, error } = await supabase.rpc("plan_tecido_criar_card" as any, { _colecao_id: colecaoId, _slot });
+      if (error) throw error;
+      const novoId = data as string | null;
+      toast.success("Card criado no Planejamento.");
+      if (novoId) onChange({ ...slot, modelo_id: novoId }); // liga o slot (salve o plano p/ persistir)
+      void qc.invalidateQueries({ queryKey: ["plan-tecido-modelos", colecaoId] });
+      void qc.invalidateQueries({ queryKey: ["modelo"] });
+      void qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
+      void qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
+    } catch (e) {
+      toast.error(mensagemErro(e, "Não foi possível criar o card."));
+    } finally {
+      setCriandoCard(false);
+    }
+  }
 
   const { data: categorias = [] } = useQuery({
     queryKey: ["plan-tecido-categorias"],
@@ -178,6 +231,24 @@ export function ModelCard({
                 <span>Usar estoque existente</span>
               </label>
             </div>
+            {colecaoId && (
+              <div className="border-t px-2 py-1">
+                {slot.modelo_id ? (
+                  <div className="text-[10px] text-muted-foreground">✓ Ligado a um card do Planejamento</div>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full text-xs"
+                    disabled={!podeCriarCard || criandoCard}
+                    title={podeCriarCard ? "Cria o card em Plan. Produto com os dados deste item" : "Defina um nome ou um tecido primeiro"}
+                    onClick={criarCard}
+                  >
+                    {criandoCard ? "Criando…" : "Criar card no Planejamento"}
+                  </Button>
+                )}
+              </div>
+            )}
             <Accordion type="multiple" defaultValue={["mat"]} className="border-t px-2">
               <AccordionItem value="mat">
                 <AccordionTrigger className="py-2 text-xs">1. Tecidos &amp; Forros</AccordionTrigger>
