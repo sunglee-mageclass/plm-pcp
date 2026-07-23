@@ -48,7 +48,6 @@ import {
 } from "@/components/ui/collapsible";
 import { useAuth } from "@/hooks/useAuth";
 import { useTenantModules } from "@/hooks/useTenantModules";
-import { useModoOcRolo } from "@/hooks/useModoOcRolo";
 import { useTabLabels } from "@/hooks/useTabLabels";
 import { Button } from "@/components/ui/button";
 import { PAGES_CATALOG, pageInProfile } from "@/lib/permissions-catalog";
@@ -91,7 +90,6 @@ const PAGE_URLS: Record<string, string> = {
   criacao_planejamento: "/criacao/planejamento",
   criacao_desenvolvimento: "/criacao/desenvolvimento",
   producao_explosao: "/criacao/explosao",
-  producao_consumo_oc: "/criacao/consumo-oc",
   producao_terceirizados: "/producao/terceirizados",
   // Oficina é acessada dentro de Serviços; não aparece como item próprio na navegação lateral.
   producao_cq: "/producao/cq",
@@ -137,15 +135,12 @@ export function AppSidebar() {
   const { isModuleEnabled, isStockOnly } = useTenantModules();
   const profile = isStockOnly ? "stock" : "full";
   const tabLabels = useTabLabels();
-  const modoOcRolo = useModoOcRolo();
-  // No modo Só Rolo a página "Consumo por OC" passa a se chamar "Consumo por Rolo".
   // "Planejamento de Produto" é longo demais na sidebar → encurta p/ "Plan. Produto"
   // (o nome por extenso segue no catálogo/permissões e no título da tela).
   const labelFor = (key: string, fallback: string) => {
     if (tabLabels[key]) return tabLabels[key];
     if (key === "criacao_plan_tecido") return "Plan. Tecido";
     if (key === "criacao_planejamento") return "Plan. Produto";
-    if (key === "producao_consumo_oc" && modoOcRolo === "rolo") return "Consumo por Rolo";
     return fallback;
   };
 

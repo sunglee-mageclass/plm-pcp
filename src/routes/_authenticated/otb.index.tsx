@@ -1,10 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Target as TargetIcon, Wallet, Calculator } from "lucide-react";
+import { Target as TargetIcon, Wallet } from "lucide-react";
 import { ColecaoPVSheet } from "@/components/otb/ColecaoPVSheet";
 import { PadraoMixSheet } from "@/components/otb/PadraoMixSheet";
-import { SimulacaoSheet } from "@/components/otb/SimulacaoSheet";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -44,7 +43,6 @@ function OtbPage() {
   const [tipoOpen, setTipoOpen] = useState(false);
   const [pvOpen, setPvOpen] = useState<{ id: string | null } | null>(null);
   const [padraoOpen, setPadraoOpen] = useState(false);
-  const [simOpen, setSimOpen] = useState<{ colecaoId: string; tipo: string } | null>(null);
   const abrirColecao = (c: any) =>
     c.tipo === "poder_venda" ? setPvOpen({ id: c.id }) : setOpenId(c.id);
   const [fAno, setFAno] = useState("all");
@@ -211,10 +209,6 @@ function OtbPage() {
                     <span className="text-xs text-muted-foreground tabular-nums" title={orcTitle} aria-label={orcTitle}>{temOrc ? `${pctUso}%` : "—"}</span>
                     <Badge variant="outline" className="text-[10px]" title={c.tipo === "poder_venda" ? "Poder de Venda" : "Orçamento"}>{c.tipo === "poder_venda" ? "PV" : "Orç."}</Badge>
                     <Badge className={c.status === "confirmada" ? "bg-emerald-600 text-white hover:bg-emerald-600" : "bg-amber-500 text-white hover:bg-amber-500"}>{c.status === "confirmada" ? "Confirmada" : "Rascunho"}</Badge>
-                    <Button variant="ghost" size="iconSm" title="Simular uso de OC"
-                      onClick={(e) => { e.stopPropagation(); setSimOpen({ colecaoId: c.id, tipo: c.tipo }); }}>
-                      <Calculator className="h-4 w-4 text-muted-foreground" />
-                    </Button>
                   </div>
                 </div>
                 {periodoLabel && <div className="text-xs text-muted-foreground mt-0.5">{periodoLabel}</div>}
@@ -273,7 +267,6 @@ function OtbPage() {
           onSaved={() => { qc.invalidateQueries({ queryKey: ["otb-colecoes"] }); qc.invalidateQueries({ queryKey: ["otb-pv-poder"] }); }} />
       )}
       {padraoOpen && <PadraoMixSheet onClose={() => setPadraoOpen(false)} />}
-      {simOpen && <SimulacaoSheet colecaoId={simOpen.colecaoId} tipo={simOpen.tipo} onClose={() => setSimOpen(null)} />}
       <MobileActionBar>
         <Button variant="outline" aria-label="Importar coleções existentes" onClick={() => importar.mutate()} disabled={importar.isPending}>Importar</Button>
         <Button className="ml-auto" onClick={() => setTipoOpen(true)}><Plus className="h-4 w-4 mr-1" /> Nova coleção</Button>
