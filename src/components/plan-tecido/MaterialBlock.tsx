@@ -1,4 +1,5 @@
 // src/components/plan-tecido/MaterialBlock.tsx
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { NumberInput } from "@/components/shared/NumberInput";
@@ -12,11 +13,17 @@ import type { PtMaterial, PtVariante } from "@/lib/plan-tecido/types";
 type ArtigoRow = { id: string; nome: string; unidade_medida: string | null; rendimento: number | null };
 type VarRow = { id: string; nome_variante: string | null; codigo_variante: string | null; cor: { nome: string | null } | null; apelido: { nome: string | null } | null };
 
-export function MaterialBlock({ material, onChange, onRemove }: { material: PtMaterial; onChange: (m: PtMaterial) => void; onRemove: () => void }) {
+export function MaterialBlock({ material, onChange, onRemove, paletaIds }: { material: PtMaterial; onChange: (m: PtMaterial) => void; onRemove: () => void; paletaIds?: string[] }) {
+  const [verTodos, setVerTodos] = useState(false);
   const { data: artigos = [] } = useQuery({
     queryKey: ["plan-tecido-artigos", material.tipo],
     queryFn: async () => ((await supabase.from("artigos").select("id, nome, unidade_medida, rendimento").order("nome")).data ?? []) as ArtigoRow[],
   });
+  // paleta SOFT: mostra a paleta da coleção primeiro; artigo já escolhido sempre aparece; "ver todos" escapa
+  const temPaleta = (paletaIds?.length ?? 0) > 0;
+  const artigosVisiveis = !temPaleta || verTodos
+    ? artigos
+    : artigos.filter((a) => paletaIds!.includes(a.id) || a.id === material.artigo_id);
   const { data: variantesArtigo = [] } = useQuery({
     queryKey: ["plan-tecido-variantes-artigo", material.artigo_id],
     enabled: !!material.artigo_id,
@@ -47,8 +54,13 @@ export function MaterialBlock({ material, onChange, onRemove }: { material: PtMa
         <span className="rounded bg-primary px-1.5 text-[10px] font-bold text-primary-foreground">{material.tipo === "tecido" ? "TEC" : "FOR"} {material.numero}</span>
         <select className="rounded border bg-background px-2 py-1 text-xs" value={material.artigo_id ?? ""} onChange={(e) => onChange({ ...material, artigo_id: e.target.value || null, variantes: [] })}>
           <option value="">Escolher artigo…</option>
-          {artigos.map((a) => (<option key={a.id} value={a.id}>{a.nome}{a.unidade_medida === "kg" ? " [kg]" : ""}</option>))}
+          {artigosVisiveis.map((a) => (<option key={a.id} value={a.id}>{a.nome}{a.unidade_medida === "kg" ? " [kg]" : ""}</option>))}
         </select>
+        {temPaleta && (
+          <button type="button" className="shrink-0 text-[10px] text-muted-foreground underline hover:text-foreground" onClick={() => setVerTodos((v) => !v)}>
+            {verTodos ? "só paleta" : "ver todos"}
+          </button>
+        )}
         <div className="ml-auto flex items-center gap-1 text-xs">
           <span className="text-muted-foreground">consumo</span>
           <NumberInput blankZero placeholder="0" className="h-7 w-16 text-right" value={material.consumo} onChange={(e) => onChange({ ...material, consumo: Number(e.target.value) || 0 })} />

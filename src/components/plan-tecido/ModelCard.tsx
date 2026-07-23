@@ -39,6 +39,7 @@ export function ModelCard({
   onToggleSelect,
   colecaoId,
   subcolecaoId,
+  paletaIds,
 }: {
   slot: PtSlot;
   onChange: (s: PtSlot) => void;
@@ -46,6 +47,7 @@ export function ModelCard({
   onToggleSelect?: () => void;
   colecaoId?: string;
   subcolecaoId?: string | null;
+  paletaIds?: string[];
 }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -268,6 +270,7 @@ export function ModelCard({
                     <MaterialBlock
                       key={m.id ?? i}
                       material={m}
+                      paletaIds={paletaIds}
                       onChange={(nm) => {
                         const materiais = slot.materiais.slice();
                         materiais[i] = nm;

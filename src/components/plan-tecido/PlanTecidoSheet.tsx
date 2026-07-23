@@ -30,6 +30,7 @@ import type { PtArvore, PtMaterial, PtVariante } from "@/lib/plan-tecido/types";
 import { necessidadePorTecido } from "@/lib/plan-tecido/calc";
 import { ModelCard } from "@/components/plan-tecido/ModelCard";
 import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
+import { PaletaColecao } from "@/components/plan-tecido/PaletaColecao";
 
 type Nome = { id: string; nome: string };
 
@@ -293,6 +294,13 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
           "id, ref, nome, subcolecao, linha_id, categoria_principal_id, proporcoes, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(cor:cor_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total)",
         )
         .eq("colecao_id", colecaoId)).data ?? []) as any[],
+  });
+
+  // paleta de insumos da coleção → escopa (soft) os dropdowns de artigo dos cards
+  const { data: paletaIds = [] } = useQuery({
+    queryKey: ["plan-tecido-paleta-ids", colecaoId],
+    queryFn: async () =>
+      [...new Set((((await supabase.from("plan_tecido_paleta" as any).select("artigo_id").eq("colecao_id", colecaoId)).data ?? []) as unknown as { artigo_id: string }[]).map((r) => r.artigo_id))],
   });
 
   const modelosReais = useMemo<ModeloReal[]>(() => {
@@ -564,6 +572,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
           <div className="flex flex-1 flex-col overflow-y-auto max-sm:pb-24">
             <div className="flex flex-1 gap-3 p-3">
               <div className="min-w-0 flex-1 space-y-2">
+                <PaletaColecao colecaoId={colecaoId} />
                 {viewMode === "linha" ? (
                   arvore.subcolecoes.map((sub, si) => (
                     <Collapsible key={sub.id ?? si} defaultOpen>
@@ -595,6 +604,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                                     slot={slot}
                                     colecaoId={colecaoId}
                                     subcolecaoId={sub.subcolecao_id}
+                                    paletaIds={paletaIds}
                                     onChange={(ns) => {
                                       const next = structuredClone(arvore) as PtArvore;
                                       next.subcolecoes[si].linhas[li].slots[sli] = ns;
