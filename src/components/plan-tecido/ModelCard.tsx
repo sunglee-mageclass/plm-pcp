@@ -36,9 +36,8 @@ export function ModelCard({
   ocsAplicadas,
   slotOcIds,
   vinculos,
-  dirty,
   lancado,
-  onReseed,
+  onEnsureSaved,
 }: {
   slot: PtSlot;
   onChange: (s: PtSlot) => void;
@@ -51,9 +50,8 @@ export function ModelCard({
   ocsAplicadas?: { id: string; numero_pedido: string | null; tecidos: string[] }[];
   slotOcIds?: string[];
   vinculos?: { oc_id: string; numero_pedido: string | null; tecidos: string | null }[];
-  dirty?: boolean;
   lancado?: boolean;
-  onReseed?: () => void;
+  onEnsureSaved?: () => Promise<boolean>;
 }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -63,12 +61,6 @@ export function ModelCard({
 
   // "Criar card" no Planejamento: só p/ slot ainda não ligado a um modelo, com nome ou tecido.
   const podeCriarCard = !slot.modelo_id && (!!slot.nome || slot.materiais.some((m) => m.artigo_id));
-
-  // Ações de servidor exigem o plano SALVO (senão a ação usa dado desatualizado / vira "falsa edição").
-  const exigeSalvo = () => {
-    if (dirty) { toast.error("Salve o plano primeiro para esta ação."); return false; }
-    return true;
-  };
 
   // BOM do slot com a grade distribuída por proporção (compartilhado por criar/aplicar)
   const buildMateriais = () =>
@@ -90,7 +82,8 @@ export function ModelCard({
   };
 
   async function criarCard() {
-    if (!colecaoId || !exigeSalvo()) return;
+    if (!colecaoId) return;
+    if (onEnsureSaved) { const ok = await onEnsureSaved(); if (!ok) return; }
     const _slot = {
       nome: slot.nome ?? null, ref: slot.ref ?? null, slot_id: slot.id ?? null,
       linha_id: slot.linha_id ?? null, categoria_id: slot.categoria_id ?? null,
@@ -102,11 +95,11 @@ export function ModelCard({
     };
     setCriandoCard(true);
     try {
-      const { error } = await supabase.rpc("plan_tecido_criar_card" as any, { _colecao_id: colecaoId, _slot });
+      const { data, error } = await supabase.rpc("plan_tecido_criar_card" as any, { _colecao_id: colecaoId, _slot });
       if (error) throw error;
       toast.success("Card criado no Planejamento.");
+      if (data) onChange({ ...slot, modelo_id: data as string }); // liga o slot no ato (botão vira "Aplicar")
       invalidarModelo();
-      onReseed?.(); // recarrega o plano: slot já vinculado + BOM vivo
     } catch (e) {
       toast.error(mensagemErro(e, "Não foi possível criar o card."));
     } finally {
@@ -150,9 +143,10 @@ export function ModelCard({
         : undefined;
 
   async function aplicarAoModelo() {
-    if (!slot.id || !exigeSalvo()) { setConfirmGrade(false); return; }
+    if (!slot.id) { setConfirmGrade(false); return; }
     setAplicandoGrade(true);
     try {
+      if (onEnsureSaved) { const ok = await onEnsureSaved(); if (!ok) return; }
       const { error } = await supabase.rpc("plan_tecido_aplicar_ao_modelo" as any, {
         _slot_id: slot.id,
         _materiais: buildMateriais(),
@@ -160,7 +154,6 @@ export function ModelCard({
       if (error) throw error;
       toast.success("Aplicado ao modelo (tecidos, variantes, consumo e grade).");
       invalidarModelo();
-      onReseed?.();
     } catch (e) {
       toast.error(mensagemErro(e, "Não foi possível aplicar ao modelo."));
     } finally {

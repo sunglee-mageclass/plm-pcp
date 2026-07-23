@@ -374,16 +374,6 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
     }
   }, [seed, salvo, modelosDb, modelosReais, arvore]);
 
-  // recarrega o plano do zero (após criar/aplicar): refetch vivo + reseed. Só quando NÃO dirty.
-  const reseed = async () => {
-    await Promise.all([
-      qc.refetchQueries({ queryKey: ["plan-tecido-arvore", colecaoId] }),
-      qc.refetchQueries({ queryKey: ["plan-tecido-modelos", colecaoId] }),
-      qc.refetchQueries({ queryKey: ["plan-tecido-vinculos", colecaoId] }),
-    ]);
-    setDirty(false);
-    setArvore(null);
-  };
 
   const salvarMut = useMutation({
     mutationFn: async () => {
@@ -397,6 +387,13 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
     },
     onError: (e) => toast.error(mensagemErro(e, "Não foi possível salvar.")),
   });
+
+  // garante o plano salvo antes de uma ação de servidor (auto-salva se houver mudança pendente)
+  const ensureSaved = async (): Promise<boolean> => {
+    if (!dirty) return true;
+    try { await salvarMut.mutateAsync(); return true; }
+    catch { return false; }
+  };
 
   const desfazerPedidoMut = useMutation({
     mutationFn: async () => {
@@ -447,9 +444,9 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
   }
 
   async function handleAbrirPrevia() {
-    if (dirty) { toast.error("Salve o plano primeiro para fazer o pedido."); return; }
     setPreviaLoading(true);
     try {
+      if (!(await ensureSaved())) return; // auto-salva; a prévia lê o plano do servidor
       const { data, error } = await supabase.rpc("plan_tecido_previa_pedido" as any, {
         _colecao_id: colecaoId,
       });
@@ -574,9 +571,8 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                                     ocsAplicadas={ocsAplicadas}
                                     slotOcIds={slot.id ? (slotOcMap[slot.id] ?? []) : []}
                                     vinculos={slot.modelo_id ? (vinculosMap[slot.modelo_id] ?? []) : []}
-                                    dirty={dirty}
                                     lancado={slot.modelo_id ? lancadoSet.has(slot.modelo_id) : false}
-                                    onReseed={reseed}
+                                    onEnsureSaved={ensureSaved}
                                     onChange={(ns) => {
                                       const next = structuredClone(arvore) as PtArvore;
                                       next.subcolecoes[si].linhas[li].slots[sli] = ns;
