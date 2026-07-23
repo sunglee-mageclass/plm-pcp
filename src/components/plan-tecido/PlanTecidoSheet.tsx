@@ -27,6 +27,7 @@ import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
 import { PaletaColecao } from "@/components/plan-tecido/PaletaColecao";
 import { VisaoPorTecido } from "@/components/plan-tecido/VisaoPorTecido";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
+import { tecidosDaArvore } from "@/lib/plan-tecido/calc";
 import { FazerPedidoWizard, type PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
 
 type Nome = { id: string; nome: string };
@@ -303,11 +304,22 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
   });
 
   // paleta de insumos da coleção (com PAPEL) → escopa os dropdowns por tecido/forro
-  const { data: paleta = [] } = useQuery({
+  const { data: paletaManual = [] } = useQuery({
     queryKey: ["plan-tecido-paleta-papel", colecaoId],
     queryFn: async () =>
       (((await supabase.from("plan_tecido_paleta" as any).select("artigo_id, papel").eq("colecao_id", colecaoId)).data ?? []) as unknown as { artigo_id: string; papel: string }[]),
   });
+  // tecidos/forros JÁ usados pelos cards da coleção (aparecem na paleta automaticamente)
+  const paletaEmUso = useMemo(() => (arvore ? tecidosDaArvore(arvore) : []), [arvore]);
+  // paleta efetiva = manual (Insumos) ∪ em uso pelos cards → alimenta os dropdowns dos cards
+  const paleta = useMemo(() => {
+    const seen = new Set<string>(); const out: { artigo_id: string; papel: string }[] = [];
+    for (const p of [...paletaManual, ...paletaEmUso]) {
+      const k = `${p.artigo_id}|${p.papel}`;
+      if (seen.has(k)) continue; seen.add(k); out.push(p);
+    }
+    return out;
+  }, [paletaManual, paletaEmUso]);
 
   const modelosReais = useMemo<ModeloReal[]>(() => {
     if (!modelosDb) return [];
@@ -534,7 +546,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
             <div className="flex flex-1 gap-3 p-3">
               <div className="min-w-0 flex-1 space-y-2">
                 {/* mobile: Insumos aqui (no desktop vai no Resumo) */}
-                <div className="md:hidden"><PaletaColecao colecaoId={colecaoId} /></div>
+                <div className="md:hidden"><PaletaColecao colecaoId={colecaoId} emUso={paletaEmUso} /></div>
                 {viewMode === "linha" ? (
                   arvore.subcolecoes.map((sub, si) => (
                     <Collapsible key={sub.id ?? si} defaultOpen>

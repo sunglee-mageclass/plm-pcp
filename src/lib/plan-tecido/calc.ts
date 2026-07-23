@@ -1,5 +1,23 @@
 import type { PtArvore, PtSlot } from "./types";
 
+/** Tecidos/forros já usados pelos cards da coleção (distinct artigo_id + papel), p/ a paleta. */
+export function tecidosDaArvore(arvore: PtArvore): { artigo_id: string; papel: string }[] {
+  const seen = new Set<string>();
+  const out: { artigo_id: string; papel: string }[] = [];
+  for (const sub of arvore.subcolecoes ?? [])
+    for (const ln of sub.linhas ?? [])
+      for (const slot of ln.slots ?? [])
+        for (const m of slot.materiais ?? []) {
+          if (!m.artigo_id) continue;
+          const papel = m.tipo === "forro" ? "forro" : "tecido";
+          const k = `${m.artigo_id}|${papel}`;
+          if (seen.has(k)) continue;
+          seen.add(k);
+          out.push({ artigo_id: m.artigo_id, papel });
+        }
+  return out;
+}
+
 export function custoMateriaisPrevisto(slot: PtSlot): number {
   // Σ (material.consumo × material.preco_por_metro) — ignores material without preco
   return (slot.materiais ?? []).reduce((sum, mat) => {
