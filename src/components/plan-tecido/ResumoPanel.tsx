@@ -60,7 +60,8 @@ export function ResumoPanel({ arvore }: { arvore: PtArvore }) {
   for (const sub of arvore.subcolecoes) for (const ln of sub.linhas) for (const slot of ln.slots) {
     const tec1 = slot.materiais.find((m) => m.tipo === "tecido" && m.numero === 1);
     const grade = (tec1?.variantes ?? []).reduce((s, v) => s + (v.grade_total || 0), 0);
-    const custo = custoMateriaisPrevisto(slot) + (Number(slot.custo_terceirizados_previsto) || 0);
+    const cs = (slot.custo_simulado ?? {}) as { materiais?: number };
+    const custo = custoMateriaisPrevisto(slot) + (Number(cs.materiais) || 0) + (Number(slot.custo_terceirizados_previsto) || 0);
     const markup = slot.linha_id ? (markupMap[slot.linha_id] ?? 0) : 0;
     pv += precoInfo(custo, markup, slot.preco_venda ?? null).efetivo * grade;
   }

@@ -18,9 +18,11 @@ export function CustoSection({ slot, onChange }: { slot: PtSlot; onChange: (s: P
   });
   const markup = slot.linha_id ? (markupMap[slot.linha_id] ?? 0) : 0;
 
-  const materiais = custoMateriaisPrevisto(slot);
+  const cs = (slot.custo_simulado ?? {}) as { materiais?: number };
+  const custoTecido = custoMateriaisPrevisto(slot); // travado: Σ consumo × preço/m dos tecidos/forros
+  const materiais = Number(cs.materiais) || 0; // editável: outros materiais/aviamentos
   const maoObra = Number(slot.custo_terceirizados_previsto) || 0;
-  const custoTotal = materiais + maoObra;
+  const custoTotal = custoTecido + materiais + maoObra;
   const pi = precoInfo(custoTotal, markup, slot.preco_venda ?? null);
 
   const RO = ({ label, value }: { label: string; value: string }) => (
@@ -33,13 +35,15 @@ export function CustoSection({ slot, onChange }: { slot: PtSlot; onChange: (s: P
         <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-warning" /> Estimativa — não é o custo/preço real (esses vêm do BOM/CAD). Guardado no plano; não sobrescreve o modelo.
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <RO label="Materiais (tecido/forro)" value={brl(materiais)} />
+        <RO label="Custo de tecido (auto)" value={brl(custoTecido)} />
+        <div><div className="text-[10px] text-muted-foreground">Materiais (edita)</div>
+          <NumberInput className="h-7 w-full text-right" value={materiais} onChange={(e) => onChange({ ...slot, custo_simulado: { ...cs, materiais: Number(e.target.value) || 0 } })} /></div>
         <div><div className="text-[10px] text-muted-foreground">Mão de obra prevista</div>
           <NumberInput className="h-7 w-full text-right" value={maoObra} onChange={(e) => onChange({ ...slot, custo_terceirizados_previsto: Number(e.target.value) || 0 })} /></div>
         <RO label="Custo total" value={brl(custoTotal)} />
         <RO label="Markup (linha)" value={markup > 0 ? `${markup.toFixed(2)}×` : "—"} />
         <RO label="Preço sugerido" value={pi.sugerido > 0 ? brl(pi.sugerido) : "—"} />
-        <div><div className="text-[10px] text-muted-foreground">Preço p/ venda</div>
+        <div className="col-span-2"><div className="text-[10px] text-muted-foreground">Preço p/ venda</div>
           <NumberInput className="h-7 w-full text-right" value={slot.preco_venda ?? 0} onChange={(e) => onChange({ ...slot, preco_venda: Number(e.target.value) || 0 })} /></div>
       </div>
       {markup <= 0 && (
