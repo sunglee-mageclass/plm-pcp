@@ -2,6 +2,7 @@ import type { PtArvore } from "@/lib/plan-tecido/types";
 import { necessidadePorTecido, custoMateriaisPrevisto } from "@/lib/plan-tecido/calc";
 import { precoInfo } from "@/lib/preco";
 import { brl } from "@/lib/format";
+import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 
 function NecBlock({ titulo, nec }: { titulo: string; nec: ReturnType<typeof necessidadePorTecido> }) {
   const total = nec.reduce((s, t) => s + t.totalMetros, 0);
@@ -18,8 +19,12 @@ function NecBlock({ titulo, nec }: { titulo: string; nec: ReturnType<typeof nece
                 {t.artigo_nome}{t.unidade_medida === "kg" ? <span className="ml-1 text-muted-foreground">kg no pedido</span> : null}
               </div>
               {t.variantes.map((v) => (
-                <div key={v.variante_tecido_id} className="flex justify-between">
-                  <span>{v.label}</span><b>{v.metros.toFixed(0)} m</b>
+                <div key={v.variante_tecido_id} className="flex items-center justify-between gap-2">
+                  <span className="flex min-w-0 items-center gap-1">
+                    <VarianteSwatch nome={v.cor_nome ?? v.label} />
+                    <span className="truncate">{v.label || "—"}</span>
+                  </span>
+                  <b className="shrink-0">{v.metros.toFixed(0)} m</b>
                 </div>
               ))}
             </div>

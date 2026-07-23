@@ -167,6 +167,8 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
             modelo_id: saved.modelo_id ?? slot.modelo_id,
             ref: saved.ref ?? slot.ref,
             nome: saved.nome ?? slot.nome,
+            thumb_path: saved.thumb_path ?? slot.thumb_path,
+            categoria_id: saved.categoria_id ?? slot.categoria_id,
             proporcoes: saved.proporcoes ?? slot.proporcoes,
             materiais: (saved.materiais?.length ? saved.materiais : slot.materiais),
           };

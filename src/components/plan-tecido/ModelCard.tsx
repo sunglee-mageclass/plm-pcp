@@ -129,17 +129,18 @@ export function ModelCard({
           </div>
         )}
         <button
-          className="flex w-full items-center gap-2 p-2 text-left"
+          className="flex min-h-[68px] w-full items-center gap-2 p-2 text-left"
           onClick={() => setOpen((o) => !o)}
         >
-          <ChevronRight className={`h-4 w-4 transition-transform ${open ? "rotate-90" : ""}`} />
+          <ChevronRight className={`h-4 w-4 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
           <ModeloThumb path={slot.thumb_path} />
-          <div className={`min-w-0 ${onToggleSelect ? "ml-4" : ""}`}>
+          <div className={`min-w-0 flex-1 ${onToggleSelect ? "ml-4" : ""}`}>
             <div className="truncate text-sm font-medium">
               {slot.nome ?? "Modelo"}
               {slot.ref ? <span className="font-normal text-muted-foreground"> · {slot.ref}</span> : null}
             </div>
-            {catNome && <div className="truncate text-[11px] text-muted-foreground">{catNome}</div>}
+            {/* linha de categoria sempre reservada p/ padronizar a altura do card */}
+            <div className="h-[15px] truncate text-[11px] text-muted-foreground">{catNome}</div>
             <div className="text-xs text-muted-foreground">
               {total ? `${total.toFixed(0)} m` : "—"} · {temGrade ? "✓ grade" : "⚠ falta"}
               {usarEstoque ? " · estoque" : ""}

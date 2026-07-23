@@ -22,7 +22,7 @@ export type NecTecido = {
   artigo_nome: string;
   unidade_medida: string | null;
   rendimento: number | null;
-  variantes: { variante_tecido_id: string; label: string; metros: number }[];
+  variantes: { variante_tecido_id: string; label: string; cor_nome: string | null; metros: number }[];
   totalMetros: number;
 };
 
@@ -50,7 +50,7 @@ export function necessidadePorTecido(arvore: PtArvore, filtroSlot?: (slot: PtSlo
             const metros = necessidadeVariante(mat.consumo, gradeBase, v.multiplicador);
             if (metros <= 0) continue;
             let vr = t.variantes.find((x) => x.variante_tecido_id === v.variante_tecido_id);
-            if (!vr) { vr = { variante_tecido_id: v.variante_tecido_id, label: v.label ?? "", metros: 0 }; t.variantes.push(vr); }
+            if (!vr) { vr = { variante_tecido_id: v.variante_tecido_id, label: (v.label || v.cor_nome) ?? "", cor_nome: v.cor_nome ?? null, metros: 0 }; t.variantes.push(vr); }
             vr.metros += metros;
             t.totalMetros += metros;
           }
