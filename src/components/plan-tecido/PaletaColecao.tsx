@@ -41,7 +41,7 @@ export function PaletaColecao({ colecaoId }: { colecaoId: string }) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["plan-tecido-paleta", colecaoId] });
-      qc.invalidateQueries({ queryKey: ["plan-tecido-paleta-ids", colecaoId] });
+      qc.invalidateQueries({ queryKey: ["plan-tecido-paleta-papel", colecaoId] });
     },
     onError: (e) => toast.error(mensagemErro(e, "Não foi possível salvar a paleta.")),
   });

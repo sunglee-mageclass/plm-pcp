@@ -78,10 +78,10 @@ export function VisaoPorTecido({ arvore }: { arvore: PtArvore }) {
             </span>
             <span className="text-[10px] text-muted-foreground">{t.modelos.length} modelo(s) · {t.totalMetros.toFixed(0)} m</span>
           </div>
-          <div className="grid grid-cols-1 gap-2 p-2 md:grid-cols-2">
+          <div className="grid grid-cols-2 gap-2 p-2 md:grid-cols-3 lg:grid-cols-4">
             {t.modelos.map((m) => (
               <div key={m.key} className="flex gap-2 rounded border p-2">
-                <ModeloThumb path={m.thumb_path} className="h-12 w-12" />
+                <ModeloThumb path={m.thumb_path} className="h-10 w-10" />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-xs font-medium">
                     {m.nome}{m.ref ? <span className="font-normal text-muted-foreground"> · {m.ref}</span> : null}

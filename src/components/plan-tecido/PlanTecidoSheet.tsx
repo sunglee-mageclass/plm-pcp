@@ -316,22 +316,22 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
         .map((r) => ({ id: r.oc_tecido_id, numero_pedido: r.oc?.numero_pedido ?? null })),
   });
 
-  // hint OC por modelo → Map<modelo_id, oc_ids[]>
-  const { data: modeloOcMap = {} } = useQuery({
-    queryKey: ["plan-tecido-modelo-oc", colecaoId],
+  // hint OC por SLOT → Map<slot_id, oc_ids[]>
+  const { data: slotOcMap = {} } = useQuery({
+    queryKey: ["plan-tecido-slot-oc", colecaoId],
     queryFn: async () => {
-      const rows = ((await supabase.from("plan_tecido_modelo_oc" as any).select("modelo_id, oc_tecido_id").eq("colecao_id", colecaoId)).data ?? []) as unknown as { modelo_id: string; oc_tecido_id: string }[];
+      const rows = ((await supabase.from("plan_tecido_slot_oc" as any).select("slot_id, oc_tecido_id").eq("colecao_id", colecaoId)).data ?? []) as unknown as { slot_id: string; oc_tecido_id: string }[];
       const map: Record<string, string[]> = {};
-      for (const r of rows) (map[r.modelo_id] ??= []).push(r.oc_tecido_id);
+      for (const r of rows) (map[r.slot_id] ??= []).push(r.oc_tecido_id);
       return map;
     },
   });
 
-  // paleta de insumos da coleção → escopa (soft) os dropdowns de artigo dos cards
-  const { data: paletaIds = [] } = useQuery({
-    queryKey: ["plan-tecido-paleta-ids", colecaoId],
+  // paleta de insumos da coleção (com PAPEL) → escopa os dropdowns por tecido/forro
+  const { data: paleta = [] } = useQuery({
+    queryKey: ["plan-tecido-paleta-papel", colecaoId],
     queryFn: async () =>
-      [...new Set((((await supabase.from("plan_tecido_paleta" as any).select("artigo_id").eq("colecao_id", colecaoId)).data ?? []) as unknown as { artigo_id: string }[]).map((r) => r.artigo_id))],
+      (((await supabase.from("plan_tecido_paleta" as any).select("artigo_id, papel").eq("colecao_id", colecaoId)).data ?? []) as unknown as { artigo_id: string; papel: string }[]),
   });
 
   const modelosReais = useMemo<ModeloReal[]>(() => {
@@ -636,10 +636,10 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                                     slot={slot}
                                     colecaoId={colecaoId}
                                     subcolecaoId={sub.subcolecao_id}
-                                    paletaIds={paletaIds}
+                                    paleta={paleta}
                                     tamanhos={tamanhos}
                                     ocsAplicadas={ocsAplicadas}
-                                    modeloOcIds={slot.modelo_id ? (modeloOcMap[slot.modelo_id] ?? []) : []}
+                                    slotOcIds={slot.id ? (slotOcMap[slot.id] ?? []) : []}
                                     onChange={(ns) => {
                                       const next = structuredClone(arvore) as PtArvore;
                                       next.subcolecoes[si].linhas[li].slots[sli] = ns;
@@ -668,7 +668,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                   <VisaoPorTecido arvore={arvore} />
                 )}
               </div>
-              <div className="hidden w-72 shrink-0 md:block md:sticky md:top-3 md:self-start md:max-h-[calc(100dvh-1.5rem)] md:overflow-y-auto">
+              <div className="hidden w-80 shrink-0 md:block lg:w-96 md:sticky md:top-3 md:self-start md:max-h-[calc(100dvh-1.5rem)] md:overflow-y-auto">
                 <ResumoPanel arvore={arvore} />
               </div>
             </div>

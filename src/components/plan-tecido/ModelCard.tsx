@@ -17,7 +17,7 @@ import { MaterialBlock } from "./MaterialBlock";
 import { GradeSection } from "./GradeSection";
 import { CustoSection } from "./CustoSection";
 import { ModeloThumb } from "./ModeloThumb";
-import { ModeloOcHint } from "./ModeloOcHint";
+import { SlotOcHint } from "./SlotOcHint";
 
 function novoMaterial(existentes: PtMaterial[], tipo: "tecido" | "forro"): PtMaterial {
   const numero = existentes.filter((m) => m.tipo === tipo).length + 1;
@@ -31,10 +31,10 @@ export function ModelCard({
   onToggleSelect,
   colecaoId,
   subcolecaoId,
-  paletaIds,
+  paleta,
   tamanhos,
   ocsAplicadas,
-  modeloOcIds,
+  slotOcIds,
 }: {
   slot: PtSlot;
   onChange: (s: PtSlot) => void;
@@ -42,10 +42,10 @@ export function ModelCard({
   onToggleSelect?: () => void;
   colecaoId?: string;
   subcolecaoId?: string | null;
-  paletaIds?: string[];
+  paleta?: { artigo_id: string; papel: string }[];
   tamanhos?: string[];
   ocsAplicadas?: { id: string; numero_pedido: string | null }[];
-  modeloOcIds?: string[];
+  slotOcIds?: string[];
 }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -258,10 +258,10 @@ export function ModelCard({
                     {criandoCard ? "Criando…" : "Criar card no Planejamento"}
                   </Button>
                 )}
-                {/* Hint de OC por modelo (planejamento) — só com modelo real */}
-                {colecaoId && slot.modelo_id && (
+                {/* Hint de OC (planejamento) — em qualquer card salvo */}
+                {colecaoId && (
                   <div className="mt-2">
-                    <ModeloOcHint colecaoId={colecaoId} modeloId={slot.modelo_id} ocsAplicadas={ocsAplicadas ?? []} selected={modeloOcIds ?? []} />
+                    <SlotOcHint colecaoId={colecaoId} slotId={slot.id} ocsAplicadas={ocsAplicadas ?? []} selected={slotOcIds ?? []} />
                   </div>
                 )}
               </div>
@@ -274,7 +274,7 @@ export function ModelCard({
                     <MaterialBlock
                       key={m.id ?? i}
                       material={m}
-                      paletaIds={paletaIds}
+                      paleta={paleta}
                       onChange={(nm) => {
                         const materiais = slot.materiais.slice();
                         materiais[i] = nm;

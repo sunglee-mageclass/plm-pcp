@@ -13,7 +13,7 @@ import type { PtMaterial, PtVariante } from "@/lib/plan-tecido/types";
 type ArtigoRow = { id: string; nome: string; unidade_medida: string | null; rendimento: number | null; categoria_tecido_id: string | null };
 type VarRow = { id: string; nome_variante: string | null; codigo_variante: string | null; cor: { nome: string | null } | null; apelido: { nome: string | null } | null };
 
-export function MaterialBlock({ material, onChange, onRemove, paletaIds }: { material: PtMaterial; onChange: (m: PtMaterial) => void; onRemove: () => void; paletaIds?: string[] }) {
+export function MaterialBlock({ material, onChange, onRemove, paleta }: { material: PtMaterial; onChange: (m: PtMaterial) => void; onRemove: () => void; paleta?: { artigo_id: string; papel: string }[] }) {
   const [verTodos, setVerTodos] = useState(false);
   const { data: artigos = [] } = useQuery({
     queryKey: ["plan-tecido-artigos", material.tipo],
@@ -29,11 +29,13 @@ export function MaterialBlock({ material, onChange, onRemove, paletaIds }: { mat
   });
   const artigoSel = artigos.find((a) => a.id === material.artigo_id) ?? null;
   const categoriaNome = artigoSel?.categoria_tecido_id ? catTecido[artigoSel.categoria_tecido_id] : null;
-  // paleta SOFT: mostra a paleta da coleção primeiro; artigo já escolhido sempre aparece; "ver todos" escapa
-  const temPaleta = (paletaIds?.length ?? 0) > 0;
+  // paleta SOFT filtrada pelo PAPEL do material (tecido só tecidos, forro só forros);
+  // artigo já escolhido sempre aparece; "ver todos" escapa a paleta
+  const paletaDoTipo = (paleta ?? []).filter((p) => p.papel === material.tipo).map((p) => p.artigo_id);
+  const temPaleta = paletaDoTipo.length > 0;
   const artigosVisiveis = !temPaleta || verTodos
     ? artigos
-    : artigos.filter((a) => paletaIds!.includes(a.id) || a.id === material.artigo_id);
+    : artigos.filter((a) => paletaDoTipo.includes(a.id) || a.id === material.artigo_id);
   const { data: variantesArtigo = [] } = useQuery({
     queryKey: ["plan-tecido-variantes-artigo", material.artigo_id],
     enabled: !!material.artigo_id,
