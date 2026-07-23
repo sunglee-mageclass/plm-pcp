@@ -29,7 +29,7 @@ export type PreviaRpc = {
 
 type Pagina = { fornecedor: PreviaFornecedorRpc; itens: PreviaItemRpc[] };
 type Resposta = {
-  data: string; prazo: string; qtd: Record<string, number>;
+  dataPedido: string; data: string; prazo: string; qtd: Record<string, number>;
   responsavel: string; responsavelId: string | null; obs: string; qtdReceb: number; // qtd de parcelas de recebimento (datas vêm no recebimento)
 };
 
@@ -54,9 +54,10 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
   const paginas = useMemo(() => paginasDe(previa), [previa]);
   const [passo, setPasso] = useState(0);
   const [respostas, setRespostas] = useState<Record<number, Resposta>>(() => {
+    const hoje = new Date().toISOString().slice(0, 10); // data do pedido = hoje por padrão
     const r: Record<number, Resposta> = {};
     paginas.forEach((pg, i) => {
-      r[i] = { data: "", prazo: "", responsavel: "", responsavelId: null, obs: "", qtdReceb: 1, qtd: Object.fromEntries(pg.itens.map((it) => [keyItem(it), it.qtd])) };
+      r[i] = { dataPedido: hoje, data: "", prazo: "", responsavel: "", responsavelId: null, obs: "", qtdReceb: 1, qtd: Object.fromEntries(pg.itens.map((it) => [keyItem(it), it.qtd])) };
     });
     return r;
   });
@@ -74,6 +75,7 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
         return {
           empresa_id: p.fornecedor.empresa_id,
           representante_id: p.fornecedor.representante_id,
+          data_pedido: rr.dataPedido || null,
           data_prevista_entrega: rr.data || null,
           prazo_pagamento: rr.prazo || null,
           quantidade_prazos: rr.prazo ? nParcelas(rr.prazo) : 1,
@@ -126,6 +128,10 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
           <div className="space-y-3">
             {/* campos a preencher desta OC */}
             <div className="grid grid-cols-2 gap-2">
+              <div>
+                <div className="text-[10px] text-muted-foreground">Data do pedido</div>
+                <DateField value={resp.dataPedido} onChange={(e) => setResp({ dataPedido: e.target.value })} />
+              </div>
               <div>
                 <div className="text-[10px] text-muted-foreground">Data prevista de entrega</div>
                 <DateField value={resp.data} onChange={(e) => setResp({ data: e.target.value })} />
