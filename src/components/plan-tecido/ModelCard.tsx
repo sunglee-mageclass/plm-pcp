@@ -36,6 +36,9 @@ export function ModelCard({
   ocsAplicadas,
   slotOcIds,
   vinculos,
+  dirty,
+  lancado,
+  onReseed,
 }: {
   slot: PtSlot;
   onChange: (s: PtSlot) => void;
@@ -48,6 +51,9 @@ export function ModelCard({
   ocsAplicadas?: { id: string; numero_pedido: string | null; tecidos: string[] }[];
   slotOcIds?: string[];
   vinculos?: { oc_id: string; numero_pedido: string | null; tecidos: string | null }[];
+  dirty?: boolean;
+  lancado?: boolean;
+  onReseed?: () => void;
 }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -58,44 +64,49 @@ export function ModelCard({
   // "Criar card" no Planejamento: só p/ slot ainda não ligado a um modelo, com nome ou tecido.
   const podeCriarCard = !slot.modelo_id && (!!slot.nome || slot.materiais.some((m) => m.artigo_id));
 
+  // Ações de servidor exigem o plano SALVO (senão a ação usa dado desatualizado / vira "falsa edição").
+  const exigeSalvo = () => {
+    if (dirty) { toast.error("Salve o plano primeiro para esta ação."); return false; }
+    return true;
+  };
+
+  // BOM do slot com a grade distribuída por proporção (compartilhado por criar/aplicar)
+  const buildMateriais = () =>
+    slot.materiais.map((m) => ({
+      tipo: m.tipo, numero: m.numero, artigo_id: m.artigo_id, consumo: m.consumo, loss_percent: m.loss_percent,
+      variantes: m.variantes.map((v) => ({
+        variante_tecido_id: v.variante_tecido_id, ordem: v.ordem, multiplicador: v.multiplicador,
+        grades: v.grades && Object.keys(v.grades).length ? v.grades : distribuirGrade(v.grade_total, slot.proporcoes),
+        grade_total: v.grade_total,
+      })),
+    }));
+
+  const invalidarModelo = () => {
+    void qc.invalidateQueries({ queryKey: ["modelo"] });
+    void qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
+    void qc.invalidateQueries({ queryKey: ["cad-grades"] });
+    void qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
+    void qc.invalidateQueries({ queryKey: ["dash-estoque"] });
+  };
+
   async function criarCard() {
-    if (!colecaoId) return;
+    if (!colecaoId || !exigeSalvo()) return;
     const _slot = {
-      nome: slot.nome ?? null,
-      ref: slot.ref ?? null,
-      linha_id: slot.linha_id ?? null,
-      categoria_id: slot.categoria_id ?? null,
+      nome: slot.nome ?? null, ref: slot.ref ?? null, slot_id: slot.id ?? null,
+      linha_id: slot.linha_id ?? null, categoria_id: slot.categoria_id ?? null,
       subcolecao_id: subcolecaoId ?? null,
       preco_venda: slot.preco_venda ?? null,
       custo_terceirizados_previsto: slot.custo_terceirizados_previsto ?? 0,
       custo_simulado: slot.custo_simulado ?? {},
-      materiais: slot.materiais.map((m) => ({
-        tipo: m.tipo,
-        numero: m.numero,
-        artigo_id: m.artigo_id,
-        consumo: m.consumo,
-        loss_percent: m.loss_percent,
-        variantes: m.variantes.map((v) => ({
-          variante_tecido_id: v.variante_tecido_id,
-          ordem: v.ordem,
-          multiplicador: v.multiplicador,
-          // distribui a grade por tamanho (proporção) igual ao "Aplicar grade"
-          grades: v.grades && Object.keys(v.grades).length ? v.grades : distribuirGrade(v.grade_total, slot.proporcoes),
-          grade_total: v.grade_total,
-        })),
-      })),
+      materiais: buildMateriais(),
     };
     setCriandoCard(true);
     try {
-      const { data, error } = await supabase.rpc("plan_tecido_criar_card" as any, { _colecao_id: colecaoId, _slot });
+      const { error } = await supabase.rpc("plan_tecido_criar_card" as any, { _colecao_id: colecaoId, _slot });
       if (error) throw error;
-      const novoId = data as string | null;
       toast.success("Card criado no Planejamento.");
-      if (novoId) onChange({ ...slot, modelo_id: novoId }); // liga o slot (salve o plano p/ persistir)
-      void qc.invalidateQueries({ queryKey: ["plan-tecido-modelos", colecaoId] });
-      void qc.invalidateQueries({ queryKey: ["modelo"] });
-      void qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
-      void qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
+      invalidarModelo();
+      onReseed?.(); // recarrega o plano: slot já vinculado + BOM vivo
     } catch (e) {
       toast.error(mensagemErro(e, "Não foi possível criar o card."));
     } finally {
@@ -128,41 +139,30 @@ export function ModelCard({
   const catNome = categorias.find((c) => c.id === slot.categoria_id)?.nome ?? null;
   const borderClass = open ? "border-primary" : usarEstoque ? "border-amber-500" : "";
 
-  // Estado do botão "Aplicar grade ao modelo"
-  const gradeDisabled = !slot.id || !slot.modelo_id || aplicandoGrade;
+  // Estado do botão "Aplicar ao modelo" (empurra o BOM completo). Bloqueia só se lançado.
+  const gradeDisabled = !slot.id || !slot.modelo_id || !!lancado || aplicandoGrade;
   const gradeTitle = !slot.id
     ? "Salve o plano primeiro"
     : !slot.modelo_id
       ? "Este item não está ligado a um card de modelo"
-      : undefined;
+      : lancado
+        ? "Modelo já lançado — não é possível alterar"
+        : undefined;
 
-  async function aplicarGrade() {
-    if (!slot.id) return;
-    const tec1 = slot.materiais.find((m) => m.tipo === "tecido" && m.numero === 1);
-    const _variantes = (tec1?.variantes ?? []).map((v) => ({
-      ordem: v.ordem,
-      grade_total: v.grade_total,
-      grades: distribuirGrade(v.grade_total, slot.proporcoes),
-    }));
+  async function aplicarAoModelo() {
+    if (!slot.id || !exigeSalvo()) { setConfirmGrade(false); return; }
     setAplicandoGrade(true);
     try {
-      const { data, error } = await supabase.rpc("aplicar_plan_tecido_grade" as any, {
+      const { error } = await supabase.rpc("plan_tecido_aplicar_ao_modelo" as any, {
         _slot_id: slot.id,
-        _variantes,
+        _materiais: buildMateriais(),
       });
       if (error) throw error;
-      const result = data as { modelo_id: string; changed: boolean } | null;
-      if (result?.changed) {
-        toast.success("Grade aplicada. #Erro aceso — verifique o modelo.");
-      } else {
-        toast.success("Grade já estava atualizada.");
-      }
-      // Invalidações best-effort
-      void qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
-      void qc.invalidateQueries({ queryKey: ["cad-grades"] });
-      void qc.invalidateQueries({ queryKey: ["dash-estoque"] });
+      toast.success("Aplicado ao modelo (tecidos, variantes, consumo e grade).");
+      invalidarModelo();
+      onReseed?.();
     } catch (e) {
-      toast.error(mensagemErro(e, "Não foi possível aplicar a grade ao modelo."));
+      toast.error(mensagemErro(e, "Não foi possível aplicar ao modelo."));
     } finally {
       setAplicandoGrade(false);
       setConfirmGrade(false);
@@ -245,7 +245,7 @@ export function ModelCard({
                     title={gradeTitle}
                     onClick={() => setConfirmGrade(true)}
                   >
-                    {aplicandoGrade ? "Aplicando…" : "Aplicar grade ao modelo"}
+                    {aplicandoGrade ? "Aplicando…" : "Aplicar ao modelo"}
                   </Button>
                 ) : (
                   // card ainda não existe → criar
@@ -352,15 +352,16 @@ export function ModelCard({
       <AlertDialog open={confirmGrade} onOpenChange={setConfirmGrade}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Aplicar grade ao modelo?</AlertDialogTitle>
+            <AlertDialogTitle>Aplicar ao modelo?</AlertDialogTitle>
             <AlertDialogDescription>
-              Isso grava a grade por variante no card do modelo. NÃO altera o consumo (o CAD é dono
-              do consumo). Continuar?
+              Grava no card do modelo os <b>tecidos/forros, variantes, consumo e grade</b> deste item
+              (substitui o BOM de tecido do modelo). Não mexe em entretela/aviamentos. Permitido em
+              etapa avançada; bloqueado se o modelo já foi lançado. Continuar?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={aplicandoGrade}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction disabled={aplicandoGrade} onClick={aplicarGrade}>
+            <AlertDialogAction disabled={aplicandoGrade} onClick={aplicarAoModelo}>
               Aplicar
             </AlertDialogAction>
           </AlertDialogFooter>

@@ -248,7 +248,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
       ((await supabase
         .from("modelos")
         .select(
-          "id, ref, nome, subcolecao, linha_id, categoria_principal_id, proporcoes, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(cor:cor_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total)",
+          "id, ref, nome, subcolecao, linha_id, categoria_principal_id, proporcoes, lancado, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(cor:cor_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total)",
         )
         .eq("colecao_id", colecaoId)).data ?? []) as any[],
   });
@@ -359,11 +359,31 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
     });
   }, [modelosDb, subNomes]);
 
+  // modelos lançados (não podem receber "Aplicar ao modelo")
+  const lancadoSet = useMemo(() => new Set(((modelosDb ?? []) as any[]).filter((m) => m.lancado).map((m) => m.id as string)), [modelosDb]);
+
   useEffect(() => {
     if (seed && salvo !== undefined && modelosDb !== undefined && arvore === null) {
-      setArvore(mergeArvore(semearComModelos({ ...seed, modelos: modelosReais }), salvo));
+      const validIds = new Set(((modelosDb ?? []) as any[]).map((m) => m.id as string));
+      const merged = mergeArvore(semearComModelos({ ...seed, modelos: modelosReais }), salvo);
+      // limpa modelo_id ÓRFÃO (modelo excluído no Plan. Produto) → volta a permitir "Criar card"
+      merged.subcolecoes = merged.subcolecoes.map((s) => ({ ...s, linhas: s.linhas.map((l) => ({ ...l,
+        slots: l.slots.map((sl) => (sl.modelo_id && !validIds.has(sl.modelo_id) ? { ...sl, modelo_id: null, ref: null, nome: null, thumb_path: null } : sl)),
+      })) }));
+      setArvore(merged);
     }
   }, [seed, salvo, modelosDb, modelosReais, arvore]);
+
+  // recarrega o plano do zero (após criar/aplicar): refetch vivo + reseed. Só quando NÃO dirty.
+  const reseed = async () => {
+    await Promise.all([
+      qc.refetchQueries({ queryKey: ["plan-tecido-arvore", colecaoId] }),
+      qc.refetchQueries({ queryKey: ["plan-tecido-modelos", colecaoId] }),
+      qc.refetchQueries({ queryKey: ["plan-tecido-vinculos", colecaoId] }),
+    ]);
+    setDirty(false);
+    setArvore(null);
+  };
 
   const salvarMut = useMutation({
     mutationFn: async () => {
@@ -427,6 +447,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
   }
 
   async function handleAbrirPrevia() {
+    if (dirty) { toast.error("Salve o plano primeiro para fazer o pedido."); return; }
     setPreviaLoading(true);
     try {
       const { data, error } = await supabase.rpc("plan_tecido_previa_pedido" as any, {
@@ -475,8 +496,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
             variant="default"
             size="sm"
             className="max-sm:hidden"
-            disabled={dirty || previaLoading}
-            title={dirty ? "Salve o plano antes de pedir" : undefined}
+            disabled={previaLoading}
             onClick={handleAbrirPrevia}
           >
             <ShoppingCart className="mr-1 h-4 w-4" />
@@ -554,6 +574,9 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                                     ocsAplicadas={ocsAplicadas}
                                     slotOcIds={slot.id ? (slotOcMap[slot.id] ?? []) : []}
                                     vinculos={slot.modelo_id ? (vinculosMap[slot.modelo_id] ?? []) : []}
+                                    dirty={dirty}
+                                    lancado={slot.modelo_id ? lancadoSet.has(slot.modelo_id) : false}
+                                    onReseed={reseed}
                                     onChange={(ns) => {
                                       const next = structuredClone(arvore) as PtArvore;
                                       next.subcolecoes[si].linhas[li].slots[sli] = ns;
@@ -603,7 +626,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
               <Button
                 size="sm"
                 variant="secondary"
-                disabled={dirty || previaLoading}
+                disabled={previaLoading}
                 title={dirty ? "Salve antes de pedir" : undefined}
                 onClick={handleAbrirPrevia}
               >
