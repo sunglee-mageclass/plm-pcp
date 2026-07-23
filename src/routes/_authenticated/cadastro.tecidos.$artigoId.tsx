@@ -32,7 +32,7 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { ImagePreview } from "@/components/shared/ImagePreview";
 import { EtiquetaLavagemArtigoEditor } from "@/components/shared/EtiquetaLavagemArtigo";
-import { MobileActionBar } from "@/components/shared/MobileActionBar";
+import { PageActionBar } from "@/components/shared/PageActionBar";
 import {
   Select,
   SelectTrigger,
@@ -78,7 +78,7 @@ function TecidoDetailPage() {
   const { artigoId } = Route.useParams();
   const navigate = useNavigate();
   return (
-    <div className="container mx-auto p-3 sm:p-6 max-w-5xl max-sm:pb-24">
+    <div className="container mx-auto p-3 sm:p-6 max-w-5xl pb-24">
       <TecidoDetail artigoId={artigoId} onClose={() => navigate({ to: "/cadastro/tecidos" })} />
     </div>
   );
@@ -336,49 +336,34 @@ export function TecidoDetail({ artigoId, onClose }: { artigoId: string; onClose:
     : [];
 
   return (
-    <div className="space-y-6 max-sm:pb-24">
-      <header className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Button variant="outline" size="icon" className="max-sm:hidden" onClick={requestClose} aria-label="Fechar">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold">{form.nome}</h1>
-            <p className="text-sm text-muted-foreground">Detalhes do tecido</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 max-sm:hidden">
-          {!readOnly && (
-            <>
-              <Button variant="destructive" onClick={() => setConfirmDel(true)} disabled={excluirMut.isPending}>
-                <Trash2 className="h-4 w-4 mr-1" /> Excluir
-              </Button>
-              {/* separador p/ o destrutivo não colar no primário (Salvar) */}
-              <div className="w-px h-6 bg-border mx-1" aria-hidden />
-            </>
-          )}
-          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
-            <Save className="h-4 w-4 mr-1" />
-            {saveMut.isPending ? "Salvando…" : "Salvar"}
-          </Button>
+    <div className="space-y-6">
+      <header className="flex items-center gap-3">
+        <Button variant="outline" size="icon" onClick={requestClose} aria-label="Fechar">
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+        <div>
+          <h1 className="text-2xl font-bold">{form.nome}</h1>
+          <p className="text-sm text-muted-foreground">Detalhes do tecido</p>
         </div>
       </header>
 
-      {/* Mobile: voltar + excluir + salvar na barra fixa do rodapé. */}
-      <MobileActionBar>
-        <Button variant="outline" size="icon" aria-label="Voltar" onClick={requestClose}>
-          <ArrowLeft className="h-4 w-4" />
+      {/* Barra de ações no rodapé — todos os tamanhos (PageActionBar via portal). */}
+      <PageActionBar>
+        <Button variant="outline" onClick={requestClose}>
+          <ArrowLeft className="h-4 w-4 mr-1" /> Voltar
         </Button>
         {!readOnly && (
-          <Button variant="destructive" size="icon" onClick={() => setConfirmDel(true)} disabled={excluirMut.isPending} aria-label="Excluir tecido">
-            <Trash2 className="h-4 w-4" />
-          </Button>
+          <>
+            <Button variant="destructive" onClick={() => setConfirmDel(true)} disabled={excluirMut.isPending}>
+              <Trash2 className="h-4 w-4 mr-1" /> Excluir
+            </Button>
+          </>
         )}
-        <Button className="ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
+        <Button className="ml-auto sm:ml-0" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
           <Save className="h-4 w-4 mr-1" />
           {saveMut.isPending ? "Salvando…" : "Salvar"}
         </Button>
-      </MobileActionBar>
+      </PageActionBar>
 
       <AlertDialog open={confirmDel} onOpenChange={setConfirmDel}>
         <AlertDialogContent>

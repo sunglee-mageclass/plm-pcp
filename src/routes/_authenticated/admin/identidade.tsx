@@ -1,7 +1,9 @@
 import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { Palette, Upload, Loader2, ArrowLeft } from "lucide-react";
-import { MobileActionBar } from "@/components/shared/MobileActionBar";
+import { PageActionBar } from "@/components/shared/PageActionBar";
+import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -39,6 +41,13 @@ function IdentidadePage() {
   // Arquivos enviados nesta sessão (p/ apagar os que não forem persistidos → sem órfãos).
   const sessionUploads = useRef<string[]>([]);
 
+  // Guarda de "não salvo": snapshot dos campos PERSISTIDOS (nome/subtítulo + paths de
+  // logo/favicon). Previews são só derivados (URLs de exibição), não entram no baseline.
+  const { dirty, markClean, reset: resetBaseline } = useDirtySnapshot({
+    nome, subtitulo, logoPath, faviconPath,
+  });
+  const { confirm } = useUnsavedGuard({ dirty, blockNav: true });
+
   // Limites de arquivo (o bucket não impõe; branding não precisa ser grande).
   const MAX = { logo: 1_048_576, favicon: 262_144 } as const; // 1 MB / 256 KB
 
@@ -50,6 +59,13 @@ function IdentidadePage() {
       setFaviconPath(identity.favicon_url);
       setLogoPreview(identity.logoSignedUrl);
       setFaviconPreview(identity.faviconSignedUrl);
+      // Rebaseia a guarda com os dados carregados (senão o form nasceria "sujo").
+      resetBaseline({
+        nome: identity.nome_sistema,
+        subtitulo: identity.subtitulo,
+        logoPath: identity.logo_url,
+        faviconPath: identity.favicon_url,
+      });
     }
   }, [identity.isLoading, identity.nome_sistema, identity.subtitulo, identity.logo_url, identity.favicon_url, identity.logoSignedUrl, identity.faviconSignedUrl]);
 
@@ -125,6 +141,7 @@ function IdentidadePage() {
       if (toRemove.length) await supabase.storage.from("system-identity").remove(toRemove);
       sessionUploads.current = [];
       await qc.invalidateQueries({ queryKey: ["system_identity"] });
+      markClean();
       toast.success("Identidade atualizada.");
     } catch (err) {
       toast.error("Falha ao salvar: " + mensagemErro(err, "erro ao salvar a identidade."));
@@ -134,7 +151,7 @@ function IdentidadePage() {
   }
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6 pb-24">
       <Button asChild variant="ghost" size="sm" className="max-sm:hidden -ml-2 w-fit text-muted-foreground">
         <Link to="/admin"><ArrowLeft className="mr-1 h-4 w-4" /> Voltar ao Admin</Link>
       </Button>
@@ -148,10 +165,6 @@ function IdentidadePage() {
             </p>
           </div>
         </div>
-        <Button className="max-sm:hidden shrink-0" onClick={() => setConfirmSave(true)} disabled={saving}>
-          {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          Salvar
-        </Button>
       </header>
 
       {/* Blocos em grade responsiva de 2 colunas no desktop, 1 no mobile. */}
@@ -228,7 +241,7 @@ function IdentidadePage() {
       </Card>
       </div>
 
-      <MobileActionBar>
+      <PageActionBar>
         <Button asChild variant="outline" size="icon" aria-label="Voltar">
           <Link to="/admin"><ArrowLeft className="h-4 w-4" /></Link>
         </Button>
@@ -236,7 +249,7 @@ function IdentidadePage() {
           {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           Salvar
         </Button>
-      </MobileActionBar>
+      </PageActionBar>
 
       <AlertDialog open={confirmSave} onOpenChange={setConfirmSave}>
         <AlertDialogContent>
@@ -253,6 +266,12 @@ function IdentidadePage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <UnsavedChangesGuard
+        dirty={dirty}
+        confirm={confirm}
+        message="Há alterações não salvas na identidade do sistema."
+      />
     </div>
   );
 }

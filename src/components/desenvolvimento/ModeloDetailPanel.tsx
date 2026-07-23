@@ -384,6 +384,11 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   const [cadSeeded, setCadSeeded] = useState(false);
 
   const [draft, setDraft] = useState<any | null>(null);
+  // Só reporta "alterações não salvas" depois que o baseline foi tirado com o estado
+  // JÁ NORMALIZADO (pós-seed). Enquanto false, a semeadura/normalização (rótulos de
+  // variante, herança de grade, cadTecidos) muta o rascunho sem marcar dirty. Reseta ao
+  // trocar de modelo (efeito do modeloId) e após salvar (setCadSeeded(false) re-semeia).
+  const [guardReady, setGuardReady] = useState(false);
   // Subcoleções da coleção escolhida — dropdown de Subcoleção (OTB ligado).
   const { data: subcolecoesOpts = [] } = useQuery({
     queryKey: ["subcolecoes-opts", draft?.colecao_id],
@@ -415,7 +420,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   const [importOpen, setImportOpen] = useState(false);
   const [camposCopiados, setCamposCopiados] = useState<Set<string>>(new Set());
   const [confirmSobrescrita, setConfirmSobrescrita] = useState<{ itens: string[]; aplicar: () => void } | null>(null);
-  useEffect(() => { setCadSeeded(false); setCadTecidosState([]); setAutoFolhas(false); setEditing(false); }, [modeloId]);
+  useEffect(() => { setCadSeeded(false); setCadTecidosState([]); setAutoFolhas(false); setEditing(false); setGuardReady(false); }, [modeloId]);
 
   // Guarda de "alterações não salvas": snapshot do rascunho + BOM editável. O baseline é
   // re-tirado quando as queries semeiam o estado (efeito abaixo, keyed nas fontes) e no
@@ -1014,14 +1019,19 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   // edição do usuário — este efeito depende só das fontes de dados + mapas de rótulo que
   // as effects de semeadura/sincronização consomem, nunca do `draft`). Assim uma edição
   // manual permanece "suja"; carregar/refetch/salvar re-baselina para o estado gravado.
+  // Só libera o report de dirty (guardReady) DEPOIS de baselinar com o estado normalizado —
+  // sem isso, o baseline de 1ª render (draft null / blocos vazios) diverge do estado semeado
+  // e o card abre marcado como "não salvo" sem edição do usuário (falso-positivo).
   useEffect(() => {
     if (!draft || !cadSeeded) return;
     resetGuardBaseline({ draft, blocks, aviamentosState, etiquetasState, grades, cadTecidosState });
+    setGuardReady(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modelo, tecidosData, ocLinksData, aviamentosData, modeloEtiquetasData, gradesData, cadTecidosDev, frozenPrecosCad, blockVariantesInfo, tecido1VariantesLabels, cadSeeded]);
 
   // Reporta ao pai (dono do Sheet) se há edições pendentes. Read-only não altera nada.
-  const dirty = !locked && !!draft && changed;
+  // Só conta como sujo depois que o baseline pós-seed assentou (guardReady).
+  const dirty = guardReady && !locked && !!draft && changed;
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
 
   // Persiste o modelo + BOM (tecidos/variantes/grade/aviamentos) via salvar_modelo_bom.

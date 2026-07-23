@@ -160,9 +160,7 @@ function UsuariosLojaPage() {
         </Table>
       </div>
 
-      <Dialog open={!!permUser} onOpenChange={(v) => !v && setPermUser(null)}>
-        {permUser && <PermissoesModal mode="tenant" user={permUser} onClose={() => setPermUser(null)} />}
-      </Dialog>
+      {permUser && <PermissoesModal mode="tenant" user={permUser} onClose={() => setPermUser(null)} />}
 
       <AlertDialog open={!!deleting} onOpenChange={(v) => !v && setDeleting(null)}>
         <AlertDialogContent>

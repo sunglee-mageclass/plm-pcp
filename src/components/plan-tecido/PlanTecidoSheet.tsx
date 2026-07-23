@@ -14,7 +14,6 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
-import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { ChevronRight, ArrowLeft, ShoppingCart, Undo2 } from "lucide-react";
@@ -492,29 +491,6 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
               Por tecido
             </button>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="max-sm:hidden"
-            disabled={desfazerPedidoMut.isPending}
-            onClick={() => setDesfazerOpen(true)}
-          >
-            <Undo2 className="mr-1 h-4 w-4" />
-            Desfazer pedido
-          </Button>
-          <Button
-            variant="default"
-            size="sm"
-            className="max-sm:hidden"
-            disabled={previaLoading}
-            onClick={handleAbrirPrevia}
-          >
-            <ShoppingCart className="mr-1 h-4 w-4" />
-            {previaLoading ? "Carregando…" : "Fazer pedido"}
-          </Button>
-          <Button className="max-sm:hidden" disabled={!dirty || salvarMut.isPending} onClick={() => salvarMut.mutate()}>
-            {dirty ? "Salvar" : "Salvo"}
-          </Button>
         </div>
 
 
@@ -537,7 +513,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
         {!arvore ? (
           <div className="p-6 text-sm text-muted-foreground">Carregando…</div>
         ) : (
-          <div className="flex flex-1 flex-col overflow-y-auto max-sm:pb-24">
+          <div className="flex flex-1 flex-col overflow-y-auto">
             <div className="flex flex-1 gap-3 p-3">
               <div className="min-w-0 flex-1 space-y-2">
                 {/* mobile: Insumos aqui (no desktop vai no Resumo) */}
@@ -613,38 +589,37 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
               </div>
             </div>
 
-            <MobileActionBar>
-              <Button variant="ghost" size="sm" onClick={requestClose}>
-                <ArrowLeft className="mr-1 h-4 w-4" />
-                Voltar
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={desfazerPedidoMut.isPending}
-                onClick={() => setDesfazerOpen(true)}
-              >
-                <Undo2 className="h-4 w-4" />
-              </Button>
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={previaLoading}
-                title={dirty ? "Salve antes de pedir" : undefined}
-                onClick={handleAbrirPrevia}
-              >
-                <ShoppingCart className="h-4 w-4" />
-              </Button>
-              <Button
-                className="ml-auto"
-                disabled={!dirty || salvarMut.isPending}
-                onClick={() => salvarMut.mutate()}
-              >
-                {dirty ? "Salvar" : "Salvo"}
-              </Button>
-            </MobileActionBar>
           </div>
         )}
+
+        <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2 sm:justify-end">
+          <Button variant="ghost" size="sm" onClick={requestClose} className="mr-auto sm:hidden">
+            <ArrowLeft className="mr-1 h-4 w-4" />
+            Voltar
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={desfazerPedidoMut.isPending}
+            onClick={() => setDesfazerOpen(true)}
+          >
+            <Undo2 className="mr-1 h-4 w-4" />
+            <span className="hidden sm:inline">Desfazer pedido</span>
+          </Button>
+          <Button
+            variant="default"
+            size="sm"
+            disabled={previaLoading}
+            onClick={handleAbrirPrevia}
+          >
+            <ShoppingCart className="mr-1 h-4 w-4" />
+            <span className="hidden sm:inline">{previaLoading ? "Carregando…" : "Fazer pedido"}</span>
+            <span className="sm:hidden">{previaLoading ? "…" : "Pedido"}</span>
+          </Button>
+          <Button disabled={!dirty || salvarMut.isPending} onClick={() => salvarMut.mutate()}>
+            {dirty ? "Salvar" : "Salvo"}
+          </Button>
+        </div>
 
         <UnsavedChangesGuard
           dirty={dirty}

@@ -44,7 +44,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { PAGES_CATALOG } from "@/lib/permissions-catalog";
-import { MobileActionBar } from "@/components/shared/MobileActionBar";
+import { PageActionBar } from "@/components/shared/PageActionBar";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { resolveStatusKey } from "@/lib/kanban-status";
@@ -220,7 +220,7 @@ function ConfiguracoesLojaPage() {
   if (!isTenantAdmin && !isSuperAdmin) return <Navigate to="/" />;
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
+    <div className="container mx-auto p-3 sm:p-6 space-y-6 pb-24">
       <Button asChild variant="ghost" size="sm" className="max-sm:hidden -ml-2 w-fit text-muted-foreground">
         <Link to="/admin"><ArrowLeft className="mr-1 h-4 w-4" /> Voltar ao Admin</Link>
       </Button>
@@ -234,10 +234,6 @@ function ConfiguracoesLojaPage() {
             </p>
           </div>
         </div>
-        <Button className="max-sm:hidden shrink-0" onClick={() => setConfirmSalvar(true)} disabled={save.isPending || isLoading}>
-          <Save className="h-4 w-4 mr-2" />
-          {save.isPending ? "Salvando…" : "Salvar alterações"}
-        </Button>
       </header>
 
       {/* Módulos (badges) à esquerda + Fuso à direita — logo abaixo do header, sem card. */}
@@ -413,7 +409,7 @@ function ConfiguracoesLojaPage() {
       )}
       </div>
 
-      <MobileActionBar>
+      <PageActionBar>
         <Button asChild variant="outline" size="icon" aria-label="Voltar">
           <Link to="/admin"><ArrowLeft className="h-4 w-4" /></Link>
         </Button>
@@ -421,7 +417,7 @@ function ConfiguracoesLojaPage() {
           <Save className="h-4 w-4 mr-2" />
           {save.isPending ? "Salvando…" : "Salvar alterações"}
         </Button>
-      </MobileActionBar>
+      </PageActionBar>
 
       {/* Confirmação: salvar config afeta dados de toda a loja. */}
       <AlertDialog open={confirmSalvar} onOpenChange={setConfirmSalvar}>

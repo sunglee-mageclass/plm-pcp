@@ -33,9 +33,10 @@ Raios: `--radius: 0.625rem` → utilitários `rounded-md` (~8px) são o padrão 
 ## A. Guarda de "alterações não salvas" (dirty) — PADRÃO DO SISTEMA
 
 **Regra:** TODO formulário com botão **Salvar** usa o guarda compartilhado. Enquanto há
-edições pendentes, aparece um **indicador âmbar flutuante** (`● alterações não salvas`,
-canto inferior direito, **acima da barra de ações** p/ não sobrepor os botões
-Salvar/Voltar). Ao fechar (X, ESC, clicar fora, Cancelar/Voltar) — ou, em página inteira,
+edições pendentes, aparece um **indicador âmbar** (`● alterações não salvas`) no **canto
+SUPERIOR DIREITO** (à esquerda do ✕), via **portal no body** — não importa onde o
+`<UnsavedChangesGuard>` está na árvore (ancestrais com `transform`, ex.: sidebar/SheetContent,
+não o descolam). Ao fechar (X, ESC, clicar fora, Cancelar/Voltar) — ou, em página inteira,
 ao NAVEGAR para fora — com pendências, um `AlertDialog` confirma:
 **"Descartar alterações?"** → `Continuar editando` (fica) / `Descartar` (fecha).
 
@@ -246,34 +247,36 @@ function CampoRO({ label, value }: { label: string; value: string }) {
 
 ---
 
-## G. MobileActionBar + regra de toque 44px
+## G. Barra de ações + container (Sheet/Dialog) + toque 44px — PADRÃO DO SISTEMA
 
-**Uso:** toda tela com ação primária. Desktop: ação no header. Mobile (`<sm`): a ação desce para uma **barra fixa no rodapé**, renderizada por **portal** no `body` (a sidebar seria "containing block" de `fixed` e a barra descolaria).
+**Container:** **editar um registro existente = Sheet** (`side="right"`, ~70vw); **criar/novo/formulário/config = Dialog** central. Quando o MESMO componente faz os dois, condicione: `isEdit ? <Sheet…> : <Dialog…>` (ref. `cadastro.aviamentos.tsx`, `criacao.planejamento.tsx` `ModeloDialog`, `OcModalShell`). Páginas de LISTA não são modais.
 
-**Reutilizar:** **`src/components/shared/MobileActionBar.tsx`** (`<MobileActionBar>{children}</MobileActionBar>`).
-
-Três passos (documentados no próprio componente):
-1. Container da página: `max-sm:pb-24` (conteúdo não fica atrás da barra).
-2. Botão de ação do header: `max-sm:hidden` (some no mobile).
-3. `<MobileActionBar>` no fim da página com a versão mobile da ação (+ voltar).
+**Botões de ação: barra STICKY no rodapé, em TODOS os tamanhos** (não deixar ação primária no header):
+- **Sheet/Dialog:** rodapé in-flow no fim do container — `<div className="shrink-0 border-t bg-background p-3 flex items-center gap-2 sm:justify-end">`, com o corpo em `flex-1 overflow-y-auto` (o container é `flex flex-col`). `OcModalShell` já entrega esse grid.
+- **Página inteira** (edição/formulário/config): **`src/components/shared/PageActionBar.tsx`** — barra fixa no rodapé via **portal no body**, visível em TODOS os tamanhos; container ganha `pb-24`. (Ref.: `admin/configuracoes.tsx`, `admin/identidade.tsx`, `producao.cq.$modeloId.tsx`.)
+- **Página de LISTA** (não-edição): mantém o padrão antigo — botão "Novo" no header + **`MobileActionBar`** (`src/components/shared/MobileActionBar.tsx`, só-mobile) no rodapé.
 
 ```tsx
-// container
-<div className="… max-sm:pb-24"> … </div>
+// Modal: corpo rola, rodapé cola embaixo (desktop + mobile)
+<SheetContent side="right" className="… flex flex-col p-0">
+  <div className="shrink-0 border-b p-3">{/* header sem ação */}</div>
+  <div className="flex-1 overflow-y-auto p-4">{/* corpo */}</div>
+  <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2 sm:justify-end">
+    <Button variant="outline" onClick={requestClose}>Cancelar</Button>
+    <Button onClick={salvar} disabled={!dirty}>Salvar</Button>
+  </div>
+  <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="…" />
+</SheetContent>
 
-// header (some no mobile)
-<Button className="max-sm:hidden" onClick={salvar}>Salvar</Button>
-
-// rodapé mobile
-<MobileActionBar>
-  <Button variant="outline" size="icon" onClick={voltar} aria-label="Voltar">
-    <ArrowLeft className="h-4 w-4" />
-  </Button>
-  <Button className="flex-1" onClick={salvar}>Salvar</Button>
-</MobileActionBar>
+// Página inteira
+<div className="container mx-auto p-6 space-y-6 pb-24"> … </div>
+<PageActionBar>
+  <Button variant="outline" onClick={voltar}>Cancelar</Button>
+  <Button className="ml-auto sm:ml-0" onClick={salvar}>Salvar</Button>
+</PageActionBar>
 ```
 
-**Regra de toque 44px:** os componentes base já a aplicam via `max-md:h-11` — `Button` (`src/components/ui/button.tsx:21`), `Input` (`src/components/ui/input.tsx:22`), `SelectTrigger` (`src/components/ui/select.tsx:22`). Botões/áreas clicáveis customizadas (ex.: header de collapsible, alça de drag) usam `min-h-[44px] md:min-h-0`.
+**Regra de toque 44px:** os componentes base já a aplicam via `max-md:h-11` — `Button` (`src/components/ui/button.tsx:21`), `Input` (`src/components/ui/input.tsx:22`), `SelectTrigger` (`src/components/ui/select.tsx:22`). Botões/áreas clicáveis customizadas usam `min-h-[44px] md:min-h-0`.
 
 ---
 
@@ -361,7 +364,7 @@ Três passos (documentados no próprio componente):
 - [ ] Cor via token semântico, nunca hex solto. Dirty/estimativa/atenção = `--warning` (`amber-*`).
 - [ ] Rótulo de variante SEMPRE via `src/lib/variante.ts` (`labelVarianteRow`/`varianteLabel`).
 - [ ] Valor calculado = `CampoRO` (`bg-muted`); valor editável = `Input`/`NumberInput` (branco).
-- [ ] Ação primária: header desktop (`max-sm:hidden`) + `<MobileActionBar>` mobile + `max-sm:pb-24` no container.
+- [ ] Tela de EDIÇÃO/formulário: container certo (editar=Sheet, novo=Dialog) + botões em barra sticky no rodapé (rodapé do modal, ou `<PageActionBar>`+`pb-24` em página) — NÃO no header. Lista: header + `<MobileActionBar>`.
 - [ ] Toque ≥ 44px no mobile (`max-md:h-11` / `min-h-[44px] md:min-h-0`).
 - [ ] Status via `StatusBadge` (tone semântico), não classes soltas.
 - [ ] Formulário com Salvar: guarda de descarte via `useUnsavedGuard` + `<UnsavedChangesGuard>` (§A); nunca refazer à mão.

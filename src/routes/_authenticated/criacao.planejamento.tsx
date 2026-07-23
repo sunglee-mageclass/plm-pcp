@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { NumberInput } from "@/components/shared/NumberInput";
@@ -1402,9 +1403,11 @@ function ModeloDialog({
   if (maoObraPendente) lancarBloqueios.push("Aprove a mão de obra (no card do Planejamento).");
   if (!draft.data_lancamento) lancarBloqueios.push("Preencha a Data de Lançamento.");
 
-  return (
-    <Dialog open onOpenChange={(o) => { if (!o) requestClose(); }}>
-      <DialogContent className="flex flex-col gap-0 p-0 sm:max-w-[70vw] max-h-[90vh] max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden">
+  // Conteúdo interno idêntico p/ os dois containers (header / corpo rolável / rodapé
+  // sticky / diálogos / guarda). EDITAR abre num Sheet lateral (side=right, ~70vw);
+  // NOVO num Dialog central. O container é escolhido por `isEdit` logo abaixo.
+  const conteudo = (
+    <>
         <DialogHeader className="shrink-0 px-6 pt-6 pb-2 text-left">
           <DialogTitle className="flex flex-wrap items-center gap-2">
             <span>{isEdit ? draft.nome || "Modelo" : "Novo Modelo"}</span>
@@ -1754,6 +1757,24 @@ function ModeloDialog({
         </AlertDialog>
 
         <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas neste card." />
+    </>
+  );
+
+  // Regra 3: EDITAR registro existente = Sheet lateral (side=right, ~70vw); NOVO = Dialog
+  // central. Mesmo conteúdo interno nos dois; classes max-sm:* mantêm o fullscreen mobile.
+  return isEdit ? (
+    <Sheet open onOpenChange={(o) => { if (!o) requestClose(); }}>
+      <SheetContent
+        side="right"
+        className="flex flex-col gap-0 p-0 w-full sm:w-[70vw] sm:max-w-[70vw] max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden"
+      >
+        {conteudo}
+      </SheetContent>
+    </Sheet>
+  ) : (
+    <Dialog open onOpenChange={(o) => { if (!o) requestClose(); }}>
+      <DialogContent className="flex flex-col gap-0 p-0 sm:max-w-[70vw] max-h-[90vh] max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden">
+        {conteudo}
       </DialogContent>
     </Dialog>
   );

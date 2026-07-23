@@ -3,7 +3,6 @@ import { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
-  ArrowLeft,
   Package,
   Plus,
   Search,
@@ -869,29 +868,9 @@ function AviamentoModal({
   return (
     <ModalShell isSheet={isSheet} open={open} onOpenChange={handleOpenChange}>
         {isSheet ? (
-          // Sheet (editar): cabeçalho com botões no topo (igual ao detalhe do Tecido).
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <Button variant="outline" size="icon" className="max-sm:hidden" onClick={requestClose} aria-label="Fechar">
-                <ArrowLeft className="h-4 w-4" />
-              </Button>
-              <DialogTitle className="text-xl font-bold">Editar Aviamento</DialogTitle>
-            </div>
-            {!readOnly && (
-              <div className="flex items-center gap-2 max-sm:hidden">
-                {initial && onDelete && (
-                  <>
-                    <Button variant="destructive" onClick={() => onDelete()}>
-                      <Trash2 className="h-4 w-4 mr-1" /> Excluir
-                    </Button>
-                    <div className="w-px h-6 bg-border mx-1" aria-hidden />
-                  </>
-                )}
-                <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
-                  <Save className="h-4 w-4 mr-1" /> {saveMut.isPending ? "Salvando…" : "Salvar"}
-                </Button>
-              </div>
-            )}
+          // Sheet (editar): cabeçalho sem botões de ação (ficam no rodapé sticky).
+          <div className="shrink-0 border-b p-3 flex items-center gap-3">
+            <DialogTitle className="text-xl font-bold">Editar Aviamento</DialogTitle>
           </div>
         ) : (
           <DialogHeader className="max-sm:shrink-0">
@@ -899,8 +878,8 @@ function AviamentoModal({
           </DialogHeader>
         )}
 
-        <fieldset disabled={readOnly} className="contents">
-        <div className="grid gap-4 md:grid-cols-3 py-2 max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-y-auto">
+        <fieldset disabled={readOnly} className={isSheet ? "flex-1 overflow-y-auto" : "contents"}>
+        <div className={`grid gap-4 md:grid-cols-3 py-2 max-sm:min-h-0 max-sm:min-w-0 ${isSheet ? "p-4" : "max-sm:overflow-y-auto"}`}>
           <div className="md:col-span-1 space-y-2">
             <Label>Foto</Label>
             <div className="aspect-square bg-muted rounded-md overflow-hidden relative">
@@ -1091,44 +1070,39 @@ function AviamentoModal({
         </fieldset>
 
         {isSheet ? (
-          // Sheet (editar): no desktop os botões estão no cabeçalho; no mobile, barra fixa
-          // com voltar + excluir + salvar (igual ao detalhe do Tecido).
-          <MobileActionBar>
-            <Button variant="outline" size="icon" aria-label="Voltar" onClick={requestClose}>
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            {!readOnly && initial && onDelete && (
-              <Button variant="destructive" size="icon" aria-label="Excluir aviamento" onClick={() => onDelete()}>
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            )}
-            {!readOnly && (
-              <Button className="ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
-                {saveMut.isPending ? "Salvando…" : "Salvar"}
-              </Button>
-            )}
-          </MobileActionBar>
-        ) : (
-          <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
-            {/* Desktop: Cancelar em texto. Mobile: ícone de voltar (igual às outras barras). */}
-            <Button variant="outline" className="max-sm:hidden" onClick={requestClose}>
+          // Sheet (editar): rodapé sticky com todos os botões — todos os tamanhos.
+          <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2 sm:justify-end">
+            <Button variant="outline" onClick={requestClose}>
               Cancelar
             </Button>
-            <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={requestClose}>
-              <ArrowLeft className="h-4 w-4" />
+            {!readOnly && initial && onDelete && (
+              <Button variant="destructive" onClick={() => onDelete()}>
+                <Trash2 className="h-4 w-4 mr-1" /> Excluir
+              </Button>
+            )}
+            {!readOnly && (
+              <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+                <Save className="h-4 w-4 mr-1" /> {saveMut.isPending ? "Salvando…" : "Salvar"}
+              </Button>
+            )}
+          </div>
+        ) : (
+          <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
+            <Button variant="outline" onClick={requestClose}>
+              Cancelar
             </Button>
             {!readOnly && (
-              <Button className="ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+              <Button className="ml-auto sm:ml-0" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
                 {saveMut.isPending ? "Salvando…" : "Salvar"}
               </Button>
             )}
           </DialogFooter>
         )}
-      <UnsavedChangesGuard
-        dirty={dirty}
-        confirm={confirm}
-        message="Há alterações não salvas neste aviamento."
-      />
+        <UnsavedChangesGuard
+          dirty={dirty}
+          confirm={confirm}
+          message="Há alterações não salvas neste aviamento."
+        />
     </ModalShell>
   );
 }
@@ -1145,7 +1119,7 @@ function ModalShell({ isSheet, open, onOpenChange, children }: {
   if (isSheet) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent side="right" className="flex w-full flex-col gap-4 overflow-y-auto p-4 sm:w-[70vw] sm:max-w-[70vw] sm:p-6 [&>button]:hidden">
+        <SheetContent side="right" className="flex w-full flex-col p-0 sm:w-[70vw] sm:max-w-[70vw] [&>button]:hidden">
           {children}
         </SheetContent>
       </Sheet>

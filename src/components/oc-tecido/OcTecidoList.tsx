@@ -14,7 +14,7 @@ export function OcTecidoList({
   tab, setTab,
   filterEmpresa, setFilterEmpresa,
   empresas, ocs, empresaMap, onRowClick, onDelete,
-  qtdRecebidaByOc, alertaBadgeByOc,
+  qtdRecebidaByOc, tecidosByOc, alertaBadgeByOc,
 }: {
   tab: OCStatus;
   setTab: (t: OCStatus) => void;
@@ -26,6 +26,7 @@ export function OcTecidoList({
   onRowClick: (id: string) => void;
   onDelete?: (oc: OC) => void;
   qtdRecebidaByOc?: Record<string, string>;
+  tecidosByOc?: Record<string, string>;
   alertaBadgeByOc?: Record<string, { label: string; cls: string } | null>;
 }) {
   // Filters now live in the page header via FilterButton; this component renders just tabs + table.
@@ -108,6 +109,9 @@ export function OcTecidoList({
                   <div className="text-sm text-muted-foreground truncate mt-0.5">
                     {o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}
                   </div>
+                  {tecidosByOc?.[o.id] && (
+                    <div className="text-xs text-muted-foreground truncate mt-0.5">{tecidosByOc[o.id]}</div>
+                  )}
                   <div className="text-xs text-muted-foreground mt-1">
                     Prev. {fmtDate(o.data_prevista_entrega)} · {fmtMoney(o.valor_previsto_total ?? 0)}
                   </div>
@@ -124,6 +128,7 @@ export function OcTecidoList({
               <TableRow>
                 <SortHead label="Nº Pedido" sortKey="numero_pedido" sortState={enc} />
                 <SortHead label="Fornecedor" sortKey="fornecedor" sortState={enc} />
+                <TableHead>Tecido(s)</TableHead>
                 <SortHead label="Data Prevista" sortKey="data_prevista_entrega" sortState={enc} />
                 <SortHead label="Valor Previsto" sortKey="valor_previsto_total" sortState={enc} />
                 <TableHead>Mensagem</TableHead>
@@ -132,12 +137,13 @@ export function OcTecidoList({
             </TableHeader>
             <TableBody>
               {ocs.length === 0 && (
-                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">Nenhuma OC encomendada.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Nenhuma OC encomendada.</TableCell></TableRow>
               )}
               {enc.sorted.map((o) => (
                 <TableRow key={o.id} className="cursor-pointer" onClick={() => onRowClick(o.id)}>
                   <TableCell className="font-medium">{o.numero_pedido ?? "—"}</TableCell>
                   <TableCell>{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</TableCell>
+                  <TableCell className="max-w-[16rem] truncate" title={tecidosByOc?.[o.id] ?? ""}>{tecidosByOc?.[o.id] ?? "—"}</TableCell>
                   <TableCell>{fmtDate(o.data_prevista_entrega)}</TableCell>
                   <TableCell>{fmtMoney(o.valor_previsto_total ?? 0)}</TableCell>
                   <TableCell><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status="encomendado" /></TableCell>
@@ -198,6 +204,9 @@ export function OcTecidoList({
                   <div className="text-sm text-muted-foreground truncate mt-0.5">
                     {o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}
                   </div>
+                  {tecidosByOc?.[o.id] && (
+                    <div className="text-xs text-muted-foreground truncate mt-0.5">{tecidosByOc[o.id]}</div>
+                  )}
                   <div className="text-xs text-muted-foreground mt-1">
                     Entrega {fmtDate(o.data_entrega)} · {fmtMoney(o.valor_real_total)}
                     {qtdRecebidaByOc?.[o.id] ? ` · ${qtdRecebidaByOc[o.id]}` : ""}
@@ -215,6 +224,7 @@ export function OcTecidoList({
               <TableRow>
                 <SortHead label="Nº Pedido" sortKey="numero_pedido" sortState={rec} />
                 <SortHead label="Fornecedor" sortKey="fornecedor" sortState={rec} />
+                <TableHead>Tecido(s)</TableHead>
                 <SortHead label="Data Entrega" sortKey="data_entrega" sortState={rec} />
                 <TableHead>Mensagem</TableHead>
                 <SortHead label="Qtd Recebida" sortKey="qtd_recebida" sortState={rec} />
@@ -223,7 +233,7 @@ export function OcTecidoList({
             </TableHeader>
             <TableBody>
               {ocs.length === 0 && (
-                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">Nenhuma OC recebida.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Nenhuma OC recebida.</TableCell></TableRow>
               )}
               {rec.sorted.map((o) => {
                 const ab = alertaBadgeByOc?.[o.id];
@@ -236,6 +246,7 @@ export function OcTecidoList({
                     </span>
                   </TableCell>
                   <TableCell>{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</TableCell>
+                  <TableCell className="max-w-[16rem] truncate" title={tecidosByOc?.[o.id] ?? ""}>{tecidosByOc?.[o.id] ?? "—"}</TableCell>
                   <TableCell>{fmtDate(o.data_entrega)}</TableCell>
                   <TableCell><OcPrazoBadge dataPrevista={o.data_prevista_entrega} dataEntrega={o.data_entrega} status="recebido" /></TableCell>
                   <TableCell>{qtdRecebidaByOc?.[o.id] ?? "—"}</TableCell>

@@ -12,12 +12,14 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { NumberInput } from "@/components/shared/NumberInput";
-import { MobileActionBar } from "@/components/shared/MobileActionBar";
+import { PageActionBar } from "@/components/shared/PageActionBar";
 import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
 import { ModeloResumoMeta } from "@/components/shared/ModeloResumoMeta";
 import { useReadOnly } from "@/components/RequirePermission";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { VerificarRevisao } from "@/components/producao/RevisaoErro";
+import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 
 export const Route = createFileRoute("/_authenticated/producao/direcionamento/$modeloId")({
   component: DirDetailPage,
@@ -34,7 +36,7 @@ function DirDetailPage() {
   return <DirecionamentoDetail modeloId={modeloId} />;
 }
 
-export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; onClose?: () => void }) {
+export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { modeloId: string; onClose?: () => void; onDirtyChange?: (dirty: boolean) => void }) {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
   const tenantId = useActiveTenantId();
@@ -165,6 +167,9 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
       obj[d.variante_numero].ecommerce = d.ecommerce ?? {};
     });
     setState(obj);
+    // Re-baseline o guarda de alterações a partir do estado semeado (passa o valor
+    // explícito — o estado recém-setado ainda está stale neste tick).
+    resetBaseline(obj);
     setHydrated(true);
   }, [cadGrades, existing, cad?.id, hydrated, dataSettled]);
 
@@ -181,6 +186,18 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
   const buildRows = () =>
     Object.values(state).map((v) => ({ variante_numero: v.variante_numero, ecommerce: v.ecommerce }));
 
+  // Guarda de "alterações não salvas": snapshot do estado editável (o split ec/loja por
+  // variante). status/confirmação seguem por mutations próprias, fora do snapshot.
+  const { dirty: changed, markClean, reset: resetBaseline } = useDirtySnapshot(state);
+  // Editável = não confirmado, OU confirmado mas com "Editar" ligado. Só marca sujo
+  // depois de hidratar e enquanto editável (locked/readOnly não altera nada).
+  const editavel = !readOnly && !(status === "separado" && !editing);
+  const dirty = hydrated && editavel && changed;
+  // Full-page (rota /producao/direcionamento/$modeloId): bloqueia navegação. Modal (Sheet
+  // no index): o guarda vive no pai, que recebe `dirty` via onDirtyChange — aqui fica inerte.
+  const { confirm } = useUnsavedGuard({ dirty: onClose ? false : dirty, blockNav: !onClose });
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
+
   const saveMut = useMutation({
     mutationFn: async () => {
       if (!cad?.id) throw new Error("CAD não encontrado.");
@@ -191,6 +208,7 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
     onSuccess: async () => {
       toast.success("Salvo");
       setEditing(false); // salvar trava novamente quando já está confirmado
+      markClean(); // limpa o indicador de "alterações não salvas" já no sucesso
       // Busca os dados frescos ANTES de liberar a hidratação (senão re-hidrata do
       // cache antigo e zera os números).
       await qc.invalidateQueries({ queryKey: ["direcionamento", cad?.id] });
@@ -212,6 +230,7 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
       toast.success("Direcionamento confirmado — Separado");
       setStatus("separado");
       setEditing(false);
+      markClean(); // limpa o indicador de "alterações não salvas" já no sucesso
       await qc.invalidateQueries({ queryKey: ["direcionamento", cad?.id] });
       await qc.invalidateQueries({ queryKey: ["dir-cad", modeloId] });
       await qc.invalidateQueries({ queryKey: ["dir-list"] });
@@ -249,8 +268,9 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
   // (RAISE); aqui desabilita o botão p/ dar o feedback antes de tentar.
   const hasOver = variantes.some((v) => tamanhos.some((t) => Number(v.ecommerce?.[t] ?? 0) > Number(v.real?.[t] ?? 0)));
 
-  // Botões renderizados na barra do topo (desktop) E na MobileActionBar (portal no
-  // body) — o mesmo fragmento serve os dois, sem duplicar a lógica de estado.
+  // Botões de ação renderizados na barra STICKY do rodapé (todos os tamanhos): rodapé
+  // do Sheet no modo modal, PageActionBar (portal no body) no modo página inteira.
+  // O `backButton` (voltar) só entra no PageActionBar; no Sheet o "Voltar" fica no topo + X do modal.
   const backButton = onClose ? (
     <Button type="button" variant="outline" size="icon" className="mr-auto" onClick={onClose} aria-label="Voltar">
       <ArrowLeft className="h-4 w-4" />
@@ -290,7 +310,8 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
   );
 
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
+    <div className={onClose ? "flex h-full flex-col min-h-0" : ""}>
+      <div className={`${onClose ? "flex-1 overflow-y-auto " : ""}container mx-auto p-3 sm:p-6 space-y-6 ${onClose ? "" : "pb-24"}`}>
       <VerificarRevisao modeloId={modeloId} etapa="direcionamento" />
       {realDivergente && (
         <div className="no-print flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
@@ -298,24 +319,20 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
           <span>A grade real mudou desde o último direcionamento salvo. Confira o split e salve novamente.</span>
         </div>
       )}
-      <div className="flex items-center justify-between gap-2">
+      {/* Cabeçalho: Voltar + Imprimir. Ações primárias (Salvar/Confirmar/…) foram p/ o rodapé. */}
+      <div className="flex items-center gap-2">
         {onClose ? (
-          <button onClick={onClose} className="max-sm:hidden text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+          <button onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
             <ArrowLeft className="h-4 w-4" /> Voltar
           </button>
         ) : (
-          <Link to="/producao/direcionamento" className="max-sm:hidden text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+          <Link to="/producao/direcionamento" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
             <ArrowLeft className="h-4 w-4" /> Voltar
           </Link>
         )}
-        {/* Desktop: ações na barra do topo. Mobile: MobileActionBar (portal no body —
-            o max-sm:fixed inline descolava dentro do Sheet da lista). */}
-        <div className="flex items-center gap-2 max-sm:hidden">
-          <Button variant="outline" className="hidden md:inline-flex" onClick={() => printWithImages()} disabled={variantes.length === 0}>
-            <Printer className="h-4 w-4 mr-2" /> Imprimir Romaneio
-          </Button>
-          {actionButtons}
-        </div>
+        <Button variant="outline" size="sm" className="ml-auto hidden md:inline-flex" onClick={() => printWithImages()} disabled={variantes.length === 0}>
+          <Printer className="h-4 w-4 mr-2" /> Imprimir Romaneio
+        </Button>
       </div>
       <fieldset disabled={readOnly || locked} className="contents">
 
@@ -468,10 +485,25 @@ export function DirecionamentoDetail({ modeloId, onClose }: { modeloId: string; 
         labelByNumero={labelByNumero}
       />
 
-      <MobileActionBar>
-        {backButton}
-        {actionButtons}
-      </MobileActionBar>
+      {/* Full-page: guarda o "sair sem salvar" (bloqueia navegação de rota). No modal
+          (Sheet no index) o guarda é renderizado pelo pai — aqui não duplica. */}
+      {!onClose && (
+        <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas no direcionamento." />
+      )}
+      </div>
+
+      {/* Regra 2 — barra de ações sticky no rodapé (todos os tamanhos).
+          Sheet: rodapé in-flow do próprio modal. Página inteira: PageActionBar (portal no body). */}
+      {onClose ? (
+        <div className="shrink-0 border-t bg-background p-3 flex flex-wrap items-center gap-2 sm:justify-end">
+          {actionButtons}
+        </div>
+      ) : (
+        <PageActionBar>
+          {backButton}
+          {actionButtons}
+        </PageActionBar>
+      )}
     </div>
   );
 }

@@ -661,6 +661,7 @@ export function ColecaoSheet({
             <span className="max-sm:sr-only">{save.isPending ? "Salvando…" : "Salvar"}</span>
           </Button>
         </div>
+        <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas nesta coleção." />
       </SheetContent>
 
       <AlertDialog open={confirmDel} onOpenChange={setConfirmDel}>
@@ -693,7 +694,6 @@ export function ColecaoSheet({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas nesta coleção." />
     </Sheet>
   );
 }

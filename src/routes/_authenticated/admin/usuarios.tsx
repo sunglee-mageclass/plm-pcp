@@ -30,6 +30,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
 } from "@/components/ui/dialog";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
   AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction,
@@ -265,19 +266,17 @@ function UsuariosPage() {
         )}
       </Dialog>
 
-      <Dialog open={!!permUser} onOpenChange={(v) => !v && setPermUser(null)}>
-        {permUser && (
-          <PermissoesModal
-            mode="super"
-            user={{ id: permUser.id, nome: permUser.nome, tenant_id: permUser.tenant_id, role: permUser.role }}
-            onClose={() => setPermUser(null)}
-          />
-        )}
-      </Dialog>
+      {permUser && (
+        <PermissoesModal
+          mode="super"
+          user={{ id: permUser.id, nome: permUser.nome, tenant_id: permUser.tenant_id, role: permUser.role }}
+          onClose={() => setPermUser(null)}
+        />
+      )}
 
-      <Dialog open={!!editing} onOpenChange={(v) => { if (!v) { const rc = editRequestCloseRef.current; if (rc) rc(); else setEditing(null); } }}>
+      <Sheet open={!!editing} onOpenChange={(v) => { if (!v) { const rc = editRequestCloseRef.current; if (rc) rc(); else setEditing(null); } }}>
         {editing && <EditUsuarioModal tenants={tenants} user={editing} isSelf={editing.id === user?.id} onClose={() => setEditing(null)} requestCloseRef={editRequestCloseRef} />}
-      </Dialog>
+      </Sheet>
 
       <Dialog open={!!deleting} onOpenChange={(v) => !v && setDeleting(null)}>
         {deleting && (
@@ -482,10 +481,12 @@ function EditUsuarioModal({
   };
 
   return (
-    <DialogContent className="max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[1fr] max-sm:!overflow-hidden">
-      <form onSubmit={onSubmit} className="max-sm:grid max-sm:grid-rows-[auto_minmax(0,1fr)_auto] max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-hidden">
-        <DialogHeader className="max-sm:shrink-0"><DialogTitle>Editar usuário</DialogTitle></DialogHeader>
-        <div className="space-y-4 py-4 max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-y-auto">
+    <SheetContent side="right" className="flex w-full flex-col p-0 sm:w-[70vw] sm:max-w-[70vw] [&>button]:hidden">
+      <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
+        <div className="shrink-0 border-b p-3">
+          <DialogTitle className="text-xl font-bold">Editar usuário</DialogTitle>
+        </div>
+        <div className="flex-1 space-y-4 overflow-y-auto p-4">
           <div>
             <Label htmlFor="edit-nome">Nome *</Label>
             <Input id="edit-nome" autoComplete="off" value={nome} onChange={(e) => setNome(e.target.value)} required maxLength={255} />
@@ -520,16 +521,16 @@ function EditUsuarioModal({
             )}
           </div>
         </div>
-        <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
+        <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2 sm:justify-end">
           <Button type="button" variant="outline" className="max-sm:hidden" onClick={requestClose}>Cancelar</Button>
           <Button type="button" variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={requestClose}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <Button type="submit" className="max-sm:ml-auto" disabled={submitting}>{submitting ? "Salvando…" : "Salvar"}</Button>
-        </DialogFooter>
+        </div>
       </form>
       <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas neste cadastro de usuário." />
-    </DialogContent>
+    </SheetContent>
   );
 }
 

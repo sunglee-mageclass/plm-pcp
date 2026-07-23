@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Compass, Search } from "lucide-react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { DirecionamentoDetail } from "@/routes/_authenticated/producao.direcionamento.$modeloId";
+import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { supabase } from "@/integrations/supabase/client";
 import { cqLiberado } from "@/lib/cq-status";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
@@ -24,6 +25,11 @@ export const Route = createFileRoute("/_authenticated/producao/direcionamento/")
 function DirListPage() {
   const fl = useFieldLabels();
   const [sheetId, setSheetId] = useState<string | null>(null);
+  // Guarda de "alterações não salvas" do Direcionamento aberto no Sheet: o detalhe
+  // reporta se há edições pendentes; fechar (X/ESC/fora) com pendências pede confirmação.
+  const [dirDirty, setDirDirty] = useState(false);
+  const closeSheet = () => { setDirDirty(false); setSheetId(null); };
+  const { requestClose, confirm } = useUnsavedGuard({ dirty: dirDirty, onClose: closeSheet });
   const [q, setQ] = useState("");
   const [fColecao, setFColecao] = useState("all");
   const [fMes, setFMes] = useState("all");
@@ -152,9 +158,11 @@ function DirListPage() {
         </table>
       </Card>
 
-      <Sheet open={!!sheetId} onOpenChange={(o) => !o && setSheetId(null)}>
-        <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] overflow-y-auto p-0 max-md:[&>button]:hidden">
-          {sheetId && <DirecionamentoDetail modeloId={sheetId} onClose={() => setSheetId(null)} />}
+      <Sheet open={!!sheetId} onOpenChange={(o) => { if (!o) requestClose(); }}>
+        <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] flex flex-col p-0 max-md:[&>button]:hidden">
+          {sheetId && <DirecionamentoDetail modeloId={sheetId} onClose={requestClose} onDirtyChange={setDirDirty} />}
+          {/* Guarda DENTRO do SheetContent (portal): fora do portal o indicador "não salvo" não aparecia. */}
+          <UnsavedChangesGuard dirty={dirDirty} confirm={confirm} message="Há alterações não salvas no direcionamento." />
         </SheetContent>
       </Sheet>
     </div>

@@ -11,9 +11,8 @@ import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  DialogContent, DialogHeader, DialogTitle, DialogFooter,
-} from "@/components/ui/dialog";
+import { DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
 
@@ -112,16 +111,18 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
   };
 
   return (
-    <DialogContent
-      className="max-w-3xl max-h-[85vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden"
+    <Sheet open onOpenChange={(o) => { if (!o) requestClose(); }}>
+    <SheetContent
+      side="right"
+      className="flex w-full flex-col p-0 sm:w-[70vw] sm:max-w-[70vw] [&>button]:hidden"
       onInteractOutside={(e) => { if (changed) { e.preventDefault(); requestClose(); } }}
       onEscapeKeyDown={(e) => { if (changed) { e.preventDefault(); requestClose(); } }}
     >
-      <DialogHeader className="max-sm:shrink-0">
-        <DialogTitle>Permissões — {user.nome}</DialogTitle>
-      </DialogHeader>
-      <div className="max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-y-auto">
-      <p className="text-xs text-muted-foreground -mt-2">
+      <div className="shrink-0 border-b p-3">
+        <DialogTitle className="text-xl font-bold">Permissões — {user.nome}</DialogTitle>
+      </div>
+      <div className="flex-1 overflow-y-auto p-4">
+      <p className="text-xs text-muted-foreground">
         <strong>Leitor:</strong> pode acessar e visualizar a página, sem alterar dados.{" "}
         <strong>Editor:</strong> pode visualizar e também criar, editar ou excluir
         registros (inclui acesso de leitor).
@@ -192,13 +193,14 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
       </div>
       </div>
       <UnsavedChangesGuard dirty={changed} confirm={confirm} message="Há permissões não salvas para este usuário." />
-      <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
+      <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2 sm:justify-end">
         <Button variant="outline" className="max-sm:hidden" onClick={requestClose}>Cancelar</Button>
         <Button variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={requestClose}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <Button className="max-sm:ml-auto" onClick={onSave} disabled={submitting || isAdminRole}>{submitting ? "Salvando…" : "Salvar"}</Button>
-      </DialogFooter>
-    </DialogContent>
+      </div>
+    </SheetContent>
+    </Sheet>
   );
 }

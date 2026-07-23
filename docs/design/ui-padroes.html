@@ -190,7 +190,7 @@
       <a href="#D">D · Editável vs derivado</a>
       <a href="#E">E · Banner de estimativa</a>
       <a href="#F">F · Densidade colapsável</a>
-      <a href="#G">G · MobileActionBar</a>
+      <a href="#G">G · Barra de ações + container</a>
       <a href="#H">H · Badges de status</a>
       <a href="#I">I · Cartões 2 colunas</a>
     </nav>
@@ -226,13 +226,13 @@
     <!-- ─────────── A ─────────── -->
     <section class="pattern" id="A">
       <h2><span class="letter">A</span>Guarda de "alterações não salvas" (dirty) — PADRÃO DO SISTEMA</h2>
-      <div class="when"><b>Regra:</b> TODO formulário com botão <b>Salvar</b> usa o guarda compartilhado. Enquanto há edições pendentes, um <b>indicador âmbar flutuante</b> ("● alterações não salvas") aparece no canto inferior direito, <b>acima da barra de ações</b> (não sobrepõe Salvar/Voltar). Ao fechar (X, ESC, clicar fora, Cancelar/Voltar) — ou, em página inteira, ao <b>navegar</b> para fora — com pendências, um <code class="inline">AlertDialog</code> confirma: <b>Descartar alterações?</b> → Continuar editando / Descartar.</div>
+      <div class="when"><b>Regra:</b> TODO formulário com botão <b>Salvar</b> usa o guarda compartilhado. Enquanto há edições pendentes, um <b>indicador âmbar</b> ("● alterações não salvas") aparece no canto <b>SUPERIOR DIREITO</b> (à esquerda do ✕), via <b>portal no body</b> (ancestrais com <code class="inline">transform</code>, ex.: sidebar/SheetContent, não o descolam). Ao fechar (X, ESC, clicar fora, Cancelar/Voltar) — ou, em página inteira, ao <b>navegar</b> para fora — com pendências, um <code class="inline">AlertDialog</code> confirma: <b>Descartar alterações?</b> → Continuar editando / Descartar.</div>
       <div class="split">
         <div class="demo">
           <div class="demo-label">Exemplo</div>
           <div class="swatch-row" style="margin-bottom:12px;">
             <span class="dot-warning" title="não salvo">●</span>
-            <span class="muted" style="font-size:12px;">alterações não salvas — flutua acima da barra</span>
+            <span class="muted" style="font-size:12px;">alterações não salvas — canto superior direito (portal)</span>
           </div>
           <div class="mock-bar" style="box-shadow:none;border:1px solid var(--border);border-radius:8px;">
             <button class="btn btn-outline" style="margin-right:auto;">← Voltar</button>
@@ -496,36 +496,39 @@ function CampoRO({ label, value }: { label: string; value: string }) {
 
     <!-- ─────────── G ─────────── -->
     <section class="pattern" id="G">
-      <h2><span class="letter">G</span>MobileActionBar + toque 44px</h2>
-      <div class="when"><b>Quando usar:</b> em toda tela com ação primária. No desktop a ação fica no header; no mobile (&lt;sm) ela desce para uma barra fixa no rodapé (portal). Regra de toque: alvos ≥ 44px (<code class="inline">max-md:h-11</code>). O container precisa de <code class="inline">max-sm:pb-24</code> e o botão do header de <code class="inline">max-sm:hidden</code>.</div>
+      <h2><span class="letter">G</span>Barra de ações + container (Sheet/Dialog) + toque 44px</h2>
+      <div class="when"><b>Padrão do sistema.</b> <b>Container:</b> editar registro existente = <b>Sheet</b> (side=right ~70vw); criar/novo/formulário/config = <b>Dialog</b>. <b>Botões:</b> barra sticky no rodapé em TODOS os tamanhos — rodapé in-flow do modal (<code class="inline">shrink-0 border-t</code> com corpo <code class="inline">flex-1 overflow-y-auto</code>), ou <code class="inline">&lt;PageActionBar&gt;</code> (+<code class="inline">pb-24</code>) em página inteira. Nunca ação primária no header. Páginas de LISTA mantêm header + <code class="inline">&lt;MobileActionBar&gt;</code> (só-mobile). Toque ≥ 44px (<code class="inline">max-md:h-11</code>).</div>
       <div class="split">
         <div class="demo">
-          <div class="demo-label">Exemplo (simulação do rodapé mobile)</div>
+          <div class="demo-label">Exemplo (rodapé sticky do modal / página)</div>
           <div style="max-width:320px;border:1px solid var(--border);border-radius:12px;overflow:hidden;">
-            <div style="padding:16px;font-size:13px;color:var(--muted-foreground);height:90px;">conteúdo da tela… (com <code class="inline">pb-24</code>)</div>
-            <div class="mock-bar">
-              <button class="btn btn-outline" style="height:44px;">←</button>
-              <button class="btn btn-primary flex1" style="height:44px;">💾 Salvar</button>
+            <div style="padding:16px;font-size:13px;color:var(--muted-foreground);height:90px;">conteúdo (corpo <code class="inline">flex-1 overflow-y-auto</code>)…</div>
+            <div class="mock-bar" style="justify-content:flex-end;">
+              <button class="btn btn-outline" style="height:44px;">Cancelar</button>
+              <button class="btn btn-primary" style="height:44px;">💾 Salvar</button>
             </div>
           </div>
         </div>
         <div>
           <div class="code-label">Código</div>
-<pre>// no container da página:
-&lt;div className="… max-sm:pb-24"&gt; … &lt;/div&gt;
+<pre>// Modal: corpo rola, rodapé cola embaixo (desktop + mobile)
+&lt;SheetContent side="right" className="… flex flex-col p-0"&gt;
+  &lt;div className="shrink-0 border-b p-3"&gt;{/* header sem ação */}&lt;/div&gt;
+  &lt;div className="flex-1 overflow-y-auto p-4"&gt;{/* corpo */}&lt;/div&gt;
+  &lt;div className="shrink-0 border-t bg-background p-3 flex items-center gap-2 sm:justify-end"&gt;
+    &lt;Button variant="outline" onClick={requestClose}&gt;Cancelar&lt;/Button&gt;
+    &lt;Button onClick={salvar} disabled={!dirty}&gt;Salvar&lt;/Button&gt;
+  &lt;/div&gt;
+  &lt;UnsavedChangesGuard dirty={dirty} confirm={confirm} message="…" /&gt;
+&lt;/SheetContent&gt;
 
-// botão do header sumindo no mobile:
-&lt;Button className="max-sm:hidden" onClick={salvar}&gt;Salvar&lt;/Button&gt;
-
-// ao final da página, a versão mobile:
-&lt;MobileActionBar&gt;
-  &lt;Button variant="outline" size="icon" onClick={voltar}
-          aria-label="Voltar"&gt;
-    &lt;ArrowLeft className="h-4 w-4" /&gt;
-  &lt;/Button&gt;
-  &lt;Button className="flex-1" onClick={salvar}&gt;Salvar&lt;/Button&gt;
-&lt;/MobileActionBar&gt;</pre>
-          <div class="note">Componente: <span class="ref">src/components/shared/MobileActionBar.tsx</span> (renderiza <code class="inline">fixed bottom-0</code> via <code class="inline">createPortal</code> no <code class="inline">body</code> — a sidebar seria "containing block" senão). O <code class="inline">Button</code> já é 44px no mobile (<span class="ref">src/components/ui/button.tsx:21</span> <code class="inline">max-md:h-11</code>), assim como <code class="inline">Input</code>/<code class="inline">SelectTrigger</code>.</div>
+// Página inteira
+&lt;div className="… pb-24"&gt; … &lt;/div&gt;
+&lt;PageActionBar&gt;
+  &lt;Button variant="outline" onClick={voltar}&gt;Cancelar&lt;/Button&gt;
+  &lt;Button className="ml-auto sm:ml-0" onClick={salvar}&gt;Salvar&lt;/Button&gt;
+&lt;/PageActionBar&gt;</pre>
+          <div class="note">Componentes: <span class="ref">src/components/shared/PageActionBar.tsx</span> (rodapé fixo, todos os tamanhos, via <code class="inline">createPortal</code> no body) e <span class="ref">src/components/shared/MobileActionBar.tsx</span> (só-mobile, para páginas de LISTA). Container editar=Sheet/novo=Dialog: <span class="ref">cadastro.aviamentos.tsx</span>, <span class="ref">criacao.planejamento.tsx</span> (<code class="inline">ModeloDialog</code>), <span class="ref">OcModalShell.tsx</span>. <code class="inline">Button</code>/<code class="inline">Input</code>/<code class="inline">SelectTrigger</code> já são 44px no mobile (<code class="inline">max-md:h-11</code>).</div>
         </div>
       </div>
     </section>

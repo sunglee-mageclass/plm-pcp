@@ -856,14 +856,13 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
               </Button>
             )}
           </DialogFooter>
+          <UnsavedChangesGuard
+            dirty={dirty}
+            confirm={confirm}
+            message="Há alterações não salvas neste representante."
+          />
         </DialogContent>
       </Dialog>
-
-      <UnsavedChangesGuard
-        dirty={dirty}
-        confirm={confirm}
-        message="Há alterações não salvas neste representante."
-      />
 
       <AlertDialog open={!!deleteRow} onOpenChange={(o) => { if (!o) { setDeleteRow(null); setDeleteUsage(null); } }}>
         <AlertDialogContent>
@@ -1563,14 +1562,13 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
               </Button>
             )}
           </DialogFooter>
+          <UnsavedChangesGuard
+            dirty={dirty}
+            confirm={confirm}
+            message="Há alterações não salvas nesta empresa."
+          />
         </DialogContent>
       </Dialog>
-
-      <UnsavedChangesGuard
-        dirty={dirty}
-        confirm={confirm}
-        message="Há alterações não salvas nesta empresa."
-      />
 
       <AlertDialog
         open={!!deleteRow}

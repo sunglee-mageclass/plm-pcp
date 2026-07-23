@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { DateField } from "@/components/shared/DateField";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { MatrizGradeResponsiva } from "@/components/shared/MatrizGradeResponsiva";
-import { MobileActionBar } from "@/components/shared/MobileActionBar";
+import { PageActionBar } from "@/components/shared/PageActionBar";
 import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
 import { ModeloResumoMeta } from "@/components/shared/ModeloResumoMeta";
 import { Label } from "@/components/ui/label";
@@ -534,8 +534,9 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao voltar para Serviços")),
   });
 
-  // Botões de ação (Pré/Pós) — renderizados na barra do topo (desktop) E na
-  // MobileActionBar (portal no body). O mesmo fragmento serve os dois; sem duplicar lógica.
+  // Botões de ação (Pré/Pós) — renderizados na barra STICKY do rodapé (todos os tamanhos):
+  // rodapé do Sheet no modo modal, PageActionBar (portal no body) no modo página inteira.
+  // O `backButton` (voltar) só entra no PageActionBar; no Sheet o "Voltar" fica no topo + X do modal.
   const backButton = onClose ? (
     <Button type="button" variant="outline" size="icon" className="mr-auto" onClick={onClose} aria-label="Voltar">
       <ArrowLeft className="h-4 w-4" />
@@ -610,32 +611,29 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     </>
   );
 
+  // Modo Sheet (via cq.index): flex column p/ o rodapé de ações grudar embaixo.
+  // Modo página inteira: container com pb-24 (a barra de ações é o PageActionBar em portal).
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
+    <div className={onClose ? "flex h-full flex-col min-h-0" : ""}>
+      <div className={`${onClose ? "flex-1 overflow-y-auto " : ""}container mx-auto p-3 sm:p-6 space-y-6 ${onClose ? "" : "pb-24"}`}>
       <VerificarRevisao modeloId={modeloId} etapa="cq" />
       {view === "pre" && cad?.id && <OficinaServicoDialog cadId={cad.id} open={oficinaOpen} onClose={() => setOficinaOpen(false)} />}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          {onClose ? (
-            <button onClick={onClose} className="max-sm:hidden text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
-              <ArrowLeft className="h-4 w-4" /> Voltar
-            </button>
-          ) : (
-            <Link to="/producao/cq" className="max-sm:hidden text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
-              <ArrowLeft className="h-4 w-4" /> Voltar
-            </Link>
-          )}
-          {view === "pre" && cad?.id && (
-            <Button size="sm" variant="outline" onClick={() => setOficinaOpen(true)}>
-              <Wrench className="h-3.5 w-3.5 md:mr-1" /> <span className="max-md:sr-only">Oficina</span>
-            </Button>
-          )}
-        </div>
-        {/* Desktop: ações na barra do topo. Mobile: MobileActionBar (portal no body,
-            imune ao containing block do Sheet — o max-sm:fixed inline descolava). */}
-        <div className="flex items-center gap-2 max-sm:hidden">
-          {actionButtons}
-        </div>
+      {/* Cabeçalho: Voltar + Oficina. Ações primárias (Salvar/Confirmar/…) foram p/ o rodapé. */}
+      <div className="flex items-center gap-2">
+        {onClose ? (
+          <button onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+            <ArrowLeft className="h-4 w-4" /> Voltar
+          </button>
+        ) : (
+          <Link to="/producao/cq" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+            <ArrowLeft className="h-4 w-4" /> Voltar
+          </Link>
+        )}
+        {view === "pre" && cad?.id && (
+          <Button size="sm" variant="outline" onClick={() => setOficinaOpen(true)}>
+            <Wrench className="h-3.5 w-3.5 md:mr-1" /> <span className="max-md:sr-only">Oficina</span>
+          </Button>
+        )}
       </div>
 
       <header className="flex items-start gap-3">
@@ -889,15 +887,24 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
         </AlertDialogContent>
       </AlertDialog>
 
-      <MobileActionBar>
-        {backButton}
-        {actionButtons}
-      </MobileActionBar>
-
       {/* Full-page: guarda o "sair sem salvar" (bloqueia navegação de rota). No modal
           (Sheet no index) o guarda é renderizado pelo pai — aqui não duplica. */}
       {!onClose && (
         <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas no Controle de Qualidade." />
+      )}
+      </div>
+
+      {/* Regra 2 — barra de ações sticky no rodapé (todos os tamanhos).
+          Sheet: rodapé in-flow do próprio modal. Página inteira: PageActionBar (portal no body). */}
+      {onClose ? (
+        <div className="shrink-0 border-t bg-background p-3 flex flex-wrap items-center gap-2 sm:justify-end">
+          {actionButtons}
+        </div>
+      ) : (
+        <PageActionBar>
+          {backButton}
+          {actionButtons}
+        </PageActionBar>
       )}
     </div>
   );

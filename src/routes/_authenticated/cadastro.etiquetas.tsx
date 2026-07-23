@@ -15,7 +15,8 @@ import { NumberInput } from "@/components/shared/NumberInput";
 import { FornecedorSelect, type EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 import { empresaTemCategoria, ETIQUETA_TOKENS } from "@/lib/fornecedor-categoria";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -387,13 +388,17 @@ function EtiquetasPage() {
         <Badge variant="secondary">{filtered.length}</Badge> {filtered.length === 1 ? "etiqueta" : "etiquetas"}
       </div>
 
-      {/* Criar / editar */}
-      <Dialog open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
-        <DialogContent className="sm:max-w-2xl max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
-          <DialogHeader className="max-sm:shrink-0">
-            <DialogTitle>{editing ? "Editar etiqueta" : "Nova etiqueta"}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2 max-sm:min-h-0 max-sm:overflow-y-auto">
+      {/* Criar / editar. Regra 3: EDITAR = Sheet lateral (side=right, ~70vw); NOVO = Dialog
+          central. Mesmo conteúdo interno (`modalConteudo`); a guarda de "não salvo" fica
+          DENTRO do container (antes ficava fora e a msg ficava escondida). */}
+      {(() => {
+        const TitleTag = editing ? SheetTitle : DialogTitle;
+        const modalConteudo = (
+          <>
+          <div className="shrink-0 border-b px-6 pt-6 pb-3">
+            <TitleTag className="text-lg font-semibold">{editing ? "Editar etiqueta" : "Nova etiqueta"}</TitleTag>
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4">
             <div className="grid sm:grid-cols-2 gap-3">
               <div className="space-y-1.5 sm:col-span-2">
                 <Label>Nome</Label>
@@ -485,16 +490,36 @@ function EtiquetasPage() {
               <Input value={fObs} onChange={(e) => setFObs(e.target.value)} placeholder="Opcional" disabled={readOnly} />
             </div>
           </div>
-          <DialogFooter className="max-sm:shrink-0 max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
+          <div className="shrink-0 border-t bg-background px-6 py-3 flex items-center gap-2 sm:justify-end">
             <Button variant="outline" onClick={requestClose}>Cancelar</Button>
             {!readOnly && (
               <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
                 {saveMut.isPending ? "Salvando…" : "Salvar"}
               </Button>
             )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </div>
+          {/* Guarda de descarte DENTRO do container (Sheet/Dialog) — a msg antes ficava
+              fora do modal e o dono não a via. */}
+          <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas neste cadastro de insumo." />
+          </>
+        );
+        return editing ? (
+          <Sheet open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
+            <SheetContent
+              side="right"
+              className="flex flex-col gap-0 p-0 w-full sm:w-[70vw] sm:max-w-[70vw] max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden"
+            >
+              {modalConteudo}
+            </SheetContent>
+          </Sheet>
+        ) : (
+          <Dialog open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
+            <DialogContent className="flex flex-col gap-0 p-0 sm:max-w-2xl max-h-[90vh] max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden">
+              {modalConteudo}
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
 
       <AlertDialog open={!!deleteRow} onOpenChange={(o) => !o && setDeleteRow(null)}>
         <AlertDialogContent>
@@ -525,8 +550,6 @@ function EtiquetasPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas neste cadastro de insumo." />
 
       <MobileActionBar>
         <Button onClick={openCreate} className="ml-auto" disabled={readOnly}><Plus className="h-4 w-4 mr-1" /> Novo</Button>

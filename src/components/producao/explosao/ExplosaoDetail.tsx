@@ -374,57 +374,23 @@ export function ExplosaoDetail({ modeloId, onEnviado, onDirtyChange }: Props) {
   const firstPhoto = (modelo?.fotos_modelo as string[] | null)?.[0] ?? null;
 
   return (
-    <>
-      <div className="container mx-auto p-3 sm:p-6 space-y-6 no-print max-sm:pb-24">
-        {/* Cabeçalho com ações */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
-          <div>
-            <h2 className="text-lg font-semibold flex items-center gap-2">
-              Explosão — Envio para Serviços
-              {(cadRow as any)?.enviado_corte && (
-                <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 border border-green-600/40 rounded-full px-2 py-0.5">
-                  <span className="h-2 w-2 rounded-full bg-green-500" /> Enviado para Serviços
-                </span>
-              )}
-            </h2>
-            <p className="text-xs text-muted-foreground">
-              {(cadRow as any)?.enviado_corte
-                ? 'Já enviado. Edite a metragem se precisar e clique em "Reenviar para Serviços" (refaz a baixa com a metragem atual).'
-                : 'Preencha "Metr. a Separar/Enviar" e clique em Enviar para Serviços.'}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setVoltarOpen(true)}
-              disabled={voltarMut.isPending}
-            >
-              <RotateCcw className="h-4 w-4 mr-1.5" />
-              Voltar ao Desenvolvimento
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => printWithImages()}>
-              <Printer className="h-4 w-4 mr-1.5" />
-              Ficha de Corte
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => salvarMut.mutate()}
-              disabled={salvarMut.isPending || enviarCorte.isPending || !cadRow?.id}
-            >
-              <Save className="h-4 w-4 mr-1.5" />
-              {salvarMut.isPending ? "Salvando…" : "Salvar"}
-            </Button>
-            <Button
-              size="sm"
-              onClick={handleEnviar}
-              disabled={enviarCorte.isPending || salvarMut.isPending || !cadRow?.id}
-            >
-              <Send className="h-4 w-4 mr-1.5" />
-              {enviarCorte.isPending ? "Enviando…" : (cadRow as any)?.enviado_corte ? "Reenviar para Serviços" : "Enviar para Serviços"}
-            </Button>
-          </div>
+    <div className="flex h-full flex-col min-h-0">
+      <div className="flex-1 overflow-y-auto container mx-auto p-3 sm:p-6 space-y-6 no-print">
+        {/* Cabeçalho (título/status) — SEM botões de ação (movidos p/ o rodapé) */}
+        <div className="border-b pb-4">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            Explosão — Envio para Serviços
+            {(cadRow as any)?.enviado_corte && (
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 border border-green-600/40 rounded-full px-2 py-0.5">
+                <span className="h-2 w-2 rounded-full bg-green-500" /> Enviado para Serviços
+              </span>
+            )}
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            {(cadRow as any)?.enviado_corte
+              ? 'Já enviado. Edite a metragem se precisar e clique em "Reenviar para Serviços" (refaz a baixa com a metragem atual).'
+              : 'Preencha "Metr. a Separar/Enviar" e clique em Enviar para Serviços.'}
+          </p>
         </div>
 
         {/* Info do modelo */}
@@ -473,6 +439,40 @@ export function ExplosaoDetail({ modeloId, onEnviado, onDirtyChange }: Props) {
           updateVar={updateVar}
           readOnly={true}
         />
+      </div>
+
+      {/* Rodapé sticky de ações — colado embaixo enquanto o corpo rola (desktop e mobile). */}
+      <div className="shrink-0 border-t bg-background p-3 flex flex-wrap items-center gap-2 sm:justify-end no-print">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setVoltarOpen(true)}
+          disabled={voltarMut.isPending}
+        >
+          <RotateCcw className="h-4 w-4 mr-1.5" />
+          Voltar ao Desenvolvimento
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => printWithImages()}>
+          <Printer className="h-4 w-4 mr-1.5" />
+          Ficha de Corte
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => salvarMut.mutate()}
+          disabled={salvarMut.isPending || enviarCorte.isPending || !cadRow?.id}
+        >
+          <Save className="h-4 w-4 mr-1.5" />
+          {salvarMut.isPending ? "Salvando…" : "Salvar"}
+        </Button>
+        <Button
+          size="sm"
+          onClick={handleEnviar}
+          disabled={enviarCorte.isPending || salvarMut.isPending || !cadRow?.id}
+        >
+          <Send className="h-4 w-4 mr-1.5" />
+          {enviarCorte.isPending ? "Enviando…" : (cadRow as any)?.enviado_corte ? "Reenviar para Serviços" : "Enviar para Serviços"}
+        </Button>
       </div>
 
       {/* Ficha de Corte — sempre montada (oculta fora da impressão) */}
@@ -535,6 +535,6 @@ export function ExplosaoDetail({ modeloId, onEnviado, onDirtyChange }: Props) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </>
+    </div>
   );
 }

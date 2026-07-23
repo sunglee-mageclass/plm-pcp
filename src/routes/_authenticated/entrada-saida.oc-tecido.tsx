@@ -120,6 +120,31 @@ function OcTecidoPage() {
   });
 
   const ocIds = useMemo(() => ocs.map((o) => o.id), [ocs]);
+
+  // Tecido(s) de cada OC (p/ a coluna "Tecido(s)" da lista, nas duas abas). Lista os
+  // artigos DISTINTOS dos itens da OC, na ordem em que aparecem.
+  const { data: tecidosByOc = {} } = useQuery({
+    queryKey: ["ocs_tecido_artigos", ocIds],
+    enabled: ocIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("ocs_tecido_itens")
+        .select("oc_tecido_id, artigo_id, artigos:artigo_id(nome)")
+        .in("oc_tecido_id", ocIds);
+      if (error) throw error;
+      const byOc: Record<string, string[]> = {};
+      for (const it of (data ?? []) as any[]) {
+        const nome = it.artigos?.nome as string | undefined;
+        if (!it.oc_tecido_id || !nome) continue;
+        const arr = (byOc[it.oc_tecido_id] ||= []);
+        if (!arr.includes(nome)) arr.push(nome);
+      }
+      const out: Record<string, string> = {};
+      for (const [id, nomes] of Object.entries(byOc)) out[id] = nomes.join(", ");
+      return out;
+    },
+  });
+
   const { data: qtdRecebidaByOc = {} } = useQuery({
     queryKey: ["ocs_tecido_qtd_recebida", ocIds],
     enabled: tab === "recebido" && ocIds.length > 0,
@@ -227,6 +252,7 @@ function OcTecidoPage() {
           onRowClick={(id) => { setEditingId(id); setOpenNew(true); }}
           onDelete={(oc) => setDeleting(oc)}
           qtdRecebidaByOc={qtdRecebidaByOc}
+          tecidosByOc={tecidosByOc}
           alertaBadgeByOc={alertaBadgeByOc}
         />
       ) : (

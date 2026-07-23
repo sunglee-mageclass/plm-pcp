@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { createPortal } from "react-dom";
 import { useBlocker } from "@tanstack/react-router";
 import {
   AlertDialog,
@@ -91,12 +92,14 @@ interface UnsavedChangesGuardProps {
 export function UnsavedChangesGuard({ dirty, confirm, message }: UnsavedChangesGuardProps) {
   return (
     <>
-      {dirty && (
-        // Acima da barra de ações (rodapé do Sheet/Dialog ou MobileActionBar), p/ não
-        // sobrepor os botões Salvar/Voltar que ficam no canto inferior direito.
-        <div className="pointer-events-none fixed bottom-20 right-4 z-50 md:bottom-24">
+      {dirty && typeof document !== "undefined" && createPortal(
+        // Portal no body: ancestrais com transform/contain (sidebar, SheetContent) viram
+        // "containing block" de elementos fixed e descolariam o indicador — o portal
+        // garante o canto SUPERIOR DIREITO do viewport, à esquerda do ✕ (right-4 top-4).
+        <div className="pointer-events-none fixed top-4 right-12 z-[60]">
           <UnsavedIndicator show />
-        </div>
+        </div>,
+        document.body,
       )}
       <AlertDialog open={confirm.open} onOpenChange={(o) => { if (!o) confirm.onKeepEditing(); }}>
         <AlertDialogContent>

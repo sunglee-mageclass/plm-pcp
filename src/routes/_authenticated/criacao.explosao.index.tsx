@@ -185,7 +185,7 @@ function ExplosaoListPage() {
       </Card>
 
       <Sheet open={!!sheetId} onOpenChange={(o) => { if (!o) requestClose(); }}>
-        <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] overflow-y-auto p-0 max-md:[&>button]:hidden">
+        <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] flex flex-col p-0 max-md:[&>button]:hidden">
           {sheetId && (
             <ExplosaoDetail
               modeloId={sheetId}
@@ -193,9 +193,10 @@ function ExplosaoListPage() {
               onDirtyChange={setExplDirty}
             />
           )}
+          {/* Guarda DENTRO do SheetContent (portal): fora do portal o indicador não aparece. */}
+          <UnsavedChangesGuard dirty={explDirty} confirm={confirm} message="Há alterações de metragem não salvas nesta Explosão." />
         </SheetContent>
       </Sheet>
-      <UnsavedChangesGuard dirty={explDirty} confirm={confirm} message="Há alterações de metragem não salvas nesta Explosão." />
     </div>
   );
 }
