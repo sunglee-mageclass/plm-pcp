@@ -567,14 +567,19 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                       </CollapsibleTrigger>
                       <CollapsibleContent className="pt-2">
                         {sub.linhas.map((ln, li) => (
-                          <div key={ln.id ?? li} className="mb-2">
-                            <div className="mb-1 px-1 text-xs text-muted-foreground">
-                              {ln.linha_id
-                                ? (nameOf(linhaNomes, ln.linha_id) ?? "Linha")
-                                : ln.categoria_id
-                                  ? (nameOf(catNomes, ln.categoria_id) ?? "Categoria")
-                                  : "Sem classificação"}
-                            </div>
+                          <Collapsible key={ln.id ?? li} defaultOpen className="mb-2">
+                            <CollapsibleTrigger className="flex min-h-[36px] w-full items-center gap-2 rounded-md bg-muted/40 px-2 text-xs font-medium text-muted-foreground [&[data-state=open]>svg]:rotate-90">
+                              <ChevronRight className="h-3.5 w-3.5 transition-transform" />
+                              <span className="flex-1 text-left">
+                                {ln.linha_id
+                                  ? (nameOf(linhaNomes, ln.linha_id) ?? "Linha")
+                                  : ln.categoria_id
+                                    ? (nameOf(catNomes, ln.categoria_id) ?? "Categoria")
+                                    : "Sem classificação"}
+                              </span>
+                              <span className="text-[10px]">{ln.slots.length} modelo(s)</span>
+                            </CollapsibleTrigger>
+                            <CollapsibleContent className="pt-2">
                             <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-2">
                               {ln.slots.map((slot, sli) => {
                                 const chave = chaveSlot(slot.id, si, li, sli);
@@ -602,7 +607,8 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                                 );
                               })}
                             </div>
-                          </div>
+                            </CollapsibleContent>
+                          </Collapsible>
                         ))}
                       </CollapsibleContent>
                     </Collapsible>
