@@ -15,9 +15,19 @@ export function GradeSection({ slot, onChange, tamanhos }: { slot: PtSlot; onCha
     queryFn: async () => (((await supabase.from("modelos").select("proporcoes").eq("id", slot.modelo_id!).maybeSingle()).data as any)?.proporcoes ?? null) as Record<string, number> | null,
   });
 
-  // chaves = tamanhos CADASTRADOS na loja (tenant_config.tamanhos_grade); valor = proporção do modelo (se houver), senão placeholder
+  // chaves = tamanhos CADASTRADOS na loja (tenant_config.tamanhos_grade)
   const keys = (tamanhos && tamanhos.length > 0 ? tamanhos : FALLBACK);
-  const valorDe = (t: string) => Number(prop?.[t] ?? prop?.[labelTamanho(t)] ?? 0) || 0; // casa por chave cheia OU label (legado)
+  // valor efetivo: o que foi editado no slot manda; senão a proporção do modelo (chave cheia OU label legado)
+  const valorDe = (t: string) => {
+    const sp = slot.proporcoes as Record<string, number> | undefined;
+    if (sp && t in sp) return Number(sp[t]) || 0;
+    return Number(prop?.[t] ?? prop?.[labelTamanho(t)] ?? 0) || 0;
+  };
+  const setProp = (t: string, val: number) => {
+    const base: Record<string, number> = {};
+    for (const k of keys) base[k] = valorDe(k); // congela os valores atuais sobre as chaves cadastradas
+    onChange({ ...slot, proporcoes: { ...base, [t]: val } });
+  };
   const somaProp = keys.reduce((s, t) => s + valorDe(t), 0) || 1;
   const totalTec1 = (tec1?.variantes ?? []).reduce((s, v) => s + (v.grade_total || 0), 0);
 
@@ -25,15 +35,12 @@ export function GradeSection({ slot, onChange, tamanhos }: { slot: PtSlot; onCha
 
   return (
     <div className="p-2">
-      <div className="mb-1 text-[10px] text-muted-foreground">Proporção de tamanho {slot.modelo_id ? "(do cadastro do modelo)" : "(cadastro da loja)"} — editável</div>
+      <div className="mb-1 text-[10px] text-muted-foreground">Proporção de tamanho (editável — salva no plano)</div>
       <div className="flex flex-wrap gap-1">
         {keys.map((t) => (
           <div key={t} className="flex flex-col items-center rounded border px-2 py-1">
             <NumberInput integer blankZero placeholder="0" className="h-6 w-10 text-center" value={valorDe(t)}
-              onChange={() => {
-                // proporção fica só como referência de exibição (não escreve no modelo — A.1)
-                onChange({ ...slot });
-              }} />
+              onChange={(e) => setProp(t, Number(e.target.value) || 0)} />
             <span className="text-[9px] text-muted-foreground">{labelTamanho(t)}</span>
           </div>
         ))}

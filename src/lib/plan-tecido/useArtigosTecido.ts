@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
-export type ArtigoTec = { id: string; nome: string; unidade_medida: string | null; rendimento: number | null; categoria_tecido_id: string | null };
+export type ArtigoTec = { id: string; nome: string; unidade_medida: string | null; rendimento: number | null; preco_por_metro: number | null; categoria_tecido_id: string | null };
 
 /**
  * Classifica os artigos em tecido / forro / entretela pela CATEGORIA (mesma regra do
@@ -13,7 +13,7 @@ export function useArtigosTecido() {
   const { data: artigos = [] } = useQuery({
     queryKey: ["plan-tecido-artigos-all"],
     queryFn: async () =>
-      ((await supabase.from("artigos").select("id, nome, unidade_medida, rendimento, categoria_tecido_id").order("nome")).data ?? []) as ArtigoTec[],
+      ((await supabase.from("artigos").select("id, nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id").order("nome")).data ?? []) as ArtigoTec[],
   });
   const { data: links = [] } = useQuery({
     queryKey: ["plan-tecido-artigo-cat-links"],

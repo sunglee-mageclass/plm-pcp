@@ -31,6 +31,7 @@ import { ModelCard } from "@/components/plan-tecido/ModelCard";
 import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
 import { PaletaColecao } from "@/components/plan-tecido/PaletaColecao";
 import { VisaoPorTecido } from "@/components/plan-tecido/VisaoPorTecido";
+import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
 
 type Nome = { id: string; nome: string };
 
@@ -82,33 +83,31 @@ function chaveSlot(slotId: string | undefined, si: number, li: number, sli: numb
   return slotId ?? `${si}-${li}-${sli}`;
 }
 
-type ArtigoSimples = {
-  id: string;
-  nome: string;
-  unidade_medida: string | null;
-  rendimento: number | null;
-  preco_por_metro: number | null;
-};
 type VarSimples = { id: string; nome_variante: string | null; cor: { nome: string | null } | null; apelido: { nome: string | null } | null };
 
 function FormAplicarTecido({
   nSelecionados,
+  tipo,
+  paleta,
   onConfirmar,
   onCancelar,
 }: {
   nSelecionados: number;
+  tipo: "tecido" | "forro";
+  paleta: { artigo_id: string; papel: string }[];
   onConfirmar: (material: PtMaterial) => void;
   onCancelar: () => void;
 }) {
   const [artigoId, setArtigoId] = useState<string>("");
   const [consumo, setConsumo] = useState<number>(0);
   const [varianteIds, setVarianteIds] = useState<string[]>([]);
+  const { tecidoArtigos, forroArtigos } = useArtigosTecido();
+  const rotulo = tipo === "forro" ? "forro" : "tecido";
 
-  const { data: artigos = [] } = useQuery({
-    queryKey: ["form-tecido-artigos"],
-    queryFn: async () =>
-      ((await supabase.from("artigos").select("id, nome, unidade_medida, rendimento, preco_por_metro").order("nome")).data ?? []) as ArtigoSimples[],
-  });
+  // filtro DURO: só os artigos do papel adicionados em "Insumos da coleção"
+  const paletaIds = paleta.filter((p) => p.papel === tipo).map((p) => p.artigo_id);
+  const base = tipo === "forro" ? forroArtigos : tecidoArtigos;
+  const opcoes = base.filter((a) => paletaIds.includes(a.id));
 
   const { data: variantes = [] } = useQuery({
     queryKey: ["form-tecido-variantes", artigoId],
@@ -121,7 +120,7 @@ function FormAplicarTecido({
         .order("id")).data ?? []) as unknown as VarSimples[],
   });
 
-  const artigo = artigos.find((a) => a.id === artigoId) ?? null;
+  const artigo = opcoes.find((a) => a.id === artigoId) ?? null;
 
   const toggle = (vid: string) =>
     setVarianteIds((prev) =>
@@ -143,7 +142,7 @@ function FormAplicarTecido({
       unidade_medida: artigo?.unidade_medida ?? null,
       rendimento: artigo?.rendimento ?? null,
       preco_por_metro: artigo?.preco_por_metro ?? null,
-      tipo: "tecido",
+      tipo,
       numero: 1,
       consumo,
       loss_percent: 0,
@@ -156,26 +155,32 @@ function FormAplicarTecido({
   return (
     <AlertDialogContent>
       <AlertDialogHeader>
-        <AlertDialogTitle>Aplicar tecido a {nSelecionados} selecionado(s)</AlertDialogTitle>
+        <AlertDialogTitle>Aplicar {rotulo} a {nSelecionados} selecionado(s)</AlertDialogTitle>
         <AlertDialogDescription>
-          Define o Tecido 1 nos slots selecionados (estado local — salve depois para gravar).
+          Define o {tipo === "forro" ? "Forro 1" : "Tecido 1"} nos slots selecionados (estado local — salve depois para gravar).
         </AlertDialogDescription>
       </AlertDialogHeader>
       <div className="space-y-3 py-2">
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium">Artigo</label>
+          <label className="text-xs font-medium">{tipo === "forro" ? "Forro" : "Tecido"}</label>
+          {opcoes.length === 0 ? (
+            <div className="rounded border border-dashed p-2 text-xs text-muted-foreground">
+              Nenhum {rotulo} em "Insumos da coleção". Adicione primeiro.
+            </div>
+          ) : (
           <select
             className="rounded border bg-background px-2 py-1.5 text-sm"
             value={artigoId}
             onChange={(e) => { setArtigoId(e.target.value); setVarianteIds([]); }}
           >
-            <option value="">Escolher artigo…</option>
-            {artigos.map((a) => (
+            <option value="">Escolher {rotulo}…</option>
+            {opcoes.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.nome}{a.unidade_medida === "kg" ? " [kg]" : ""}
               </option>
             ))}
           </select>
+          )}
         </div>
         {artigoId && (
           <>
@@ -228,7 +233,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
   const [confirmSair, setConfirmSair] = useState(false);
   const [viewMode, setViewMode] = useState<"linha" | "tecido">("linha");
   const [selecao, setSelecao] = useState<Set<string>>(new Set());
-  const [mostrarFormTecido, setMostrarFormTecido] = useState(false);
+  const [formTipo, setFormTipo] = useState<"tecido" | "forro" | null>(null);
   const [previaOpen, setPreviaOpen] = useState(false);
   const [previaData, setPreviaData] = useState<PreviaRpc | null>(null);
   const [previaEditada, setPreviaEditada] = useState<FornecedorEditado[]>([]);
@@ -494,19 +499,19 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
           const slot = next.subcolecoes[si].linhas[li].slots[sli];
           const chave = chaveSlot(slot.id, si, li, sli);
           if (!selecao.has(chave)) continue;
-          // Remove Tecido 1 existente e prepend o novo
-          const semTec1 = slot.materiais.filter((m) => !(m.tipo === "tecido" && m.numero === 1));
+          // Remove o material do MESMO papel (Tecido 1 / Forro 1) e insere o novo
+          const resto = slot.materiais.filter((m) => !(m.tipo === material.tipo && m.numero === 1));
           next.subcolecoes[si].linhas[li].slots[sli] = {
             ...slot,
-            materiais: [material, ...semTec1],
+            materiais: material.tipo === "tecido" ? [material, ...resto] : [...resto, material],
           };
         }
       }
     }
     patch(next);
     setSelecao(new Set());
-    setMostrarFormTecido(false);
-    toast.success(`Tecido aplicado a ${n} slot(s).`);
+    setFormTipo(null);
+    toast.success(`${material.tipo === "forro" ? "Forro" : "Tecido"} aplicado a ${n} slot(s).`);
   }
 
   async function handleAbrirPrevia() {
@@ -594,8 +599,11 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
         {selecao.size > 0 && (
           <div className="flex items-center gap-2 border-b bg-amber-50 px-3 py-2 text-sm">
             <span className="font-medium">{selecao.size} selecionado(s)</span>
-            <Button size="sm" variant="outline" className="ml-auto text-xs" onClick={() => setMostrarFormTecido(true)}>
-              Aplicar tecido a {selecao.size} selecionado(s)
+            <Button size="sm" variant="outline" className="ml-auto text-xs" onClick={() => setFormTipo("tecido")}>
+              Aplicar tecido
+            </Button>
+            <Button size="sm" variant="outline" className="text-xs" onClick={() => setFormTipo("forro")}>
+              Aplicar forro
             </Button>
             <Button size="sm" variant="ghost" className="text-xs text-muted-foreground" onClick={() => setSelecao(new Set())}>
               Limpar
@@ -729,13 +737,17 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
           </AlertDialogContent>
         </AlertDialog>
 
-        {/* Mini-form: aplicar tecido em massa */}
-        <AlertDialog open={mostrarFormTecido} onOpenChange={setMostrarFormTecido}>
-          <FormAplicarTecido
-            nSelecionados={selecao.size}
-            onConfirmar={aplicarTecidoEmMassa}
-            onCancelar={() => setMostrarFormTecido(false)}
-          />
+        {/* Mini-form: aplicar tecido/forro em massa (respeita a paleta) */}
+        <AlertDialog open={!!formTipo} onOpenChange={(o) => { if (!o) setFormTipo(null); }}>
+          {formTipo && (
+            <FormAplicarTecido
+              nSelecionados={selecao.size}
+              tipo={formTipo}
+              paleta={paleta}
+              onConfirmar={aplicarTecidoEmMassa}
+              onCancelar={() => setFormTipo(null)}
+            />
+          )}
         </AlertDialog>
 
         {/* AlertDialog: Desfazer pedido */}
