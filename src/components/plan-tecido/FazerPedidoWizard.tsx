@@ -7,6 +7,7 @@ import { NumberInput } from "@/components/shared/NumberInput";
 import { DateField } from "@/components/shared/DateField";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { Button } from "@/components/ui/button";
+import { X } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
@@ -27,7 +28,10 @@ export type PreviaRpc = {
 };
 
 type Pagina = { fornecedor: PreviaFornecedorRpc; itens: PreviaItemRpc[] };
-type Resposta = { data: string; prazo: string; qtd: Record<string, number> };
+type Resposta = {
+  data: string; prazo: string; qtd: Record<string, number>;
+  responsavel: string; obs: string; entregas: string[]; // entregas = datas do parcelamento de ENTREGA
+};
 
 const keyItem = (it: PreviaItemRpc) => `${it.artigo_id}|${it.variante_tecido_id}`;
 const nParcelas = (prazo: string) => Math.max(1, prazo.split(/[/\s]+/).filter(Boolean).length);
@@ -52,7 +56,7 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
   const [respostas, setRespostas] = useState<Record<number, Resposta>>(() => {
     const r: Record<number, Resposta> = {};
     paginas.forEach((pg, i) => {
-      r[i] = { data: "", prazo: "", qtd: Object.fromEntries(pg.itens.map((it) => [keyItem(it), it.qtd])) };
+      r[i] = { data: "", prazo: "", responsavel: "", obs: "", entregas: [], qtd: Object.fromEntries(pg.itens.map((it) => [keyItem(it), it.qtd])) };
     });
     return r;
   });
@@ -62,6 +66,9 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
   const resp = respostas[passo];
   const setResp = (patch: Partial<Resposta>) => setRespostas((prev) => ({ ...prev, [passo]: { ...prev[passo], ...patch } }));
   const setQtd = (k: string, v: number) => setResp({ qtd: { ...resp.qtd, [k]: v } });
+  const addEntrega = () => setResp({ entregas: [...resp.entregas, ""] });
+  const setEntrega = (i: number, v: string) => setResp({ entregas: resp.entregas.map((d, j) => (j === i ? v : d)) });
+  const delEntrega = (i: number) => setResp({ entregas: resp.entregas.filter((_, j) => j !== i) });
 
   const gerar = useMutation({
     mutationFn: async () => {
@@ -73,6 +80,9 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
           data_prevista_entrega: rr.data || null,
           prazo_pagamento: rr.prazo || null,
           quantidade_prazos: rr.prazo ? nParcelas(rr.prazo) : 1,
+          responsavel_nome: rr.responsavel || null,
+          observacoes_entrega: rr.obs || null,
+          parcelas_recebimento: rr.entregas.filter(Boolean).map((d) => ({ data: d, recebido: false })),
           itens: p.itens
             .map((it) => ({ artigo_id: it.artigo_id, variante_tecido_id: it.variante_tecido_id, quantidade_pedida: rr.qtd[keyItem(it)] ?? 0, preco: it.preco, rendimento: it.rendimento }))
             .filter((it) => it.quantidade_pedida > 0),
@@ -126,8 +136,40 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
                 <div className="text-[10px] text-muted-foreground">Prazo de pagamento (ex.: 30/60/90)</div>
                 <input className="h-9 w-full rounded border bg-background px-2 text-sm" value={resp.prazo}
                   onChange={(e) => setResp({ prazo: e.target.value })} placeholder="30/60/90" />
-                <div className="mt-0.5 text-[10px] text-muted-foreground">{nParcelas(resp.prazo)} parcela(s)</div>
+                <div className="mt-0.5 text-[10px] text-muted-foreground">{nParcelas(resp.prazo)} parcela(s) de pagamento</div>
               </div>
+              <div className="col-span-2">
+                <div className="text-[10px] text-muted-foreground">Responsável pelo pedido</div>
+                <input className="h-9 w-full rounded border bg-background px-2 text-sm" value={resp.responsavel}
+                  onChange={(e) => setResp({ responsavel: e.target.value })} placeholder="Quem está pedindo" />
+              </div>
+            </div>
+
+            {/* parcelamento de ENTREGA (datas em que o tecido chega) */}
+            <div className="rounded border p-2">
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-[10px] font-medium text-muted-foreground">Parcelamento de entrega (datas previstas)</span>
+                <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={addEntrega}>+ parcela</Button>
+              </div>
+              {resp.entregas.length === 0 ? (
+                <div className="text-[10px] text-muted-foreground">Sem parcelas — usa a data prevista acima. Adicione se a entrega for dividida.</div>
+              ) : (
+                <div className="space-y-1">
+                  {resp.entregas.map((d, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="text-[10px] text-muted-foreground w-14">{i + 1}ª entrega</span>
+                      <div className="flex-1"><DateField value={d} onChange={(e) => setEntrega(i, e.target.value)} /></div>
+                      <button className="text-muted-foreground hover:text-foreground" onClick={() => delEntrega(i)} title="Remover"><X className="h-3.5 w-3.5" /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <div className="text-[10px] text-muted-foreground">Observações de entrega</div>
+              <textarea className="min-h-[48px] w-full rounded border bg-background px-2 py-1 text-sm" value={resp.obs}
+                onChange={(e) => setResp({ obs: e.target.value })} placeholder="Ex.: entregar na portaria, horário, etc." />
             </div>
 
             {/* itens (pré-preenchidos) + qtd editável */}
