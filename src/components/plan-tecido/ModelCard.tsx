@@ -17,6 +17,7 @@ import { MaterialBlock } from "./MaterialBlock";
 import { GradeSection } from "./GradeSection";
 import { CustoSection } from "./CustoSection";
 import { ModeloThumb } from "./ModeloThumb";
+import { ModeloOcHint } from "./ModeloOcHint";
 
 function novoMaterial(existentes: PtMaterial[], tipo: "tecido" | "forro"): PtMaterial {
   const numero = existentes.filter((m) => m.tipo === tipo).length + 1;
@@ -32,6 +33,8 @@ export function ModelCard({
   subcolecaoId,
   paletaIds,
   tamanhos,
+  ocsAplicadas,
+  modeloOcIds,
 }: {
   slot: PtSlot;
   onChange: (s: PtSlot) => void;
@@ -41,6 +44,8 @@ export function ModelCard({
   subcolecaoId?: string | null;
   paletaIds?: string[];
   tamanhos?: string[];
+  ocsAplicadas?: { id: string; numero_pedido: string | null }[];
+  modeloOcIds?: string[];
 }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -252,6 +257,12 @@ export function ModelCard({
                   >
                     {criandoCard ? "Criando…" : "Criar card no Planejamento"}
                   </Button>
+                )}
+                {/* Hint de OC por modelo (planejamento) — só com modelo real */}
+                {colecaoId && slot.modelo_id && (
+                  <div className="mt-2">
+                    <ModeloOcHint colecaoId={colecaoId} modeloId={slot.modelo_id} ocsAplicadas={ocsAplicadas ?? []} selected={modeloOcIds ?? []} />
+                  </div>
                 )}
               </div>
             )}

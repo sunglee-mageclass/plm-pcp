@@ -308,6 +308,25 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
     },
   });
 
+  // OCs aplicadas (lista com nº) — oferecidas como hint de OC por modelo (#3)
+  const { data: ocsAplicadas = [] } = useQuery({
+    queryKey: ["plan-tecido-oc-aplicada-lista", colecaoId],
+    queryFn: async () =>
+      (((await supabase.from("plan_tecido_oc_aplicada" as any).select("oc_tecido_id, oc:oc_tecido_id(numero_pedido)").eq("colecao_id", colecaoId)).data ?? []) as unknown as { oc_tecido_id: string; oc: { numero_pedido: string | null } | null }[])
+        .map((r) => ({ id: r.oc_tecido_id, numero_pedido: r.oc?.numero_pedido ?? null })),
+  });
+
+  // hint OC por modelo → Map<modelo_id, oc_ids[]>
+  const { data: modeloOcMap = {} } = useQuery({
+    queryKey: ["plan-tecido-modelo-oc", colecaoId],
+    queryFn: async () => {
+      const rows = ((await supabase.from("plan_tecido_modelo_oc" as any).select("modelo_id, oc_tecido_id").eq("colecao_id", colecaoId)).data ?? []) as unknown as { modelo_id: string; oc_tecido_id: string }[];
+      const map: Record<string, string[]> = {};
+      for (const r of rows) (map[r.modelo_id] ??= []).push(r.oc_tecido_id);
+      return map;
+    },
+  });
+
   // paleta de insumos da coleção → escopa (soft) os dropdowns de artigo dos cards
   const { data: paletaIds = [] } = useQuery({
     queryKey: ["plan-tecido-paleta-ids", colecaoId],
@@ -619,6 +638,8 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                                     subcolecaoId={sub.subcolecao_id}
                                     paletaIds={paletaIds}
                                     tamanhos={tamanhos}
+                                    ocsAplicadas={ocsAplicadas}
+                                    modeloOcIds={slot.modelo_id ? (modeloOcMap[slot.modelo_id] ?? []) : []}
                                     onChange={(ns) => {
                                       const next = structuredClone(arvore) as PtArvore;
                                       next.subcolecoes[si].linhas[li].slots[sli] = ns;
