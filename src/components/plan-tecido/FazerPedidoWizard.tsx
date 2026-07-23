@@ -7,6 +7,7 @@ import { NumberInput } from "@/components/shared/NumberInput";
 import { DateField } from "@/components/shared/DateField";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { Button } from "@/components/ui/button";
+import { ResponsavelSelect } from "@/components/shared/ResponsavelSelect";
 import { X } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription,
@@ -30,7 +31,7 @@ export type PreviaRpc = {
 type Pagina = { fornecedor: PreviaFornecedorRpc; itens: PreviaItemRpc[] };
 type Resposta = {
   data: string; prazo: string; qtd: Record<string, number>;
-  responsavel: string; obs: string; entregas: string[]; // entregas = datas do parcelamento de ENTREGA
+  responsavel: string; responsavelId: string | null; obs: string; entregas: string[]; // entregas = datas do parcelamento de ENTREGA
 };
 
 const keyItem = (it: PreviaItemRpc) => `${it.artigo_id}|${it.variante_tecido_id}`;
@@ -56,7 +57,7 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
   const [respostas, setRespostas] = useState<Record<number, Resposta>>(() => {
     const r: Record<number, Resposta> = {};
     paginas.forEach((pg, i) => {
-      r[i] = { data: "", prazo: "", responsavel: "", obs: "", entregas: [], qtd: Object.fromEntries(pg.itens.map((it) => [keyItem(it), it.qtd])) };
+      r[i] = { data: "", prazo: "", responsavel: "", responsavelId: null, obs: "", entregas: [], qtd: Object.fromEntries(pg.itens.map((it) => [keyItem(it), it.qtd])) };
     });
     return r;
   });
@@ -81,6 +82,7 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
           prazo_pagamento: rr.prazo || null,
           quantidade_prazos: rr.prazo ? nParcelas(rr.prazo) : 1,
           responsavel_nome: rr.responsavel || null,
+          responsavel_id: rr.responsavelId || null,
           observacoes_entrega: rr.obs || null,
           parcelas_recebimento: rr.entregas.filter(Boolean).map((d) => ({ data: d, recebido: false })),
           itens: p.itens
@@ -140,8 +142,8 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
               </div>
               <div className="col-span-2">
                 <div className="text-[10px] text-muted-foreground">Responsável pelo pedido</div>
-                <input className="h-9 w-full rounded border bg-background px-2 text-sm" value={resp.responsavel}
-                  onChange={(e) => setResp({ responsavel: e.target.value })} placeholder="Quem está pedindo" />
+                <ResponsavelSelect nome={resp.responsavel} id={resp.responsavelId}
+                  onChange={(n, cid) => setResp({ responsavel: n ?? "", responsavelId: cid ?? null })} />
               </div>
             </div>
 
