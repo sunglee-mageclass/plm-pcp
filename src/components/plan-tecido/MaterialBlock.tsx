@@ -51,7 +51,7 @@ export function MaterialBlock({ material, onChange, onRemove }: { material: PtMa
         </select>
         <div className="ml-auto flex items-center gap-1 text-xs">
           <span className="text-muted-foreground">consumo</span>
-          <NumberInput className="h-7 w-16 text-right" value={material.consumo} onChange={(e) => onChange({ ...material, consumo: Number(e.target.value) || 0 })} />
+          <NumberInput blankZero placeholder="0" className="h-7 w-16 text-right" value={material.consumo} onChange={(e) => onChange({ ...material, consumo: Number(e.target.value) || 0 })} />
           <span className="text-muted-foreground">m</span>
         </div>
         <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onRemove}><X className="h-3 w-3" /></Button>
@@ -68,10 +68,10 @@ export function MaterialBlock({ material, onChange, onRemove }: { material: PtMa
                 <VarianteSwatch nome={v.cor?.nome ?? undefined} />
                 <span className="min-w-0 flex-1 truncate">{labelVarianteRow(v)}</span>
                 {on && material.tipo === "tecido" && (
-                  <NumberInput integer className="h-7 w-14 text-right" value={pv?.grade_total ?? 0} onChange={(e) => setVar(v.id, { grade_total: Number(e.target.value) || 0 })} />
+                  <NumberInput integer blankZero placeholder="0" className="h-7 w-14 text-right" value={pv?.grade_total ?? 0} onChange={(e) => setVar(v.id, { grade_total: Number(e.target.value) || 0 })} />
                 )}
                 {on && material.tipo === "forro" && (
-                  <NumberInput className="h-7 w-14 text-right" value={pv?.multiplicador ?? 1} onChange={(e) => setVar(v.id, { multiplicador: Number(e.target.value) || 0 })} />
+                  <NumberInput blankZero placeholder="1" className="h-7 w-14 text-right" value={pv?.multiplicador ?? 1} onChange={(e) => setVar(v.id, { multiplicador: Number(e.target.value) || 0 })} />
                 )}
               </div>
             );

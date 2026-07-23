@@ -24,7 +24,7 @@ export function GradeSection({ slot, onChange }: { slot: PtSlot; onChange: (s: P
       <div className="flex flex-wrap gap-1">
         {Object.entries(proporcao).map(([tam, q]) => (
           <div key={tam} className="flex flex-col items-center rounded border px-2 py-1">
-            <NumberInput integer className="h-6 w-10 text-center" value={q}
+            <NumberInput integer blankZero placeholder="0" className="h-6 w-10 text-center" value={q}
               onChange={(e) => {
                 const next = { ...proporcao, [tam]: Number(e.target.value) || 0 };
                 // proporção fica no slot só como referência de exibição (não escreve no modelo — A.1)

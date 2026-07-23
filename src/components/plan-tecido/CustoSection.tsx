@@ -37,14 +37,14 @@ export function CustoSection({ slot, onChange }: { slot: PtSlot; onChange: (s: P
       <div className="grid grid-cols-2 gap-2">
         <RO label="Custo de tecido (auto)" value={brl(custoTecido)} />
         <div><div className="text-[10px] text-muted-foreground">Materiais (edita)</div>
-          <NumberInput className="h-7 w-full text-right" value={materiais} onChange={(e) => onChange({ ...slot, custo_simulado: { ...cs, materiais: Number(e.target.value) || 0 } })} /></div>
+          <NumberInput blankZero placeholder="0,00" className="h-7 w-full text-right" value={materiais} onChange={(e) => onChange({ ...slot, custo_simulado: { ...cs, materiais: Number(e.target.value) || 0 } })} /></div>
         <div><div className="text-[10px] text-muted-foreground">Mão de obra prevista</div>
-          <NumberInput className="h-7 w-full text-right" value={maoObra} onChange={(e) => onChange({ ...slot, custo_terceirizados_previsto: Number(e.target.value) || 0 })} /></div>
+          <NumberInput blankZero placeholder="0,00" className="h-7 w-full text-right" value={maoObra} onChange={(e) => onChange({ ...slot, custo_terceirizados_previsto: Number(e.target.value) || 0 })} /></div>
         <RO label="Custo total" value={brl(custoTotal)} />
         <RO label="Markup (linha)" value={markup > 0 ? `${markup.toFixed(2)}×` : "—"} />
         <RO label="Preço sugerido" value={pi.sugerido > 0 ? brl(pi.sugerido) : "—"} />
         <div className="col-span-2"><div className="text-[10px] text-muted-foreground">Preço p/ venda</div>
-          <NumberInput className="h-7 w-full text-right" value={slot.preco_venda ?? 0} onChange={(e) => onChange({ ...slot, preco_venda: Number(e.target.value) || 0 })} /></div>
+          <NumberInput blankZero placeholder={pi.sugerido > 0 ? brl(pi.sugerido) : "0,00"} className="h-7 w-full text-right" value={slot.preco_venda ?? 0} onChange={(e) => onChange({ ...slot, preco_venda: Number(e.target.value) || 0 })} /></div>
       </div>
       {markup <= 0 && (
         <div className="mt-1 text-[9px] text-muted-foreground">Sem markup na linha do modelo → preço sugerido indisponível; use o preço p/ venda.</div>

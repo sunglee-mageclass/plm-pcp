@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { fmtNumEdit } from "@/lib/format";
 
-type InputProps = React.ComponentPropsWithoutRef<typeof Input> & { integer?: boolean };
+type InputProps = React.ComponentPropsWithoutRef<typeof Input> & { integer?: boolean; blankZero?: boolean };
 
 /**
  * Campo numérico apenas-digitável: sem setas de incremento, permite apagar /
@@ -14,12 +14,16 @@ type InputProps = React.ComponentPropsWithoutRef<typeof Input> & { integer?: boo
  *
  * `integer`: só dígitos, sem casas decimais (ex.: grade em peças) — exibe 1.234
  * (sem ,00) e bloqueia separador decimal na digitação.
+ *
+ * `blankZero`: trata o valor 0 como vazio na EXIBIÇÃO — o campo fica em branco
+ * mostrando o `placeholder` (em vez de um "0" fixo). O valor armazenado segue 0.
  */
 export const NumberInput = forwardRef<HTMLInputElement, InputProps>(function NumberInput(
-  { value, onChange, onFocus, onBlur, integer, ...rest },
+  { value, onChange, onFocus, onBlur, integer, blankZero, ...rest },
   ref,
 ) {
-  const isEmpty = (v: InputProps["value"]) => v === undefined || v === null || (v as unknown) === "";
+  const isEmpty = (v: InputProps["value"]) =>
+    v === undefined || v === null || (v as unknown) === "" || (blankZero === true && Number(v) === 0);
   const asInt = (v: InputProps["value"]) => {
     const num = Number(v);
     return Number.isNaN(num) ? "" : Math.trunc(num).toLocaleString("pt-BR");

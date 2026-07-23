@@ -181,6 +181,8 @@ function FormAplicarTecido({
             <div className="flex items-center gap-2">
               <label className="text-xs font-medium">Consumo</label>
               <NumberInput
+                blankZero
+                placeholder="0"
                 className="h-8 w-20 text-right"
                 value={consumo}
                 onChange={(e) => setConsumo(Number(e.target.value) || 0)}
@@ -819,6 +821,8 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                               </td>
                               <td className="py-1.5 pr-2">
                                 <NumberInput
+                                  blankZero
+                                  placeholder="0"
                                   className="h-7 w-20 text-right"
                                   value={it.qtd_editada}
                                   onChange={(e) => {
