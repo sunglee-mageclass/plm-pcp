@@ -55,4 +55,28 @@ describe("plan-tecido/engine", () => {
     expect(slots[1].modelo_id).toBeNull();
     expect(slots[2].modelo_id).toBeNull();
   });
+
+  it("mergeArvore: slot salvo VAZIO não apaga o modelo semeado (bug do plano pré-semeadura)", () => {
+    const seed = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0,
+      slots: [{ modelo_id: "M1", slot_index: 0, ref: "REF1", custos_adicionais: [], materiais: [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1.4, loss_percent: 0, ordem: 0, variantes: [] }] }] }] }] };
+    const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0,
+      slots: [{ modelo_id: null, slot_index: 0, custos_adicionais: [], materiais: [] }] }] }] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    const slot = merged.subcolecoes[0].linhas[0].slots[0];
+    expect(slot.modelo_id).toBe("M1");
+    expect(slot.materiais).toHaveLength(1);
+    expect(slot.ref).toBe("REF1");
+  });
+
+  it("mergeArvore: slot salvo COM dados vence, preservando identidade do seed", () => {
+    const seed = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0,
+      slots: [{ modelo_id: "M1", slot_index: 0, ref: "REF1", proporcoes: { M: 1 }, custos_adicionais: [], materiais: [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [] }] }] }] }] };
+    const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0,
+      slots: [{ modelo_id: "M1", slot_index: 0, custo_terceirizados_previsto: 9, custos_adicionais: [], materiais: [{ artigo_id: "B", tipo: "tecido" as const, numero: 1, consumo: 2, loss_percent: 0, ordem: 0, variantes: [] }] }] }] }] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    const slot = merged.subcolecoes[0].linhas[0].slots[0];
+    expect(slot.materiais[0].artigo_id).toBe("B");
+    expect(slot.ref).toBe("REF1");
+    expect(slot.custo_terceirizados_previsto).toBe(9);
+  });
 });

@@ -141,6 +141,10 @@ export function semearArvore(input: SeedInput): PtArvore {
 
 const lnKeyOf = (l: { linha_id: string | null; categoria_id: string | null }) => `${l.linha_id ?? ""}|${l.categoria_id ?? ""}`;
 
+// Um slot salvo só tem "dados do usuário" se estiver ligado a um modelo OU tiver material.
+// Slot salvo VAZIO (plano antigo pré-semeadura) NÃO deve sobrescrever o modelo semeado.
+const savedTemDados = (s?: PtSlot): boolean => !!s && (!!s.modelo_id || (s.materiais?.length ?? 0) > 0);
+
 export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
   if (!salvo) return seed;
   return {
@@ -152,7 +156,19 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
       return { ...s, id: ss.id, linhas: s.linhas.map((l) => {
         const sl = ss.linhas.find((x) => lnKeyOf(x) === lnKeyOf(l));
         if (!sl) return l;
-        return { ...l, id: sl.id, slots: l.slots.map((slot, i) => sl.slots[i] ? { ...slot, ...sl.slots[i] } : slot) };
+        return { ...l, id: sl.id, slots: l.slots.map((slot, i) => {
+          const saved = sl.slots[i];
+          if (!savedTemDados(saved)) return slot; // não deixa slot salvo vazio apagar o modelo semeado
+          // salvo tem dados do usuário: usa o salvo, mas preserva a identidade do seed onde o salvo não tem
+          return {
+            ...slot, ...saved,
+            modelo_id: saved.modelo_id ?? slot.modelo_id,
+            ref: saved.ref ?? slot.ref,
+            nome: saved.nome ?? slot.nome,
+            proporcoes: saved.proporcoes ?? slot.proporcoes,
+            materiais: (saved.materiais?.length ? saved.materiais : slot.materiais),
+          };
+        }) };
       }) };
     }),
   };
