@@ -1,3 +1,5 @@
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore } from "@/lib/plan-tecido/types";
 import { necessidadePorTecido, custoMateriaisPrevisto } from "@/lib/plan-tecido/calc";
 import { precoInfo } from "@/lib/preco";
@@ -43,13 +45,24 @@ export function ResumoPanel({ arvore }: { arvore: PtArvore }) {
   const necEstoque = necessidadePorTecido(arvore, (s) => !!(s.usar_estoque ?? false));
   const temEstoque = necEstoque.some((t) => t.totalMetros > 0);
 
+  // markup por linha (linhas.markup) — p/ o preço sugerido no efetivo
+  const { data: markupMap = {} } = useQuery({
+    queryKey: ["plan-tecido-linhas-markup"],
+    queryFn: async () => {
+      const rows = ((await supabase.from("linhas").select("id, markup")).data ?? []) as { id: string; markup: number | null }[];
+      return Object.fromEntries(rows.map((r) => [r.id, Number(r.markup) || 0])) as Record<string, number>;
+    },
+  });
+
   // poder de venda previsto = Σ (preço efetivo × grade_total) por slot
+  // efetivo = preço p/ venda (se houver) OU preço sugerido (custo × markup da linha, arredondado)
   let pv = 0;
   for (const sub of arvore.subcolecoes) for (const ln of sub.linhas) for (const slot of ln.slots) {
     const tec1 = slot.materiais.find((m) => m.tipo === "tecido" && m.numero === 1);
     const grade = (tec1?.variantes ?? []).reduce((s, v) => s + (v.grade_total || 0), 0);
     const custo = custoMateriaisPrevisto(slot) + (Number(slot.custo_terceirizados_previsto) || 0);
-    pv += precoInfo(custo, 0, slot.preco_venda ?? null).efetivo * grade;
+    const markup = slot.linha_id ? (markupMap[slot.linha_id] ?? 0) : 0;
+    pv += precoInfo(custo, markup, slot.preco_venda ?? null).efetivo * grade;
   }
 
   return (

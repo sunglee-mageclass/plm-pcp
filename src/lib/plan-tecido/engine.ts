@@ -77,6 +77,7 @@ export function slotDeModeloReal(mr: ModeloReal, slotIndex: number): PtSlot {
     proporcoes: mr.proporcoes ?? null,
     custos_adicionais: [],
     categoria_id: mr.categoria_id ?? null,
+    linha_id: mr.linha_id ?? null,
     materiais,
   };
 }
@@ -169,6 +170,7 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
             nome: saved.nome ?? slot.nome,
             thumb_path: saved.thumb_path ?? slot.thumb_path,
             categoria_id: saved.categoria_id ?? slot.categoria_id,
+            linha_id: saved.linha_id ?? slot.linha_id,
             proporcoes: saved.proporcoes ?? slot.proporcoes,
             materiais: (saved.materiais?.length ? saved.materiais : slot.materiais),
           };
