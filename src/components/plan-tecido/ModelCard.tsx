@@ -234,8 +234,19 @@ export function ModelCard({
             {colecaoId && (
               <div className="border-t px-2 py-1">
                 {slot.modelo_id ? (
-                  <div className="text-[10px] text-muted-foreground">✓ Ligado a um card do Planejamento</div>
+                  // card existe → aplicar grade nele
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full text-xs"
+                    disabled={gradeDisabled}
+                    title={gradeTitle}
+                    onClick={() => setConfirmGrade(true)}
+                  >
+                    {aplicandoGrade ? "Aplicando…" : "Aplicar grade ao modelo"}
+                  </Button>
                 ) : (
+                  // card ainda não existe → criar
                   <Button
                     variant="outline"
                     size="sm"
@@ -299,18 +310,6 @@ export function ModelCard({
                 <AccordionTrigger className="py-2 text-xs">2. Grade</AccordionTrigger>
                 <AccordionContent>
                   <GradeSection slot={slot} onChange={onChange} />
-                  <div className="mt-2 border-t pt-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="w-full text-xs"
-                      disabled={gradeDisabled}
-                      title={gradeTitle}
-                      onClick={() => setConfirmGrade(true)}
-                    >
-                      {aplicandoGrade ? "Aplicando…" : "Aplicar grade ao modelo"}
-                    </Button>
-                  </div>
                 </AccordionContent>
               </AccordionItem>
               <AccordionItem value="custo">

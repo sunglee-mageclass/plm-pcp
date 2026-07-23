@@ -498,7 +498,6 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
       <SheetContent side="right" className="w-full sm:max-w-[70vw] flex flex-col p-0 max-sm:[&>button]:hidden">
         <div className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background p-3">
           <Breadcrumb items={[{ label: "Estilo & Engenharia" }, { label: "Plan. Tecido" }, { label: colecao?.nome ?? "…" }]} />
-          <UnsavedIndicator show={dirty} />
           <div className="ml-auto hidden items-center rounded-md border p-0.5 md:flex">
             <button
               className={`rounded px-2 py-1 text-xs font-medium transition-colors ${viewMode === "linha" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
@@ -538,6 +537,13 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
             {dirty ? "Salvar" : "Salvo"}
           </Button>
         </div>
+
+        {/* indicador "alterações não salvas" flutuante (canto inferior direito, desktop) */}
+        {dirty && (
+          <div className="pointer-events-none fixed bottom-4 right-4 z-20 hidden md:block">
+            <UnsavedIndicator show={dirty} />
+          </div>
+        )}
 
         {/* Barra de seleção múltipla */}
         {selecao.size > 0 && (
@@ -622,17 +628,24 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                           Nenhum tecido configurado.
                         </div>
                       );
+                    // modelos por artigo (contagem) e por (artigo|variante) (lista de nomes)
                     const modelosPorArtigo = new Map<string, Set<string>>();
+                    const modelosPorVariante = new Map<string, { nome: string; ref: string | null }[]>();
                     for (const sub of arvore.subcolecoes)
                       for (const ln of sub.linhas)
                         for (const slot of ln.slots) {
+                          const rotulo = { nome: slot.nome ?? "Modelo sem nome", ref: slot.ref ?? null };
                           for (const mat of slot.materiais) {
                             if (!mat.artigo_id) continue;
-                            if (!modelosPorArtigo.has(mat.artigo_id))
-                              modelosPorArtigo.set(mat.artigo_id, new Set());
-                            modelosPorArtigo
-                              .get(mat.artigo_id)!
+                            if (!modelosPorArtigo.has(mat.artigo_id)) modelosPorArtigo.set(mat.artigo_id, new Set());
+                            modelosPorArtigo.get(mat.artigo_id)!
                               .add(slot.modelo_id ?? `${sub.subcolecao_id}-${ln.linha_id}-${ln.slots.indexOf(slot)}`);
+                            for (const v of mat.variantes) {
+                              if (!v.variante_tecido_id || (v.grade_total || 0) <= 0) continue;
+                              const k = `${mat.artigo_id}|${v.variante_tecido_id}`;
+                              if (!modelosPorVariante.has(k)) modelosPorVariante.set(k, []);
+                              modelosPorVariante.get(k)!.push(rotulo);
+                            }
                           }
                         }
                     return nec.map((t) => (
@@ -649,12 +662,27 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                           </span>
                         </div>
                         <div className="divide-y">
-                          {t.variantes.map((v) => (
-                            <div key={v.variante_tecido_id} className="flex items-center justify-between px-3 py-1.5 text-xs">
-                              <span className="text-muted-foreground">{v.label || "—"}</span>
-                              <b>{v.metros.toFixed(0)} m</b>
-                            </div>
-                          ))}
+                          {t.variantes.map((v) => {
+                            const mods = modelosPorVariante.get(`${t.artigo_id}|${v.variante_tecido_id}`) ?? [];
+                            return (
+                              <div key={v.variante_tecido_id} className="px-3 py-1.5 text-xs">
+                                <div className="flex items-center justify-between">
+                                  <span className="flex items-center gap-1 text-muted-foreground">
+                                    <VarianteSwatch nome={v.cor_nome ?? v.label} />
+                                    {v.label || "—"}
+                                  </span>
+                                  <b>{v.metros.toFixed(0)} m</b>
+                                </div>
+                                {mods.length > 0 && (
+                                  <div className="mt-0.5 pl-4 text-[10px] text-muted-foreground">
+                                    {mods.map((m, i) => (
+                                      <span key={i}>{i > 0 ? " · " : ""}{m.nome}{m.ref ? ` (${m.ref})` : ""}</span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                         <div className="flex justify-between border-t px-3 py-1.5 text-xs font-semibold">
                           <span>Total</span>
@@ -665,7 +693,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                   })()
                 )}
               </div>
-              <div className="hidden w-56 shrink-0 md:block">
+              <div className="hidden w-56 shrink-0 md:block md:sticky md:top-3 md:self-start md:max-h-[calc(100dvh-1.5rem)] md:overflow-y-auto">
                 <ResumoPanel arvore={arvore} />
               </div>
             </div>

@@ -3,7 +3,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { NumberInput } from "@/components/shared/NumberInput";
 import type { PtSlot } from "@/lib/plan-tecido/types";
 
-const DEFAULT_PROP: Record<string, number> = { PP: 1, P: 1, M: 1, G: 1, GG: 1 };
+const SIZE_KEYS = ["PP", "P", "M", "G", "GG"];
+const PROP_VAZIA: Record<string, number> = Object.fromEntries(SIZE_KEYS.map((k) => [k, 0]));
 
 export function GradeSection({ slot, onChange }: { slot: PtSlot; onChange: (s: PtSlot) => void }) {
   const tec1 = slot.materiais.find((m) => m.tipo === "tecido" && m.numero === 1);
@@ -12,7 +13,8 @@ export function GradeSection({ slot, onChange }: { slot: PtSlot; onChange: (s: P
     enabled: !!slot.modelo_id,
     queryFn: async () => (((await supabase.from("modelos").select("proporcoes").eq("id", slot.modelo_id!).maybeSingle()).data as any)?.proporcoes ?? null) as Record<string, number> | null,
   });
-  const proporcao = prop ?? DEFAULT_PROP;
+  // Modelo avançado com proporção cadastrada → mostra ela; senão placeholder (0 = blankZero), NÃO "1".
+  const proporcao = prop && Object.keys(prop).length > 0 ? prop : PROP_VAZIA;
   const somaProp = Object.values(proporcao).reduce((s, n) => s + (Number(n) || 0), 0) || 1;
   const totalTec1 = (tec1?.variantes ?? []).reduce((s, v) => s + (v.grade_total || 0), 0);
 
