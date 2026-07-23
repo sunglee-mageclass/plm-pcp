@@ -8,7 +8,6 @@ import { DateField } from "@/components/shared/DateField";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { Button } from "@/components/ui/button";
 import { ResponsavelSelect } from "@/components/shared/ResponsavelSelect";
-import { X } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
@@ -31,7 +30,7 @@ export type PreviaRpc = {
 type Pagina = { fornecedor: PreviaFornecedorRpc; itens: PreviaItemRpc[] };
 type Resposta = {
   data: string; prazo: string; qtd: Record<string, number>;
-  responsavel: string; responsavelId: string | null; obs: string; entregas: string[]; // entregas = datas do parcelamento de ENTREGA
+  responsavel: string; responsavelId: string | null; obs: string; qtdReceb: number; // qtd de parcelas de recebimento (datas vêm no recebimento)
 };
 
 const keyItem = (it: PreviaItemRpc) => `${it.artigo_id}|${it.variante_tecido_id}`;
@@ -57,7 +56,7 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
   const [respostas, setRespostas] = useState<Record<number, Resposta>>(() => {
     const r: Record<number, Resposta> = {};
     paginas.forEach((pg, i) => {
-      r[i] = { data: "", prazo: "", responsavel: "", responsavelId: null, obs: "", entregas: [], qtd: Object.fromEntries(pg.itens.map((it) => [keyItem(it), it.qtd])) };
+      r[i] = { data: "", prazo: "", responsavel: "", responsavelId: null, obs: "", qtdReceb: 1, qtd: Object.fromEntries(pg.itens.map((it) => [keyItem(it), it.qtd])) };
     });
     return r;
   });
@@ -67,9 +66,6 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
   const resp = respostas[passo];
   const setResp = (patch: Partial<Resposta>) => setRespostas((prev) => ({ ...prev, [passo]: { ...prev[passo], ...patch } }));
   const setQtd = (k: string, v: number) => setResp({ qtd: { ...resp.qtd, [k]: v } });
-  const addEntrega = () => setResp({ entregas: [...resp.entregas, ""] });
-  const setEntrega = (i: number, v: string) => setResp({ entregas: resp.entregas.map((d, j) => (j === i ? v : d)) });
-  const delEntrega = (i: number) => setResp({ entregas: resp.entregas.filter((_, j) => j !== i) });
 
   const gerar = useMutation({
     mutationFn: async () => {
@@ -84,7 +80,7 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
           responsavel_nome: rr.responsavel || null,
           responsavel_id: rr.responsavelId || null,
           observacoes_entrega: rr.obs || null,
-          parcelas_recebimento: rr.entregas.filter(Boolean).map((d) => ({ data: d, recebido: false })),
+          parcelas_recebimento: Array.from({ length: Math.max(1, rr.qtdReceb) }, () => ({ data: "", recebido: false })),
           itens: p.itens
             .map((it) => ({ artigo_id: it.artigo_id, variante_tecido_id: it.variante_tecido_id, quantidade_pedida: rr.qtd[keyItem(it)] ?? 0, preco: it.preco, rendimento: it.rendimento }))
             .filter((it) => it.quantidade_pedida > 0),
@@ -147,25 +143,13 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
               </div>
             </div>
 
-            {/* parcelamento de ENTREGA (datas em que o tecido chega) */}
-            <div className="rounded border p-2">
-              <div className="mb-1 flex items-center justify-between">
-                <span className="text-[10px] font-medium text-muted-foreground">Parcelamento de entrega (datas previstas)</span>
-                <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={addEntrega}>+ parcela</Button>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <div className="text-[10px] text-muted-foreground">Qtd. parcelas de recebimento</div>
+                <NumberInput integer className="h-9 w-full text-right" value={resp.qtdReceb}
+                  onChange={(e) => setResp({ qtdReceb: Math.max(1, Math.min(24, Number(e.target.value) || 1)) })} />
+                <div className="mt-0.5 text-[10px] text-muted-foreground">as datas de cada entrega são preenchidas no recebimento</div>
               </div>
-              {resp.entregas.length === 0 ? (
-                <div className="text-[10px] text-muted-foreground">Sem parcelas — usa a data prevista acima. Adicione se a entrega for dividida.</div>
-              ) : (
-                <div className="space-y-1">
-                  {resp.entregas.map((d, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <span className="text-[10px] text-muted-foreground w-14">{i + 1}ª entrega</span>
-                      <div className="flex-1"><DateField value={d} onChange={(e) => setEntrega(i, e.target.value)} /></div>
-                      <button className="text-muted-foreground hover:text-foreground" onClick={() => delEntrega(i)} title="Remover"><X className="h-3.5 w-3.5" /></button>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
 
             <div>
