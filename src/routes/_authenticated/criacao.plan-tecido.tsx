@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Scissors } from "lucide-react";
 import { FilterButton } from "@/components/shared/filters";
 import { PlanTecidoSheet } from "@/components/plan-tecido/PlanTecidoSheet";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/criacao/plan-tecido")({
   component: () => (
@@ -49,6 +50,20 @@ function PlanTecidoListPage() {
   const { data: anos = [] } = useOpts("anos", "ano");
   const mesMap = useMemo(() => Object.fromEntries(meses.map((m) => [m.id, m.nome])), [meses]);
   const anoMap = useMemo(() => Object.fromEntries(anos.map((a) => [a.id, a.nome])), [anos]);
+
+  const { data: statusPedidos = [] } = useQuery({
+    queryKey: ["plan-tecido-status-pedidos"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("plan_tecido_status_pedidos" as any);
+      if (error) throw error;
+      return (data ?? []) as { colecao_id: string; status: "encomendado" | "entregue" }[];
+    },
+  });
+
+  const statusMap = useMemo(
+    () => new Map(statusPedidos.map((r) => [r.colecao_id, r.status])),
+    [statusPedidos],
+  );
 
   const [fMes, setFMes] = useState("all");
   const [fAno, setFAno] = useState("all");
@@ -109,7 +124,14 @@ function PlanTecidoListPage() {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {filtered.map((c) => (
           <button key={c.id} type="button" className="text-left" onClick={() => setOpenColecaoId(c.id)}>
-            <Card className="transition-shadow hover:shadow-md">
+            <Card className={cn(
+              "transition-shadow hover:shadow-md border-l-4",
+              statusMap.get(c.id) === "entregue"
+                ? "border-l-emerald-500"
+                : statusMap.get(c.id) === "encomendado"
+                  ? "border-l-amber-500"
+                  : "border-l-red-500",
+            )}>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">{c.nome}</CardTitle>
                 <p className="text-xs text-muted-foreground">{mesAno(c)}</p>
@@ -119,6 +141,13 @@ function PlanTecidoListPage() {
                 <Badge variant={c.status === "confirmada" ? "default" : "outline"}>
                   {c.status === "confirmada" ? "Confirmada" : "Rascunho"}
                 </Badge>
+                {statusMap.get(c.id) === "entregue" ? (
+                  <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300">Entregue</Badge>
+                ) : statusMap.get(c.id) === "encomendado" ? (
+                  <Badge className="bg-amber-100 text-amber-800 border-amber-300">Encomendado</Badge>
+                ) : (
+                  <Badge className="bg-red-100 text-red-800 border-red-300">Não pedido</Badge>
+                )}
               </CardContent>
             </Card>
           </button>
