@@ -370,7 +370,7 @@ returns jsonb language sql stable security definer set search_path to 'public' a
             'slots', coalesce((
               select jsonb_agg(jsonb_build_object(
                 'id', sl.id, 'modelo_id', sl.modelo_id, 'ref', m.ref, 'nome', coalesce(m.nome, sl.nome),
-                'thumb_path', (m.fotos_modelo->>0),
+                'thumb_path', (m.fotos_modelo)[1],  -- fotos_modelo é text[] (array 1-indexed), não jsonb
                 'custo_simulado', sl.custo_simulado,
                 'custo_terceirizados_previsto', sl.custo_terceirizados_previsto,
                 'custos_adicionais', sl.custos_adicionais, 'preco_venda', sl.preco_venda,

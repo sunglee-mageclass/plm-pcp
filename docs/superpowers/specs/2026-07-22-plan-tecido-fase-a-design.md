@@ -61,7 +61,9 @@ Hoje o OTB tem um **"Simulador de uso de OC"** (`src/components/otb/SimulacaoShe
 ## 5. Tela 1 — Lista de coleções
 
 - Query `["plan-tecido-colecoes"]` em `colecoes` (todas): `nome, mes_id, ano_id, tipo, status`.
-- Card por coleção: nome, mês/ano, tipo, status. **Sem badge de pedido** na A.1 (o ponto de status ganha lógica na Fase B).
+- Card por coleção: nome, mês/ano, tipo, status.
+- **Filtros** (reusa o padrão das outras telas): **mês**, **ano**, **status** (rascunho/confirmada), **tipo** (Orçamento/Poder de Venda). Client-side sobre as coleções carregadas; mês/ano de `meses`/`anos`.
+- **Status de PEDIDO (Fase B)**: indicado pela **cor da BORDA do card** (🔴 não pedido / 🟡 encomendado / 🟢 entregue), **não** por bolinha. Na A.1 **não** há indicador de pedido (sem placebo — lógica só após a Fase B gerar OCs).
 - Clicar → navega pra página do painel daquela coleção.
 
 ---

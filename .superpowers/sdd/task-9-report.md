@@ -1,4 +1,29 @@
-### Fix Report — Importar dados: review final (fixes 1–4)
+# Task 9 Report — Bloco de Material (Fase A.1)
+
+**Status:** CONCLUÍDO
+
+**Commit:** `596ae67` — feat(plan-tecido): bloco de material (artigo + variantes checkbox + consumo) (Fase A.1)
+
+**Build/tsc:** `npm run build` OK (5.04s) · `npx tsc --noEmit | grep TS2304` → "sem TS2304"
+
+**Ajustes vs brief:** Nenhum. `src/components/ui/checkbox.tsx` existe (shadcn) — importado exatamente como o brief especifica. Código aplicado verbatim.
+
+**Self-review:**
+- Toggle de checkbox atualiza `material.variantes` imutavelmente (filter/spread).
+- `prof/cor` (NumberInput integer, campo `grade_total`) exibido APENAS quando `on && tipo === "tecido"`.
+- `multiplicador` exibido APENAS quando `on && tipo === "forro"`.
+- Trocar artigo limpa `variantes: []` (evita referências a variantes de outro artigo).
+- Query de variantes só roda quando `material.artigo_id` está preenchido (`enabled: !!material.artigo_id`).
+
+**Concerns:** Nenhum estrutural. Lista de artigos não filtra por tipo tecido/forro (simplificação aceita da A.1) — mantido assim.
+
+**Arquivo modificado:** `src/components/plan-tecido/MaterialBlock.tsx`
+
+**Report:** `/Users/sunglee/PLM + Criação/plm-pcp/.superpowers/sdd/task-9-report.md`
+
+---
+
+### Fix Report — Importar dados: review final (fixes 1–4) [ANTERIOR]
 
 **Status:** DONE
 

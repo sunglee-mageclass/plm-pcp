@@ -6,6 +6,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
 import { labelVarianteRow } from "@/lib/variante";
+import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import type { PtMaterial, PtVariante } from "@/lib/plan-tecido/types";
 
 type ArtigoRow = { id: string; nome: string; unidade_medida: string | null; rendimento: number | null };
@@ -64,6 +65,7 @@ export function MaterialBlock({ material, onChange, onRemove }: { material: PtMa
             return (
               <div key={v.id} className={`flex items-center gap-2 border-t border-dashed py-1 text-xs ${on ? "" : "opacity-50"}`}>
                 <Checkbox checked={on} onCheckedChange={() => toggle(v.id)} className="h-4 w-4" />
+                <VarianteSwatch nome={v.cor?.nome ?? undefined} />
                 <span className="min-w-0 flex-1 truncate">{labelVarianteRow(v)}</span>
                 {on && material.tipo === "tecido" && (
                   <NumberInput integer className="h-7 w-14 text-right" value={pv?.grade_total ?? 0} onChange={(e) => setVar(v.id, { grade_total: Number(e.target.value) || 0 })} />

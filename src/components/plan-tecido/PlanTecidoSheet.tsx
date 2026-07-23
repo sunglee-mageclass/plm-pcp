@@ -306,6 +306,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
   // Aplica um material (Tecido 1) em todos os slots selecionados (estado local)
   function aplicarTecidoEmMassa(material: PtMaterial) {
     if (!arvore) return;
+    const n = selecao.size;
     const next = structuredClone(arvore) as PtArvore;
     for (let si = 0; si < next.subcolecoes.length; si++) {
       for (let li = 0; li < next.subcolecoes[si].linhas.length; li++) {
@@ -325,7 +326,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
     patch(next);
     setSelecao(new Set());
     setMostrarFormTecido(false);
-    toast.success(`Tecido aplicado a ${selecao.size} slot(s).`);
+    toast.success(`Tecido aplicado a ${n} slot(s).`);
   }
 
   return (
