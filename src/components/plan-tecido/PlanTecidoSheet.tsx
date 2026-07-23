@@ -16,6 +16,7 @@ import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { ChevronRight, ArrowLeft } from "lucide-react";
 import { semearComModelos, mergeArvore, type SeedInput, type ModeloReal, type ModeloRealMaterial } from "@/lib/plan-tecido/engine";
 import type { PtArvore } from "@/lib/plan-tecido/types";
+import { necessidadePorTecido } from "@/lib/plan-tecido/calc";
 import { ModelCard } from "@/components/plan-tecido/ModelCard";
 import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
 
@@ -26,6 +27,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
   const [arvore, setArvore] = useState<PtArvore | null>(null);
   const [dirty, setDirty] = useState(false);
   const [confirmSair, setConfirmSair] = useState(false);
+  const [viewMode, setViewMode] = useState<"linha" | "tecido">("linha");
 
   const { data: colecao } = useQuery({
     queryKey: ["plan-tecido-colecao", colecaoId],
@@ -144,11 +146,21 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
   return (
     <Sheet open onOpenChange={(o) => { if (!o) fechar(); }}>
       <SheetContent side="right" className="w-full sm:max-w-[70vw] flex flex-col p-0 max-sm:[&>button]:hidden">
-        {/* Header STICKY: breadcrumb + indicador de não salvo + Salvar */}
+        {/* Header STICKY: breadcrumb + toggle + indicador de não salvo + Salvar */}
         <div className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background p-3">
           <Breadcrumb items={[{ label: "Estilo & Engenharia" }, { label: "Plan. Tecido" }, { label: colecao?.nome ?? "…" }]} />
           <UnsavedIndicator show={dirty} />
-          <Button className="ml-auto max-sm:hidden" disabled={!dirty || salvarMut.isPending} onClick={() => salvarMut.mutate()}>{dirty ? "Salvar" : "Salvo"}</Button>
+          <div className="ml-auto hidden items-center rounded-md border p-0.5 md:flex">
+            <button
+              className={`rounded px-2 py-1 text-xs font-medium transition-colors ${viewMode === "linha" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              onClick={() => setViewMode("linha")}
+            >Por linha</button>
+            <button
+              className={`rounded px-2 py-1 text-xs font-medium transition-colors ${viewMode === "tecido" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              onClick={() => setViewMode("tecido")}
+            >Por tecido</button>
+          </div>
+          <Button className="max-sm:hidden" disabled={!dirty || salvarMut.isPending} onClick={() => salvarMut.mutate()}>{dirty ? "Salvar" : "Salvo"}</Button>
         </div>
 
         {!arvore ? (
@@ -157,31 +169,69 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
           <div className="flex flex-1 flex-col overflow-y-auto max-sm:pb-24">
             <div className="flex flex-1 gap-3 p-3">
               <div className="min-w-0 flex-1 space-y-2">
-                {arvore.subcolecoes.map((sub, si) => (
-                  <Collapsible key={sub.id ?? si} defaultOpen>
-                    <CollapsibleTrigger className="flex min-h-[44px] w-full items-center gap-2 rounded-md border px-3 text-sm font-medium [&[data-state=open]>svg]:rotate-90">
-                      <ChevronRight className="h-4 w-4 transition-transform" /> {nameOf(subNomes, sub.subcolecao_id) ?? "Sem subcoleção"}
-                    </CollapsibleTrigger>
-                    <CollapsibleContent className="pt-2">
-                      {sub.linhas.map((ln, li) => (
-                        <div key={ln.id ?? li} className="mb-2">
-                          <div className="mb-1 px-1 text-xs text-muted-foreground">
-                            {ln.linha_id ? (nameOf(linhaNomes, ln.linha_id) ?? "Linha") : ln.categoria_id ? (nameOf(catNomes, ln.categoria_id) ?? "Categoria") : "Sem classificação"}
+                {viewMode === "linha" ? (
+                  arvore.subcolecoes.map((sub, si) => (
+                    <Collapsible key={sub.id ?? si} defaultOpen>
+                      <CollapsibleTrigger className="flex min-h-[44px] w-full items-center gap-2 rounded-md border px-3 text-sm font-medium [&[data-state=open]>svg]:rotate-90">
+                        <ChevronRight className="h-4 w-4 transition-transform" /> {nameOf(subNomes, sub.subcolecao_id) ?? "Sem subcoleção"}
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="pt-2">
+                        {sub.linhas.map((ln, li) => (
+                          <div key={ln.id ?? li} className="mb-2">
+                            <div className="mb-1 px-1 text-xs text-muted-foreground">
+                              {ln.linha_id ? (nameOf(linhaNomes, ln.linha_id) ?? "Linha") : ln.categoria_id ? (nameOf(catNomes, ln.categoria_id) ?? "Categoria") : "Sem classificação"}
+                            </div>
+                            <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-2">
+                              {ln.slots.map((slot, sli) => (
+                                <ModelCard key={slot.id ?? sli} slot={slot} onChange={(ns) => {
+                                  const next = structuredClone(arvore) as PtArvore;
+                                  next.subcolecoes[si].linhas[li].slots[sli] = ns;
+                                  patch(next);
+                                }} />
+                              ))}
+                            </div>
                           </div>
-                          <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-2">
-                            {ln.slots.map((slot, sli) => (
-                              <ModelCard key={slot.id ?? sli} slot={slot} onChange={(ns) => {
-                                const next = structuredClone(arvore) as PtArvore;
-                                next.subcolecoes[si].linhas[li].slots[sli] = ns;
-                                patch(next);
-                              }} />
-                            ))}
-                          </div>
+                        ))}
+                      </CollapsibleContent>
+                    </Collapsible>
+                  ))
+                ) : (
+                  /* "Por tecido" — visão agrupada por artigo (read-only) */
+                  (() => {
+                    const nec = necessidadePorTecido(arvore);
+                    if (nec.length === 0) return (
+                      <div className="rounded-lg border p-4 text-sm text-muted-foreground">Nenhum tecido configurado.</div>
+                    );
+                    // count modelos por artigo
+                    const modelosPorArtigo = new Map<string, Set<string>>();
+                    for (const sub of arvore.subcolecoes) for (const ln of sub.linhas) for (const slot of ln.slots) {
+                      for (const mat of slot.materiais) {
+                        if (!mat.artigo_id) continue;
+                        if (!modelosPorArtigo.has(mat.artigo_id)) modelosPorArtigo.set(mat.artigo_id, new Set());
+                        modelosPorArtigo.get(mat.artigo_id)!.add(slot.modelo_id ?? `${sub.subcolecao_id}-${ln.linha_id}-${ln.slots.indexOf(slot)}`);
+                      }
+                    }
+                    return nec.map((t) => (
+                      <div key={t.artigo_id} className="rounded-lg border">
+                        <div className="flex items-center justify-between border-b px-3 py-2">
+                          <span className="text-sm font-medium">{t.artigo_nome}{t.unidade_medida === "kg" ? <span className="ml-1 text-[10px] text-muted-foreground">kg</span> : null}</span>
+                          <span className="text-[10px] text-muted-foreground">{modelosPorArtigo.get(t.artigo_id)?.size ?? 0} modelo(s)</span>
                         </div>
-                      ))}
-                    </CollapsibleContent>
-                  </Collapsible>
-                ))}
+                        <div className="divide-y">
+                          {t.variantes.map((v) => (
+                            <div key={v.variante_tecido_id} className="flex items-center justify-between px-3 py-1.5 text-xs">
+                              <span className="text-muted-foreground">{v.label || "—"}</span>
+                              <b>{v.metros.toFixed(0)} m</b>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex justify-between border-t px-3 py-1.5 text-xs font-semibold">
+                          <span>Total</span><span>{t.totalMetros.toFixed(0)} m</span>
+                        </div>
+                      </div>
+                    ));
+                  })()
+                )}
               </div>
               <div className="hidden w-56 shrink-0 md:block"><ResumoPanel arvore={arvore} /></div>
             </div>

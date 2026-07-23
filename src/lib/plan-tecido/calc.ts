@@ -1,4 +1,12 @@
-import type { PtArvore } from "./types";
+import type { PtArvore, PtSlot } from "./types";
+
+export function custoMateriaisPrevisto(slot: PtSlot): number {
+  // Σ (material.consumo × material.preco_por_metro) — ignores material without preco
+  return (slot.materiais ?? []).reduce((sum, mat) => {
+    if (!mat.preco_por_metro) return sum;
+    return sum + (Number(mat.consumo) || 0) * Number(mat.preco_por_metro);
+  }, 0);
+}
 
 export const necessidadeVariante = (consumo: number, gradeTotal: number, mult: number): number =>
   (Number(consumo) || 0) * (Number(gradeTotal) || 0) * (Number(mult) || 0);
@@ -18,11 +26,12 @@ export type NecTecido = {
   totalMetros: number;
 };
 
-export function necessidadePorTecido(arvore: PtArvore): NecTecido[] {
+export function necessidadePorTecido(arvore: PtArvore, filtroSlot?: (slot: PtSlot) => boolean): NecTecido[] {
   const byArtigo = new Map<string, NecTecido>();
   for (const sub of arvore.subcolecoes ?? []) {
     for (const ln of sub.linhas ?? []) {
       for (const slot of ln.slots ?? []) {
+        if (filtroSlot && !filtroSlot(slot)) continue;
         // Design D8: forro uses grade_total from Tecido 1 of the same slot
         const tecido1Total = (slot.materiais ?? [])
           .filter((m) => m.tipo === "tecido" && m.numero === 1)
