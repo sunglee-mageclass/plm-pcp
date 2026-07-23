@@ -36,12 +36,28 @@ export function MaterialBlock({ material, onChange, onRemove, paleta }: { materi
     if (marcada(vid)) {
       next = material.variantes.filter((v) => v.variante_tecido_id !== vid);
     } else {
-      const nova: PtVariante = { variante_tecido_id: vid, ordem: 0, multiplicador: 1, grades: {}, grade_total: 0 };
+      const row = variantesArtigo.find((x) => x.id === vid);
+      // carrega label + cor já na seleção (senão o Resumo mostra "—")
+      const nova: PtVariante = {
+        variante_tecido_id: vid, ordem: 0, multiplicador: 1, grades: {}, grade_total: 0,
+        label: row ? labelVarianteRow(row as any) : undefined,
+        cor_nome: row?.cor?.nome ?? null,
+      };
       next = [...material.variantes, nova];
     }
     // renumerate 1..n to avoid gaps that would violate uq_plan_var (material_id, ordem)
     next = next.map((v, i) => ({ ...v, ordem: i + 1 }));
     onChange({ ...material, variantes: next });
+  };
+
+  // ao escolher o tecido/forro, carrega nome/unidade/rendimento/preço (usado pelo Resumo e custo)
+  const escolherArtigo = (id: string) => {
+    const a = base.find((x) => x.id === id) ?? null;
+    onChange({
+      ...material, artigo_id: id || null, variantes: [],
+      artigo_nome: a?.nome ?? null, unidade_medida: a?.unidade_medida ?? null,
+      rendimento: a?.rendimento ?? null, preco_por_metro: a?.preco_por_metro ?? null,
+    });
   };
   const setVar = (vid: string, patch: Partial<PtVariante>) =>
     onChange({ ...material, variantes: material.variantes.map((v) => (v.variante_tecido_id === vid ? { ...v, ...patch } : v)) });
@@ -55,7 +71,7 @@ export function MaterialBlock({ material, onChange, onRemove, paleta }: { materi
           value={material.artigo_id ?? ""}
           disabled={paletaVazia && !material.artigo_id}
           title={paletaVazia && !material.artigo_id ? `Adicione ${rotulo}s em "Insumos da coleção" primeiro` : undefined}
-          onChange={(e) => onChange({ ...material, artigo_id: e.target.value || null, variantes: [] })}
+          onChange={(e) => escolherArtigo(e.target.value)}
         >
           <option value="">{paletaVazia && !material.artigo_id ? `Adicione ${rotulo}s em Insumos…` : `Escolher ${rotulo}…`}</option>
           {artigosVisiveis.map((a) => (<option key={a.id} value={a.id}>{a.nome}{a.unidade_medida === "kg" ? " [kg]" : ""}</option>))}

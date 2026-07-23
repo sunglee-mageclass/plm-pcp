@@ -105,7 +105,11 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
           <DialogTitle>Fazer pedido {total > 0 ? `— OC ${passo + 1} de ${total}` : ""}</DialogTitle>
           <DialogDescription>
             {total === 0
-              ? "Nada a pedir — sem déficit de tecido nesta coleção."
+              ? (previa.sem_fornecedor.length > 0
+                  ? "Há tecido a pedir, mas sem fornecedor cadastrado — defina o fornecedor do tecido no cadastro para gerar a OC."
+                  : previa.bloqueios.length > 0
+                    ? "Há tecido a pedir, mas bloqueado (ver abaixo)."
+                    : "Nada a pedir — sem déficit de tecido nesta coleção.")
               : `Fornecedor: ${pg.fornecedor.empresa_nome}${pg.fornecedor.representante_nome ? " · " + pg.fornecedor.representante_nome : ""}`}
           </DialogDescription>
         </DialogHeader>
