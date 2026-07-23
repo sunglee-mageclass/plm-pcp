@@ -13,10 +13,16 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog, DialogContent, DialogHeader, DialogFooter,
+  DialogTitle, DialogDescription,
+} from "@/components/ui/dialog";
+import { DateField } from "@/components/shared/DateField";
+import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
-import { ChevronRight, ArrowLeft } from "lucide-react";
+import { ChevronRight, ArrowLeft, ShoppingCart, Undo2 } from "lucide-react";
 import {
   semearComModelos, mergeArvore, type SeedInput, type ModeloReal, type ModeloRealMaterial,
 } from "@/lib/plan-tecido/engine";
@@ -26,6 +32,49 @@ import { ModelCard } from "@/components/plan-tecido/ModelCard";
 import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
 
 type Nome = { id: string; nome: string };
+
+// ---------- Prévia do pedido ----------
+type PreviaItemRpc = {
+  artigo_id: string;
+  artigo_nome: string;
+  unidade_medida: string;
+  rendimento: number | null;
+  variante_tecido_id: string;
+  label: string;
+  necessidade_m: number;
+  estoque_m: number;
+  deficit_m: number;
+  qtd: number;
+  unidade: string;
+  preco: number;
+};
+
+type PreviaFornecedorRpc = {
+  empresa_id: string;
+  representante_id: string | null;
+  empresa_nome: string;
+  representante_nome: string | null;
+  itens: PreviaItemRpc[];
+};
+
+type PreviaRpc = {
+  fornecedores: PreviaFornecedorRpc[];
+  sem_fornecedor: { artigo_id: string; artigo_nome: string }[];
+  bloqueios: { artigo_nome: string; motivo: string }[];
+};
+
+// Estado editável por fornecedor (qtd editável por item; data/prazo por fornecedor)
+type ItemEditado = PreviaItemRpc & { qtd_editada: number };
+
+type FornecedorEditado = {
+  empresa_id: string;
+  representante_id: string | null;
+  empresa_nome: string;
+  representante_nome: string | null;
+  data_prevista_entrega: string; // ISO yyyy-MM-dd ou ""
+  prazo_pagamento: string;       // texto, ex.: "30/60/90"
+  itens: ItemEditado[];
+};
 
 // Chave estável por slot (prefere o id do banco, senão usa índices)
 function chaveSlot(slotId: string | undefined, si: number, li: number, sli: number): string {
@@ -177,6 +226,11 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
   const [viewMode, setViewMode] = useState<"linha" | "tecido">("linha");
   const [selecao, setSelecao] = useState<Set<string>>(new Set());
   const [mostrarFormTecido, setMostrarFormTecido] = useState(false);
+  const [previaOpen, setPreviaOpen] = useState(false);
+  const [previaData, setPreviaData] = useState<PreviaRpc | null>(null);
+  const [previaEditada, setPreviaEditada] = useState<FornecedorEditado[]>([]);
+  const [previaLoading, setPreviaLoading] = useState(false);
+  const [desfazerOpen, setDesfazerOpen] = useState(false);
 
   const { data: colecao } = useQuery({
     queryKey: ["plan-tecido-colecao", colecaoId],
@@ -306,6 +360,61 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
     onError: (e) => toast.error(mensagemErro(e, "Não foi possível salvar.")),
   });
 
+  const fazerPedidoMut = useMutation({
+    mutationFn: async (pedidos: FornecedorEditado[]) => {
+      const payload = pedidos.map((f) => ({
+        empresa_id: f.empresa_id,
+        representante_id: f.representante_id,
+        data_prevista_entrega: f.data_prevista_entrega || null,
+        prazo_pagamento: f.prazo_pagamento || null,
+        quantidade_prazos: f.prazo_pagamento
+          ? f.prazo_pagamento.split("/").filter(Boolean).length
+          : 1,
+        itens: f.itens.map((it) => ({
+          artigo_id: it.artigo_id,
+          variante_tecido_id: it.variante_tecido_id,
+          quantidade_pedida: it.qtd_editada,
+          preco: it.preco,
+          rendimento: it.rendimento,
+        })),
+      }));
+      const { data, error } = await supabase.rpc("plan_tecido_fazer_pedido" as any, {
+        _colecao_id: colecaoId,
+        _pedidos: payload,
+      });
+      if (error) throw error;
+      return data as { criadas: number; ocs: string[] };
+    },
+    onSuccess: (result) => {
+      toast.success(`${result.criadas} OC(s) criada(s).`);
+      setPreviaOpen(false);
+      qc.invalidateQueries({ queryKey: ["ocs_tecido"] });
+      qc.invalidateQueries({ queryKey: ["plan-tecido-status-pedidos"] });
+      qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
+      qc.invalidateQueries({ queryKey: ["dash-estoque"] });
+    },
+    onError: (e) => toast.error(mensagemErro(e, "Não foi possível gerar os pedidos.")),
+  });
+
+  const desfazerPedidoMut = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.rpc("plan_tecido_desfazer_pedido" as any, {
+        _colecao_id: colecaoId,
+      });
+      if (error) throw error;
+      return data as number;
+    },
+    onSuccess: (removidas) => {
+      toast.success(`Pedido desfeito (${removidas} OC(s) removida(s)).`);
+      setDesfazerOpen(false);
+      qc.invalidateQueries({ queryKey: ["ocs_tecido"] });
+      qc.invalidateQueries({ queryKey: ["plan-tecido-status-pedidos"] });
+      qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
+      qc.invalidateQueries({ queryKey: ["dash-estoque"] });
+    },
+    onError: (e) => toast.error(mensagemErro(e, "Não foi possível desfazer o pedido.")),
+  });
+
   const patch = (next: PtArvore) => { setArvore(next); setDirty(true); };
   const fechar = () => { if (dirty) setConfirmSair(true); else onClose(); };
 
@@ -335,6 +444,35 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
     toast.success(`Tecido aplicado a ${n} slot(s).`);
   }
 
+  async function handleAbrirPrevia() {
+    setPreviaLoading(true);
+    try {
+      const { data, error } = await supabase.rpc("plan_tecido_previa_pedido" as any, {
+        _colecao_id: colecaoId,
+      });
+      if (error) throw error;
+      const rpc = data as PreviaRpc;
+      setPreviaData(rpc);
+      // Inicializa o estado editável: data e prazo em branco, qtd_editada = qtd da RPC
+      setPreviaEditada(
+        rpc.fornecedores.map((f) => ({
+          empresa_id: f.empresa_id,
+          representante_id: f.representante_id,
+          empresa_nome: f.empresa_nome,
+          representante_nome: f.representante_nome,
+          data_prevista_entrega: "",
+          prazo_pagamento: "",
+          itens: f.itens.map((it) => ({ ...it, qtd_editada: it.qtd })),
+        })),
+      );
+      setPreviaOpen(true);
+    } catch (e) {
+      toast.error(mensagemErro(e, "Não foi possível carregar a prévia do pedido."));
+    } finally {
+      setPreviaLoading(false);
+    }
+  }
+
   return (
     <Sheet open onOpenChange={(o) => { if (!o) fechar(); }}>
       <SheetContent side="right" className="w-full sm:max-w-[70vw] flex flex-col p-0 max-sm:[&>button]:hidden">
@@ -355,6 +493,27 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
               Por tecido
             </button>
           </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="max-sm:hidden"
+            disabled={desfazerPedidoMut.isPending}
+            onClick={() => setDesfazerOpen(true)}
+          >
+            <Undo2 className="mr-1 h-4 w-4" />
+            Desfazer pedido
+          </Button>
+          <Button
+            variant="default"
+            size="sm"
+            className="max-sm:hidden"
+            disabled={dirty || previaLoading}
+            title={dirty ? "Salve o plano antes de pedir" : undefined}
+            onClick={handleAbrirPrevia}
+          >
+            <ShoppingCart className="mr-1 h-4 w-4" />
+            {previaLoading ? "Carregando…" : "Fazer pedido"}
+          </Button>
           <Button className="max-sm:hidden" disabled={!dirty || salvarMut.isPending} onClick={() => salvarMut.mutate()}>
             {dirty ? "Salvar" : "Salvo"}
           </Button>
@@ -489,6 +648,23 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                 Voltar
               </Button>
               <Button
+                variant="outline"
+                size="sm"
+                disabled={desfazerPedidoMut.isPending}
+                onClick={() => setDesfazerOpen(true)}
+              >
+                <Undo2 className="h-4 w-4" />
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={dirty || previaLoading}
+                title={dirty ? "Salve antes de pedir" : undefined}
+                onClick={handleAbrirPrevia}
+              >
+                <ShoppingCart className="h-4 w-4" />
+              </Button>
+              <Button
                 className="ml-auto"
                 disabled={!dirty || salvarMut.isPending}
                 onClick={() => salvarMut.mutate()}
@@ -524,6 +700,181 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
             onCancelar={() => setMostrarFormTecido(false)}
           />
         </AlertDialog>
+
+        {/* AlertDialog: Desfazer pedido */}
+        <AlertDialog open={desfazerOpen} onOpenChange={setDesfazerOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Desfazer pedido?</AlertDialogTitle>
+              <AlertDialogDescription>
+                As OCs de tecido desta coleção serão removidas (apenas as não recebidas).
+                Essa ação não pode ser desfeita.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={desfazerPedidoMut.isPending}
+                onClick={() => desfazerPedidoMut.mutate()}
+              >
+                {desfazerPedidoMut.isPending ? "Desfazendo…" : "Desfazer"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* ===== Dialog: Prévia do pedido ===== */}
+        <Dialog open={previaOpen} onOpenChange={setPreviaOpen}>
+          <DialogContent className="max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>Prévia do pedido</DialogTitle>
+              <DialogDescription>
+                Revise os pedidos por fornecedor. Ajuste as quantidades antes de gerar as OCs.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="max-h-[60vh] overflow-y-auto space-y-6 py-2">
+              {/* Bloco por fornecedor */}
+              {previaEditada.map((f, fi) => (
+                <div key={f.empresa_id} className="rounded-lg border">
+                  <div className="border-b bg-muted/40 px-4 py-2">
+                    <p className="font-semibold text-sm">{f.empresa_nome}</p>
+                    {f.representante_nome && (
+                      <p className="text-xs text-muted-foreground">{f.representante_nome}</p>
+                    )}
+                  </div>
+                  <div className="p-3 space-y-3">
+                    <div className="flex flex-wrap gap-3">
+                      <div className="flex flex-col gap-1 flex-1 min-w-[160px]">
+                        <label className="text-xs font-medium">Data prevista de entrega</label>
+                        <DateField
+                          value={f.data_prevista_entrega}
+                          onChange={(e) => {
+                            setPreviaEditada((prev) =>
+                              prev.map((x, i) =>
+                                i === fi ? { ...x, data_prevista_entrega: e.target.value } : x,
+                              ),
+                            );
+                          }}
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1 flex-1 min-w-[120px]">
+                        <label className="text-xs font-medium">Prazo de pagamento</label>
+                        <input
+                          className="rounded border bg-background px-2 py-1.5 text-sm h-9"
+                          placeholder="ex: 30/60/90"
+                          value={f.prazo_pagamento}
+                          onChange={(e) =>
+                            setPreviaEditada((prev) =>
+                              prev.map((x, i) =>
+                                i === fi ? { ...x, prazo_pagamento: e.target.value } : x,
+                              ),
+                            )
+                          }
+                        />
+                      </div>
+                    </div>
+                    {/* Tabela de itens */}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b text-muted-foreground">
+                            <th className="py-1 text-left font-medium">Artigo</th>
+                            <th className="py-1 text-left font-medium">Variante</th>
+                            <th className="py-1 text-right font-medium">Necessidade</th>
+                            <th className="py-1 text-right font-medium">Estoque</th>
+                            <th className="py-1 text-right font-medium">Déficit</th>
+                            <th className="py-1 text-right font-medium">Qtd a pedir</th>
+                            <th className="py-1 text-left font-medium">Unid.</th>
+                            <th className="py-1 text-right font-medium">Preço</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {f.itens.map((it, ii) => (
+                            <tr key={`${it.artigo_id}-${it.variante_tecido_id}`}>
+                              <td className="py-1.5 pr-2">{it.artigo_nome}</td>
+                              <td className="py-1.5 pr-2">
+                                <VarianteSwatch nome={it.label} label={it.label} />
+                              </td>
+                              <td className="py-1.5 pr-2 text-right">{it.necessidade_m.toFixed(1)}</td>
+                              <td className="py-1.5 pr-2 text-right">{it.estoque_m.toFixed(1)}</td>
+                              <td className={`py-1.5 pr-2 text-right ${it.deficit_m > 0 ? "text-red-600 font-medium" : "text-muted-foreground"}`}>
+                                {it.deficit_m.toFixed(1)}
+                              </td>
+                              <td className="py-1.5 pr-2">
+                                <NumberInput
+                                  className="h-7 w-20 text-right"
+                                  value={it.qtd_editada}
+                                  onChange={(e) => {
+                                    const val = Number(e.target.value) || 0;
+                                    setPreviaEditada((prev) =>
+                                      prev.map((x, xi) =>
+                                        xi === fi
+                                          ? {
+                                              ...x,
+                                              itens: x.itens.map((item, iii) =>
+                                                iii === ii ? { ...item, qtd_editada: val } : item,
+                                              ),
+                                            }
+                                          : x,
+                                      ),
+                                    );
+                                  }}
+                                />
+                              </td>
+                              <td className="py-1.5 text-muted-foreground">{it.unidade}</td>
+                              <td className="py-1.5 text-right">
+                                {it.preco.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {/* Sem fornecedor */}
+              {previaData && previaData.sem_fornecedor.length > 0 && (
+                <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+                  <p className="text-sm font-medium text-red-700">Sem fornecedor cadastrado</p>
+                  <p className="mt-1 text-xs text-red-600">
+                    Cadastre o fornecedor para:{" "}
+                    {previaData.sem_fornecedor.map((s) => s.artigo_nome).join(", ")}.
+                    Esses tecidos não gerarão OC.
+                  </p>
+                </div>
+              )}
+
+              {/* Bloqueios */}
+              {previaData && previaData.bloqueios.length > 0 && (
+                <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+                  <p className="text-sm font-medium text-red-700">Bloqueios</p>
+                  <ul className="mt-1 space-y-0.5 text-xs text-red-600">
+                    {previaData.bloqueios.map((b, i) => (
+                      <li key={i}>{b.artigo_nome}: {b.motivo}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPreviaOpen(false)}>
+                Cancelar
+              </Button>
+              <Button
+                disabled={previaEditada.length === 0 || fazerPedidoMut.isPending}
+                onClick={() => fazerPedidoMut.mutate(previaEditada)}
+              >
+                {fazerPedidoMut.isPending
+                  ? "Gerando…"
+                  : `Gerar ${previaEditada.length} OC(s)`}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </SheetContent>
     </Sheet>
   );
