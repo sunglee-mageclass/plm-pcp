@@ -31,6 +31,8 @@ export type ModeloReal = {
   categoria_id: string | null;
   proporcoes: Record<string, number> | null;
   materiais: ModeloRealMaterial[];
+  // custo de materiais (Σ aviamentos/insumos do BOM) — pré-preenche custo_simulado.materiais (editável)
+  materiais_custo?: number;
   // grade por variante_numero (=ordem da variante): { grades, grade_total }
   grade: Record<number, { grades: Record<string, number>; grade_total: number }>;
 };
@@ -78,6 +80,8 @@ export function slotDeModeloReal(mr: ModeloReal, slotIndex: number): PtSlot {
     custos_adicionais: [],
     categoria_id: mr.categoria_id ?? null,
     linha_id: mr.linha_id ?? null,
+    // materiais (aviamentos/insumos) do desenvolvimento — editável em Custo & Preço
+    custo_simulado: mr.materiais_custo ? { materiais: mr.materiais_custo } : undefined,
     materiais,
   };
 }
@@ -123,6 +127,12 @@ export function semearComModelos(input: SeedComModelosInput): PtArvore {
     const faltam = Math.max(0, b.qtd) - ln.slots.length;
     for (let i = 0; i < faltam; i++) ln.slots.push(slotVazio(ln.slots.length));
   }
+
+  // 3) Markup vem da LINHA em que o card está (colocação = fonte do markup). Propaga a
+  //    linha do grupo p/ TODO slot (inclui os vazios), senão os vazios ficam sem markup.
+  for (const sub of subs.values())
+    for (const ln of sub.linhas)
+      if (ln.linha_id) for (const slot of ln.slots) slot.linha_id = ln.linha_id;
 
   return { colecao_id: input.colecao_id, subcolecoes: [...subs.values()] };
 }
@@ -172,6 +182,8 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
             categoria_id: saved.categoria_id ?? slot.categoria_id,
             linha_id: saved.linha_id ?? slot.linha_id,
             proporcoes: saved.proporcoes ?? slot.proporcoes,
+            // custo de materiais pré-preenchido do BOM não é apagado por save antigo (null)
+            custo_simulado: saved.custo_simulado ?? slot.custo_simulado,
             materiais: (saved.materiais?.length ? saved.materiais : slot.materiais),
           };
         }) };

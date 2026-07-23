@@ -290,7 +290,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
       ((await supabase
         .from("modelos")
         .select(
-          "id, ref, nome, subcolecao, linha_id, categoria_principal_id, proporcoes, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(cor:cor_id(nome)))), modelo_grades(variante_numero, grades, grade_total)",
+          "id, ref, nome, subcolecao, linha_id, categoria_principal_id, proporcoes, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(cor:cor_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total)",
         )
         .eq("colecao_id", colecaoId)).data ?? []) as any[],
   });
@@ -338,6 +338,8 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
         categoria_id: m.categoria_principal_id ?? null,
         proporcoes: (m.proporcoes ?? null) as Record<string, number> | null,
         materiais,
+        // custo de materiais = Σ aviamentos/insumos do desenvolvimento (custo_previsto)
+        materiais_custo: (m.modelo_aviamentos ?? []).reduce((s: number, a: any) => s + (Number(a.custo_previsto) || 0), 0),
         grade,
       };
     });
