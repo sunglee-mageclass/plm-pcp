@@ -270,12 +270,11 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
         id: m.id,
         ref: m.ref ?? null,
         nome: m.nome ?? null,
-        // hierarquia de imagem: croqui → desenho técnico → foto de modelo → foto de referência
+        // hierarquia de imagem: foto de modelo → desenho técnico → croqui → vazio
         thumb_path:
-          m.croqui_url ||
-          m.desenho_tecnico_url ||
           (Array.isArray(m.fotos_modelo) ? m.fotos_modelo[0] : null) ||
-          (Array.isArray(m.fotos_referencia) ? m.fotos_referencia[0] : null) ||
+          m.desenho_tecnico_url ||
+          m.croqui_url ||
           null,
         subcolecao: m.subcolecao ?? null,
         subcolecao_id: m.subcolecao ? (subIdPorNome.get(m.subcolecao) ?? null) : null,
