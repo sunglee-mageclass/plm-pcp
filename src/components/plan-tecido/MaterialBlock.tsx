@@ -10,15 +10,25 @@ import { labelVarianteRow } from "@/lib/variante";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import type { PtMaterial, PtVariante } from "@/lib/plan-tecido/types";
 
-type ArtigoRow = { id: string; nome: string; unidade_medida: string | null; rendimento: number | null };
+type ArtigoRow = { id: string; nome: string; unidade_medida: string | null; rendimento: number | null; categoria_tecido_id: string | null };
 type VarRow = { id: string; nome_variante: string | null; codigo_variante: string | null; cor: { nome: string | null } | null; apelido: { nome: string | null } | null };
 
 export function MaterialBlock({ material, onChange, onRemove, paletaIds }: { material: PtMaterial; onChange: (m: PtMaterial) => void; onRemove: () => void; paletaIds?: string[] }) {
   const [verTodos, setVerTodos] = useState(false);
   const { data: artigos = [] } = useQuery({
     queryKey: ["plan-tecido-artigos", material.tipo],
-    queryFn: async () => ((await supabase.from("artigos").select("id, nome, unidade_medida, rendimento").order("nome")).data ?? []) as ArtigoRow[],
+    queryFn: async () => ((await supabase.from("artigos").select("id, nome, unidade_medida, rendimento, categoria_tecido_id").order("nome")).data ?? []) as ArtigoRow[],
   });
+  // categoria do tecido (cadastrada no artigo) — reconhecida automaticamente
+  const { data: catTecido = {} } = useQuery({
+    queryKey: ["plan-tecido-cats-tecido"],
+    queryFn: async () => {
+      const rows = ((await supabase.from("categorias_tecido").select("id, nome")).data ?? []) as { id: string; nome: string }[];
+      return Object.fromEntries(rows.map((r) => [r.id, r.nome])) as Record<string, string>;
+    },
+  });
+  const artigoSel = artigos.find((a) => a.id === material.artigo_id) ?? null;
+  const categoriaNome = artigoSel?.categoria_tecido_id ? catTecido[artigoSel.categoria_tecido_id] : null;
   // paleta SOFT: mostra a paleta da coleção primeiro; artigo já escolhido sempre aparece; "ver todos" escapa
   const temPaleta = (paletaIds?.length ?? 0) > 0;
   const artigosVisiveis = !temPaleta || verTodos
@@ -60,6 +70,9 @@ export function MaterialBlock({ material, onChange, onRemove, paletaIds }: { mat
           <button type="button" className="shrink-0 text-[10px] text-muted-foreground underline hover:text-foreground" onClick={() => setVerTodos((v) => !v)}>
             {verTodos ? "só paleta" : "ver todos"}
           </button>
+        )}
+        {categoriaNome && (
+          <span className="shrink-0 rounded-full border bg-background px-2 py-0.5 text-[10px] text-muted-foreground" title="Categoria do tecido (cadastro)">{categoriaNome}</span>
         )}
         <div className="ml-auto flex items-center gap-1 text-xs">
           <span className="text-muted-foreground">consumo</span>

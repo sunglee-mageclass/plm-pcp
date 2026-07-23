@@ -5,6 +5,7 @@ import { necessidadePorTecido, custoMateriaisPrevisto } from "@/lib/plan-tecido/
 import { precoInfo } from "@/lib/preco";
 import { brl } from "@/lib/format";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
+import { PaletaColecao } from "./PaletaColecao";
 
 type EstoqueRow = { variante_tecido_id: string; fisico: number; a_receber: number; reservado: number; previsto: number };
 type EstoqueMap = Record<string, EstoqueRow>;
@@ -169,6 +170,7 @@ export function ResumoPanel({ arvore }: { arvore: PtArvore }) {
 
   return (
     <div className="space-y-2">
+      {arvore.colecao_id && <PaletaColecao colecaoId={arvore.colecao_id} />}
       <NecBlock
         titulo="A comprar (encomenda)"
         nec={necComprar}

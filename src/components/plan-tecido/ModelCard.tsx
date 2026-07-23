@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import type { PtSlot, PtMaterial } from "@/lib/plan-tecido/types";
-import { ChevronRight, ImageIcon } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { necessidadePorTecido, distribuirGrade } from "@/lib/plan-tecido/calc";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
@@ -16,16 +16,7 @@ import {
 import { MaterialBlock } from "./MaterialBlock";
 import { GradeSection } from "./GradeSection";
 import { CustoSection } from "./CustoSection";
-import { useSignedUrl } from "@/hooks/useSignedUrl";
-
-function ModeloThumb({ path }: { path?: string | null }) {
-  const url = useSignedUrl(path ?? null, "modelos");
-  return (
-    <div className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded bg-muted">
-      {url ? <img src={url} alt="" className="h-full w-full object-cover" /> : <ImageIcon className="h-4 w-4 text-muted-foreground" />}
-    </div>
-  );
-}
+import { ModeloThumb } from "./ModeloThumb";
 
 function novoMaterial(existentes: PtMaterial[], tipo: "tecido" | "forro"): PtMaterial {
   const numero = existentes.filter((m) => m.tipo === tipo).length + 1;
@@ -40,6 +31,7 @@ export function ModelCard({
   colecaoId,
   subcolecaoId,
   paletaIds,
+  tamanhos,
 }: {
   slot: PtSlot;
   onChange: (s: PtSlot) => void;
@@ -48,6 +40,7 @@ export function ModelCard({
   colecaoId?: string;
   subcolecaoId?: string | null;
   paletaIds?: string[];
+  tamanhos?: string[];
 }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -312,7 +305,7 @@ export function ModelCard({
               <AccordionItem value="grade">
                 <AccordionTrigger className="py-2 text-xs">2. Grade</AccordionTrigger>
                 <AccordionContent>
-                  <GradeSection slot={slot} onChange={onChange} />
+                  <GradeSection slot={slot} onChange={onChange} tamanhos={tamanhos} />
                 </AccordionContent>
               </AccordionItem>
               <AccordionItem value="custo">

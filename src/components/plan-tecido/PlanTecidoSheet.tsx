@@ -27,10 +27,10 @@ import {
   semearComModelos, mergeArvore, type SeedInput, type ModeloReal, type ModeloRealMaterial,
 } from "@/lib/plan-tecido/engine";
 import type { PtArvore, PtMaterial, PtVariante } from "@/lib/plan-tecido/types";
-import { necessidadePorTecido } from "@/lib/plan-tecido/calc";
 import { ModelCard } from "@/components/plan-tecido/ModelCard";
 import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
 import { PaletaColecao } from "@/components/plan-tecido/PaletaColecao";
+import { VisaoPorTecido } from "@/components/plan-tecido/VisaoPorTecido";
 
 type Nome = { id: string; nome: string };
 
@@ -294,6 +294,18 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
           "id, ref, nome, subcolecao, linha_id, categoria_principal_id, proporcoes, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(cor:cor_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total)",
         )
         .eq("colecao_id", colecaoId)).data ?? []) as any[],
+  });
+
+  // tamanhos da grade cadastrados na loja (tenant_config.tamanhos_grade, formato "34|PPP")
+  const { data: tamanhos = [] } = useQuery({
+    queryKey: ["plan-tecido-tamanhos"],
+    queryFn: async () => {
+      const raw = ((await supabase.from("tenant_config").select("tamanhos_grade").maybeSingle()).data as any)?.tamanhos_grade;
+      const arr = Array.isArray(raw) && raw.length > 0
+        ? raw.map((x: any) => (typeof x === "string" ? x : (x?.nome ?? x?.label ?? String(x))))
+        : ["34|PPP", "36|PP", "38|P", "40|M", "42|G", "44|GG"];
+      return arr as string[];
+    },
   });
 
   // paleta de insumos da coleção → escopa (soft) os dropdowns de artigo dos cards
@@ -572,7 +584,8 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
           <div className="flex flex-1 flex-col overflow-y-auto max-sm:pb-24">
             <div className="flex flex-1 gap-3 p-3">
               <div className="min-w-0 flex-1 space-y-2">
-                <PaletaColecao colecaoId={colecaoId} />
+                {/* mobile: Insumos aqui (no desktop vai no Resumo) */}
+                <div className="md:hidden"><PaletaColecao colecaoId={colecaoId} /></div>
                 {viewMode === "linha" ? (
                   arvore.subcolecoes.map((sub, si) => (
                     <Collapsible key={sub.id ?? si} defaultOpen>
@@ -605,6 +618,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                                     colecaoId={colecaoId}
                                     subcolecaoId={sub.subcolecao_id}
                                     paletaIds={paletaIds}
+                                    tamanhos={tamanhos}
                                     onChange={(ns) => {
                                       const next = structuredClone(arvore) as PtArvore;
                                       next.subcolecoes[si].linhas[li].slots[sli] = ns;
@@ -630,80 +644,10 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                     </Collapsible>
                   ))
                 ) : (
-                  (() => {
-                    const nec = necessidadePorTecido(arvore);
-                    if (nec.length === 0)
-                      return (
-                        <div className="rounded-lg border p-4 text-sm text-muted-foreground">
-                          Nenhum tecido configurado.
-                        </div>
-                      );
-                    // modelos por artigo (contagem) e por (artigo|variante) (lista de nomes)
-                    const modelosPorArtigo = new Map<string, Set<string>>();
-                    const modelosPorVariante = new Map<string, { nome: string; ref: string | null }[]>();
-                    for (const sub of arvore.subcolecoes)
-                      for (const ln of sub.linhas)
-                        for (const slot of ln.slots) {
-                          const rotulo = { nome: slot.nome ?? "Modelo sem nome", ref: slot.ref ?? null };
-                          for (const mat of slot.materiais) {
-                            if (!mat.artigo_id) continue;
-                            if (!modelosPorArtigo.has(mat.artigo_id)) modelosPorArtigo.set(mat.artigo_id, new Set());
-                            modelosPorArtigo.get(mat.artigo_id)!
-                              .add(slot.modelo_id ?? `${sub.subcolecao_id}-${ln.linha_id}-${ln.slots.indexOf(slot)}`);
-                            for (const v of mat.variantes) {
-                              if (!v.variante_tecido_id || (v.grade_total || 0) <= 0) continue;
-                              const k = `${mat.artigo_id}|${v.variante_tecido_id}`;
-                              if (!modelosPorVariante.has(k)) modelosPorVariante.set(k, []);
-                              modelosPorVariante.get(k)!.push(rotulo);
-                            }
-                          }
-                        }
-                    return nec.map((t) => (
-                      <div key={t.artigo_id} className="rounded-lg border">
-                        <div className="flex items-center justify-between border-b px-3 py-2">
-                          <span className="text-sm font-medium">
-                            {t.artigo_nome}
-                            {t.unidade_medida === "kg" ? (
-                              <span className="ml-1 text-[10px] text-muted-foreground">kg</span>
-                            ) : null}
-                          </span>
-                          <span className="text-[10px] text-muted-foreground">
-                            {modelosPorArtigo.get(t.artigo_id)?.size ?? 0} modelo(s)
-                          </span>
-                        </div>
-                        <div className="divide-y">
-                          {t.variantes.map((v) => {
-                            const mods = modelosPorVariante.get(`${t.artigo_id}|${v.variante_tecido_id}`) ?? [];
-                            return (
-                              <div key={v.variante_tecido_id} className="px-3 py-1.5 text-xs">
-                                <div className="flex items-center justify-between">
-                                  <span className="flex items-center gap-1 text-muted-foreground">
-                                    <VarianteSwatch nome={v.cor_nome ?? v.label} />
-                                    {v.label || "—"}
-                                  </span>
-                                  <b>{v.metros.toFixed(0)} m</b>
-                                </div>
-                                {mods.length > 0 && (
-                                  <div className="mt-0.5 pl-4 text-[10px] text-muted-foreground">
-                                    {mods.map((m, i) => (
-                                      <span key={i}>{i > 0 ? " · " : ""}{m.nome}{m.ref ? ` (${m.ref})` : ""}</span>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                        <div className="flex justify-between border-t px-3 py-1.5 text-xs font-semibold">
-                          <span>Total</span>
-                          <span>{t.totalMetros.toFixed(0)} m</span>
-                        </div>
-                      </div>
-                    ));
-                  })()
+                  <VisaoPorTecido arvore={arvore} />
                 )}
               </div>
-              <div className="hidden w-56 shrink-0 md:block md:sticky md:top-3 md:self-start md:max-h-[calc(100dvh-1.5rem)] md:overflow-y-auto">
+              <div className="hidden w-72 shrink-0 md:block md:sticky md:top-3 md:self-start md:max-h-[calc(100dvh-1.5rem)] md:overflow-y-auto">
                 <ResumoPanel arvore={arvore} />
               </div>
             </div>

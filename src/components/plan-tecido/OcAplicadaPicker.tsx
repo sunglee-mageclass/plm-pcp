@@ -9,7 +9,8 @@ import {
   Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
 
-type OcRow = { id: string; numero_pedido: string | null; status: string | null };
+type OcItem = { artigo: { nome: string | null } | null; cancelado: boolean | null };
+type OcRow = { id: string; numero_pedido: string | null; status: string | null; itens: OcItem[] | null };
 
 /**
  * "Aplicar OC" (Fase C, atribuição): escolhe OCs reais cujo consumo é DESTACADO no Resumo
@@ -26,10 +27,13 @@ export function OcAplicadaPicker({ colecaoId }: { colecaoId: string }) {
     queryFn: async () =>
       ((await supabase
         .from("ocs_tecido")
-        .select("id, numero_pedido, status")
+        .select("id, numero_pedido, status, itens:ocs_tecido_itens(cancelado, artigo:artigo_id(nome))")
         .neq("is_rolo", true)
-        .order("data_pedido", { ascending: false })).data ?? []) as OcRow[],
+        .order("data_pedido", { ascending: false })).data ?? []) as unknown as OcRow[],
   });
+  // tecidos (artigos) que cada OC contém — distinct, ignorando itens cancelados
+  const tecidosDaOc = (oc: OcRow) =>
+    [...new Set((oc.itens ?? []).filter((i) => !i.cancelado && i.artigo?.nome).map((i) => i.artigo!.nome as string))];
 
   // seleção já aplicada (persistida)
   const { data: aplicadas = [] } = useQuery({
@@ -95,10 +99,19 @@ export function OcAplicadaPicker({ colecaoId }: { colecaoId: string }) {
               <div className="p-3 text-xs text-muted-foreground">Nenhuma OC de tecido cadastrada.</div>
             ) : (
               ocs.map((oc) => (
-                <label key={oc.id} className="flex cursor-pointer items-center gap-2 border-b px-3 py-2 text-xs last:border-b-0">
-                  <Checkbox checked={sel.has(oc.id)} onCheckedChange={() => toggle(oc.id)} className="h-4 w-4" />
-                  <span className="flex-1 truncate">{oc.numero_pedido || oc.id.slice(0, 8)}</span>
-                  <span className="shrink-0 text-[10px] text-muted-foreground">{statusLabel(oc.status)}</span>
+                <label key={oc.id} className="flex cursor-pointer items-start gap-2 border-b px-3 py-2 text-xs last:border-b-0">
+                  <Checkbox checked={sel.has(oc.id)} onCheckedChange={() => toggle(oc.id)} className="mt-0.5 h-4 w-4" />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2">
+                      <span className="flex-1 truncate">{oc.numero_pedido || oc.id.slice(0, 8)}</span>
+                      <span className="shrink-0 text-[10px] text-muted-foreground">{statusLabel(oc.status)}</span>
+                    </span>
+                    {tecidosDaOc(oc).length > 0 && (
+                      <span className="block truncate text-[10px] text-muted-foreground" title={tecidosDaOc(oc).join(", ")}>
+                        {tecidosDaOc(oc).join(" · ")}
+                      </span>
+                    )}
+                  </span>
                 </label>
               ))
             )}
