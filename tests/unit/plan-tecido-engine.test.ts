@@ -68,15 +68,26 @@ describe("plan-tecido/engine", () => {
     expect(slot.ref).toBe("REF1");
   });
 
-  it("mergeArvore: slot salvo COM dados vence, preservando identidade do seed", () => {
+  it("mergeArvore: MODELO REAL usa o BOM VIVO do seed (a.1); campos de plano do salvo vencem", () => {
+    // modelo_id presente = card avançado: o BOM (materiais) reflete o Desenvolvimento (seed=vivo),
+    // não o snapshot salvo. Já custo/preço/proporção são do plano → salvo vence.
     const seed = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0,
       slots: [{ modelo_id: "M1", slot_index: 0, ref: "REF1", proporcoes: { M: 1 }, custos_adicionais: [], materiais: [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [] }] }] }] }] };
     const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0,
       slots: [{ modelo_id: "M1", slot_index: 0, custo_terceirizados_previsto: 9, custos_adicionais: [], materiais: [{ artigo_id: "B", tipo: "tecido" as const, numero: 1, consumo: 2, loss_percent: 0, ordem: 0, variantes: [] }] }] }] }] };
     const merged = mergeArvore(seed as any, salvo as any);
     const slot = merged.subcolecoes[0].linhas[0].slots[0];
-    expect(slot.materiais[0].artigo_id).toBe("B");
+    expect(slot.materiais[0].artigo_id).toBe("A"); // BOM vivo (seed) vence p/ modelo real
     expect(slot.ref).toBe("REF1");
-    expect(slot.custo_terceirizados_previsto).toBe(9);
+    expect(slot.custo_terceirizados_previsto).toBe(9); // campo de plano do salvo
+  });
+
+  it("mergeArvore: slot de PLANEJAMENTO (sem modelo) mantém o BOM salvo (rascunho)", () => {
+    const seed = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0,
+      slots: [{ modelo_id: null, slot_index: 0, custos_adicionais: [], materiais: [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [] }] }] }] }] };
+    const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0,
+      slots: [{ modelo_id: null, slot_index: 0, custos_adicionais: [], materiais: [{ artigo_id: "B", tipo: "tecido" as const, numero: 1, consumo: 2, loss_percent: 0, ordem: 0, variantes: [] }] }] }] }] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    expect(merged.subcolecoes[0].linhas[0].slots[0].materiais[0].artigo_id).toBe("B"); // rascunho salvo vence
   });
 });
