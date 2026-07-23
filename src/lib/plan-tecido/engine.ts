@@ -24,6 +24,7 @@ export type ModeloReal = {
   id: string;
   ref: string | null;
   nome: string | null;
+  thumb_path?: string | null;     // 1ª foto do modelo (fotos_modelo[0]) p/ a miniatura
   subcolecao: string | null;      // nome da subcoleção (modelos.subcolecao é texto)
   subcolecao_id: string | null;   // resolvido pelo chamador (nome → id do plano), se possível
   linha_id: string | null;
@@ -72,6 +73,7 @@ export function slotDeModeloReal(mr: ModeloReal, slotIndex: number): PtSlot {
     slot_index: slotIndex,
     ref: mr.ref ?? null,
     nome: mr.nome ?? null,
+    thumb_path: mr.thumb_path ?? null,
     proporcoes: mr.proporcoes ?? null,
     custos_adicionais: [],
     categoria_id: mr.categoria_id ?? null,

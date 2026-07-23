@@ -270,6 +270,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
         id: m.id,
         ref: m.ref ?? null,
         nome: m.nome ?? null,
+        thumb_path: Array.isArray(m.fotos_modelo) ? (m.fotos_modelo[0] ?? null) : null,
         subcolecao: m.subcolecao ?? null,
         subcolecao_id: m.subcolecao ? (subIdPorNome.get(m.subcolecao) ?? null) : null,
         linha_id: m.linha_id ?? null,

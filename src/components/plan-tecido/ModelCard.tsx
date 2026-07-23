@@ -16,6 +16,16 @@ import {
 import { MaterialBlock } from "./MaterialBlock";
 import { GradeSection } from "./GradeSection";
 import { CustoSection } from "./CustoSection";
+import { useSignedUrl } from "@/hooks/useSignedUrl";
+
+function ModeloThumb({ path }: { path?: string | null }) {
+  const url = useSignedUrl(path ?? null, "modelos");
+  return (
+    <div className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded bg-muted">
+      {url ? <img src={url} alt="" className="h-full w-full object-cover" /> : <ImageIcon className="h-4 w-4 text-muted-foreground" />}
+    </div>
+  );
+}
 
 function novoMaterial(existentes: PtMaterial[], tipo: "tecido" | "forro"): PtMaterial {
   const numero = existentes.filter((m) => m.tipo === tipo).length + 1;
@@ -122,9 +132,7 @@ export function ModelCard({
           onClick={() => setOpen((o) => !o)}
         >
           <ChevronRight className={`h-4 w-4 transition-transform ${open ? "rotate-90" : ""}`} />
-          <div className="flex h-7 w-7 items-center justify-center rounded bg-muted">
-            <ImageIcon className="h-4 w-4 text-muted-foreground" />
-          </div>
+          <ModeloThumb path={slot.thumb_path} />
           <div className={`min-w-0 ${onToggleSelect ? "ml-4" : ""}`}>
             <div className="truncate text-sm font-medium">{slot.ref ?? slot.nome ?? "Modelo"}</div>
             <div className="text-xs text-muted-foreground">
