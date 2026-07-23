@@ -5,34 +5,42 @@ import { necessidadePorTecido, custoMateriaisPrevisto } from "@/lib/plan-tecido/
 import { precoInfo } from "@/lib/preco";
 import { brl } from "@/lib/format";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
+import { OcAplicadaPicker } from "./OcAplicadaPicker";
 
 type EstoqueRow = { variante_tecido_id: string; fisico: number; a_receber: number; reservado: number; previsto: number };
 type EstoqueMap = Record<string, EstoqueRow>;
+type CoberturaMap = Record<string, number>; // variante → coberto_m (informativo)
 
 function NecBlock({
   titulo,
   nec,
   estoque,
+  cobertura,
+  header,
 }: {
   titulo: string;
   nec: ReturnType<typeof necessidadePorTecido>;
   estoque?: EstoqueMap; // quando presente, mostra a conta (estoque / a receber / falta)
+  cobertura?: CoberturaMap; // "coberto por estas OCs" (só informativo — não muda a falta)
+  header?: React.ReactNode; // ex.: seletor "Aplicar OC"
 }) {
   const totalNec = nec.reduce((s, t) => s + t.totalMetros, 0);
   // conta agregada (só quando há estoque = bloco "a comprar")
   // falta = max(0, necessidade − max(0, previsto)) — MESMA fórmula da prévia do pedido
   const faltaDe = (metros: number, prev: number) => Math.max(0, metros - Math.max(0, prev));
-  let totalReceber = 0, totalFalta = 0;
+  let totalReceber = 0, totalFalta = 0, totalCoberto = 0;
   if (estoque) {
     for (const t of nec) for (const v of t.variantes) {
       const e = estoque[v.variante_tecido_id];
       totalReceber += e?.a_receber ?? 0;
       totalFalta += faltaDe(v.metros, e?.previsto ?? 0);
+      if (cobertura) totalCoberto += Math.min(v.metros, cobertura[v.variante_tecido_id] ?? 0);
     }
   }
   return (
     <div className="rounded-lg border">
       <div className="border-b p-2 font-display text-xs font-semibold">{titulo}</div>
+      {header}
       {nec.length === 0 ? (
         <div className="p-2 text-[10px] text-muted-foreground">Nenhum item.</div>
       ) : (
@@ -58,6 +66,9 @@ function NecBlock({
                       <div className="flex flex-wrap gap-x-2 pl-4 text-[10px] text-muted-foreground">
                         <span>estoque {(e?.fisico ?? 0).toFixed(0)} m</span>
                         <span>a receber {(e?.a_receber ?? 0).toFixed(0)} m</span>
+                        {cobertura && (cobertura[v.variante_tecido_id] ?? 0) > 0 && (
+                          <span className="text-sky-700">coberto por OC {(cobertura[v.variante_tecido_id] ?? 0).toFixed(0)} m</span>
+                        )}
                         <span className={falta > 0 ? "font-medium text-red-600" : ""}>falta {falta.toFixed(0)} m</span>
                       </div>
                     )}
@@ -71,6 +82,9 @@ function NecBlock({
             {estoque && (
               <>
                 <div className="flex justify-between font-normal text-muted-foreground"><span>Já encomendado (a receber)</span><span>{totalReceber.toFixed(0)} m</span></div>
+                {cobertura && totalCoberto > 0 && (
+                  <div className="flex justify-between font-normal text-sky-700"><span>Coberto por OCs aplicadas</span><span>{totalCoberto.toFixed(0)} m</span></div>
+                )}
                 <div className={`flex justify-between ${totalFalta > 0 ? "text-red-600" : ""}`}><span>Falta comprar</span><span>{totalFalta.toFixed(0)} m</span></div>
               </>
             )}
@@ -99,6 +113,18 @@ export function ResumoPanel({ arvore }: { arvore: PtArvore }) {
     },
   });
 
+  // "coberto por estas OCs" (Fase C, atribuição) — informativo, não altera a falta
+  const { data: coberturaMap = {} } = useQuery({
+    queryKey: ["plan-tecido-cobertura", arvore.colecao_id],
+    enabled: !!arvore.colecao_id,
+    queryFn: async () => {
+      const { data } = await supabase.rpc("plan_tecido_cobertura" as any, { _colecao_id: arvore.colecao_id });
+      const map: CoberturaMap = {};
+      for (const r of (data ?? []) as { variante_tecido_id: string; coberto_m: number }[]) map[r.variante_tecido_id] = Number(r.coberto_m) || 0;
+      return map;
+    },
+  });
+
   // markup por linha (linhas.markup) — p/ o preço sugerido no efetivo
   const { data: markupMap = {} } = useQuery({
     queryKey: ["plan-tecido-linhas-markup"],
@@ -122,7 +148,13 @@ export function ResumoPanel({ arvore }: { arvore: PtArvore }) {
 
   return (
     <div className="space-y-2">
-      <NecBlock titulo="A comprar (encomenda)" nec={necComprar} estoque={estoqueMap} />
+      <NecBlock
+        titulo="A comprar (encomenda)"
+        nec={necComprar}
+        estoque={estoqueMap}
+        cobertura={coberturaMap}
+        header={arvore.colecao_id ? <OcAplicadaPicker colecaoId={arvore.colecao_id} /> : undefined}
+      />
       {temEstoque && <NecBlock titulo="Usar do estoque" nec={necEstoque} />}
       <div className="rounded-lg border">
         <div className="border-b p-2 font-display text-xs font-semibold">Poder de venda (previsto)</div>
