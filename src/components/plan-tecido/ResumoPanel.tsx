@@ -27,16 +27,12 @@ function NecBlock({
   coberturaOcs?: CoberturaOcMap; // detalhe: de qual OC vem a cobertura (#1)
 }) {
   const totalNec = nec.reduce((s, t) => s + t.totalMetros, 0);
-  // conta agregada (só quando há estoque = bloco "a comprar")
-  // "a comprar" = necessidade CHEIA (cards marcados p/ comprar pedem tudo; estoque é só informativo).
-  // Mesma regra da prévia (déficit = necessidade). O 2º arg (previsto) fica só p/ assinatura.
-  const faltaDe = (metros: number, _prev: number) => metros;
-  let totalReceber = 0, totalFalta = 0, totalCoberto = 0;
+  // conta agregada (informativa; o "a comprar" = necessidade cheia = totalNec, mostrado como "Total")
+  let totalReceber = 0, totalCoberto = 0;
   if (estoque) {
     for (const t of nec) for (const v of t.variantes) {
       const e = estoque[v.variante_tecido_id];
       totalReceber += e?.a_receber ?? 0;
-      totalFalta += faltaDe(v.metros, e?.previsto ?? 0);
       if (cobertura) totalCoberto += Math.min(v.metros, cobertura[v.variante_tecido_id] ?? 0);
     }
   }
@@ -54,7 +50,6 @@ function NecBlock({
               </div>
               {t.variantes.map((v) => {
                 const e = estoque?.[v.variante_tecido_id];
-                const falta = e ? faltaDe(v.metros, e.previsto ?? 0) : 0;
                 return (
                   <div key={v.variante_tecido_id} className="mb-1 last:mb-0">
                     <div className="flex items-center justify-between gap-2">
@@ -71,7 +66,6 @@ function NecBlock({
                         {cobertura && (cobertura[v.variante_tecido_id] ?? 0) > 0 && (
                           <span className="text-sky-700">coberto por OC {(cobertura[v.variante_tecido_id] ?? 0).toFixed(0)} m</span>
                         )}
-                        <span className={falta > 0 ? "font-medium text-red-600" : ""}>a comprar {falta.toFixed(0)} m</span>
                       </div>
                     )}
                     {coberturaOcs && (coberturaOcs[v.variante_tecido_id]?.length ?? 0) > 0 && (
@@ -87,14 +81,13 @@ function NecBlock({
             </div>
           ))}
           <div className="space-y-0.5 p-2 font-display text-xs font-semibold">
-            <div className="flex justify-between"><span>Necessidade</span><span>{totalNec.toFixed(0)} m</span></div>
+            <div className="flex justify-between"><span>Total</span><span>{totalNec.toFixed(0)} m</span></div>
             {estoque && (
               <>
                 <div className="flex justify-between font-normal text-muted-foreground"><span>Já encomendado (a receber)</span><span>{totalReceber.toFixed(0)} m</span></div>
                 {cobertura && totalCoberto > 0 && (
                   <div className="flex justify-between font-normal text-sky-700"><span>Coberto por OCs aplicadas</span><span>{totalCoberto.toFixed(0)} m</span></div>
                 )}
-                <div className={`flex justify-between font-semibold ${totalFalta > 0 ? "text-red-600" : ""}`}><span>A comprar</span><span>{totalFalta.toFixed(0)} m</span></div>
               </>
             )}
           </div>
