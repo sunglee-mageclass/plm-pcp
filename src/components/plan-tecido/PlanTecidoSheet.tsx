@@ -362,22 +362,27 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
 
   const fazerPedidoMut = useMutation({
     mutationFn: async (pedidos: FornecedorEditado[]) => {
-      const payload = pedidos.map((f) => ({
-        empresa_id: f.empresa_id,
-        representante_id: f.representante_id,
-        data_prevista_entrega: f.data_prevista_entrega || null,
-        prazo_pagamento: f.prazo_pagamento || null,
-        quantidade_prazos: f.prazo_pagamento
-          ? f.prazo_pagamento.split("/").filter(Boolean).length
-          : 1,
-        itens: f.itens.map((it) => ({
-          artigo_id: it.artigo_id,
-          variante_tecido_id: it.variante_tecido_id,
-          quantidade_pedida: it.qtd_editada,
-          preco: it.preco,
-          rendimento: it.rendimento,
-        })),
-      }));
+      const payload = pedidos
+        .map((f) => {
+          const itens = f.itens.filter((it) => it.qtd_editada > 0); // omite qtd 0
+          return {
+            empresa_id: f.empresa_id,
+            representante_id: f.representante_id,
+            data_prevista_entrega: f.data_prevista_entrega || null,
+            prazo_pagamento: f.prazo_pagamento || null,
+            quantidade_prazos: f.prazo_pagamento
+              ? f.prazo_pagamento.split(/[/\s]+/).filter(Boolean).length
+              : 1,
+            itens: itens.map((it) => ({
+              artigo_id: it.artigo_id,
+              variante_tecido_id: it.variante_tecido_id,
+              quantidade_pedida: it.qtd_editada,
+              preco: it.preco,
+              rendimento: it.rendimento,
+            })),
+          };
+        })
+        .filter((f) => f.itens.length > 0); // fornecedor sem item não gera OC
       const { data, error } = await supabase.rpc("plan_tecido_fazer_pedido" as any, {
         _colecao_id: colecaoId,
         _pedidos: payload,
@@ -414,6 +419,17 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
     },
     onError: (e) => toast.error(mensagemErro(e, "Não foi possível desfazer o pedido.")),
   });
+
+  // nº de OCs que serão criadas = por fornecedor, ceil(nº de artigos com qtd>0 / 2)
+  // (o backend divide cada fornecedor em OCs de até 2 tecidos)
+  const nOcs = useMemo(() => {
+    let n = 0;
+    for (const f of previaEditada) {
+      const arts = new Set(f.itens.filter((it) => it.qtd_editada > 0).map((it) => it.artigo_id));
+      n += Math.ceil(arts.size / 2);
+    }
+    return n;
+  }, [previaEditada]);
 
   const patch = (next: PtArvore) => { setArvore(next); setDirty(true); };
   const fechar = () => { if (dirty) setConfirmSair(true); else onClose(); };
@@ -724,7 +740,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
         </AlertDialog>
 
         {/* ===== Dialog: Prévia do pedido ===== */}
-        <Dialog open={previaOpen} onOpenChange={setPreviaOpen}>
+        <Dialog open={previaOpen} onOpenChange={(o) => { if (!fazerPedidoMut.isPending) setPreviaOpen(o); }}>
           <DialogContent className="max-w-3xl">
             <DialogHeader>
               <DialogTitle>Prévia do pedido</DialogTitle>
@@ -852,8 +868,8 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                 <div className="rounded-lg border border-red-200 bg-red-50 p-3">
                   <p className="text-sm font-medium text-red-700">Bloqueios</p>
                   <ul className="mt-1 space-y-0.5 text-xs text-red-600">
-                    {previaData.bloqueios.map((b, i) => (
-                      <li key={i}>{b.artigo_nome}: {b.motivo}</li>
+                    {previaData.bloqueios.map((b) => (
+                      <li key={`${b.artigo_nome}:${b.motivo}`}>{b.artigo_nome}: {b.motivo}</li>
                     ))}
                   </ul>
                 </div>
@@ -861,16 +877,16 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
             </div>
 
             <DialogFooter>
-              <Button variant="outline" onClick={() => setPreviaOpen(false)}>
+              <Button variant="outline" disabled={fazerPedidoMut.isPending} onClick={() => setPreviaOpen(false)}>
                 Cancelar
               </Button>
               <Button
-                disabled={previaEditada.length === 0 || fazerPedidoMut.isPending}
+                disabled={nOcs === 0 || fazerPedidoMut.isPending}
                 onClick={() => fazerPedidoMut.mutate(previaEditada)}
               >
                 {fazerPedidoMut.isPending
                   ? "Gerando…"
-                  : `Gerar ${previaEditada.length} OC(s)`}
+                  : `Gerar ${nOcs} OC(s)`}
               </Button>
             </DialogFooter>
           </DialogContent>
