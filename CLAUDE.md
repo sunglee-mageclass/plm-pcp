@@ -127,22 +127,12 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   (datas_semanas->>semana), **preço E categoria em branco** (categoria vira decisão do Planejamento).
   Trigger `enforce_pv_itens_tenant` NÃO referencia mais cat/sub. Telas em `/otb-beta` (Padrão do mix) e
   `/otb-beta-colecao` (editor PV) — ainda rotuladas "beta".
-  **Simulador de Uso de OC** (`SimulacaoSheet`, botão Simular por card em `otb.index`): "Consumo por OC"
-  SIMULADO (sem baixa real). A OC é atribuída à **subcoleção (unidade)**; ali escolhe-se um conjunto de
-  **variantes = as cores** (multi-seleção, identificadas por `labelVarianteRow`/`src/lib/variante.ts` — artigo·cor·apelido)
-  em `otb_simulacao_variantes` (migration `20260723100000`). Essas cores valem p/ **todos os modelos de todas as linhas**
-  da subcoleção; **`cores` deixa de ser por linha** = nº de variantes escolhidas. Metragem por variante = espelho de
-  `consumo_por_oc` (`unidade_medida='kg' ? qtd_pedida × artigo.rendimento : qtd_pedida`). **Consumo por modelo** (igual p/
-  todas as cores). **Resultado POR COR**: cada variante tem sua metragem vs a demanda (`demanda/cor = Σ prof×consumo`,
-  mesma p/ toda cor) → sobra/estoura por cor. Mini card por modelo (foto/ref + cores + peças/cor). Cálculo puro em
-  `src/lib/simulacao.ts`. Cenários em `otb_simulacoes`/`_unidades`(+`oc_tecido_id`)/`_variantes`/`_linhas`/`_modelos`
-  (RLS por tenant). RPCs **INVOKER** (espelham `salvar_colecao_pv`; `revoke public,anon`+`grant authenticated`):
-  `salvar_simulacao` (upsert atômico, unidade traz `oc_tecido_id`+lista de variantes), `excluir_simulacao`,
-  `aplicar_simulacao` (grava `colecao_pv_itens.cores = count(variantes)` autoritativo no servidor).
-  **Write-back** ("Aplicar no plano", AlertDialog, disabled até salvar): grava **só o ALVO DO PLANO** —
-  PV → `colecao_pv_itens` (prof_cor/cores + nº via `qtd_semanas` splitEven; `cores` uniforme = nº variantes);
-  Orçamento → `colecao_semanas.qtd_planejada` (splitEven), **bloqueando** (RAISE) se quebraria `Σcat ≤ qtd_planejada`.
-  NUNCA cria/edita cards do Planejamento nem vira BOM. Ao aplicar, invalida `["otb-orcamento","otb-pv-poder"]` + queries da coleção.
+  **Simulador de Uso de OC (`SimulacaoSheet`) — REMOVIDO da UI (jul/2026, Fase C do Plan. Tecido).**
+  A capacidade migrou p/ **Plan. Tecido** (`/criacao/plan-tecido`, ver [[project_plan_tecido]] na memória): o Resumo
+  já mostra necessidade × estoque × a receber × **coberto por OC** × falta. Removidos: `SimulacaoSheet.tsx`,
+  `src/lib/simulacao.ts` (+teste), botão Simular no `otb.index`. **DEFERIDO — rodada 2 destrutiva** (ainda no banco):
+  DROP das tabelas `otb_simulacoes/_unidades/_variantes/_linhas/_modelos` e RPCs `salvar/excluir/aplicar_simulacao`.
+  ⚠️ `cores` do PV continua editável DIRETO no editor PV (`ColecaoPVSheet`) — a remoção do simulador não quebra isso.
   Front acessa tabelas/RPCs novas com `as any` (types.ts pendente de regen — precisa `supabase login`).
 - **cadastro**: atributos (categorias tecido/aviamento/material/subcategoria, linhas,
   categorias de serviço fixas Corte/Oficina), colaboradores, servicos, tecidos
@@ -166,8 +156,10 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   `ModeloObservacoes` ser auto-save. `src/components/desenvolvimento/importar/` (`construirCopia` pura + testes).
 - **entrada-saida**: oc-tecido, oc-aviamento, rolos, estoque
 - **producao**: cad, terceirizados=**Serviços** (abas pré/pós-costura por `categorias_terceirizado.etapa`),
-  oficina, cq (abas **Pré/Pós** dentro do item — ver invariante 6), direcionamento, lancamentos,
-  consumo por OC (+ alertas de CQ de tecido). **Acabamento aposentado** (virou serviço pós-costura) — o
+  oficina, cq (abas **Pré/Pós** dentro do item — ver invariante 6), direcionamento, lancamentos.
+  (A tela **"Consumo por OC" foi REMOVIDA** jul/2026 na Fase C do Plan. Tecido — ver [[project_plan_tecido]];
+  os **alertas de CQ de tecido** seguem vivos em `entrada-saida.alertas-tecido`, não eram parte dessa tela.
+  RPC `consumo_por_oc` ainda no banco até a rodada 2 destrutiva.) **Acabamento aposentado** (virou serviço pós-costura) — o
   código morto foi REMOVIDO (jul/2026, commits `2bdfcf2` front + `600cf54` banco): rotas
   `producao.acabamento.*`, permissão `producao_acabamento`, ramo `oficina_posicao`, tabela
   `producao_acabamento` (0 linhas), RPC `salvar_acabamento` e coluna `tenant_config.oficina_posicao`.
