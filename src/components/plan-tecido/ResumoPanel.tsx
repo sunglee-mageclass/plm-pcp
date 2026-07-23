@@ -20,12 +20,14 @@ function NecBlock({
 }) {
   const totalNec = nec.reduce((s, t) => s + t.totalMetros, 0);
   // conta agregada (só quando há estoque = bloco "a comprar")
+  // falta = max(0, necessidade − max(0, previsto)) — MESMA fórmula da prévia do pedido
+  const faltaDe = (metros: number, prev: number) => Math.max(0, metros - Math.max(0, prev));
   let totalReceber = 0, totalFalta = 0;
   if (estoque) {
     for (const t of nec) for (const v of t.variantes) {
       const e = estoque[v.variante_tecido_id];
       totalReceber += e?.a_receber ?? 0;
-      totalFalta += Math.max(0, v.metros - (e?.previsto ?? 0));
+      totalFalta += faltaDe(v.metros, e?.previsto ?? 0);
     }
   }
   return (
@@ -42,7 +44,7 @@ function NecBlock({
               </div>
               {t.variantes.map((v) => {
                 const e = estoque?.[v.variante_tecido_id];
-                const falta = e ? Math.max(0, v.metros - (e.previsto ?? 0)) : 0;
+                const falta = e ? faltaDe(v.metros, e.previsto ?? 0) : 0;
                 return (
                   <div key={v.variante_tecido_id} className="mb-1 last:mb-0">
                     <div className="flex items-center justify-between gap-2">
