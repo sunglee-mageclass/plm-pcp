@@ -29,6 +29,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { useAuth } from "@/hooks/useAuth";
 import { fmtNum } from "@/lib/format";
 import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 
 export const Route = createFileRoute("/_authenticated/cadastro/etiquetas")({
@@ -396,7 +397,10 @@ function EtiquetasPage() {
         const modalConteudo = (
           <>
           <div className="shrink-0 border-b px-6 pt-6 pb-3">
-            <TitleTag className="text-lg font-semibold">{editing ? "Editar etiqueta" : "Nova etiqueta"}</TitleTag>
+            <div className="flex items-center gap-2">
+              <TitleTag className="text-lg font-semibold">{editing ? "Editar etiqueta" : "Nova etiqueta"}</TitleTag>
+              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+            </div>
           </div>
           <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4">
             <div className="grid sm:grid-cols-2 gap-3">

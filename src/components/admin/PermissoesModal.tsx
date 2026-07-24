@@ -15,6 +15,7 @@ import { DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 
 type PermState = Record<string, { pode_ver: boolean; pode_editar: boolean }>;
 
@@ -119,7 +120,10 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
       onEscapeKeyDown={(e) => { if (changed) { e.preventDefault(); requestClose(); } }}
     >
       <div className="shrink-0 border-b p-3">
-        <DialogTitle className="text-xl font-bold">Permissões — {user.nome}</DialogTitle>
+        <div className="flex items-center gap-2">
+          <DialogTitle className="text-xl font-bold">Permissões — {user.nome}</DialogTitle>
+          <UnsavedIndicator show={changed} className="ml-auto shrink-0" />
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto p-4">
       <p className="text-xs text-muted-foreground">

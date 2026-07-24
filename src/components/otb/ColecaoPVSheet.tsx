@@ -20,6 +20,7 @@ import { brl } from "@/lib/format";
 import { SubcolecaoResumo } from "./orcamento";
 import { Plus, Trash2, ChevronRight, Save, Check, ArrowLeft } from "lucide-react";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 
 /**
  * Editor da coleção por PODER DE VENDA, em MODAL. Herda um "Padrão do mix"; árvore
@@ -405,6 +406,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
           <div className="flex flex-wrap items-center gap-2">
             <SheetTitle className="text-base sm:text-lg">{colecaoId ? "Editar coleção" : "Nova coleção"} · Poder de venda</SheetTitle>
             <Badge className={confirmada ? "bg-emerald-600 text-white hover:bg-emerald-600" : "bg-amber-500 text-white hover:bg-amber-500"}>{confirmada ? "Confirmada" : "Rascunho"}</Badge>
+            <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
           </div>
         </SheetHeader>
 

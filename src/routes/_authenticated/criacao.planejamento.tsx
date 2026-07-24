@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { DateField } from "@/components/shared/DateField";
@@ -1416,6 +1417,7 @@ function ModeloDialog({
           <DialogTitle className="flex flex-wrap items-center gap-2">
             <span>{isEdit ? draft.nome || "Modelo" : "Novo Modelo"}</span>
             {draft.versao > 1 && <VersaoBadge versao={draft.versao} />}
+            <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
           </DialogTitle>
         </DialogHeader>
 
@@ -1913,7 +1915,10 @@ function BatchCardsDialog({
     <Dialog open onOpenChange={(o) => { if (!o) requestClose(); }}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
         <DialogHeader className="max-sm:shrink-0">
-          <DialogTitle>Criar vários cards</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <span>Criar vários cards</span>
+            <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+          </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-5 max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-y-auto">

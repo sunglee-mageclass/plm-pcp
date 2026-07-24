@@ -35,6 +35,7 @@ import { VerificarRevisao } from "@/components/producao/RevisaoErro";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { CqPosView, type CqPosHandle, type CqPosStatus } from "@/components/producao/CqPosView";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 
 export const Route = createFileRoute("/_authenticated/producao/cq/$modeloId")({
@@ -625,7 +626,10 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       {view === "pre" && cad?.id && <OficinaServicoDialog cadId={cad.id} open={oficinaOpen} onClose={() => setOficinaOpen(false)} />}
       {/* Cabeçalho: só breadcrumb/título. Voltar e Oficina foram p/ a barra de ações do rodapé. */}
       <header className="space-y-2">
-        <Breadcrumb items={[{ label: "PCP" }, { label: "Controle de Qualidade", to: "/producao/cq" }, { label: modelo?.ref ?? "…" }]} />
+        <div className="flex items-center gap-2">
+          <Breadcrumb items={[{ label: "PCP" }, { label: "Controle de Qualidade", to: "/producao/cq" }, { label: modelo?.ref ?? "…" }]} />
+          <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+        </div>
         <div className="flex items-start gap-3">
         <ClipboardCheck className="h-7 w-7 text-primary mt-0.5 shrink-0" />
         <ModeloResumoFoto

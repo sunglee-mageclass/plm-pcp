@@ -21,6 +21,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { OcTecidoList } from "@/components/oc-tecido/OcTecidoList";
 import { RolosList, RoloDialog, RemoverMetragemDialog, AjustesList } from "@/components/oc-tecido/Rolos";
 import { OcCqSection, alertaBadge } from "@/components/oc-tecido/CqTecido";
@@ -949,7 +950,10 @@ function OcDialog({
         <div className="shrink-0 space-y-1">
           <Breadcrumb items={[{ label: "Entrada & Saída" }, { label: "OC Tecido" }, { label: draft.numero_pedido || "OC" }]} />
           <DialogHeader>
-            <DialogTitle>{isEdit ? `OC ${draft.numero_pedido || ""}` : "Nova OC de Tecido"}</DialogTitle>
+            <div className="flex items-center gap-2">
+              <DialogTitle>{isEdit ? `OC ${draft.numero_pedido || ""}` : "Nova OC de Tecido"}</DialogTitle>
+              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+            </div>
           </DialogHeader>
         </div>
 

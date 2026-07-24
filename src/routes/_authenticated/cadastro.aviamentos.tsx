@@ -61,6 +61,7 @@ import { FilterButton, SearchToggle, AgrupamentoButton } from "@/components/shar
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 
 import { RequirePermission } from "@/components/RequirePermission";
@@ -871,10 +872,14 @@ function AviamentoModal({
           // Sheet (editar): cabeçalho sem botões de ação (ficam no rodapé sticky).
           <div className="shrink-0 border-b p-3 flex items-center gap-3">
             <DialogTitle className="text-xl font-bold">Editar Aviamento</DialogTitle>
+            <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
           </div>
         ) : (
           <DialogHeader className="max-sm:shrink-0">
-            <DialogTitle>Novo Aviamento</DialogTitle>
+            <div className="flex items-center gap-2">
+              <DialogTitle>Novo Aviamento</DialogTitle>
+              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+            </div>
           </DialogHeader>
         )}
 

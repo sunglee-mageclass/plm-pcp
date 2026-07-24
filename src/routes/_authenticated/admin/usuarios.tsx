@@ -39,6 +39,7 @@ import {
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { useSort, SortHead } from "@/components/shared/sort";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 
 export const Route = createFileRoute("/_authenticated/admin/usuarios")({
@@ -395,7 +396,10 @@ function NovoUsuarioModal({
         <DialogHeader className="max-sm:shrink-0">
           <div className="space-y-1">
             <Breadcrumb items={[{ label: "Admin" }, { label: "Gerenciar Usuários" }, { label: "Novo usuário" }]} />
-            <DialogTitle>Novo Usuário</DialogTitle>
+            <div className="flex items-center gap-2">
+              <DialogTitle>Novo Usuário</DialogTitle>
+              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+            </div>
           </div>
         </DialogHeader>
         <div className="space-y-4 py-4 max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-y-auto">
@@ -489,7 +493,10 @@ function EditUsuarioModal({
         <div className="shrink-0 border-b p-3">
           <div className="space-y-1">
             <Breadcrumb items={[{ label: "Admin" }, { label: "Gerenciar Usuários" }, { label: nome || user.email }]} />
-            <DialogTitle className="text-xl font-bold">Editar usuário</DialogTitle>
+            <div className="flex items-center gap-2">
+              <DialogTitle className="text-xl font-bold">Editar usuário</DialogTitle>
+              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+            </div>
           </div>
         </div>
         <div className="flex-1 space-y-4 overflow-y-auto p-4">

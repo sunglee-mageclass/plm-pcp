@@ -16,6 +16,7 @@ import {
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { ChevronRight, ArrowLeft, ShoppingCart, Undo2 } from "lucide-react";
 import {
   semearComModelos, mergeArvore, type SeedInput, type ModeloReal, type ModeloRealMaterial,
@@ -477,7 +478,8 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
       <SheetContent side="right" className="w-full sm:max-w-[70vw] flex flex-col p-0 max-sm:[&>button]:hidden">
         <div className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background p-3">
           <Breadcrumb items={[{ label: "Estilo & Engenharia" }, { label: "Plan. Tecido" }, { label: colecao?.nome ?? "…" }]} />
-          <div className="ml-auto hidden items-center rounded-md border p-0.5 md:flex">
+          <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+          <div className="hidden items-center rounded-md border p-0.5 md:flex">
             <button
               className={`rounded px-2 py-1 text-xs font-medium transition-colors ${viewMode === "linha" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
               onClick={() => setViewMode("linha")}

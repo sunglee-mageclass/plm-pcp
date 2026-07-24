@@ -24,6 +24,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { serializeSnapshot } from "@/hooks/useDirtySnapshot";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
@@ -1756,11 +1757,14 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             <span>{draft.nome || "Modelo"}</span>
             <VersaoBadge versao={(modelo as any)?.versao} />
           </SheetTitle>
-          {!locked && (
-            <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
-              <Download className="h-4 w-4 mr-2" /> Importar dados
-            </Button>
-          )}
+          <div className="flex items-center gap-2 shrink-0">
+            <UnsavedIndicator show={dirty} className="shrink-0" />
+            {!locked && (
+              <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+                <Download className="h-4 w-4 mr-2" /> Importar dados
+              </Button>
+            )}
+          </div>
         </div>
       </SheetHeader>
 

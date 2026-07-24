@@ -26,6 +26,7 @@ import { CadTecidosSection } from "@/components/producao/cad/CadTecidosSection";
 import { CadFichaCorte } from "@/components/producao/cad/CadFichaCorte";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { printWithImages } from "@/lib/print";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import {
@@ -388,7 +389,8 @@ export function ExplosaoDetail({ modeloId, onEnviado, onDirtyChange }: Props) {
                 { label: modelo?.ref ?? "…" },
               ]}
             />
-            <Button variant="outline" size="sm" className="ml-auto" onClick={() => printWithImages()}>
+            <UnsavedIndicator show={seeded && dirty} className="ml-auto shrink-0" />
+            <Button variant="outline" size="sm" className="shrink-0" onClick={() => printWithImages()}>
               <Printer className="h-4 w-4 mr-1.5" />
               Ficha de Corte
             </Button>

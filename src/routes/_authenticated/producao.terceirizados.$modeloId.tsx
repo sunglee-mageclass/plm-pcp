@@ -17,6 +17,7 @@ import { NumberInput } from "@/components/shared/NumberInput";
 import { PageActionBar } from "@/components/shared/PageActionBar";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
 import { ModeloResumoMeta } from "@/components/shared/ModeloResumoMeta";
@@ -684,6 +685,7 @@ export function TerceirizadosDetail({
       <div className="flex items-center justify-between gap-2">
         <Breadcrumb items={[{ label: "PCP" }, { label: "Serviços", to: "/producao/terceirizados" }, { label: modelo?.ref ?? "…" }]} />
         <div className="flex items-center gap-2">
+          <UnsavedIndicator show={dirty} className="shrink-0" />
           <Button variant="outline" className="hidden md:inline-flex" onClick={() => { setPrintTarget("ficha"); printWithImages(); }} disabled={!cad?.id}>
             <FileText className="h-4 w-4 mr-2" /> Ficha Técnica
           </Button>

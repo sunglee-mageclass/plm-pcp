@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { useSort, SortHead } from "@/components/shared/sort";
 import {
@@ -463,7 +464,10 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
       <Dialog open={formOpen} onOpenChange={(o) => { if (o) setFormOpen(true); else requestClose(); }}>
         <DialogContent className="max-w-2xl max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
           <DialogHeader className="max-sm:shrink-0">
-            <DialogTitle>{editing ? `Editar OS #${editing.numero ?? ""}` : "Nova Ordem de Saída"}</DialogTitle>
+            <div className="flex items-center gap-2">
+              <DialogTitle>{editing ? `Editar OS #${editing.numero ?? ""}` : "Nova Ordem de Saída"}</DialogTitle>
+              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+            </div>
           </DialogHeader>
           <div className="space-y-4 py-2 max-h-[70vh] overflow-y-auto pr-1 max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-y-auto">
             <div className="grid grid-cols-2 gap-3">

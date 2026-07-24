@@ -49,6 +49,7 @@ import { FornecedorSelect } from "@/components/shared/FornecedorSelect";
 import { ResponsavelSelect } from "@/components/shared/ResponsavelSelect";
 import { useResponsavelFilter, SENTINEL_NOME } from "@/hooks/useResponsavelFilter";
 import { NfList } from "@/components/oc-tecido/NfList";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useSort, SortHead } from "@/components/shared/sort";
 export const Route = createFileRoute("/_authenticated/entrada-saida/oc-aviamento")({
   component: () => (
@@ -716,7 +717,10 @@ function OcDialog({
         <div className="shrink-0 space-y-1">
           <Breadcrumb items={[{ label: "Entrada & Saída" }, { label: "OC Aviamento" }, { label: draft.numero_pedido || "OC" }]} />
           <DialogHeader>
-            <DialogTitle>{isEdit ? `OC ${draft.numero_pedido || ""}` : "Nova OC de Aviamento"}</DialogTitle>
+            <div className="flex items-center gap-2">
+              <DialogTitle>{isEdit ? `OC ${draft.numero_pedido || ""}` : "Nova OC de Aviamento"}</DialogTitle>
+              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+            </div>
           </DialogHeader>
         </div>
 

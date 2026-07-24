@@ -20,6 +20,7 @@ import { useReadOnly } from "@/components/RequirePermission";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { VerificarRevisao } from "@/components/producao/RevisaoErro";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 
 export const Route = createFileRoute("/_authenticated/producao/direcionamento/$modeloId")({
@@ -333,7 +334,8 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
             { label: modelo?.ref ?? "…" },
           ]}
         />
-        <Button variant="outline" size="sm" className="ml-auto hidden md:inline-flex" onClick={() => printWithImages()} disabled={variantes.length === 0}>
+        <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+        <Button variant="outline" size="sm" className="hidden md:inline-flex shrink-0" onClick={() => printWithImages()} disabled={variantes.length === 0}>
           <Printer className="h-4 w-4 mr-2" /> Imprimir Romaneio
         </Button>
       </div>

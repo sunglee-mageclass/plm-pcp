@@ -47,6 +47,7 @@ import { useSort, SortHead } from "@/components/shared/sort";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/hooks/useAuth";
 import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 
 export type UsageRef = { table: string; column: string };
 
@@ -595,7 +596,10 @@ export function AttributeTab({
       <Dialog open={createOpen} onOpenChange={(o) => { if (!o) requestCreateClose(); else setCreateOpen(true); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Novo {config.singular}</DialogTitle>
+            <div className="flex items-center gap-2">
+              <DialogTitle>Novo {config.singular}</DialogTitle>
+              <UnsavedIndicator show={createDirty} className="ml-auto shrink-0" />
+            </div>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div className="space-y-1.5">

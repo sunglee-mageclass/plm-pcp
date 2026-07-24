@@ -226,13 +226,13 @@
     <!-- ─────────── A ─────────── -->
     <section class="pattern" id="A">
       <h2><span class="letter">A</span>Guarda de "alterações não salvas" (dirty) — PADRÃO DO SISTEMA</h2>
-      <div class="when"><b>Regra:</b> TODO formulário com botão <b>Salvar</b> usa o guarda compartilhado. Enquanto há edições pendentes, um <b>indicador âmbar</b> ("● alterações não salvas") aparece no canto <b>SUPERIOR DIREITO</b> (à esquerda do ✕), via <b>portal no body</b> (ancestrais com <code class="inline">transform</code>, ex.: sidebar/SheetContent, não o descolam). Ao fechar (X, ESC, clicar fora, Cancelar/Voltar) — ou, em página inteira, ao <b>navegar</b> para fora — com pendências, um <code class="inline">AlertDialog</code> confirma: <b>Descartar alterações?</b> → Continuar editando / Descartar.</div>
+      <div class="when"><b>Regra:</b> TODO formulário com botão <b>Salvar</b> usa o guarda compartilhado. Enquanto há edições pendentes, um <b>selo âmbar</b> ("● alterações não salvas") aparece INLINE no <b>header da própria tela</b>, alinhado à direita (acima da linha separadora), via <code class="inline">&lt;UnsavedIndicator show={dirty} className="ml-auto shrink-0" /&gt;</code>. NÃO é mais flutuante/global (não sobrepõe relógio/botões). Ao fechar (X, ESC, clicar fora, Cancelar/Voltar) — ou, em página inteira, ao <b>navegar</b> para fora — com pendências, o <code class="inline">&lt;UnsavedChangesGuard&gt;</code> mostra um <code class="inline">AlertDialog</code>: <b>Descartar alterações?</b> → Continuar editando / Descartar.</div>
       <div class="split">
         <div class="demo">
           <div class="demo-label">Exemplo</div>
           <div class="swatch-row" style="margin-bottom:12px;">
             <span class="dot-warning" title="não salvo">●</span>
-            <span class="muted" style="font-size:12px;">alterações não salvas — canto superior direito (portal)</span>
+            <span class="muted" style="font-size:12px;">alterações não salvas — inline no header, à direita</span>
           </div>
           <div class="mock-bar" style="box-shadow:none;border:1px solid var(--border);border-radius:8px;">
             <button class="btn btn-outline" style="margin-right:auto;">← Voltar</button>
@@ -257,10 +257,14 @@ const { requestClose, confirm } =
 
 &lt;Dialog open={open}
   onOpenChange={(o) =&gt; { if (!o) requestClose(); }}&gt;
+  &lt;DialogHeader&gt;&lt;div className="flex items-center gap-2"&gt;
+    &lt;DialogTitle&gt;Editar…&lt;/DialogTitle&gt;
+    &lt;UnsavedIndicator show={dirty} className="ml-auto shrink-0" /&gt;
+  &lt;/div&gt;&lt;/DialogHeader&gt;
   …
-  &lt;Button variant="outline" onClick={requestClose}&gt;Cancelar&lt;/Button&gt;
+  &lt;Button variant="outline" onClick={requestClose}&gt;&lt;ArrowLeft/&gt; Voltar&lt;/Button&gt;
 &lt;/Dialog&gt;
-&lt;UnsavedChangesGuard dirty={dirty} confirm={confirm}
+&lt;UnsavedChangesGuard confirm={confirm}
   message="Há alterações não salvas neste cadastro." /&gt;
 
 // Formulário grande / async — Caso C

@@ -23,6 +23,7 @@ import {
 import { useSort, SortHead } from "@/components/shared/sort";
 import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 
 export const Route = createFileRoute("/_authenticated/cadastro/destinos")({
   component: () => (
@@ -182,7 +183,10 @@ function DestinosPage() {
       <Dialog open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editing ? "Editar destino" : "Novo destino"}</DialogTitle>
+            <div className="flex items-center gap-2">
+              <DialogTitle>{editing ? "Editar destino" : "Novo destino"}</DialogTitle>
+              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+            </div>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div className="space-y-1.5">

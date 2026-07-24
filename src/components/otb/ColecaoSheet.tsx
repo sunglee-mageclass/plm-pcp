@@ -27,6 +27,7 @@ import { SubcolecaoResumo } from "./orcamento";
 import { proximoLancamento, removerLancamento, normalizar, remapChaves } from "@/lib/lancamentos";
 import { brl } from "@/lib/format";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 
 const WEEKS = ["1", "2", "3", "4", "5"];
 type Opt = { id: string; nome: string };
@@ -559,6 +560,7 @@ export function ColecaoSheet({
           <SheetTitle className="flex items-center gap-2">
             {colecaoId ? "Editar coleção" : "Nova coleção"}
             {colecaoId && data && <Badge variant={isConfirmada ? "secondary" : "outline"}>{isConfirmada ? "Confirmada" : "Rascunho"}</Badge>}
+            <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
           </SheetTitle>
         </SheetHeader>
         <div className="flex-1 overflow-y-auto p-4 space-y-4">

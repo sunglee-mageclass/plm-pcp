@@ -11,6 +11,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { brl } from "@/lib/format";
 import { Plus, Trash2, Pencil, Save, ArrowLeft } from "lucide-react";
 import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 
 /**
  * "Padrão do mix" em MODAL (Sheet lateral). Template de defaults que a coleção por Poder
@@ -109,7 +110,10 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
     <Sheet open onOpenChange={(o) => { if (!o) requestClose(); }}>
       <SheetContent side="right" className="w-full sm:max-w-[70vw] flex flex-col p-0 max-sm:[&>button]:hidden">
         <SheetHeader className="p-4 border-b shrink-0">
-          <SheetTitle className="text-base sm:text-lg">Padrão do mix</SheetTitle>
+          <div className="flex items-center gap-2">
+            <SheetTitle className="text-base sm:text-lg">Padrão do mix</SheetTitle>
+            <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+          </div>
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">

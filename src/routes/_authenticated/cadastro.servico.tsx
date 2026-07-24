@@ -63,6 +63,7 @@ import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
 import { useSort, SortHead } from "@/components/shared/sort";
 import { useAuth } from "@/hooks/useAuth";
 import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 export const Route = createFileRoute("/_authenticated/cadastro/servico")({
   component: () => (
@@ -771,7 +772,10 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
       <Dialog open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
         <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden">
           <DialogHeader className="shrink-0 px-6 pt-6 pb-4">
-            <DialogTitle>{form.id ? "Editar representante" : "Novo representante"}</DialogTitle>
+            <div className="flex items-center gap-2">
+              <DialogTitle>{form.id ? "Editar representante" : "Novo representante"}</DialogTitle>
+              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+            </div>
           </DialogHeader>
 
           <div className="flex-1 overflow-y-auto px-6 space-y-4 py-2">
@@ -1485,7 +1489,10 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
       <Dialog open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
         <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden">
           <DialogHeader className="shrink-0 px-6 pt-6 pb-4">
-            <DialogTitle>{editingId ? "Editar empresa" : "Nova empresa"}</DialogTitle>
+            <div className="flex items-center gap-2">
+              <DialogTitle>{editingId ? "Editar empresa" : "Nova empresa"}</DialogTitle>
+              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+            </div>
           </DialogHeader>
           <div className="flex-1 overflow-y-auto px-6 space-y-4 py-2">
             <div className="grid gap-3 sm:grid-cols-2">

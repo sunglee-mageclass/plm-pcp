@@ -33,12 +33,13 @@ Raios: `--radius: 0.625rem` → utilitários `rounded-md` (~8px) são o padrão 
 ## A. Guarda de "alterações não salvas" (dirty) — PADRÃO DO SISTEMA
 
 **Regra:** TODO formulário com botão **Salvar** usa o guarda compartilhado. Enquanto há
-edições pendentes, aparece um **indicador âmbar** (`● alterações não salvas`) no **canto
-SUPERIOR DIREITO** (à esquerda do ✕), via **portal no body** — não importa onde o
-`<UnsavedChangesGuard>` está na árvore (ancestrais com `transform`, ex.: sidebar/SheetContent,
-não o descolam). Ao fechar (X, ESC, clicar fora, Cancelar/Voltar) — ou, em página inteira,
-ao NAVEGAR para fora — com pendências, um `AlertDialog` confirma:
-**"Descartar alterações?"** → `Continuar editando` (fica) / `Descartar` (fecha).
+edições pendentes, um **selo âmbar** (`● alterações não salvas`) aparece INLINE no **header
+da própria tela**, alinhado à DIREITA (acima da linha separadora), via
+`<UnsavedIndicator show={dirty} className="ml-auto shrink-0" />` (de
+`@/components/shared/UnsavedIndicator`). NÃO é mais flutuante/global — assim nunca sobrepõe
+relógio/botões e fica alinhado ao cabeçalho. Ao fechar (X, ESC, clicar fora, Cancelar/Voltar)
+— ou, em página inteira, ao NAVEGAR para fora — com pendências, o `<UnsavedChangesGuard>`
+mostra um `AlertDialog`: **"Descartar alterações?"** → `Continuar editando` / `Descartar`.
 
 **Primitivos compartilhados (NÃO reinventar):**
 - **`src/components/shared/UnsavedChangesGuard.tsx`** exporta:
@@ -46,8 +47,10 @@ ao NAVEGAR para fora — com pendências, um `AlertDialog` confirma:
     `requestClose()` vai em todo caminho de fechar (Radix `onOpenChange`, Cancelar/X/Voltar);
     abre a confirmação se `dirty`, senão fecha. `blockNav: true` (só página inteira) bloqueia
     a navegação de rota via `useBlocker` do TanStack Router.
-  - `<UnsavedChangesGuard dirty confirm message="…" />`: renderiza o indicador flutuante + o
-    `AlertDialog`. Um por formulário. `message` específico da tela.
+  - `<UnsavedChangesGuard confirm message="…" />`: renderiza só o `AlertDialog` de descarte.
+    Um por formulário. `message` específico da tela.
+  - `<UnsavedIndicator show={dirty} className="ml-auto shrink-0" />` (de
+    `@/components/shared/UnsavedIndicator`): o selo INLINE, colocado no header da tela.
 - **`src/hooks/useDirtySnapshot.ts`**: `useDirtySnapshot(value)` → `{ dirty, markClean, reset }`.
   Compara um instantâneo (JSON) do estado do formulário. `reset(seed)` ao semear (query async
   ou abrir-para-editar); `markClean()` no `onSuccess` do Salvar.
@@ -68,16 +71,23 @@ ao NAVEGAR para fora — com pendências, um `AlertDialog` confirma:
 const dirty = open && formNome !== (editing?.nome ?? "");        // Caso B
 const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose: () => setOpen(false) });
 <Dialog open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
+  <DialogHeader>
+    <div className="flex items-center gap-2">
+      <DialogTitle>Editar destino</DialogTitle>
+      <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />   {/* selo no header */}
+    </div>
+  </DialogHeader>
   …
-  <Button variant="outline" onClick={requestClose}>Cancelar</Button>
+  <Button variant="outline" onClick={requestClose}><ArrowLeft/> Voltar</Button>  {/* rodapé */}
 </Dialog>
-<UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas neste cadastro." />
+<UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas neste cadastro." />
 
 // Página inteira (bloqueia navegação)
 const { dirty, markClean, reset } = useDirtySnapshot(cfg);
 const { confirm } = useUnsavedGuard({ dirty, blockNav: true });  // sem onClose
 // reset(next) ao carregar; markClean() no onSuccess do Salvar
-<UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas nas configurações." />
+<header className="flex items-center gap-2">…<UnsavedIndicator show={dirty} className="ml-auto shrink-0" /></header>
+<UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas nas configurações." />
 ```
 
 > Fora de escopo: `AlertDialog`s de confirmação pura ("Excluir?", "Salvar mesmo assim") e

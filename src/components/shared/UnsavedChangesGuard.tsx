@@ -1,5 +1,4 @@
 import { useCallback, useState } from "react";
-import { createPortal } from "react-dom";
 import { useBlocker } from "@tanstack/react-router";
 import {
   AlertDialog,
@@ -11,7 +10,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { UnsavedIndicator } from "./UnsavedIndicator";
 
 const MSG_PADRAO = "Há alterações não salvas.";
 
@@ -78,42 +76,37 @@ export function useUnsavedGuard({ dirty, onClose, blockNav }: UseUnsavedGuardOpt
 }
 
 interface UnsavedChangesGuardProps {
-  dirty: boolean;
+  /**
+   * Reservado / compatibilidade. O indicador visual "● alterações não salvas" NÃO é
+   * mais renderizado aqui — cada tela mostra `<UnsavedIndicator show={dirty} />` INLINE
+   * no próprio header (canto direito), acima da linha separadora. Este componente
+   * renderiza só o diálogo "Descartar alterações?".
+   */
+  dirty?: boolean;
   confirm: UnsavedConfirm;
   /** Texto da descrição do diálogo. Padrão: "Há alterações não salvas." */
   message?: string;
 }
 
 /**
- * Renderiza o indicador flutuante "● alterações não salvas" (canto inferior
- * direito, desktop) e o diálogo "Descartar alterações?". Coloque uma vez por
- * formulário, junto ao Sheet/Dialog/página.
+ * Renderiza o diálogo "Descartar alterações?" (confirmação ao fechar/navegar com
+ * pendências). O indicador visual fica INLINE no header de cada tela via
+ * `<UnsavedIndicator show={dirty} />` (de `@/components/shared/UnsavedIndicator`).
+ * Coloque um `<UnsavedChangesGuard>` por formulário (em qualquer lugar do JSX).
  */
-export function UnsavedChangesGuard({ dirty, confirm, message }: UnsavedChangesGuardProps) {
+export function UnsavedChangesGuard({ confirm, message }: UnsavedChangesGuardProps) {
   return (
-    <>
-      {dirty && typeof document !== "undefined" && createPortal(
-        // Portal no body (ancestrais com transform/contain — sidebar, SheetContent — viram
-        // "containing block" de fixed e descolariam o indicador). Canto SUPERIOR DIREITO,
-        // porém ABAIXO da barra global (h-14) / do header do Sheet, p/ não sobrepor o
-        // relógio da loja nem os botões do header (ex.: "Importar dados").
-        <div className="pointer-events-none fixed top-16 right-4 z-[60]">
-          <UnsavedIndicator show />
-        </div>,
-        document.body,
-      )}
-      <AlertDialog open={confirm.open} onOpenChange={(o) => { if (!o) confirm.onKeepEditing(); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Descartar alterações?</AlertDialogTitle>
-            <AlertDialogDescription>{message ?? MSG_PADRAO}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={confirm.onKeepEditing}>Continuar editando</AlertDialogCancel>
-            <AlertDialogAction onClick={confirm.onDiscard}>Descartar</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
+    <AlertDialog open={confirm.open} onOpenChange={(o) => { if (!o) confirm.onKeepEditing(); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Descartar alterações?</AlertDialogTitle>
+          <AlertDialogDescription>{message ?? MSG_PADRAO}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={confirm.onKeepEditing}>Continuar editando</AlertDialogCancel>
+          <AlertDialogAction onClick={confirm.onDiscard}>Descartar</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

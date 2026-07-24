@@ -19,6 +19,7 @@ import { ResponsavelSelect } from "@/components/shared/ResponsavelSelect";
 import { FilterButton } from "@/components/shared/filters";
 import { useResponsavelFilter, SENTINEL_NOME } from "@/hooks/useResponsavelFilter";
 import { NfList } from "@/components/oc-tecido/NfList";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { OcModalShell } from "@/components/shared/OcModalShell";
@@ -436,7 +437,10 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
         <div className="shrink-0 space-y-1">
           <Breadcrumb items={[{ label: "Entrada & Saída" }, { label: "OC Insumo" }, { label: numero || "OC" }]} />
           <DialogHeader>
-            <DialogTitle>{isEdit ? `OC ${numero || "Insumo"}` : "Nova OC de Insumo"}</DialogTitle>
+            <div className="flex items-center gap-2">
+              <DialogTitle>{isEdit ? `OC ${numero || "Insumo"}` : "Nova OC de Insumo"}</DialogTitle>
+              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+            </div>
           </DialogHeader>
         </div>
 

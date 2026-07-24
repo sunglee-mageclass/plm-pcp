@@ -60,6 +60,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 
 const MODULE_META: Record<string, { title: string; icon: typeof BarChart3 }> = {
   dashboard: { title: "Dashboard", icon: BarChart3 },
@@ -494,7 +495,12 @@ function TrocarSenhaDialog({ collapsed }: { collapsed: boolean }) {
           </Button>
         </DialogTrigger>
         <DialogContent>
-          <DialogHeader><DialogTitle>Trocar senha</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <div className="flex items-center gap-2">
+              <DialogTitle>Trocar senha</DialogTitle>
+              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+            </div>
+          </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label htmlFor="nova-senha">Nova senha</Label>

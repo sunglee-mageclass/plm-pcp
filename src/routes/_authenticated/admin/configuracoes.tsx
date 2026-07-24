@@ -46,6 +46,7 @@ import {
 import { PAGES_CATALOG } from "@/lib/permissions-catalog";
 import { PageActionBar } from "@/components/shared/PageActionBar";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { resolveStatusKey } from "@/lib/kanban-status";
 import { isServicoConfeccao } from "@/lib/servico-confeccao";
@@ -228,7 +229,10 @@ function ConfiguracoesLojaPage() {
         <div className="flex min-w-0 items-start gap-3">
           <Settings className="h-7 w-7 shrink-0 text-primary mt-0.5" />
           <div className="min-w-0">
-            <h1 className="text-2xl font-bold">Configurações da Loja</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-bold">Configurações da Loja</h1>
+              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+            </div>
             <p className="text-sm text-muted-foreground">
               Parâmetros usados em todo o fluxo de produção.
             </p>
@@ -882,7 +886,10 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
       </DialogTrigger>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!p-4">
         <DialogHeader>
-          <DialogTitle>Nomenclaturas</DialogTitle>
+          <div className="flex items-center gap-2">
+            <DialogTitle>Nomenclaturas</DialogTitle>
+            <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+          </div>
         </DialogHeader>
 
         <div className="grid grid-cols-1 md:grid-cols-[170px_1fr] items-center gap-2">

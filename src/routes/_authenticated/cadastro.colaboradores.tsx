@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Users, Plus, Trash2, Pencil, MoreVertical } from "lucide-react";
 import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -430,7 +431,10 @@ function ColaboradoresPage() {
       >
         <DialogContent className="max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
           <DialogHeader className="max-sm:shrink-0">
-            <DialogTitle>{editTab ? "Editar tipo de colaborador" : "Novo tipo de colaborador"}</DialogTitle>
+            <div className="flex items-center gap-2">
+              <DialogTitle>{editTab ? "Editar tipo de colaborador" : "Novo tipo de colaborador"}</DialogTitle>
+              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+            </div>
           </DialogHeader>
           <div className="space-y-3 py-2 max-sm:min-h-0 max-sm:overflow-y-auto">
             <div className="space-y-1.5">

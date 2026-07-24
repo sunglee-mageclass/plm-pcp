@@ -28,6 +28,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 
 type ArtigoLite = { id: string; nome: string; unidade_medida: string | null; rendimento: number | null };
@@ -158,7 +159,12 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
   return (
     <Dialog open onOpenChange={(o) => !o && requestClose()}>
       <DialogContent className="max-w-lg">
-        <DialogHeader><DialogTitle>Novo Rolo</DialogTitle></DialogHeader>
+        <DialogHeader>
+          <div className="flex items-center gap-2">
+            <DialogTitle>Novo Rolo</DialogTitle>
+            <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+          </div>
+        </DialogHeader>
         <div className="space-y-4">
           <div className="flex gap-2">
             <Button type="button" size="sm" variant={modo === "avulso" ? "default" : "outline"}
@@ -594,7 +600,12 @@ function RoloEditDialog({ rolo, onClose }: { rolo: RoloRow; onClose: () => void 
   return (
     <Dialog open onOpenChange={(o) => !o && requestClose()}>
       <DialogContent className="max-w-md">
-        <DialogHeader><DialogTitle>Editar rolo</DialogTitle></DialogHeader>
+        <DialogHeader>
+          <div className="flex items-center gap-2">
+            <DialogTitle>Editar rolo</DialogTitle>
+            <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+          </div>
+        </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label>Código</Label>

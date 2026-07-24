@@ -32,6 +32,7 @@ import { PAGES_CATALOG } from "@/lib/permissions-catalog";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { useSort, SortHead } from "@/components/shared/sort";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 
 // Toggles de módulo (chaves batem com tenant_config.modules e PAGES_CATALOG).
@@ -441,7 +442,10 @@ function NovaLojaModal({ onClose, requestCloseRef }: { onClose: () => void; requ
         <DialogHeader className="max-sm:shrink-0">
           <div className="space-y-1">
             <Breadcrumb items={[{ label: "Admin" }, { label: "Gerenciar Lojas" }, { label: "Nova loja" }]} />
-            <DialogTitle>Nova Loja</DialogTitle>
+            <div className="flex items-center gap-2">
+              <DialogTitle>Nova Loja</DialogTitle>
+              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+            </div>
           </div>
         </DialogHeader>
         <div className="space-y-4 py-4 max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-y-auto">
@@ -580,7 +584,10 @@ function EditarLojaModal({ tenant, onClose, requestCloseRef }: { tenant: Tenant;
         <div className="shrink-0 border-b p-3">
           <div className="space-y-1">
             <Breadcrumb items={[{ label: "Admin" }, { label: "Gerenciar Lojas" }, { label: nome || tenant.nome }]} />
-            <DialogTitle className="text-xl font-bold">Editar Loja</DialogTitle>
+            <div className="flex items-center gap-2">
+              <DialogTitle className="text-xl font-bold">Editar Loja</DialogTitle>
+              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+            </div>
           </div>
         </div>
         <div className="flex-1 space-y-4 overflow-y-auto p-4">

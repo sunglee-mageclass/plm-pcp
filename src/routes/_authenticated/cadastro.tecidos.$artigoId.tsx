@@ -58,6 +58,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { useReadOnly } from "@/components/RequirePermission";
 import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 
 // Datas antigas do histórico foram gravadas com offset '+00' (não-ISO) → new Date() dava
@@ -345,6 +346,7 @@ export function TecidoDetail({ artigoId, onClose }: { artigoId: string; onClose:
           <h1 className="text-2xl font-bold">{form.nome}</h1>
           <p className="text-sm text-muted-foreground">Detalhes do tecido</p>
         </div>
+        <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
       </header>
 
       {/* Barra de ações no rodapé — todos os tamanhos (PageActionBar via portal). */}

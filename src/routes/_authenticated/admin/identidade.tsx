@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Palette, Upload, Loader2, ArrowLeft } from "lucide-react";
 import { PageActionBar } from "@/components/shared/PageActionBar";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -159,7 +160,10 @@ function IdentidadePage() {
         <div className="flex min-w-0 items-start gap-3">
           <Palette className="h-7 w-7 shrink-0 text-primary mt-0.5" />
           <div className="min-w-0">
-            <h1 className="text-2xl font-bold">Identidade do Sistema</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-bold">Identidade do Sistema</h1>
+              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+            </div>
             <p className="text-sm text-muted-foreground">
               Nome, subtítulo, logo e favicon exibidos em <strong>todas as lojas</strong> e na tela de login.
             </p>
