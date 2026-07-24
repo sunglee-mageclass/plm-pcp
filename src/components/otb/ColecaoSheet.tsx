@@ -635,23 +635,24 @@ export function ColecaoSheet({
             <SubcolecaoResumo colecaoId={colecaoId} className="border-t pt-1 mt-1" />
           </div>
         </div>
-        <div className="p-4 border-t shrink-0 flex justify-end gap-2">
-          <Button variant="outline" onClick={requestClose} aria-label="Voltar" className="mr-auto shrink-0 max-sm:aspect-square max-sm:px-0">
-            <ArrowLeft className="h-4 w-4 sm:hidden" />
-            <span className="max-sm:sr-only">Cancelar</span>
+        <div className="p-4 border-t shrink-0 flex items-center gap-2">
+          <Button variant="outline" onClick={requestClose} aria-label="Voltar" className="shrink-0">
+            <ArrowLeft className="h-4 w-4 mr-1" />
+            Voltar
           </Button>
           {colecaoId && (
-            <Button variant="destructive" size="icon" className="shrink-0" onClick={() => setConfirmDel(true)} disabled={excluir.isPending} aria-label="Excluir coleção">
-              <Trash2 className="h-4 w-4" />
+            <Button variant="outline" className="shrink-0" onClick={() => setConfirmDel(true)} disabled={excluir.isPending} aria-label="Excluir coleção">
+              <Trash2 className="h-4 w-4 mr-1" />
+              Excluir
             </Button>
           )}
           {!isConfirmada ? (
-            <Button variant="secondary" onClick={() => confirmar.mutate()} disabled={confirmar.isPending || save.isPending} aria-label="Confirmar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
+            <Button variant="secondary" onClick={() => confirmar.mutate()} disabled={confirmar.isPending || save.isPending} aria-label="Confirmar" className="ml-auto shrink-0 max-sm:aspect-square max-sm:px-0">
               <Check className="h-4 w-4 sm:hidden" />
               <span className="max-sm:sr-only">{confirmar.isPending ? "Confirmando…" : "Confirmar"}</span>
             </Button>
           ) : (
-            <Button variant="destructive" onClick={() => desconfirmar.mutate()} disabled={desconfirmar.isPending || save.isPending} aria-label="Desconfirmar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
+            <Button variant="destructive" onClick={() => desconfirmar.mutate()} disabled={desconfirmar.isPending || save.isPending} aria-label="Desconfirmar" className="ml-auto shrink-0 max-sm:aspect-square max-sm:px-0">
               <Check className="h-4 w-4 sm:hidden" />
               <span className="max-sm:sr-only">{desconfirmar.isPending ? "Desconfirmando…" : "Desconfirmar"}</span>
             </Button>

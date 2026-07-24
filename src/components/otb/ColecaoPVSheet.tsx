@@ -564,16 +564,16 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
           )}
         </div>
 
-        <div className="p-4 border-t shrink-0 flex justify-end gap-2">
-          <Button variant="outline" onClick={requestClose} className="mr-auto shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Voltar">
-            <ArrowLeft className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Voltar</span>
+        <div className="p-4 border-t shrink-0 flex items-center gap-2">
+          <Button variant="outline" onClick={requestClose} className="shrink-0" aria-label="Voltar">
+            <ArrowLeft className="h-4 w-4 mr-1" />Voltar
           </Button>
           {savedId && (
-            <Button variant="destructive" size="icon" className="shrink-0" onClick={() => setConfirmDel(true)} disabled={excluir.isPending} aria-label="Excluir coleção">
-              <Trash2 className="h-4 w-4" />
+            <Button variant="outline" className="shrink-0" onClick={() => setConfirmDel(true)} disabled={excluir.isPending} aria-label="Excluir coleção">
+              <Trash2 className="h-4 w-4 mr-1" />Excluir
             </Button>
           )}
-          <Button variant="secondary" onClick={() => salvar.mutate()} disabled={!nome.trim() || salvar.isPending} className="shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Salvar">
+          <Button variant="secondary" onClick={() => salvar.mutate()} disabled={!nome.trim() || salvar.isPending} className="ml-auto shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Salvar">
             <Save className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">{salvar.isPending ? "Salvando…" : "Salvar"}</span>
           </Button>
           {confirmada ? (

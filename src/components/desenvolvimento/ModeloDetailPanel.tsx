@@ -1875,20 +1875,22 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
         </fieldset>
       </div>
 
-      <div className="bg-background border-t pt-3 mt-3 shrink-0 flex flex-wrap gap-2 justify-end items-center max-sm:flex-nowrap">
+      <div className="bg-background border-t pt-3 mt-3 shrink-0 flex flex-wrap gap-2 items-center max-sm:flex-nowrap">
+        {/* Voltar: ESQUERDA — ícone no mobile, texto no desktop. */}
+        <Button variant="outline" onClick={onClose} aria-label="Voltar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
+          <ArrowLeft className="h-4 w-4 mr-1 max-sm:mr-0" />
+          <span className="max-sm:sr-only">Voltar</span>
+        </Button>
+        {/* Grupo direito: ml-auto empurra para a direita. */}
         {isAprovado && cadMissing.length > 0 && (
-          <span className="text-xs text-muted-foreground mr-auto max-sm:hidden">
+          <span className="text-xs text-muted-foreground ml-auto max-sm:hidden">
             Para enviar, falta: {cadMissing.join(", ")}
           </span>
         )}
-        <Button variant="outline" onClick={onClose} aria-label="Voltar" className="shrink-0 max-sm:order-first max-sm:mr-auto max-sm:aspect-square max-sm:px-0">
-          <ArrowLeft className="h-4 w-4 sm:hidden" />
-          <span className="max-sm:sr-only">Fechar</span>
-        </Button>
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <span>
+              <span className={!(isAprovado && cadMissing.length > 0) ? "ml-auto" : ""}>
                 <Button
                   variant="outline"
                   size="sm"

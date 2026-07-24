@@ -592,8 +592,8 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
           </div>
         )}
 
-        <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2 sm:justify-end">
-          <Button variant="ghost" size="sm" onClick={requestClose} className="mr-auto sm:hidden">
+        <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={requestClose}>
             <ArrowLeft className="mr-1 h-4 w-4" />
             Voltar
           </Button>
@@ -602,6 +602,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
             size="sm"
             disabled={desfazerPedidoMut.isPending}
             onClick={() => setDesfazerOpen(true)}
+            className="ml-auto"
           >
             <Undo2 className="mr-1 h-4 w-4" />
             <span className="hidden sm:inline">Desfazer pedido</span>

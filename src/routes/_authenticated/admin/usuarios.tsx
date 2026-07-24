@@ -428,13 +428,10 @@ function NovoUsuarioModal({
             </Select>
           </div>
         </div>
-        <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
-          <Button type="button" variant="outline" className="max-sm:hidden" onClick={requestClose}>Cancelar</Button>
-          <Button type="button" variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={requestClose}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <Button type="submit" className="max-sm:ml-auto" disabled={submitting}>{submitting ? "Salvando…" : "Criar"}</Button>
-        </DialogFooter>
+        <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2 max-sm:-mx-4 max-sm:-mb-4">
+          <Button type="button" variant="outline" onClick={requestClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
+          <Button type="submit" className="ml-auto" disabled={submitting}>{submitting ? "Salvando…" : "Criar"}</Button>
+        </div>
       </form>
       <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas neste cadastro de usuário." />
     </DialogContent>
@@ -521,12 +518,9 @@ function EditUsuarioModal({
             )}
           </div>
         </div>
-        <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2 sm:justify-end">
-          <Button type="button" variant="outline" className="max-sm:hidden" onClick={requestClose}>Cancelar</Button>
-          <Button type="button" variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={requestClose}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <Button type="submit" className="max-sm:ml-auto" disabled={submitting}>{submitting ? "Salvando…" : "Salvar"}</Button>
+        <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2">
+          <Button type="button" variant="outline" onClick={requestClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
+          <Button type="submit" className="ml-auto" disabled={submitting}>{submitting ? "Salvando…" : "Salvar"}</Button>
         </div>
       </form>
       <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas neste cadastro de usuário." />
@@ -568,13 +562,10 @@ function ResetSenhaModal({
           <Label htmlFor="pwd">Nova senha (mín. 6)</Label>
           <Input id="pwd" type="password" autoComplete="new-password" minLength={6} maxLength={100} required value={pwd} onChange={(e) => setPwd(e.target.value)} />
         </div>
-        <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
-          <Button type="button" variant="outline" className="max-sm:hidden" onClick={onClose}>Cancelar</Button>
-          <Button type="button" variant="outline" size="icon" aria-label="Voltar" className="shrink-0 sm:hidden" onClick={onClose}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <Button type="submit" className="max-sm:ml-auto" disabled={submitting}>{submitting ? "Salvando…" : "Redefinir"}</Button>
-        </DialogFooter>
+        <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2 max-sm:-mx-4 max-sm:-mb-4">
+          <Button type="button" variant="outline" onClick={onClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
+          <Button type="submit" className="ml-auto" disabled={submitting}>{submitting ? "Salvando…" : "Redefinir"}</Button>
+        </div>
       </form>
     </DialogContent>
   );

@@ -536,18 +536,17 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
 
   // Botões de ação (Pré/Pós) — renderizados na barra STICKY do rodapé (todos os tamanhos):
   // rodapé do Sheet no modo modal, PageActionBar (portal no body) no modo página inteira.
-  // O `backButton` (voltar) só entra no PageActionBar; no Sheet o "Voltar" fica no topo + X do modal.
   const backButton = onClose ? (
-    <Button type="button" variant="outline" size="icon" className="mr-auto" onClick={onClose} aria-label="Voltar">
-      <ArrowLeft className="h-4 w-4" />
+    <Button type="button" variant="outline" onClick={onClose} aria-label="Voltar">
+      <ArrowLeft className="h-4 w-4 mr-1" />Voltar
     </Button>
   ) : (
-    <Button asChild variant="outline" size="icon" className="mr-auto" aria-label="Voltar">
-      <Link to="/producao/cq"><ArrowLeft className="h-4 w-4" /></Link>
+    <Button asChild variant="outline" aria-label="Voltar">
+      <Link to="/producao/cq"><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Link>
     </Button>
   );
   const actionButtons = (
-    <>
+    <div className="ml-auto flex items-center gap-2">
       {view === "pre" && (!confirmado ? (
         <>
           {cad?.id && (
@@ -565,7 +564,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       ) : editing ? (
         <>
           <Button variant="ghost" onClick={() => { setEditing(false); setHydrated(false); }} disabled={saveMut.isPending}>
-            Cancelar
+            Voltar
           </Button>
           <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly}>
             <Save className="h-4 w-4 mr-2" /> Salvar
@@ -598,7 +597,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       ) : (
         <>
           {posBtn.editing && (
-            <Button variant="ghost" onClick={() => cqPosRef.current?.cancel()} disabled={posBtn.pending}>Cancelar</Button>
+            <Button variant="ghost" onClick={() => cqPosRef.current?.cancel()} disabled={posBtn.pending}>Voltar</Button>
           )}
           <Button variant="outline" onClick={() => cqPosRef.current?.save(false)} disabled={permReadOnly || posBtn.pending}>
             <Save className="h-4 w-4 mr-2" /> Salvar
@@ -608,7 +607,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
           </Button>
         </>
       ))}
-    </>
+    </div>
   );
 
   // Modo Sheet (via cq.index): flex column p/ o rodapé de ações grudar embaixo.
@@ -897,7 +896,8 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       {/* Regra 2 — barra de ações sticky no rodapé (todos os tamanhos).
           Sheet: rodapé in-flow do próprio modal. Página inteira: PageActionBar (portal no body). */}
       {onClose ? (
-        <div className="shrink-0 border-t bg-background p-3 flex flex-wrap items-center gap-2 sm:justify-end">
+        <div className="shrink-0 border-t bg-background p-3 flex flex-wrap items-center gap-2">
+          {backButton}
           {actionButtons}
         </div>
       ) : (
@@ -1088,7 +1088,7 @@ function OficinaServicoDialog({ cadId, open, onClose }: { cadId: string; open: b
         <DialogFooter>
           <Button variant="outline" onClick={requestClose} aria-label="Voltar" className="max-sm:aspect-square max-sm:px-0">
             <ArrowLeft className="h-4 w-4 sm:hidden" />
-            <span className="max-sm:sr-only">Fechar</span>
+            <span className="max-sm:sr-only">Voltar</span>
           </Button>
           {serv && <Button onClick={() => save.mutate()} disabled={save.isPending}>Salvar</Button>}
         </DialogFooter>

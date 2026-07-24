@@ -13,7 +13,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
-import { ImageIcon, Printer, RotateCcw, Save, Send } from "lucide-react";
+import { ArrowLeft, ImageIcon, Printer, RotateCcw, Save, Send } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { varianteLabel } from "@/lib/variante";
@@ -442,7 +442,15 @@ export function ExplosaoDetail({ modeloId, onEnviado, onDirtyChange }: Props) {
       </div>
 
       {/* Rodapé sticky de ações — colado embaixo enquanto o corpo rola (desktop e mobile). */}
-      <div className="shrink-0 border-t bg-background p-3 flex flex-wrap items-center gap-2 sm:justify-end no-print">
+      <div className="shrink-0 border-t bg-background p-3 flex flex-wrap items-center gap-2 no-print">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onEnviado}
+        >
+          <ArrowLeft className="h-4 w-4 mr-1" />
+          Voltar
+        </Button>
         <Button
           variant="outline"
           size="sm"
@@ -467,6 +475,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onDirtyChange }: Props) {
         </Button>
         <Button
           size="sm"
+          className="ml-auto"
           onClick={handleEnviar}
           disabled={enviarCorte.isPending || salvarMut.isPending || !cadRow?.id}
         >

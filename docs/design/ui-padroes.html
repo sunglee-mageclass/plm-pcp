@@ -497,15 +497,16 @@ function CampoRO({ label, value }: { label: string; value: string }) {
     <!-- ─────────── G ─────────── -->
     <section class="pattern" id="G">
       <h2><span class="letter">G</span>Barra de ações + container (Sheet/Dialog) + toque 44px</h2>
-      <div class="when"><b>Padrão do sistema.</b> <b>Container:</b> editar registro existente = <b>Sheet</b> (side=right ~70vw); criar/novo/formulário/config = <b>Dialog</b>. <b>Botões:</b> barra sticky no rodapé em TODOS os tamanhos — rodapé in-flow do modal (<code class="inline">shrink-0 border-t</code> com corpo <code class="inline">flex-1 overflow-y-auto</code>), ou <code class="inline">&lt;PageActionBar&gt;</code> (+<code class="inline">pb-24</code>) em página inteira. Nunca ação primária no header. Páginas de LISTA mantêm header + <code class="inline">&lt;MobileActionBar&gt;</code> (só-mobile). Toque ≥ 44px (<code class="inline">max-md:h-11</code>).</div>
+      <div class="when"><b>Padrão do sistema.</b> <b>Container:</b> editar registro existente = <b>Sheet</b> (side=right ~70vw); criar/novo/formulário/config = <b>Dialog</b>. <b>Botões:</b> barra sticky no rodapé em TODOS os tamanhos — rodapé in-flow do modal (<code class="inline">shrink-0 border-t</code> com corpo <code class="inline">flex-1 overflow-y-auto</code>), ou <code class="inline">&lt;PageActionBar&gt;</code> (+<code class="inline">pb-24</code>) em página inteira. Nunca ação primária no header. <b>Ordem fixa:</b> <b>Voltar</b> (esquerda, com <code class="inline">ArrowLeft</code> — nunca "Cancelar"/"Fechar") · <b>Excluir</b> ao lado (se houver) · <b>Salvar</b> à direita (<code class="inline">ml-auto</code>). Use <code class="inline">flex items-center gap-2</code>, não <code class="inline">justify-end</code>. Páginas de LISTA mantêm header + <code class="inline">&lt;MobileActionBar&gt;</code> (só-mobile). Toque ≥ 44px (<code class="inline">max-md:h-11</code>).</div>
       <div class="split">
         <div class="demo">
           <div class="demo-label">Exemplo (rodapé sticky do modal / página)</div>
           <div style="max-width:320px;border:1px solid var(--border);border-radius:12px;overflow:hidden;">
             <div style="padding:16px;font-size:13px;color:var(--muted-foreground);height:90px;">conteúdo (corpo <code class="inline">flex-1 overflow-y-auto</code>)…</div>
-            <div class="mock-bar" style="justify-content:flex-end;">
-              <button class="btn btn-outline" style="height:44px;">Cancelar</button>
-              <button class="btn btn-primary" style="height:44px;">💾 Salvar</button>
+            <div class="mock-bar">
+              <button class="btn btn-outline" style="height:44px;">← Voltar</button>
+              <button class="btn btn-outline" style="height:44px;">🗑 Excluir</button>
+              <button class="btn btn-primary" style="height:44px;margin-left:auto;">💾 Salvar</button>
             </div>
           </div>
         </div>
@@ -515,9 +516,10 @@ function CampoRO({ label, value }: { label: string; value: string }) {
 &lt;SheetContent side="right" className="… flex flex-col p-0"&gt;
   &lt;div className="shrink-0 border-b p-3"&gt;{/* header sem ação */}&lt;/div&gt;
   &lt;div className="flex-1 overflow-y-auto p-4"&gt;{/* corpo */}&lt;/div&gt;
-  &lt;div className="shrink-0 border-t bg-background p-3 flex items-center gap-2 sm:justify-end"&gt;
-    &lt;Button variant="outline" onClick={requestClose}&gt;Cancelar&lt;/Button&gt;
-    &lt;Button onClick={salvar} disabled={!dirty}&gt;Salvar&lt;/Button&gt;
+  &lt;div className="shrink-0 border-t bg-background p-3 flex items-center gap-2"&gt;
+    &lt;Button variant="outline" onClick={requestClose}&gt;&lt;ArrowLeft/&gt;Voltar&lt;/Button&gt;
+    {isEdit &amp;&amp; &lt;Button variant="outline" onClick={excluir}&gt;&lt;Trash2/&gt;Excluir&lt;/Button&gt;}
+    &lt;Button className="ml-auto" onClick={salvar} disabled={!dirty}&gt;Salvar&lt;/Button&gt;
   &lt;/div&gt;
   &lt;UnsavedChangesGuard dirty={dirty} confirm={confirm} message="…" /&gt;
 &lt;/SheetContent&gt;

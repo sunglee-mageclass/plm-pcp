@@ -270,43 +270,46 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
 
   // Botões de ação renderizados na barra STICKY do rodapé (todos os tamanhos): rodapé
   // do Sheet no modo modal, PageActionBar (portal no body) no modo página inteira.
-  // O `backButton` (voltar) só entra no PageActionBar; no Sheet o "Voltar" fica no topo + X do modal.
   const backButton = onClose ? (
-    <Button type="button" variant="outline" size="icon" className="mr-auto" onClick={onClose} aria-label="Voltar">
-      <ArrowLeft className="h-4 w-4" />
+    <Button type="button" variant="outline" onClick={onClose} aria-label="Voltar">
+      <ArrowLeft className="h-4 w-4 mr-1" />Voltar
     </Button>
   ) : (
-    <Button asChild variant="outline" size="icon" className="mr-auto" aria-label="Voltar">
-      <Link to="/producao/direcionamento"><ArrowLeft className="h-4 w-4" /></Link>
+    <Button asChild variant="outline" aria-label="Voltar">
+      <Link to="/producao/direcionamento"><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Link>
     </Button>
   );
-  const actionButtons = !confirmado ? (
-    <>
-      <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
-        <Save className="h-4 w-4 mr-2" /> Salvar
-      </Button>
-      <Button onClick={() => confirmMut.mutate()} disabled={confirmMut.isPending || saveMut.isPending || readOnly || !cad?.id || hasOver}>
-        <CheckCircle2 className="h-4 w-4 mr-2" /> Confirmar Direcionamento
-      </Button>
-    </>
-  ) : editing ? (
-    <>
-      <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
-        <Save className="h-4 w-4 mr-2" /> Salvar
-      </Button>
-      <Button variant="ghost" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || readOnly}>
-        <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar
-      </Button>
-    </>
-  ) : (
-    <>
-      <Button variant="outline" size="icon" onClick={() => setEditing(true)} disabled={readOnly} aria-label="Editar">
-        <Pencil className="h-4 w-4" />
-      </Button>
-      <Button variant="ghost" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || readOnly}>
-        <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar
-      </Button>
-    </>
+  const actionButtons = (
+    <div className="ml-auto flex items-center gap-2">
+      {!confirmado ? (
+        <>
+          <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
+            <Save className="h-4 w-4 mr-2" /> Salvar
+          </Button>
+          <Button onClick={() => confirmMut.mutate()} disabled={confirmMut.isPending || saveMut.isPending || readOnly || !cad?.id || hasOver}>
+            <CheckCircle2 className="h-4 w-4 mr-2" /> Confirmar Direcionamento
+          </Button>
+        </>
+      ) : editing ? (
+        <>
+          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
+            <Save className="h-4 w-4 mr-2" /> Salvar
+          </Button>
+          <Button variant="ghost" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || readOnly}>
+            <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar
+          </Button>
+        </>
+      ) : (
+        <>
+          <Button variant="outline" size="icon" onClick={() => setEditing(true)} disabled={readOnly} aria-label="Editar">
+            <Pencil className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || readOnly}>
+            <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar
+          </Button>
+        </>
+      )}
+    </div>
   );
 
   return (
@@ -495,7 +498,8 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
       {/* Regra 2 — barra de ações sticky no rodapé (todos os tamanhos).
           Sheet: rodapé in-flow do próprio modal. Página inteira: PageActionBar (portal no body). */}
       {onClose ? (
-        <div className="shrink-0 border-t bg-background p-3 flex flex-wrap items-center gap-2 sm:justify-end">
+        <div className="shrink-0 border-t bg-background p-3 flex flex-wrap items-center gap-2">
+          {backButton}
           {actionButtons}
         </div>
       ) : (

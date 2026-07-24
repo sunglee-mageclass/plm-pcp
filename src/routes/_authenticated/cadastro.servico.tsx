@@ -8,6 +8,7 @@ import {
   Pencil,
   Trash2,
   Loader2,
+  ArrowLeft,
 } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -768,12 +769,12 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
 
 
       <Dialog open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
-          <DialogHeader className="max-sm:shrink-0">
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden">
+          <DialogHeader className="shrink-0 px-6 pt-6 pb-4">
             <DialogTitle>{form.id ? "Editar representante" : "Novo representante"}</DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-4 py-2 max-sm:min-h-0 max-sm:overflow-y-auto">
+          <div className="flex-1 overflow-y-auto px-6 space-y-4 py-2">
             <div className="space-y-1.5">
               <Label>Empresa</Label>
               <div className="flex gap-2">
@@ -846,16 +847,16 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
             />
           </div>
 
-          <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
+          <div className="shrink-0 border-t bg-background px-6 py-3 flex items-center gap-2">
             <Button variant="outline" onClick={requestClose}>
-              Cancelar
+              <ArrowLeft className="h-4 w-4 mr-1" />Voltar
             </Button>
             {!readOnly && (
-              <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+              <Button className="ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
                 {saveMut.isPending ? "Salvando…" : "Salvar"}
               </Button>
             )}
-          </DialogFooter>
+          </div>
           <UnsavedChangesGuard
             dirty={dirty}
             confirm={confirm}
@@ -1482,11 +1483,11 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
 
 
       <Dialog open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
-          <DialogHeader className="max-sm:shrink-0">
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!overflow-hidden">
+          <DialogHeader className="shrink-0 px-6 pt-6 pb-4">
             <DialogTitle>{editingId ? "Editar empresa" : "Nova empresa"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2 max-sm:min-h-0 max-sm:overflow-y-auto">
+          <div className="flex-1 overflow-y-auto px-6 space-y-4 py-2">
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>Tipo</Label>
@@ -1552,16 +1553,16 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
               )}
             </div>
           </div>
-          <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
+          <div className="shrink-0 border-t bg-background px-6 py-3 flex items-center gap-2">
             <Button variant="outline" onClick={requestClose}>
-              Cancelar
+              <ArrowLeft className="h-4 w-4 mr-1" />Voltar
             </Button>
             {!readOnly && (
-              <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
+              <Button className="ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
                 {saveMut.isPending ? "Salvando…" : "Salvar"}
               </Button>
             )}
-          </DialogFooter>
+          </div>
           <UnsavedChangesGuard
             dirty={dirty}
             confirm={confirm}

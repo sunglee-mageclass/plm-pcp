@@ -93,10 +93,11 @@ export function UnsavedChangesGuard({ dirty, confirm, message }: UnsavedChangesG
   return (
     <>
       {dirty && typeof document !== "undefined" && createPortal(
-        // Portal no body: ancestrais com transform/contain (sidebar, SheetContent) viram
-        // "containing block" de elementos fixed e descolariam o indicador — o portal
-        // garante o canto SUPERIOR DIREITO do viewport, à esquerda do ✕ (right-4 top-4).
-        <div className="pointer-events-none fixed top-4 right-12 z-[60]">
+        // Portal no body (ancestrais com transform/contain — sidebar, SheetContent — viram
+        // "containing block" de fixed e descolariam o indicador). Canto SUPERIOR DIREITO,
+        // porém ABAIXO da barra global (h-14) / do header do Sheet, p/ não sobrepor o
+        // relógio da loja nem os botões do header (ex.: "Importar dados").
+        <div className="pointer-events-none fixed top-16 right-4 z-[60]">
           <UnsavedIndicator show />
         </div>,
         document.body,

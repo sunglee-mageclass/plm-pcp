@@ -1686,27 +1686,28 @@ function ModeloDialog({
           )}
         </div>
 
-        <div className="shrink-0 border-t bg-background px-6 py-3 flex flex-wrap items-center gap-2 sm:justify-end max-sm:flex-nowrap">
-          {/* Voltar: desktop "Cancelar" texto, mobile ícone de voltar. */}
+        <div className="shrink-0 border-t bg-background px-6 py-3 flex flex-wrap items-center gap-2 max-sm:flex-nowrap">
+          {/* Voltar: ESQUERDA — ícone no mobile, texto no desktop. */}
           <Button variant="outline" onClick={requestClose} aria-label="Voltar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
-            <ArrowLeft className="h-4 w-4 sm:hidden" />
-            <span className="max-sm:sr-only">Cancelar</span>
+            <ArrowLeft className="h-4 w-4 mr-1 max-sm:mr-0" />
+            <span className="max-sm:sr-only">Voltar</span>
           </Button>
+          {/* Excluir: logo ao lado do Voltar (só no modo edição). */}
           {isEdit && (
-            <>
-              {/* Duplicar/Excluir: só-ícone no mobile, texto no desktop. */}
-              <Button variant="outline" onClick={() => duplicate.mutate()} disabled={duplicate.isPending} aria-label="Duplicar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
-                <Copy className="h-4 w-4 sm:hidden" />
-                <span className="max-sm:sr-only">Duplicar</span>
-              </Button>
-              <Button variant="destructive" onClick={() => setConfirmDel(true)} aria-label="Excluir" className="shrink-0 max-sm:aspect-square max-sm:px-0">
-                <Trash2 className="h-4 w-4 sm:hidden" />
-                <span className="max-sm:sr-only">Excluir</span>
-              </Button>
-            </>
+            <Button variant="destructive" onClick={() => setConfirmDel(true)} aria-label="Excluir" className="shrink-0 max-sm:aspect-square max-sm:px-0">
+              <Trash2 className="h-4 w-4 sm:mr-1" />
+              <span className="max-sm:sr-only">Excluir</span>
+            </Button>
+          )}
+          {/* Grupo direito: ml-auto empurra para a direita. */}
+          {isEdit && (
+            <Button variant="outline" onClick={() => duplicate.mutate()} disabled={duplicate.isPending} aria-label="Duplicar" className="ml-auto shrink-0 max-sm:aspect-square max-sm:px-0">
+              <Copy className="h-4 w-4 sm:mr-1" />
+              <span className="max-sm:sr-only">Duplicar</span>
+            </Button>
           )}
           {isEdit && (enviada ? (
-            <Button variant="outline" className="max-sm:ml-auto" onClick={() => enviar.mutate(false)} disabled={enviar.isPending}>
+            <Button variant="outline" onClick={() => enviar.mutate(false)} disabled={enviar.isPending}>
               Cancelar Envio
             </Button>
           ) : (
@@ -1715,7 +1716,7 @@ function ModeloDialog({
                 {/* Botão desabilitado não dispara title nativo — o span recebe o hover
                     e o tooltip lista o que falta para enviar. */}
                 <TooltipTrigger asChild>
-                  <span className="max-sm:ml-auto inline-flex">
+                  <span className={isEdit ? "" : "ml-auto"} style={{ display: "inline-flex" }}>
                     <Button
                       variant="secondary"
                       onClick={() => enviar.mutate(true)}
@@ -1737,8 +1738,8 @@ function ModeloDialog({
               </Tooltip>
             </TooltipProvider>
           ))}
-          <Button className="max-sm:ml-auto shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Salvar" onClick={() => save.mutate()} disabled={save.isPending}>
-            <Save className="h-4 w-4 sm:hidden" />
+          <Button className={`shrink-0 max-sm:aspect-square max-sm:px-0${!isEdit ? " ml-auto" : ""}`} aria-label="Salvar" onClick={() => save.mutate()} disabled={save.isPending}>
+            <Save className="h-4 w-4 sm:mr-1" />
             <span className="max-sm:sr-only">Salvar</span>
           </Button>
         </div>

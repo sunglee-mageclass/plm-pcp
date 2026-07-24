@@ -132,6 +132,10 @@ export function ModelCard({
   const temGrade = slot.materiais.some((m) => m.variantes.some((v) => v.grade_total > 0));
   const usarEstoque = slot.usar_estoque ?? false;
   const catNome = categorias.find((c) => c.id === slot.categoria_id)?.nome ?? null;
+  // Resumo dos tecidos/forros do card, p/ aparecer na visão "Por linha" sem precisar expandir.
+  const tecidosResumo = Array.from(
+    new Set(slot.materiais.filter((m) => m.artigo_id && m.artigo_nome).map((m) => m.artigo_nome!)),
+  ).join(" · ");
   const borderClass = open ? "border-primary" : usarEstoque ? "border-amber-500" : "";
 
   // Estado do botão "Aplicar ao modelo" (empurra o BOM completo). Bloqueia só se lançado.
@@ -191,6 +195,10 @@ export function ModelCard({
             </div>
             {/* linha de categoria sempre reservada p/ padronizar a altura do card */}
             <div className="h-[15px] truncate text-[11px] text-muted-foreground">{catNome}</div>
+            {/* tecido(s) do card — visível na visão "Por linha" sem expandir */}
+            <div className="h-[15px] truncate text-[11px] text-muted-foreground" title={tecidosResumo || undefined}>
+              {tecidosResumo || "— sem tecido"}
+            </div>
             <div className="text-xs text-muted-foreground">
               {total ? `${total.toFixed(0)} m` : "—"} · {temGrade ? "✓ grade" : "⚠ falta"}
               {usarEstoque ? " · estoque" : ""}
