@@ -20,6 +20,13 @@ bug real e regressão de invariante — não em preferência de estilo.
 3. **Bugs**: edge cases, null checks, erro de RPC não tratado, `kg↔metro` na unidade.
 4. **Padrões**: embed PostgREST > 2 queries; **queryKey única por tela** (compartilhada já
    causou bug do financeiro); nada de `localStorage` em auth/tenant.
+   - **UI de edição** (CLAUDE.md Convenções + docs/design/ui-padroes.md §A/§G): guarda de
+     "não-salvo" via `useUnsavedGuard`+`<UnsavedChangesGuard>` (AlertDialog DENTRO do portal do
+     Sheet/Dialog) + `useDirtySnapshot`; selo `<UnsavedIndicator show={dirty}>` INLINE no header
+     (não flutuante); editar=Sheet/novo=Dialog; rodapé sticky **Voltar/Excluir(destructive)/Salvar**
+     (não no header); breadcrumb no header; `dirty` gated por `open` em modais persistentes.
+     Armadilha: `reset`/`markClean` num effect com deps que trocam identidade → loop; `useBlocker`
+     liga `enableBeforeUnload` por padrão (gate!).
 5. **Efeitos colaterais** da mudança: o que mais lê a mesma RPC/queryKey/coluna?
 
 # REGRAS

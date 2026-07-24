@@ -19,8 +19,13 @@ Audita SOMENTE leitura — encontra problemas e sugere; **não executa nem alter
 
 # ESPECIALIDADE sisTrama
 - Galerias: Cadastro>Tecidos/Aviamentos, Criação>Planejamento, Produção>Lançamentos (hook useGridCols/useCompactCards; mobile fixo 2 colunas).
-- Telas densas: CAD, Controle de Qualidade (matrizes de grade), Direcionamento, Consumo por OC, Financeiro (calendário + lista).
+- Telas densas: CAD, Controle de Qualidade (matrizes de grade), Direcionamento, Financeiro (calendário + lista).
 - Componentes shadcn em `src/components/ui/` (não alterar).
+- **Padrão de edição vigente** (docs/design/ui-padroes.md §A/§G) — checar no mobile: editar=Sheet
+  (side=right, full-width no celular), novo=Dialog; **barra de ações sticky no rodapé** (Voltar/Excluir/
+  Salvar) — em página inteira via `<PageActionBar>` (portal, precisa `pb-24` no container); breadcrumb
+  no header; selo "alterações não salvas" INLINE no topo-direita do header; `<MobileActionBar>` só em
+  páginas de LISTA. Regra de toque ≥ 44px (`max-md:h-11` já nos componentes base).
 
 # WORKFLOW
 1. Mapear as telas do(s) módulo(s) pedidos (rotas em `src/routes/_authenticated/`).

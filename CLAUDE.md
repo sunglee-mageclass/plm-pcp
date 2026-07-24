@@ -194,6 +194,18 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   ⚠️ Na **key** do Storage, o nome do arquivo tem que passar por `sanitizeStorageName()`
   (`@/lib/storage-tenant`) — acento/espaço/símbolo dão `Invalid key` (ex.: `Véu - 2060.jpeg`).
 - Não usar `localStorage` em lógica de auth/tenant — vem do contexto/Supabase.
+- **UI de edição — PADRÃO DO SISTEMA** (docs/design/ui-padroes.md §A/§G; NÃO reinventar):
+  - **Guarda de "alterações não salvas"**: todo form com Salvar usa `useUnsavedGuard({dirty,
+    onClose?, blockNav?})` + `<UnsavedChangesGuard confirm message>` (só o AlertDialog "Descartar
+    alterações?") de `@/components/shared/UnsavedChangesGuard`, e `useDirtySnapshot` (`@/hooks`) p/
+    detectar `dirty`. O SELO âmbar é INLINE no header via `<UnsavedIndicator show={dirty}>` (topo-dir).
+    ⚠️ `useUnsavedGuard` já faz `enableBeforeUnload` gated (o default do `useBlocker` é `true` e ignora
+    o shouldBlockFn — sem gate, o prompt nativo dispara em toda tela).
+  - **Container**: editar registro existente = **Sheet** (`side=right` ~70vw); criar/novo/config =
+    **Dialog**. **Ações** numa barra STICKY no rodapé, TODOS os tamanhos, ordem **Voltar (esq, ArrowLeft)
+    · Excluir (destructive) · Salvar (ml-auto)** — nunca no header; página inteira usa
+    `<PageActionBar>` (portal, `pb-24` no container). **Header** com `<Breadcrumb>` "Módulo › Tela ›
+    Entidade". Modais persistentes que só existem quando abertos: montar `{open && <Modal/>}` p/ nascer limpo.
 
 ## Invariantes a preservar (não regredir)
 
@@ -269,8 +281,9 @@ e verifique** — o repo muda rápido.
    (`parcelas_servico` + RPC `servicos_financeiro`); oficina entra após CQ confirmado.
    **Aprovação de mão de obra (jul/2026):** consolidada num flag POR MODELO
    `modelos.custo_terceirizados_aprovado` (`true`/`false`/**`null`=pendente**, 3 estados),
-   aprovado/reprovado nos ícones do **card do Planejamento** (o checkbox por-bloco
-   `producao_terceirizados.aprovado` foi APOSENTADO — coluna órfã). **Lançar (`lancar_modelo`)
+   aprovado/reprovado nos ícones do **card do Planejamento E do Plan. Tecido** (mesmo flag; jul/2026)
+   — a **lista do Desenvolvimento** mostra badge "Custo aprovado" (verde) / "Custo reprovado" (vermelho).
+   O checkbox por-bloco `producao_terceirizados.aprovado` foi APOSENTADO — coluna órfã. **Lançar (`lancar_modelo`)
    exige CQ liberado E mão de obra aprovada** (gate no servidor + pré-check no detalhe); o
    botão-foguete do card lança/cancela com data. `custo_unitario_modelos` devolve
    `mao_obra_previsto`/`mao_obra_real` → o card separa **materiais (= total − mão de obra)** da
@@ -305,6 +318,17 @@ e verifique** — o repo muda rápido.
     desconta). ⚠️ A queryKey `["cad-grades", cad?.id]` é **compartilhada** por Direcionamento
     (sufixo `"reais"`) e Oficina (`"full"`) com `select` de colunas diferentes — sufixo por
     consumidor evita shape errado; o CQ invalida por prefixo (casa ambos).
+11. **REF automática do modelo** — ao CHEGAR em Desenvolvimento (`ordem_criacao_enviada=true`) a REF
+    é gerada por trigger `fn_modelo_ref_auto` (`BEFORE INSERT/UPDATE`, DEFINER): sigla = Grupo (2
+    iniciais; multi-palavra = inicial de cada, "One Piece"→OP) + Categoria (1ª letra) + Subcategoria1
+    (2 letras se 1 palavra; inicial de cada palavra se 2+, "Manga Curta"→MC) + nº de 8 dígitos (contador
+    ÚNICO por loja de 10000000, `pg_advisory_xact_lock` por tenant). Guardada na **coluna sombra
+    `modelos.ref_auto`** enquanto NÃO 'aprovado' (nº fixo na chegada; sigla RE-SINCRONIZA com grupo/cat/
+    subcat — a subcategoria só é definida durante o Dev); ao **aprovar** copia `ref_auto → ref` (só se
+    `ref` vazio). Assim toda exibição lê `modelos.ref` (vazio até aprovar = "só exibida quando aprovado")
+    e o campo segue editável (REF manual, fora do padrão `[A-Za-z]+[0-9]{8}`, nunca é re-sincronizada nem
+    sobrescrita). Helpers `_ref_norm`/`_modelo_ref_sigla`/`_modelo_ref_next_num` com EXECUTE revogado (#9).
+    Ver memória `project_modelo_ref_auto`.
 
 **Docs de referência LOCAIS (gitignored, manter atualizados — papel do agente `docs-keeper`):**
 `docs/mapeamento-campos-calculos.md` (campos×campos, fórmulas, etapas),
