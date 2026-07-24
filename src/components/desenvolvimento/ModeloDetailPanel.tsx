@@ -25,6 +25,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Button } from "@/components/ui/button";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
+import { useAuth } from "@/hooks/useAuth";
 import { serializeSnapshot } from "@/hooks/useDirtySnapshot";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
@@ -83,6 +84,8 @@ export function ModeloDetailPanel({ modeloId, onClose }: {
 
 function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; onClose: () => void; onDirtyChange?: (dirty: boolean) => void }) {
   const qc = useQueryClient();
+  const { canView } = useAuth();
+  const podeVerCustos = canView("criacao_desenvolvimento:custos");
   const fl = useFieldLabels();
   const tenantId = useActiveTenantId();
   const provaAbertos = useProvaAbertosCount(modeloId); // badge de ajustes abertos no accordion
@@ -1909,6 +1912,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             </AccordionContent>
           </AccordionItem>
 
+          {podeVerCustos && (
           <AccordionItem value="s5">
             <AccordionTrigger>8. Custos</AccordionTrigger>
             <AccordionContent>
@@ -1924,6 +1928,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
               />
             </AccordionContent>
           </AccordionItem>
+          )}
 
           <AccordionItem value="s6">
             <AccordionTrigger>9. Anexos</AccordionTrigger>

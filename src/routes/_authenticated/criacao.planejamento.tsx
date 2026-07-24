@@ -17,6 +17,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
+import { useAuth } from "@/hooks/useAuth";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { DateField } from "@/components/shared/DateField";
 import { ResumoVenda } from "@/components/shared/ResumoVenda";
@@ -849,6 +850,9 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
   const coverIsPdf = /\.pdf$/i.test(cover ?? "");
   const meta = statusMeta(modelo.status_planejamento);
   const [dtLanc, setDtLanc] = useState(dataLancamento ?? "");
+  const { canView, canEdit } = useAuth();
+  const podeVerCustos = canView("criacao_planejamento:custos");
+  const podeAprovarMaoObra = canEdit("producao_servico_aprovacao");
   // Mão de obra: 3 estados — aprovado(true)/reprovado(false)/pendente(null).
   const moTxt = maoObraAprovado === true ? "Mão de obra aprovada" : maoObraAprovado === false ? "Mão de obra reprovada" : "Mão de obra pendente";
   // Tooltip que SEGUE o cursor (sem atraso): status + mão de obra numa string só. \n = quebra.
@@ -896,20 +900,26 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
           </div>
           <p className="text-xs text-muted-foreground truncate">{modelo.semana ? `Lançamento ${modelo.semana}` : "—"}</p>
           <p className="text-xs text-muted-foreground truncate">{[mesNome, anoNome].filter(Boolean).join(" / ") || "—"}</p>
-          {/* Linha | Categoria | Markup */}
+          {/* Linha | Categoria | Markup (Markup = custo → gated) */}
           <div className="grid grid-cols-3 gap-x-3 [&>span]:truncate text-xs text-muted-foreground">
             <span>{linhaNome ?? "—"}</span><span>{categoriaNome ?? "—"}</span>
-            <span>Markup: {markup != null ? Number(markup).toLocaleString("pt-BR",{maximumFractionDigits:2}) : "—"}</span>
+            {podeVerCustos && <span>Markup: {markup != null ? Number(markup).toLocaleString("pt-BR",{maximumFractionDigits:2}) : "—"}</span>}
           </div>
-          <p className="text-xs text-muted-foreground truncate">{custoReal ? "Custo" : "Custo prev."}: {custoMat != null ? brl(custoMat) : "—"}</p>
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="truncate">Mão de obra{custoReal ? "" : " prev."}: {maoObra != null ? brl(maoObra) : "—"}</span>
-            <button type="button" aria-label="Aprovar mão de obra" onClick={(e) => { e.stopPropagation(); onAprovar(); }}
-              className={`shrink-0 ${maoObraAprovado === true ? "text-emerald-600" : "text-muted-foreground/40 hover:text-emerald-600"}`}><Check className="h-3.5 w-3.5" /></button>
-            <button type="button" aria-label="Reprovar mão de obra" onClick={(e) => { e.stopPropagation(); onReprovar(); }}
-              className={`shrink-0 ${maoObraAprovado === false ? "text-red-600" : "text-muted-foreground/40 hover:text-red-600"}`}><X className="h-3.5 w-3.5" /></button>
-          </div>
-          {preco != null ? <p className="text-xs font-medium truncate">{brl(preco)}</p> : <p className="text-xs text-muted-foreground truncate">Preço: —</p>}
+          {podeVerCustos && <p className="text-xs text-muted-foreground truncate">{custoReal ? "Custo" : "Custo prev."}: {custoMat != null ? brl(custoMat) : "—"}</p>}
+          {(podeVerCustos || podeAprovarMaoObra) && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              {podeVerCustos && <span className="truncate">Mão de obra{custoReal ? "" : " prev."}: {maoObra != null ? brl(maoObra) : "—"}</span>}
+              {podeAprovarMaoObra && (
+                <>
+                  <button type="button" aria-label="Aprovar mão de obra" onClick={(e) => { e.stopPropagation(); onAprovar(); }}
+                    className={`shrink-0 ${maoObraAprovado === true ? "text-emerald-600" : "text-muted-foreground/40 hover:text-emerald-600"}`}><Check className="h-3.5 w-3.5" /></button>
+                  <button type="button" aria-label="Reprovar mão de obra" onClick={(e) => { e.stopPropagation(); onReprovar(); }}
+                    className={`shrink-0 ${maoObraAprovado === false ? "text-red-600" : "text-muted-foreground/40 hover:text-red-600"}`}><X className="h-3.5 w-3.5" /></button>
+                </>
+              )}
+            </div>
+          )}
+          {podeVerCustos && (preco != null ? <p className="text-xs font-medium truncate">{brl(preco)}</p> : <p className="text-xs text-muted-foreground truncate">Preço: —</p>)}
           {/* Lançamento: escolhe a data + botão foguete = Lançar/Cancelar (mesma RPC do detalhe).
               Foguete âmbar=pronto (clicável), verde=lançado (clica p/ cancelar), cinza=indisponível. */}
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground" onClick={(e) => e.stopPropagation()}>

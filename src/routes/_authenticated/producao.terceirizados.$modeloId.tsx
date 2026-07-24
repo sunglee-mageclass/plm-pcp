@@ -19,6 +19,7 @@ import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
+import { useAuth } from "@/hooks/useAuth";
 import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
 import { ModeloResumoMeta } from "@/components/shared/ModeloResumoMeta";
 import { Label } from "@/components/ui/label";
@@ -125,7 +126,8 @@ export function TerceirizadosDetail({
 }) {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
-  // Permissão dedicada da "Aprovação" (independe do editar de Serviços): leitor vê, editor marca.
+  const { canView } = useAuth();
+  const podeVerPrecos = canView("producao_terceirizados:precos");
 
   const { data: modelo } = useQuery({
     queryKey: ["terc-modelo", modeloId],
@@ -777,6 +779,7 @@ export function TerceirizadosDetail({
           <Label className="text-xs text-muted-foreground">SLA (dias)</Label>
           <div className="mt-1 text-sm">{slaDias ?? "—"}</div>
         </div>
+        {podeVerPrecos && (
         <div>
           <Label className="text-xs text-muted-foreground">Custo real (c/ serviço) / peça</Label>
           <div
@@ -789,6 +792,7 @@ export function TerceirizadosDetail({
             <div className="text-xs text-muted-foreground">inclui custos adicionais: {brl(custosAdicionaisPeca)}</div>
           )}
         </div>
+        )}
       </Card>
 
       {/* Categoria buttons (só as da etapa da aba) */}
@@ -951,7 +955,7 @@ export function TerceirizadosDetail({
                   </div>
                 </>
               )}
-              {!b.interno && (
+              {!b.interno && podeVerPrecos && (
                 <div>
                   <Label className="text-xs">Preço por metro/unidade</Label>
                   <NumberInput
@@ -1049,7 +1053,7 @@ export function TerceirizadosDetail({
                   />
                 </div>
               )}
-              {!b.interno && (
+              {!b.interno && podeVerPrecos && (
                 <div>
                   <Label className="text-xs">Custo Total</Label>
                   <Input

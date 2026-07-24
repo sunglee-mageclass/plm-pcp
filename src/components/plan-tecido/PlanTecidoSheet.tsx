@@ -17,6 +17,7 @@ import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
+import { useAuth } from "@/hooks/useAuth";
 import { ChevronRight, ArrowLeft, ShoppingCart, Undo2 } from "lucide-react";
 import {
   semearComModelos, mergeArvore, type SeedInput, type ModeloReal, type ModeloRealMaterial,
@@ -380,6 +381,9 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
     () => new Map(((modelosDb ?? []) as any[]).map((m) => [m.id as string, (m.custo_terceirizados_aprovado ?? null) as boolean | null])),
     [modelosDb],
   );
+  // Só quem tem a permissão dedicada pode aprovar (o banco também bloqueia via trigger).
+  const { canEdit } = useAuth();
+  const podeAprovarMaoObra = canEdit("producao_servico_aprovacao");
   const aprovarMaoObraMut = useMutation({
     mutationFn: async ({ id, aprovado }: { id: string; aprovado: boolean }) => {
       const { error } = await supabase.from("modelos").update({ custo_terceirizados_aprovado: aprovado } as any).eq("id", id);
@@ -580,7 +584,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                                     vinculos={slot.modelo_id ? (vinculosMap[slot.modelo_id] ?? []) : []}
                                     lancado={slot.modelo_id ? lancadoSet.has(slot.modelo_id) : false}
                                     maoObraAprovado={slot.modelo_id ? (maoObraAprovadoMap.get(slot.modelo_id) ?? null) : null}
-                                    onSetMaoObra={slot.modelo_id ? (aprovado) => aprovarMaoObraMut.mutate({ id: slot.modelo_id!, aprovado }) : undefined}
+                                    onSetMaoObra={slot.modelo_id && podeAprovarMaoObra ? (aprovado) => aprovarMaoObraMut.mutate({ id: slot.modelo_id!, aprovado }) : undefined}
                                     onEnsureSaved={ensureSaved}
                                     onChange={(ns) => {
                                       const next = structuredClone(arvore) as PtArvore;
@@ -673,7 +677,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                   vinculos={slot.modelo_id ? (vinculosMap[slot.modelo_id] ?? []) : []}
                   lancado={slot.modelo_id ? lancadoSet.has(slot.modelo_id) : false}
                   maoObraAprovado={slot.modelo_id ? (maoObraAprovadoMap.get(slot.modelo_id) ?? null) : null}
-                  onSetMaoObra={slot.modelo_id ? (aprovado) => aprovarMaoObraMut.mutate({ id: slot.modelo_id!, aprovado }) : undefined}
+                  onSetMaoObra={slot.modelo_id && podeAprovarMaoObra ? (aprovado) => aprovarMaoObraMut.mutate({ id: slot.modelo_id!, aprovado }) : undefined}
                   onEnsureSaved={ensureSaved}
                   onChange={(ns) => {
                     const next = structuredClone(arvore) as PtArvore;

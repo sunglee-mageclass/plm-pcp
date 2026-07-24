@@ -283,7 +283,9 @@ e verifique** — o repo muda rápido.
    `modelos.custo_terceirizados_aprovado` (`true`/`false`/**`null`=pendente**, 3 estados),
    aprovado/reprovado nos ícones do **card do Planejamento E do Plan. Tecido** (mesmo flag; jul/2026)
    — a **lista do Desenvolvimento** mostra badge "Custo aprovado" (verde) / "Custo reprovado" (vermelho).
-   O checkbox por-bloco `producao_terceirizados.aprovado` foi APOSENTADO — coluna órfã. **Lançar (`lancar_modelo`)
+   O checkbox por-bloco `producao_terceirizados.aprovado` foi APOSENTADO — coluna órfã.
+   **Quem pode aprovar** é gated pela permissão `producao_servico_aprovacao` (Editar) — trigger
+   `trg_enforce_maodeobra_aprovacao` bloqueia o UPDATE do flag sem ela (ver invariante #12). **Lançar (`lancar_modelo`)
    exige CQ liberado E mão de obra aprovada** (gate no servidor + pré-check no detalhe); o
    botão-foguete do card lança/cancela com data. `custo_unitario_modelos` devolve
    `mao_obra_previsto`/`mao_obra_real` → o card separa **materiais (= total − mão de obra)** da
@@ -329,6 +331,18 @@ e verifique** — o repo muda rápido.
     e o campo segue editável (REF manual, fora do padrão `[A-Za-z]+[0-9]{8}`, nunca é re-sincronizada nem
     sobrescrita). Helpers `_ref_norm`/`_modelo_ref_sigla`/`_modelo_ref_next_num` com EXECUTE revogado (#9).
     Ver memória `project_modelo_ref_auto`.
+12. **Permissão por SEÇÃO** (camada abaixo de "página"; jul/2026) — `PageDef.sections[]` no
+    `permissions-catalog.ts` (as keys entram em `ALL_PAGE_KEYS`; o `PermissoesModal` renderiza
+    aninhado sob a página). **Custo/preço**: `custo_unitario_modelos` virou WRAPPER que retorna
+    `'{}'::jsonb` (custos → "—" em TODOS os 6 consumidores) quando `NOT _pode_ver_custos()`
+    (= `user_can_view` de `criacao_planejamento:custos`/`criacao_desenvolvimento:custos`/
+    `producao_terceirizados:precos`/`dashboard_custos`/`dashboard_comercial`; admins furam);
+    `_custo_unitario_modelos_core` com EXECUTE revogado. **Aprovar mão de obra**: trigger
+    `trg_enforce_maodeobra_aprovacao` (BEFORE UPDATE em `modelos`) RAISE 42501 se
+    `custo_terceirizados_aprovado` mudar sem `user_can_edit('producao_servico_aprovacao')`
+    (novo helper, espelho de `user_can_view`). O front só ESCONDE (`canView`/`canEdit`); o banco
+    garante. Rollout com backfill não-quebra (concede aos que já viam/aprovavam). Ver
+    memória `project_permissao_secoes`.
 
 **Docs de referência LOCAIS (gitignored, manter atualizados — papel do agente `docs-keeper`):**
 `docs/mapeamento-campos-calculos.md` (campos×campos, fórmulas, etapas),

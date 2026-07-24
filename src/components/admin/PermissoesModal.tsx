@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react";
+import { Fragment, useMemo, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -172,24 +172,47 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                     </div>
                   </div>
                   {m.pages.map((p) => (
-                    <div key={p.key} className="grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-2 items-center">
-                      <Label htmlFor={`${p.key}-ver`} className="text-sm font-normal cursor-pointer">{p.label}</Label>
-                      <div className="flex justify-center">
-                        <Checkbox
-                          id={`${p.key}-ver`}
-                          disabled={isAdminRole}
-                          checked={state[p.key]?.pode_ver ?? false}
-                          onCheckedChange={(v) => toggle(p.key, "pode_ver", !!v)}
-                        />
+                    <Fragment key={p.key}>
+                      <div className="grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-2 items-center">
+                        <Label htmlFor={`${p.key}-ver`} className="text-sm font-normal cursor-pointer">{p.label}</Label>
+                        <div className="flex justify-center">
+                          <Checkbox
+                            id={`${p.key}-ver`}
+                            disabled={isAdminRole}
+                            checked={state[p.key]?.pode_ver ?? false}
+                            onCheckedChange={(v) => toggle(p.key, "pode_ver", !!v)}
+                          />
+                        </div>
+                        <div className="flex justify-center">
+                          <Checkbox
+                            disabled={isAdminRole}
+                            checked={state[p.key]?.pode_editar ?? false}
+                            onCheckedChange={(v) => toggle(p.key, "pode_editar", !!v)}
+                          />
+                        </div>
                       </div>
-                      <div className="flex justify-center">
-                        <Checkbox
-                          disabled={isAdminRole}
-                          checked={state[p.key]?.pode_editar ?? false}
-                          onCheckedChange={(v) => toggle(p.key, "pode_editar", !!v)}
-                        />
-                      </div>
-                    </div>
+                      {/* Seções da tela (sub-permissões): indentadas sob a página. */}
+                      {p.sections?.map((s) => (
+                        <div key={s.key} className="grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-1.5 items-center bg-muted/20">
+                          <Label htmlFor={`${s.key}-ver`} className="text-xs font-normal cursor-pointer text-muted-foreground pl-6">↳ {s.label}</Label>
+                          <div className="flex justify-center">
+                            <Checkbox
+                              id={`${s.key}-ver`}
+                              disabled={isAdminRole}
+                              checked={state[s.key]?.pode_ver ?? false}
+                              onCheckedChange={(v) => toggle(s.key, "pode_ver", !!v)}
+                            />
+                          </div>
+                          <div className="flex justify-center">
+                            <Checkbox
+                              disabled={isAdminRole}
+                              checked={state[s.key]?.pode_editar ?? false}
+                              onCheckedChange={(v) => toggle(s.key, "pode_editar", !!v)}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </Fragment>
                   ))}
                 </div>
               </div>

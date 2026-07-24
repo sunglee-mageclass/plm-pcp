@@ -3,7 +3,10 @@ export type PageKey = string;
 // modes: em quais perfis a página aparece. Ausente = ambos. ["full"] = só PLM
 // completo; ["stock"] = só modo só-estoque. (Não substitui permissão por usuário.)
 export type StoreProfile = "full" | "stock";
-export type PageDef = { key: PageKey; label: string; modes?: StoreProfile[] };
+// `sections`: sub-permissões de uma tela (ex.: esconder Custos/Preço). Cada uma é uma key
+// própria em user_permissions (Ver/Editar), gateada no front (e no banco quando sensível).
+export type SectionDef = { key: PageKey; label: string };
+export type PageDef = { key: PageKey; label: string; modes?: StoreProfile[]; sections?: SectionDef[] };
 export type ModuleDef = { module: string; label: string; basePath: string; pages: PageDef[] };
 
 /** Página visível no perfil atual da loja (full vs só-estoque)? */
@@ -54,8 +57,10 @@ export const PAGES_CATALOG: ModuleDef[] = [
     basePath: "/criacao",
     pages: [
       { key: "criacao_plan_tecido", label: "Planejamento de Tecido" },
-      { key: "criacao_planejamento", label: "Planejamento de Produto" },
-      { key: "criacao_desenvolvimento", label: "Desenvolvimento" },
+      { key: "criacao_planejamento", label: "Planejamento de Produto",
+        sections: [{ key: "criacao_planejamento:custos", label: "Custos / Preço" }] },
+      { key: "criacao_desenvolvimento", label: "Desenvolvimento",
+        sections: [{ key: "criacao_desenvolvimento:custos", label: "Custos / Preço" }] },
       { key: "producao_explosao", label: "Explosão" },
     ],
   },
@@ -65,9 +70,11 @@ export const PAGES_CATALOG: ModuleDef[] = [
     basePath: "/producao",
     pages: [
       { key: "producao_cad", label: "CAD" },
-      { key: "producao_terceirizados", label: "Serviços" },
-      // Permissão-só (sem página/menu): libera o checkbox "Aprovação" por bloco em Serviços.
-      { key: "producao_servico_aprovacao", label: "Serviços — Aprovação de preço" },
+      { key: "producao_terceirizados", label: "Serviços",
+        sections: [{ key: "producao_terceirizados:precos", label: "Preços" }] },
+      // Permissão-só (sem página/menu): "Editar" = pode aprovar/reprovar o custo de mão de obra
+      // (card do Planejamento e Plan. Tecido). Enforçada no banco por trigger.
+      { key: "producao_servico_aprovacao", label: "Aprovar custo de mão de obra" },
       { key: "producao_oficina", label: "Oficina" },
       { key: "producao_cq", label: "Controle de Qualidade" },
       { key: "producao_direcionamento", label: "Direcionamento" },
@@ -100,4 +107,6 @@ export const PAGES_CATALOG: ModuleDef[] = [
   },
 ];
 
-export const ALL_PAGE_KEYS: PageKey[] = PAGES_CATALOG.flatMap((m) => m.pages.map((p) => p.key));
+export const ALL_PAGE_KEYS: PageKey[] = PAGES_CATALOG.flatMap((m) =>
+  m.pages.flatMap((p) => [p.key, ...(p.sections?.map((s) => s.key) ?? [])]),
+);
