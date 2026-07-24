@@ -16,6 +16,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
+import { Breadcrumb } from "@/components/shared/Breadcrumb";
 
 type PermState = Record<string, { pode_ver: boolean; pode_editar: boolean }>;
 
@@ -119,7 +120,8 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
       onInteractOutside={(e) => { if (changed) { e.preventDefault(); requestClose(); } }}
       onEscapeKeyDown={(e) => { if (changed) { e.preventDefault(); requestClose(); } }}
     >
-      <div className="shrink-0 border-b p-3">
+      <div className="shrink-0 border-b p-3 space-y-1">
+        <Breadcrumb items={[{ label: "Admin" }, { label: "Gerenciar Usuários" }, { label: "Permissões" }]} />
         <div className="flex items-center gap-2">
           <DialogTitle className="text-xl font-bold">Permissões — {user.nome}</DialogTitle>
           <UnsavedIndicator show={changed} className="ml-auto shrink-0" />
