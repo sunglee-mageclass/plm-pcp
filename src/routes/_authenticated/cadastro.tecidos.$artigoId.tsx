@@ -388,7 +388,6 @@ export function TecidoDetail({ artigoId, onClose }: { artigoId: string; onClose:
       </AlertDialog>
 
       <UnsavedChangesGuard
-        dirty={dirty}
         confirm={confirm}
         message="Há alterações não salvas neste tecido."
       />

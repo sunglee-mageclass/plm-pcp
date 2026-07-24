@@ -162,7 +162,7 @@ function DirListPage() {
         <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] flex flex-col p-0 max-md:[&>button]:hidden">
           {sheetId && <DirecionamentoDetail modeloId={sheetId} onClose={requestClose} onDirtyChange={setDirDirty} />}
           {/* Guarda DENTRO do SheetContent (portal): fora do portal o indicador "não salvo" não aparecia. */}
-          <UnsavedChangesGuard dirty={dirDirty} confirm={confirm} message="Há alterações não salvas no direcionamento." />
+          <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas no direcionamento." />
         </SheetContent>
       </Sheet>
     </div>

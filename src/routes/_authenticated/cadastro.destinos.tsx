@@ -212,7 +212,7 @@ function DestinosPage() {
         </DialogContent>
       </Dialog>
 
-      <UnsavedChangesGuard dirty={dirty} confirm={confirm} />
+      <UnsavedChangesGuard confirm={confirm} />
 
       <AlertDialog open={!!deleteRow} onOpenChange={(o) => !o && setDeleteRow(null)}>
         <AlertDialogContent>

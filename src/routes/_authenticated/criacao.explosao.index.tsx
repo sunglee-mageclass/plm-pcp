@@ -190,11 +190,12 @@ function ExplosaoListPage() {
             <ExplosaoDetail
               modeloId={sheetId}
               onEnviado={closeSheet}
+              onClose={requestClose}
               onDirtyChange={setExplDirty}
             />
           )}
           {/* Guarda DENTRO do SheetContent (portal): fora do portal o indicador não aparece. */}
-          <UnsavedChangesGuard dirty={explDirty} confirm={confirm} message="Há alterações de metragem não salvas nesta Explosão." />
+          <UnsavedChangesGuard confirm={confirm} message="Há alterações de metragem não salvas nesta Explosão." />
         </SheetContent>
       </Sheet>
     </div>

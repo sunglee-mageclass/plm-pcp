@@ -493,7 +493,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
       {/* Full-page: guarda o "sair sem salvar" (bloqueia navegação de rota). No modal
           (Sheet no index) o guarda é renderizado pelo pai — aqui não duplica. */}
       {!onClose && (
-        <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas no direcionamento." />
+        <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas no direcionamento." />
       )}
       </div>
 

@@ -1202,7 +1202,7 @@ export function TerceirizadosDetail({
       {/* Full-page: guarda o "sair sem salvar" (bloqueia navegação de rota). No modal
           (Sheet no index) o guarda é renderizado pelo pai — aqui não duplica. */}
       {!onClose && (
-        <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas nos Serviços." />
+        <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas nos Serviços." />
       )}
       </div>
 

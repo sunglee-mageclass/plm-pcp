@@ -486,7 +486,7 @@ function TrocarSenhaDialog({ collapsed }: { collapsed: boolean }) {
 
   return (
     <>
-      <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="A nova senha ainda não foi salva." />
+      <UnsavedChangesGuard confirm={confirm} message="A nova senha ainda não foi salva." />
       <Dialog open={open} onOpenChange={(o) => { if (o) setOpen(true); else requestClose(); }}>
         <DialogTrigger asChild>
           <Button variant="ghost" size={collapsed ? "icon" : "sm"} className="justify-start gap-2" aria-label="Trocar senha">

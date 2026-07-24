@@ -27,7 +27,7 @@ export function OcModalShell({
 }) {
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
   const grid = "grid grid-rows-[auto_minmax(0,1fr)_auto] !overflow-hidden";
-  const guard = <UnsavedChangesGuard dirty={dirty} confirm={confirm} message={discardMessage} />;
+  const guard = <UnsavedChangesGuard confirm={confirm} message={discardMessage} />;
   if (isEdit) {
     return (
       <Sheet open onOpenChange={(o) => !o && requestClose()}>

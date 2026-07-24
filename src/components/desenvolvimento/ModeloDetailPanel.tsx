@@ -75,7 +75,7 @@ export function ModeloDetailPanel({ modeloId, onClose }: {
     <Sheet open={open} onOpenChange={(o) => { if (!o) requestClose(); }}>
       <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] flex flex-col max-sm:[&>button]:hidden">
         {modeloId && <PanelContent modeloId={modeloId} onClose={requestClose} onDirtyChange={setDirty} />}
-        <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas neste modelo." />
+        <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas neste modelo." />
       </SheetContent>
     </Sheet>
   );

@@ -279,7 +279,7 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
           <Button onClick={() => criar.mutate()} disabled={criar.isPending}>Criar rolo</Button>
         </DialogFooter>
       </DialogContent>
-      <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas neste rolo." />
+      <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas neste rolo." />
     </Dialog>
   );
 }
@@ -630,7 +630,7 @@ function RoloEditDialog({ rolo, onClose }: { rolo: RoloRow; onClose: () => void 
           <Button onClick={() => salvar.mutate()} disabled={salvar.isPending}>Salvar</Button>
         </DialogFooter>
       </DialogContent>
-      <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas neste rolo." />
+      <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas neste rolo." />
     </Dialog>
   );
 }

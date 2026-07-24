@@ -504,7 +504,7 @@ function EtiquetasPage() {
           </div>
           {/* Guarda de descarte DENTRO do container (Sheet/Dialog) — a msg antes ficava
               fora do modal e o dono não a via. */}
-          <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas neste cadastro de insumo." />
+          <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas neste cadastro de insumo." />
           </>
         );
         return editing ? (

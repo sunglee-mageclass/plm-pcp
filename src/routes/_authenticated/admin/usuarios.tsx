@@ -189,7 +189,8 @@ function UsuariosPage() {
           <DialogTrigger asChild>
             <Button className="max-sm:hidden"><Plus className="h-4 w-4" /> Novo Usuário</Button>
           </DialogTrigger>
-          <NovoUsuarioModal tenants={tenants} onClose={() => setOpen(false)} requestCloseRef={novoRequestCloseRef} />
+          {/* Monta só quando aberto → campos e baseline do guarda nascem limpos a cada abertura. */}
+          {open && <NovoUsuarioModal tenants={tenants} onClose={() => setOpen(false)} requestCloseRef={novoRequestCloseRef} />}
         </Dialog>
       </div>
 
@@ -443,7 +444,7 @@ function NovoUsuarioModal({
           <Button type="submit" className="ml-auto" disabled={submitting}>{submitting ? "Salvando…" : "Criar"}</Button>
         </div>
       </form>
-      <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas neste cadastro de usuário." />
+      <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas neste cadastro de usuário." />
     </DialogContent>
   );
 }
@@ -539,7 +540,7 @@ function EditUsuarioModal({
           <Button type="submit" className="ml-auto" disabled={submitting}>{submitting ? "Salvando…" : "Salvar"}</Button>
         </div>
       </form>
-      <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas neste cadastro de usuário." />
+      <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas neste cadastro de usuário." />
     </SheetContent>
   );
 }

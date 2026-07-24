@@ -515,20 +515,21 @@ function OcDialog({
   // vale p/ NOVA OC e ao EDITAR (encomendados/recebidos). Só toca o que está null; o usuário edita
   // se o preço desta compra for diferente. Roda quando as variantes/itens carregam.
   useEffect(() => {
-    setItems((prev) => {
-      let changed = false;
-      const next = prev.map((i) => {
-        if (i.preco == null && i.variante_tecido_id) {
-          const p = varianteMap[i.variante_tecido_id]?.preco;
-          if (p != null) { changed = true; return { ...i, preco: p }; }
-        }
-        return i;
-      });
-      // Ao EDITAR, o preenchimento de preço vindo do cadastro é normalização de carga
-      // (não edição do usuário): re-baseline p/ a OC não nascer "não salva".
-      if (changed && isEdit) resetBaseline({ draft, items: next });
-      return changed ? next : prev;
+    let houveMudanca = false;
+    const next = items.map((i) => {
+      if (i.preco == null && i.variante_tecido_id) {
+        const p = varianteMap[i.variante_tecido_id]?.preco;
+        if (p != null) { houveMudanca = true; return { ...i, preco: p }; }
+      }
+      return i;
     });
+    if (!houveMudanca) return;
+    setItems(next);
+    // Ao EDITAR, o preenchimento de preço vindo do cadastro é normalização de carga
+    // (não edição do usuário): re-baseline p/ a OC não nascer "não salva". Fora do
+    // updater do setState (não pode ter efeito colateral dentro do reducer).
+    if (isEdit) resetBaseline({ draft, items: next });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [varianteMap]);
 
   const itemsBy = (n: 1 | 2) => items.filter((i) => i.artigo_numero === n);

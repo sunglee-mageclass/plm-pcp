@@ -272,7 +272,6 @@ function IdentidadePage() {
       </AlertDialog>
 
       <UnsavedChangesGuard
-        dirty={dirty}
         confirm={confirm}
         message="Há alterações não salvas na identidade do sistema."
       />

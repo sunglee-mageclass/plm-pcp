@@ -885,7 +885,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       {/* Full-page: guarda o "sair sem salvar" (bloqueia navegação de rota). No modal
           (Sheet no index) o guarda é renderizado pelo pai — aqui não duplica. */}
       {!onClose && (
-        <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas no Controle de Qualidade." />
+        <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas no Controle de Qualidade." />
       )}
       </div>
 
@@ -1088,7 +1088,7 @@ function OficinaServicoDialog({ cadId, open, onClose }: { cadId: string; open: b
           </Button>
           {serv && <Button onClick={() => save.mutate()} disabled={save.isPending}>Salvar</Button>}
         </DialogFooter>
-        <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações de desconto/multa não salvas nesta oficina." />
+        <UnsavedChangesGuard confirm={confirm} message="Há alterações de desconto/multa não salvas nesta oficina." />
       </DialogContent>
     </Dialog>
   );

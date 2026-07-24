@@ -45,11 +45,13 @@ import { calcCusto } from "@/components/producao/cad/types";
 type Props = {
   modeloId: string;
   onEnviado: () => void;
+  /** Fechar guardado (Voltar): passa pelo requestClose do pai (confirma se houver edição). */
+  onClose?: () => void;
   /** Reporta ao pai (que dona o Sheet) se há edições de metragem pendentes. */
   onDirtyChange?: (dirty: boolean) => void;
 };
 
-export function ExplosaoDetail({ modeloId, onEnviado, onDirtyChange }: Props) {
+export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: Props) {
   const qc = useQueryClient();
   const tenantId = useActiveTenantId();
   const [confirmZeroOpen, setConfirmZeroOpen] = useState(false);
@@ -463,7 +465,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onDirtyChange }: Props) {
         <Button
           variant="outline"
           size="sm"
-          onClick={onEnviado}
+          onClick={onClose ?? onEnviado}
         >
           <ArrowLeft className="h-4 w-4 mr-1" />
           Voltar

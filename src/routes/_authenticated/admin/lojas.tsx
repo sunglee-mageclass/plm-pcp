@@ -187,7 +187,8 @@ function LojasPage() {
               <Plus className="h-4 w-4" /> Nova Loja
             </Button>
           </DialogTrigger>
-          <NovaLojaModal onClose={() => setOpen(false)} requestCloseRef={novaLojaRequestCloseRef} />
+          {/* Monta só quando aberto → campos e baseline do guarda nascem limpos a cada abertura. */}
+          {open && <NovaLojaModal onClose={() => setOpen(false)} requestCloseRef={novaLojaRequestCloseRef} />}
         </Dialog>
       </div>
 
@@ -479,7 +480,7 @@ function NovaLojaModal({ onClose, requestCloseRef }: { onClose: () => void; requ
           <Button type="submit" className="ml-auto" disabled={submitting}>{submitting ? "Salvando…" : "Salvar"}</Button>
         </div>
       </form>
-      <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas neste cadastro de loja." />
+      <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas neste cadastro de loja." />
     </DialogContent>
   );
 }
@@ -680,7 +681,7 @@ function EditarLojaModal({ tenant, onClose, requestCloseRef }: { tenant: Tenant;
         </AlertDialogContent>
       </AlertDialog>
 
-      <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas neste cadastro de loja." />
+      <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas neste cadastro de loja." />
     </SheetContent>
   );
 }

@@ -862,7 +862,6 @@ function RepresentantesTab({ onFilteredCount }: { onFilteredCount?: (n: number) 
             )}
           </div>
           <UnsavedChangesGuard
-            dirty={dirty}
             confirm={confirm}
             message="Há alterações não salvas neste representante."
           />
@@ -1571,7 +1570,6 @@ function EmpresasMultiCatTab({ onFilteredCount }: { onFilteredCount?: (n: number
             )}
           </div>
           <UnsavedChangesGuard
-            dirty={dirty}
             confirm={confirm}
             message="Há alterações não salvas nesta empresa."
           />

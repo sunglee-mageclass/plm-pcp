@@ -649,7 +649,6 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
         </div>
 
         <UnsavedChangesGuard
-          dirty={dirty}
           confirm={confirm}
           message="Há alterações não salvas no planejamento de tecido."
         />

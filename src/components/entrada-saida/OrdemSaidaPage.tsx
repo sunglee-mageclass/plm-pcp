@@ -549,7 +549,7 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas nesta ordem de saída." />
+      <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas nesta ordem de saída." />
 
       {/* Dar baixa */}
       <Dialog open={!!baixaOS} onOpenChange={(o) => { if (!o) { setBaixaOS(null); setUtilizado({}); } }}>

@@ -506,7 +506,7 @@ function ColaboradoresPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <UnsavedChangesGuard dirty={dirty} confirm={confirmType} message="Há alterações não salvas neste tipo de colaborador." />
+      <UnsavedChangesGuard confirm={confirmType} message="Há alterações não salvas neste tipo de colaborador." />
 
       <MobileActionBar>
         <Button onClick={openCreate} disabled={readOnly} className="ml-auto">

@@ -210,7 +210,7 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
             <Save className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">{dirty ? (salvar.isPending ? "Salvando…" : "Salvar") : "Salvo"}</span>
           </Button>
         </div>
-        <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas no padrão do mix." />
+        <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas no padrão do mix." />
       </SheetContent>
     </Sheet>
   );

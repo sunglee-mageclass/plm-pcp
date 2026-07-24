@@ -14,6 +14,7 @@ import {
   ChevronDown,
   ChevronRight,
   Save,
+  ArrowLeft,
 } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -1078,7 +1079,7 @@ function AviamentoModal({
           // Sheet (editar): rodapé sticky com todos os botões — todos os tamanhos.
           <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2 sm:justify-end">
             <Button variant="outline" onClick={requestClose}>
-              Cancelar
+              <ArrowLeft className="h-4 w-4 mr-1" /> Voltar
             </Button>
             {!readOnly && initial && onDelete && (
               <Button variant="destructive" onClick={() => onDelete()}>
@@ -1094,7 +1095,7 @@ function AviamentoModal({
         ) : (
           <DialogFooter className="max-sm:shrink-0 max-sm:flex-row max-sm:items-center max-sm:border-t max-sm:bg-background max-sm:-mx-4 max-sm:-mb-4 max-sm:px-4 max-sm:py-3">
             <Button variant="outline" onClick={requestClose}>
-              Cancelar
+              <ArrowLeft className="h-4 w-4 mr-1" /> Voltar
             </Button>
             {!readOnly && (
               <Button className="ml-auto sm:ml-0" onClick={() => saveMut.mutate()} disabled={saveMut.isPending}>
@@ -1104,7 +1105,6 @@ function AviamentoModal({
           </DialogFooter>
         )}
         <UnsavedChangesGuard
-          dirty={dirty}
           confirm={confirm}
           message="Há alterações não salvas neste aviamento."
         />

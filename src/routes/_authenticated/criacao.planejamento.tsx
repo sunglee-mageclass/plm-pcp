@@ -1763,7 +1763,7 @@ function ModeloDialog({
           </AlertDialogContent>
         </AlertDialog>
 
-        <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas neste card." />
+        <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas neste card." />
     </>
   );
 
@@ -2085,7 +2085,7 @@ function BatchCardsDialog({
           </Button>
         </DialogFooter>
 
-        <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há dados não salvos na criação de cards." />
+        <UnsavedChangesGuard confirm={confirm} message="Há dados não salvos na criação de cards." />
       </DialogContent>
     </Dialog>
   );

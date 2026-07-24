@@ -448,7 +448,6 @@ function ConfiguracoesLojaPage() {
       </AlertDialog>
 
       <UnsavedChangesGuard
-        dirty={dirty}
         confirm={confirm}
         message="Há alterações não salvas nas configurações da loja."
       />
@@ -944,7 +943,6 @@ function NomesDasAbasDialog({ tenantId, modules }: { tenantId: string | null; mo
           </Button>
         </DialogFooter>
         <UnsavedChangesGuard
-          dirty={dirty}
           confirm={confirm}
           message="Há alterações não salvas nas nomenclaturas."
         />

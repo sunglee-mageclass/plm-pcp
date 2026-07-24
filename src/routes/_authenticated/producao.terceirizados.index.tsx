@@ -227,7 +227,7 @@ function TercListPage() {
             />
           )}
           {/* Guarda DENTRO do SheetContent (portal): fora do portal o indicador "não salvo" não aparecia. */}
-          <UnsavedChangesGuard dirty={detailDirty} confirm={confirm} message="Há alterações não salvas nos Serviços." />
+          <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas nos Serviços." />
         </SheetContent>
       </Sheet>
     </div>

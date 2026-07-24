@@ -590,7 +590,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
             </Button>
           )}
         </div>
-        <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas nesta coleção por Poder de Venda." />
+        <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas nesta coleção por Poder de Venda." />
       </SheetContent>
 
       <AlertDialog open={confirmDel} onOpenChange={setConfirmDel}>

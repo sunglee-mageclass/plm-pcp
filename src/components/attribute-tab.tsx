@@ -592,7 +592,7 @@ export function AttributeTab({
       </div>
 
       {/* Create modal */}
-      <UnsavedChangesGuard dirty={createDirty} confirm={createConfirm} message="Há dados não salvos no formulário de criação." />
+      <UnsavedChangesGuard confirm={createConfirm} message="Há dados não salvos no formulário de criação." />
       <Dialog open={createOpen} onOpenChange={(o) => { if (!o) requestCreateClose(); else setCreateOpen(true); }}>
         <DialogContent>
           <DialogHeader>

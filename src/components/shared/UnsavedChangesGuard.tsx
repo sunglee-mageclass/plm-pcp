@@ -43,10 +43,15 @@ interface UseUnsavedGuardOpts {
 export function useUnsavedGuard({ dirty, onClose, blockNav }: UseUnsavedGuardOpts) {
   const [open, setOpen] = useState(false);
 
-  // Full-page: intercepta navegação de rota. shouldBlockFn é gated por blockNav,
-  // então em modais o blocker fica inerte (nunca bloqueia).
+  // Full-page: intercepta navegação de rota. shouldBlockFn é gated por blockNav, então em
+  // modais o blocker fica inerte. `enableBeforeUnload` TAMBÉM precisa ser gated: o padrão do
+  // router é `true` e NÃO consulta o shouldBlockFn — sem isto, o prompt nativo "Sair do site?"
+  // dispararia em TODA tela com guarda, mesmo limpa. useCallback estabiliza (evita re-registrar
+  // o blocker a cada render).
+  const shouldBlock = useCallback(() => !!blockNav && dirty, [blockNav, dirty]);
   const blocker = useBlocker({
-    shouldBlockFn: () => !!blockNav && dirty,
+    shouldBlockFn: shouldBlock,
+    enableBeforeUnload: shouldBlock,
     withResolver: true,
   });
   const navBlocked = blocker.status === "blocked";
@@ -76,13 +81,6 @@ export function useUnsavedGuard({ dirty, onClose, blockNav }: UseUnsavedGuardOpt
 }
 
 interface UnsavedChangesGuardProps {
-  /**
-   * Reservado / compatibilidade. O indicador visual "● alterações não salvas" NÃO é
-   * mais renderizado aqui — cada tela mostra `<UnsavedIndicator show={dirty} />` INLINE
-   * no próprio header (canto direito), acima da linha separadora. Este componente
-   * renderiza só o diálogo "Descartar alterações?".
-   */
-  dirty?: boolean;
   confirm: UnsavedConfirm;
   /** Texto da descrição do diálogo. Padrão: "Há alterações não salvas." */
   message?: string;
