@@ -433,10 +433,12 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
   return (
     <>
     <OcModalShell isEdit={isEdit} onClose={onClose} dirty={dirty} discardMessage="Há alterações não salvas nesta OC de insumo.">
-        <Breadcrumb items={[{ label: "Entrada & Saída" }, { label: "OC Insumo" }, { label: numero || "OC" }]} />
-        <DialogHeader className="shrink-0">
-          <DialogTitle>{isEdit ? `OC ${numero || "Insumo"}` : "Nova OC de Insumo"}</DialogTitle>
-        </DialogHeader>
+        <div className="shrink-0 space-y-1">
+          <Breadcrumb items={[{ label: "Entrada & Saída" }, { label: "OC Insumo" }, { label: numero || "OC" }]} />
+          <DialogHeader>
+            <DialogTitle>{isEdit ? `OC ${numero || "Insumo"}` : "Nova OC de Insumo"}</DialogTitle>
+          </DialogHeader>
+        </div>
 
         <div className="space-y-4 min-h-0 overflow-y-auto">
           <div className="grid sm:grid-cols-2 gap-3">

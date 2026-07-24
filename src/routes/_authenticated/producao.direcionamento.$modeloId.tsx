@@ -315,7 +315,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
 
   return (
     <div className={onClose ? "flex h-full flex-col min-h-0" : ""}>
-      <div className={`${onClose ? "flex-1 overflow-y-auto " : ""}container mx-auto p-3 sm:p-6 space-y-6 ${onClose ? "" : "pb-24"}`}>
+      <div className={`${onClose ? "flex-1 overflow-y-auto w-full " : "container mx-auto "}p-3 sm:p-6 space-y-6 ${onClose ? "" : "pb-24"}`}>
       <VerificarRevisao modeloId={modeloId} etapa="direcionamento" />
       {realDivergente && (
         <div className="no-print flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">

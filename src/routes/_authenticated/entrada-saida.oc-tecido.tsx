@@ -946,10 +946,12 @@ function OcDialog({
   return (
     <>
     <OcModalShell isEdit={isEdit} onClose={onClose} dirty={dirty} discardMessage="Há alterações não salvas nesta OC de tecido.">
-        <Breadcrumb items={[{ label: "Entrada & Saída" }, { label: "OC Tecido" }, { label: draft.numero_pedido || "OC" }]} />
-        <DialogHeader className="shrink-0">
-          <DialogTitle>{isEdit ? `OC ${draft.numero_pedido || ""}` : "Nova OC de Tecido"}</DialogTitle>
-        </DialogHeader>
+        <div className="shrink-0 space-y-1">
+          <Breadcrumb items={[{ label: "Entrada & Saída" }, { label: "OC Tecido" }, { label: draft.numero_pedido || "OC" }]} />
+          <DialogHeader>
+            <DialogTitle>{isEdit ? `OC ${draft.numero_pedido || ""}` : "Nova OC de Tecido"}</DialogTitle>
+          </DialogHeader>
+        </div>
 
         <div className="space-y-6 min-h-0 overflow-y-auto">
           <OcTecidoForm

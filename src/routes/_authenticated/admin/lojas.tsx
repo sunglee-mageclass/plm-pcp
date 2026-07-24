@@ -1,4 +1,5 @@
 import { SkeletonTableRow } from "@/components/shared/Skeletons";
+import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useRef, type MutableRefObject } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -438,7 +439,10 @@ function NovaLojaModal({ onClose, requestCloseRef }: { onClose: () => void; requ
     <DialogContent className="max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[1fr] max-sm:!overflow-hidden">
       <form onSubmit={onSubmit} className="max-sm:grid max-sm:grid-rows-[auto_minmax(0,1fr)_auto] max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-hidden">
         <DialogHeader className="max-sm:shrink-0">
-          <DialogTitle>Nova Loja</DialogTitle>
+          <div className="space-y-1">
+            <Breadcrumb items={[{ label: "Admin" }, { label: "Gerenciar Lojas" }, { label: "Nova loja" }]} />
+            <DialogTitle>Nova Loja</DialogTitle>
+          </div>
         </DialogHeader>
         <div className="space-y-4 py-4 max-sm:min-h-0 max-sm:min-w-0 max-sm:overflow-y-auto">
           <div>
@@ -574,7 +578,10 @@ function EditarLojaModal({ tenant, onClose, requestCloseRef }: { tenant: Tenant;
     <SheetContent side="right" className="flex w-full flex-col p-0 sm:w-[70vw] sm:max-w-[70vw] [&>button]:hidden">
       <form onSubmit={onSubmit} className="flex min-h-0 flex-1 flex-col">
         <div className="shrink-0 border-b p-3">
-          <DialogTitle className="text-xl font-bold">Editar Loja</DialogTitle>
+          <div className="space-y-1">
+            <Breadcrumb items={[{ label: "Admin" }, { label: "Gerenciar Lojas" }, { label: nome || tenant.nome }]} />
+            <DialogTitle className="text-xl font-bold">Editar Loja</DialogTitle>
+          </div>
         </div>
         <div className="flex-1 space-y-4 overflow-y-auto p-4">
           <div>

@@ -548,6 +548,11 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   );
   const actionButtons = (
     <div className="ml-auto flex items-center gap-2">
+      {view === "pre" && cad?.id && (
+        <Button variant="outline" onClick={() => setOficinaOpen(true)}>
+          <Wrench className="h-4 w-4 md:mr-2" /> <span className="max-md:sr-only">Oficina</span>
+        </Button>
+      )}
       {view === "pre" && (!confirmado ? (
         <>
           {cad?.id && (
@@ -615,27 +620,10 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   // Modo página inteira: container com pb-24 (a barra de ações é o PageActionBar em portal).
   return (
     <div className={onClose ? "flex h-full flex-col min-h-0" : ""}>
-      <div className={`${onClose ? "flex-1 overflow-y-auto " : ""}container mx-auto p-3 sm:p-6 space-y-6 ${onClose ? "" : "pb-24"}`}>
+      <div className={`${onClose ? "flex-1 overflow-y-auto w-full " : "container mx-auto "}p-3 sm:p-6 space-y-6 ${onClose ? "" : "pb-24"}`}>
       <VerificarRevisao modeloId={modeloId} etapa="cq" />
       {view === "pre" && cad?.id && <OficinaServicoDialog cadId={cad.id} open={oficinaOpen} onClose={() => setOficinaOpen(false)} />}
-      {/* Cabeçalho: Voltar + Oficina. Ações primárias (Salvar/Confirmar/…) foram p/ o rodapé. */}
-      <div className="flex items-center gap-2">
-        {onClose ? (
-          <button onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
-            <ArrowLeft className="h-4 w-4" /> Voltar
-          </button>
-        ) : (
-          <Link to="/producao/cq" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
-            <ArrowLeft className="h-4 w-4" /> Voltar
-          </Link>
-        )}
-        {view === "pre" && cad?.id && (
-          <Button size="sm" variant="outline" onClick={() => setOficinaOpen(true)}>
-            <Wrench className="h-3.5 w-3.5 md:mr-1" /> <span className="max-md:sr-only">Oficina</span>
-          </Button>
-        )}
-      </div>
-
+      {/* Cabeçalho: só breadcrumb/título. Voltar e Oficina foram p/ a barra de ações do rodapé. */}
       <header className="space-y-2">
         <Breadcrumb items={[{ label: "PCP" }, { label: "Controle de Qualidade", to: "/producao/cq" }, { label: modelo?.ref ?? "…" }]} />
         <div className="flex items-start gap-3">

@@ -219,7 +219,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   const aviamentoMap = useMemo(() => Object.fromEntries(aviamentos.map((a) => [a.id, a])), [aviamentos]);
 
   // Etiquetas (com variantes p/ cores + preço por cor) — p/ a seção de BOM do modelo.
-  const { data: etiquetasList = [] } = useQuery({
+  const { data: etiquetasList = [], isFetched: etiquetasListFetched } = useQuery({
     queryKey: ["etiquetas-bom"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -840,7 +840,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     return Array.from(s).sort();
   }, [blocks]);
 
-  const { data: blockVariantesInfo = {} } = useQuery({
+  const { data: blockVariantesInfo = {}, isFetched: blockVariantesInfoFetched } = useQuery({
     queryKey: ["variantes-info-blocks", allBlockVarianteIds.join(",")],
     enabled: allBlockVarianteIds.length > 0,
     queryFn: async () => {
@@ -1035,26 +1035,66 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   // DEPOIS que os mapas de rótulo carregam. Se baselinássemos cedo demais, uma normalização
   // posterior divergiria do baseline e o card abriria "sujo" sem edição (falso-positivo).
   //
-  // Estratégia à prova de loop e de falso-positivo: enquanto o guarda NÃO está armado
-  // (`guardReady=false`), o baseline SEGUE o estado atual (absorve toda semeadura/
-  // normalização); só armamos (`guardReady=true`) quando a assinatura serializada do
-  // rascunho+BOM ficou ESTÁVEL por um render (nada mais mexeu) e o seed terminou
-  // (`cadSeeded`). A assinatura é uma STRING derivada de conteúdo — não churna por identidade
-  // de objeto `{}`, então não há o loop de render que quebrava o card.
+  // ⚠️ A heurística ANTIGA ("estável por 2 renders") NÃO armava de forma confiável e o
+  // indicador de "alterações não salvas" sumiu (regressão). O motivo: o efeito de armar tinha
+  // `guardSnapshotStr` nas deps, mas o React só re-roda o efeito quando o VALOR da dep muda —
+  // e o efeito só ARMA no galho `prev === atual`, que exige um render EXTRA com o snapshot
+  // IGUAL. Depois que o estado assentava, o snapshot parava de mudar → o efeito não re-rodava
+  // → nunca alcançava o galho de armar → `guardReady` ficava false p/ sempre → `dirty` sempre
+  // false. (Só armava por acidente, se um render não-relacionado ocorresse com o mesmo snapshot.)
+  //
+  // Estratégia NOVA (confiável, à prova de loop e de falso-positivo): arma quando as FONTES
+  // de dados que semeiam/normalizam o estado ASSENTARAM (readiness data-driven) E o snapshot
+  // já ESTABILIZOU relativo ao render anterior. A readiness (`seedSettled`) GARANTE que o
+  // efeito seja re-executado até armar (não depende de um render extra acidental como a
+  // heurística antiga); a estabilidade evita armar no MESMO render em que uma normalização
+  // pós-seed ainda está pendente (o efeito de sync de rótulos, declarado ANTES deste, agenda
+  // `setCadTecidosState` no commit em que `blockVariantesInfo` chega — se armássemos ali,
+  // baselinaríamos o snapshot PRÉ-normalização e a atualização pendente marcaria falso "sujo").
+  //
+  // `seedSettled` = seed do CAD terminou (`cadSeeded`, o último a disparar) E as duas
+  // normalizações pós-seed que dependem de query async já carregaram (ou não são necessárias):
+  // rótulos de variante dos blocos (`blockVariantesInfo`) e recomputo de preço das etiquetas
+  // (`etiquetasList`).
+  const seedSettled =
+    cadSeeded
+    && (allBlockVarianteIds.length === 0 || blockVariantesInfoFetched)
+    && (etiquetasState.length === 0 || etiquetasListFetched);
+  // `prevSnapStr` guarda o snapshot do render anterior JÁ com `seedSettled=true`. Fica null
+  // enquanto as fontes não assentaram; assim, no PRIMEIRO render assentado a comparação
+  // falha de propósito (não arma). Isso cobre o caso em que `blockVariantesInfo` chega e,
+  // no MESMO commit, o efeito de sync de rótulos (declarado antes) agenda um
+  // `setCadTecidosState` ainda pendente: o `guardSnapshotStr` deste render é PRÉ-normalização,
+  // então NÃO armamos aqui; esperamos o próximo render, já com o estado normalizado FINAL.
   const prevSnapStr = useRef<string | null>(null);
   useEffect(() => {
-    if (!draft || !cadSeeded) { prevSnapStr.current = null; return; }
     if (guardReady) return; // já armado: só o usuário muda o estado a partir daqui
+    if (!draft || !seedSettled) {
+      // Ainda semeando/normalizando: o baseline SEGUE o estado (absorve a semeadura) e
+      // reseta a referência de estabilidade — o `changed` não dispara falso-positivo aqui
+      // porque `dirty` só liga com `guardReady`, que ainda é false.
+      baselineRef.current = guardSnapshotStr;
+      prevSnapStr.current = null;
+      return;
+    }
     if (prevSnapStr.current === guardSnapshotStr) {
-      // Estado estável por um render → seed/normalização assentaram. Baselina e arma.
+      // Fontes assentadas E snapshot ESTÁVEL vs o render anterior assentado (nenhuma
+      // normalização pendente mexeu): congela o baseline no estado normalizado e ARMA. Daqui
+      // pra frente só uma edição REAL do usuário muda `guardSnapshotStr` → `changed`/`dirty`.
       baselineRef.current = guardSnapshotStr;
       setGuardReady(true);
     } else {
-      // Ainda assentando: mantém o baseline colado ao estado e espera estabilizar.
+      // 1º render assentado (prevSnapStr=null) OU normalização pós-seed acabou de aplicar
+      // neste render: registra o snapshot e FORÇA um render extra p/ CONFIRMAR a estabilidade.
+      // Sem esse bump, quando o estado normalizado é o FINAL o efeito não re-rodaria (a dep
+      // `guardSnapshotStr` não muda mais) e nunca alcançaria o galho de armar — era exatamente
+      // a falha da heurística antiga. O bump é BOUNDED: só ocorre enquanto `!guardReady &&
+      // seedSettled` e o snapshot ainda difere; assim que estabiliza, arma e para (sem loop).
       baselineRef.current = guardSnapshotStr;
       prevSnapStr.current = guardSnapshotStr;
+      setBaselineTick((n) => n + 1);
     }
-  }, [guardSnapshotStr, draft, cadSeeded, guardReady]);
+  }, [guardSnapshotStr, draft, seedSettled, guardReady, baselineTick]);
 
   // Reporta ao pai (dono do Sheet) se há edições pendentes. Read-only não altera nada.
   // Só conta como sujo depois que o baseline pós-seed assentou (guardReady).

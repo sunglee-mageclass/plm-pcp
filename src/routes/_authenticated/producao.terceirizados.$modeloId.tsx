@@ -654,12 +654,21 @@ export function TerceirizadosDetail({
       <Link to="/producao/terceirizados"><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Link>
     </Button>
   );
+  // "Voltar uma etapa" (secundário) vive na barra de ações do rodapé, logo à ESQUERDA
+  // do Salvar (que fica na extrema direita com ml-auto). Empurrado p/ a direita por ml-auto.
+  const voltarEtapaButton = cad?.id ? (
+    <Button className="ml-auto" variant="outline" size="icon" onClick={() => setVoltarOpen(true)} disabled={voltarMut.isPending || readOnly} title="Voltar uma etapa (volta pra Explosão)" aria-label="Voltar uma etapa">
+      <Undo2 className="h-4 w-4" />
+    </Button>
+  ) : null;
+  // Salvar/Editar na extrema direita. Se "voltar uma etapa" existe, ele já carrega o ml-auto
+  // (empurra ambos p/ a direita); senão o próprio Salvar/Editar carrega o ml-auto.
   const actionButtons = locked ? (
-    <Button className="ml-auto" variant="outline" size="icon" onClick={() => setEditing(true)} disabled={readOnly} aria-label="Editar">
+    <Button className={voltarEtapaButton ? "" : "ml-auto"} variant="outline" size="icon" onClick={() => setEditing(true)} disabled={readOnly} aria-label="Editar">
       <Pencil className="h-4 w-4" />
     </Button>
   ) : (
-    <Button className="ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
+    <Button className={voltarEtapaButton ? "" : "ml-auto"} onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
       <Save className="h-4 w-4 mr-2" /> Salvar
     </Button>
   );
@@ -668,10 +677,10 @@ export function TerceirizadosDetail({
   // Modo página inteira: container com pb-24 (a barra de ações é o PageActionBar em portal).
   return (
     <div className={onClose ? "flex h-full flex-col min-h-0" : ""}>
-      <div className={`${onClose ? "flex-1 overflow-y-auto " : ""}container mx-auto p-3 sm:p-6 space-y-6 ${onClose ? "" : "pb-24"}`}>
+      <div className={`${onClose ? "flex-1 overflow-y-auto w-full " : "container mx-auto "}p-3 sm:p-6 space-y-6 ${onClose ? "" : "pb-24"}`}>
       <VerificarRevisao modeloId={modeloId} etapa="terceirizados" />
-      {/* Cabeçalho: breadcrumb + botões SECUNDÁRIOS (impressão / voltar uma etapa). As
-          ações primárias (Voltar / Salvar) foram p/ o rodapé sticky. */}
+      {/* Cabeçalho: breadcrumb + botões SECUNDÁRIOS de impressão. "Voltar uma etapa" e as
+          ações primárias (Voltar / Salvar) ficam no rodapé sticky. */}
       <div className="flex items-center justify-between gap-2">
         <Breadcrumb items={[{ label: "PCP" }, { label: "Serviços", to: "/producao/terceirizados" }, { label: modelo?.ref ?? "…" }]} />
         <div className="flex items-center gap-2">
@@ -681,11 +690,6 @@ export function TerceirizadosDetail({
           <Button variant="outline" className="hidden md:inline-flex" onClick={() => { setPrintTarget("os"); printWithImages(); }} disabled={osItens.length === 0}>
             <Printer className="h-4 w-4 mr-2" /> Imprimir OS
           </Button>
-          {cad?.id && (
-            <Button variant="outline" size="icon" onClick={() => setVoltarOpen(true)} disabled={voltarMut.isPending || readOnly} title="Voltar uma etapa (volta pra Explosão)" aria-label="Voltar uma etapa">
-              <Undo2 className="h-4 w-4" />
-            </Button>
-          )}
         </div>
       </div>
 
@@ -1205,11 +1209,13 @@ export function TerceirizadosDetail({
       {onClose ? (
         <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2">
           {backButton}
+          {voltarEtapaButton}
           {actionButtons}
         </div>
       ) : (
         <PageActionBar>
           {backButton}
+          {voltarEtapaButton}
           {actionButtons}
         </PageActionBar>
       )}

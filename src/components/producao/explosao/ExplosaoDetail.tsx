@@ -376,7 +376,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onDirtyChange }: Props) {
 
   return (
     <div className="flex h-full flex-col min-h-0">
-      <div className="flex-1 overflow-y-auto container mx-auto p-3 sm:p-6 space-y-6 no-print">
+      <div className="flex-1 overflow-y-auto w-full p-3 sm:p-6 space-y-6 no-print">
         {/* Cabeçalho (breadcrumb + título/status). Imprimir "Ficha de Corte" fica no
             topo-direita p/ o indicador global de "não salvo" cair logo abaixo dele. */}
         <div className="border-b pb-4">

@@ -713,10 +713,12 @@ function OcDialog({
   return (
     <>
     <OcModalShell isEdit={isEdit} onClose={onClose} dirty={dirty} discardMessage="Há alterações não salvas nesta OC de aviamento.">
-        <Breadcrumb items={[{ label: "Entrada & Saída" }, { label: "OC Aviamento" }, { label: draft.numero_pedido || "OC" }]} />
-        <DialogHeader className="shrink-0">
-          <DialogTitle>{isEdit ? `OC ${draft.numero_pedido || ""}` : "Nova OC de Aviamento"}</DialogTitle>
-        </DialogHeader>
+        <div className="shrink-0 space-y-1">
+          <Breadcrumb items={[{ label: "Entrada & Saída" }, { label: "OC Aviamento" }, { label: draft.numero_pedido || "OC" }]} />
+          <DialogHeader>
+            <DialogTitle>{isEdit ? `OC ${draft.numero_pedido || ""}` : "Nova OC de Aviamento"}</DialogTitle>
+          </DialogHeader>
+        </div>
 
         <div className="space-y-6 min-h-0 overflow-y-auto">
           <div className="grid sm:grid-cols-2 gap-4">
