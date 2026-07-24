@@ -34,6 +34,8 @@ export function OcTecidoList({
 
   // Accessors p/ ordenar por valor CRU mesmo quando a célula exibe valor formatado.
   const fornecedorAcc = (o: OC) => (o.empresa_id ? empresaMap[o.empresa_id] ?? "" : "");
+  // Ordena pela string exibida na célula (nomes de artigo concatenados) — alfabético via localeCompare do useSort.
+  const tecidosAcc = (o: OC) => tecidosByOc?.[o.id] ?? "";
   const qtdRecAcc = (o: OC) => {
     // fmtNum() formata pt-BR ("1.500,00 m"): tira tudo que não é dígito/separador,
     // remove TODOS os pontos de milhar e troca a vírgula decimal por ponto.
@@ -51,6 +53,7 @@ export function OcTecidoList({
     accessors: {
       numero_pedido: (o: OC) => o.numero_pedido,
       fornecedor: fornecedorAcc,
+      tecidos: tecidosAcc,
       data_prevista_entrega: (o: OC) => o.data_prevista_entrega,
       valor_previsto_total: (o: OC) => o.valor_previsto_total ?? 0,
     },
@@ -61,6 +64,7 @@ export function OcTecidoList({
     accessors: {
       numero_pedido: (o: OC) => o.numero_pedido,
       fornecedor: fornecedorAcc,
+      tecidos: tecidosAcc,
       data_entrega: (o: OC) => o.data_entrega,
       qtd_recebida: qtdRecAcc,
       valor_real_total: (o: OC) => o.valor_real_total ?? 0,
@@ -85,6 +89,7 @@ export function OcTecidoList({
                 <SelectContent>
                   <SelectItem value="numero_pedido">Nº Pedido</SelectItem>
                   <SelectItem value="fornecedor">Fornecedor</SelectItem>
+                  <SelectItem value="tecidos">Tecido(s)</SelectItem>
                   <SelectItem value="data_prevista_entrega">Data Prevista</SelectItem>
                   <SelectItem value="valor_previsto_total">Valor Previsto</SelectItem>
                 </SelectContent>
@@ -128,7 +133,7 @@ export function OcTecidoList({
               <TableRow>
                 <SortHead label="Nº Pedido" sortKey="numero_pedido" sortState={enc} />
                 <SortHead label="Fornecedor" sortKey="fornecedor" sortState={enc} />
-                <TableHead>Tecido(s)</TableHead>
+                <SortHead label="Tecido(s)" sortKey="tecidos" sortState={enc} />
                 <SortHead label="Data Prevista" sortKey="data_prevista_entrega" sortState={enc} />
                 <SortHead label="Valor Previsto" sortKey="valor_previsto_total" sortState={enc} />
                 <TableHead>Mensagem</TableHead>
@@ -177,6 +182,7 @@ export function OcTecidoList({
                 <SelectContent>
                   <SelectItem value="numero_pedido">Nº Pedido</SelectItem>
                   <SelectItem value="fornecedor">Fornecedor</SelectItem>
+                  <SelectItem value="tecidos">Tecido(s)</SelectItem>
                   <SelectItem value="data_entrega">Data Entrega</SelectItem>
                   <SelectItem value="qtd_recebida">Qtd Recebida</SelectItem>
                   <SelectItem value="valor_real_total">Valor Real</SelectItem>
@@ -224,7 +230,7 @@ export function OcTecidoList({
               <TableRow>
                 <SortHead label="Nº Pedido" sortKey="numero_pedido" sortState={rec} />
                 <SortHead label="Fornecedor" sortKey="fornecedor" sortState={rec} />
-                <TableHead>Tecido(s)</TableHead>
+                <SortHead label="Tecido(s)" sortKey="tecidos" sortState={rec} />
                 <SortHead label="Data Entrega" sortKey="data_entrega" sortState={rec} />
                 <TableHead>Mensagem</TableHead>
                 <SortHead label="Qtd Recebida" sortKey="qtd_recebida" sortState={rec} />
