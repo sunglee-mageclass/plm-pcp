@@ -214,7 +214,7 @@ export function ModelCard({
             <div className="border-t px-2 py-1 flex items-center gap-2">
               <span className="text-[10px] text-muted-foreground shrink-0">Categoria</span>
               <select
-                className="flex-1 rounded border bg-background px-2 py-1 text-xs"
+                className="flex-1 rounded border bg-background px-2 py-1 text-xs h-8 max-md:h-11"
                 value={slot.categoria_id ?? ""}
                 onChange={(e) => onChange({ ...slot, categoria_id: e.target.value || null })}
               >
@@ -303,17 +303,17 @@ export function ModelCard({
                       type="button"
                       aria-label="Aprovar custo de mão de obra"
                       onClick={() => onSetMaoObra(true)}
-                      className={`ml-auto shrink-0 ${maoObraAprovado === true ? "text-emerald-600" : "text-muted-foreground/40 hover:text-emerald-600"}`}
+                      className={`ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center max-md:h-11 max-md:w-11 ${maoObraAprovado === true ? "text-emerald-600" : "text-muted-foreground/40 hover:text-emerald-600"}`}
                     >
-                      <Check className="h-3.5 w-3.5" />
+                      <Check className="h-4 w-4" />
                     </button>
                     <button
                       type="button"
                       aria-label="Reprovar custo de mão de obra"
                       onClick={() => onSetMaoObra(false)}
-                      className={`shrink-0 ${maoObraAprovado === false ? "text-red-600" : "text-muted-foreground/40 hover:text-red-600"}`}
+                      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center max-md:h-11 max-md:w-11 ${maoObraAprovado === false ? "text-red-600" : "text-muted-foreground/40 hover:text-red-600"}`}
                     >
-                      <X className="h-3.5 w-3.5" />
+                      <X className="h-4 w-4" />
                     </button>
                   </div>
                 )}

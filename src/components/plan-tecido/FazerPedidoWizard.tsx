@@ -223,7 +223,7 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
           </div>
         )}
 
-        <DialogFooter className="flex-row items-center justify-between gap-2 sm:justify-between">
+        <DialogFooter className="flex-row items-center justify-between gap-2 sm:justify-between sticky bottom-0 z-10 -mx-4 -mb-4 mt-2 border-t bg-background px-4 py-3 sm:-mx-6 sm:-mb-6 sm:px-6">
           <Button variant="ghost" disabled={passo === 0 || gerar.isPending} onClick={() => setPasso((p) => p - 1)}>
             Anterior
           </Button>

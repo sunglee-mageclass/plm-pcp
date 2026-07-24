@@ -912,9 +912,9 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
               {podeAprovarMaoObra && (
                 <>
                   <button type="button" aria-label="Aprovar mão de obra" onClick={(e) => { e.stopPropagation(); onAprovar(); }}
-                    className={`shrink-0 ${maoObraAprovado === true ? "text-emerald-600" : "text-muted-foreground/40 hover:text-emerald-600"}`}><Check className="h-3.5 w-3.5" /></button>
+                    className={`inline-flex h-7 w-7 shrink-0 items-center justify-center max-md:h-11 max-md:w-11 ${maoObraAprovado === true ? "text-emerald-600" : "text-muted-foreground/40 hover:text-emerald-600"}`}><Check className="h-3.5 w-3.5" /></button>
                   <button type="button" aria-label="Reprovar mão de obra" onClick={(e) => { e.stopPropagation(); onReprovar(); }}
-                    className={`shrink-0 ${maoObraAprovado === false ? "text-red-600" : "text-muted-foreground/40 hover:text-red-600"}`}><X className="h-3.5 w-3.5" /></button>
+                    className={`inline-flex h-7 w-7 shrink-0 items-center justify-center max-md:h-11 max-md:w-11 ${maoObraAprovado === false ? "text-red-600" : "text-muted-foreground/40 hover:text-red-600"}`}><X className="h-3.5 w-3.5" /></button>
                 </>
               )}
             </div>
@@ -1702,7 +1702,7 @@ function ModeloDialog({
           )}
         </div>
 
-        <div className="shrink-0 border-t bg-background px-6 py-3 flex flex-wrap items-center gap-2 max-sm:flex-nowrap">
+        <div className="shrink-0 border-t bg-background px-4 py-3 flex flex-wrap items-center gap-2">
           {/* Voltar: ESQUERDA — ícone no mobile, texto no desktop. */}
           <Button variant="outline" onClick={requestClose} aria-label="Voltar" className="shrink-0 max-sm:aspect-square max-sm:px-0">
             <ArrowLeft className="h-4 w-4 mr-1 max-sm:mr-0" />

@@ -524,7 +524,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
 
         {/* Barra de seleção múltipla */}
         {selecao.size > 0 && (
-          <div className="flex items-center gap-2 border-b bg-amber-50 px-3 py-2 text-sm">
+          <div className="flex flex-wrap items-center gap-2 border-b bg-amber-50 px-3 py-2 text-sm">
             <span className="font-medium">{selecao.size} selecionado(s)</span>
             <Button size="sm" variant="outline" className="ml-auto text-xs" onClick={() => setFormTipo("tecido")}>
               Aplicar tecido
@@ -623,7 +623,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
         )}
 
         <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={requestClose}>
+          <Button variant="outline" size="sm" className="max-sm:h-11" onClick={requestClose}>
             <ArrowLeft className="mr-1 h-4 w-4" />
             Voltar
           </Button>
@@ -632,7 +632,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
             size="sm"
             disabled={desfazerPedidoMut.isPending}
             onClick={() => setDesfazerOpen(true)}
-            className="ml-auto"
+            className="ml-auto max-sm:h-11"
           >
             <Undo2 className="mr-1 h-4 w-4" />
             <span className="hidden sm:inline">Desfazer pedido</span>
@@ -640,6 +640,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
           <Button
             variant="default"
             size="sm"
+            className="max-sm:h-11"
             disabled={previaLoading}
             onClick={handleAbrirPrevia}
           >

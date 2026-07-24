@@ -1763,8 +1763,8 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
           <div className="flex items-center gap-2 shrink-0">
             <UnsavedIndicator show={dirty} className="shrink-0" />
             {!locked && (
-              <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
-                <Download className="h-4 w-4 mr-2" /> Importar dados
+              <Button variant="outline" size="sm" className="shrink-0 max-sm:h-11 max-sm:w-11 max-sm:px-0" onClick={() => setImportOpen(true)}>
+                <Download className="h-4 w-4 sm:mr-2" /> <span className="max-sm:sr-only">Importar dados</span>
               </Button>
             )}
           </div>
