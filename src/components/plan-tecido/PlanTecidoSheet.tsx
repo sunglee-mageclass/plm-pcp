@@ -251,7 +251,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
       ((await supabase
         .from("modelos")
         .select(
-          "id, ref, nome, subcolecao, linha_id, categoria_principal_id, proporcoes, lancado, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(cor:cor_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total)",
+          "id, ref, nome, subcolecao, linha_id, categoria_principal_id, proporcoes, lancado, custo_terceirizados_aprovado, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(cor:cor_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total)",
         )
         .eq("colecao_id", colecaoId)).data ?? []) as any[],
   });
@@ -375,6 +375,28 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
 
   // modelos lançados (não podem receber "Aplicar ao modelo")
   const lancadoSet = useMemo(() => new Set(((modelosDb ?? []) as any[]).filter((m) => m.lancado).map((m) => m.id as string)), [modelosDb]);
+  // Aprovação de custo de mão de obra por modelo (mesmo flag do Planejamento).
+  const maoObraAprovadoMap = useMemo(
+    () => new Map(((modelosDb ?? []) as any[]).map((m) => [m.id as string, (m.custo_terceirizados_aprovado ?? null) as boolean | null])),
+    [modelosDb],
+  );
+  const aprovarMaoObraMut = useMutation({
+    mutationFn: async ({ id, aprovado }: { id: string; aprovado: boolean }) => {
+      const { error } = await supabase.from("modelos").update({ custo_terceirizados_aprovado: aprovado } as any).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["plan-tecido-modelos", colecaoId] });
+      // Reflete no Planejamento e na lista do Desenvolvimento (badge "Custo aprovado").
+      qc.invalidateQueries({
+        predicate: (q) => {
+          const k = q.queryKey?.[0];
+          return typeof k === "string" && (k.includes("modelos") || k.includes("desenvolvimento") || k.includes("planejamento"));
+        },
+      });
+    },
+    onError: (e) => toast.error(mensagemErro(e, "Não foi possível aprovar o custo de mão de obra.")),
+  });
 
   useEffect(() => {
     if (seed && salvo !== undefined && modelosDb !== undefined && arvore === null) {
@@ -557,6 +579,8 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                                     slotOcIds={slot.id ? (slotOcMap[slot.id] ?? []) : []}
                                     vinculos={slot.modelo_id ? (vinculosMap[slot.modelo_id] ?? []) : []}
                                     lancado={slot.modelo_id ? lancadoSet.has(slot.modelo_id) : false}
+                                    maoObraAprovado={slot.modelo_id ? (maoObraAprovadoMap.get(slot.modelo_id) ?? null) : null}
+                                    onSetMaoObra={slot.modelo_id ? (aprovado) => aprovarMaoObraMut.mutate({ id: slot.modelo_id!, aprovado }) : undefined}
                                     onEnsureSaved={ensureSaved}
                                     onChange={(ns) => {
                                       const next = structuredClone(arvore) as PtArvore;
@@ -649,6 +673,8 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                   slotOcIds={slot.id ? (slotOcMap[slot.id] ?? []) : []}
                   vinculos={slot.modelo_id ? (vinculosMap[slot.modelo_id] ?? []) : []}
                   lancado={slot.modelo_id ? lancadoSet.has(slot.modelo_id) : false}
+                  maoObraAprovado={slot.modelo_id ? (maoObraAprovadoMap.get(slot.modelo_id) ?? null) : null}
+                  onSetMaoObra={slot.modelo_id ? (aprovado) => aprovarMaoObraMut.mutate({ id: slot.modelo_id!, aprovado }) : undefined}
                   onEnsureSaved={ensureSaved}
                   onChange={(ns) => {
                     const next = structuredClone(arvore) as PtArvore;

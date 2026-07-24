@@ -60,6 +60,7 @@ type Modelo = {
   enviado_cad: boolean | null;
   cad: { enviado_corte: boolean | null }[] | null;
   created_at: string | null;
+  custo_terceirizados_aprovado?: boolean | null;
 };
 
 const SORT_FIELDS = [
@@ -195,11 +196,11 @@ function DesenvolvimentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, ref, versao, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, linha_id, status_desenvolvimento, fotos_modelo, desenho_tecnico_url, croqui_url, enviado_cad, cad(enviado_corte), created_at")
+        .select("id, nome, ref, versao, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, linha_id, status_desenvolvimento, fotos_modelo, desenho_tecnico_url, croqui_url, enviado_cad, cad(enviado_corte), created_at, custo_terceirizados_aprovado")
         .eq("ordem_criacao_enviada", true)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return (data ?? []) as Modelo[];
+      return (data ?? []) as unknown as Modelo[];
     },
   });
 
@@ -585,6 +586,7 @@ function MobileCard({ modelo, estilistaNome, categoriaNome, onOpen }: {
   const url = useSignedUrlBucket(cover);
   const coverIsPdf = /\.pdf$/i.test(cover ?? "");
   const naExplosao = !!modelo.enviado_cad && !modelo.cad?.[0]?.enviado_corte;
+  const aprovado = modelo.custo_terceirizados_aprovado;
   return (
     <div className="relative bg-card border rounded-md p-2">
       {naExplosao && (
@@ -600,6 +602,16 @@ function MobileCard({ modelo, estilistaNome, categoriaNome, onOpen }: {
           {modelo.ref && <p className="text-xs font-mono text-primary truncate">{fl("ref")} {modelo.ref}</p>}
           <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
           <p className="text-xs text-muted-foreground truncate">{categoriaNome ?? "—"}</p>
+          {aprovado === true && (
+            <span className="inline-flex items-center mt-0.5 rounded px-1 py-0 text-[10px] font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+              Custo aprovado
+            </span>
+          )}
+          {aprovado === false && (
+            <span className="inline-flex items-center mt-0.5 rounded px-1 py-0 text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">
+              Custo reprovado
+            </span>
+          )}
         </div>
       </div>
     </div>
@@ -617,6 +629,7 @@ function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: i
   const url = useSignedUrlBucket(cover);
   const coverIsPdf = /\.pdf$/i.test(cover ?? "");
   const naExplosao = !!modelo.enviado_cad && !modelo.cad?.[0]?.enviado_corte;
+  const aprovado = modelo.custo_terceirizados_aprovado;
   const { handlers, node } = useCursorTip(naExplosao ? "Enviado à Explosão" : null);
   return (
     <>
@@ -645,6 +658,16 @@ function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: i
           {modelo.ref && <p className="text-xs font-mono text-primary truncate">{fl("ref")} {modelo.ref}</p>}
           <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
           <p className="text-xs text-muted-foreground truncate">{categoriaNome ?? "—"}</p>
+          {aprovado === true && (
+            <span className="inline-flex items-center mt-0.5 rounded px-1 py-0 text-[10px] font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+              Custo aprovado
+            </span>
+          )}
+          {aprovado === false && (
+            <span className="inline-flex items-center mt-0.5 rounded px-1 py-0 text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">
+              Custo reprovado
+            </span>
+          )}
         </div>
       </div>
     </div>

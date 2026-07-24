@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import type { PtSlot, PtMaterial } from "@/lib/plan-tecido/types";
-import { ChevronRight, Lock } from "lucide-react";
+import { ChevronRight, Lock, Check, X } from "lucide-react";
 import { necessidadePorTecido, distribuirGrade } from "@/lib/plan-tecido/calc";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
@@ -37,6 +37,8 @@ export function ModelCard({
   slotOcIds,
   vinculos,
   lancado,
+  maoObraAprovado,
+  onSetMaoObra,
   onEnsureSaved,
   defaultOpen,
 }: {
@@ -52,6 +54,8 @@ export function ModelCard({
   slotOcIds?: string[];
   vinculos?: { oc_id: string; numero_pedido: string | null; tecidos: string | null }[];
   lancado?: boolean;
+  maoObraAprovado?: boolean | null;
+  onSetMaoObra?: (aprovado: boolean) => void;
   onEnsureSaved?: () => Promise<boolean>;
   defaultOpen?: boolean;
 }) {
@@ -284,6 +288,33 @@ export function ModelCard({
                     ) : (
                       <SlotOcHint colecaoId={colecaoId} slotId={slot.id} ocsAplicadas={ocsAplicadas ?? []} selected={slotOcIds ?? []} />
                     )}
+                  </div>
+                )}
+                {/* Aprovação do custo de mão de obra (só p/ modelo real) — mesmo flag do Planejamento */}
+                {slot.modelo_id && onSetMaoObra && (
+                  <div className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <span className="truncate">
+                      Custo mão de obra:{" "}
+                      <span className="font-medium text-foreground">
+                        {maoObraAprovado === true ? "aprovado" : maoObraAprovado === false ? "reprovado" : "pendente"}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      aria-label="Aprovar custo de mão de obra"
+                      onClick={() => onSetMaoObra(true)}
+                      className={`ml-auto shrink-0 ${maoObraAprovado === true ? "text-emerald-600" : "text-muted-foreground/40 hover:text-emerald-600"}`}
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Reprovar custo de mão de obra"
+                      onClick={() => onSetMaoObra(false)}
+                      className={`shrink-0 ${maoObraAprovado === false ? "text-red-600" : "text-muted-foreground/40 hover:text-red-600"}`}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
                   </div>
                 )}
               </div>
