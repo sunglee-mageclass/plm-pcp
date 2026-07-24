@@ -99,10 +99,11 @@ export function ModeloGradeSection({
                     <Label className="text-xs">Grade Total</Label>
                     <NumberInput
                       integer
+                      placeholder="0"
                       className={`w-24 ${totalEditavel ? "" : "bg-muted"}`}
                       readOnly={!totalEditavel}
                       tabIndex={totalEditavel ? undefined : -1}
-                      value={g.grade_total}
+                      value={g.grade_total || ""}
                       onChange={totalEditavel ? (e) => { onChangeGradeTotal(n, Math.max(0, Number(e.target.value) || 0)); onCampoEditado?.("grade"); } : undefined}
                     />
                   </div>
