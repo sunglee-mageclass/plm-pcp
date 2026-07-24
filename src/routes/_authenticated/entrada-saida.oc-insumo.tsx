@@ -22,6 +22,7 @@ import { NfList } from "@/components/oc-tecido/NfList";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { OcModalShell } from "@/components/shared/OcModalShell";
+import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -432,6 +433,7 @@ function OcDialog({ ocId, empresas, etiquetas, onClose, onSaved, onDelete }: {
   return (
     <>
     <OcModalShell isEdit={isEdit} onClose={onClose} dirty={dirty} discardMessage="Há alterações não salvas nesta OC de insumo.">
+        <Breadcrumb items={[{ label: "Entrada & Saída" }, { label: "OC Insumo" }, { label: numero || "OC" }]} />
         <DialogHeader className="shrink-0">
           <DialogTitle>{isEdit ? `OC ${numero || "Insumo"}` : "Nova OC de Insumo"}</DialogTitle>
         </DialogHeader>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { brl, fmtNum } from "@/lib/format";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -14,7 +14,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DateField } from "@/components/shared/DateField";
 import { NumberInput } from "@/components/shared/NumberInput";
-import { MobileActionBar } from "@/components/shared/MobileActionBar";
+import { PageActionBar } from "@/components/shared/PageActionBar";
+import { Breadcrumb } from "@/components/shared/Breadcrumb";
+import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
 import { ModeloResumoMeta } from "@/components/shared/ModeloResumoMeta";
 import { Label } from "@/components/ui/label";
@@ -108,7 +111,17 @@ function TercDetailPage() {
   return <TerceirizadosDetail modeloId={modeloId} />;
 }
 
-export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; onClose?: () => void }) {
+export function TerceirizadosDetail({
+  modeloId,
+  onClose,
+  onForceClose,
+  onDirtyChange,
+}: {
+  modeloId: string;
+  onClose?: () => void;
+  onForceClose?: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
+}) {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
   // Permissão dedicada da "Aprovação" (independe do editar de Serviços): leitor vê, editor marca.
@@ -369,6 +382,31 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
     setMoldeHydrated(true);
   }, [cad, moldeHydrated]);
 
+  // Guarda de "alterações não salvas": snapshot do estado editável (blocos das duas abas
+  // Pré/Pós + observação de molde). `semAcabamento` fica FORA (auto-salva sozinho) e o
+  // status/lock seguem o estado salvo (existing), não o snapshot.
+  const { dirty: changed, markClean, reset: resetBaseline } = useDirtySnapshot({ blocos, observacoesMolde });
+  // Só conta como sujo depois de hidratar as duas fontes e enquanto tem permissão de editar
+  // (readOnly = permissão; inputs ficam disabled, então nada muda). O lock por-aba NÃO zera o
+  // dirty — a outra aba pode estar editável e o Salvar persiste as duas.
+  const dirty = hydrated && moldeHydrated && !readOnly && changed;
+  // Full-page (rota /producao/terceirizados/$modeloId): bloqueia navegação de rota. Modal
+  // (Sheet no index): o guarda vive no pai, que recebe `dirty` via onDirtyChange — aqui inerte.
+  const { confirm } = useUnsavedGuard({ dirty: onClose ? false : dirty, blockNav: !onClose });
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
+
+  // Re-baseliniza o guarda UMA vez por ciclo de hidratação (ao carregar e após salvar). Fica
+  // fora do effect de dependências mutáveis: um ref garante que rode só na transição
+  // "ainda não baselinizado → tudo hidratado", evitando loop (reset é idempotente de qualquer
+  // forma, mas o ref torna o gatilho explícito).
+  const baselinedRef = useRef(false);
+  useEffect(() => {
+    if (baselinedRef.current) return;
+    if (!hydrated || !moldeHydrated) return;
+    resetBaseline({ blocos, observacoesMolde });
+    baselinedRef.current = true;
+  }, [hydrated, moldeHydrated, blocos, observacoesMolde, resetBaseline]);
+
   // Salva a flag "não há pós" direto na cad (auto-save do toggle), otimista.
   const semAcabamentoMut = useMutation({
     mutationFn: async (v: boolean) => {
@@ -546,6 +584,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
     },
     onSuccess: async () => {
       toast.success("Salvo com sucesso");
+      markClean(); // limpa o indicador de "alterações não salvas" já no sucesso
       setEditing(false); // salvar re-trava ambas as abas que já estão finalizadas
       // Busca os dados frescos ANTES de liberar o guard de hidratação, senão a
       // re-hidratação rodava com o cache antigo (vazio) e o formulário "sumia".
@@ -558,6 +597,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
       await refetch();
       setHydrated(false);
       setMoldeHydrated(false);
+      baselinedRef.current = false; // re-baseliniza o guarda na próxima hidratação
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
   });
@@ -584,7 +624,7 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
         qc.invalidateQueries({ queryKey: ["sidebar-badges"] }),
         qc.invalidateQueries({ queryKey: ["etapas-afetadas", modeloId] }),
       ]);
-      onClose?.();
+      (onForceClose ?? onClose)?.();
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao voltar etapa")),
   });
@@ -602,20 +642,39 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
     (salvosDaAba.length > 0 && salvosDaAba.every(blocoFinalizado));
   const locked = abaFinalizada && !editing;
 
+  // Regra 2 — botões na barra STICKY do rodapé (todos os tamanhos): Voltar à ESQUERDA,
+  // Salvar/Editar à DIREITA (ml-auto). No modo Sheet o Voltar dispara `onClose` (o pai
+  // guarda o descarte); na página inteira navega pela rota.
+  const backButton = onClose ? (
+    <Button type="button" variant="outline" onClick={onClose} aria-label="Voltar">
+      <ArrowLeft className="h-4 w-4 mr-1" />Voltar
+    </Button>
+  ) : (
+    <Button asChild variant="outline" aria-label="Voltar">
+      <Link to="/producao/terceirizados"><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Link>
+    </Button>
+  );
+  const actionButtons = locked ? (
+    <Button className="ml-auto" variant="outline" size="icon" onClick={() => setEditing(true)} disabled={readOnly} aria-label="Editar">
+      <Pencil className="h-4 w-4" />
+    </Button>
+  ) : (
+    <Button className="ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
+      <Save className="h-4 w-4 mr-2" /> Salvar
+    </Button>
+  );
+
+  // Modo Sheet (via terceirizados.index): flex column p/ o rodapé de ações grudar embaixo.
+  // Modo página inteira: container com pb-24 (a barra de ações é o PageActionBar em portal).
   return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
+    <div className={onClose ? "flex h-full flex-col min-h-0" : ""}>
+      <div className={`${onClose ? "flex-1 overflow-y-auto " : ""}container mx-auto p-3 sm:p-6 space-y-6 ${onClose ? "" : "pb-24"}`}>
       <VerificarRevisao modeloId={modeloId} etapa="terceirizados" />
-      <div className="flex items-center justify-between">
-        {onClose ? (
-          <button onClick={onClose} className="max-sm:hidden text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
-            <ArrowLeft className="h-4 w-4" /> Voltar
-          </button>
-        ) : (
-          <Link to="/producao/terceirizados" className="max-sm:hidden text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
-            <ArrowLeft className="h-4 w-4" /> Voltar
-          </Link>
-        )}
-        <div className="flex items-center gap-2 max-sm:hidden">
+      {/* Cabeçalho: breadcrumb + botões SECUNDÁRIOS (impressão / voltar uma etapa). As
+          ações primárias (Voltar / Salvar) foram p/ o rodapé sticky. */}
+      <div className="flex items-center justify-between gap-2">
+        <Breadcrumb items={[{ label: "PCP" }, { label: "Serviços", to: "/producao/terceirizados" }, { label: modelo?.ref ?? "…" }]} />
+        <div className="flex items-center gap-2">
           <Button variant="outline" className="hidden md:inline-flex" onClick={() => { setPrintTarget("ficha"); printWithImages(); }} disabled={!cad?.id}>
             <FileText className="h-4 w-4 mr-2" /> Ficha Técnica
           </Button>
@@ -627,31 +686,8 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
               <Undo2 className="h-4 w-4" />
             </Button>
           )}
-          {locked ? (
-            <Button variant="outline" size="icon" onClick={() => setEditing(true)} disabled={readOnly} aria-label="Editar">
-              <Pencil className="h-4 w-4" />
-            </Button>
-          ) : (
-            <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
-              <Save className="h-4 w-4 mr-2" /> Salvar
-            </Button>
-          )}
         </div>
       </div>
-
-      {/* Mobile: barra fixa via portal (não o max-sm:fixed inline, que descola dentro do Sheet). */}
-      <MobileActionBar>
-        {onClose ? (
-          <Button type="button" variant="outline" size="icon" className="mr-auto" onClick={onClose} aria-label="Voltar"><ArrowLeft className="h-4 w-4" /></Button>
-        ) : (
-          <Button asChild variant="outline" size="icon" className="mr-auto" aria-label="Voltar"><Link to="/producao/terceirizados"><ArrowLeft className="h-4 w-4" /></Link></Button>
-        )}
-        {locked ? (
-          <Button variant="outline" size="icon" onClick={() => setEditing(true)} disabled={readOnly} aria-label="Editar"><Pencil className="h-4 w-4" /></Button>
-        ) : (
-          <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}><Save className="h-4 w-4 mr-2" /> Salvar</Button>
-        )}
-      </MobileActionBar>
 
       {/* Abas Pré/Pós — FORA do fieldset: travar uma aba não pode impedir trocar de aba. */}
       <div className="flex rounded-md border p-0.5 w-fit">
@@ -1156,6 +1192,27 @@ export function TerceirizadosDetail({ modeloId, onClose }: { modeloId: string; o
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Full-page: guarda o "sair sem salvar" (bloqueia navegação de rota). No modal
+          (Sheet no index) o guarda é renderizado pelo pai — aqui não duplica. */}
+      {!onClose && (
+        <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="Há alterações não salvas nos Serviços." />
+      )}
+      </div>
+
+      {/* Regra 2 — barra de ações sticky no rodapé (todos os tamanhos).
+          Sheet: rodapé in-flow do próprio modal. Página inteira: PageActionBar (portal no body). */}
+      {onClose ? (
+        <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2">
+          {backButton}
+          {actionButtons}
+        </div>
+      ) : (
+        <PageActionBar>
+          {backButton}
+          {actionButtons}
+        </PageActionBar>
+      )}
     </div>
   );
 }

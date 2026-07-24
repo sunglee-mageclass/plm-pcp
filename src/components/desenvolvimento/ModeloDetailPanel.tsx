@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -24,7 +24,8 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
-import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
+import { serializeSnapshot } from "@/hooks/useDirtySnapshot";
+import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { useTenantModules } from "@/hooks/useTenantModules";
@@ -423,10 +424,23 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   useEffect(() => { setCadSeeded(false); setCadTecidosState([]); setAutoFolhas(false); setEditing(false); setGuardReady(false); }, [modeloId]);
 
   // Guarda de "alterações não salvas": snapshot do rascunho + BOM editável. O baseline é
-  // re-tirado quando as queries semeiam o estado (efeito abaixo, keyed nas fontes) e no
-  // markClean() após salvar. Read-only (enviado ao CAD, sem "Editar") não altera nada.
-  const guardSnapshot = { draft, blocks, aviamentosState, etiquetasState, grades, cadTecidosState };
-  const { dirty: changed, markClean, reset: resetGuardBaseline } = useDirtySnapshot(guardSnapshot);
+  // re-tirado quando as queries semeiam o estado (efeito abaixo, keyed na ASSINATURA do
+  // estado semeado) e no markClean() após salvar. Read-only (enviado ao CAD, sem "Editar")
+  // não altera nada.
+  //
+  // ⚠️ NÃO usar useDirtySnapshot aqui: seu `reset()` chama `force()` (setState) a cada
+  // invocação, e o efeito de re-baseline dependia de objetos de query com default `= {}`
+  // (blockVariantesInfo/tecido1VariantesLabels/frozenPrecosCad) que ganham NOVA identidade a
+  // cada render enquanto a query está desabilitada/`undefined` (ex.: modelo sem variantes).
+  // Isso fechava um loop: reset → force → re-render → novo `{}` → efeito roda → reset → …
+  // → "Maximum update depth exceeded" (ErrorBoundary "Algo deu errado"). Aqui o baseline vive
+  // num ref e o re-baseline é keyed numa ASSINATURA SERIALIZADA (só muda com conteúdo real),
+  // sem forçar render em cadeia.
+  const guardSnapshotStr = serializeSnapshot({ draft, blocks, aviamentosState, etiquetasState, grades, cadTecidosState });
+  const baselineRef = useRef<string | null>(null);
+  const [baselineTick, setBaselineTick] = useState(0);
+  const markClean = () => { baselineRef.current = guardSnapshotStr; setBaselineTick((n) => n + 1); };
+  const changed = baselineRef.current !== null && guardSnapshotStr !== baselineRef.current;
   // Grade automática: ao digitar uma célula, escala as demais pela proporção.
   const [gradeAuto, setGradeAuto] = useState(false);
 
@@ -1015,19 +1029,32 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   // Read-only quando já enviado à Explosão e fora do modo edição (lápis "Editar").
   const locked = !!draft?.enviado_cad && !editing;
 
-  // Re-baseline o guarda de alterações quando as QUERIES semeiam o estado (não em cada
-  // edição do usuário — este efeito depende só das fontes de dados + mapas de rótulo que
-  // as effects de semeadura/sincronização consomem, nunca do `draft`). Assim uma edição
-  // manual permanece "suja"; carregar/refetch/salvar re-baselina para o estado gravado.
-  // Só libera o report de dirty (guardReady) DEPOIS de baselinar com o estado normalizado —
-  // sem isso, o baseline de 1ª render (draft null / blocos vazios) diverge do estado semeado
-  // e o card abre marcado como "não salvo" sem edição do usuário (falso-positivo).
+  // Re-baseline o guarda de alterações quando o estado semeado ASSENTA. A dificuldade: a
+  // semeadura acontece em VÁRIOS efeitos (draft, blocks, aviamentos, grades, cadTecidos) e a
+  // sincronização de rótulos (blockVariantesInfo → cadTecidosState) só normaliza o estado
+  // DEPOIS que os mapas de rótulo carregam. Se baselinássemos cedo demais, uma normalização
+  // posterior divergiria do baseline e o card abriria "sujo" sem edição (falso-positivo).
+  //
+  // Estratégia à prova de loop e de falso-positivo: enquanto o guarda NÃO está armado
+  // (`guardReady=false`), o baseline SEGUE o estado atual (absorve toda semeadura/
+  // normalização); só armamos (`guardReady=true`) quando a assinatura serializada do
+  // rascunho+BOM ficou ESTÁVEL por um render (nada mais mexeu) e o seed terminou
+  // (`cadSeeded`). A assinatura é uma STRING derivada de conteúdo — não churna por identidade
+  // de objeto `{}`, então não há o loop de render que quebrava o card.
+  const prevSnapStr = useRef<string | null>(null);
   useEffect(() => {
-    if (!draft || !cadSeeded) return;
-    resetGuardBaseline({ draft, blocks, aviamentosState, etiquetasState, grades, cadTecidosState });
-    setGuardReady(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelo, tecidosData, ocLinksData, aviamentosData, modeloEtiquetasData, gradesData, cadTecidosDev, frozenPrecosCad, blockVariantesInfo, tecido1VariantesLabels, cadSeeded]);
+    if (!draft || !cadSeeded) { prevSnapStr.current = null; return; }
+    if (guardReady) return; // já armado: só o usuário muda o estado a partir daqui
+    if (prevSnapStr.current === guardSnapshotStr) {
+      // Estado estável por um render → seed/normalização assentaram. Baselina e arma.
+      baselineRef.current = guardSnapshotStr;
+      setGuardReady(true);
+    } else {
+      // Ainda assentando: mantém o baseline colado ao estado e espera estabilizar.
+      baselineRef.current = guardSnapshotStr;
+      prevSnapStr.current = guardSnapshotStr;
+    }
+  }, [guardSnapshotStr, draft, cadSeeded, guardReady]);
 
   // Reporta ao pai (dono do Sheet) se há edições pendentes. Read-only não altera nada.
   // Só conta como sujo depois que o baseline pós-seed assentou (guardReady).
@@ -1286,6 +1313,9 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
       // cadSeeded (one-shot, só reseta ao trocar de modelo) trava a re-semeadura e a
       // seção CAD fica defasada até fechar+reabrir o card (bug pós-importação/1º save).
       setCadSeeded(false);
+      // Desarma o guarda: o re-seed pós-save re-baselina para o estado gravado/normalizado
+      // (absorve qualquer diferença de normalização do refetch, sem falso "não salvo").
+      setGuardReady(false);
       // Printável (Ficha Técnica, useFichaData keys ft-*) lê do banco — invalida p/ refletir o que acabou de salvar.
       qc.invalidateQueries({ predicate: (query) => typeof query.queryKey?.[0] === "string" && (query.queryKey[0] as string).startsWith("ft-") });
       qc.invalidateQueries({ queryKey: ["modelo-observacoes", modeloId] });
@@ -1674,6 +1704,13 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   return (
     <>
       <SheetHeader>
+        <Breadcrumb
+          items={[
+            { label: "Estilo & Engenharia" },
+            { label: "Desenvolvimento" },
+            { label: draft.nome || (modelo as any)?.nome || "Modelo" },
+          ]}
+        />
         <div className="flex items-center justify-between gap-2">
           <SheetTitle className="flex flex-wrap items-center gap-2">
             <span>{draft.nome || "Modelo"}</span>

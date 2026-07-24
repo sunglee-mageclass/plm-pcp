@@ -19,6 +19,7 @@ import { DateField } from "@/components/shared/DateField";
 import { brl } from "@/lib/format";
 import { SubcolecaoResumo } from "./orcamento";
 import { Plus, Trash2, ChevronRight, Save, Check, ArrowLeft } from "lucide-react";
+import { Breadcrumb } from "@/components/shared/Breadcrumb";
 
 /**
  * Editor da coleção por PODER DE VENDA, em MODAL. Herda um "Padrão do mix"; árvore
@@ -400,6 +401,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
     <Sheet open onOpenChange={(o) => { if (!o) requestClose(); }}>
       <SheetContent side="right" className="w-full sm:max-w-[70vw] flex flex-col p-0 max-sm:[&>button]:hidden">
         <SheetHeader className="p-4 border-b shrink-0">
+          <Breadcrumb items={[{ label: "OTB" }, { label: nome || "Coleção" }]} />
           <div className="flex flex-wrap items-center gap-2">
             <SheetTitle className="text-base sm:text-lg">{colecaoId ? "Editar coleção" : "Nova coleção"} · Poder de venda</SheetTitle>
             <Badge className={confirmada ? "bg-emerald-600 text-white hover:bg-emerald-600" : "bg-amber-500 text-white hover:bg-amber-500"}>{confirmada ? "Confirmada" : "Rascunho"}</Badge>
@@ -569,7 +571,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
             <ArrowLeft className="h-4 w-4 mr-1" />Voltar
           </Button>
           {savedId && (
-            <Button variant="outline" className="shrink-0" onClick={() => setConfirmDel(true)} disabled={excluir.isPending} aria-label="Excluir coleção">
+            <Button variant="destructive" className="shrink-0" onClick={() => setConfirmDel(true)} disabled={excluir.isPending} aria-label="Excluir coleção">
               <Trash2 className="h-4 w-4 mr-1" />Excluir
             </Button>
           )}

@@ -25,6 +25,7 @@ import { ModeloPhoto } from "@/components/producao/cad/shared";
 import { CadTecidosSection } from "@/components/producao/cad/CadTecidosSection";
 import { CadFichaCorte } from "@/components/producao/cad/CadFichaCorte";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
+import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { printWithImages } from "@/lib/print";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import {
@@ -376,9 +377,23 @@ export function ExplosaoDetail({ modeloId, onEnviado, onDirtyChange }: Props) {
   return (
     <div className="flex h-full flex-col min-h-0">
       <div className="flex-1 overflow-y-auto container mx-auto p-3 sm:p-6 space-y-6 no-print">
-        {/* Cabeçalho (título/status) — SEM botões de ação (movidos p/ o rodapé) */}
+        {/* Cabeçalho (breadcrumb + título/status). Imprimir "Ficha de Corte" fica no
+            topo-direita p/ o indicador global de "não salvo" cair logo abaixo dele. */}
         <div className="border-b pb-4">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
+          <div className="flex items-start gap-3">
+            <Breadcrumb
+              items={[
+                { label: "Estilo & Engenharia" },
+                { label: "Explosão" },
+                { label: modelo?.ref ?? "…" },
+              ]}
+            />
+            <Button variant="outline" size="sm" className="ml-auto" onClick={() => printWithImages()}>
+              <Printer className="h-4 w-4 mr-1.5" />
+              Ficha de Corte
+            </Button>
+          </div>
+          <h2 className="text-lg font-semibold flex items-center gap-2 mt-2">
             Explosão — Envio para Serviços
             {(cadRow as any)?.enviado_corte && (
               <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 border border-green-600/40 rounded-full px-2 py-0.5">
@@ -459,10 +474,6 @@ export function ExplosaoDetail({ modeloId, onEnviado, onDirtyChange }: Props) {
         >
           <RotateCcw className="h-4 w-4 mr-1.5" />
           Voltar ao Desenvolvimento
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => printWithImages()}>
-          <Printer className="h-4 w-4 mr-1.5" />
-          Ficha de Corte
         </Button>
         <Button
           variant="outline"

@@ -35,14 +35,23 @@ export function useDirtySnapshot<T>(value: T) {
   if (baseline.current === null) baseline.current = serializeSnapshot(value);
   const [, force] = useState(0);
 
+  // markClean/reset só forçam re-render se o baseline REALMENTE mudou. Isso torna as
+  // duas idempotentes e evita loop infinito quando chamadas dentro de um effect cujas
+  // dependências trocam de identidade a cada render (ex.: `query = {}` como default).
   const markClean = useCallback(() => {
-    baseline.current = serializeSnapshot(value);
-    force((n) => n + 1);
+    const s = serializeSnapshot(value);
+    if (baseline.current !== s) {
+      baseline.current = s;
+      force((n) => n + 1);
+    }
   }, [value]);
 
   const reset = useCallback((next?: T) => {
-    baseline.current = serializeSnapshot(next === undefined ? value : next);
-    force((n) => n + 1);
+    const s = serializeSnapshot(next === undefined ? value : next);
+    if (baseline.current !== s) {
+      baseline.current = s;
+      force((n) => n + 1);
+    }
   }, [value]);
 
   const dirty = serializeSnapshot(value) !== baseline.current;

@@ -37,6 +37,7 @@ import { FilterButton, SearchToggle, AgrupamentoButton } from "@/components/shar
 import { useSort } from "@/components/shared/sort";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
+import { Breadcrumb } from "@/components/shared/Breadcrumb";
 
 import { RequirePermission } from "@/components/RequirePermission";
 import { useTenantModules } from "@/hooks/useTenantModules";
@@ -1408,6 +1409,9 @@ function ModeloDialog({
   // NOVO num Dialog central. O container é escolhido por `isEdit` logo abaixo.
   const conteudo = (
     <>
+        <div className="shrink-0 px-6 pt-4 pb-0">
+          <Breadcrumb items={[{ label: "Estilo & Engenharia" }, { label: "Planejamento de Produto" }, { label: draft.nome || "Novo modelo" }]} />
+        </div>
         <DialogHeader className="shrink-0 px-6 pt-6 pb-2 text-left">
           <DialogTitle className="flex flex-wrap items-center gap-2">
             <span>{isEdit ? draft.nome || "Modelo" : "Novo Modelo"}</span>

@@ -12,6 +12,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { NumberInput } from "@/components/shared/NumberInput";
+import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { PageActionBar } from "@/components/shared/PageActionBar";
 import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
 import { ModeloResumoMeta } from "@/components/shared/ModeloResumoMeta";
@@ -322,17 +323,16 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
           <span>A grade real mudou desde o último direcionamento salvo. Confira o split e salve novamente.</span>
         </div>
       )}
-      {/* Cabeçalho: Voltar + Imprimir. Ações primárias (Salvar/Confirmar/…) foram p/ o rodapé. */}
-      <div className="flex items-center gap-2">
-        {onClose ? (
-          <button onClick={onClose} className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
-            <ArrowLeft className="h-4 w-4" /> Voltar
-          </button>
-        ) : (
-          <Link to="/producao/direcionamento" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
-            <ArrowLeft className="h-4 w-4" /> Voltar
-          </Link>
-        )}
+      {/* Cabeçalho: breadcrumb + Imprimir (topo-direita, p/ o indicador global de "não
+          salvo" cair logo abaixo). Voltar vai só no rodapé; ações primárias idem. */}
+      <div className="flex items-start gap-3">
+        <Breadcrumb
+          items={[
+            { label: "PCP" },
+            { label: "Direcionamento" },
+            { label: modelo?.ref ?? "…" },
+          ]}
+        />
         <Button variant="outline" size="sm" className="ml-auto hidden md:inline-flex" onClick={() => printWithImages()} disabled={variantes.length === 0}>
           <Printer className="h-4 w-4 mr-2" /> Imprimir Romaneio
         </Button>

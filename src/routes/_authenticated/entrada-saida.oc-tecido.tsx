@@ -30,6 +30,7 @@ import { OcTecidoForm } from "@/components/oc-tecido/OcTecidoForm";
 import { OcTecidoRecebimento } from "@/components/oc-tecido/OcTecidoRecebimento";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { OcModalShell } from "@/components/shared/OcModalShell";
+import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { useModoOcRolo } from "@/hooks/useModoOcRolo";
 import {
@@ -945,6 +946,7 @@ function OcDialog({
   return (
     <>
     <OcModalShell isEdit={isEdit} onClose={onClose} dirty={dirty} discardMessage="Há alterações não salvas nesta OC de tecido.">
+        <Breadcrumb items={[{ label: "Entrada & Saída" }, { label: "OC Tecido" }, { label: draft.numero_pedido || "OC" }]} />
         <DialogHeader className="shrink-0">
           <DialogTitle>{isEdit ? `OC ${draft.numero_pedido || ""}` : "Nova OC de Tecido"}</DialogTitle>
         </DialogHeader>

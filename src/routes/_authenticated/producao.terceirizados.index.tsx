@@ -4,6 +4,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Users, Search, Printer } from "lucide-react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { TerceirizadosDetail } from "@/routes/_authenticated/producao.terceirizados.$modeloId";
 import { supabase } from "@/integrations/supabase/client";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
@@ -25,6 +26,11 @@ export const Route = createFileRoute("/_authenticated/producao/terceirizados/")(
 function TercListPage() {
   const fl = useFieldLabels();
   const [sheetId, setSheetId] = useState<string | null>(null);
+  // Guarda de "alterações não salvas" do detalhe aberto no Sheet: o TerceirizadosDetail
+  // reporta se há edições pendentes; fechar (X/ESC/fora/Voltar) com pendências confirma.
+  const [detailDirty, setDetailDirty] = useState(false);
+  const closeSheet = () => { setDetailDirty(false); setSheetId(null); };
+  const { requestClose, confirm } = useUnsavedGuard({ dirty: detailDirty, onClose: closeSheet });
   const [q, setQ] = useState("");
   const [fColecao, setFColecao] = useState("all");
   const [fMes, setFMes] = useState("all");
@@ -210,9 +216,18 @@ function TercListPage() {
 
       {printReq && <PrintFicha modeloId={printReq.id} kind="tecnica" token={printReq.token} />}
 
-      <Sheet open={!!sheetId} onOpenChange={(o) => !o && setSheetId(null)}>
-        <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] overflow-y-auto p-0 max-md:[&>button]:hidden">
-          {sheetId && <TerceirizadosDetail modeloId={sheetId} onClose={() => setSheetId(null)} />}
+      <Sheet open={!!sheetId} onOpenChange={(o) => { if (!o) requestClose(); }}>
+        <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] flex flex-col p-0 max-md:[&>button]:hidden">
+          {sheetId && (
+            <TerceirizadosDetail
+              modeloId={sheetId}
+              onClose={requestClose}
+              onForceClose={closeSheet}
+              onDirtyChange={setDetailDirty}
+            />
+          )}
+          {/* Guarda DENTRO do SheetContent (portal): fora do portal o indicador "não salvo" não aparecia. */}
+          <UnsavedChangesGuard dirty={detailDirty} confirm={confirm} message="Há alterações não salvas nos Serviços." />
         </SheetContent>
       </Sheet>
     </div>

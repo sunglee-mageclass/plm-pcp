@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, ClipboardCheck, Save, CheckCircle2, RotateCcw, Camera, Pencil, Wrench, Undo2 } from "lucide-react";
+import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { varianteLabel } from "@/lib/variante";
@@ -572,17 +573,17 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
         </>
       ) : (
         <>
+          {cad?.id && (
+            <Button variant="outline" size="icon" onClick={() => setVoltarOpen(true)} disabled={voltarMut.isPending || permReadOnly} title="Voltar uma etapa (volta pra Serviços)" aria-label="Voltar uma etapa">
+              <Undo2 className="h-4 w-4" />
+            </Button>
+          )}
           <Button variant="outline" size="icon" onClick={() => setEditing(true)} disabled={permReadOnly} aria-label="Editar">
             <Pencil className="h-4 w-4" />
           </Button>
           <Button variant="outline" onClick={() => desmarcarMut.mutate()} disabled={desmarcarMut.isPending || permReadOnly}>
             <RotateCcw className="h-4 w-4 mr-2" /> Desmarcar confirmação
           </Button>
-          {cad?.id && (
-            <Button variant="outline" size="icon" onClick={() => setVoltarOpen(true)} disabled={voltarMut.isPending || permReadOnly} title="Voltar uma etapa (volta pra Serviços)" aria-label="Voltar uma etapa">
-              <Undo2 className="h-4 w-4" />
-            </Button>
-          )}
         </>
       ))}
       {view === "pos" && (posBtn.confirmado && !posBtn.editing ? (
@@ -635,7 +636,9 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
         )}
       </div>
 
-      <header className="flex items-start gap-3">
+      <header className="space-y-2">
+        <Breadcrumb items={[{ label: "PCP" }, { label: "Controle de Qualidade", to: "/producao/cq" }, { label: modelo?.ref ?? "…" }]} />
+        <div className="flex items-start gap-3">
         <ClipboardCheck className="h-7 w-7 text-primary mt-0.5 shrink-0" />
         <ModeloResumoFoto
           fontes={[(modelo as any)?.fotos_modelo?.[0], (modelo as any)?.desenho_tecnico_url, (modelo as any)?.croqui_url]}
@@ -654,6 +657,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
         <Badge className={(view === "pos" ? posBtn.confirmado : confirmado) ? "bg-emerald-500 hover:bg-emerald-500 text-white" : "bg-amber-500 hover:bg-amber-500 text-white"}>
           {(view === "pos" ? posBtn.confirmado : confirmado) ? "Confirmado" : "Pendente"}
         </Badge>
+        </div>
       </header>
 
       {/* Abas Pré/Pós — dentro do item, como em Serviços. */}

@@ -26,6 +26,7 @@ import { computeColecaoResumo } from "./otb-resumo";
 import { SubcolecaoResumo } from "./orcamento";
 import { proximoLancamento, removerLancamento, normalizar, remapChaves } from "@/lib/lancamentos";
 import { brl } from "@/lib/format";
+import { Breadcrumb } from "@/components/shared/Breadcrumb";
 
 const WEEKS = ["1", "2", "3", "4", "5"];
 type Opt = { id: string; nome: string };
@@ -554,6 +555,7 @@ export function ColecaoSheet({
     <Sheet open onOpenChange={(o) => { if (!o) requestClose(); }}>
       <SheetContent side="right" className="w-full sm:max-w-[70vw] flex flex-col p-0 max-sm:[&>button]:hidden">
         <SheetHeader className="p-4 border-b shrink-0">
+          <Breadcrumb items={[{ label: "OTB" }, { label: nome || "Coleção" }]} />
           <SheetTitle className="flex items-center gap-2">
             {colecaoId ? "Editar coleção" : "Nova coleção"}
             {colecaoId && data && <Badge variant={isConfirmada ? "secondary" : "outline"}>{isConfirmada ? "Confirmada" : "Rascunho"}</Badge>}
@@ -641,7 +643,7 @@ export function ColecaoSheet({
             Voltar
           </Button>
           {colecaoId && (
-            <Button variant="outline" className="shrink-0" onClick={() => setConfirmDel(true)} disabled={excluir.isPending} aria-label="Excluir coleção">
+            <Button variant="destructive" className="shrink-0" onClick={() => setConfirmDel(true)} disabled={excluir.isPending} aria-label="Excluir coleção">
               <Trash2 className="h-4 w-4 mr-1" />
               Excluir
             </Button>

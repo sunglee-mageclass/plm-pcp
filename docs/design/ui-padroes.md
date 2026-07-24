@@ -251,7 +251,9 @@ function CampoRO({ label, value }: { label: string; value: string }) {
 
 **Container:** **editar um registro existente = Sheet** (`side="right"`, ~70vw); **criar/novo/formulário/config = Dialog** central. Quando o MESMO componente faz os dois, condicione: `isEdit ? <Sheet…> : <Dialog…>` (ref. `cadastro.aviamentos.tsx`, `criacao.planejamento.tsx` `ModeloDialog`, `OcModalShell`). Páginas de LISTA não são modais.
 
-**Botões de ação: barra STICKY no rodapé, em TODOS os tamanhos** (não deixar ação primária no header). **Ordem fixa:** `Voltar` à ESQUERDA (nunca "Cancelar"/"Fechar" — sempre "Voltar" com `ArrowLeft`), `Excluir` logo ao lado (só se a tela tem exclusão), `Salvar` à DIREITA (`ml-auto`). Use `flex items-center gap-2`, NÃO `justify-end`.
+**Cabeçalho:** toda tela de edição/formulário começa com um `<Breadcrumb items=[…]>` (§B) no formato **"Módulo › Tela › Entidade"** (ex.: `Estilo & Engenharia › Plan. Tecido › {coleção}`, `PCP › Controle de Qualidade › {ref}`, `Entrada & Saída › OC Tecido › {nº}`). Botões de imprimir (Ficha de Corte, Romaneio) ficam no header topo-direita — o indicador de "não salvo" cai logo abaixo deles.
+
+**Botões de ação: barra STICKY no rodapé, em TODOS os tamanhos** (não deixar ação primária no header). **Ordem fixa:** `Voltar` à ESQUERDA (nunca "Cancelar"/"Fechar" — sempre "Voltar" com `ArrowLeft`), `Excluir` logo ao lado (só se a tela tem exclusão; **`variant="destructive"`** — fundo vermelho), `Salvar` à DIREITA (`ml-auto`). Use `flex items-center gap-2`, NÃO `justify-end`.
 - **Sheet/Dialog:** rodapé in-flow no fim do container — `<div className="shrink-0 border-t bg-background p-3 flex items-center gap-2">`, com o corpo em `flex-1 overflow-y-auto` (o container é `flex flex-col` — NÃO ponha `overflow-y-auto` no Content inteiro, senão o rodapé rola junto no desktop). `OcModalShell` já entrega esse grid.
 - **Página inteira** (edição/formulário/config): **`src/components/shared/PageActionBar.tsx`** — barra fixa no rodapé via **portal no body**, visível em TODOS os tamanhos; container ganha `pb-24`. (Ref.: `admin/configuracoes.tsx`, `admin/identidade.tsx`, `producao.cq.$modeloId.tsx`.)
 - **Página de LISTA** (não-edição): mantém o padrão antigo — botão "Novo" no header + **`MobileActionBar`** (`src/components/shared/MobileActionBar.tsx`, só-mobile) no rodapé.
@@ -263,7 +265,7 @@ function CampoRO({ label, value }: { label: string; value: string }) {
   <div className="flex-1 overflow-y-auto p-4">{/* corpo */}</div>
   <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2">
     <Button variant="outline" onClick={requestClose}><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Button>
-    {isEdit && <Button variant="outline" onClick={excluir}><Trash2 className="h-4 w-4 mr-1" />Excluir</Button>}
+    {isEdit && <Button variant="destructive" onClick={excluir}><Trash2 className="h-4 w-4 mr-1" />Excluir</Button>}
     <Button className="ml-auto" onClick={salvar} disabled={!dirty}>Salvar</Button>
   </div>
   <UnsavedChangesGuard dirty={dirty} confirm={confirm} message="…" />

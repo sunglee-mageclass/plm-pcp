@@ -497,7 +497,7 @@ function CampoRO({ label, value }: { label: string; value: string }) {
     <!-- ─────────── G ─────────── -->
     <section class="pattern" id="G">
       <h2><span class="letter">G</span>Barra de ações + container (Sheet/Dialog) + toque 44px</h2>
-      <div class="when"><b>Padrão do sistema.</b> <b>Container:</b> editar registro existente = <b>Sheet</b> (side=right ~70vw); criar/novo/formulário/config = <b>Dialog</b>. <b>Botões:</b> barra sticky no rodapé em TODOS os tamanhos — rodapé in-flow do modal (<code class="inline">shrink-0 border-t</code> com corpo <code class="inline">flex-1 overflow-y-auto</code>), ou <code class="inline">&lt;PageActionBar&gt;</code> (+<code class="inline">pb-24</code>) em página inteira. Nunca ação primária no header. <b>Ordem fixa:</b> <b>Voltar</b> (esquerda, com <code class="inline">ArrowLeft</code> — nunca "Cancelar"/"Fechar") · <b>Excluir</b> ao lado (se houver) · <b>Salvar</b> à direita (<code class="inline">ml-auto</code>). Use <code class="inline">flex items-center gap-2</code>, não <code class="inline">justify-end</code>. Páginas de LISTA mantêm header + <code class="inline">&lt;MobileActionBar&gt;</code> (só-mobile). Toque ≥ 44px (<code class="inline">max-md:h-11</code>).</div>
+      <div class="when"><b>Padrão do sistema.</b> <b>Container:</b> editar registro existente = <b>Sheet</b> (side=right ~70vw); criar/novo/formulário/config = <b>Dialog</b>. <b>Botões:</b> barra sticky no rodapé em TODOS os tamanhos — rodapé in-flow do modal (<code class="inline">shrink-0 border-t</code> com corpo <code class="inline">flex-1 overflow-y-auto</code>), ou <code class="inline">&lt;PageActionBar&gt;</code> (+<code class="inline">pb-24</code>) em página inteira. Nunca ação primária no header. <b>Ordem fixa:</b> <b>Voltar</b> (esquerda, com <code class="inline">ArrowLeft</code> — nunca "Cancelar"/"Fechar") · <b>Excluir</b> ao lado (se houver, <code class="inline">variant="destructive"</code> vermelho) · <b>Salvar</b> à direita (<code class="inline">ml-auto</code>). Use <code class="inline">flex items-center gap-2</code>, não <code class="inline">justify-end</code>. <b>Header:</b> todo form começa com <code class="inline">&lt;Breadcrumb&gt;</code> "Módulo › Tela › Entidade"; botões de imprimir no header topo-direita (indicador cai abaixo). Páginas de LISTA mantêm header + <code class="inline">&lt;MobileActionBar&gt;</code> (só-mobile). Toque ≥ 44px (<code class="inline">max-md:h-11</code>).</div>
       <div class="split">
         <div class="demo">
           <div class="demo-label">Exemplo (rodapé sticky do modal / página)</div>
@@ -518,7 +518,7 @@ function CampoRO({ label, value }: { label: string; value: string }) {
   &lt;div className="flex-1 overflow-y-auto p-4"&gt;{/* corpo */}&lt;/div&gt;
   &lt;div className="shrink-0 border-t bg-background p-3 flex items-center gap-2"&gt;
     &lt;Button variant="outline" onClick={requestClose}&gt;&lt;ArrowLeft/&gt;Voltar&lt;/Button&gt;
-    {isEdit &amp;&amp; &lt;Button variant="outline" onClick={excluir}&gt;&lt;Trash2/&gt;Excluir&lt;/Button&gt;}
+    {isEdit &amp;&amp; &lt;Button variant="destructive" onClick={excluir}&gt;&lt;Trash2/&gt;Excluir&lt;/Button&gt;}
     &lt;Button className="ml-auto" onClick={salvar} disabled={!dirty}&gt;Salvar&lt;/Button&gt;
   &lt;/div&gt;
   &lt;UnsavedChangesGuard dirty={dirty} confirm={confirm} message="…" /&gt;

@@ -22,6 +22,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { OcModalShell } from "@/components/shared/OcModalShell";
+import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -712,6 +713,7 @@ function OcDialog({
   return (
     <>
     <OcModalShell isEdit={isEdit} onClose={onClose} dirty={dirty} discardMessage="Há alterações não salvas nesta OC de aviamento.">
+        <Breadcrumb items={[{ label: "Entrada & Saída" }, { label: "OC Aviamento" }, { label: draft.numero_pedido || "OC" }]} />
         <DialogHeader className="shrink-0">
           <DialogTitle>{isEdit ? `OC ${draft.numero_pedido || ""}` : "Nova OC de Aviamento"}</DialogTitle>
         </DialogHeader>
