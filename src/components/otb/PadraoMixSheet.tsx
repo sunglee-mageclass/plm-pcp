@@ -8,6 +8,10 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { brl } from "@/lib/format";
 import { Plus, Trash2, Pencil, Save, ArrowLeft } from "lucide-react";
 import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
@@ -58,8 +62,18 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
   const [draftFor, setDraftFor] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [editNome, setEditNome] = useState(false);
+  // Trocar de padrão / excluir com edição pendente descartaria o rascunho — confirma antes.
+  const [confirmSwitch, setConfirmSwitch] = useState<string | null>(null);
+  const [confirmDel, setConfirmDel] = useState<{ id: string; nome: string } | null>(null);
 
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
+
+  // Troca guardada: se há alterações não salvas, pede confirmação antes de trocar de padrão.
+  const trocarPadrao = (id: string) => {
+    if (id === selId) return;
+    if (dirty) setConfirmSwitch(id);
+    else setSelId(id);
+  };
 
   useEffect(() => { if (!selId && padroes.length) setSelId(padroes[0].id); }, [padroes, selId]);
   useEffect(() => {
@@ -132,14 +146,14 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
                     <Input autoFocus value={draft.nome} onChange={(e) => upd((d) => ({ ...d, nome: e.target.value }))}
                       onBlur={() => setEditNome(false)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") setEditNome(false); }} className="h-7 w-36" />
                   ) : (
-                    <button className="px-2 py-1 text-sm font-medium" onClick={() => setSelId(p.id)}>
+                    <button className="px-2 py-1 text-sm font-medium" onClick={() => trocarPadrao(p.id)}>
                       {isSel ? draft.nome : p.nome}{isSel && dirty && <span className="ml-1 text-amber-600" title="não salvo">•</span>}
                     </button>
                   )}
                   {isSel && (
                     <>
                       <Button variant="ghost" size="iconSm" className="h-8 w-8" onClick={() => setEditNome(true)}><Pencil className="h-3.5 w-3.5 text-muted-foreground" /></Button>
-                      <Button variant="ghost" size="iconSm" className="h-8 w-8" onClick={() => excluir.mutate(p.id)}><Trash2 className="h-3.5 w-3.5 text-muted-foreground" /></Button>
+                      <Button variant="ghost" size="iconSm" className="h-8 w-8" onClick={() => setConfirmDel({ id: p.id, nome: p.nome })}><Trash2 className="h-3.5 w-3.5 text-muted-foreground" /></Button>
                     </>
                   )}
                 </div>
@@ -211,6 +225,45 @@ export function PadraoMixSheet({ onClose }: { onClose: () => void }) {
           </Button>
         </div>
         <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas no padrão do mix." />
+
+        {/* Trocar de padrão com edição pendente → confirma o descarte. */}
+        <AlertDialog open={!!confirmSwitch} onOpenChange={(o) => { if (!o) setConfirmSwitch(null); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Descartar alterações?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Há alterações não salvas neste padrão. Trocar de padrão vai descartá-las.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Continuar editando</AlertDialogCancel>
+              <AlertDialogAction onClick={() => { if (confirmSwitch) setSelId(confirmSwitch); setConfirmSwitch(null); }}>
+                Descartar
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Excluir padrão → confirmação. */}
+        <AlertDialog open={!!confirmDel} onOpenChange={(o) => { if (!o) setConfirmDel(null); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Excluir padrão?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Excluir <strong>{confirmDel?.nome}</strong>? Esta ação não pode ser desfeita.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => { if (confirmDel) excluir.mutate(confirmDel.id); setConfirmDel(null); }}
+              >
+                Excluir
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </SheetContent>
     </Sheet>
   );
