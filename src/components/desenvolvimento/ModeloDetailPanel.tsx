@@ -1786,11 +1786,11 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
 
       {/* área rolável (flex-1) — o footer fica fixo embaixo como irmão shrink-0 */}
       <div className="mt-4 flex-1 min-h-0 overflow-y-auto">
-        <fieldset disabled={locked} className="contents">
         <Accordion type="multiple" defaultValue={["s1"]}>
           <AccordionItem value="s1">
             <AccordionTrigger>1. Informações Básicas</AccordionTrigger>
             <AccordionContent>
+              <fieldset disabled={locked} className="contents">
               <ModeloInfoSection
                 draft={draft}
                 setDraft={setDraft}
@@ -1814,6 +1814,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
                 camposCopiados={camposCopiados}
                 onCampoEditado={onCampoEditado}
               />
+              </fieldset>
             </AccordionContent>
           </AccordionItem>
 
@@ -1832,13 +1833,16 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
               </span>
             </AccordionTrigger>
             <AccordionContent>
+              <fieldset disabled={locked} className="contents">
               <ModeloAjustesProvaSection modeloId={modeloId} />
+              </fieldset>
             </AccordionContent>
           </AccordionItem>
 
           <AccordionItem value="s2">
             <AccordionTrigger>3. Tecidos / Forros / Entretelas</AccordionTrigger>
             <AccordionContent>
+              <fieldset disabled={locked} className="contents">
               <ModeloTecidosSection
                 modeloId={modeloId}
                 blocks={blocks}
@@ -1852,12 +1856,14 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
                 camposCopiados={camposCopiados}
                 onCampoEditado={onCampoEditado}
               />
+              </fieldset>
             </AccordionContent>
           </AccordionItem>
 
           <AccordionItem value="s-cad">
             <AccordionTrigger>4. CAD</AccordionTrigger>
             <AccordionContent>
+              <fieldset disabled={locked} className="contents">
               {cadTecidosState.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-2">
                   Nenhum tecido/variante planejado neste modelo. Adicione tecidos na seção 3.
@@ -1872,12 +1878,14 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
                   hideSeparar
                 />
               )}
+              </fieldset>
             </AccordionContent>
           </AccordionItem>
 
           <AccordionItem value="s3">
             <AccordionTrigger>5. Aviamentos</AccordionTrigger>
             <AccordionContent>
+              <fieldset disabled={locked} className="contents">
               <ModeloAviamentosSection
                 rows={aviamentosState}
                 aviamentos={aviamentos}
@@ -1887,12 +1895,14 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
                 camposCopiados={camposCopiados}
                 onCampoEditado={onCampoEditado}
               />
+              </fieldset>
             </AccordionContent>
           </AccordionItem>
 
           <AccordionItem value="s3e">
             <AccordionTrigger>6. Insumos</AccordionTrigger>
             <AccordionContent>
+              <fieldset disabled={locked} className="contents">
               <ModeloEtiquetasSection
                 rows={etiquetasState}
                 etiquetas={etiquetaOpts}
@@ -1903,12 +1913,14 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
                 camposCopiados={camposCopiados}
                 onCampoEditado={onCampoEditado}
               />
+              </fieldset>
             </AccordionContent>
           </AccordionItem>
 
           <AccordionItem value="s4">
             <AccordionTrigger>7. Grade</AccordionTrigger>
             <AccordionContent>
+              <fieldset disabled={locked} className="contents">
               <ModeloGradeSection
                 tamanhos={tamanhos}
                 proporcoes={draft.proporcoes ?? {}}
@@ -1922,13 +1934,15 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
                 camposCopiados={camposCopiados}
                 onCampoEditado={onCampoEditado}
               />
+              </fieldset>
             </AccordionContent>
           </AccordionItem>
 
           {podeVerCustos && (
           <AccordionItem value="s5">
             <AccordionTrigger>8. Custos</AccordionTrigger>
-            <AccordionContent className="space-y-3">
+            <AccordionContent>
+              <fieldset disabled={locked} className="contents space-y-3">
               <ModeloCustosSection
                 totals={totals}
                 custoTerceirizados={draft.custo_terceirizados_previsto}
@@ -1947,6 +1961,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
                   onChange={(v) => setDraft({ ...draft, observacoes_mao_obra: v })}
                 />
               </Card>
+              </fieldset>
             </AccordionContent>
           </AccordionItem>
           )}
@@ -1954,6 +1969,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
           <AccordionItem value="s6">
             <AccordionTrigger>9. Anexos</AccordionTrigger>
             <AccordionContent>
+              <fieldset disabled={locked} className="contents">
               <ModeloAnexosSection
                 fichaMedidaUrl={draft.ficha_medida_url}
                 desenhoTecnicoUrl={draft.desenho_tecnico_url}
@@ -1972,13 +1988,15 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
                 onChangeFotosModelo={(p) => setDraft({ ...draft, fotos_modelo: p })}
                 onChangeFotosReferencia={(p) => setDraft({ ...draft, fotos_referencia: p })}
               />
+              </fieldset>
             </AccordionContent>
           </AccordionItem>
         </Accordion>
 
-        <div className="mt-4">
-          <ModeloObservacoes modeloId={modeloId} />
-        </div>
+        <fieldset disabled={locked} className="contents">
+          <div className="mt-4">
+            <ModeloObservacoes modeloId={modeloId} />
+          </div>
         </fieldset>
       </div>
 
