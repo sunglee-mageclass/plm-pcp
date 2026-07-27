@@ -42,6 +42,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 import { RequirePermission } from "@/components/RequirePermission";
+import { EstoqueAviamentosTab } from "@/components/oc-aviamento/EstoqueAviamentosTab";
 import { FilterButton } from "@/components/shared/filters";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
@@ -113,7 +114,7 @@ async function uploadFile(file: File, prefix: string) {
 
 function OcAviamentoPage() {
   const qc = useQueryClient();
-  const [tab, setTab] = useState<OCStatus>("encomendado");
+  const [tab, setTab] = useState<OCStatus | "estoque">("encomendado");
   const [filterEmpresa, setFilterEmpresa] = useState<string>("all");
   const respF = useResponsavelFilter();
   const [openNew, setOpenNew] = useState(false);
@@ -122,8 +123,9 @@ function OcAviamentoPage() {
 
   const { data: ocs = [] } = useQuery({
     queryKey: ["ocs_aviamento", tab, filterEmpresa, respF.tipo, respF.pessoaId],
+    enabled: tab !== "estoque", // a aba Estoque não lista OCs (mostra a posição de estoque)
     queryFn: async () => {
-      let q = supabase.from("ocs_aviamento").select("*").eq("status", tab).order("created_at", { ascending: false });
+      let q = supabase.from("ocs_aviamento").select("*").eq("status", tab as OCStatus).order("created_at", { ascending: false });
       if (filterEmpresa !== "all") q = q.eq("empresa_id", filterEmpresa);
       if (respF.nomesFiltro) q = q.in("responsavel_nome", respF.nomesFiltro.length ? respF.nomesFiltro : [SENTINEL_NOME]);
       const { data, error } = await q;
@@ -228,10 +230,11 @@ function OcAviamentoPage() {
         </div>
       </header>
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as OCStatus)}>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as OCStatus | "estoque")}>
         <TabsList>
           <TabsTrigger value="encomendado">Encomendados</TabsTrigger>
           <TabsTrigger value="recebido">Recebidos</TabsTrigger>
+          <TabsTrigger value="estoque">Estoque</TabsTrigger>
         </TabsList>
 
         <TabsContent value="encomendado" className="mt-4">
@@ -389,6 +392,10 @@ function OcAviamentoPage() {
               </TableBody>
             </Table>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="estoque" className="mt-4">
+          <EstoqueAviamentosTab />
         </TabsContent>
       </Tabs>
 
