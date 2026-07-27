@@ -5,6 +5,8 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ChevronRight } from "lucide-react";
 import { RelatorioPrint } from "@/components/shared/RelatorioPrint";
 import { cn } from "@/lib/utils";
 import { fmtNum } from "@/lib/format";
@@ -152,43 +154,55 @@ export function EstoqueTecidosTable({ state }: { state: ReturnType<typeof useEst
       </div>
 
       {grouped.map((g) => (
+        // Cada tecido é colapsável (abre por padrão). O cabeçalho (nome do tecido) é o
+        // gatilho; a impressão (RelatorioPrint) é independente e sempre lista tudo.
         <Card key={g.artigoId} className="p-4">
-          <h3 className="font-semibold mb-3">{g.artigoNome}</h3>
-          <div className="hidden md:block overflow-x-auto">
-            <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
-              <colgroup>
-                <col style={{ width: "4%" }} />
-                <col style={{ width: "26%" }} />
-                <col style={{ width: "14%" }} />
-                <col style={{ width: "14%" }} />
-                <col style={{ width: "14%" }} />
-                <col style={{ width: "14%" }} />
-                <col style={{ width: "14%" }} />
-              </colgroup>
-              <thead className="text-left text-muted-foreground">
-                <tr className="border-b">
-                  <th className="py-2 pr-3"></th>
-                  <SortTh label="Variante" sortKey="nomeVariante" sortState={sortState} className="py-2 pr-3" />
-                  <SortTh label="Prev. Receb." sortKey="prevRecebM" sortState={sortState} className="py-2 pr-3" align="right" />
-                  <SortTh label="Recebido" sortKey="recebidoM" sortState={sortState} className="py-2 pr-3" align="right" />
-                  <SortTh label="Físico Real" sortKey="fisico" sortState={sortState} className="py-2 pr-3" align="right" />
-                  <SortTh label="Reservado" sortKey="reservado" sortState={sortState} className="py-2 pr-3" align="right" />
-                  <SortTh label="Previsto" sortKey="previsto" sortState={sortState} className="py-2 pr-3" align="right" />
-                </tr>
-              </thead>
-              <tbody>
+          <Collapsible defaultOpen>
+            <CollapsibleTrigger className="flex w-full items-center gap-2 text-left font-semibold [&[data-state=open]>svg]:rotate-90">
+              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform" />
+              <span className="min-w-0 truncate">{g.artigoNome}</span>
+              <span className="ml-auto shrink-0 text-xs font-normal text-muted-foreground">
+                {g.rows.length} {g.rows.length === 1 ? "variante" : "variantes"}
+              </span>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-3">
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
+                  <colgroup>
+                    <col style={{ width: "4%" }} />
+                    <col style={{ width: "26%" }} />
+                    <col style={{ width: "14%" }} />
+                    <col style={{ width: "14%" }} />
+                    <col style={{ width: "14%" }} />
+                    <col style={{ width: "14%" }} />
+                    <col style={{ width: "14%" }} />
+                  </colgroup>
+                  <thead className="text-left text-muted-foreground">
+                    <tr className="border-b">
+                      <th className="py-2 pr-3"></th>
+                      <SortTh label="Variante" sortKey="nomeVariante" sortState={sortState} className="py-2 pr-3" />
+                      <SortTh label="Prev. Receb." sortKey="prevRecebM" sortState={sortState} className="py-2 pr-3" align="right" />
+                      <SortTh label="Recebido" sortKey="recebidoM" sortState={sortState} className="py-2 pr-3" align="right" />
+                      <SortTh label="Físico Real" sortKey="fisico" sortState={sortState} className="py-2 pr-3" align="right" />
+                      <SortTh label="Reservado" sortKey="reservado" sortState={sortState} className="py-2 pr-3" align="right" />
+                      <SortTh label="Previsto" sortKey="previsto" sortState={sortState} className="py-2 pr-3" align="right" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {g.rows.map((r: any) => (
+                      <VarianteRow key={r.varId} row={r} enderecos={rollup?.get(r.varId) ?? []} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {/* Mobile: cards por variante (some o scroll horizontal) */}
+              <div className="md:hidden space-y-2">
                 {g.rows.map((r: any) => (
-                  <VarianteRow key={r.varId} row={r} enderecos={rollup?.get(r.varId) ?? []} />
+                  <VarianteCard key={r.varId} row={r} enderecos={rollup?.get(r.varId) ?? []} />
                 ))}
-              </tbody>
-            </table>
-          </div>
-          {/* Mobile: cards por variante (some o scroll horizontal) */}
-          <div className="md:hidden space-y-2">
-            {g.rows.map((r: any) => (
-              <VarianteCard key={r.varId} row={r} enderecos={rollup?.get(r.varId) ?? []} />
-            ))}
-          </div>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         </Card>
       ))}
 
