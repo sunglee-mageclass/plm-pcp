@@ -1,7 +1,31 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TableHead } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+
+/** Ícone ⓘ com tooltip explicativo — irmão do botão de ordenação (não aninhado). */
+function HeaderInfo({ tip }: { tip: ReactNode }) {
+  return (
+    <TooltipProvider delayDuration={150}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={(e) => e.stopPropagation()}
+            className="shrink-0 text-muted-foreground/70 hover:text-foreground focus-visible:outline-none focus-visible:text-foreground"
+            aria-label="O que é esta coluna"
+          >
+            <Info className="h-3.5 w-3.5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-[260px] whitespace-normal text-left text-xs font-normal leading-snug">
+          {tip}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
 
 export type SortDir = "asc" | "desc";
 
@@ -57,41 +81,48 @@ function Indicator({ active, dir }: { active: boolean; dir: SortDir }) {
 type ThProps = {
   label: ReactNode; sortKey: string; sortState: { sortKey: string | null; sortDir: SortDir; toggle: (k: string) => void };
   className?: string; align?: "left" | "right" | "center";
+  /** Se presente, mostra um ⓘ ao lado com tooltip explicativo (o que é + a conta). */
+  tip?: ReactNode;
 };
 
 /** Cabeçalho clicável para tabelas em `<table>` cru (ex.: dashboards). */
-export function SortTh({ label, sortKey, sortState, className, align = "left" }: ThProps) {
+export function SortTh({ label, sortKey, sortState, className, align = "left", tip }: ThProps) {
   const active = sortState.sortKey === sortKey;
   return (
     <th className={cn("select-none", className)}>
-      <button
-        type="button"
-        onClick={() => sortState.toggle(sortKey)}
-        className={cn("inline-flex items-center gap-1 hover:text-foreground",
-          align === "right" && "flex-row-reverse w-full justify-start",
-          align === "center" && "w-full justify-center")}
-      >
-        {label}
-        <Indicator active={active} dir={sortState.sortDir} />
-      </button>
+      <span className={cn("inline-flex items-center gap-1", align === "right" && "w-full flex-row-reverse", align === "center" && "w-full justify-center")}>
+        <button
+          type="button"
+          onClick={() => sortState.toggle(sortKey)}
+          className={cn("inline-flex items-center gap-1 hover:text-foreground",
+            align === "right" && "flex-row-reverse")}
+        >
+          {label}
+          <Indicator active={active} dir={sortState.sortDir} />
+        </button>
+        {tip && <HeaderInfo tip={tip} />}
+      </span>
     </th>
   );
 }
 
 /** Cabeçalho clicável para o `<Table>` do shadcn (`<TableHead>`). */
-export function SortHead({ label, sortKey, sortState, className, align = "left" }: ThProps) {
+export function SortHead({ label, sortKey, sortState, className, align = "left", tip }: ThProps) {
   const active = sortState.sortKey === sortKey;
   return (
     <TableHead className={cn("select-none", className)}>
-      <button
-        type="button"
-        onClick={() => sortState.toggle(sortKey)}
-        className={cn("inline-flex items-center gap-1 hover:text-foreground",
-          align === "right" && "flex-row-reverse w-full justify-start", align === "center" && "justify-center")}
-      >
-        {label}
-        <Indicator active={active} dir={sortState.sortDir} />
-      </button>
+      <span className={cn("inline-flex items-center gap-1", align === "right" && "w-full flex-row-reverse", align === "center" && "w-full justify-center")}>
+        <button
+          type="button"
+          onClick={() => sortState.toggle(sortKey)}
+          className={cn("inline-flex items-center gap-1 hover:text-foreground",
+            align === "right" && "flex-row-reverse")}
+        >
+          {label}
+          <Indicator active={active} dir={sortState.sortDir} />
+        </button>
+        {tip && <HeaderInfo tip={tip} />}
+      </span>
     </TableHead>
   );
 }

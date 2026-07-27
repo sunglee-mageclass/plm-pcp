@@ -29,6 +29,15 @@ import { useEnderecosRollup, agruparEnderecos, type EnderecoRollup } from "@/com
 const num = (v: any) => Number(v ?? 0) || 0;
 const fmt = (v: number) => fmtNum(v);
 
+// Tooltips das colunas da tabela de estoque: o que é + a conta (espelha `_estoque_tecido_core`).
+const COL_TIPS = {
+  prevReceb: (<><b>Previsto receber:</b> o que ainda vai chegar — metragem das OCs <b>encomendadas</b> (não recebidas). Tecido em kg é convertido p/ metros (× rendimento).</>),
+  recebido: (<><b>Recebido:</b> o que já entrou — metragem das OCs <b>recebidas</b>. Tecido em kg é convertido p/ metros (× rendimento).</>),
+  fisico: (<><b>Físico Real:</b> estoque físico agora.<br /><b>Conta:</b> Recebido − Baixa (baixa = consumo no corte/OS + ajustes). Nunca fica negativo (mín. 0).</>),
+  reservado: (<><b>Reservado:</b> demanda que já reservou este tecido — modelos ainda não cortados (consumo × grade × (1+perda)) + Ordens de Saída abertas.</>),
+  previsto: (<><b>Previsto:</b> saldo projetado.<br /><b>Conta:</b> Físico Real + Previsto receber − Reservado. Pode ficar negativo (reserva &gt; disponível).</>),
+};
+
 /** Estado + consulta + filtros da aba Estoque de tecidos. Chamado pela PÁGINA do OC p/
  *  montar os controles no header (contextuais) e alimentar a tabela. `enabled` = aba ativa. */
 export function useEstoqueTecidos(enabled: boolean) {
@@ -242,11 +251,11 @@ export function EstoqueTecidosTable({ state }: { state: ReturnType<typeof useEst
                     <tr className="border-b">
                       <th className="py-2 pr-3"></th>
                       <SortTh label="Variante" sortKey="nomeVariante" sortState={sortState} className="py-2 pr-3" />
-                      <SortTh label="Prev. Receb." sortKey="prevRecebM" sortState={sortState} className="py-2 pr-3" align="right" />
-                      <SortTh label="Recebido" sortKey="recebidoM" sortState={sortState} className="py-2 pr-3" align="right" />
-                      <SortTh label="Físico Real" sortKey="fisico" sortState={sortState} className="py-2 pr-3" align="right" />
-                      <SortTh label="Reservado" sortKey="reservado" sortState={sortState} className="py-2 pr-3" align="right" />
-                      <SortTh label="Previsto" sortKey="previsto" sortState={sortState} className="py-2 pr-3" align="right" />
+                      <SortTh label="Prev. Receb." sortKey="prevRecebM" sortState={sortState} className="py-2 pr-3" align="right" tip={COL_TIPS.prevReceb} />
+                      <SortTh label="Recebido" sortKey="recebidoM" sortState={sortState} className="py-2 pr-3" align="right" tip={COL_TIPS.recebido} />
+                      <SortTh label="Físico Real" sortKey="fisico" sortState={sortState} className="py-2 pr-3" align="right" tip={COL_TIPS.fisico} />
+                      <SortTh label="Reservado" sortKey="reservado" sortState={sortState} className="py-2 pr-3" align="right" tip={COL_TIPS.reservado} />
+                      <SortTh label="Previsto" sortKey="previsto" sortState={sortState} className="py-2 pr-3" align="right" tip={COL_TIPS.previsto} />
                     </tr>
                   </thead>
                   <tbody>
