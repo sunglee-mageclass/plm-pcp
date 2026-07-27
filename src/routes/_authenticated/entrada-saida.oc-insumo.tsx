@@ -27,6 +27,7 @@ import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { EstoqueInsumosTab } from "@/components/oc-insumo/EstoqueInsumosTab";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
@@ -81,7 +82,7 @@ const hasTam = (etq?: EtqOpt) => (etq?.variantes ?? []).some((v) => v.tamanho);
 function OcInsumoPage() {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
-  const [tab, setTab] = useState<OCStatus>("encomendado");
+  const [tab, setTab] = useState<OCStatus | "estoque">("encomendado");
   const [filterEmpresa, setFilterEmpresa] = useState<string>("all");
   const respF = useResponsavelFilter();
   const [openId, setOpenId] = useState<string | null>(null);
@@ -90,8 +91,9 @@ function OcInsumoPage() {
 
   const { data: ocs = [] } = useQuery({
     queryKey: ["ocs_etiqueta", tab, filterEmpresa, respF.tipo, respF.pessoaId],
+    enabled: tab !== "estoque", // a aba Estoque não lista OCs (mostra a posição de estoque)
     queryFn: async () => {
-      let q = supabase.from("ocs_etiqueta" as any).select("*").eq("status", tab).order("created_at", { ascending: false });
+      let q = supabase.from("ocs_etiqueta" as any).select("*").eq("status", tab as OCStatus).order("created_at", { ascending: false });
       if (filterEmpresa !== "all") q = q.eq("empresa_id", filterEmpresa);
       if (respF.nomesFiltro) q = q.in("responsavel_nome", respF.nomesFiltro.length ? respF.nomesFiltro : [SENTINEL_NOME]);
       const { data, error } = await q;
@@ -156,11 +158,12 @@ function OcInsumoPage() {
         </div>
       </header>
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as OCStatus)}>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as OCStatus | "estoque")}>
         <div className="flex items-center gap-2 flex-wrap">
           <TabsList>
             <TabsTrigger value="encomendado">Encomendados</TabsTrigger>
             <TabsTrigger value="recebido">Recebidos</TabsTrigger>
+            <TabsTrigger value="estoque">Estoque</TabsTrigger>
           </TabsList>
           <div className="ml-auto flex items-center gap-2">
             <FilterButton filters={[
@@ -171,7 +174,9 @@ function OcInsumoPage() {
           </div>
         </div>
 
-        <TabsContent value={tab} className="mt-4">
+        {/* Lista de OCs compartilhada por encomendado/recebido (value = aba ativa). Em "estoque"
+            usa um sentinela que nunca casa, p/ a lista de OCs NÃO renderizar (a aba Estoque tem conteúdo próprio). */}
+        <TabsContent value={tab === "estoque" ? "__oc-list__" : tab} className="mt-4">
           {/* Mobile: cards */}
           <div className="space-y-2 sm:hidden">
             {ocs.length === 0 && <Card className="p-6 text-center text-sm text-muted-foreground">{emptyMsg}</Card>}
@@ -230,6 +235,10 @@ function OcInsumoPage() {
               </TableBody>
             </Table>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="estoque" className="mt-4">
+          <EstoqueInsumosTab />
         </TabsContent>
       </Tabs>
 

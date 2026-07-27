@@ -1,0 +1,151 @@
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { Card } from "@/components/ui/card";
+import { Boxes, Printer } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { printWithImages } from "@/lib/print";
+import { RelatorioPrint } from "@/components/shared/RelatorioPrint";
+import { fmtNum } from "@/lib/format";
+import { FilterButton, SearchToggle } from "@/components/shared/filters";
+
+// Posição de estoque de INSUMOS — antes era a aba "Insumos" da tela Estoque (removida);
+// hoje é a 3ª aba "Estoque" do OC Insumo. Fonte ÚNICA: RPC `estoque_etiqueta`.
+// Preservar a queryKey ["estoque-insumos"]. Agrupa por insumo → cor → tamanho.
+
+const num = (v: any) => Number(v ?? 0) || 0;
+const fmt = (v: number) => fmtNum(v);
+const fmtTamInsumo = (t: string) => { const [n, s] = t.split("|"); return s ? `${s} · ${n}` : t; };
+
+export function EstoqueInsumosTab() {
+  const [search, setSearch] = useState("");
+  const [estoqueFilter, setEstoqueFilter] = useState("all");
+  const { data = [], isLoading } = useQuery({
+    queryKey: ["estoque-insumos"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("estoque_etiqueta" as any);
+      if (error) throw error;
+      return ((data ?? []) as any[]).map((r) => ({
+        etiquetaId: r.etiqueta_id as string, etiquetaNome: r.etiqueta_nome as string,
+        tamanho: r.tamanho as string | null, corNome: r.cor_nome as string | null,
+        recebido: num(r.recebido), prevReceb: num(r.prev_receb), baixa: num(r.baixa), fisico: num(r.fisico),
+      }));
+    },
+  });
+  const filtered = useMemo(() => {
+    const s = search.toLowerCase();
+    return data.filter((r) => {
+      if (estoqueFilter === "zero" && r.fisico > 0) return false;
+      if (estoqueFilter === "positive" && r.fisico <= 0) return false;
+      if (s && !r.etiquetaNome.toLowerCase().includes(s) && !(r.corNome ?? "").toLowerCase().includes(s)) return false;
+      return true;
+    });
+  }, [data, search, estoqueFilter]);
+
+  // Dois níveis de agrupamento dentro do insumo: por COR, e dentro dela por TAMANHO.
+  const grouped = useMemo(() => {
+    const insMap = new Map<string, { id: string; nome: string; coresMap: Map<string, { cor: string | null; rows: any[] }> }>();
+    for (const r of filtered) {
+      let ins = insMap.get(r.etiquetaId);
+      if (!ins) { ins = { id: r.etiquetaId, nome: r.etiquetaNome, coresMap: new Map() }; insMap.set(r.etiquetaId, ins); }
+      const corKey = r.corNome ?? "__semcor__";
+      let cor = ins.coresMap.get(corKey);
+      if (!cor) { cor = { cor: r.corNome ?? null, rows: [] }; ins.coresMap.set(corKey, cor); }
+      cor.rows.push(r);
+    }
+    return Array.from(insMap.values())
+      .map((ins) => ({
+        id: ins.id, nome: ins.nome,
+        cores: Array.from(ins.coresMap.values())
+          .map((c) => ({ cor: c.cor, rows: c.rows.sort((a, b) => (a.tamanho ?? "").localeCompare(b.tamanho ?? "")) }))
+          .sort((a, b) => (a.cor ?? "").localeCompare(b.cor ?? "")),
+      }))
+      .sort((a, b) => a.nome.localeCompare(b.nome));
+  }, [filtered]);
+
+  return (
+    <div className="space-y-4">
+      {/* Toolbar (sem TabsList/título — a aba do OC Insumo já rotula "Estoque"). */}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}>
+          <Printer className="h-4 w-4 mr-1" /> Imprimir
+        </Button>
+        <SearchToggle value={search} onChange={setSearch} placeholder="Insumo ou cor" />
+        <FilterButton
+          filters={[
+            { label: "Estoque", value: estoqueFilter, onChange: setEstoqueFilter, options: [{ id: "all", nome: "Todos" }, { id: "zero", nome: "Estoque Zerado" }, { id: "positive", nome: "Estoque > 0" }] },
+          ]}
+        />
+      </div>
+
+      {isLoading ? (
+        <p className="text-sm text-muted-foreground">Carregando…</p>
+      ) : grouped.length === 0 ? (
+        <div className="rounded-lg border p-8 text-center text-muted-foreground">
+          <Boxes className="h-8 w-8 mx-auto mb-2 opacity-50" />
+          Sem insumos em estoque. Compras (OC Insumo) e consumos (CAD) aparecem aqui.
+        </div>
+      ) : (
+        grouped.map((g) => (
+          <Card key={g.id} className="p-4">
+            <h3 className="font-semibold mb-3">{g.nome}</h3>
+            <div className="space-y-3">
+              {g.cores.map((c, ci) => (
+                <div key={ci}>
+                  {c.cor && <h4 className="text-sm font-medium mb-1 text-muted-foreground">{c.cor}</h4>}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="text-left text-muted-foreground">
+                        <tr className="border-b">
+                          <th className="py-2 pr-3">Tamanho</th>
+                          <th className="py-2 pr-3 text-right">Prev. Receb.</th>
+                          <th className="py-2 pr-3 text-right">Recebido</th>
+                          <th className="py-2 pr-3 text-right">Baixa</th>
+                          <th className="py-2 pr-3 text-right">Físico</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {c.rows.map((r: any, i: number) => (
+                          <tr key={i} className="border-t">
+                            <td className="py-2 pr-3" data-label="Tamanho">{r.tamanho ? fmtTamInsumo(r.tamanho) : "Geral"}</td>
+                            <td className="py-2 pr-3 text-right" data-label="Prev. Receb.">{fmt(r.prevReceb)}</td>
+                            <td className="py-2 pr-3 text-right" data-label="Recebido">{fmt(r.recebido)}</td>
+                            <td className="py-2 pr-3 text-right" data-label="Baixa">{fmt(r.baixa)}</td>
+                            <td className="py-2 pr-3 text-right font-medium" data-label="Físico">{fmt(r.fisico)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        ))
+      )}
+
+      <RelatorioPrint
+        titulo="Posição de Estoque — Insumos"
+        dataStr={new Date().toLocaleDateString("pt-BR")}
+        colunas={[
+          { key: "insumo", label: "Insumo" },
+          { key: "cor", label: "Cor" },
+          { key: "tamanho", label: "Tamanho" },
+          { key: "prev", label: "Prev. Receb.", align: "right" },
+          { key: "recebido", label: "Recebido", align: "right" },
+          { key: "baixa", label: "Baixa", align: "right" },
+          { key: "fisico", label: "Físico", align: "right" },
+        ]}
+        linhas={grouped.flatMap((g) => g.cores.flatMap((c) => c.rows.map((r: any) => ({
+          insumo: g.nome,
+          cor: c.cor ?? "—",
+          tamanho: r.tamanho ? fmtTamInsumo(r.tamanho) : "Geral",
+          prev: fmt(r.prevReceb),
+          recebido: fmt(r.recebido),
+          baixa: fmt(r.baixa),
+          fisico: fmt(r.fisico),
+        }))))}
+      />
+    </div>
+  );
+}
