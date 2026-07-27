@@ -1,0 +1,436 @@
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Printer } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { printWithImages } from "@/lib/print";
+import { RelatorioPrint } from "@/components/shared/RelatorioPrint";
+import { cn } from "@/lib/utils";
+import { fmtNum } from "@/lib/format";
+import { labelVarianteRow } from "@/lib/variante";
+import { FilterButton, SearchToggle } from "@/components/shared/filters";
+import { useSort, SortTh } from "@/components/shared/sort";
+import { useEnderecosRollup, agruparEnderecos, type EnderecoRollup } from "@/components/tecido/EnderecoEditor";
+
+// Posição de estoque de TECIDOS — antes era a aba "Tecidos" da tela Estoque (removida);
+// hoje é a 3ª aba "Estoque" do OC Tecido. Fonte ÚNICA: RPC `estoque_tecido`. Preservar a
+// queryKey ["estoque-tecidos"] — ~15 lugares a invalidam.
+
+const num = (v: any) => Number(v ?? 0) || 0;
+const fmt = (v: number) => fmtNum(v);
+
+export function EstoqueTecidosTab() {
+  const [search, setSearch] = useState("");
+  const [fornecedor, setFornecedor] = useState<string>("all");
+  const [categoria, setCategoria] = useState<string>("all");
+  const [estoqueFilter, setEstoqueFilter] = useState<string>("all");
+
+  // Endereços vêm do rollup consolidado (tabela enderecamento_tecido + colunas do rolo).
+  const { data: rollup } = useEnderecosRollup();
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["estoque-tecidos"],
+    queryFn: async () => {
+      // Fonte ÚNICA: RPC canônica estoque_tecido (mesma do dashboard). Só metadados da
+      // variante (1 query) + os números da RPC. fisico já vem clampado >=0; kg = metros/rendimento.
+      const [varsRes, estRes] = await Promise.all([
+        supabase.from("variantes_tecido").select("id, artigo_id, nome_variante, codigo_variante, cores(nome), apelido:cor_apelido_id(nome), artigos(id, nome, unidade_medida, rendimento, empresa_id, categoria_tecido_id, empresas(nome_fantasia), categorias_tecido(nome))"),
+        supabase.rpc("estoque_tecido" as any),
+      ]);
+      if (varsRes.error) throw varsRes.error;
+      if (estRes.error) throw estRes.error;
+      const variantes = varsRes.data ?? [];
+      const estByVar = new Map<string, any>(((estRes.data ?? []) as any[]).map((e) => [e.variante_tecido_id, e]));
+      const artById = new Map<string, any>();
+      for (const v of variantes as any[]) if (v.artigos && v.artigo_id) artById.set(v.artigo_id, v.artigos);
+
+      const rows = (variantes as any[]).map((v: any) => {
+        const a: any = v.artigos ?? artById.get(v.artigo_id);
+        const e: any = estByVar.get(v.id) ?? { prev_receb_m: 0, recebido_m: 0, baixa: 0, reservado: 0, fisico: 0, previsto: 0 };
+        const isKg = a?.unidade_medida === "kg";
+        const rend = num(a?.rendimento) || 1;
+        const prevRecebM = num(e.prev_receb_m);
+        const recebidoM = num(e.recebido_m);
+        return {
+          varId: v.id,
+          nomeVariante: labelVarianteRow(v),
+          artigoId: v.artigo_id,
+          artigoNome: a?.nome ?? "—",
+          fornecedor: a?.empresas?.nome_fantasia ?? "—",
+          fornecedorId: a?.empresa_id ?? null,
+          categoria: a?.categorias_tecido?.nome ?? "—",
+          categoriaId: a?.categoria_tecido_id ?? null,
+          isKg,
+          prevRecebKg: isKg && rend ? prevRecebM / rend : prevRecebM,
+          prevRecebM,
+          recebidoKg: isKg && rend ? recebidoM / rend : recebidoM,
+          recebidoM,
+          baixa: num(e.baixa),
+          reservado: num(e.reservado),
+          fisico: num(e.fisico),
+          previsto: num(e.previsto),
+        };
+      });
+
+      return { rows, artigos: Array.from(artById.values()) };
+    },
+  });
+
+  const fornecedores = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const a of (data?.artigos ?? []) as any[]) if (a.empresa_id) m.set(a.empresa_id, a.empresas?.nome_fantasia ?? "—");
+    return Array.from(m, ([id, nome]) => ({ id, nome }));
+  }, [data]);
+
+  const categorias = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const a of (data?.artigos ?? []) as any[]) if (a.categoria_tecido_id) m.set(a.categoria_tecido_id, a.categorias_tecido?.nome ?? "—");
+    return Array.from(m, ([id, nome]) => ({ id, nome }));
+  }, [data]);
+
+  const filtered = useMemo(() => {
+    const rows = data?.rows ?? [];
+    const s = search.toLowerCase();
+    return rows.filter((r: any) =>
+      (!s || r.artigoNome.toLowerCase().includes(s) || r.nomeVariante.toLowerCase().includes(s)) &&
+      (fornecedor === "all" || r.fornecedorId === fornecedor) &&
+      (categoria === "all" || r.categoriaId === categoria) &&
+      (estoqueFilter === "all" || (estoqueFilter === "zero" ? r.fisico <= 0 : r.fisico > 0)),
+    );
+  }, [data, search, fornecedor, categoria, estoqueFilter]);
+
+  const { sorted, sortKey, sortDir, toggle } = useSort<any>(filtered, { key: "nomeVariante" });
+  const sortState = { sortKey, sortDir, toggle };
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, { artigoId: string; artigoNome: string; rows: any[] }>();
+    for (const r of sorted) {
+      const key = r.artigoId ?? `sem-artigo-${r.varId}`;
+      const g = map.get(key) ?? { artigoId: key, artigoNome: r.artigoNome, rows: [] as any[] };
+      g.rows.push(r);
+      map.set(key, g);
+    }
+    return Array.from(map.values());
+  }, [sorted]);
+
+  return (
+    <div className="space-y-4">
+      {/* Toolbar (sem TabsList/título — a aba do OC Tecido já rotula "Estoque"). */}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}>
+          <Printer className="h-4 w-4 mr-1" /> Imprimir
+        </Button>
+        <SearchToggle value={search} onChange={setSearch} placeholder="Tecido ou variante" />
+        <FilterButton
+          filters={[
+            { label: "Estoque", value: estoqueFilter, onChange: setEstoqueFilter, options: [{ id: "all", nome: "Todos" }, { id: "zero", nome: "Estoque Zerado" }, { id: "positive", nome: "Estoque > 0" }] },
+            { label: "Fornecedor", value: fornecedor, onChange: setFornecedor, options: [{ id: "all", nome: "Todos" }, ...fornecedores] },
+            { label: "Categoria", value: categoria, onChange: setCategoria, options: [{ id: "all", nome: "Todas" }, ...categorias] },
+          ]}
+        />
+      </div>
+
+      {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+      {error && <p className="text-sm text-destructive">Erro ao carregar estoque: {(error as Error).message}</p>}
+
+      {/* Mobile: ordenação por <Select> (cards não têm cabeçalho clicável) */}
+      <div className="md:hidden flex items-center gap-2">
+        <Label className="text-xs text-muted-foreground shrink-0">Ordenar por</Label>
+        <Select value={sortKey ?? "nomeVariante"} onValueChange={(v) => toggle(v)}>
+          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="nomeVariante">Variante</SelectItem>
+            <SelectItem value="prevRecebM">Prev. Receb.</SelectItem>
+            <SelectItem value="recebidoM">Recebido</SelectItem>
+            <SelectItem value="fisico">Físico Real</SelectItem>
+            <SelectItem value="reservado">Reservado</SelectItem>
+            <SelectItem value="previsto">Previsto</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {grouped.map((g) => (
+        <Card key={g.artigoId} className="p-4">
+          <h3 className="font-semibold mb-3">{g.artigoNome}</h3>
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
+              <colgroup>
+                <col style={{ width: "4%" }} />
+                <col style={{ width: "26%" }} />
+                <col style={{ width: "14%" }} />
+                <col style={{ width: "14%" }} />
+                <col style={{ width: "14%" }} />
+                <col style={{ width: "14%" }} />
+                <col style={{ width: "14%" }} />
+              </colgroup>
+              <thead className="text-left text-muted-foreground">
+                <tr className="border-b">
+                  <th className="py-2 pr-3"></th>
+                  <SortTh label="Variante" sortKey="nomeVariante" sortState={sortState} className="py-2 pr-3" />
+                  <SortTh label="Prev. Receb." sortKey="prevRecebM" sortState={sortState} className="py-2 pr-3" align="right" />
+                  <SortTh label="Recebido" sortKey="recebidoM" sortState={sortState} className="py-2 pr-3" align="right" />
+                  <SortTh label="Físico Real" sortKey="fisico" sortState={sortState} className="py-2 pr-3" align="right" />
+                  <SortTh label="Reservado" sortKey="reservado" sortState={sortState} className="py-2 pr-3" align="right" />
+                  <SortTh label="Previsto" sortKey="previsto" sortState={sortState} className="py-2 pr-3" align="right" />
+                </tr>
+              </thead>
+              <tbody>
+                {g.rows.map((r: any) => (
+                  <VarianteRow key={r.varId} row={r} enderecos={rollup?.get(r.varId) ?? []} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {/* Mobile: cards por variante (some o scroll horizontal) */}
+          <div className="md:hidden space-y-2">
+            {g.rows.map((r: any) => (
+              <VarianteCard key={r.varId} row={r} enderecos={rollup?.get(r.varId) ?? []} />
+            ))}
+          </div>
+        </Card>
+      ))}
+
+      {!isLoading && grouped.length === 0 && (
+        <p className="text-sm text-muted-foreground">Nenhuma variante encontrada.</p>
+      )}
+
+      <RelatorioPrint
+        titulo="Posição de Estoque — Tecidos"
+        dataStr={new Date().toLocaleDateString("pt-BR")}
+        colunas={[
+          { key: "artigo", label: "Tecido" },
+          { key: "variante", label: "Variante" },
+          { key: "fisico", label: "Físico", align: "right" },
+          { key: "reservado", label: "Reservado", align: "right" },
+          { key: "previsto", label: "Previsto", align: "right" },
+        ]}
+        linhas={grouped.flatMap((g) => g.rows.map((r: any) => ({
+          artigo: g.artigoNome,
+          variante: r.nomeVariante,
+          fisico: `${fmt(r.fisico)} m`,
+          reservado: `${fmt(r.reservado)} m`,
+          previsto: `${fmt(r.previsto)} m`,
+        })))}
+      />
+    </div>
+  );
+}
+
+// Detalhe de estoque por OC de uma variante (compartilhado entre a linha desktop e o card
+// mobile). A RPC traz recebidas (verde) e pendentes/encomendado (amarelo).
+function useEstoqueVarianteDetalhe(varId: string, open: boolean, reservadoTotal: number) {
+  const { data: detalhe = [], isLoading } = useQuery({
+    queryKey: ["estoque-tecido-detalhe-oc", varId],
+    enabled: open,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("detalhe_estoque_variante" as any, { _variante_id: varId });
+      if (error) throw error;
+      return (data ?? []) as Array<any>;
+    },
+  });
+  const reservaSemOc =
+    Number(reservadoTotal ?? 0) - detalhe.reduce((s: number, d: any) => s + Number(d.reservado_m ?? 0), 0);
+  const ocRows = detalhe.map((d: any) => {
+    const recebido = Number(d.recebido_m ?? 0);
+    const baixa = Number(d.baixado_m ?? 0);
+    const reservado = Number(d.reservado_m ?? 0);
+    const prevReceb = Number(d.prev_receb_m ?? 0);
+    const fisico = d.estoque_zerado ? Math.max(0, recebido - baixa) : recebido - baixa;
+    return {
+      key: d.oc_tecido_item_id,
+      status: d.recebida ? ("recebida" as const) : ("pendente" as const),
+      zerado: !!d.estoque_zerado,
+      oc: d.numero_pedido, fornecedor: d.fornecedor, entrega: d.data_entrega,
+      prevReceb, recebido, baixa, fisico, reservado, previsto: fisico + prevReceb - reservado,
+    };
+  });
+  return { ocRows, reservaSemOc, isLoading };
+}
+
+function VarianteRow({ row, enderecos }: { row: any; enderecos: EnderecoRollup[] }) {
+  const [open, setOpen] = useState(false);
+  const { ocRows, reservaSemOc, isLoading } = useEstoqueVarianteDetalhe(row.varId, open, row.reservado);
+  const loadingPend = false;
+
+  return (
+    <>
+      <tr className="border-b last:border-0 cursor-pointer" onClick={() => setOpen((o) => !o)}>
+        <td className="py-2 pr-3 text-muted-foreground">{open ? "▾" : "▸"}</td>
+        <td className="py-2 pr-3">
+          {row.nomeVariante}
+          <span className="ml-1 text-[10px] text-muted-foreground">[{row.isKg ? "kg→m" : "m"}]</span>
+          {(() => {
+            const g = agruparEnderecos(enderecos);
+            if (g.length === 0) return null;
+            return (
+              <span className="ml-2 text-[10px] text-muted-foreground whitespace-nowrap" title={g.map((x) => `${x.label}${x.origens.length ? ` (${x.origens.join(", ")})` : ""}`).join(" | ")}>
+                📍 {g[0].label}{g.length > 1 ? ` +${g.length - 1}` : ""}
+              </span>
+            );
+          })()}
+        </td>
+        <td className="py-2 pr-3 text-right">
+          {row.isKg ? (
+            <div className="leading-tight">
+              <div>{fmt(row.prevRecebKg)} kg</div>
+              <div className="text-xs text-muted-foreground">{fmt(row.prevRecebM)} m</div>
+            </div>
+          ) : (`${fmt(row.prevRecebM)} m`)}
+        </td>
+        <td className="py-2 pr-3 text-right">
+          {row.isKg ? (
+            <div className="leading-tight">
+              <div>{fmt(row.recebidoKg)} kg</div>
+              <div className="text-xs text-muted-foreground">{fmt(row.recebidoM)} m</div>
+            </div>
+          ) : (`${fmt(row.recebidoM)} m`)}
+        </td>
+        <td className="py-2 pr-3 text-right font-medium">{fmt(row.fisico)} m</td>
+        <td className="py-2 pr-3 text-right">{fmt(row.reservado)} m</td>
+        <td className="py-2 pr-3 text-right">{fmt(row.previsto)} m</td>
+      </tr>
+      {open && (
+        <tr className="bg-muted/30">
+          <td></td>
+          <td colSpan={6} className="py-2 pr-3 space-y-2">
+            <div className="text-xs flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="font-semibold text-muted-foreground">Endereços:</span>
+              {enderecos.length > 0
+                ? agruparEnderecos(enderecos).map((g, i) => <span key={i} className="whitespace-nowrap" title={g.origens.join(", ")}>📍 {g.label}</span>)
+                : <span className="text-muted-foreground">—</span>}
+            </div>
+            <p className="text-xs font-semibold text-muted-foreground">Estoque por OC</p>
+            {(isLoading || loadingPend) && <p className="text-xs text-muted-foreground">Carregando…</p>}
+            {!isLoading && !loadingPend && ocRows.length === 0 && (
+              <p className="text-xs text-muted-foreground">Nenhuma OC para esta variante.</p>
+            )}
+            {ocRows.length > 0 && (
+              <table className="w-full text-xs">
+                <thead className="text-left text-muted-foreground">
+                  <tr className="border-b">
+                    <th className="py-1 pr-3">OC</th>
+                    <th className="py-1 pr-3">Fornecedor</th>
+                    <th className="py-1 pr-3">Entrega</th>
+                    <th className="py-1 pr-3 text-right">Prev. Receb.</th>
+                    <th className="py-1 pr-3 text-right">Recebido</th>
+                    <th className="py-1 pr-3 text-right">Físico Real</th>
+                    <th className="py-1 pr-3 text-right">Reservado</th>
+                    <th className="py-1 pr-3 text-right">Previsto</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ocRows.map((d) => (
+                    <tr key={d.key} className={cn("border-b last:border-0", d.status === "recebida" ? "bg-emerald-50" : "bg-amber-50")}>
+                      <td className="py-1 pr-3 whitespace-nowrap">
+                        #{d.oc ?? "—"}
+                        <span className={cn("ml-1 text-[9px] uppercase", d.status === "recebida" ? "text-emerald-700" : "text-amber-700")}>
+                          {d.status}
+                        </span>
+                        {d.zerado && (
+                          <Badge className="ml-1.5 h-4 px-1 text-[9px] bg-emerald-500 hover:bg-emerald-500">Zerado</Badge>
+                        )}
+                      </td>
+                      <td className="py-1 pr-3">{d.fornecedor ?? "—"}</td>
+                      <td className="py-1 pr-3">{d.entrega ? new Date(d.entrega).toLocaleDateString("pt-BR") : "—"}</td>
+                      <td className="py-1 pr-3 text-right">{fmt(d.prevReceb)} m</td>
+                      <td className="py-1 pr-3 text-right">{fmt(d.recebido)} m</td>
+                      <td className="py-1 pr-3 text-right font-medium">{fmt(d.fisico)} m</td>
+                      <td className="py-1 pr-3 text-right">{fmt(d.reservado)} m</td>
+                      <td className="py-1 pr-3 text-right">{fmt(d.previsto)} m</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {!isLoading && reservaSemOc > 0.01 && (
+              <p className="text-xs text-muted-foreground mt-1 italic">
+                <span className="font-medium not-italic text-foreground">{fmt(reservaSemOc)}</span>{" "}
+                m reservado(s) por modelos sem OC atribuída (não consta nas linhas acima).
+              </p>
+            )}
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+// Card mobile da variante (mesma fonte de dados do VarianteRow, via hook).
+function VarianteCard({ row, enderecos }: { row: any; enderecos: EnderecoRollup[] }) {
+  const [open, setOpen] = useState(false);
+  const { ocRows, reservaSemOc, isLoading } = useEstoqueVarianteDetalhe(row.varId, open, row.reservado);
+  return (
+    <div className="rounded-lg border p-3">
+      <button type="button" className="w-full text-left" onClick={() => setOpen((o) => !o)}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="font-medium truncate">
+              {row.nomeVariante} <span className="text-[10px] text-muted-foreground">[{row.isKg ? "kg→m" : "m"}]</span>
+            </div>
+            {(() => {
+              const g = agruparEnderecos(enderecos);
+              if (g.length === 0) return null;
+              return (
+                <div className="text-[10px] text-muted-foreground truncate">
+                  📍 {g[0].label}{g.length > 1 ? ` +${g.length - 1}` : ""}
+                </div>
+              );
+            })()}
+          </div>
+          <div className="shrink-0 text-right">
+            <div className="text-lg font-semibold leading-none">
+              {fmt(row.fisico)} <span className="text-xs font-normal">m</span>
+            </div>
+            <div className="text-[10px] text-muted-foreground">Físico Real</div>
+          </div>
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+          <div className="flex justify-between"><span className="text-muted-foreground">Prev. Receb.</span><span>{row.isKg ? `${fmt(row.prevRecebKg)} kg` : `${fmt(row.prevRecebM)} m`}</span></div>
+          <div className="flex justify-between"><span className="text-muted-foreground">Recebido</span><span>{row.isKg ? `${fmt(row.recebidoKg)} kg` : `${fmt(row.recebidoM)} m`}</span></div>
+          <div className="flex justify-between"><span className="text-muted-foreground">Reservado</span><span>{fmt(row.reservado)} m</span></div>
+          <div className="flex justify-between"><span className="text-muted-foreground">Previsto</span><span>{fmt(row.previsto)} m</span></div>
+        </div>
+        <div className="mt-1 text-[10px] text-muted-foreground">{open ? "▾ ocultar OCs / endereços" : "▸ ver OCs / endereços"}</div>
+      </button>
+      {open && (
+        <div className="mt-2 space-y-2 border-t pt-2">
+          <div className="text-xs">
+            <span className="font-semibold text-muted-foreground">Endereços: </span>
+            {enderecos.length > 0 ? agruparEnderecos(enderecos).map((g) => g.label).join(" · ") : "—"}
+          </div>
+          <p className="text-xs font-semibold text-muted-foreground">Estoque por OC</p>
+          {isLoading && <p className="text-xs text-muted-foreground">Carregando…</p>}
+          {!isLoading && ocRows.length === 0 && <p className="text-xs text-muted-foreground">Nenhuma OC para esta variante.</p>}
+          {ocRows.map((d) => (
+            <div key={d.key} className={cn("rounded border p-2 text-xs", d.status === "recebida" ? "bg-emerald-50" : "bg-amber-50")}>
+              <div className="flex items-center justify-between">
+                <span className="font-medium">
+                  #{d.oc ?? "—"}{" "}
+                  <span className={cn("text-[9px] uppercase", d.status === "recebida" ? "text-emerald-700" : "text-amber-700")}>{d.status}</span>
+                  {d.zerado && <Badge className="ml-1 h-4 px-1 text-[9px] bg-emerald-500 hover:bg-emerald-500">Zerado</Badge>}
+                </span>
+                <span className="font-semibold">{fmt(d.fisico)} m</span>
+              </div>
+              <div className="text-muted-foreground">{d.fornecedor ?? "—"}{d.entrega ? ` · ${new Date(d.entrega).toLocaleDateString("pt-BR")}` : ""}</div>
+              <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5">
+                <span>Prev: {fmt(d.prevReceb)} m</span>
+                <span>Receb: {fmt(d.recebido)} m</span>
+                <span>Reserv: {fmt(d.reservado)} m</span>
+                <span>Prev.: {fmt(d.previsto)} m</span>
+              </div>
+            </div>
+          ))}
+          {!isLoading && reservaSemOc > 0.01 && (
+            <p className="text-xs italic text-muted-foreground">
+              <span className="font-medium not-italic text-foreground">{fmt(reservaSemOc)}</span> m reservado(s) por modelos sem OC atribuída.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

@@ -37,7 +37,7 @@ import { useModoOcRolo } from "@/hooks/useModoOcRolo";
 import {
   emptyDraft, uploadFile,
   type Artigo, type Colab, type Draft, type Empresa, type ItemDraft,
-  type OC, type OCItem, type OCStatus, type RoloEntry, type Variante,
+  type OC, type OCItem, type OCStatus, type OcTecidoTab, type RoloEntry, type Variante,
 } from "@/components/oc-tecido/shared";
 
 import { RequirePermission } from "@/components/RequirePermission";
@@ -54,7 +54,7 @@ function OcTecidoPage() {
   const [view, setView] = useState<"ocs" | "rolos">("ocs");
   const [openRolo, setOpenRolo] = useState(false);
   const [openRemover, setOpenRemover] = useState(false);
-  const [tab, setTab] = useState<OCStatus>("encomendado");
+  const [tab, setTab] = useState<OcTecidoTab>("encomendado");
   const [filterEmpresa, setFilterEmpresa] = useState<string>("all");
   const respF = useResponsavelFilter();
   const [filterAlerta, setFilterAlerta] = useState<string>("all");
@@ -64,10 +64,11 @@ function OcTecidoPage() {
 
   const { data: ocs = [] } = useQuery({
     queryKey: ["ocs_tecido", tab, filterEmpresa, respF.tipo, respF.pessoaId, filterAlerta],
+    enabled: tab !== "estoque", // a aba Estoque não lista OCs (mostra a posição de estoque)
     queryFn: async () => {
       // Recebidos trazem o status de alerta dos itens (p/ badge na lista + filtro).
       const sel = tab === "recebido" ? "*, ocs_tecido_itens!oc_tecido_id(cq_alerta_status)" : "*";
-      let q = supabase.from("ocs_tecido").select(sel).eq("status", tab).eq("is_rolo" as never, false as never).order("created_at", { ascending: false });
+      let q = supabase.from("ocs_tecido").select(sel).eq("status", tab as OCStatus).eq("is_rolo" as never, false as never).order("created_at", { ascending: false });
       if (filterEmpresa !== "all") q = q.eq("empresa_id", filterEmpresa);
       if (respF.idsFiltro) q = q.in("responsavel_id", respF.idsFiltro.length ? respF.idsFiltro : [SENTINEL_UUID]);
       const { data, error } = await q;

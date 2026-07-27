@@ -9,6 +9,8 @@ export const BUCKET = "oc-tecido";
 export const labelVariante = labelVarianteRow;
 
 export type OCStatus = "encomendado" | "recebido";
+// Abas da tela OC Tecido: os status de OC + a aba "Estoque" (3ª aba = posição de estoque).
+export type OcTecidoTab = OCStatus | "estoque";
 
 export type Empresa = {
   id: string;

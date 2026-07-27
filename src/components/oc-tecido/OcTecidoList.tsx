@@ -8,7 +8,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
 import { SortHead, useSort } from "@/components/shared/sort";
-import { fmtDate, fmtMoney, type Empresa, type OC, type OCStatus } from "./shared";
+import { fmtDate, fmtMoney, type Empresa, type OC, type OcTecidoTab } from "./shared";
+import { EstoqueTecidosTab } from "./EstoqueTecidosTab";
 
 export function OcTecidoList({
   tab, setTab,
@@ -16,8 +17,8 @@ export function OcTecidoList({
   empresas, ocs, empresaMap, onRowClick, onDelete,
   qtdRecebidaByOc, tecidosByOc, alertaBadgeByOc,
 }: {
-  tab: OCStatus;
-  setTab: (t: OCStatus) => void;
+  tab: OcTecidoTab;
+  setTab: (t: OcTecidoTab) => void;
   filterEmpresa: string;
   setFilterEmpresa: (v: string) => void;
   empresas: Empresa[];
@@ -72,10 +73,11 @@ export function OcTecidoList({
   });
 
   return (
-    <Tabs value={tab} onValueChange={(v) => setTab(v as OCStatus)}>
+    <Tabs value={tab} onValueChange={(v) => setTab(v as OcTecidoTab)}>
       <TabsList>
         <TabsTrigger value="encomendado">Encomendados</TabsTrigger>
         <TabsTrigger value="recebido">Recebidos</TabsTrigger>
+        <TabsTrigger value="estoque">Estoque</TabsTrigger>
       </TabsList>
 
       <TabsContent value="encomendado" className="mt-4">
@@ -263,6 +265,10 @@ export function OcTecidoList({
             </TableBody>
           </Table>
         </Card>
+      </TabsContent>
+
+      <TabsContent value="estoque" className="mt-4">
+        <EstoqueTecidosTab />
       </TabsContent>
     </Tabs>
   );
