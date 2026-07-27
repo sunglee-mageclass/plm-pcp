@@ -908,7 +908,7 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
           {podeVerCustos && <p className="text-xs text-muted-foreground truncate">{custoReal ? "Custo" : "Custo prev."}: {custoMat != null ? brl(custoMat) : "—"}</p>}
           {(podeVerCustos || podeAprovarMaoObra) && (
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              {podeVerCustos && <span className="truncate">Mão de obra{custoReal ? "" : " prev."}: {maoObra != null ? brl(maoObra) : "—"}</span>}
+              {podeVerCustos && <span className="truncate">MO{custoReal ? "" : " prev."}: {maoObra != null ? brl(maoObra) : "—"}</span>}
               {podeAprovarMaoObra && (
                 <>
                   <button type="button" aria-label="Aprovar mão de obra" onClick={(e) => { e.stopPropagation(); onAprovar(); }}
