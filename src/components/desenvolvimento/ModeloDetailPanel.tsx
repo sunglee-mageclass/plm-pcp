@@ -26,7 +26,6 @@ import { Button } from "@/components/ui/button";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useAuth } from "@/hooks/useAuth";
-import { serializeSnapshot } from "@/hooks/useDirtySnapshot";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
@@ -63,6 +62,16 @@ import { ModeloObservacoes } from "@/components/shared/ModeloObservacoes";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { ImportarDadosDialog } from "./importar/ImportarDadosDialog";
 import type { PatchCopia, ResultadoCopia, ModeloParaCopia, Selecao } from "./importar/importar-copia";
+
+// Serializa o snapshot do guarda de "não salvo" IGNORANDO chaves `id` (ids de LINHA voláteis).
+// `salvar_modelo_bom` faz DELETE+re-INSERT de modelo_tecidos/aviamentos → gera UUIDs NOVOS a
+// cada save; ao refetchar, blocks/aviamentosState re-hidratam com ids novos e o guarda acusava
+// FALSO "alterações não salvas" (só visível quando não travado = modelo não enviado à Explosão).
+// As FKs (artigo_id, variante_tecido_id, …) e o conteúdo — o que é edição real — permanecem.
+const snapshotSemIds = (v: unknown): string => {
+  try { return JSON.stringify(v ?? null, (k, val) => (k === "id" ? undefined : val)); }
+  catch { return String(v); }
+};
 
 export function ModeloDetailPanel({ modeloId, onClose }: {
   modeloId: string | null;
@@ -442,7 +451,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   // → "Maximum update depth exceeded" (ErrorBoundary "Algo deu errado"). Aqui o baseline vive
   // num ref e o re-baseline é keyed numa ASSINATURA SERIALIZADA (só muda com conteúdo real),
   // sem forçar render em cadeia.
-  const guardSnapshotStr = serializeSnapshot({ draft, blocks, aviamentosState, etiquetasState, grades, cadTecidosState });
+  const guardSnapshotStr = snapshotSemIds({ draft, blocks, aviamentosState, etiquetasState, grades, cadTecidosState });
   const baselineRef = useRef<string | null>(null);
   const [baselineTick, setBaselineTick] = useState(0);
   const markClean = () => { baselineRef.current = guardSnapshotStr; setBaselineTick((n) => n + 1); };
