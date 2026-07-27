@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2, ArrowLeft, Package, X } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, Package, X, Printer } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -16,7 +16,7 @@ import { DateField } from "@/components/shared/DateField";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { FornecedorSelect, type EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 import { ResponsavelSelect } from "@/components/shared/ResponsavelSelect";
-import { FilterButton } from "@/components/shared/filters";
+import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { useResponsavelFilter, SENTINEL_NOME } from "@/hooks/useResponsavelFilter";
 import { NfList } from "@/components/oc-tecido/NfList";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
@@ -27,7 +27,8 @@ import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { EstoqueInsumosTab } from "@/components/oc-insumo/EstoqueInsumosTab";
+import { useEstoqueInsumos, EstoqueInsumosTable } from "@/components/oc-insumo/EstoqueInsumosTab";
+import { printWithImages } from "@/lib/print";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
@@ -83,6 +84,7 @@ function OcInsumoPage() {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
   const [tab, setTab] = useState<OCStatus | "estoque">("encomendado");
+  const estoque = useEstoqueInsumos(tab === "estoque"); // controles no header (contextual) + tabela
   const [filterEmpresa, setFilterEmpresa] = useState<string>("all");
   const respF = useResponsavelFilter();
   const [openId, setOpenId] = useState<string | null>(null);
@@ -159,10 +161,20 @@ function OcInsumoPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-          <FilterButton filters={[
-            { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
-            ...(tab === "encomendado" ? respF.filters : []),
-          ]} />
+          {tab === "estoque" ? (
+            <>
+              <SearchToggle value={estoque.search} onChange={estoque.setSearch} placeholder="Insumo ou cor" />
+              <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}>
+                <Printer className="h-4 w-4 mr-1" /> Imprimir
+              </Button>
+              <FilterButton filters={estoque.filtros} />
+            </>
+          ) : (
+            <FilterButton filters={[
+              { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
+              ...(tab === "encomendado" ? respF.filters : []),
+            ]} />
+          )}
           <Button className="max-sm:hidden" onClick={() => { setOpenId(null); setOpenNew(true); }} disabled={readOnly}><Plus className="h-4 w-4 mr-1" /> Nova OC</Button>
         </div>
       </header>
@@ -238,7 +250,7 @@ function OcInsumoPage() {
         </TabsContent>
 
         <TabsContent value="estoque" className="mt-4">
-          <EstoqueInsumosTab />
+          <EstoqueInsumosTable state={estoque} />
         </TabsContent>
       </Tabs>
 

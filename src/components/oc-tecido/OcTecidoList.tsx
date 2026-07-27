@@ -8,20 +8,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
 import { SortHead, useSort } from "@/components/shared/sort";
-import { fmtDate, fmtMoney, type Empresa, type OC, type OcTecidoTab } from "./shared";
-import { EstoqueTecidosTab } from "./EstoqueTecidosTab";
+import { fmtDate, fmtMoney, type OC, type OcTecidoTab } from "./shared";
+import { EstoqueTecidosTable, type useEstoqueTecidos } from "./EstoqueTecidosTab";
 
 export function OcTecidoList({
   tab, setTab,
-  filterEmpresa, setFilterEmpresa,
-  empresas, ocs, empresaMap, onRowClick, onDelete,
-  qtdRecebidaByOc, tecidosByOc, alertaBadgeByOc,
+  ocs, empresaMap, onRowClick, onDelete,
+  qtdRecebidaByOc, tecidosByOc, alertaBadgeByOc, estoque,
 }: {
   tab: OcTecidoTab;
   setTab: (t: OcTecidoTab) => void;
-  filterEmpresa: string;
-  setFilterEmpresa: (v: string) => void;
-  empresas: Empresa[];
   ocs: OC[];
   empresaMap: Record<string, string>;
   onRowClick: (id: string) => void;
@@ -29,10 +25,10 @@ export function OcTecidoList({
   qtdRecebidaByOc?: Record<string, string>;
   tecidosByOc?: Record<string, string>;
   alertaBadgeByOc?: Record<string, { label: string; cls: string } | null>;
+  // Estado da aba Estoque (consulta + filtros) vive na PÁGINA — os controles ficam no header.
+  estoque: ReturnType<typeof useEstoqueTecidos>;
 }) {
-  // Filters now live in the page header via FilterButton; this component renders just tabs + table.
-  void filterEmpresa; void setFilterEmpresa; void empresas;
-
+  // Filtros vivem no header da PÁGINA (FilterButton); este componente é só as abas + tabelas.
   // Accessors p/ ordenar por valor CRU mesmo quando a célula exibe valor formatado.
   const fornecedorAcc = (o: OC) => (o.empresa_id ? empresaMap[o.empresa_id] ?? "" : "");
   // Ordena pela string exibida na célula (nomes de artigo concatenados) — alfabético via localeCompare do useSort.
@@ -268,7 +264,7 @@ export function OcTecidoList({
       </TabsContent>
 
       <TabsContent value="estoque" className="mt-4">
-        <EstoqueTecidosTab />
+        <EstoqueTecidosTable state={estoque} />
       </TabsContent>
     </Tabs>
   );

@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Sparkles, Plus, Upload, Trash2, ArrowLeft } from "lucide-react";
+import { Sparkles, Plus, Upload, Trash2, ArrowLeft, Printer } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -42,8 +42,9 @@ import {
 } from "@/components/ui/alert-dialog";
 
 import { RequirePermission } from "@/components/RequirePermission";
-import { EstoqueAviamentosTab } from "@/components/oc-aviamento/EstoqueAviamentosTab";
-import { FilterButton } from "@/components/shared/filters";
+import { useEstoqueAviamentos, EstoqueAviamentosTable } from "@/components/oc-aviamento/EstoqueAviamentosTab";
+import { FilterButton, SearchToggle } from "@/components/shared/filters";
+import { printWithImages } from "@/lib/print";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { FornecedorSelect } from "@/components/shared/FornecedorSelect";
@@ -115,6 +116,7 @@ async function uploadFile(file: File, prefix: string) {
 function OcAviamentoPage() {
   const qc = useQueryClient();
   const [tab, setTab] = useState<OCStatus | "estoque">("encomendado");
+  const estoque = useEstoqueAviamentos(tab === "estoque"); // controles no header (contextual) + tabela
   const [filterEmpresa, setFilterEmpresa] = useState<string>("all");
   const respF = useResponsavelFilter();
   const [openNew, setOpenNew] = useState(false);
@@ -218,12 +220,22 @@ function OcAviamentoPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-          <FilterButton
-            filters={[
-              { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
-              ...(tab === "encomendado" ? respF.filters : []),
-            ]}
-          />
+          {tab === "estoque" ? (
+            <>
+              <SearchToggle value={estoque.search} onChange={estoque.setSearch} placeholder="Aviamento" />
+              <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}>
+                <Printer className="h-4 w-4 mr-1" /> Imprimir
+              </Button>
+              <FilterButton filters={estoque.filtros} />
+            </>
+          ) : (
+            <FilterButton
+              filters={[
+                { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
+                ...(tab === "encomendado" ? respF.filters : []),
+              ]}
+            />
+          )}
           <Button className="max-sm:hidden" onClick={() => { setEditingId(null); setOpenNew(true); }}>
             <Plus className="h-4 w-4 mr-1" /> Nova OC
           </Button>
@@ -395,7 +407,7 @@ function OcAviamentoPage() {
         </TabsContent>
 
         <TabsContent value="estoque" className="mt-4">
-          <EstoqueAviamentosTab />
+          <EstoqueAviamentosTable state={estoque} />
         </TabsContent>
       </Tabs>
 

@@ -2,26 +2,25 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
-import { Boxes, Printer } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { printWithImages } from "@/lib/print";
+import { Boxes } from "lucide-react";
 import { RelatorioPrint } from "@/components/shared/RelatorioPrint";
 import { fmtNum } from "@/lib/format";
-import { FilterButton, SearchToggle } from "@/components/shared/filters";
 
-// Posição de estoque de INSUMOS — antes era a aba "Insumos" da tela Estoque (removida);
-// hoje é a 3ª aba "Estoque" do OC Insumo. Fonte ÚNICA: RPC `estoque_etiqueta`.
-// Preservar a queryKey ["estoque-insumos"]. Agrupa por insumo → cor → tamanho.
+// Posição de estoque de INSUMOS — 3ª aba "Estoque" do OC Insumo. Fonte ÚNICA: RPC
+// `estoque_etiqueta`. Preservar a queryKey ["estoque-insumos"]. Os CONTROLES (busca,
+// imprimir, filtro) vivem no HEADER da OC (via o hook abaixo); aqui fica só a tabela.
 
 const num = (v: any) => Number(v ?? 0) || 0;
 const fmt = (v: number) => fmtNum(v);
 const fmtTamInsumo = (t: string) => { const [n, s] = t.split("|"); return s ? `${s} · ${n}` : t; };
 
-export function EstoqueInsumosTab() {
+/** Estado + consulta + filtros da aba Estoque de insumos. `enabled` = aba ativa. */
+export function useEstoqueInsumos(enabled: boolean) {
   const [search, setSearch] = useState("");
   const [estoqueFilter, setEstoqueFilter] = useState("all");
   const { data = [], isLoading } = useQuery({
     queryKey: ["estoque-insumos"],
+    enabled,
     queryFn: async () => {
       const { data, error } = await supabase.rpc("estoque_etiqueta" as any);
       if (error) throw error;
@@ -63,21 +62,18 @@ export function EstoqueInsumosTab() {
       .sort((a, b) => a.nome.localeCompare(b.nome));
   }, [filtered]);
 
+  const filtros = [
+    { label: "Estoque", value: estoqueFilter, onChange: setEstoqueFilter, options: [{ id: "all", nome: "Todos" }, { id: "zero", nome: "Estoque Zerado" }, { id: "positive", nome: "Estoque > 0" }] },
+  ];
+
+  return { search, setSearch, filtros, grouped, isLoading };
+}
+
+/** Tabela agrupada (insumo → cor → tamanho) + área de impressão. Recebe o estado do hook. */
+export function EstoqueInsumosTable({ state }: { state: ReturnType<typeof useEstoqueInsumos> }) {
+  const { grouped, isLoading } = state;
   return (
     <div className="space-y-4">
-      {/* Toolbar (sem TabsList/título — a aba do OC Insumo já rotula "Estoque"). */}
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}>
-          <Printer className="h-4 w-4 mr-1" /> Imprimir
-        </Button>
-        <SearchToggle value={search} onChange={setSearch} placeholder="Insumo ou cor" />
-        <FilterButton
-          filters={[
-            { label: "Estoque", value: estoqueFilter, onChange: setEstoqueFilter, options: [{ id: "all", nome: "Todos" }, { id: "zero", nome: "Estoque Zerado" }, { id: "positive", nome: "Estoque > 0" }] },
-          ]}
-        />
-      </div>
-
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Carregando…</p>
       ) : grouped.length === 0 ? (

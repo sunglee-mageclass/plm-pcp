@@ -4,22 +4,21 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Printer } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { printWithImages } from "@/lib/print";
 import { RelatorioPrint } from "@/components/shared/RelatorioPrint";
 import { fmtNum } from "@/lib/format";
-import { FilterButton, SearchToggle } from "@/components/shared/filters";
-import { useSort, SortTh } from "@/components/shared/sort";
+import { SortTh } from "@/components/shared/sort";
+import { useSort } from "@/components/shared/sort";
 
-// Posição de estoque de AVIAMENTOS — antes era a aba "Aviamentos" da tela Estoque (removida);
-// hoje é a 3ª aba "Estoque" do OC Aviamento. Fonte ÚNICA: RPC `estoque_aviamento`.
-// Preservar a queryKey ["estoque-aviamentos"] — invalidada em vários lugares.
+// Posição de estoque de AVIAMENTOS — 3ª aba "Estoque" do OC Aviamento. Fonte ÚNICA: RPC
+// `estoque_aviamento`. Preservar a queryKey ["estoque-aviamentos"]. Os CONTROLES (busca,
+// imprimir, filtro) vivem no HEADER da OC (via o hook abaixo); aqui fica só a tabela.
 
 const num = (v: any) => Number(v ?? 0) || 0;
 const fmt = (v: number) => fmtNum(v);
 
-export function EstoqueAviamentosTab() {
+/** Estado + consulta + filtros da aba Estoque de aviamentos. Chamado pela PÁGINA da OC p/
+ *  montar os controles no header (contextuais) e alimentar a tabela. `enabled` = aba ativa. */
+export function useEstoqueAviamentos(enabled: boolean) {
   const [search, setSearch] = useState("");
   const [fornecedor, setFornecedor] = useState<string>("all");
   const [categoria, setCategoria] = useState<string>("all");
@@ -27,24 +26,16 @@ export function EstoqueAviamentosTab() {
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["estoque-aviamentos"],
+    enabled,
     queryFn: async () => {
-      // Fonte ÚNICA: RPC canônica estoque_aviamento (mesma do dashboard e da trava da OS).
-      // fisico já vem clampado >=0; previsto = fisico + prev - reserva.
       const { data, error } = await supabase.rpc("estoque_aviamento" as any);
       if (error) throw error;
       const rows = ((data ?? []) as any[]).map((r) => ({
-        id: r.id,
-        nome: r.nome,
-        fornecedor: r.fornecedor ?? "—",
-        fornecedorId: r.fornecedor_id,
-        categoria: r.categoria ?? "—",
-        categoriaId: r.categoria_id,
-        prevReceb: num(r.prev_receb),
-        recebido: num(r.recebido),
-        baixa: num(r.baixa),
-        reservado: num(r.reservado),
-        fisico: num(r.fisico),
-        previsto: num(r.previsto),
+        id: r.id, nome: r.nome,
+        fornecedor: r.fornecedor ?? "—", fornecedorId: r.fornecedor_id,
+        categoria: r.categoria ?? "—", categoriaId: r.categoria_id,
+        prevReceb: num(r.prev_receb), recebido: num(r.recebido), baixa: num(r.baixa),
+        reservado: num(r.reservado), fisico: num(r.fisico), previsto: num(r.previsto),
       }));
       return { rows };
     },
@@ -73,25 +64,22 @@ export function EstoqueAviamentosTab() {
   }, [data, search, fornecedor, categoria, estoqueFilter]);
 
   const { sorted, sortKey, sortDir, toggle } = useSort<any>(filtered, { key: "nome" });
-  const sortState = { sortKey, sortDir, toggle };
 
+  // Descritores prontos p/ o <FilterButton> do header (filtros de estoque, não os da OC).
+  const filtros = [
+    { label: "Estoque", value: estoqueFilter, onChange: setEstoqueFilter, options: [{ id: "all", nome: "Todos" }, { id: "zero", nome: "Estoque Zerado" }, { id: "positive", nome: "Estoque > 0" }] },
+    { label: "Fornecedor", value: fornecedor, onChange: setFornecedor, options: [{ id: "all", nome: "Todos" }, ...fornecedores] },
+    { label: "Categoria", value: categoria, onChange: setCategoria, options: [{ id: "all", nome: "Todas" }, ...categorias] },
+  ];
+
+  return { search, setSearch, filtros, filtered, sorted, sortState: { sortKey, sortDir, toggle }, sortKey, toggle, isLoading, error };
+}
+
+/** Tabela (desktop) + cards (mobile) + área de impressão. Recebe o estado do hook. */
+export function EstoqueAviamentosTable({ state }: { state: ReturnType<typeof useEstoqueAviamentos> }) {
+  const { filtered, sorted, sortState, sortKey, toggle, isLoading, error } = state;
   return (
     <div className="space-y-4">
-      {/* Toolbar (sem TabsList/título — a aba do OC Aviamento já rotula "Estoque"). */}
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}>
-          <Printer className="h-4 w-4 mr-1" /> Imprimir
-        </Button>
-        <SearchToggle value={search} onChange={setSearch} placeholder="Aviamento" />
-        <FilterButton
-          filters={[
-            { label: "Estoque", value: estoqueFilter, onChange: setEstoqueFilter, options: [{ id: "all", nome: "Todos" }, { id: "zero", nome: "Estoque Zerado" }, { id: "positive", nome: "Estoque > 0" }] },
-            { label: "Fornecedor", value: fornecedor, onChange: setFornecedor, options: [{ id: "all", nome: "Todos" }, ...fornecedores] },
-            { label: "Categoria", value: categoria, onChange: setCategoria, options: [{ id: "all", nome: "Todas" }, ...categorias] },
-          ]}
-        />
-      </div>
-
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
       {error && <p className="text-sm text-destructive">Erro ao carregar estoque: {(error as Error).message}</p>}
 
@@ -183,8 +171,7 @@ export function EstoqueAviamentosTab() {
   );
 }
 
-// Detalhe de OCs de um aviamento (recebidas + pendentes), compartilhado entre a linha
-// desktop e o card mobile.
+// Detalhe de OCs de um aviamento (recebidas + pendentes).
 function useEstoqueAviamentoDetalhe(aviamentoId: string, open: boolean) {
   const { data: pendentes = [], isLoading: loadingPend } = useQuery({
     queryKey: ["estoque-aviamento-pendentes-oc", aviamentoId],
@@ -303,7 +290,6 @@ function AviamentoRow({ row }: { row: any }) {
   );
 }
 
-// Card mobile do aviamento (mesma fonte de dados do AviamentoRow, via hook).
 function AviamentoCard({ row }: { row: any }) {
   const [open, setOpen] = useState(false);
   const { pendentes, recebidas, loadingPend, loadingRec } = useEstoqueAviamentoDetalhe(row.id, open);

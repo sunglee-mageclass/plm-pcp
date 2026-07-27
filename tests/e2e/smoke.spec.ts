@@ -25,7 +25,6 @@ const SCREENS: { path: string; name: string }[] = [
   { path: "/producao/consumo-oc", name: "producao-consumo-oc" },
   { path: "/entrada-saida/oc-tecido", name: "oc-tecido" },
   { path: "/entrada-saida/oc-aviamento", name: "oc-aviamento" },
-  { path: "/entrada-saida/estoque", name: "estoque" },
   { path: "/financeiro", name: "financeiro" },
   { path: "/cadastro/tecidos", name: "cadastro-tecidos" },
   { path: "/cadastro/aviamentos", name: "cadastro-aviamentos" },

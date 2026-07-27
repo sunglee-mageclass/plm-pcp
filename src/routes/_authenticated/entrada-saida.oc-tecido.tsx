@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { fmtNum } from "@/lib/format";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Scissors, Plus, Minus, ArrowLeft, Trash2 } from "lucide-react";
+import { Scissors, Plus, Minus, ArrowLeft, Trash2, Printer } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { empresaTemCategoria, FABRIC_TOKENS } from "@/lib/fornecedor-categoria";
@@ -23,9 +23,11 @@ import {
 
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { OcTecidoList } from "@/components/oc-tecido/OcTecidoList";
+import { useEstoqueTecidos } from "@/components/oc-tecido/EstoqueTecidosTab";
 import { RolosList, RoloDialog, RemoverMetragemDialog, AjustesList } from "@/components/oc-tecido/Rolos";
 import { OcCqSection, alertaBadge } from "@/components/oc-tecido/CqTecido";
-import { FilterButton } from "@/components/shared/filters";
+import { FilterButton, SearchToggle } from "@/components/shared/filters";
+import { printWithImages } from "@/lib/print";
 import { useResponsavelFilter, SENTINEL_UUID } from "@/hooks/useResponsavelFilter";
 import { OcTecidoForm } from "@/components/oc-tecido/OcTecidoForm";
 import { OcTecidoRecebimento } from "@/components/oc-tecido/OcTecidoRecebimento";
@@ -55,6 +57,8 @@ function OcTecidoPage() {
   const [openRolo, setOpenRolo] = useState(false);
   const [openRemover, setOpenRemover] = useState(false);
   const [tab, setTab] = useState<OcTecidoTab>("encomendado");
+  // Estado da aba Estoque (consulta + filtros) — controles vão p/ o header (contextual).
+  const estoque = useEstoqueTecidos(view === "ocs" && tab === "estoque");
   const [filterEmpresa, setFilterEmpresa] = useState<string>("all");
   const respF = useResponsavelFilter();
   const [filterAlerta, setFilterAlerta] = useState<string>("all");
@@ -205,22 +209,32 @@ function OcTecidoPage() {
           </div>
           {view === "ocs" && (
             <>
-              <FilterButton
-                filters={[
-                  { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
-                  ...(tab === "encomendado" ? respF.filters : []),
-                  ...(tab === "recebido"
-                    ? [{ label: "Alerta", value: filterAlerta, onChange: setFilterAlerta, options: [
-                        { id: "all", nome: "Todos" },
-                        { id: "alertado", nome: "Alerta estilo" },
-                        { id: "troca_pendente", nome: "Troca pendente" },
-                        { id: "trocado", nome: "Trocado" },
-                        { id: "estilo_ok", nome: "Estilo OK" },
-                        { id: "cancelado", nome: "Cancelado" },
-                      ] }]
-                    : []),
-                ]}
-              />
+              {tab === "estoque" ? (
+                <>
+                  <SearchToggle value={estoque.search} onChange={estoque.setSearch} placeholder="Tecido ou variante" />
+                  <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}>
+                    <Printer className="h-4 w-4 mr-1" /> Imprimir
+                  </Button>
+                  <FilterButton filters={estoque.filtros} />
+                </>
+              ) : (
+                <FilterButton
+                  filters={[
+                    { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
+                    ...(tab === "encomendado" ? respF.filters : []),
+                    ...(tab === "recebido"
+                      ? [{ label: "Alerta", value: filterAlerta, onChange: setFilterAlerta, options: [
+                          { id: "all", nome: "Todos" },
+                          { id: "alertado", nome: "Alerta estilo" },
+                          { id: "troca_pendente", nome: "Troca pendente" },
+                          { id: "trocado", nome: "Trocado" },
+                          { id: "estilo_ok", nome: "Estilo OK" },
+                          { id: "cancelado", nome: "Cancelado" },
+                        ] }]
+                      : []),
+                  ]}
+                />
+              )}
               <Button className="max-sm:hidden" onClick={() => { setEditingId(null); setOpenNew(true); }}>
                 <Plus className="h-4 w-4 mr-1" /> Nova OC
               </Button>
@@ -247,9 +261,6 @@ function OcTecidoPage() {
         <OcTecidoList
           tab={tab}
           setTab={setTab}
-          filterEmpresa={filterEmpresa}
-          setFilterEmpresa={setFilterEmpresa}
-          empresas={empresas}
           ocs={ocs}
           empresaMap={empresaMap}
           onRowClick={(id) => { setEditingId(id); setOpenNew(true); }}
@@ -257,6 +268,7 @@ function OcTecidoPage() {
           qtdRecebidaByOc={qtdRecebidaByOc}
           tecidosByOc={tecidosByOc}
           alertaBadgeByOc={alertaBadgeByOc}
+          estoque={estoque}
         />
       ) : (
         <div className="space-y-6">

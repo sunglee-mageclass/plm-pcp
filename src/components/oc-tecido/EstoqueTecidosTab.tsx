@@ -5,35 +5,35 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Printer } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { printWithImages } from "@/lib/print";
 import { RelatorioPrint } from "@/components/shared/RelatorioPrint";
 import { cn } from "@/lib/utils";
 import { fmtNum } from "@/lib/format";
 import { labelVarianteRow } from "@/lib/variante";
-import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { useSort, SortTh } from "@/components/shared/sort";
 import { useEnderecosRollup, agruparEnderecos, type EnderecoRollup } from "@/components/tecido/EnderecoEditor";
 
 // Posição de estoque de TECIDOS — antes era a aba "Tecidos" da tela Estoque (removida);
 // hoje é a 3ª aba "Estoque" do OC Tecido. Fonte ÚNICA: RPC `estoque_tecido`. Preservar a
-// queryKey ["estoque-tecidos"] — ~15 lugares a invalidam.
+// queryKey ["estoque-tecidos"] — ~15 lugares a invalidam. Os CONTROLES (busca, imprimir,
+// filtro) vivem no HEADER da OC (via o hook abaixo); aqui fica só a tabela.
 
 const num = (v: any) => Number(v ?? 0) || 0;
 const fmt = (v: number) => fmtNum(v);
 
-export function EstoqueTecidosTab() {
+/** Estado + consulta + filtros da aba Estoque de tecidos. Chamado pela PÁGINA do OC p/
+ *  montar os controles no header (contextuais) e alimentar a tabela. `enabled` = aba ativa. */
+export function useEstoqueTecidos(enabled: boolean) {
   const [search, setSearch] = useState("");
   const [fornecedor, setFornecedor] = useState<string>("all");
   const [categoria, setCategoria] = useState<string>("all");
   const [estoqueFilter, setEstoqueFilter] = useState<string>("all");
 
   // Endereços vêm do rollup consolidado (tabela enderecamento_tecido + colunas do rolo).
-  const { data: rollup } = useEnderecosRollup();
+  const { data: rollup } = useEnderecosRollup(enabled);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["estoque-tecidos"],
+    enabled,
     queryFn: async () => {
       // Fonte ÚNICA: RPC canônica estoque_tecido (mesma do dashboard). Só metadados da
       // variante (1 query) + os números da RPC. fisico já vem clampado >=0; kg = metros/rendimento.
@@ -117,23 +117,21 @@ export function EstoqueTecidosTab() {
     return Array.from(map.values());
   }, [sorted]);
 
+  // Descritores prontos p/ o <FilterButton> do header (filtros de estoque, não os da OC).
+  const filtros = [
+    { label: "Estoque", value: estoqueFilter, onChange: setEstoqueFilter, options: [{ id: "all", nome: "Todos" }, { id: "zero", nome: "Estoque Zerado" }, { id: "positive", nome: "Estoque > 0" }] },
+    { label: "Fornecedor", value: fornecedor, onChange: setFornecedor, options: [{ id: "all", nome: "Todos" }, ...fornecedores] },
+    { label: "Categoria", value: categoria, onChange: setCategoria, options: [{ id: "all", nome: "Todas" }, ...categorias] },
+  ];
+
+  return { search, setSearch, filtros, grouped, rollup, sortKey, sortState, toggle, isLoading, error };
+}
+
+/** Tabela agrupada por tecido (desktop) + cards (mobile) + área de impressão. Recebe o estado do hook. */
+export function EstoqueTecidosTable({ state }: { state: ReturnType<typeof useEstoqueTecidos> }) {
+  const { grouped, rollup, sortKey, sortState, toggle, isLoading, error } = state;
   return (
     <div className="space-y-4">
-      {/* Toolbar (sem TabsList/título — a aba do OC Tecido já rotula "Estoque"). */}
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}>
-          <Printer className="h-4 w-4 mr-1" /> Imprimir
-        </Button>
-        <SearchToggle value={search} onChange={setSearch} placeholder="Tecido ou variante" />
-        <FilterButton
-          filters={[
-            { label: "Estoque", value: estoqueFilter, onChange: setEstoqueFilter, options: [{ id: "all", nome: "Todos" }, { id: "zero", nome: "Estoque Zerado" }, { id: "positive", nome: "Estoque > 0" }] },
-            { label: "Fornecedor", value: fornecedor, onChange: setFornecedor, options: [{ id: "all", nome: "Todos" }, ...fornecedores] },
-            { label: "Categoria", value: categoria, onChange: setCategoria, options: [{ id: "all", nome: "Todas" }, ...categorias] },
-          ]}
-        />
-      </div>
-
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
       {error && <p className="text-sm text-destructive">Erro ao carregar estoque: {(error as Error).message}</p>}
 

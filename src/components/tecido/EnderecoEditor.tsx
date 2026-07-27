@@ -49,9 +49,10 @@ export function agruparEnderecos(
 }
 
 /** Rollup consolidado (tabela manual+OC UNION colunas do rolo) por variante — leitura. */
-export function useEnderecosRollup() {
+export function useEnderecosRollup(enabled = true) {
   return useQuery({
     queryKey: ["end-tecido-rollup"],
+    enabled,
     queryFn: async () => {
       const { data, error } = await supabase.rpc("enderecos_tecido" as any);
       if (error) throw error;
