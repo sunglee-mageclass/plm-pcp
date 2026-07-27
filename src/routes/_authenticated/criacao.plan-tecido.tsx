@@ -4,12 +4,12 @@ import { useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { RequirePermission } from "@/components/RequirePermission";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Scissors } from "lucide-react";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { ArrowDownAZ, ArrowDownZA, Scissors } from "lucide-react";
 import { FilterButton } from "@/components/shared/filters";
+import { useSort } from "@/components/shared/sort";
 import { PlanTecidoSheet } from "@/components/plan-tecido/PlanTecidoSheet";
-import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/criacao/plan-tecido")({
   component: () => (
@@ -48,22 +48,6 @@ function PlanTecidoListPage() {
 
   const { data: meses = [] } = useOpts("meses", "mes");
   const { data: anos = [] } = useOpts("anos", "ano");
-  const mesMap = useMemo(() => Object.fromEntries(meses.map((m) => [m.id, m.nome])), [meses]);
-  const anoMap = useMemo(() => Object.fromEntries(anos.map((a) => [a.id, a.nome])), [anos]);
-
-  const { data: statusPedidos = [] } = useQuery({
-    queryKey: ["plan-tecido-status-pedidos"],
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc("plan_tecido_status_pedidos" as any);
-      if (error) throw error;
-      return (data ?? []) as { colecao_id: string; status: "encomendado" | "entregue" }[];
-    },
-  });
-
-  const statusMap = useMemo(
-    () => new Map(statusPedidos.map((r) => [r.colecao_id, r.status])),
-    [statusPedidos],
-  );
 
   const [fMes, setFMes] = useState("all");
   const [fAno, setFAno] = useState("all");
@@ -80,18 +64,29 @@ function PlanTecidoListPage() {
     });
   }, [colecoes, fMes, fAno, fStatus, fTipo]);
 
+  // Lista só-nomes, ordenável alfabeticamente (A–Z por padrão; botão alterna Z–A).
+  const sort = useSort(filtered, { key: "nome" });
+
   if (!isModuleEnabled("otb")) {
     return <div className="p-6 text-sm text-muted-foreground">Ative o módulo OTB para planejar tecido por coleção.</div>;
   }
-
-  const mesAno = (c: ColecaoRow) => [mesMap[c.mes_id ?? ""], anoMap[c.ano_id ?? ""]].filter(Boolean).join(" / ") || "Sem mês/ano";
 
   return (
     <div className="p-4 sm:p-6">
       <div className="mb-4 flex items-center gap-2">
         <Scissors className="h-5 w-5" />
         <h1 className="font-display text-xl font-semibold">Plan. Tecido</h1>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1"
+            onClick={() => sort.toggle("nome")}
+            title="Ordenar por nome"
+          >
+            {sort.sortDir === "asc" ? <ArrowDownAZ className="h-4 w-4" /> : <ArrowDownZA className="h-4 w-4" />}
+            <span className="hidden sm:inline">{sort.sortDir === "asc" ? "A–Z" : "Z–A"}</span>
+          </Button>
           <FilterButton
             screen="plan-tecido"
             filters={[
@@ -122,33 +117,12 @@ function PlanTecidoListPage() {
         </div>
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {filtered.map((c) => (
+        {sort.sorted.map((c) => (
           <button key={c.id} type="button" className="text-left" onClick={() => setOpenColecaoId(c.id)}>
-            <Card className={cn(
-              "transition-shadow hover:shadow-md border-l-4",
-              statusMap.get(c.id) === "entregue"
-                ? "border-l-emerald-500"
-                : statusMap.get(c.id) === "encomendado"
-                  ? "border-l-amber-500"
-                  : "border-l-red-500",
-            )}>
-              <CardHeader className="pb-2">
+            <Card className="transition-shadow hover:shadow-md">
+              <CardHeader>
                 <CardTitle className="text-base">{c.nome}</CardTitle>
-                <p className="text-xs text-muted-foreground">{mesAno(c)}</p>
               </CardHeader>
-              <CardContent className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                <Badge variant="secondary">{c.tipo === "poder_venda" ? "Poder de Venda" : "Orçamento"}</Badge>
-                <Badge variant={c.status === "confirmada" ? "default" : "outline"}>
-                  {c.status === "confirmada" ? "Confirmada" : "Rascunho"}
-                </Badge>
-                {statusMap.get(c.id) === "entregue" ? (
-                  <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300">Entregue</Badge>
-                ) : statusMap.get(c.id) === "encomendado" ? (
-                  <Badge className="bg-amber-100 text-amber-800 border-amber-300">Encomendado</Badge>
-                ) : (
-                  <Badge className="bg-red-100 text-red-800 border-red-300">Não pedido</Badge>
-                )}
-              </CardContent>
             </Card>
           </button>
         ))}
