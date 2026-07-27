@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Package, FileText, Scissors, Boxes, PackageMinus } from "lucide-react";
+import { Package, FileText, Scissors, PackageMinus } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { useTenantModules } from "@/hooks/useTenantModules";
 
@@ -15,12 +15,11 @@ const osSections = [
   { to: "/entrada-saida/os-tecido", title: "OS de Tecido", desc: "Ordens de saída / baixa de tecidos.", icon: PackageMinus },
   { to: "/entrada-saida/os-aviamento", title: "OS de Aviamento", desc: "Ordens de saída / baixa de aviamentos.", icon: PackageMinus },
 ];
-const estoqueSection = { to: "/entrada-saida/estoque", title: "Estoque", desc: "Posição de estoque.", icon: Boxes };
-
 function EntradaSaidaIndex() {
   const { isStockOnly } = useTenantModules();
   // OS é a baixa manual do modo só-estoque (no modo completo a baixa vem do CAD).
-  const sections = [...ocSections, ...(isStockOnly ? osSections : []), estoqueSection];
+  // Estoque saiu daqui: virou a 3ª aba "Estoque" de cada OC (Tecido/Aviamento/Insumo).
+  const sections = [...ocSections, ...(isStockOnly ? osSections : [])];
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6">
       <header className="flex items-start gap-3">
