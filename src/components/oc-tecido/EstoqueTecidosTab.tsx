@@ -1,18 +1,25 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, MapPin } from "lucide-react";
 import { RelatorioPrint } from "@/components/shared/RelatorioPrint";
+import { useReadOnly } from "@/components/RequirePermission";
 import { cn } from "@/lib/utils";
 import { fmtNum } from "@/lib/format";
 import { labelVarianteRow } from "@/lib/variante";
 import { useSort, SortTh } from "@/components/shared/sort";
-import { useEnderecosRollup, agruparEnderecos, type EnderecoRollup } from "@/components/tecido/EnderecoEditor";
+import { useEnderecosRollup, agruparEnderecos, fmtEndereco, type EnderecoRollup } from "@/components/tecido/EnderecoEditor";
 
 // Posição de estoque de TECIDOS — antes era a aba "Tecidos" da tela Estoque (removida);
 // hoje é a 3ª aba "Estoque" do OC Tecido. Fonte ÚNICA: RPC `estoque_tecido`. Preservar a
@@ -132,10 +139,47 @@ export function useEstoqueTecidos(enabled: boolean) {
 /** Tabela agrupada por tecido (desktop) + cards (mobile) + área de impressão. Recebe o estado do hook. */
 export function EstoqueTecidosTable({ state }: { state: ReturnType<typeof useEstoqueTecidos> }) {
   const { grouped, rollup, sortKey, sortState, toggle, isLoading, error } = state;
+  const readOnly = useReadOnly();
+
+  // Seleção de variantes p/ endereçamento em massa (guarda varId). Marcar um TECIDO marca
+  // todas as suas variantes. A seleção considera só o que está VISÍVEL (pós-filtro/busca).
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [dialogOpen, setDialogOpen] = useState(false);
+
+  const visibleIds = useMemo(() => grouped.flatMap((g) => g.rows.map((r: any) => r.varId as string)), [grouped]);
+  const selectedVisible = useMemo(() => visibleIds.filter((id) => selected.has(id)), [visibleIds, selected]);
+
+  const toggleVar = (varId: string) =>
+    setSelected((prev) => { const n = new Set(prev); if (n.has(varId)) n.delete(varId); else n.add(varId); return n; });
+  const groupIds = (g: any) => (g.rows as any[]).map((r) => r.varId as string);
+  const groupState = (g: any): boolean | "indeterminate" => {
+    const ids = groupIds(g);
+    const sel = ids.filter((id) => selected.has(id)).length;
+    return sel === 0 ? false : sel === ids.length ? true : "indeterminate";
+  };
+  const toggleGroup = (g: any) =>
+    setSelected((prev) => {
+      const ids = groupIds(g);
+      const all = ids.every((id) => prev.has(id));
+      const n = new Set(prev);
+      ids.forEach((id) => (all ? n.delete(id) : n.add(id)));
+      return n;
+    });
+  const clearSel = () => setSelected(new Set());
+
   return (
     <div className="space-y-4">
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
       {error && <p className="text-sm text-destructive">Erro ao carregar estoque: {(error as Error).message}</p>}
+
+      {/* Barra de seleção (endereçamento em massa) — só com permissão de edição da OC. */}
+      {!readOnly && selectedVisible.length > 0 && (
+        <div className="sticky top-2 z-20 flex flex-wrap items-center gap-2 rounded-lg border bg-background/95 p-2 shadow-sm backdrop-blur">
+          <span className="text-sm font-medium">{selectedVisible.length} variante(s) selecionada(s)</span>
+          <Button size="sm" onClick={() => setDialogOpen(true)}><MapPin className="h-4 w-4 mr-1" /> Aplicar endereço</Button>
+          <Button size="sm" variant="ghost" onClick={clearSel}>Limpar</Button>
+        </div>
+      )}
 
       {/* Mobile: ordenação por <Select> (cards não têm cabeçalho clicável) */}
       <div className="md:hidden flex items-center gap-2">
@@ -154,17 +198,28 @@ export function EstoqueTecidosTable({ state }: { state: ReturnType<typeof useEst
       </div>
 
       {grouped.map((g) => (
-        // Cada tecido é colapsável (abre por padrão). O cabeçalho (nome do tecido) é o
-        // gatilho; a impressão (RelatorioPrint) é independente e sempre lista tudo.
+        // Cada tecido é colapsável (abre por padrão). Checkbox à esquerda seleciona TODAS as
+        // variantes do tecido; o cabeçalho (nome) é o gatilho de colapso. A impressão
+        // (RelatorioPrint) é independente e sempre lista tudo.
         <Card key={g.artigoId} className="p-4">
           <Collapsible defaultOpen>
-            <CollapsibleTrigger className="flex w-full items-center gap-2 text-left font-semibold [&[data-state=open]>svg]:rotate-90">
-              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform" />
-              <span className="min-w-0 truncate">{g.artigoNome}</span>
-              <span className="ml-auto shrink-0 text-xs font-normal text-muted-foreground">
-                {g.rows.length} {g.rows.length === 1 ? "variante" : "variantes"}
-              </span>
-            </CollapsibleTrigger>
+            <div className="flex items-center gap-2">
+              {!readOnly && (
+                <Checkbox
+                  aria-label={`Selecionar todas as variantes de ${g.artigoNome}`}
+                  checked={groupState(g)}
+                  onCheckedChange={() => toggleGroup(g)}
+                  className="data-[state=indeterminate]:bg-primary/60 data-[state=indeterminate]:text-primary-foreground"
+                />
+              )}
+              <CollapsibleTrigger className="flex min-w-0 flex-1 items-center gap-2 text-left font-semibold [&[data-state=open]>svg]:rotate-90">
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform" />
+                <span className="min-w-0 truncate">{g.artigoNome}</span>
+                <span className="ml-auto shrink-0 text-xs font-normal text-muted-foreground">
+                  {g.rows.length} {g.rows.length === 1 ? "variante" : "variantes"}
+                </span>
+              </CollapsibleTrigger>
+            </div>
             <CollapsibleContent className="mt-3">
               <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
@@ -190,7 +245,8 @@ export function EstoqueTecidosTable({ state }: { state: ReturnType<typeof useEst
                   </thead>
                   <tbody>
                     {g.rows.map((r: any) => (
-                      <VarianteRow key={r.varId} row={r} enderecos={rollup?.get(r.varId) ?? []} />
+                      <VarianteRow key={r.varId} row={r} enderecos={rollup?.get(r.varId) ?? []}
+                        selectable={!readOnly} selected={selected.has(r.varId)} onToggleSelect={() => toggleVar(r.varId)} />
                     ))}
                   </tbody>
                 </table>
@@ -198,7 +254,8 @@ export function EstoqueTecidosTable({ state }: { state: ReturnType<typeof useEst
               {/* Mobile: cards por variante (some o scroll horizontal) */}
               <div className="md:hidden space-y-2">
                 {g.rows.map((r: any) => (
-                  <VarianteCard key={r.varId} row={r} enderecos={rollup?.get(r.varId) ?? []} />
+                  <VarianteCard key={r.varId} row={r} enderecos={rollup?.get(r.varId) ?? []}
+                    selectable={!readOnly} selected={selected.has(r.varId)} onToggleSelect={() => toggleVar(r.varId)} />
                 ))}
               </div>
             </CollapsibleContent>
@@ -228,7 +285,203 @@ export function EstoqueTecidosTable({ state }: { state: ReturnType<typeof useEst
           previsto: `${fmt(r.previsto)} m`,
         })))}
       />
+
+      {/* Diálogo de endereçamento em massa — monta ao abrir (estado limpo a cada uso). */}
+      {!readOnly && dialogOpen && (
+        <BulkEnderecoDialog
+          varIds={selectedVisible}
+          onClose={() => setDialogOpen(false)}
+          onApplied={clearSel}
+        />
+      )}
     </div>
+  );
+}
+
+/** Aplica um endereço (rua/prateleira) — escopo MANUAL — a TODAS as variantes selecionadas.
+ *  Dois modos: "atualizar" SUBSTITUI o(s) endereço(s) manual(is) da variante por este;
+ *  "acrescentar" ADICIONA uma linha (mantém os existentes; pula duplicata exata).
+ *  Endereços de OC/rolo nunca são tocados. */
+function BulkEnderecoDialog({ varIds, onClose, onApplied }: {
+  varIds: string[]; onClose: () => void; onApplied: () => void;
+}) {
+  const qc = useQueryClient();
+  const [modo, setModo] = useState<"atualizar" | "acrescentar">("atualizar");
+  const [rua, setRua] = useState("");
+  const [prat, setPrat] = useState("");
+
+  // Endereços manuais ATUAIS das variantes selecionadas (visão consolidada p/ referência
+  // e para pré-preencher os campos ao clicar — base do "atualizar o que já está feito").
+  const { data: atuais = [] } = useQuery({
+    queryKey: ["end-bulk-atuais", varIds],
+    enabled: varIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("enderecamento_tecido" as any)
+        .select("variante_tecido_id, rua, prateleira")
+        .in("variante_tecido_id", varIds)
+        .is("oc_tecido_item_id", null)
+        .is("rolo_id", null);
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+  const gruposAtuais = useMemo(() => {
+    const m = new Map<string, { rua: string; prat: string; vars: Set<string> }>();
+    for (const x of atuais) {
+      const r = (x.rua ?? "").trim();
+      const p = (x.prateleira ?? "").trim();
+      if (!r && !p) continue;
+      const k = `${r}|${p}`;
+      const g = m.get(k) ?? { rua: r, prat: p, vars: new Set<string>() };
+      g.vars.add(x.variante_tecido_id);
+      m.set(k, g);
+    }
+    return Array.from(m.values()).map((g) => ({ rua: g.rua, prat: g.prat, count: g.vars.size }));
+  }, [atuais]);
+
+  const applyMut = useMutation({
+    mutationFn: async () => {
+      const r = rua.trim();
+      const p = prat.trim();
+      if (!r && !p) throw new Error("Informe a Rua e/ou a Prateleira.");
+      if (varIds.length === 0) throw new Error("Nenhuma variante selecionada.");
+
+      if (modo === "atualizar") {
+        // Substitui o endereço MANUAL da variante por este. Sem RPC transacional, então
+        // ordena INSERT (o novo) ANTES do DELETE (os antigos ≠ novo): se algo falhar no meio,
+        // a falha é benigna (fica um endereço a mais), nunca deixa a variante SEM endereço.
+        const { data: existing, error: e1 } = await supabase
+          .from("enderecamento_tecido" as any)
+          .select("id, variante_tecido_id, rua, prateleira")
+          .in("variante_tecido_id", varIds)
+          .is("oc_tecido_item_id", null)
+          .is("rolo_id", null);
+        if (e1) throw e1;
+        const norm = (s: any) => (s ?? "").trim();
+        const jaTemNovo = new Set(
+          ((existing ?? []) as any[]).filter((x) => norm(x.rua) === r && norm(x.prateleira) === p).map((x) => x.variante_tecido_id),
+        );
+        const toInsert = varIds
+          .filter((id) => !jaTemNovo.has(id))
+          .map((id) => ({ variante_tecido_id: id, oc_tecido_item_id: null, rua: r, prateleira: p }));
+        if (toInsert.length > 0) {
+          const { error: eIns } = await supabase.from("enderecamento_tecido" as any).insert(toInsert);
+          if (eIns) throw eIns;
+        }
+        const idsDelete = ((existing ?? []) as any[])
+          .filter((x) => !(norm(x.rua) === r && norm(x.prateleira) === p))
+          .map((x) => x.id);
+        if (idsDelete.length > 0) {
+          const { error: eDel } = await supabase.from("enderecamento_tecido" as any).delete().in("id", idsDelete);
+          if (eDel) throw eDel;
+        }
+        return { modo, count: varIds.length, skipped: 0 };
+      }
+
+      // acrescentar: adiciona sem apagar; pula quem já tem exatamente este endereço manual.
+      const { data: existing, error: e1 } = await supabase
+        .from("enderecamento_tecido" as any)
+        .select("variante_tecido_id, rua, prateleira")
+        .in("variante_tecido_id", varIds)
+        .is("oc_tecido_item_id", null)
+        .is("rolo_id", null);
+      if (e1) throw e1;
+      const norm = (s: any) => (s ?? "").trim();
+      const jaTem = new Set(
+        ((existing ?? []) as any[]).filter((x) => norm(x.rua) === r && norm(x.prateleira) === p).map((x) => x.variante_tecido_id),
+      );
+      const payload = varIds
+        .filter((id) => !jaTem.has(id))
+        .map((id) => ({ variante_tecido_id: id, oc_tecido_item_id: null, rua: r, prateleira: p }));
+      if (payload.length === 0) return { modo, count: 0, skipped: varIds.length };
+      const { error: e2 } = await supabase.from("enderecamento_tecido" as any).insert(payload);
+      if (e2) throw e2;
+      return { modo, count: payload.length, skipped: varIds.length - payload.length };
+    },
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["end-tecido-rollup"] });
+      qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
+      qc.invalidateQueries({ queryKey: ["end-tecido"] });
+      if (res.modo === "atualizar") {
+        toast.success(`Endereço atualizado em ${res.count} variante(s).`);
+      } else {
+        toast.success(
+          res.skipped > 0
+            ? `Endereço acrescentado a ${res.count} variante(s); ${res.skipped} já tinha(m) este endereço.`
+            : `Endereço acrescentado a ${res.count} variante(s).`,
+        );
+      }
+      onApplied();
+      onClose();
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao aplicar endereço.")),
+  });
+
+  const vazio = !rua.trim() && !prat.trim();
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <MapPin className="h-4 w-4" /> Endereçar {varIds.length} variante(s)
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          {/* Endereços atuais (manuais) das variantes selecionadas — clique p/ usar nos campos. */}
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Endereços atuais das variantes selecionadas</Label>
+            {gruposAtuais.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Nenhum endereço manual ainda nas variantes selecionadas.</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {gruposAtuais.map((g, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => { setRua(g.rua); setPrat(g.prat); }}
+                    title="Usar este endereço nos campos abaixo"
+                    className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs hover:bg-muted"
+                  >
+                    <MapPin className="h-3 w-3" /> {fmtEndereco({ rua: g.rua, prateleira: g.prat })}
+                    <Badge variant="secondary" className="h-4 px-1 text-[10px]">{g.count}</Badge>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Modo: Atualizar (substitui o manual) x Acrescentar (adiciona) */}
+          <div className="flex rounded-md border p-0.5">
+            <Button type="button" size="sm" variant={modo === "atualizar" ? "secondary" : "ghost"} className="flex-1" onClick={() => setModo("atualizar")}>
+              Atualizar
+            </Button>
+            <Button type="button" size="sm" variant={modo === "acrescentar" ? "secondary" : "ghost"} className="flex-1" onClick={() => setModo("acrescentar")}>
+              Acrescentar
+            </Button>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {modo === "atualizar"
+              ? "Substitui o endereço manual das variantes selecionadas por este (endereços de OC/rolo não são afetados)."
+              : "Adiciona este endereço às variantes selecionadas, mantendo os existentes."}
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-1"><Label>Rua</Label>
+              <Input value={rua} onChange={(e) => setRua(e.target.value)} placeholder="Ex.: A" autoFocus />
+            </div>
+            <div className="grid gap-1"><Label>Prateleira</Label>
+              <Input value={prat} onChange={(e) => setPrat(e.target.value)} placeholder="Ex.: 03" />
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancelar</Button>
+          <Button onClick={() => applyMut.mutate()} disabled={applyMut.isPending || vazio}>
+            {modo === "atualizar" ? "Atualizar" : "Acrescentar"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -263,7 +516,9 @@ function useEstoqueVarianteDetalhe(varId: string, open: boolean, reservadoTotal:
   return { ocRows, reservaSemOc, isLoading };
 }
 
-function VarianteRow({ row, enderecos }: { row: any; enderecos: EnderecoRollup[] }) {
+function VarianteRow({ row, enderecos, selectable, selected, onToggleSelect }: {
+  row: any; enderecos: EnderecoRollup[]; selectable?: boolean; selected?: boolean; onToggleSelect?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const { ocRows, reservaSemOc, isLoading } = useEstoqueVarianteDetalhe(row.varId, open, row.reservado);
   const loadingPend = false;
@@ -271,8 +526,13 @@ function VarianteRow({ row, enderecos }: { row: any; enderecos: EnderecoRollup[]
   return (
     <>
       <tr className="border-b last:border-0 cursor-pointer" onClick={() => setOpen((o) => !o)}>
-        <td className="py-2 pr-3 text-muted-foreground">{open ? "▾" : "▸"}</td>
+        <td className="py-2 pr-3" onClick={(e) => e.stopPropagation()}>
+          {selectable && (
+            <Checkbox checked={!!selected} onCheckedChange={() => onToggleSelect?.()} aria-label={`Selecionar ${row.nomeVariante}`} />
+          )}
+        </td>
         <td className="py-2 pr-3">
+          <span className="mr-1 text-muted-foreground">{open ? "▾" : "▸"}</span>
           {row.nomeVariante}
           <span className="ml-1 text-[10px] text-muted-foreground">[{row.isKg ? "kg→m" : "m"}]</span>
           {(() => {
@@ -372,12 +632,18 @@ function VarianteRow({ row, enderecos }: { row: any; enderecos: EnderecoRollup[]
 }
 
 // Card mobile da variante (mesma fonte de dados do VarianteRow, via hook).
-function VarianteCard({ row, enderecos }: { row: any; enderecos: EnderecoRollup[] }) {
+function VarianteCard({ row, enderecos, selectable, selected, onToggleSelect }: {
+  row: any; enderecos: EnderecoRollup[]; selectable?: boolean; selected?: boolean; onToggleSelect?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const { ocRows, reservaSemOc, isLoading } = useEstoqueVarianteDetalhe(row.varId, open, row.reservado);
   return (
     <div className="rounded-lg border p-3">
-      <button type="button" className="w-full text-left" onClick={() => setOpen((o) => !o)}>
+      <div className="flex items-start gap-2">
+        {selectable && (
+          <Checkbox className="mt-1 shrink-0" checked={!!selected} onCheckedChange={() => onToggleSelect?.()} aria-label={`Selecionar ${row.nomeVariante}`} />
+        )}
+        <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setOpen((o) => !o)}>
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="font-medium truncate">
@@ -407,7 +673,8 @@ function VarianteCard({ row, enderecos }: { row: any; enderecos: EnderecoRollup[
           <div className="flex justify-between"><span className="text-muted-foreground">Previsto</span><span>{fmt(row.previsto)} m</span></div>
         </div>
         <div className="mt-1 text-[10px] text-muted-foreground">{open ? "▾ ocultar OCs / endereços" : "▸ ver OCs / endereços"}</div>
-      </button>
+        </button>
+      </div>
       {open && (
         <div className="mt-2 space-y-2 border-t pt-2">
           <div className="text-xs">
