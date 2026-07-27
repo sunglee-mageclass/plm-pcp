@@ -1230,11 +1230,17 @@ function ModeloDialog({
     : 0;
   const consumoOverride = draft.custo_simulado.consumo_tecido ?? null;
   const consumoUsado = consumoOverride ?? consumoRealBOM;
+  // Mão de obra: espelha o padrão do consumo — usa a "Previsão de Mão de Obra" do
+  // Desenvolvimento (custo_terceirizados_previsto, via custo_unitario_modelos) como
+  // DEFAULT editável (override). Reflete na edição o mesmo valor mostrado no card.
+  const maoObraDev = Number((custoData as any)?.mao_obra_previsto) || 0;
+  const maoObraOverride = draft.custo_simulado.mao_obra ?? null;
+  const maoObraUsado = maoObraOverride ?? (maoObraDev > 0 ? maoObraDev : null);
   const simCalc = custoSimulado({
     consumo_tecido: consumoUsado,
     preco_tecido_m: precoTecidoM,
     aviamento: draft.custo_simulado.aviamento,
-    mao_obra: draft.custo_simulado.mao_obra,
+    mao_obra: maoObraUsado,
   });
   const piSim = precoInfo(simCalc.total, markup, null);
   const setSim = (patch: Partial<CustoSimInput>) =>
@@ -1669,7 +1675,7 @@ function ModeloDialog({
               <div className="grid gap-1">
                 <Label>Mão de obra (R$)</Label>
                 <NumberInput
-                  value={draft.custo_simulado.mao_obra ?? ""}
+                  value={maoObraOverride ?? (maoObraDev > 0 ? maoObraDev : "")}
                   onChange={(e) => { const v = e.target.value; setSim({ mao_obra: numOr0(v) > 0 ? Number(v) : null }); }}
                 />
               </div>
