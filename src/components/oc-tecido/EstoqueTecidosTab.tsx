@@ -297,6 +297,7 @@ export function EstoqueTecidosTable({ state }: { state: ReturnType<typeof useEst
         <BulkEnderecoDialog
           varIds={selectedVisible}
           varInfo={varInfo}
+          rollup={rollup}
           onClose={() => setDialogOpen(false)}
         />
       )}
@@ -304,15 +305,18 @@ export function EstoqueTecidosTable({ state }: { state: ReturnType<typeof useEst
   );
 }
 
-/** Gerenciador de endereços (escopo MANUAL) das variantes SELECIONADAS. Lista CADA endereço
- *  distinto presente na seleção (com quantas variantes o têm) e permite, por endereço:
- *  editar (renomeia nas variantes que o têm) e excluir; além de acrescentar um novo endereço
- *  a todas as selecionadas. Edições são ao vivo. Endereços de OC/rolo nunca são tocados. */
-function BulkEnderecoDialog({ varIds, varInfo, onClose }: {
-  varIds: string[]; varInfo: Record<string, { tecido: string; variante: string }>; onClose: () => void;
+/** Gerenciador de endereços das variantes SELECIONADAS — MESMA fonte do 📍 do estoque
+ *  (rollup: manual + OC + rolo). Lista CADA endereço distinto e permite, por endereço:
+ *  editar e excluir, roteando p/ o store certo (linha da tabela p/ manual/OC; colunas
+ *  ocs_tecido.rolo_* p/ rolo); + acrescentar um novo endereço (manual) às selecionadas.
+ *  Excluir um endereço o remove de TODAS as origens ali (por isso some do estoque). */
+function BulkEnderecoDialog({ varIds, varInfo, rollup, onClose }: {
+  varIds: string[];
+  varInfo: Record<string, { tecido: string; variante: string }>;
+  rollup: Map<string, EnderecoRollup[]> | undefined;
+  onClose: () => void;
 }) {
   const qc = useQueryClient();
-  const listKey = ["end-bulk-atuais", varIds] as const;
 
   // Resumo dos tecidos da seleção (nome + nº de variantes) — mostrado no topo do diálogo.
   const resumoTecidos = useMemo(() => {
@@ -321,36 +325,31 @@ function BulkEnderecoDialog({ varIds, varInfo, onClose }: {
     return Array.from(m.entries());
   }, [varIds, varInfo]);
 
-  // Endereços manuais ATUAIS das variantes selecionadas (com o id de cada linha, p/ agir por endereço).
-  const { data: atuais = [], isLoading } = useQuery({
-    queryKey: listKey,
-    enabled: varIds.length > 0,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("enderecamento_tecido" as any)
-        .select("id, variante_tecido_id, rua, prateleira")
-        .in("variante_tecido_id", varIds)
-        .is("oc_tecido_item_id", null)
-        .is("rolo_id", null);
-      if (error) throw error;
-      return (data ?? []) as any[];
-    },
-  });
+  // Linhas de endereço das variantes selecionadas — derivadas do MESMO rollup do estoque
+  // (mantém diálogo e 📍 sempre em sincronia). Cada linha traz origem + endereco_id/rolo_id.
+  const rows = useMemo(() => varIds.flatMap((vid) => rollup?.get(vid) ?? []), [varIds, rollup]);
 
-  // Agrupa por endereço (rua|prateleira): guarda os ids das linhas e quantas variantes o têm.
+  // Agrupa por endereço (rua|prateleira): guarda os endereco_ids (manual/OC) + rolo_ids,
+  // as origens não-manuais (p/ rótulo) e as variantes (p/ contagem/detalhe).
   const grupos = useMemo(() => {
-    const m = new Map<string, { key: string; rua: string; prat: string; ids: string[]; vars: Set<string> }>();
-    for (const x of atuais) {
+    type G = { key: string; rua: string; prat: string; endIds: string[]; roloIds: string[]; origens: Set<string>; vars: Set<string> };
+    const m = new Map<string, G>();
+    for (const x of rows) {
       const rua = (x.rua ?? "").trim();
       const prat = (x.prateleira ?? "").trim();
       const key = `${rua}|${prat}`;
-      const g = m.get(key) ?? { key, rua, prat, ids: [] as string[], vars: new Set<string>() };
-      g.ids.push(x.id);
+      const g = m.get(key) ?? { key, rua, prat, endIds: [], roloIds: [], origens: new Set<string>(), vars: new Set<string>() };
+      if (x.endereco_id) g.endIds.push(x.endereco_id);
+      if (x.rolo_id) g.roloIds.push(x.rolo_id);
+      if (x.origem !== "manual" && x.origem_label) g.origens.add(x.origem_label);
       g.vars.add(x.variante_tecido_id);
       m.set(key, g);
     }
-    return Array.from(m.values()).map((g) => ({ key: g.key, rua: g.rua, prat: g.prat, ids: g.ids, varIds: Array.from(g.vars), count: g.vars.size }));
-  }, [atuais]);
+    return Array.from(m.values()).map((g) => ({
+      key: g.key, rua: g.rua, prat: g.prat, endIds: g.endIds, roloIds: g.roloIds,
+      origens: Array.from(g.origens), varIds: Array.from(g.vars), count: g.vars.size,
+    }));
+  }, [rows]);
 
   // "Tecido A: v1, v2 · Tecido B: v3" — a que tecido/variante um endereço pertence.
   const detalheTecidos = (vids: string[]) => {
@@ -366,44 +365,59 @@ function BulkEnderecoDialog({ varIds, varInfo, onClose }: {
   };
 
   const invalidate = () => {
-    qc.invalidateQueries({ queryKey: listKey });
     qc.invalidateQueries({ queryKey: ["end-tecido-rollup"] });
     qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
     qc.invalidateQueries({ queryKey: ["end-tecido"] });
+    qc.invalidateQueries({ queryKey: ["rolos"] });
   };
+
+  // Grava rua/prateleira em TODAS as origens do grupo: linhas (manual/OC) por id +
+  // colunas do rolo por id da OC-rolo. (Espelha o EnderecoConsolidadoEditor do Cadastro.)
+  const updMut = useMutation({
+    mutationFn: async (p: { endIds: string[]; roloIds: string[]; rua: string; prat: string }) => {
+      const rua = p.rua.trim();
+      const prat = p.prat.trim();
+      if (p.endIds.length > 0) {
+        const { error } = await supabase.from("enderecamento_tecido" as any).update({ rua, prateleira: prat }).in("id", p.endIds);
+        if (error) throw error;
+      }
+      if (p.roloIds.length > 0) {
+        const { error } = await supabase.from("ocs_tecido").update({ rolo_rua: rua || null, rolo_prateleira: prat || null } as any).in("id", p.roloIds);
+        if (error) throw error;
+      }
+    },
+    onSuccess: invalidate,
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao atualizar endereço.")),
+  });
 
   // Edição inline por grupo (rascunho keyed pela chave do endereço original).
   const [draft, setDraft] = useState<Record<string, { rua: string; prat: string }>>({});
   const val = (g: { key: string; rua: string; prat: string }) => draft[g.key] ?? { rua: g.rua, prat: g.prat };
   const setVal = (key: string, patch: Partial<{ rua: string; prat: string }>) =>
     setDraft((d) => ({ ...d, [key]: { ...(d[key] ?? { rua: "", prat: "" }), ...patch } }));
-
-  const updMut = useMutation({
-    mutationFn: async (p: { ids: string[]; rua: string; prat: string }) => {
-      const { error } = await supabase
-        .from("enderecamento_tecido" as any)
-        .update({ rua: p.rua.trim(), prateleira: p.prat.trim() })
-        .in("id", p.ids);
-      if (error) throw error;
-    },
-    onSuccess: invalidate,
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao atualizar endereço.")),
-  });
-  const commit = (g: { key: string; rua: string; prat: string; ids: string[] }) => {
+  const commit = (g: { key: string; rua: string; prat: string; endIds: string[]; roloIds: string[] }) => {
     const v = val(g);
-    if (v.rua !== g.rua || v.prat !== g.prat) updMut.mutate({ ids: g.ids, rua: v.rua, prat: v.prat });
+    if (v.rua !== g.rua || v.prat !== g.prat) updMut.mutate({ endIds: g.endIds, roloIds: g.roloIds, rua: v.rua, prat: v.prat });
   };
 
+  // Excluir o endereço em TODAS as origens: apaga as linhas (manual/OC) e LIMPA as colunas
+  // do rolo (não apaga o rolo). Assim o endereço some do estoque de fato.
   const delMut = useMutation({
-    mutationFn: async (ids: string[]) => {
-      const { error } = await supabase.from("enderecamento_tecido" as any).delete().in("id", ids);
-      if (error) throw error;
+    mutationFn: async (g: { endIds: string[]; roloIds: string[] }) => {
+      if (g.endIds.length > 0) {
+        const { error } = await supabase.from("enderecamento_tecido" as any).delete().in("id", g.endIds);
+        if (error) throw error;
+      }
+      if (g.roloIds.length > 0) {
+        const { error } = await supabase.from("ocs_tecido").update({ rolo_rua: null, rolo_prateleira: null } as any).in("id", g.roloIds);
+        if (error) throw error;
+      }
     },
     onSuccess: invalidate,
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir endereço.")),
   });
 
-  // Acrescentar um NOVO endereço a TODAS as variantes selecionadas (pula quem já tem o exato).
+  // Acrescentar um NOVO endereço (manual) a TODAS as variantes selecionadas (pula quem já tem o exato manual).
   const [novoRua, setNovoRua] = useState("");
   const [novoPrat, setNovoPrat] = useState("");
   const addMut = useMutation({
@@ -412,7 +426,10 @@ function BulkEnderecoDialog({ varIds, varInfo, onClose }: {
       const p = novoPrat.trim();
       if (!r && !p) throw new Error("Informe a Rua e/ou a Prateleira.");
       const norm = (s: any) => (s ?? "").trim();
-      const jaTem = new Set(atuais.filter((x) => norm(x.rua) === r && norm(x.prateleira) === p).map((x) => x.variante_tecido_id));
+      // Já tem MANUAL exato? (só olha manual — não duplica linha manual; OC/rolo são outra origem)
+      const jaTem = new Set(
+        rows.filter((x) => x.origem === "manual" && norm(x.rua) === r && norm(x.prateleira) === p).map((x) => x.variante_tecido_id),
+      );
       const payload = varIds
         .filter((id) => !jaTem.has(id))
         .map((id) => ({ variante_tecido_id: id, oc_tecido_item_id: null, rua: r, prateleira: p }));
@@ -453,10 +470,8 @@ function BulkEnderecoDialog({ varIds, varInfo, onClose }: {
           {/* Endereços atuais — cada endereço distinto presente na seleção, editável/excluível. */}
           <div className="space-y-2">
             <Label className="text-xs text-muted-foreground">Endereços atuais</Label>
-            {isLoading ? (
-              <p className="text-xs text-muted-foreground">Carregando…</p>
-            ) : grupos.length === 0 ? (
-              <p className="text-xs text-muted-foreground">Nenhum endereço manual ainda nas variantes selecionadas.</p>
+            {grupos.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Nenhum endereço ainda nas variantes selecionadas.</p>
             ) : (
               grupos.map((g) => {
                 const v = val(g);
@@ -466,11 +481,14 @@ function BulkEnderecoDialog({ varIds, varInfo, onClose }: {
                       <Input className="flex-1" placeholder="Rua" value={v.rua} onChange={(e) => setVal(g.key, { rua: e.target.value })} onBlur={() => commit(g)} />
                       <Input className="flex-1" placeholder="Prateleira" value={v.prat} onChange={(e) => setVal(g.key, { prat: e.target.value })} onBlur={() => commit(g)} />
                       <Badge variant="secondary" className="shrink-0" title={`${g.count} variante(s) com este endereço`}>{g.count}</Badge>
-                      <Button size="iconSm" variant="ghost" onClick={() => delMut.mutate(g.ids)} disabled={busy} aria-label="Excluir endereço">
+                      <Button size="iconSm" variant="ghost" onClick={() => delMut.mutate(g)} disabled={busy} aria-label="Excluir endereço">
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>
-                    <p className="ml-0.5 text-[11px] text-muted-foreground">{detalheTecidos(g.varIds)}</p>
+                    <p className="ml-0.5 text-[11px] text-muted-foreground">
+                      {detalheTecidos(g.varIds)}
+                      {g.origens.length > 0 && <span className="text-amber-600"> · origem: {g.origens.join(", ")}</span>}
+                    </p>
                   </div>
                 );
               })
