@@ -478,8 +478,10 @@ function TecidoCard({
             )}
           </div>
           {!compact && (
-          <div className="p-3 space-y-1">
-            <h3 className="font-medium leading-tight line-clamp-1">{artigo.nome}</h3>
+          // Altura FIXA (204px) + flex-col + preço com mt-auto: TODOS os cards com a mesma
+          // altura e preço no rodapé; 204px comporta título de até 3 linhas (line-clamp-3, sem cortar).
+          <div className="p-3 flex h-[204px] flex-col gap-1 overflow-hidden">
+            <h3 className="font-medium leading-tight line-clamp-3">{artigo.nome}</h3>
             {(semCategoria || semFornecedor) && (
               <div className="flex items-center gap-1 rounded bg-amber-500/15 px-2 py-1 text-[10px] font-medium text-amber-700 dark:text-amber-400">
                 <AlertTriangle className="h-3 w-3 shrink-0" />
@@ -502,7 +504,7 @@ function TecidoCard({
               </div>
             )}
             <p className="text-xs text-muted-foreground line-clamp-1">{fornecedor ?? "—"}</p>
-            <p className="text-sm font-semibold text-primary">
+            <p className="mt-auto text-sm font-semibold text-primary">
               {artigo.preco != null
                 ? new Intl.NumberFormat("pt-BR", {
                     style: "currency",

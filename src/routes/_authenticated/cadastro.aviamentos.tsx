@@ -549,13 +549,14 @@ function AviamentoCard({
             )}
           </div>
           {!compact && (
-          // Altura FIXA + flex-col + preço com mt-auto: todos os cards ficam do mesmo
-          // tamanho e o preço alinha no rodapé, independente de quanta info tem.
-          <div className="p-3 flex h-[172px] flex-col gap-1 overflow-hidden">
+          // Altura FIXA (224px) + flex-col + preço com mt-auto: TODOS os cards com a mesma
+          // altura e preço no rodapé; 224px comporta título de até 3 linhas + código/NCM sem
+          // raspar o preço (line-clamp-3). Este card é mais denso que o de Tecidos (204px).
+          <div className="p-3 flex h-[224px] flex-col gap-1 overflow-hidden">
             {aviamento.codigo && (
               <p className="font-mono text-[11px] leading-none text-muted-foreground">{aviamento.codigo}</p>
             )}
-            <h3 className="font-medium leading-tight line-clamp-1">{aviamento.codigo_nome}</h3>
+            <h3 className="font-medium leading-tight line-clamp-3">{aviamento.codigo_nome}</h3>
             {(categoria || aviamento.cor?.nome || aviamento.cor_apelido?.nome) && (
               <div className="flex flex-wrap gap-1">
                 {categoria && <Badge variant="secondary" className="text-[10px]">{categoria}</Badge>}
