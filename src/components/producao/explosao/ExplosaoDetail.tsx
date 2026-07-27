@@ -391,11 +391,15 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
                 { label: modelo?.ref ?? "…" },
               ]}
             />
-            <UnsavedIndicator show={seeded && dirty} className="ml-auto shrink-0" />
-            <Button variant="outline" size="sm" className="shrink-0" onClick={() => printWithImages()}>
-              <Printer className="h-4 w-4 mr-1.5" />
-              Ficha de Corte
-            </Button>
+            {/* ml-auto no WRAPPER (não no indicador, que some quando não há edição) —
+                garante a Ficha de Corte sempre na direita. */}
+            <div className="ml-auto flex items-center gap-3 shrink-0">
+              <UnsavedIndicator show={seeded && dirty} className="shrink-0" />
+              <Button variant="outline" size="sm" className="shrink-0" onClick={() => printWithImages()}>
+                <Printer className="h-4 w-4 mr-1.5" />
+                Ficha de Corte
+              </Button>
+            </div>
           </div>
           <h2 className="text-lg font-semibold flex items-center gap-2 mt-2">
             Explosão — Envio para Serviços
@@ -473,6 +477,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
         <Button
           variant="outline"
           size="sm"
+          className="ml-auto"
           onClick={() => setVoltarOpen(true)}
           disabled={voltarMut.isPending}
         >
@@ -490,7 +495,6 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
         </Button>
         <Button
           size="sm"
-          className="ml-auto"
           onClick={handleEnviar}
           disabled={enviarCorte.isPending || salvarMut.isPending || !cadRow?.id}
         >
