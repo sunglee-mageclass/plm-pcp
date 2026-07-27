@@ -520,6 +520,13 @@ function OcDialog({
   const variantesByArtigo = useMemo(() => {
     const m: Record<string, Variante[]> = {};
     variantes.forEach((v) => { (m[v.artigo_id] ||= []).push(v); });
+    // Ordena alfabético por COR BASE (primário) e, empatando, por COR APELIDO (secundário).
+    const cmp = (a: Variante, b: Variante) => {
+      const base = (a.cor?.nome ?? "").localeCompare(b.cor?.nome ?? "", "pt-BR", { numeric: true });
+      if (base !== 0) return base;
+      return (a.apelido?.nome ?? "").localeCompare(b.apelido?.nome ?? "", "pt-BR", { numeric: true });
+    };
+    for (const k in m) m[k].sort(cmp);
     return m;
   }, [variantes]);
   const varianteMap = useMemo(() => Object.fromEntries(variantes.map((v) => [v.id, v])), [variantes]);
