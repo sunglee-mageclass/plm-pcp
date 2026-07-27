@@ -19,6 +19,7 @@ import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { useAuth } from "@/hooks/useAuth";
 import { ObsMaoObraField } from "@/components/shared/ObsMaoObraField";
+import { Textarea } from "@/components/ui/textarea";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { DateField } from "@/components/shared/DateField";
 import { ResumoVenda } from "@/components/shared/ResumoVenda";
@@ -219,13 +220,20 @@ function PlanejamentoPage() {
     onError: (e: any) => { setConfirmBulkDel(false); toast.error(mensagemErro(e, "Erro ao excluir os cards")); },
   });
   const setMaoObra = useMutation({
-    mutationFn: async ({ id, aprovado }: { id: string; aprovado: boolean }) => {
-      const { error } = await supabase.from("modelos").update({ custo_terceirizados_aprovado: aprovado } as any).eq("id", id);
+    mutationFn: async ({ id, aprovado, motivo }: { id: string; aprovado: boolean; motivo?: string | null }) => {
+      // Reprovar exige motivo (validado no diálogo); aprovar limpa o motivo.
+      const { error } = await supabase.from("modelos").update({
+        custo_terceirizados_aprovado: aprovado,
+        motivo_reprovacao_mao_obra: aprovado ? null : (motivo ?? null),
+      } as any).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["modelos-planejamento"] }); },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao aprovar mão de obra")),
   });
+  // Reprovar mão de obra pede motivo obrigatório num diálogo (P3).
+  const [reprova, setReprova] = useState<{ id: string; nome: string | null } | null>(null);
+  const [reprovaMotivo, setReprovaMotivo] = useState("");
   // Lançar/cancelar direto do card (botão foguete) — mesma RPC do detalhe (gate no servidor).
   const lancarCard = useMutation({
     mutationFn: async ({ id, data, send }: { id: string; data: string | null; send: boolean }) => {
@@ -332,7 +340,7 @@ function PlanejamentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, estilista_id, linha_id, colecao, colecao_id, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, origem, tecidos_planejados, lancado, custo_terceirizados_previsto, custo_terceirizados_aprovado, data_lancamento")
+        .select("id, nome, estilista_id, linha_id, colecao, colecao_id, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, origem, tecidos_planejados, lancado, custo_terceirizados_previsto, custo_terceirizados_aprovado, data_lancamento, observacoes_mao_obra, motivo_reprovacao_mao_obra")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as unknown as Modelo[];
@@ -524,7 +532,7 @@ function PlanejamentoPage() {
         maoObraAprovado={((m as any).custo_terceirizados_aprovado ?? null) as boolean | null}
         dataLancamento={(m as any).data_lancamento ?? null}
         onAprovar={() => setMaoObra.mutate({ id: m.id, aprovado: true })}
-        onReprovar={() => setMaoObra.mutate({ id: m.id, aprovado: false })}
+        onReprovar={() => { setReprovaMotivo(""); setReprova({ id: m.id, nome: m.nome }); }}
         onLancar={(data, send) => lancarCard.mutate({ id: m.id, data, send })}
         lancStatus={lancStatusDe(m)}
         mesNome={m.mes_id ? mesMap[m.mes_id] : null}
@@ -833,6 +841,43 @@ function PlanejamentoPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Reprovar mão de obra: motivo OBRIGATÓRIO (aparece no tooltip do card). */}
+      <Dialog open={!!reprova} onOpenChange={(o) => { if (!o) setReprova(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reprovar mão de obra</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              Informe o motivo da reprovação{reprova?.nome ? ` de "${reprova.nome}"` : ""}. Ele aparece ao passar o mouse no card.
+            </p>
+            <Textarea
+              autoFocus
+              rows={3}
+              placeholder="Motivo da reprovação…"
+              value={reprovaMotivo}
+              onChange={(e) => setReprovaMotivo(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReprova(null)}>Cancelar</Button>
+            <Button
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={!reprovaMotivo.trim() || setMaoObra.isPending}
+              onClick={() => {
+                if (!reprova || !reprovaMotivo.trim()) return;
+                setMaoObra.mutate(
+                  { id: reprova.id, aprovado: false, motivo: reprovaMotivo.trim() },
+                  { onSuccess: () => setReprova(null) },
+                );
+              }}
+            >
+              {setMaoObra.isPending ? "Reprovando…" : "Reprovar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <MobileActionBar>
         <Button variant="outline" onClick={() => setOpenBatch(true)}><Layers className="h-4 w-4 mr-1" /> Novos Cards</Button>
         <Button className="ml-auto" onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /> Novo Modelo</Button>
@@ -856,8 +901,19 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
   const podeAprovarMaoObra = canEdit("producao_servico_aprovacao");
   // Mão de obra: 3 estados — aprovado(true)/reprovado(false)/pendente(null).
   const moTxt = maoObraAprovado === true ? "Mão de obra aprovada" : maoObraAprovado === false ? "Mão de obra reprovada" : "Mão de obra pendente";
-  // Tooltip que SEGUE o cursor (sem atraso): status + mão de obra numa string só. \n = quebra.
-  const tip = `${meta.label}\n${moTxt}`;
+  const obsMO = String((modelo as any).observacoes_mao_obra ?? "").trim();
+  const motivoReprova = String((modelo as any).motivo_reprovacao_mao_obra ?? "").trim();
+  // Tooltip que SEGUE o cursor: status + situação da mão de obra + obs + motivo (se reprovado).
+  const tip = (
+    <div className="space-y-1">
+      <div className="font-medium">{meta.label}</div>
+      <div>{moTxt}</div>
+      {obsMO && <div><span className="opacity-70">Obs. MO: </span>{obsMO}</div>}
+      {maoObraAprovado === false && motivoReprova && (
+        <div><span className="opacity-70">Motivo da reprova: </span>{motivoReprova}</div>
+      )}
+    </div>
+  );
   const { handlers, node } = useCursorTip(tip);
   return (
     <>

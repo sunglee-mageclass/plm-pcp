@@ -6,7 +6,9 @@ export type StoreProfile = "full" | "stock";
 // `sections`: sub-permissões de uma tela (ex.: esconder Custos/Preço). Cada uma é uma key
 // própria em user_permissions (Ver/Editar), gateada no front (e no banco quando sensível).
 export type SectionDef = { key: PageKey; label: string };
-export type PageDef = { key: PageKey; label: string; modes?: StoreProfile[]; sections?: SectionDef[] };
+// `soEdicao`: permissão-só (sem tela/menu) em que apenas "Editar" tem efeito — o modal
+// esconde o "Leitor" e mostra um toggle único (ex.: aprovar/reprovar mão de obra).
+export type PageDef = { key: PageKey; label: string; modes?: StoreProfile[]; sections?: SectionDef[]; soEdicao?: boolean };
 export type ModuleDef = { module: string; label: string; basePath: string; pages: PageDef[] };
 
 /** Página visível no perfil atual da loja (full vs só-estoque)? */
@@ -59,6 +61,10 @@ export const PAGES_CATALOG: ModuleDef[] = [
       { key: "criacao_plan_tecido", label: "Planejamento de Tecido" },
       { key: "criacao_planejamento", label: "Planejamento de Produto",
         sections: [{ key: "criacao_planejamento:custos", label: "Custos / Preço" }] },
+      // Permissão-só (sem tela): "Editar" = pode aprovar/reprovar o custo de mão de obra no
+      // card do Planejamento (e Plan. Tecido). Chave legada `producao_servico_aprovacao`
+      // MANTIDA (trigger no banco + atribuições já feitas); só o rótulo/lugar mudaram.
+      { key: "producao_servico_aprovacao", label: "Aprovar/reprovar mão de obra", soEdicao: true },
       { key: "criacao_desenvolvimento", label: "Desenvolvimento",
         sections: [{ key: "criacao_desenvolvimento:custos", label: "Custos / Preço" }] },
       { key: "producao_explosao", label: "Explosão" },
@@ -72,9 +78,6 @@ export const PAGES_CATALOG: ModuleDef[] = [
       { key: "producao_cad", label: "CAD" },
       { key: "producao_terceirizados", label: "Serviços",
         sections: [{ key: "producao_terceirizados:precos", label: "Preços" }] },
-      // Permissão-só (sem página/menu): "Editar" = pode aprovar/reprovar o custo de mão de obra
-      // (card do Planejamento e Plan. Tecido). Enforçada no banco por trigger.
-      { key: "producao_servico_aprovacao", label: "Aprovar custo de mão de obra" },
       { key: "producao_oficina", label: "Oficina" },
       { key: "producao_cq", label: "Controle de Qualidade" },
       { key: "producao_direcionamento", label: "Direcionamento" },

@@ -81,6 +81,12 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
       if (!mod) return s;
       const next = { ...s };
       for (const p of mod.pages) {
+        // Permissão-só (soEdicao): só o master "Editor" a afeta; o master "Leitor" a IGNORA
+        // (senão desmarcar Leitor revogaria a aprovação em silêncio — a coluna Leitor dela é "—").
+        if (p.soEdicao) {
+          if (field === "pode_editar") next[p.key] = { ...next[p.key], pode_editar: v };
+          continue;
+        }
         next[p.key] = { ...next[p.key], [field]: v };
         if (field === "pode_editar" && v) next[p.key].pode_ver = true;
         if (field === "pode_ver" && !v) next[p.key].pode_editar = false;
@@ -144,7 +150,7 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
           <p className="text-sm text-muted-foreground">Carregando…</p>
         ) : (
           PAGES_CATALOG.map((m) => {
-            const allVer = m.pages.every((p) => state[p.key]?.pode_ver);
+            const allVer = m.pages.filter((p) => !p.soEdicao).every((p) => state[p.key]?.pode_ver);
             const allEdit = m.pages.every((p) => state[p.key]?.pode_editar);
             return (
               <div key={m.module}>
@@ -176,12 +182,16 @@ export function PermissoesModal({ user, mode, onClose }: PermissoesModalProps) {
                       <div className="grid grid-cols-[1fr_80px_80px] gap-2 px-3 py-2 items-center">
                         <Label htmlFor={`${p.key}-ver`} className="text-sm font-normal cursor-pointer">{p.label}</Label>
                         <div className="flex justify-center">
+                          {p.soEdicao ? (
+                            <span className="text-muted-foreground/40 text-xs" title="Permissão só de ação — use a coluna Editor">—</span>
+                          ) : (
                           <Checkbox
                             id={`${p.key}-ver`}
                             disabled={isAdminRole}
                             checked={state[p.key]?.pode_ver ?? false}
                             onCheckedChange={(v) => toggle(p.key, "pode_ver", !!v)}
                           />
+                          )}
                         </div>
                         <div className="flex justify-center">
                           <Checkbox
