@@ -148,6 +148,12 @@ export function EstoqueTecidosTable({ state }: { state: ReturnType<typeof useEst
 
   const visibleIds = useMemo(() => grouped.flatMap((g) => g.rows.map((r: any) => r.varId as string)), [grouped]);
   const selectedVisible = useMemo(() => visibleIds.filter((id) => selected.has(id)), [visibleIds, selected]);
+  // varId -> { tecido, variante } — p/ o diálogo mostrar a que tecido cada endereço pertence.
+  const varInfo = useMemo(() => {
+    const m: Record<string, { tecido: string; variante: string }> = {};
+    for (const g of grouped) for (const r of g.rows as any[]) m[r.varId] = { tecido: g.artigoNome, variante: r.nomeVariante };
+    return m;
+  }, [grouped]);
 
   const toggleVar = (varId: string) =>
     setSelected((prev) => { const n = new Set(prev); if (n.has(varId)) n.delete(varId); else n.add(varId); return n; });
@@ -290,6 +296,7 @@ export function EstoqueTecidosTable({ state }: { state: ReturnType<typeof useEst
       {!readOnly && dialogOpen && (
         <BulkEnderecoDialog
           varIds={selectedVisible}
+          varInfo={varInfo}
           onClose={() => setDialogOpen(false)}
         />
       )}
@@ -301,9 +308,18 @@ export function EstoqueTecidosTable({ state }: { state: ReturnType<typeof useEst
  *  distinto presente na seleção (com quantas variantes o têm) e permite, por endereço:
  *  editar (renomeia nas variantes que o têm) e excluir; além de acrescentar um novo endereço
  *  a todas as selecionadas. Edições são ao vivo. Endereços de OC/rolo nunca são tocados. */
-function BulkEnderecoDialog({ varIds, onClose }: { varIds: string[]; onClose: () => void }) {
+function BulkEnderecoDialog({ varIds, varInfo, onClose }: {
+  varIds: string[]; varInfo: Record<string, { tecido: string; variante: string }>; onClose: () => void;
+}) {
   const qc = useQueryClient();
   const listKey = ["end-bulk-atuais", varIds] as const;
+
+  // Resumo dos tecidos da seleção (nome + nº de variantes) — mostrado no topo do diálogo.
+  const resumoTecidos = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const id of varIds) { const t = varInfo[id]?.tecido ?? "—"; m.set(t, (m.get(t) ?? 0) + 1); }
+    return Array.from(m.entries());
+  }, [varIds, varInfo]);
 
   // Endereços manuais ATUAIS das variantes selecionadas (com o id de cada linha, p/ agir por endereço).
   const { data: atuais = [], isLoading } = useQuery({
@@ -333,8 +349,21 @@ function BulkEnderecoDialog({ varIds, onClose }: { varIds: string[]; onClose: ()
       g.vars.add(x.variante_tecido_id);
       m.set(key, g);
     }
-    return Array.from(m.values()).map((g) => ({ key: g.key, rua: g.rua, prat: g.prat, ids: g.ids, count: g.vars.size }));
+    return Array.from(m.values()).map((g) => ({ key: g.key, rua: g.rua, prat: g.prat, ids: g.ids, varIds: Array.from(g.vars), count: g.vars.size }));
   }, [atuais]);
+
+  // "Tecido A: v1, v2 · Tecido B: v3" — a que tecido/variante um endereço pertence.
+  const detalheTecidos = (vids: string[]) => {
+    const byTecido = new Map<string, string[]>();
+    for (const vid of vids) {
+      const info = varInfo[vid];
+      const t = info?.tecido ?? "—";
+      const arr = byTecido.get(t) ?? [];
+      arr.push(info?.variante ?? "?");
+      byTecido.set(t, arr);
+    }
+    return Array.from(byTecido.entries()).map(([t, vs]) => `${t}: ${vs.join(", ")}`).join(" · ");
+  };
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: listKey });
@@ -415,6 +444,11 @@ function BulkEnderecoDialog({ varIds, onClose }: { varIds: string[]; onClose: ()
             <MapPin className="h-4 w-4" /> Endereços de {varIds.length} variante(s)
           </DialogTitle>
         </DialogHeader>
+        {resumoTecidos.length > 0 && (
+          <p className="-mt-1 text-xs text-muted-foreground">
+            Seleção: {resumoTecidos.map(([t, c]) => `${t} (${c})`).join(" · ")}
+          </p>
+        )}
         <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
           {/* Endereços atuais — cada endereço distinto presente na seleção, editável/excluível. */}
           <div className="space-y-2">
@@ -427,13 +461,16 @@ function BulkEnderecoDialog({ varIds, onClose }: { varIds: string[]; onClose: ()
               grupos.map((g) => {
                 const v = val(g);
                 return (
-                  <div key={g.key} className="flex items-center gap-2">
-                    <Input className="flex-1" placeholder="Rua" value={v.rua} onChange={(e) => setVal(g.key, { rua: e.target.value })} onBlur={() => commit(g)} />
-                    <Input className="flex-1" placeholder="Prateleira" value={v.prat} onChange={(e) => setVal(g.key, { prat: e.target.value })} onBlur={() => commit(g)} />
-                    <Badge variant="secondary" className="shrink-0" title={`${g.count} variante(s) com este endereço`}>{g.count}</Badge>
-                    <Button size="iconSm" variant="ghost" onClick={() => delMut.mutate(g.ids)} disabled={busy} aria-label="Excluir endereço">
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
+                  <div key={g.key} className="space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <Input className="flex-1" placeholder="Rua" value={v.rua} onChange={(e) => setVal(g.key, { rua: e.target.value })} onBlur={() => commit(g)} />
+                      <Input className="flex-1" placeholder="Prateleira" value={v.prat} onChange={(e) => setVal(g.key, { prat: e.target.value })} onBlur={() => commit(g)} />
+                      <Badge variant="secondary" className="shrink-0" title={`${g.count} variante(s) com este endereço`}>{g.count}</Badge>
+                      <Button size="iconSm" variant="ghost" onClick={() => delMut.mutate(g.ids)} disabled={busy} aria-label="Excluir endereço">
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
+                    <p className="ml-0.5 text-[11px] text-muted-foreground">{detalheTecidos(g.varIds)}</p>
                   </div>
                 );
               })
