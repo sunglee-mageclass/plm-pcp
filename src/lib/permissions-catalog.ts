@@ -36,6 +36,9 @@ export const PAGES_CATALOG: ModuleDef[] = [
     label: "Entrada e Saída",
     basePath: "/entrada-saida",
     pages: [
+      // Explosão (baixa de estoque/corte) — realocada de Estilo & Engenharia; 1ª da lista.
+      // `modes: ["full"]` preserva o comportamento de ficar oculta no modo só-estoque.
+      { key: "producao_explosao", label: "Explosão", modes: ["full"] },
       { key: "entrada_oc_tecido", label: "OC Tecido" },
       { key: "entrada_alertas_tecido", label: "Alertas de Tecido", modes: ["full"] },
       { key: "entrada_oc_aviamento", label: "OC Aviamento" },
@@ -67,7 +70,6 @@ export const PAGES_CATALOG: ModuleDef[] = [
       { key: "producao_servico_aprovacao", label: "Aprovar/reprovar mão de obra", soEdicao: true },
       { key: "criacao_desenvolvimento", label: "Desenvolvimento",
         sections: [{ key: "criacao_desenvolvimento:custos", label: "Custos / Preço" }] },
-      { key: "producao_explosao", label: "Explosão" },
     ],
   },
   {

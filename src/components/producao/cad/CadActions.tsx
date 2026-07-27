@@ -39,7 +39,7 @@ export function CadActions({ onPrint, onSave, onEnviar, onDesmarcar, onExcluir, 
             <ArrowLeft className="h-4 w-4" /> Voltar
           </button>
         ) : (
-          <Link to="/criacao/explosao" className={backClass}>
+          <Link to="/entrada-saida/explosao" className={backClass}>
             <ArrowLeft className="h-4 w-4" /> Voltar
           </Link>
         )}
@@ -57,7 +57,7 @@ export function CadActions({ onPrint, onSave, onEnviar, onDesmarcar, onExcluir, 
             </Button>
           ) : (
             <Button asChild variant="outline" size="icon" aria-label="Voltar">
-              <Link to="/criacao/explosao"><ArrowLeft className="h-4 w-4" /></Link>
+              <Link to="/entrada-saida/explosao"><ArrowLeft className="h-4 w-4" /></Link>
             </Button>
           )}
           {onExcluir && !readOnly && !enviado && (

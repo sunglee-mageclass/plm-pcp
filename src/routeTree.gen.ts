@@ -39,6 +39,7 @@ import { Route as AuthenticatedEntradaSaidaOsAviamentoRouteImport } from './rout
 import { Route as AuthenticatedEntradaSaidaOcTecidoRouteImport } from './routes/_authenticated/entrada-saida.oc-tecido'
 import { Route as AuthenticatedEntradaSaidaOcInsumoRouteImport } from './routes/_authenticated/entrada-saida.oc-insumo'
 import { Route as AuthenticatedEntradaSaidaOcAviamentoRouteImport } from './routes/_authenticated/entrada-saida.oc-aviamento'
+import { Route as AuthenticatedEntradaSaidaExplosaoRouteImport } from './routes/_authenticated/entrada-saida.explosao'
 import { Route as AuthenticatedEntradaSaidaEstoqueRouteImport } from './routes/_authenticated/entrada-saida.estoque'
 import { Route as AuthenticatedEntradaSaidaAlertasTecidoRouteImport } from './routes/_authenticated/entrada-saida.alertas-tecido'
 import { Route as AuthenticatedCriacaoPlanejamentoRouteImport } from './routes/_authenticated/criacao.planejamento'
@@ -63,7 +64,7 @@ import { Route as AuthenticatedProducaoOficinaIndexRouteImport } from './routes/
 import { Route as AuthenticatedProducaoDirecionamentoIndexRouteImport } from './routes/_authenticated/producao.direcionamento.index'
 import { Route as AuthenticatedProducaoCqIndexRouteImport } from './routes/_authenticated/producao.cq.index'
 import { Route as AuthenticatedProducaoCadIndexRouteImport } from './routes/_authenticated/producao.cad.index'
-import { Route as AuthenticatedCriacaoExplosaoIndexRouteImport } from './routes/_authenticated/criacao.explosao.index'
+import { Route as AuthenticatedEntradaSaidaExplosaoIndexRouteImport } from './routes/_authenticated/entrada-saida.explosao.index'
 import { Route as AuthenticatedCadastroTecidosIndexRouteImport } from './routes/_authenticated/cadastro.tecidos.index'
 import { Route as AuthenticatedProducaoTerceirizadosModeloIdRouteImport } from './routes/_authenticated/producao.terceirizados.$modeloId'
 import { Route as AuthenticatedProducaoOficinaModeloIdRouteImport } from './routes/_authenticated/producao.oficina.$modeloId'
@@ -237,6 +238,12 @@ const AuthenticatedEntradaSaidaOcAviamentoRoute =
     path: '/oc-aviamento',
     getParentRoute: () => AuthenticatedEntradaSaidaRoute,
   } as any)
+const AuthenticatedEntradaSaidaExplosaoRoute =
+  AuthenticatedEntradaSaidaExplosaoRouteImport.update({
+    id: '/explosao',
+    path: '/explosao',
+    getParentRoute: () => AuthenticatedEntradaSaidaRoute,
+  } as any)
 const AuthenticatedEntradaSaidaEstoqueRoute =
   AuthenticatedEntradaSaidaEstoqueRouteImport.update({
     id: '/estoque',
@@ -380,11 +387,11 @@ const AuthenticatedProducaoCadIndexRoute =
     path: '/',
     getParentRoute: () => AuthenticatedProducaoCadRoute,
   } as any)
-const AuthenticatedCriacaoExplosaoIndexRoute =
-  AuthenticatedCriacaoExplosaoIndexRouteImport.update({
+const AuthenticatedEntradaSaidaExplosaoIndexRoute =
+  AuthenticatedEntradaSaidaExplosaoIndexRouteImport.update({
     id: '/',
     path: '/',
-    getParentRoute: () => AuthenticatedCriacaoExplosaoRoute,
+    getParentRoute: () => AuthenticatedEntradaSaidaExplosaoRoute,
   } as any)
 const AuthenticatedCadastroTecidosIndexRoute =
   AuthenticatedCadastroTecidosIndexRouteImport.update({
@@ -456,11 +463,12 @@ export interface FileRoutesByFullPath {
   '/cadastro/servico': typeof AuthenticatedCadastroServicoRoute
   '/cadastro/tecidos': typeof AuthenticatedCadastroTecidosRouteWithChildren
   '/criacao/desenvolvimento': typeof AuthenticatedCriacaoDesenvolvimentoRoute
-  '/criacao/explosao': typeof AuthenticatedCriacaoExplosaoRouteWithChildren
+  '/criacao/explosao': typeof AuthenticatedCriacaoExplosaoRoute
   '/criacao/plan-tecido': typeof AuthenticatedCriacaoPlanTecidoRoute
   '/criacao/planejamento': typeof AuthenticatedCriacaoPlanejamentoRoute
   '/entrada-saida/alertas-tecido': typeof AuthenticatedEntradaSaidaAlertasTecidoRoute
   '/entrada-saida/estoque': typeof AuthenticatedEntradaSaidaEstoqueRoute
+  '/entrada-saida/explosao': typeof AuthenticatedEntradaSaidaExplosaoRouteWithChildren
   '/entrada-saida/oc-aviamento': typeof AuthenticatedEntradaSaidaOcAviamentoRoute
   '/entrada-saida/oc-insumo': typeof AuthenticatedEntradaSaidaOcInsumoRoute
   '/entrada-saida/oc-tecido': typeof AuthenticatedEntradaSaidaOcTecidoRoute
@@ -485,7 +493,7 @@ export interface FileRoutesByFullPath {
   '/producao/oficina/$modeloId': typeof AuthenticatedProducaoOficinaModeloIdRoute
   '/producao/terceirizados/$modeloId': typeof AuthenticatedProducaoTerceirizadosModeloIdRoute
   '/cadastro/tecidos/': typeof AuthenticatedCadastroTecidosIndexRoute
-  '/criacao/explosao/': typeof AuthenticatedCriacaoExplosaoIndexRoute
+  '/entrada-saida/explosao/': typeof AuthenticatedEntradaSaidaExplosaoIndexRoute
   '/producao/cad/': typeof AuthenticatedProducaoCadIndexRoute
   '/producao/cq/': typeof AuthenticatedProducaoCqIndexRoute
   '/producao/direcionamento/': typeof AuthenticatedProducaoDirecionamentoIndexRoute
@@ -513,6 +521,7 @@ export interface FileRoutesByTo {
   '/cadastro/etiquetas': typeof AuthenticatedCadastroEtiquetasRoute
   '/cadastro/servico': typeof AuthenticatedCadastroServicoRoute
   '/criacao/desenvolvimento': typeof AuthenticatedCriacaoDesenvolvimentoRoute
+  '/criacao/explosao': typeof AuthenticatedCriacaoExplosaoRoute
   '/criacao/plan-tecido': typeof AuthenticatedCriacaoPlanTecidoRoute
   '/criacao/planejamento': typeof AuthenticatedCriacaoPlanejamentoRoute
   '/entrada-saida/alertas-tecido': typeof AuthenticatedEntradaSaidaAlertasTecidoRoute
@@ -536,7 +545,7 @@ export interface FileRoutesByTo {
   '/producao/oficina/$modeloId': typeof AuthenticatedProducaoOficinaModeloIdRoute
   '/producao/terceirizados/$modeloId': typeof AuthenticatedProducaoTerceirizadosModeloIdRoute
   '/cadastro/tecidos': typeof AuthenticatedCadastroTecidosIndexRoute
-  '/criacao/explosao': typeof AuthenticatedCriacaoExplosaoIndexRoute
+  '/entrada-saida/explosao': typeof AuthenticatedEntradaSaidaExplosaoIndexRoute
   '/producao/cad': typeof AuthenticatedProducaoCadIndexRoute
   '/producao/cq': typeof AuthenticatedProducaoCqIndexRoute
   '/producao/direcionamento': typeof AuthenticatedProducaoDirecionamentoIndexRoute
@@ -572,11 +581,12 @@ export interface FileRoutesById {
   '/_authenticated/cadastro/servico': typeof AuthenticatedCadastroServicoRoute
   '/_authenticated/cadastro/tecidos': typeof AuthenticatedCadastroTecidosRouteWithChildren
   '/_authenticated/criacao/desenvolvimento': typeof AuthenticatedCriacaoDesenvolvimentoRoute
-  '/_authenticated/criacao/explosao': typeof AuthenticatedCriacaoExplosaoRouteWithChildren
+  '/_authenticated/criacao/explosao': typeof AuthenticatedCriacaoExplosaoRoute
   '/_authenticated/criacao/plan-tecido': typeof AuthenticatedCriacaoPlanTecidoRoute
   '/_authenticated/criacao/planejamento': typeof AuthenticatedCriacaoPlanejamentoRoute
   '/_authenticated/entrada-saida/alertas-tecido': typeof AuthenticatedEntradaSaidaAlertasTecidoRoute
   '/_authenticated/entrada-saida/estoque': typeof AuthenticatedEntradaSaidaEstoqueRoute
+  '/_authenticated/entrada-saida/explosao': typeof AuthenticatedEntradaSaidaExplosaoRouteWithChildren
   '/_authenticated/entrada-saida/oc-aviamento': typeof AuthenticatedEntradaSaidaOcAviamentoRoute
   '/_authenticated/entrada-saida/oc-insumo': typeof AuthenticatedEntradaSaidaOcInsumoRoute
   '/_authenticated/entrada-saida/oc-tecido': typeof AuthenticatedEntradaSaidaOcTecidoRoute
@@ -601,7 +611,7 @@ export interface FileRoutesById {
   '/_authenticated/producao/oficina/$modeloId': typeof AuthenticatedProducaoOficinaModeloIdRoute
   '/_authenticated/producao/terceirizados/$modeloId': typeof AuthenticatedProducaoTerceirizadosModeloIdRoute
   '/_authenticated/cadastro/tecidos/': typeof AuthenticatedCadastroTecidosIndexRoute
-  '/_authenticated/criacao/explosao/': typeof AuthenticatedCriacaoExplosaoIndexRoute
+  '/_authenticated/entrada-saida/explosao/': typeof AuthenticatedEntradaSaidaExplosaoIndexRoute
   '/_authenticated/producao/cad/': typeof AuthenticatedProducaoCadIndexRoute
   '/_authenticated/producao/cq/': typeof AuthenticatedProducaoCqIndexRoute
   '/_authenticated/producao/direcionamento/': typeof AuthenticatedProducaoDirecionamentoIndexRoute
@@ -642,6 +652,7 @@ export interface FileRouteTypes {
     | '/criacao/planejamento'
     | '/entrada-saida/alertas-tecido'
     | '/entrada-saida/estoque'
+    | '/entrada-saida/explosao'
     | '/entrada-saida/oc-aviamento'
     | '/entrada-saida/oc-insumo'
     | '/entrada-saida/oc-tecido'
@@ -666,7 +677,7 @@ export interface FileRouteTypes {
     | '/producao/oficina/$modeloId'
     | '/producao/terceirizados/$modeloId'
     | '/cadastro/tecidos/'
-    | '/criacao/explosao/'
+    | '/entrada-saida/explosao/'
     | '/producao/cad/'
     | '/producao/cq/'
     | '/producao/direcionamento/'
@@ -694,6 +705,7 @@ export interface FileRouteTypes {
     | '/cadastro/etiquetas'
     | '/cadastro/servico'
     | '/criacao/desenvolvimento'
+    | '/criacao/explosao'
     | '/criacao/plan-tecido'
     | '/criacao/planejamento'
     | '/entrada-saida/alertas-tecido'
@@ -717,7 +729,7 @@ export interface FileRouteTypes {
     | '/producao/oficina/$modeloId'
     | '/producao/terceirizados/$modeloId'
     | '/cadastro/tecidos'
-    | '/criacao/explosao'
+    | '/entrada-saida/explosao'
     | '/producao/cad'
     | '/producao/cq'
     | '/producao/direcionamento'
@@ -757,6 +769,7 @@ export interface FileRouteTypes {
     | '/_authenticated/criacao/planejamento'
     | '/_authenticated/entrada-saida/alertas-tecido'
     | '/_authenticated/entrada-saida/estoque'
+    | '/_authenticated/entrada-saida/explosao'
     | '/_authenticated/entrada-saida/oc-aviamento'
     | '/_authenticated/entrada-saida/oc-insumo'
     | '/_authenticated/entrada-saida/oc-tecido'
@@ -781,7 +794,7 @@ export interface FileRouteTypes {
     | '/_authenticated/producao/oficina/$modeloId'
     | '/_authenticated/producao/terceirizados/$modeloId'
     | '/_authenticated/cadastro/tecidos/'
-    | '/_authenticated/criacao/explosao/'
+    | '/_authenticated/entrada-saida/explosao/'
     | '/_authenticated/producao/cad/'
     | '/_authenticated/producao/cq/'
     | '/_authenticated/producao/direcionamento/'
@@ -1008,6 +1021,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedEntradaSaidaOcAviamentoRouteImport
       parentRoute: typeof AuthenticatedEntradaSaidaRoute
     }
+    '/_authenticated/entrada-saida/explosao': {
+      id: '/_authenticated/entrada-saida/explosao'
+      path: '/explosao'
+      fullPath: '/entrada-saida/explosao'
+      preLoaderRoute: typeof AuthenticatedEntradaSaidaExplosaoRouteImport
+      parentRoute: typeof AuthenticatedEntradaSaidaRoute
+    }
     '/_authenticated/entrada-saida/estoque': {
       id: '/_authenticated/entrada-saida/estoque'
       path: '/estoque'
@@ -1176,12 +1196,12 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedProducaoCadIndexRouteImport
       parentRoute: typeof AuthenticatedProducaoCadRoute
     }
-    '/_authenticated/criacao/explosao/': {
-      id: '/_authenticated/criacao/explosao/'
+    '/_authenticated/entrada-saida/explosao/': {
+      id: '/_authenticated/entrada-saida/explosao/'
       path: '/'
-      fullPath: '/criacao/explosao/'
-      preLoaderRoute: typeof AuthenticatedCriacaoExplosaoIndexRouteImport
-      parentRoute: typeof AuthenticatedCriacaoExplosaoRoute
+      fullPath: '/entrada-saida/explosao/'
+      preLoaderRoute: typeof AuthenticatedEntradaSaidaExplosaoIndexRouteImport
+      parentRoute: typeof AuthenticatedEntradaSaidaExplosaoRoute
     }
     '/_authenticated/cadastro/tecidos/': {
       id: '/_authenticated/cadastro/tecidos/'
@@ -1308,24 +1328,9 @@ const AuthenticatedCadastroRouteWithChildren =
     AuthenticatedCadastroRouteChildren,
   )
 
-interface AuthenticatedCriacaoExplosaoRouteChildren {
-  AuthenticatedCriacaoExplosaoIndexRoute: typeof AuthenticatedCriacaoExplosaoIndexRoute
-}
-
-const AuthenticatedCriacaoExplosaoRouteChildren: AuthenticatedCriacaoExplosaoRouteChildren =
-  {
-    AuthenticatedCriacaoExplosaoIndexRoute:
-      AuthenticatedCriacaoExplosaoIndexRoute,
-  }
-
-const AuthenticatedCriacaoExplosaoRouteWithChildren =
-  AuthenticatedCriacaoExplosaoRoute._addFileChildren(
-    AuthenticatedCriacaoExplosaoRouteChildren,
-  )
-
 interface AuthenticatedCriacaoRouteChildren {
   AuthenticatedCriacaoDesenvolvimentoRoute: typeof AuthenticatedCriacaoDesenvolvimentoRoute
-  AuthenticatedCriacaoExplosaoRoute: typeof AuthenticatedCriacaoExplosaoRouteWithChildren
+  AuthenticatedCriacaoExplosaoRoute: typeof AuthenticatedCriacaoExplosaoRoute
   AuthenticatedCriacaoPlanTecidoRoute: typeof AuthenticatedCriacaoPlanTecidoRoute
   AuthenticatedCriacaoPlanejamentoRoute: typeof AuthenticatedCriacaoPlanejamentoRoute
   AuthenticatedCriacaoIndexRoute: typeof AuthenticatedCriacaoIndexRoute
@@ -1334,8 +1339,7 @@ interface AuthenticatedCriacaoRouteChildren {
 const AuthenticatedCriacaoRouteChildren: AuthenticatedCriacaoRouteChildren = {
   AuthenticatedCriacaoDesenvolvimentoRoute:
     AuthenticatedCriacaoDesenvolvimentoRoute,
-  AuthenticatedCriacaoExplosaoRoute:
-    AuthenticatedCriacaoExplosaoRouteWithChildren,
+  AuthenticatedCriacaoExplosaoRoute: AuthenticatedCriacaoExplosaoRoute,
   AuthenticatedCriacaoPlanTecidoRoute: AuthenticatedCriacaoPlanTecidoRoute,
   AuthenticatedCriacaoPlanejamentoRoute: AuthenticatedCriacaoPlanejamentoRoute,
   AuthenticatedCriacaoIndexRoute: AuthenticatedCriacaoIndexRoute,
@@ -1344,9 +1348,25 @@ const AuthenticatedCriacaoRouteChildren: AuthenticatedCriacaoRouteChildren = {
 const AuthenticatedCriacaoRouteWithChildren =
   AuthenticatedCriacaoRoute._addFileChildren(AuthenticatedCriacaoRouteChildren)
 
+interface AuthenticatedEntradaSaidaExplosaoRouteChildren {
+  AuthenticatedEntradaSaidaExplosaoIndexRoute: typeof AuthenticatedEntradaSaidaExplosaoIndexRoute
+}
+
+const AuthenticatedEntradaSaidaExplosaoRouteChildren: AuthenticatedEntradaSaidaExplosaoRouteChildren =
+  {
+    AuthenticatedEntradaSaidaExplosaoIndexRoute:
+      AuthenticatedEntradaSaidaExplosaoIndexRoute,
+  }
+
+const AuthenticatedEntradaSaidaExplosaoRouteWithChildren =
+  AuthenticatedEntradaSaidaExplosaoRoute._addFileChildren(
+    AuthenticatedEntradaSaidaExplosaoRouteChildren,
+  )
+
 interface AuthenticatedEntradaSaidaRouteChildren {
   AuthenticatedEntradaSaidaAlertasTecidoRoute: typeof AuthenticatedEntradaSaidaAlertasTecidoRoute
   AuthenticatedEntradaSaidaEstoqueRoute: typeof AuthenticatedEntradaSaidaEstoqueRoute
+  AuthenticatedEntradaSaidaExplosaoRoute: typeof AuthenticatedEntradaSaidaExplosaoRouteWithChildren
   AuthenticatedEntradaSaidaOcAviamentoRoute: typeof AuthenticatedEntradaSaidaOcAviamentoRoute
   AuthenticatedEntradaSaidaOcInsumoRoute: typeof AuthenticatedEntradaSaidaOcInsumoRoute
   AuthenticatedEntradaSaidaOcTecidoRoute: typeof AuthenticatedEntradaSaidaOcTecidoRoute
@@ -1361,6 +1381,8 @@ const AuthenticatedEntradaSaidaRouteChildren: AuthenticatedEntradaSaidaRouteChil
       AuthenticatedEntradaSaidaAlertasTecidoRoute,
     AuthenticatedEntradaSaidaEstoqueRoute:
       AuthenticatedEntradaSaidaEstoqueRoute,
+    AuthenticatedEntradaSaidaExplosaoRoute:
+      AuthenticatedEntradaSaidaExplosaoRouteWithChildren,
     AuthenticatedEntradaSaidaOcAviamentoRoute:
       AuthenticatedEntradaSaidaOcAviamentoRoute,
     AuthenticatedEntradaSaidaOcInsumoRoute:

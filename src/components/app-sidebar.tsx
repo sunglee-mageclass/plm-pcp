@@ -91,7 +91,7 @@ const PAGE_URLS: Record<string, string> = {
   criacao_plan_tecido: "/criacao/plan-tecido",
   criacao_planejamento: "/criacao/planejamento",
   criacao_desenvolvimento: "/criacao/desenvolvimento",
-  producao_explosao: "/criacao/explosao",
+  producao_explosao: "/entrada-saida/explosao",
   producao_terceirizados: "/producao/terceirizados",
   // Oficina é acessada dentro de Serviços; não aparece como item próprio na navegação lateral.
   producao_cq: "/producao/cq",

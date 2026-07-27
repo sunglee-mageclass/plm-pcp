@@ -15,7 +15,7 @@ import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { ExplosaoDetail } from "@/components/producao/explosao/ExplosaoDetail";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 
-export const Route = createFileRoute("/_authenticated/criacao/explosao/")({
+export const Route = createFileRoute("/_authenticated/entrada-saida/explosao/")({
   component: ExplosaoListPage,
 });
 

@@ -51,7 +51,7 @@ export const Route = createFileRoute("/_authenticated/producao/cad/$modeloId")({
 function CadDetailPage() {
   const { modeloId } = Route.useParams();
   const navigate = useNavigate();
-  return <CadEditor modeloId={modeloId} onAfterDelete={() => navigate({ to: "/criacao/explosao" })} />;
+  return <CadEditor modeloId={modeloId} onAfterDelete={() => navigate({ to: "/entrada-saida/explosao" })} />;
 }
 
 // Editor de CAD reutilizável (rota + modal na tela "Consumo por OC").
