@@ -18,6 +18,7 @@ import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/Unsave
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { useAuth } from "@/hooks/useAuth";
+import { ObsMaoObraField } from "@/components/shared/ObsMaoObraField";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { DateField } from "@/components/shared/DateField";
 import { ResumoVenda } from "@/components/shared/ResumoVenda";
@@ -989,6 +990,7 @@ type Draft = {
   fotos_modelo: string[];
   fotos_referencia: string[];
   observacoes_gerais: string;
+  observacoes_mao_obra: string;
   versao: number;
   modelo_base_id: string | null;
   custo_simulado: CustoSimInput;
@@ -1000,6 +1002,7 @@ const emptyDraft = (): Draft => ({
   tecidos_planejados: [],
   status_planejamento: "em_planejamento", croqui_url: "", desenho_tecnico_url: "", fotos_modelo: [], fotos_referencia: [],
   observacoes_gerais: "",
+  observacoes_mao_obra: "",
   versao: 1, modelo_base_id: null,
   custo_simulado: {},
 });
@@ -1065,6 +1068,8 @@ function ModeloDialog({
   const isEdit = !!modeloId;
   const qc = useQueryClient();
   const fl = useFieldLabels();
+  const { canView } = useAuth();
+  const podeVerCustos = canView("criacao_planejamento:custos");
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const { dirty, markClean, reset: resetDraftBaseline } = useDirtySnapshot(draft);
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
@@ -1249,6 +1254,7 @@ function ModeloDialog({
           fotos_modelo: data.fotos_modelo ?? [],
           fotos_referencia: data.fotos_referencia ?? [],
           observacoes_gerais: data.observacoes_gerais ?? "",
+          observacoes_mao_obra: (data as any).observacoes_mao_obra ?? "",
           versao: (data as any).versao ?? 1,
           modelo_base_id: (data as any).modelo_base_id ?? null,
           custo_simulado: ((data as any).custo_simulado ?? {}) as CustoSimInput,
@@ -1293,6 +1299,7 @@ function ModeloDialog({
         desenho_tecnico_url: draft.desenho_tecnico_url || null,
         preco_venda: numOr0(draft.preco_venda) > 0 ? numOr0(draft.preco_venda) : null,
         data_lancamento: draft.data_lancamento || null,
+        observacoes_mao_obra: draft.observacoes_mao_obra || null,
         custo_simulado: limparCustoSim(draft.custo_simulado),
       };
       if (isEdit && modeloId) {
@@ -1621,6 +1628,17 @@ function ModeloDialog({
               <p className="text-xs text-muted-foreground">Defina a Linha (com markup) para ver o preço estimado.</p>
             )}
           </Secao>
+
+          {/* Observação sobre mão de obra — entre Simulação de custo e Anexos; gated pelos
+              custos (paridade com Desenvolvimento > "8. Custos"). */}
+          {podeVerCustos && (
+            <Secao titulo="Obs. Mão de Obra">
+              <ObsMaoObraField
+                value={draft.observacoes_mao_obra}
+                onChange={(v) => setDraft({ ...draft, observacoes_mao_obra: v })}
+              />
+            </Secao>
+          )}
 
           {/* SETOR 5 — Anexos */}
           <Secao titulo="Anexos">

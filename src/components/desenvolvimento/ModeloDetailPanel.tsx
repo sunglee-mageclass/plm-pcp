@@ -55,6 +55,8 @@ import { ModeloAviamentosSection } from "./modelo-detail/ModeloAviamentosSection
 import { ModeloEtiquetasSection } from "./modelo-detail/ModeloEtiquetasSection";
 import { ModeloGradeSection } from "./modelo-detail/ModeloGradeSection";
 import { ModeloCustosSection } from "./modelo-detail/ModeloCustosSection";
+import { ObsMaoObraField } from "@/components/shared/ObsMaoObraField";
+import { Card } from "@/components/ui/card";
 import { ModeloAnexosSection } from "./modelo-detail/ModeloAnexosSection";
 import { useEtapasAfetadas, STAGE_LABEL } from "./DownstreamImpactAlert";
 import { ModeloObservacoes } from "@/components/shared/ModeloObservacoes";
@@ -506,6 +508,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
         observacoes_tecnicas: modelo.observacoes_tecnicas ?? "",
         ajustes_prova: modelo.ajustes_prova ?? "",
         observacoes_gerais: modelo.observacoes_gerais ?? "",
+        observacoes_mao_obra: (modelo as any).observacoes_mao_obra ?? "",
         ficha_medida_url: modelo.ficha_medida_url ?? "",
         desenho_tecnico_url: (modelo as any).desenho_tecnico_url ?? "",
         croqui_url: (modelo as any).croqui_url ?? "",
@@ -1129,6 +1132,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
         data_aprovacao: draft.data_aprovacao || null,
         observacoes_tecnicas: draft.observacoes_tecnicas || null,
         observacoes_gerais: draft.observacoes_gerais || null,
+        observacoes_mao_obra: draft.observacoes_mao_obra || null,
         ficha_medida_url: draft.ficha_medida_url || null,
         desenho_tecnico_url: draft.desenho_tecnico_url || null,
         croqui_url: draft.croqui_url || null,
@@ -1915,7 +1919,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
           {podeVerCustos && (
           <AccordionItem value="s5">
             <AccordionTrigger>8. Custos</AccordionTrigger>
-            <AccordionContent>
+            <AccordionContent className="space-y-3">
               <ModeloCustosSection
                 totals={totals}
                 custoTerceirizados={draft.custo_terceirizados_previsto}
@@ -1926,6 +1930,14 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
                 camposCopiados={camposCopiados}
                 onCampoEditado={onCampoEditado}
               />
+              {/* Observação de mão de obra — mesma seção, BLOCO separado dos custos. */}
+              <Card className="p-4">
+                <ObsMaoObraField
+                  label="Obs. Mão de Obra"
+                  value={draft.observacoes_mao_obra ?? ""}
+                  onChange={(v) => setDraft({ ...draft, observacoes_mao_obra: v })}
+                />
+              </Card>
             </AccordionContent>
           </AccordionItem>
           )}
