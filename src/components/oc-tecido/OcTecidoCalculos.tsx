@@ -120,7 +120,16 @@ export function OcTecidoCalculos({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {items.filter((i) => i.variante_tecido_id).map((i) => {
+          {items
+            .filter((i) => i.variante_tecido_id)
+            // Mantém Tecido 1 antes do 2 e, dentro de cada, ordena por COR BASE e depois COR APELIDO.
+            .sort((x, y) => {
+              if (x.artigo_numero !== y.artigo_numero) return x.artigo_numero - y.artigo_numero;
+              const vx = varianteMap[x.variante_tecido_id], vy = varianteMap[y.variante_tecido_id];
+              const base = (vx?.cor?.nome ?? "").localeCompare(vy?.cor?.nome ?? "", "pt-BR", { numeric: true });
+              return base !== 0 ? base : (vx?.apelido?.nome ?? "").localeCompare(vy?.apelido?.nome ?? "", "pt-BR", { numeric: true });
+            })
+            .map((i) => {
             const a = i.artigo_id ? artigoMap[i.artigo_id] : null;
             const v = varianteMap[i.variante_tecido_id];
             const sufixo = unidadeSufixo(a?.unidade_medida);
