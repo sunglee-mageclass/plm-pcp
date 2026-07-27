@@ -231,11 +231,15 @@ e verifique** — o repo muda rápido.
    `variante_numero`. "- Metragem" = baixa de ajuste. **Fonte única = `_estoque_tecido_core`**:
    a tela (`estoque_tecido`), `estoque_tecido_por_artigo`, o dashboard (`dashboard_estoque`,
    `_dashboard_estoque_parado_core`) e `detalhe_estoque_variante` TODOS rolam esse core — nenhum
-   re-implementa a conta (senão dá drift, ex.: ignorar `estoque_zerado` → +147 m fantasma).
-   **Zerar um lote (`estoque_zerado`) libera só o FÍSICO daquele lote (receb/baixa por item),
-   NÃO a reserva** (reserva = demanda de modelo/OS, não pertence a lote) — antes colapsava a
-   reserva da variante inteira. `previsto` NÃO é clampado (pode ficar negativo: reserva > físico
-   é sinal legítimo, ex.: cortou mais que comprou / lote zerado); só `fisico` clampa em ≥0.
+   re-implementa a conta (senão dá drift). `previsto` NÃO é clampado (pode ficar negativo: reserva
+   > físico é sinal legítimo, ex.: cortou mais que comprou); só `fisico` clampa em ≥0.
+   ⚠️ **`estoque_zerado` foi APOSENTADO** (jul/2026, migração `20260727000000`): a ação de "zerar
+   lote" já não existia; o conceito foi removido do banco (4 funções: `_estoque_tecido_core`,
+   `detalhe_estoque_variante`, `ocs_disponiveis_variante`, `ocs_para_rolo`) e do front (badge
+   "Zerado"). Os lotes que estavam zerados viraram **write-off explícito no ledger** (baixa de
+   ajuste = recebido → físico 0), preservando físico/previsto (verificado byte-a-byte). Para
+   "encerrar" um lote hoje, dê uma baixa de ajuste (não há mais flag). A coluna
+   `ocs_tecido_itens.estoque_zerado` fica como vestígio inerte (sempre false, sem leitor).
    ⚠️ Excluir tecido/cor (Cadastro > Tecidos) é **só via RPC com guarda** `excluir_tecido`/
    `excluir_variante_tecido` (contam uso em OC/estoque/modelo/CAD/ordem e bloqueiam; senão
    apagam e devolvem as fotos p/ limpar storage DEPOIS). `estoque_tecido_baixas.variante_tecido_id`

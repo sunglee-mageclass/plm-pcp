@@ -705,7 +705,7 @@ function OcDialog({
       const recebidaDe = (tempId: string, fallback: number | null) =>
         (modoOcRolo !== "oc" && markReceived) ? (roloSoma(tempId) ?? fallback) : fallback;
 
-      // Save ATÔMICO: header + diff de itens (preserva cq_*/estoque_zerado) + recálculo de
+      // Save ATÔMICO: header + diff de itens (preserva cq_*) + recálculo de
       // parcelas numa ÚNICA transação (RPC salvar_oc_tecido). Acaba com a janela de falha
       // parcial das 6-8 chamadas que isto era no cliente.
       const itensPayload = validItems.map((i) => ({

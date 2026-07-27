@@ -534,11 +534,10 @@ function useEstoqueVarianteDetalhe(varId: string, open: boolean, reservadoTotal:
     const baixa = Number(d.baixado_m ?? 0);
     const reservado = Number(d.reservado_m ?? 0);
     const prevReceb = Number(d.prev_receb_m ?? 0);
-    const fisico = d.estoque_zerado ? Math.max(0, recebido - baixa) : recebido - baixa;
+    const fisico = recebido - baixa;
     return {
       key: d.oc_tecido_item_id,
       status: d.recebida ? ("recebida" as const) : ("pendente" as const),
-      zerado: !!d.estoque_zerado,
       oc: d.numero_pedido, fornecedor: d.fornecedor, entrega: d.data_entrega,
       prevReceb, recebido, baixa, fisico, reservado, previsto: fisico + prevReceb - reservado,
     };
@@ -632,9 +631,6 @@ function VarianteRow({ row, enderecos, selectable, selected, onToggleSelect }: {
                         <span className={cn("ml-1 text-[9px] uppercase", d.status === "recebida" ? "text-emerald-700" : "text-amber-700")}>
                           {d.status}
                         </span>
-                        {d.zerado && (
-                          <Badge className="ml-1.5 h-4 px-1 text-[9px] bg-emerald-500 hover:bg-emerald-500">Zerado</Badge>
-                        )}
                       </td>
                       <td className="py-1 pr-3">{d.fornecedor ?? "—"}</td>
                       <td className="py-1 pr-3">{d.entrega ? new Date(d.entrega).toLocaleDateString("pt-BR") : "—"}</td>
@@ -720,7 +716,6 @@ function VarianteCard({ row, enderecos, selectable, selected, onToggleSelect }: 
                 <span className="font-medium">
                   #{d.oc ?? "—"}{" "}
                   <span className={cn("text-[9px] uppercase", d.status === "recebida" ? "text-emerald-700" : "text-amber-700")}>{d.status}</span>
-                  {d.zerado && <Badge className="ml-1 h-4 px-1 text-[9px] bg-emerald-500 hover:bg-emerald-500">Zerado</Badge>}
                 </span>
                 <span className="font-semibold">{fmt(d.fisico)} m</span>
               </div>

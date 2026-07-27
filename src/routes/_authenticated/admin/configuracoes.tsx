@@ -400,7 +400,7 @@ function ConfiguracoesLojaPage() {
             <li><b className="text-foreground">Leia no gate certo</b>: quase tudo em desenvolvimento/CAD é planejado; "produzido" só após o <b className="text-foreground">CQ confirmado</b>. Ler cedo devolve planejamento.</li>
             <li>Use <b className="text-foreground">chaves naturais</b> (<code>cad_id, variante_numero</code>), nunca o <code>id</code> (várias tabelas são recriadas a cada save).</li>
             <li>Duas bases de unidade: <b className="text-foreground">financeiro</b> = qtd×preço (bruto); <b className="text-foreground">estoque</b> = qtd×rendimento (metros). Não cruzar.</li>
-            <li>Filtrar <code>cancelado</code>/<code>estoque_zerado</code>/<code>is_rolo</code>; parcelas a pagar ≠ parcelas de recebimento; "vencido" é derivado.</li>
+            <li>Filtrar <code>cancelado</code>/<code>is_rolo</code>; parcelas a pagar ≠ parcelas de recebimento; "vencido" é derivado.</li>
             <li>Teste a integração contra uma <b className="text-foreground">cópia</b> do banco, nunca em produção.</li>
           </ol>
           <p className="text-muted-foreground">
