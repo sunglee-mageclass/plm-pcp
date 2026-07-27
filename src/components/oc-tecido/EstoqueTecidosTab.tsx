@@ -12,14 +12,14 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ChevronRight, MapPin } from "lucide-react";
+import { ChevronRight, MapPin, Plus, Trash2 } from "lucide-react";
 import { RelatorioPrint } from "@/components/shared/RelatorioPrint";
 import { useReadOnly } from "@/components/RequirePermission";
 import { cn } from "@/lib/utils";
 import { fmtNum } from "@/lib/format";
 import { labelVarianteRow } from "@/lib/variante";
 import { useSort, SortTh } from "@/components/shared/sort";
-import { useEnderecosRollup, agruparEnderecos, fmtEndereco, type EnderecoRollup } from "@/components/tecido/EnderecoEditor";
+import { useEnderecosRollup, agruparEnderecos, type EnderecoRollup } from "@/components/tecido/EnderecoEditor";
 
 // Posição de estoque de TECIDOS — antes era a aba "Tecidos" da tela Estoque (removida);
 // hoje é a 3ª aba "Estoque" do OC Tecido. Fonte ÚNICA: RPC `estoque_tecido`. Preservar a
@@ -286,39 +286,33 @@ export function EstoqueTecidosTable({ state }: { state: ReturnType<typeof useEst
         })))}
       />
 
-      {/* Diálogo de endereçamento em massa — monta ao abrir (estado limpo a cada uso). */}
+      {/* Gerenciador de endereços da seleção — monta ao abrir (edições são ao vivo). */}
       {!readOnly && dialogOpen && (
         <BulkEnderecoDialog
           varIds={selectedVisible}
           onClose={() => setDialogOpen(false)}
-          onApplied={clearSel}
         />
       )}
     </div>
   );
 }
 
-/** Aplica um endereço (rua/prateleira) — escopo MANUAL — a TODAS as variantes selecionadas.
- *  Dois modos: "atualizar" SUBSTITUI o(s) endereço(s) manual(is) da variante por este;
- *  "acrescentar" ADICIONA uma linha (mantém os existentes; pula duplicata exata).
- *  Endereços de OC/rolo nunca são tocados. */
-function BulkEnderecoDialog({ varIds, onClose, onApplied }: {
-  varIds: string[]; onClose: () => void; onApplied: () => void;
-}) {
+/** Gerenciador de endereços (escopo MANUAL) das variantes SELECIONADAS. Lista CADA endereço
+ *  distinto presente na seleção (com quantas variantes o têm) e permite, por endereço:
+ *  editar (renomeia nas variantes que o têm) e excluir; além de acrescentar um novo endereço
+ *  a todas as selecionadas. Edições são ao vivo. Endereços de OC/rolo nunca são tocados. */
+function BulkEnderecoDialog({ varIds, onClose }: { varIds: string[]; onClose: () => void }) {
   const qc = useQueryClient();
-  const [modo, setModo] = useState<"atualizar" | "acrescentar">("atualizar");
-  const [rua, setRua] = useState("");
-  const [prat, setPrat] = useState("");
+  const listKey = ["end-bulk-atuais", varIds] as const;
 
-  // Endereços manuais ATUAIS das variantes selecionadas (visão consolidada p/ referência
-  // e para pré-preencher os campos ao clicar — base do "atualizar o que já está feito").
-  const { data: atuais = [] } = useQuery({
-    queryKey: ["end-bulk-atuais", varIds],
+  // Endereços manuais ATUAIS das variantes selecionadas (com o id de cada linha, p/ agir por endereço).
+  const { data: atuais = [], isLoading } = useQuery({
+    queryKey: listKey,
     enabled: varIds.length > 0,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("enderecamento_tecido" as any)
-        .select("variante_tecido_id, rua, prateleira")
+        .select("id, variante_tecido_id, rua, prateleira")
         .in("variante_tecido_id", varIds)
         .is("oc_tecido_item_id", null)
         .is("rolo_id", null);
@@ -326,159 +320,140 @@ function BulkEnderecoDialog({ varIds, onClose, onApplied }: {
       return (data ?? []) as any[];
     },
   });
-  const gruposAtuais = useMemo(() => {
-    const m = new Map<string, { rua: string; prat: string; vars: Set<string> }>();
+
+  // Agrupa por endereço (rua|prateleira): guarda os ids das linhas e quantas variantes o têm.
+  const grupos = useMemo(() => {
+    const m = new Map<string, { key: string; rua: string; prat: string; ids: string[]; vars: Set<string> }>();
     for (const x of atuais) {
-      const r = (x.rua ?? "").trim();
-      const p = (x.prateleira ?? "").trim();
-      if (!r && !p) continue;
-      const k = `${r}|${p}`;
-      const g = m.get(k) ?? { rua: r, prat: p, vars: new Set<string>() };
+      const rua = (x.rua ?? "").trim();
+      const prat = (x.prateleira ?? "").trim();
+      const key = `${rua}|${prat}`;
+      const g = m.get(key) ?? { key, rua, prat, ids: [] as string[], vars: new Set<string>() };
+      g.ids.push(x.id);
       g.vars.add(x.variante_tecido_id);
-      m.set(k, g);
+      m.set(key, g);
     }
-    return Array.from(m.values()).map((g) => ({ rua: g.rua, prat: g.prat, count: g.vars.size }));
+    return Array.from(m.values()).map((g) => ({ key: g.key, rua: g.rua, prat: g.prat, ids: g.ids, count: g.vars.size }));
   }, [atuais]);
 
-  const applyMut = useMutation({
-    mutationFn: async () => {
-      const r = rua.trim();
-      const p = prat.trim();
-      if (!r && !p) throw new Error("Informe a Rua e/ou a Prateleira.");
-      if (varIds.length === 0) throw new Error("Nenhuma variante selecionada.");
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: listKey });
+    qc.invalidateQueries({ queryKey: ["end-tecido-rollup"] });
+    qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
+    qc.invalidateQueries({ queryKey: ["end-tecido"] });
+  };
 
-      if (modo === "atualizar") {
-        // Substitui o endereço MANUAL da variante por este. Sem RPC transacional, então
-        // ordena INSERT (o novo) ANTES do DELETE (os antigos ≠ novo): se algo falhar no meio,
-        // a falha é benigna (fica um endereço a mais), nunca deixa a variante SEM endereço.
-        const { data: existing, error: e1 } = await supabase
-          .from("enderecamento_tecido" as any)
-          .select("id, variante_tecido_id, rua, prateleira")
-          .in("variante_tecido_id", varIds)
-          .is("oc_tecido_item_id", null)
-          .is("rolo_id", null);
-        if (e1) throw e1;
-        const norm = (s: any) => (s ?? "").trim();
-        const jaTemNovo = new Set(
-          ((existing ?? []) as any[]).filter((x) => norm(x.rua) === r && norm(x.prateleira) === p).map((x) => x.variante_tecido_id),
-        );
-        const toInsert = varIds
-          .filter((id) => !jaTemNovo.has(id))
-          .map((id) => ({ variante_tecido_id: id, oc_tecido_item_id: null, rua: r, prateleira: p }));
-        if (toInsert.length > 0) {
-          const { error: eIns } = await supabase.from("enderecamento_tecido" as any).insert(toInsert);
-          if (eIns) throw eIns;
-        }
-        const idsDelete = ((existing ?? []) as any[])
-          .filter((x) => !(norm(x.rua) === r && norm(x.prateleira) === p))
-          .map((x) => x.id);
-        if (idsDelete.length > 0) {
-          const { error: eDel } = await supabase.from("enderecamento_tecido" as any).delete().in("id", idsDelete);
-          if (eDel) throw eDel;
-        }
-        return { modo, count: varIds.length, skipped: 0 };
-      }
+  // Edição inline por grupo (rascunho keyed pela chave do endereço original).
+  const [draft, setDraft] = useState<Record<string, { rua: string; prat: string }>>({});
+  const val = (g: { key: string; rua: string; prat: string }) => draft[g.key] ?? { rua: g.rua, prat: g.prat };
+  const setVal = (key: string, patch: Partial<{ rua: string; prat: string }>) =>
+    setDraft((d) => ({ ...d, [key]: { ...(d[key] ?? { rua: "", prat: "" }), ...patch } }));
 
-      // acrescentar: adiciona sem apagar; pula quem já tem exatamente este endereço manual.
-      const { data: existing, error: e1 } = await supabase
+  const updMut = useMutation({
+    mutationFn: async (p: { ids: string[]; rua: string; prat: string }) => {
+      const { error } = await supabase
         .from("enderecamento_tecido" as any)
-        .select("variante_tecido_id, rua, prateleira")
-        .in("variante_tecido_id", varIds)
-        .is("oc_tecido_item_id", null)
-        .is("rolo_id", null);
-      if (e1) throw e1;
+        .update({ rua: p.rua.trim(), prateleira: p.prat.trim() })
+        .in("id", p.ids);
+      if (error) throw error;
+    },
+    onSuccess: invalidate,
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao atualizar endereço.")),
+  });
+  const commit = (g: { key: string; rua: string; prat: string; ids: string[] }) => {
+    const v = val(g);
+    if (v.rua !== g.rua || v.prat !== g.prat) updMut.mutate({ ids: g.ids, rua: v.rua, prat: v.prat });
+  };
+
+  const delMut = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const { error } = await supabase.from("enderecamento_tecido" as any).delete().in("id", ids);
+      if (error) throw error;
+    },
+    onSuccess: invalidate,
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir endereço.")),
+  });
+
+  // Acrescentar um NOVO endereço a TODAS as variantes selecionadas (pula quem já tem o exato).
+  const [novoRua, setNovoRua] = useState("");
+  const [novoPrat, setNovoPrat] = useState("");
+  const addMut = useMutation({
+    mutationFn: async () => {
+      const r = novoRua.trim();
+      const p = novoPrat.trim();
+      if (!r && !p) throw new Error("Informe a Rua e/ou a Prateleira.");
       const norm = (s: any) => (s ?? "").trim();
-      const jaTem = new Set(
-        ((existing ?? []) as any[]).filter((x) => norm(x.rua) === r && norm(x.prateleira) === p).map((x) => x.variante_tecido_id),
-      );
+      const jaTem = new Set(atuais.filter((x) => norm(x.rua) === r && norm(x.prateleira) === p).map((x) => x.variante_tecido_id));
       const payload = varIds
         .filter((id) => !jaTem.has(id))
         .map((id) => ({ variante_tecido_id: id, oc_tecido_item_id: null, rua: r, prateleira: p }));
-      if (payload.length === 0) return { modo, count: 0, skipped: varIds.length };
-      const { error: e2 } = await supabase.from("enderecamento_tecido" as any).insert(payload);
-      if (e2) throw e2;
-      return { modo, count: payload.length, skipped: varIds.length - payload.length };
+      if (payload.length === 0) return { inserted: 0, skipped: varIds.length };
+      const { error } = await supabase.from("enderecamento_tecido" as any).insert(payload);
+      if (error) throw error;
+      return { inserted: payload.length, skipped: varIds.length - payload.length };
     },
     onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ["end-tecido-rollup"] });
-      qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
-      qc.invalidateQueries({ queryKey: ["end-tecido"] });
-      if (res.modo === "atualizar") {
-        toast.success(`Endereço atualizado em ${res.count} variante(s).`);
-      } else {
-        toast.success(
-          res.skipped > 0
-            ? `Endereço acrescentado a ${res.count} variante(s); ${res.skipped} já tinha(m) este endereço.`
-            : `Endereço acrescentado a ${res.count} variante(s).`,
-        );
-      }
-      onApplied();
-      onClose();
+      invalidate();
+      setNovoRua("");
+      setNovoPrat("");
+      toast.success(
+        res.skipped > 0
+          ? `Endereço acrescentado a ${res.inserted} variante(s); ${res.skipped} já tinha(m).`
+          : `Endereço acrescentado a ${res.inserted} variante(s).`,
+      );
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao aplicar endereço.")),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao acrescentar endereço.")),
   });
 
-  const vazio = !rua.trim() && !prat.trim();
+  const novoVazio = !novoRua.trim() && !novoPrat.trim();
+  const busy = updMut.isPending || delMut.isPending || addMut.isPending;
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <MapPin className="h-4 w-4" /> Endereçar {varIds.length} variante(s)
+            <MapPin className="h-4 w-4" /> Endereços de {varIds.length} variante(s)
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-3">
-          {/* Endereços atuais (manuais) das variantes selecionadas — clique p/ usar nos campos. */}
-          <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Endereços atuais das variantes selecionadas</Label>
-            {gruposAtuais.length === 0 ? (
+        <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+          {/* Endereços atuais — cada endereço distinto presente na seleção, editável/excluível. */}
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Endereços atuais</Label>
+            {isLoading ? (
+              <p className="text-xs text-muted-foreground">Carregando…</p>
+            ) : grupos.length === 0 ? (
               <p className="text-xs text-muted-foreground">Nenhum endereço manual ainda nas variantes selecionadas.</p>
             ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {gruposAtuais.map((g, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    onClick={() => { setRua(g.rua); setPrat(g.prat); }}
-                    title="Usar este endereço nos campos abaixo"
-                    className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs hover:bg-muted"
-                  >
-                    <MapPin className="h-3 w-3" /> {fmtEndereco({ rua: g.rua, prateleira: g.prat })}
-                    <Badge variant="secondary" className="h-4 px-1 text-[10px]">{g.count}</Badge>
-                  </button>
-                ))}
-              </div>
+              grupos.map((g) => {
+                const v = val(g);
+                return (
+                  <div key={g.key} className="flex items-center gap-2">
+                    <Input className="flex-1" placeholder="Rua" value={v.rua} onChange={(e) => setVal(g.key, { rua: e.target.value })} onBlur={() => commit(g)} />
+                    <Input className="flex-1" placeholder="Prateleira" value={v.prat} onChange={(e) => setVal(g.key, { prat: e.target.value })} onBlur={() => commit(g)} />
+                    <Badge variant="secondary" className="shrink-0" title={`${g.count} variante(s) com este endereço`}>{g.count}</Badge>
+                    <Button size="iconSm" variant="ghost" onClick={() => delMut.mutate(g.ids)} disabled={busy} aria-label="Excluir endereço">
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                );
+              })
             )}
           </div>
 
-          {/* Modo: Atualizar (substitui o manual) x Acrescentar (adiciona) */}
-          <div className="flex rounded-md border p-0.5">
-            <Button type="button" size="sm" variant={modo === "atualizar" ? "secondary" : "ghost"} className="flex-1" onClick={() => setModo("atualizar")}>
-              Atualizar
-            </Button>
-            <Button type="button" size="sm" variant={modo === "acrescentar" ? "secondary" : "ghost"} className="flex-1" onClick={() => setModo("acrescentar")}>
-              Acrescentar
-            </Button>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            {modo === "atualizar"
-              ? "Substitui o endereço manual das variantes selecionadas por este (endereços de OC/rolo não são afetados)."
-              : "Adiciona este endereço às variantes selecionadas, mantendo os existentes."}
-          </p>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-1"><Label>Rua</Label>
-              <Input value={rua} onChange={(e) => setRua(e.target.value)} placeholder="Ex.: A" autoFocus />
-            </div>
-            <div className="grid gap-1"><Label>Prateleira</Label>
-              <Input value={prat} onChange={(e) => setPrat(e.target.value)} placeholder="Ex.: 03" />
+          {/* Acrescentar um novo endereço a TODAS as variantes selecionadas. */}
+          <div className="space-y-2 border-t pt-3">
+            <Label className="text-xs text-muted-foreground">Acrescentar endereço às {varIds.length} variante(s)</Label>
+            <div className="flex items-center gap-2">
+              <Input className="flex-1" placeholder="Rua" value={novoRua} onChange={(e) => setNovoRua(e.target.value)} />
+              <Input className="flex-1" placeholder="Prateleira" value={novoPrat} onChange={(e) => setNovoPrat(e.target.value)} />
+              <Button size="sm" onClick={() => addMut.mutate()} disabled={busy || novoVazio}>
+                <Plus className="h-4 w-4 mr-1" /> Acrescentar
+              </Button>
             </div>
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancelar</Button>
-          <Button onClick={() => applyMut.mutate()} disabled={applyMut.isPending || vazio}>
-            {modo === "atualizar" ? "Atualizar" : "Acrescentar"}
-          </Button>
+          <Button variant="outline" onClick={onClose}>Fechar</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
