@@ -150,29 +150,29 @@ function OcInsumoPage() {
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
-      <header className="flex items-start gap-3">
-        <Package className="h-7 w-7 text-primary mt-0.5 shrink-0" />
-        <div>
-          <h1 className="text-2xl font-bold">OC Insumo</h1>
-          <p className="text-sm text-muted-foreground">Ordens de compra de insumos (etiquetas/tags), por variante.</p>
+      <header className="flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4">
+        <div className="flex min-w-0 items-start gap-3">
+          <Package className="h-7 w-7 text-primary mt-0.5 shrink-0" />
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold truncate">OC Insumo</h1>
+            <p className="text-sm text-muted-foreground mt-1">Ordens de compra de insumos (etiquetas/tags), por variante.</p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+          <FilterButton filters={[
+            { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
+            ...(tab === "encomendado" ? respF.filters : []),
+          ]} />
+          <Button className="max-sm:hidden" onClick={() => { setOpenId(null); setOpenNew(true); }} disabled={readOnly}><Plus className="h-4 w-4 mr-1" /> Nova OC</Button>
         </div>
       </header>
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as OCStatus | "estoque")}>
-        <div className="flex items-center gap-2 flex-wrap">
-          <TabsList>
-            <TabsTrigger value="encomendado">Encomendados</TabsTrigger>
-            <TabsTrigger value="recebido">Recebidos</TabsTrigger>
-            <TabsTrigger value="estoque">Estoque</TabsTrigger>
-          </TabsList>
-          <div className="ml-auto flex items-center gap-2">
-            <FilterButton filters={[
-              { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
-              ...(tab === "encomendado" ? respF.filters : []),
-            ]} />
-            <Button className="max-sm:hidden" onClick={() => { setOpenId(null); setOpenNew(true); }} disabled={readOnly}><Plus className="h-4 w-4 mr-1" /> Nova OC</Button>
-          </div>
-        </div>
+        <TabsList>
+          <TabsTrigger value="encomendado">Encomendados</TabsTrigger>
+          <TabsTrigger value="recebido">Recebidos</TabsTrigger>
+          <TabsTrigger value="estoque">Estoque</TabsTrigger>
+        </TabsList>
 
         {/* Lista de OCs compartilhada por encomendado/recebido (value = aba ativa). Em "estoque"
             usa um sentinela que nunca casa, p/ a lista de OCs NÃO renderizar (a aba Estoque tem conteúdo próprio). */}
