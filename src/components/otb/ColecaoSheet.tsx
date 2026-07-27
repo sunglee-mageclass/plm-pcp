@@ -19,6 +19,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NumberInput } from "@/components/shared/NumberInput";
+import { MoneyInput } from "@/components/shared/MoneyInput";
 import { DateField } from "@/components/shared/DateField";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -572,7 +573,7 @@ export function ColecaoSheet({
             <div className="grid gap-1"><Label>Mês</Label>
               <Select value={mesId ?? ""} onValueChange={setMesId}><SelectTrigger><SelectValue placeholder="—" /></SelectTrigger>
                 <SelectContent>{meses.map((m) => <SelectItem key={m.id} value={m.id}>{m.nome}</SelectItem>)}</SelectContent></Select></div>
-            <div className="grid gap-1"><Label>Orçamento</Label><NumberInput value={orcamento} onChange={(e) => setOrcamento(e.target.value)} /></div>
+            <div className="grid gap-1"><Label>Orçamento</Label><MoneyInput value={orcamento} onChange={(e) => setOrcamento(e.target.value)} /></div>
           </div>
           <div className="space-y-3">
             <div className="flex items-center justify-between">
