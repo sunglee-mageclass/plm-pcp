@@ -71,8 +71,8 @@ export function OcTecidoList({
   return (
     <Tabs value={tab} onValueChange={(v) => setTab(v as OcTecidoTab)}>
       <TabsList>
-        <TabsTrigger value="encomendado">Encomendados</TabsTrigger>
         <TabsTrigger value="recebido">Recebidos</TabsTrigger>
+        <TabsTrigger value="encomendado">Encomendados</TabsTrigger>
         <TabsTrigger value="estoque">Estoque</TabsTrigger>
       </TabsList>
 

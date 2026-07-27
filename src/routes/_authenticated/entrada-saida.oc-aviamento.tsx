@@ -115,7 +115,7 @@ async function uploadFile(file: File, prefix: string) {
 
 function OcAviamentoPage() {
   const qc = useQueryClient();
-  const [tab, setTab] = useState<OCStatus | "estoque">("encomendado");
+  const [tab, setTab] = useState<OCStatus | "estoque">("recebido");
   const estoque = useEstoqueAviamentos(tab === "estoque"); // controles no header (contextual) + tabela
   const [filterEmpresa, setFilterEmpresa] = useState<string>("all");
   const respF = useResponsavelFilter();
@@ -244,8 +244,8 @@ function OcAviamentoPage() {
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as OCStatus | "estoque")}>
         <TabsList>
-          <TabsTrigger value="encomendado">Encomendados</TabsTrigger>
           <TabsTrigger value="recebido">Recebidos</TabsTrigger>
+          <TabsTrigger value="encomendado">Encomendados</TabsTrigger>
           <TabsTrigger value="estoque">Estoque</TabsTrigger>
         </TabsList>
 

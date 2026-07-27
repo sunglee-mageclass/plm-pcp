@@ -56,7 +56,7 @@ function OcTecidoPage() {
   const [view, setView] = useState<"ocs" | "rolos">("ocs");
   const [openRolo, setOpenRolo] = useState(false);
   const [openRemover, setOpenRemover] = useState(false);
-  const [tab, setTab] = useState<OcTecidoTab>("encomendado");
+  const [tab, setTab] = useState<OcTecidoTab>("recebido");
   // Estado da aba Estoque (consulta + filtros) — controles vão p/ o header (contextual).
   const estoque = useEstoqueTecidos(view === "ocs" && tab === "estoque");
   const [filterEmpresa, setFilterEmpresa] = useState<string>("all");

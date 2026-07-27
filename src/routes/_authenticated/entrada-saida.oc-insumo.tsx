@@ -83,7 +83,7 @@ const hasTam = (etq?: EtqOpt) => (etq?.variantes ?? []).some((v) => v.tamanho);
 function OcInsumoPage() {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
-  const [tab, setTab] = useState<OCStatus | "estoque">("encomendado");
+  const [tab, setTab] = useState<OCStatus | "estoque">("recebido");
   const estoque = useEstoqueInsumos(tab === "estoque"); // controles no header (contextual) + tabela
   const [filterEmpresa, setFilterEmpresa] = useState<string>("all");
   const respF = useResponsavelFilter();
@@ -181,8 +181,8 @@ function OcInsumoPage() {
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as OCStatus | "estoque")}>
         <TabsList>
-          <TabsTrigger value="encomendado">Encomendados</TabsTrigger>
           <TabsTrigger value="recebido">Recebidos</TabsTrigger>
+          <TabsTrigger value="encomendado">Encomendados</TabsTrigger>
           <TabsTrigger value="estoque">Estoque</TabsTrigger>
         </TabsList>
 
