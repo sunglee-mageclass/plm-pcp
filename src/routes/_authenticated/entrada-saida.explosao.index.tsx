@@ -185,7 +185,8 @@ function ExplosaoListPage() {
       </Card>
 
       <Sheet open={!!sheetId} onOpenChange={(o) => { if (!o) requestClose(); }}>
-        <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] flex flex-col p-0 max-md:[&>button]:hidden">
+        {/* Sem X de fechar (o botão "Voltar" do rodapé já fecha; Esc/clique-fora seguem valendo). */}
+        <SheetContent className="w-full sm:w-[70vw] sm:max-w-[70vw] flex flex-col p-0 [&>button]:hidden">
           {sheetId && (
             <ExplosaoDetail
               modeloId={sheetId}
