@@ -13,7 +13,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
-import { ArrowLeft, ImageIcon, Printer, RotateCcw, Save, Send } from "lucide-react";
+import { ArrowLeft, ImageIcon, Pencil, Printer, RotateCcw, Save, Send } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { varianteLabel } from "@/lib/variante";
@@ -56,6 +56,9 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
   const tenantId = useActiveTenantId();
   const [confirmZeroOpen, setConfirmZeroOpen] = useState(false);
   const [voltarOpen, setVoltarOpen] = useState(false);
+  // Edição da metragem travada por padrão quando já enviado ao Serviços; o lápis destrava,
+  // e Salvar re-trava. Definido no seed a partir de `enviado_corte`.
+  const [editing, setEditing] = useState(false);
 
   // --- queries (mesmo padrão do CadEditor, mas apenas o necessário) ---
   const { data: modelo } = useQuery({
@@ -213,6 +216,8 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     // Re-baseline o guarda a partir do estado semeado (valor explícito — o setState
     // acima ainda está stale neste tick).
     resetBaseline(initialTec.map((t) => t.variantes.map((v) => `${v.id ?? ""}:${v.metragem_enviada}:${v.quantidade_folhas}`)));
+    // Abre EDITÁVEL se ainda não enviado (preparando); TRAVADO se já enviado (edita pelo lápis).
+    setEditing(!(cadRow as any)?.enviado_corte);
     setSeeded(true);
   }, [cadRow, cadTecidos, cadGrades, cadTecidosFetched, cadGradesFetched, seeded]);
 
@@ -297,6 +302,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     onSuccess: () => {
       toast.success("Salvo");
       markClean(); // limpa o indicador de "alterações não salvas"
+      setEditing(false); // trava a edição após salvar (o lápis reabre)
       qc.invalidateQueries({ queryKey: ["explosao-cad-row", modeloId] });
       qc.invalidateQueries({ queryKey: ["explosao-cad-tecidos", cadRow?.id] });
       qc.invalidateQueries({ queryKey: ["cad-row", modeloId] });
@@ -461,6 +467,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
           updateTec={updateTec}
           updateVar={updateVar}
           readOnly={true}
+          separarReadOnly={!editing}
         />
       </div>
 
@@ -484,15 +491,27 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
           <RotateCcw className="h-4 w-4 mr-1.5" />
           Voltar ao Desenvolvimento
         </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => salvarMut.mutate()}
-          disabled={salvarMut.isPending || enviarCorte.isPending || !cadRow?.id}
-        >
-          <Save className="h-4 w-4 mr-1.5" />
-          {salvarMut.isPending ? "Salvando…" : "Salvar"}
-        </Button>
+        {editing ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => salvarMut.mutate()}
+            disabled={salvarMut.isPending || enviarCorte.isPending || !cadRow?.id}
+          >
+            <Save className="h-4 w-4 mr-1.5" />
+            {salvarMut.isPending ? "Salvando…" : "Salvar"}
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setEditing(true)}
+            disabled={enviarCorte.isPending || !cadRow?.id}
+          >
+            <Pencil className="h-4 w-4 mr-1.5" />
+            Editar
+          </Button>
+        )}
         <Button
           size="sm"
           onClick={handleEnviar}
