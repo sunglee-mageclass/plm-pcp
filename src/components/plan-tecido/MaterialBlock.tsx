@@ -13,7 +13,7 @@ import type { PtMaterial, PtVariante } from "@/lib/plan-tecido/types";
 type VarRow = { id: string; nome_variante: string | null; codigo_variante: string | null; cor: { nome: string | null } | null; apelido: { nome: string | null } | null };
 
 export function MaterialBlock({ material, onChange, onRemove, paleta }: { material: PtMaterial; onChange: (m: PtMaterial) => void; onRemove: () => void; paleta?: { artigo_id: string; papel: string }[] }) {
-  const { tecidoArtigos, forroArtigos, categoriaNomeDe } = useArtigosTecido();
+  const { tecidoArtigos, forroArtigos, categoriaNomeDe, fornecedorDe } = useArtigosTecido();
   const rotulo = material.tipo === "forro" ? "forro" : "tecido";
   // lista-base pelo PAPEL do bloco: TEC só tecidos (sem forro/entretela); FOR só forros
   const base = material.tipo === "forro" ? forroArtigos : tecidoArtigos;
@@ -76,7 +76,7 @@ export function MaterialBlock({ material, onChange, onRemove, paleta }: { materi
             onChange={(e) => escolherArtigo(e.target.value)}
           >
             <option value="">{`Escolher ${rotulo}…`}</option>
-            {artigosVisiveis.map((a) => (<option key={a.id} value={a.id}>{a.nome}{a.unidade_medida === "kg" ? " [kg]" : ""}</option>))}
+            {artigosVisiveis.map((a) => { const f = fornecedorDe(a.id); return (<option key={a.id} value={a.id}>{a.nome}{f ? ` · ${f}` : ""}{a.unidade_medida === "kg" ? " [kg]" : ""}</option>); })}
           </select>
           <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={onRemove}><X className="h-3 w-3" /></Button>
         </div>
@@ -94,7 +94,7 @@ export function MaterialBlock({ material, onChange, onRemove, paleta }: { materi
       </div>
       {material.artigo_id && (
         <div className="p-2">
-          <div className="mb-1 text-[10px] text-muted-foreground">Variantes — marque as usadas{material.tipo === "tecido" ? " · prof/cor" : " · × grade"}</div>
+          <div className="mb-1 text-[10px] text-muted-foreground">Variantes — marque as usadas · grade (pç) · metragem</div>
           {variantesArtigo.map((v) => {
             const on = marcada(v.id);
             const pv = material.variantes.find((x) => x.variante_tecido_id === v.id);
@@ -103,11 +103,12 @@ export function MaterialBlock({ material, onChange, onRemove, paleta }: { materi
                 <Checkbox checked={on} onCheckedChange={() => toggle(v.id)} className="h-4 w-4" />
                 <VarianteSwatch nome={v.cor?.nome ?? undefined} />
                 <span className="min-w-0 flex-1 truncate">{labelVarianteRow(v)}</span>
-                {on && material.tipo === "tecido" && (
-                  <NumberInput integer blankZero placeholder="0" className="h-7 w-14 text-right" value={pv?.grade_total ?? 0} onChange={(e) => setVar(v.id, { grade_total: Number(e.target.value) || 0 })} />
-                )}
-                {on && material.tipo === "forro" && (
-                  <NumberInput blankZero placeholder="1" className="h-7 w-14 text-right" value={pv?.multiplicador ?? 1} onChange={(e) => setVar(v.id, { multiplicador: Number(e.target.value) || 0 })} />
+                {on && (
+                  <>
+                    <NumberInput integer blankZero placeholder="0" className="h-7 w-12 text-right" value={pv?.grade_total ?? 0} onChange={(e) => setVar(v.id, { grade_total: Number(e.target.value) || 0 })} />
+                    <span className="text-[9px] text-muted-foreground">pç</span>
+                    <span className="w-12 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground">{Math.round((material.consumo || 0) * (pv?.grade_total || 0))} m</span>
+                  </>
                 )}
               </div>
             );

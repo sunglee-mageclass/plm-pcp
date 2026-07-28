@@ -50,12 +50,6 @@ export function necessidadePorTecido(arvore: PtArvore, filtroSlot?: (slot: PtSlo
     for (const ln of sub.linhas ?? []) {
       for (const slot of ln.slots ?? []) {
         if (filtroSlot && !filtroSlot(slot)) continue;
-        // Design D8: forro uses grade_total from Tecido 1 of the same slot
-        const tecido1Total = (slot.materiais ?? [])
-          .filter((m) => m.tipo === "tecido" && m.numero === 1)
-          .flatMap((m) => m.variantes ?? [])
-          .reduce((sum, v) => sum + (Number(v.grade_total) || 0), 0);
-
         for (const mat of slot.materiais ?? []) {
           if (!mat.artigo_id) continue;
           let t = byArtigo.get(mat.artigo_id);
@@ -64,7 +58,7 @@ export function necessidadePorTecido(arvore: PtArvore, filtroSlot?: (slot: PtSlo
             byArtigo.set(mat.artigo_id, t);
           }
           for (const v of mat.variantes ?? []) {
-            const gradeBase = mat.tipo === "forro" ? tecido1Total : v.grade_total;
+            const gradeBase = v.grade_total; // forro tem grade PRÓPRIA por variante (não mais multiplicador do Tecido 1)
             const metros = necessidadeVariante(mat.consumo, gradeBase, v.multiplicador);
             if (metros <= 0) continue;
             let vr = t.variantes.find((x) => x.variante_tecido_id === v.variante_tecido_id);
