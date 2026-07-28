@@ -5,7 +5,6 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { labelVarianteRow } from "@/lib/variante";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { NumberInput } from "@/components/shared/NumberInput";
@@ -18,16 +17,14 @@ import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useAuth } from "@/hooks/useAuth";
-import { ChevronRight, ArrowLeft, ShoppingCart, Undo2 } from "lucide-react";
+import { ArrowLeft, ShoppingCart, Undo2, Plus, X, Tag } from "lucide-react";
 import {
   semearComModelos, mergeArvore, type SeedInput, type ModeloReal, type ModeloRealMaterial,
 } from "@/lib/plan-tecido/engine";
-import type { PtArvore, PtMaterial, PtVariante } from "@/lib/plan-tecido/types";
+import type { PtArvore, PtMaterial, PtVariante, PtSlot } from "@/lib/plan-tecido/types";
 import { ModelCard } from "@/components/plan-tecido/ModelCard";
 import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
-import { PaletaColecao } from "@/components/plan-tecido/PaletaColecao";
-import { VisaoPorTecido, type SlotPath } from "@/components/plan-tecido/VisaoPorTecido";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
 import { tecidosDaArvore } from "@/lib/plan-tecido/calc";
 import { FazerPedidoWizard, type PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
@@ -187,9 +184,12 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
   const [arvore, setArvore] = useState<PtArvore | null>(null);
   const [dirty, setDirty] = useState(false);
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
-  const [viewMode, setViewMode] = useState<"linha" | "tecido">("linha");
+  const [view, setView] = useState<"subcolecoes" | "canvas">("subcolecoes");
+  const [subAtiva, setSubAtiva] = useState(0);
+  const [catFilter, setCatFilter] = useState<string | null>(null); // null=todos · id de categoria · "__sem__"
+  const [addCatOpen, setAddCatOpen] = useState(false);
+  const [aplicarCatOpen, setAplicarCatOpen] = useState(false);
   const [selecao, setSelecao] = useState<Set<string>>(new Set());
-  const [editPath, setEditPath] = useState<SlotPath | null>(null); // edição rápida (dialog) da visão por tecido
   const [formTipo, setFormTipo] = useState<"tecido" | "forro" | null>(null);
   const [previaOpen, setPreviaOpen] = useState(false);
   const [previaData, setPreviaData] = useState<PreviaRpc | null>(null);
@@ -234,14 +234,11 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
     queryFn: async () =>
       ((await supabase.from("colecao_subcolecoes" as any).select("id, nome").eq("colecao_id", colecaoId)).data ?? []) as unknown as Nome[],
   });
-  const { data: linhaNomes = [] } = useQuery({
-    queryKey: ["plan-tecido-linha-nomes"],
-    queryFn: async () => ((await supabase.from("linhas").select("id, nome")).data ?? []) as Nome[],
-  });
-  const { data: catNomes = [] } = useQuery({
-    queryKey: ["plan-tecido-cat-nomes"],
+  // categorias de TECIDO (rótulos das lanes do canvas)
+  const { data: catTecidoNomes = [] } = useQuery({
+    queryKey: ["plan-tecido-cat-tecido-nomes"],
     queryFn: async () =>
-      ((await supabase.from("categorias_produto").select("id, nome")).data ?? []) as Nome[],
+      ((await supabase.from("categorias_tecido").select("id, nome").order("nome")).data ?? []) as Nome[],
   });
   const nameOf = (arr: Nome[], id: string | null | undefined) =>
     id ? arr.find((x) => x.id === id)?.nome ?? null : null;
@@ -482,6 +479,52 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
     toast.success(`${material.tipo === "forro" ? "Forro" : "Tecido"} aplicado a ${n} slot(s).`);
   }
 
+  const catTecidoNome = (id: string | null | undefined) => nameOf(catTecidoNomes, id);
+  const toggleSel = (chave: string) =>
+    setSelecao((prev) => { const n = new Set(prev); if (n.has(chave)) n.delete(chave); else n.add(chave); return n; });
+
+  // Aplica a categoria de tecido (lane) nos slots selecionados; garante a lane na subcoleção ativa.
+  function aplicarCategoriaEmMassa(catId: string | null) {
+    if (!arvore) return;
+    const next = structuredClone(arvore) as PtArvore;
+    for (let si = 0; si < next.subcolecoes.length; si++)
+      for (let li = 0; li < next.subcolecoes[si].linhas.length; li++)
+        for (let sli = 0; sli < next.subcolecoes[si].linhas[li].slots.length; sli++) {
+          const slot = next.subcolecoes[si].linhas[li].slots[sli];
+          if (!selecao.has(chaveSlot(slot.id, si, li, sli))) continue;
+          slot.categoria_tecido_id = catId;
+        }
+    if (catId) {
+      const sub = next.subcolecoes[subAtiva];
+      sub.categorias_tecido = [...new Set([...(sub.categorias_tecido ?? []), catId])];
+    }
+    patch(next);
+    setSelecao(new Set());
+    setAplicarCatOpen(false);
+    toast.success(catId ? "Categoria aplicada." : "Modelos sem categoria.");
+  }
+
+  // Adiciona uma categoria (lane, mesmo vazia) à subcoleção ativa.
+  function addCategoria(catId: string) {
+    if (!arvore) return;
+    const next = structuredClone(arvore) as PtArvore;
+    const sub = next.subcolecoes[subAtiva];
+    sub.categorias_tecido = [...new Set([...(sub.categorias_tecido ?? []), catId])];
+    patch(next);
+    setAddCatOpen(false);
+  }
+
+  // Remove a categoria (lane) da subcoleção ativa; os slots dela voltam a "Sem categoria".
+  function removeCategoria(catId: string) {
+    if (!arvore) return;
+    const next = structuredClone(arvore) as PtArvore;
+    const sub = next.subcolecoes[subAtiva];
+    sub.categorias_tecido = (sub.categorias_tecido ?? []).filter((c) => c !== catId);
+    for (const ln of sub.linhas) for (const sl of ln.slots) if (sl.categoria_tecido_id === catId) sl.categoria_tecido_id = null;
+    if (catFilter === catId) setCatFilter(null);
+    patch(next);
+  }
+
   async function handleAbrirPrevia() {
     setPreviaLoading(true);
     try {
@@ -499,133 +542,130 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
     }
   }
 
+  const subAtual = arvore ? (arvore.subcolecoes[subAtiva] ?? null) : null;
+  const chipCls = (active: boolean) =>
+    `rounded-full border px-3 py-1 text-xs font-medium transition-colors ${active ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background text-muted-foreground hover:border-primary"}`;
+
   return (
     <Sheet open onOpenChange={(o) => { if (!o) requestClose(); }}>
-      <SheetContent side="right" className="w-full sm:max-w-[70vw] flex flex-col p-0 max-sm:[&>button]:hidden">
+      <SheetContent side="right" className="w-screen max-w-none flex flex-col p-0 max-sm:[&>button]:hidden">
         <div className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background p-3">
-          <Breadcrumb items={[{ label: "Estilo & Engenharia" }, { label: "Plan. Tecido" }, { label: colecao?.nome ?? "…" }]} />
+          <Breadcrumb items={[
+            { label: "Estilo & Engenharia" },
+            { label: "Plan. Tecido", onClick: requestClose },
+            { label: colecao?.nome ?? "…", onClick: view === "canvas" ? () => setView("subcolecoes") : undefined },
+            ...(view === "canvas" && subAtual ? [{ label: nameOf(subNomes, subAtual.subcolecao_id) ?? "Sem subcoleção" }] : []),
+          ]} />
           <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
-          <div className="hidden items-center rounded-md border p-0.5 md:flex">
-            <button
-              className={`rounded px-2 py-1 text-xs font-medium transition-colors ${viewMode === "linha" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
-              onClick={() => setViewMode("linha")}
-            >
-              Por linha
-            </button>
-            <button
-              className={`rounded px-2 py-1 text-xs font-medium transition-colors ${viewMode === "tecido" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
-              onClick={() => setViewMode("tecido")}
-            >
-              Por tecido
-            </button>
-          </div>
         </div>
 
 
-        {/* Barra de seleção múltipla */}
-        {selecao.size > 0 && (
+        {/* Barra de seleção múltipla (só no canvas) */}
+        {view === "canvas" && selecao.size > 0 && (
           <div className="flex flex-wrap items-center gap-2 border-b bg-amber-50 px-3 py-2 text-sm">
             <span className="font-medium">{selecao.size} selecionado(s)</span>
-            <Button size="sm" variant="outline" className="ml-auto text-xs" onClick={() => setFormTipo("tecido")}>
-              Aplicar tecido
-            </Button>
-            <Button size="sm" variant="outline" className="text-xs" onClick={() => setFormTipo("forro")}>
-              Aplicar forro
-            </Button>
-            <Button size="sm" variant="ghost" className="text-xs text-muted-foreground" onClick={() => setSelecao(new Set())}>
-              Limpar
-            </Button>
+            <Button size="sm" variant="default" className="ml-auto text-xs" onClick={() => setAplicarCatOpen(true)}>Aplicar categoria</Button>
+            <Button size="sm" variant="outline" className="text-xs" onClick={() => setFormTipo("tecido")}>Aplicar tecido</Button>
+            <Button size="sm" variant="outline" className="text-xs" onClick={() => setFormTipo("forro")}>Aplicar forro</Button>
+            <Button size="sm" variant="ghost" className="text-xs text-muted-foreground" onClick={() => setSelecao(new Set())}>Limpar</Button>
           </div>
         )}
 
         {!arvore ? (
           <div className="p-6 text-sm text-muted-foreground">Carregando…</div>
-        ) : (
-          <div className="flex flex-1 flex-col overflow-y-auto">
-            <div className="flex flex-1 gap-3 p-3">
-              <div className="min-w-0 flex-1 space-y-2">
-                {/* mobile: Insumos aqui (no desktop vai no Resumo) */}
-                <div className="md:hidden"><PaletaColecao colecaoId={colecaoId} emUso={paletaEmUso} /></div>
-                {viewMode === "linha" ? (
-                  arvore.subcolecoes.map((sub, si) => (
-                    <Collapsible key={sub.id ?? si} defaultOpen>
-                      <CollapsibleTrigger className="flex min-h-[44px] w-full items-center gap-2 rounded-md border px-3 text-sm font-medium [&[data-state=open]>svg]:rotate-90">
-                        <ChevronRight className="h-4 w-4 transition-transform" />
-                        {nameOf(subNomes, sub.subcolecao_id) ?? "Sem subcoleção"}
-                      </CollapsibleTrigger>
-                      <CollapsibleContent className="pt-2">
-                        {sub.linhas.map((ln, li) => (
-                          <Collapsible key={ln.id ?? li} defaultOpen className="mb-2">
-                            <CollapsibleTrigger className="flex min-h-[36px] w-full items-center gap-2 rounded-md bg-muted/40 px-2 text-xs font-medium text-muted-foreground [&[data-state=open]>svg]:rotate-90">
-                              <ChevronRight className="h-3.5 w-3.5 transition-transform" />
-                              <span className="flex-1 text-left">
-                                {ln.linha_id
-                                  ? (nameOf(linhaNomes, ln.linha_id) ?? "Linha")
-                                  : ln.categoria_id
-                                    ? (nameOf(catNomes, ln.categoria_id) ?? "Categoria")
-                                    : "Sem classificação"}
-                              </span>
-                              <span className="text-[10px]">{ln.slots.length} modelo(s)</span>
-                            </CollapsibleTrigger>
-                            <CollapsibleContent className="pt-2">
-                            <div className="grid grid-cols-1 items-start gap-2 md:grid-cols-2">
-                              {ln.slots.map((slot, sli) => {
-                                const chave = chaveSlot(slot.id, si, li, sli);
-                                return (
-                                  <ModelCard
-                                    key={slot.id ?? sli}
-                                    slot={slot}
-                                    colecaoId={colecaoId}
-                                    subcolecaoId={sub.subcolecao_id}
-                                    paleta={paleta}
-                                    tamanhos={tamanhos}
-                                    ocsAplicadas={ocsAplicadas}
-                                    slotOcIds={slot.id ? (slotOcMap[slot.id] ?? []) : []}
-                                    vinculos={slot.modelo_id ? (vinculosMap[slot.modelo_id] ?? []) : []}
-                                    lancado={slot.modelo_id ? lancadoSet.has(slot.modelo_id) : false}
-                                    maoObraAprovado={slot.modelo_id ? (maoObraAprovadoMap.get(slot.modelo_id) ?? null) : null}
-                                    onSetMaoObra={slot.modelo_id && podeAprovarMaoObra ? (aprovado) => aprovarMaoObraMut.mutate({ id: slot.modelo_id!, aprovado }) : undefined}
-                                    onEnsureSaved={ensureSaved}
-                                    onChange={(ns) => {
-                                      const next = structuredClone(arvore) as PtArvore;
-                                      next.subcolecoes[si].linhas[li].slots[sli] = ns;
-                                      patch(next);
-                                    }}
-                                    selected={selecao.has(chave)}
-                                    onToggleSelect={() => {
-                                      setSelecao((prev) => {
-                                        const next = new Set(prev);
-                                        if (next.has(chave)) next.delete(chave);
-                                        else next.add(chave);
-                                        return next;
-                                      });
-                                    }}
-                                  />
-                                );
-                              })}
-                            </div>
-                            </CollapsibleContent>
-                          </Collapsible>
-                        ))}
-                      </CollapsibleContent>
-                    </Collapsible>
-                  ))
-                ) : (
-                  <VisaoPorTecido arvore={arvore} onAbrirCard={setEditPath} />
-                )}
-              </div>
-              <div className="hidden w-80 shrink-0 md:block lg:w-96 md:sticky md:top-3 md:self-start md:max-h-[calc(100dvh-1.5rem)] md:overflow-y-auto">
-                <ResumoPanel arvore={arvore} />
-              </div>
+        ) : view === "subcolecoes" ? (
+          <div className="flex-1 overflow-y-auto p-4">
+            <div className="mb-3 text-sm text-muted-foreground">Escolha uma subcoleção para planejar os tecidos por categoria.</div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {arvore.subcolecoes.map((sub, si) => {
+                const nSlots = sub.linhas.reduce((a, l) => a + l.slots.length, 0);
+                const cats = sub.categorias_tecido ?? [];
+                const semCat = sub.linhas.reduce((a, l) => a + l.slots.filter((s) => !s.categoria_tecido_id).length, 0);
+                return (
+                  <button key={sub.id ?? si} type="button"
+                    className="flex flex-col gap-2 rounded-lg border bg-background p-4 text-left shadow-sm transition-shadow hover:border-primary hover:shadow-md"
+                    onClick={() => { setSubAtiva(si); setCatFilter(null); setSelecao(new Set()); setView("canvas"); }}>
+                    <div className="font-medium">{nameOf(subNomes, sub.subcolecao_id) ?? "Sem subcoleção"}</div>
+                    <div className="flex flex-wrap gap-1">
+                      {cats.length ? cats.map((cid) => (
+                        <span key={cid} className="rounded bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">{catTecidoNome(cid) ?? "?"}</span>
+                      )) : <span className="text-[11px] text-muted-foreground">sem categorias</span>}
+                      {semCat > 0 && <span className="rounded bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{semCat} sem categoria</span>}
+                    </div>
+                    <div className="mt-auto text-xs text-muted-foreground"><b className="text-foreground">{nSlots}</b> modelo(s)</div>
+                  </button>
+                );
+              })}
+              {arvore.subcolecoes.length === 0 && <div className="text-sm text-muted-foreground">Nenhuma subcoleção nesta coleção.</div>}
             </div>
-
           </div>
-        )}
+        ) : subAtual ? (() => {
+          const sub = subAtual;
+          const subArvore: PtArvore = { ...arvore, subcolecoes: [sub] };
+          const flat = sub.linhas.flatMap((ln, li) => ln.slots.map((slot, sli) => ({ slot, li, sli, chave: chaveSlot(slot.id, subAtiva, li, sli) })));
+          const cats = sub.categorias_tecido ?? [];
+          const slotsOf = (cid: string | null) => flat.filter((f) => (f.slot.categoria_tecido_id ?? null) === cid);
+          const laneCats: (string | null)[] = catFilter === "__sem__" ? [null] : catFilter ? [catFilter] : [...cats, null];
+          const cardOf = (slot: PtSlot, li: number, sli: number, chave: string) => (
+            <ModelCard key={slot.id ?? `${li}-${sli}`} slot={slot} colecaoId={colecaoId} subcolecaoId={sub.subcolecao_id}
+              paleta={paleta} tamanhos={tamanhos} ocsAplicadas={ocsAplicadas}
+              slotOcIds={slot.id ? (slotOcMap[slot.id] ?? []) : []}
+              vinculos={slot.modelo_id ? (vinculosMap[slot.modelo_id] ?? []) : []}
+              lancado={slot.modelo_id ? lancadoSet.has(slot.modelo_id) : false}
+              maoObraAprovado={slot.modelo_id ? (maoObraAprovadoMap.get(slot.modelo_id) ?? null) : null}
+              onSetMaoObra={slot.modelo_id && podeAprovarMaoObra ? (aprovado) => aprovarMaoObraMut.mutate({ id: slot.modelo_id!, aprovado }) : undefined}
+              onEnsureSaved={ensureSaved}
+              onChange={(ns) => { const next = structuredClone(arvore) as PtArvore; next.subcolecoes[subAtiva].linhas[li].slots[sli] = ns; patch(next); }}
+              selected={selecao.has(chave)} onToggleSelect={() => toggleSel(chave)} />
+          );
+          return (
+            <div className="flex flex-1 overflow-hidden">
+              <aside className="hidden w-80 shrink-0 overflow-y-auto border-r p-3 md:block lg:w-96">
+                <ResumoPanel arvore={subArvore} />
+              </aside>
+              <main className="flex-1 overflow-y-auto p-3">
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <button type="button" className={chipCls(!catFilter)} onClick={() => setCatFilter(null)}>Todos ({flat.length})</button>
+                  {cats.map((cid) => (
+                    <button key={cid} type="button" className={chipCls(catFilter === cid)} onClick={() => setCatFilter(cid)}>{catTecidoNome(cid) ?? "?"} ({slotsOf(cid).length})</button>
+                  ))}
+                  {flat.some((f) => !f.slot.categoria_tecido_id) && (
+                    <button type="button" className={chipCls(catFilter === "__sem__")} onClick={() => setCatFilter("__sem__")}>Sem categoria ({slotsOf(null).length})</button>
+                  )}
+                  <Button size="sm" variant="outline" className="ml-auto gap-1" onClick={() => setAddCatOpen(true)}><Plus className="h-3.5 w-3.5" /> categoria</Button>
+                </div>
+                <div className="space-y-4">
+                  {laneCats.map((cid) => {
+                    const slots = slotsOf(cid);
+                    return (
+                      <section key={cid ?? "__sem__"}>
+                        <div className="mb-1 flex items-center gap-2">
+                          <span className={`text-sm font-semibold ${cid ? "" : "text-muted-foreground"}`}>{cid ? (catTecidoNome(cid) ?? "?") : "Sem categoria"}</span>
+                          <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{slots.length} modelo(s)</span>
+                          {cid && <button type="button" className="ml-1 rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Remover categoria" onClick={() => removeCategoria(cid)}><X className="h-3.5 w-3.5" /></button>}
+                        </div>
+                        <div className="flex items-start gap-3 overflow-x-auto pb-2">
+                          {slots.length ? slots.map(({ slot, li, sli, chave }) => (
+                            <div key={slot.id ?? `${li}-${sli}`} className="w-[360px] shrink-0">{cardOf(slot, li, sli, chave)}</div>
+                          )) : (
+                            <div className="min-w-[280px] rounded-lg border border-dashed p-4 text-center text-xs italic text-muted-foreground">
+                              Selecione modelos e clique “Aplicar categoria”, ou defina a categoria de tecido dentro do card.
+                            </div>
+                          )}
+                        </div>
+                      </section>
+                    );
+                  })}
+                </div>
+              </main>
+            </div>
+          );
+        })() : null}
 
         <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2">
-          <Button variant="outline" size="sm" className="max-sm:h-11" onClick={requestClose}>
+          <Button variant="outline" size="sm" className="max-sm:h-11" onClick={() => (view === "canvas" ? setView("subcolecoes") : requestClose())}>
             <ArrowLeft className="mr-1 h-4 w-4" />
-            Voltar
+            {view === "canvas" ? "Subcoleções" : "Voltar"}
           </Button>
           <Button
             variant="outline"
@@ -658,38 +698,43 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
           message="Há alterações não salvas no planejamento de tecido."
         />
 
-        {/* Edição rápida (dialog) a partir da visão "Por tecido" */}
-        {editPath && arvore && (() => {
-          const { si, li, sli } = editPath;
-          const slot = arvore.subcolecoes[si]?.linhas[li]?.slots[sli];
-          if (!slot) return null;
-          return (
-            <Dialog open onOpenChange={(o) => { if (!o) setEditPath(null); }}>
-              <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
-                <ModelCard
-                  slot={slot}
-                  defaultOpen
-                  colecaoId={colecaoId}
-                  subcolecaoId={arvore.subcolecoes[si].subcolecao_id}
-                  paleta={paleta}
-                  tamanhos={tamanhos}
-                  ocsAplicadas={ocsAplicadas}
-                  slotOcIds={slot.id ? (slotOcMap[slot.id] ?? []) : []}
-                  vinculos={slot.modelo_id ? (vinculosMap[slot.modelo_id] ?? []) : []}
-                  lancado={slot.modelo_id ? lancadoSet.has(slot.modelo_id) : false}
-                  maoObraAprovado={slot.modelo_id ? (maoObraAprovadoMap.get(slot.modelo_id) ?? null) : null}
-                  onSetMaoObra={slot.modelo_id && podeAprovarMaoObra ? (aprovado) => aprovarMaoObraMut.mutate({ id: slot.modelo_id!, aprovado }) : undefined}
-                  onEnsureSaved={ensureSaved}
-                  onChange={(ns) => {
-                    const next = structuredClone(arvore) as PtArvore;
-                    next.subcolecoes[si].linhas[li].slots[sli] = ns;
-                    patch(next);
-                  }}
-                />
-              </DialogContent>
-            </Dialog>
-          );
-        })()}
+        {/* Dialog: adicionar categoria (lane) à subcoleção ativa */}
+        <Dialog open={addCatOpen} onOpenChange={setAddCatOpen}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader><DialogTitle>Adicionar categoria de tecido</DialogTitle></DialogHeader>
+            <div className="grid grid-cols-2 gap-2">
+              {catTecidoNomes.filter((c) => !(subAtual?.categorias_tecido ?? []).includes(c.id)).map((c) => (
+                <Button key={c.id} variant="outline" size="sm" className="justify-start" onClick={() => addCategoria(c.id)}>{c.nome}</Button>
+              ))}
+              {catTecidoNomes.filter((c) => !(subAtual?.categorias_tecido ?? []).includes(c.id)).length === 0 && (
+                <div className="col-span-2 text-xs text-muted-foreground">Todas as categorias já foram adicionadas.</div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Dialog: aplicar categoria aos selecionados */}
+        <Dialog open={aplicarCatOpen} onOpenChange={setAplicarCatOpen}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader><DialogTitle>Aplicar categoria a {selecao.size} modelo(s)</DialogTitle></DialogHeader>
+            <div className="flex flex-col gap-1.5">
+              {(subAtual?.categorias_tecido ?? []).map((cid) => (
+                <Button key={cid} variant="outline" size="sm" className="justify-start gap-2" onClick={() => aplicarCategoriaEmMassa(cid)}><Tag className="h-3.5 w-3.5" /> {catTecidoNome(cid) ?? "?"}</Button>
+              ))}
+              <Button variant="ghost" size="sm" className="justify-start text-muted-foreground" onClick={() => aplicarCategoriaEmMassa(null)}>Sem categoria</Button>
+              {catTecidoNomes.filter((c) => !(subAtual?.categorias_tecido ?? []).includes(c.id)).length > 0 && (
+                <div className="mt-1 border-t pt-2">
+                  <div className="mb-1 text-[11px] uppercase tracking-wide text-muted-foreground">Nova categoria</div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {catTecidoNomes.filter((c) => !(subAtual?.categorias_tecido ?? []).includes(c.id)).map((c) => (
+                      <Button key={c.id} variant="ghost" size="sm" className="justify-start text-primary" onClick={() => aplicarCategoriaEmMassa(c.id)}><Plus className="mr-1 h-3 w-3" />{c.nome}</Button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Mini-form: aplicar tecido/forro em massa (respeita a paleta) */}
         <AlertDialog open={!!formTipo} onOpenChange={(o) => { if (!o) setFormTipo(null); }}>

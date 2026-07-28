@@ -154,9 +154,11 @@ export function semearArvore(input: SeedInput): PtArvore {
 
 const lnKeyOf = (l: { linha_id: string | null; categoria_id: string | null }) => `${l.linha_id ?? ""}|${l.categoria_id ?? ""}`;
 
-// Um slot salvo só tem "dados do usuário" se estiver ligado a um modelo OU tiver material.
-// Slot salvo VAZIO (plano antigo pré-semeadura) NÃO deve sobrescrever o modelo semeado.
-const savedTemDados = (s?: PtSlot): boolean => !!s && (!!s.modelo_id || (s.materiais?.length ?? 0) > 0);
+// Um slot salvo só tem "dados do usuário" se estiver ligado a um modelo, tiver material,
+// OU tiver uma categoria de tecido atribuída (lane). Slot salvo VAZIO (plano antigo
+// pré-semeadura) NÃO deve sobrescrever o modelo semeado.
+const savedTemDados = (s?: PtSlot): boolean =>
+  !!s && (!!s.modelo_id || (s.materiais?.length ?? 0) > 0 || !!s.categoria_tecido_id);
 
 export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
   if (!salvo) return seed;
@@ -166,7 +168,8 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
     subcolecoes: seed.subcolecoes.map((s) => {
       const ss = salvo.subcolecoes.find((x) => (x.subcolecao_id ?? "__none__") === (s.subcolecao_id ?? "__none__"));
       if (!ss) return s;
-      return { ...s, id: ss.id, linhas: s.linhas.map((l) => {
+      // preserva as categorias (lanes) da subcoleção salva — o seed não as tem
+      return { ...s, id: ss.id, categorias_tecido: ss.categorias_tecido ?? s.categorias_tecido, linhas: s.linhas.map((l) => {
         const sl = ss.linhas.find((x) => lnKeyOf(x) === lnKeyOf(l));
         if (!sl) return l;
         return { ...l, id: sl.id, slots: l.slots.map((slot, i) => {

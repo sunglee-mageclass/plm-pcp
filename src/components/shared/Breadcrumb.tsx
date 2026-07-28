@@ -4,6 +4,8 @@ import { Link } from "@tanstack/react-router";
 interface BreadcrumbItem {
   label: string;
   to?: string;
+  /** Navegação interna (estado da tela), sem trocar de rota. Ignorado no último item. */
+  onClick?: () => void;
 }
 
 interface BreadcrumbProps {
@@ -28,6 +30,14 @@ export function Breadcrumb({ items }: BreadcrumbProps) {
                 >
                   {item.label}
                 </Link>
+              ) : item.onClick && !isLast ? (
+                <button
+                  type="button"
+                  onClick={item.onClick}
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {item.label}
+                </button>
               ) : (
                 <span
                   className={
