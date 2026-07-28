@@ -4,9 +4,8 @@ import { useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { RequirePermission } from "@/components/RequirePermission";
-import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ArrowDownAZ, ArrowDownZA, Scissors } from "lucide-react";
+import { ArrowDownAZ, ArrowDownZA } from "lucide-react";
 import { FilterButton } from "@/components/shared/filters";
 import { useSort } from "@/components/shared/sort";
 import { PlanTecidoSheet } from "@/components/plan-tecido/PlanTecidoSheet";
@@ -73,10 +72,13 @@ function PlanTecidoListPage() {
 
   return (
     <div className="p-4 sm:p-6">
-      <div className="mb-4 flex items-center gap-2">
-        <Scissors className="h-5 w-5" />
-        <h1 className="font-display text-xl font-semibold">Plan. Tecido</h1>
-        <div className="ml-auto flex items-center gap-2">
+      <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.11em] text-primary">Estilo &amp; Engenharia</div>
+          <h1 className="font-display text-2xl font-semibold tracking-tight">Plan. Tecido</h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">Escolha uma coleção para planejar os tecidos. (Só clicar e entrar.)</p>
+        </div>
+        <div className="flex items-center gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -118,12 +120,14 @@ function PlanTecidoListPage() {
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {sort.sorted.map((c) => (
-          <button key={c.id} type="button" className="text-left" onClick={() => setOpenColecaoId(c.id)}>
-            <Card className="transition-shadow hover:shadow-md">
-              <CardHeader>
-                <CardTitle className="text-base">{c.nome}</CardTitle>
-              </CardHeader>
-            </Card>
+          <button
+            key={c.id}
+            type="button"
+            onClick={() => setOpenColecaoId(c.id)}
+            className="flex items-center justify-between rounded-lg border bg-card p-4 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary hover:shadow-md"
+          >
+            <span className="text-base font-semibold tracking-tight">{c.nome}</span>
+            <span className="text-xs font-medium text-primary">abrir →</span>
           </button>
         ))}
         {filtered.length === 0 && (
