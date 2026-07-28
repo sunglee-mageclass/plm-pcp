@@ -7,21 +7,12 @@ import { brl } from "@/lib/format";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { Lock } from "lucide-react";
 
-type EstoqueRow = { variante_tecido_id: string; fisico: number; a_receber: number; reservado: number; previsto: number };
-type EstoqueMap = Record<string, EstoqueRow>;
+type SituacaoRow = { variante_tecido_id: string; pedida_m: number; recebida_m: number };
+type SituacaoMap = Record<string, SituacaoRow>;
 
-function NecBlock({
-  titulo,
-  nec,
-  estoque,
-}: {
-  titulo: string;
-  nec: ReturnType<typeof necessidadePorTecido>;
-  estoque?: EstoqueMap; // quando presente, mostra a conta (estoque / a receber)
-}) {
+/** Bloco "A comprar" simples (usado por "Usar do estoque"): só necessidade por tecido/variante. */
+function NecBlock({ titulo, nec }: { titulo: string; nec: ReturnType<typeof necessidadePorTecido> }) {
   const totalNec = nec.reduce((s, t) => s + t.totalMetros, 0);
-  let totalReceber = 0;
-  if (estoque) for (const t of nec) for (const v of t.variantes) totalReceber += estoque[v.variante_tecido_id]?.a_receber ?? 0;
   return (
     <div className="rounded-lg border">
       <div className="border-b p-2 font-display text-xs font-semibold">{titulo}</div>
@@ -34,33 +25,19 @@ function NecBlock({
               <div className="mb-1 font-medium">
                 {t.artigo_nome}{t.unidade_medida === "kg" ? <span className="ml-1 text-muted-foreground">kg no pedido</span> : null}
               </div>
-              {t.variantes.map((v) => {
-                const e = estoque?.[v.variante_tecido_id];
-                return (
-                  <div key={v.variante_tecido_id} className="mb-1 last:mb-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="flex min-w-0 items-center gap-1">
-                        <VarianteSwatch nome={v.cor_nome ?? v.label} />
-                        <span className="truncate">{v.label || "—"}</span>
-                      </span>
-                      <b className="shrink-0">{v.metros.toFixed(0)} m</b>
-                    </div>
-                    {estoque && (
-                      <div className="flex flex-wrap gap-x-2 pl-4 text-[10px] text-muted-foreground">
-                        <span>estoque {(e?.fisico ?? 0).toFixed(0)} m</span>
-                        <span>a receber {(e?.a_receber ?? 0).toFixed(0)} m</span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              {t.variantes.map((v) => (
+                <div key={v.variante_tecido_id} className="mb-1 flex items-center justify-between gap-2 last:mb-0">
+                  <span className="flex min-w-0 items-center gap-1">
+                    <VarianteSwatch nome={v.cor_nome ?? v.label} />
+                    <span className="truncate">{v.label || "—"}</span>
+                  </span>
+                  <b className="shrink-0">{v.metros.toFixed(0)} m</b>
+                </div>
+              ))}
             </div>
           ))}
-          <div className="space-y-0.5 p-2 font-display text-xs font-semibold">
+          <div className="p-2 font-display text-xs font-semibold">
             <div className="flex justify-between"><span>Total</span><span>{totalNec.toFixed(0)} m</span></div>
-            {estoque && (
-              <div className="flex justify-between font-normal text-muted-foreground"><span>Já encomendado (a receber)</span><span>{totalReceber.toFixed(0)} m</span></div>
-            )}
           </div>
         </>
       )}
@@ -68,23 +45,87 @@ function NecBlock({
   );
 }
 
-export function ResumoPanel({ arvore }: { arvore: PtArvore }) {
+/**
+ * Situação do tecido — COLEÇÃO inteira (OC é coleção-scoped, não subcoleção).
+ * Por tecido→variante: reservada (necessidade do plano, cresce conforme os cards / reflete o CAD),
+ * pedida e recebida (Σ das OCs desta coleção) e SOBRA PREVISTA = pedida − reservada.
+ * A sobra pode ser NEGATIVA (ainda planejando: reservou mais do que pediu → falta pedir).
+ */
+function SituacaoBlock({ nec, situ }: { nec: ReturnType<typeof necessidadePorTecido>; situ: SituacaoMap }) {
+  let tReserv = 0, tPed = 0, tReceb = 0;
+  for (const t of nec) for (const v of t.variantes) {
+    tReserv += v.metros;
+    tPed += situ[v.variante_tecido_id]?.pedida_m ?? 0;
+    tReceb += situ[v.variante_tecido_id]?.recebida_m ?? 0;
+  }
+  const tSobra = tPed - tReserv;
+  const sobraCls = (s: number) => (s < 0 ? "text-red-600" : "text-emerald-600");
+  const sinal = (s: number) => (s > 0 ? "+" : "") + s.toFixed(0);
+  return (
+    <div className="rounded-lg border">
+      <div className="flex items-center justify-between border-b p-2">
+        <span className="font-display text-xs font-semibold">Situação do tecido</span>
+        <span className="text-[10px] uppercase tracking-wide text-muted-foreground">coleção</span>
+      </div>
+      {nec.length === 0 ? (
+        <div className="p-2 text-[10px] text-muted-foreground">Nenhum tecido a encomendar.</div>
+      ) : (
+        <>
+          {nec.map((t) => (
+            <div key={t.artigo_id} className="border-b p-2 text-xs">
+              <div className="mb-1 font-medium">
+                {t.artigo_nome}{t.unidade_medida === "kg" ? <span className="ml-1 text-muted-foreground">kg no pedido</span> : null}
+              </div>
+              {t.variantes.map((v) => {
+                const s = situ[v.variante_tecido_id];
+                const pedida = s?.pedida_m ?? 0;
+                const recebida = s?.recebida_m ?? 0;
+                const sobra = pedida - v.metros;
+                return (
+                  <div key={v.variante_tecido_id} className="mb-1.5 last:mb-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="flex min-w-0 items-center gap-1">
+                        <VarianteSwatch nome={v.cor_nome ?? v.label} />
+                        <span className="truncate">{v.label || "—"}</span>
+                      </span>
+                      <b className={`shrink-0 ${sobraCls(sobra)}`}>{sinal(sobra)} m</b>
+                    </div>
+                    <div className="flex flex-wrap gap-x-2 pl-4 text-[10px] text-muted-foreground">
+                      <span>reservada {v.metros.toFixed(0)}</span>
+                      <span>pedida {pedida.toFixed(0)}</span>
+                      <span>recebida {recebida.toFixed(0)}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+          <div className="space-y-0.5 p-2 text-xs">
+            <div className="flex justify-between text-muted-foreground"><span>Reservada (plano)</span><span>{tReserv.toFixed(0)} m</span></div>
+            <div className="flex justify-between text-muted-foreground"><span>Pedida · recebida</span><span>{tPed.toFixed(0)} · {tReceb.toFixed(0)} m</span></div>
+            <div className={`flex justify-between font-display font-semibold ${sobraCls(tSobra)}`}><span>Sobra prevista</span><span>{sinal(tSobra)} m</span></div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+export function ResumoPanel({ arvore, colecaoArvore, colecaoId }: { arvore: PtArvore; colecaoArvore: PtArvore; colecaoId: string }) {
   const slots = arvore.subcolecoes.flatMap((sub) => sub.linhas.flatMap((ln) => ln.slots));
   const firstTec = (slot: PtSlot) => slot.materiais.find((m) => m.tipo === "tecido");
 
-  const necComprar = necessidadePorTecido(arvore, (s) => !(s.usar_estoque ?? false));
   const necEstoque = necessidadePorTecido(arvore, (s) => !!(s.usar_estoque ?? false));
   const temEstoque = necEstoque.some((t) => t.totalMetros > 0);
 
-  // variantes do bloco "a comprar" → busca a conta de estoque (físico/a receber/reservado/previsto)
-  const varIds = [...new Set(necComprar.flatMap((t) => t.variantes.map((v) => v.variante_tecido_id)))].sort();
-  const { data: estoqueMap = {} } = useQuery({
-    queryKey: ["plan-tecido-estoque", varIds],
-    enabled: varIds.length > 0,
+  // Situação do tecido — COLEÇÃO inteira (reservada = nec do plano; encomenda apenas)
+  const necColecao = necessidadePorTecido(colecaoArvore, (s) => !(s.usar_estoque ?? false));
+  const { data: situMap = {} } = useQuery({
+    queryKey: ["plan-tecido-situacao-ocs", colecaoId],
     queryFn: async () => {
-      const { data } = await supabase.rpc("plan_tecido_estoque" as any, { _variante_ids: varIds });
-      const map: EstoqueMap = {};
-      for (const r of (data ?? []) as EstoqueRow[]) map[r.variante_tecido_id] = r;
+      const { data } = await supabase.rpc("plan_tecido_situacao_ocs" as any, { _colecao_id: colecaoId });
+      const map: SituacaoMap = {};
+      for (const r of (data ?? []) as SituacaoRow[]) map[r.variante_tecido_id] = { variante_tecido_id: r.variante_tecido_id, pedida_m: Number(r.pedida_m) || 0, recebida_m: Number(r.recebida_m) || 0 };
       return map;
     },
   });
@@ -148,7 +189,7 @@ export function ResumoPanel({ arvore }: { arvore: PtArvore }) {
           <div className="flex items-center gap-2 p-2 text-xs text-muted-foreground"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />Sem pendências</div>
         )}
       </div>
-      <NecBlock titulo="A comprar (encomenda)" nec={necComprar} estoque={estoqueMap} />
+      <SituacaoBlock nec={necColecao} situ={situMap} />
       {temEstoque && <NecBlock titulo="Usar do estoque" nec={necEstoque} />}
       {/* Poder de venda — gated por fornecedor */}
       <div className="rounded-lg border">

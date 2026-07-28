@@ -100,6 +100,7 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
       qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
       qc.invalidateQueries({ queryKey: ["dash-estoque"] });
       qc.invalidateQueries({ queryKey: ["plan-tecido-oc-aplicada-lista", colecaoId] });
+      qc.invalidateQueries({ queryKey: ["plan-tecido-situacao-ocs", colecaoId] });
       qc.invalidateQueries({ queryKey: ["plan-tecido-cobertura", colecaoId] });
       qc.invalidateQueries({ queryKey: ["plan-tecido-cobertura-ocs", colecaoId] });
     },

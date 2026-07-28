@@ -451,6 +451,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
       setDesfazerOpen(false);
       qc.invalidateQueries({ queryKey: ["ocs_tecido"] });
       qc.invalidateQueries({ queryKey: ["plan-tecido-status-pedidos"] });
+      qc.invalidateQueries({ queryKey: ["plan-tecido-situacao-ocs", colecaoId] });
       qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
       qc.invalidateQueries({ queryKey: ["dash-estoque"] });
     },
@@ -661,7 +662,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                     <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Resumo</span>
                     <button type="button" onClick={() => setResumoAberto(false)} title="Recolher resumo" className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><ChevronLeft className="h-4 w-4" /></button>
                   </div>
-                  <div className="flex-1 overflow-y-auto p-3"><ResumoPanel arvore={subArvore} /></div>
+                  <div className="flex-1 overflow-y-auto p-3"><ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} /></div>
                 </aside>
               ) : (
                 <div className="hidden w-9 shrink-0 border-r md:block">
