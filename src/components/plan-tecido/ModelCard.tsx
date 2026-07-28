@@ -362,7 +362,7 @@ export function ModelCard({
               <AccordionItem value="custo">
                 <AccordionTrigger className="py-2 text-xs">2. Custo &amp; Preço</AccordionTrigger>
                 <AccordionContent>
-                  <CustoSection slot={slot} onChange={onChange} maoObraAprovado={maoObraAprovado} onSetMaoObra={slot.modelo_id ? onSetMaoObra : undefined} />
+                  <CustoSection slot={slot} onChange={onChange} maoObraAprovado={maoObraAprovado} />
                 </AccordionContent>
               </AccordionItem>
             </Accordion>
