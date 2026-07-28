@@ -196,7 +196,7 @@ function NaoClassificados({
   // Seleciona os cards, escolhe a subcoleção/semana uma vez e atribui todos juntos.
   const atribuir = () => {
     if (checked.size === 0) return;
-    if (!bulkSem) { toast.error("Escolha a semana"); return; }
+    if (!bulkSem) { toast.error("Escolha o lançamento"); return; }
     if (hasSubs && !bulkSub) { toast.error("Escolha a subcoleção"); return; }
     const n = checked.size;
     for (const id of checked) onAssign(id, hasSubs ? bulkSub : null, bulkSem);
@@ -209,7 +209,7 @@ function NaoClassificados({
       <div className="text-sm font-medium flex items-center justify-between">
         <span>Não classificados</span><Badge variant="secondary">{cards.length}</Badge>
       </div>
-      <p className="text-xs text-muted-foreground">Cards desta coleção sem subcoleção (inclui os já planejados antes de dividir em subcoleções) ou sem semana. Selecione e atribua (em massa) para eles entrarem numa subcoleção do plano.</p>
+      <p className="text-xs text-muted-foreground">Cards desta coleção sem subcoleção (inclui os já planejados antes de dividir em subcoleções) ou sem lançamento. Selecione e atribua (em massa) para eles entrarem numa subcoleção do plano.</p>
       {/* Barra de atribuição em massa: seleciona-todos + destino (subcoleção/semana) + Atribuir. */}
       <div className="flex flex-wrap items-center gap-2 rounded-md bg-muted/40 p-2">
         <label className="flex items-center gap-1.5 text-xs cursor-pointer">
