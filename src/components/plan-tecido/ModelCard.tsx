@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import type { PtSlot, PtMaterial } from "@/lib/plan-tecido/types";
-import { ChevronRight, Lock, Check, X } from "lucide-react";
+import { ChevronRight, Lock } from "lucide-react";
 import { necessidadePorTecido, distribuirGrade } from "@/lib/plan-tecido/calc";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
@@ -141,16 +141,10 @@ export function ModelCard({
     ],
   });
   const total = necTecidos.reduce((s, t) => s + t.totalMetros, 0);
-  // variantes (cor + metragem) p/ o card colapsado — como no mockup
-  const variantesFlat = necTecidos.flatMap((t) => t.variantes);
-
   const temGrade = slot.materiais.some((m) => m.variantes.some((v) => v.grade_total > 0));
   const usarEstoque = slot.usar_estoque ?? false;
-  const catNome = categorias.find((c) => c.id === slot.categoria_id)?.nome ?? null;
-  // Resumo dos tecidos/forros do card, p/ aparecer na visão "Por linha" sem precisar expandir.
-  const tecidosResumo = Array.from(
-    new Set(slot.materiais.filter((m) => m.artigo_id && m.artigo_nome).map((m) => m.artigo_nome!)),
-  ).join(" · ");
+  // peças = grade total do Tecido 1 (base do modelo)
+  const pieces = (slot.materiais.find((m) => m.tipo === "tecido" && m.numero === 1)?.variantes ?? []).reduce((s, v) => s + (v.grade_total || 0), 0);
   const borderClass = open ? "border-primary" : usarEstoque ? "border-amber-500" : "";
 
   // Estado do botão "Aplicar ao modelo" (empurra o BOM completo). Bloqueia só se lançado.
@@ -198,35 +192,34 @@ export function ModelCard({
           </div>
         )}
         <button
-          className="flex min-h-[68px] w-full items-center gap-2 p-2 text-left"
+          className="flex w-full items-center gap-2 p-2 text-left"
           onClick={toggleOpen}
         >
-          <ChevronRight className={`h-4 w-4 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
           <ModeloThumb path={slot.thumb_path} />
-          <div className={`min-w-0 flex-1 ${onToggleSelect ? "ml-4" : ""}`}>
-            <div className="truncate text-sm font-medium">
-              {slot.nome ?? "Modelo"}
-              {slot.ref ? <span className="font-normal text-muted-foreground"> · {slot.ref}</span> : null}
-            </div>
-            {/* linha de categoria sempre reservada p/ padronizar a altura do card */}
-            <div className="h-[15px] truncate text-[11px] text-muted-foreground">{catNome}</div>
-            {/* tecido(s) do card — visível na visão "Por linha" sem expandir */}
-            <div className="h-[15px] truncate text-[11px] text-muted-foreground" title={tecidosResumo || undefined}>
-              {tecidosResumo || "— sem tecido"}
-            </div>
-            <div className="text-xs text-muted-foreground">
-              {total ? `${total.toFixed(0)} m` : "—"} · {temGrade ? "✓ grade" : "⚠ falta"}
-              {usarEstoque ? " · estoque" : ""}
+          <div className={`min-w-0 flex-1 ${onToggleSelect ? "ml-3" : ""}`}>
+            <div className="truncate text-[13px] font-semibold leading-tight">{slot.nome ?? "Modelo"}</div>
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
+              {slot.ref && <span className="tabular-nums">{slot.ref}</span>}
+              <span className="tabular-nums">{pieces} pç</span>
+              <span className="tabular-nums">{total ? `${total.toFixed(0)} m` : "0 m"}</span>
+              {usarEstoque && <span className="text-amber-600">estoque</span>}
             </div>
           </div>
+          {!temGrade && <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700" title="Falta preencher a grade">⚠ grade</span>}
+          <ChevronRight className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
         </button>
-        {!open && variantesFlat.length > 0 && (
-          <div className="space-y-0.5 border-t px-2 py-1.5">
-            {variantesFlat.map((v, i) => (
-              <div key={i} className="flex items-center gap-2 text-[11px]">
-                <VarianteSwatch nome={v.cor_nome ?? undefined} />
-                <span className="min-w-0 flex-1 truncate text-muted-foreground">{v.label}</span>
-                <span className="shrink-0 tabular-nums text-muted-foreground">{Math.round(v.metros)} m</span>
+        {!open && necTecidos.length > 0 && (
+          <div className="space-y-1.5 border-t px-2 py-1.5">
+            {necTecidos.map((t, ti) => (
+              <div key={ti} className="space-y-0.5">
+                <div className="truncate text-[10px] font-semibold uppercase tracking-tight text-muted-foreground">{t.artigo_nome}</div>
+                {t.variantes.map((v, i) => (
+                  <div key={i} className="flex items-center gap-2 pl-1 text-[11px]">
+                    <VarianteSwatch nome={v.cor_nome ?? undefined} />
+                    <span className="min-w-0 flex-1 truncate text-muted-foreground">{v.label}</span>
+                    <span className="shrink-0 tabular-nums text-muted-foreground">{Math.round(v.metros)} m</span>
+                  </div>
+                ))}
               </div>
             ))}
           </div>
@@ -317,33 +310,6 @@ export function ModelCard({
                     )}
                   </div>
                 )}
-                {/* Aprovação do custo de mão de obra (só p/ modelo real) — mesmo flag do Planejamento */}
-                {slot.modelo_id && onSetMaoObra && (
-                  <div className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                    <span className="truncate">
-                      Custo mão de obra:{" "}
-                      <span className="font-medium text-foreground">
-                        {maoObraAprovado === true ? "aprovado" : maoObraAprovado === false ? "reprovado" : "pendente"}
-                      </span>
-                    </span>
-                    <button
-                      type="button"
-                      aria-label="Aprovar custo de mão de obra"
-                      onClick={() => onSetMaoObra(true)}
-                      className={`ml-auto inline-flex h-8 w-8 shrink-0 items-center justify-center max-md:h-11 max-md:w-11 ${maoObraAprovado === true ? "text-emerald-600" : "text-muted-foreground/40 hover:text-emerald-600"}`}
-                    >
-                      <Check className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Reprovar custo de mão de obra"
-                      onClick={() => onSetMaoObra(false)}
-                      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center max-md:h-11 max-md:w-11 ${maoObraAprovado === false ? "text-red-600" : "text-muted-foreground/40 hover:text-red-600"}`}
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                )}
               </div>
             )}
             <Accordion type="multiple" defaultValue={["mat"]} className="border-t px-2">
@@ -396,7 +362,7 @@ export function ModelCard({
               <AccordionItem value="custo">
                 <AccordionTrigger className="py-2 text-xs">2. Custo &amp; Preço</AccordionTrigger>
                 <AccordionContent>
-                  <CustoSection slot={slot} onChange={onChange} />
+                  <CustoSection slot={slot} onChange={onChange} maoObraAprovado={maoObraAprovado} onSetMaoObra={slot.modelo_id ? onSetMaoObra : undefined} />
                 </AccordionContent>
               </AccordionItem>
             </Accordion>

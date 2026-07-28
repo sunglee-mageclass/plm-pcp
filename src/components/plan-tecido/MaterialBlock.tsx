@@ -64,27 +64,33 @@ export function MaterialBlock({ material, onChange, onRemove, paleta }: { materi
 
   return (
     <div className="mb-2 rounded border">
-      <div className="flex items-center gap-2 bg-muted/60 p-2">
-        <span className="rounded bg-primary px-1.5 text-[10px] font-bold text-primary-foreground">{material.tipo === "tecido" ? "TEC" : "FOR"} {material.numero}</span>
-        <select
-          className="rounded border bg-background px-2 py-1 text-xs disabled:opacity-60"
-          value={material.artigo_id ?? ""}
-          disabled={paletaVazia && !material.artigo_id}
-          title={paletaVazia && !material.artigo_id ? `Adicione ${rotulo}s em "Insumos da coleção" primeiro` : undefined}
-          onChange={(e) => escolherArtigo(e.target.value)}
-        >
-          <option value="">{paletaVazia && !material.artigo_id ? `Adicione ${rotulo}s em Insumos…` : `Escolher ${rotulo}…`}</option>
-          {artigosVisiveis.map((a) => (<option key={a.id} value={a.id}>{a.nome}{a.unidade_medida === "kg" ? " [kg]" : ""}</option>))}
-        </select>
-        {categoriaNome && (
-          <span className="shrink-0 rounded-full border bg-background px-2 py-0.5 text-[10px] text-muted-foreground" title="Categoria do tecido (cadastro)">{categoriaNome}</span>
-        )}
-        <div className="ml-auto flex items-center gap-1 text-xs">
-          <span className="text-muted-foreground">consumo</span>
-          <NumberInput blankZero placeholder="0" className="h-7 w-16 text-right" value={material.consumo} onChange={(e) => onChange({ ...material, consumo: Number(e.target.value) || 0 })} />
-          <span className="text-muted-foreground">m</span>
+      <div className="bg-muted/60 p-2">
+        {/* linha 1: TEC N + nome do tecido (largura total) + remover */}
+        <div className="flex items-center gap-2">
+          <span className="shrink-0 rounded bg-primary px-1.5 py-0.5 text-[10px] font-bold text-primary-foreground">{material.tipo === "tecido" ? "TEC" : "FOR"} {material.numero}</span>
+          <select
+            className="min-w-0 flex-1 rounded border bg-background px-2 py-1 text-xs disabled:opacity-60"
+            value={material.artigo_id ?? ""}
+            disabled={paletaVazia && !material.artigo_id}
+            title={paletaVazia && !material.artigo_id ? `Adicione ${rotulo}s em "Insumos da coleção" primeiro` : undefined}
+            onChange={(e) => escolherArtigo(e.target.value)}
+          >
+            <option value="">{paletaVazia && !material.artigo_id ? `Adicione ${rotulo}s em Insumos…` : `Escolher ${rotulo}…`}</option>
+            {artigosVisiveis.map((a) => (<option key={a.id} value={a.id}>{a.nome}{a.unidade_medida === "kg" ? " [kg]" : ""}</option>))}
+          </select>
+          <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={onRemove}><X className="h-3 w-3" /></Button>
         </div>
-        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onRemove}><X className="h-3 w-3" /></Button>
+        {/* linha 2: categoria (cadastro) + consumo (sem cortar) */}
+        <div className="mt-1.5 flex items-center gap-2">
+          {categoriaNome && (
+            <span className="shrink-0 rounded-full border bg-background px-2 py-0.5 text-[10px] text-muted-foreground" title="Categoria do tecido (cadastro)">{categoriaNome}</span>
+          )}
+          <div className="ml-auto flex items-center gap-1 text-xs">
+            <span className="text-muted-foreground">consumo</span>
+            <NumberInput blankZero placeholder="0" className="h-7 w-16 text-right" value={material.consumo} onChange={(e) => onChange({ ...material, consumo: Number(e.target.value) || 0 })} />
+            <span className="text-muted-foreground">m/pç</span>
+          </div>
+        </div>
       </div>
       {material.artigo_id && (
         <div className="p-2">

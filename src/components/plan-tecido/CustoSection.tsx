@@ -3,11 +3,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { precoInfo } from "@/lib/preco";
 import { brl } from "@/lib/format";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Check, X } from "lucide-react";
 import type { PtSlot } from "@/lib/plan-tecido/types";
 import { custoMateriaisPrevisto } from "@/lib/plan-tecido/calc";
 
-export function CustoSection({ slot, onChange }: { slot: PtSlot; onChange: (s: PtSlot) => void }) {
+export function CustoSection({ slot, onChange, maoObraAprovado, onSetMaoObra }: { slot: PtSlot; onChange: (s: PtSlot) => void; maoObraAprovado?: boolean | null; onSetMaoObra?: (aprovado: boolean) => void }) {
   // markup vem da LINHA do modelo (linhas.markup) — necessário p/ o preço sugerido
   const { data: markupMap = {} } = useQuery({
     queryKey: ["plan-tecido-linhas-markup"],
@@ -43,6 +43,20 @@ export function CustoSection({ slot, onChange }: { slot: PtSlot; onChange: (s: P
           <NumberInput blankZero placeholder="0,00" className="h-7 w-full text-right" value={materiais} onChange={(e) => onChange({ ...slot, custo_simulado: { ...cs, materiais: Number(e.target.value) || 0 } })} /></div>
         <div><div className="text-[10px] text-muted-foreground">Mão de obra prevista</div>
           <NumberInput blankZero placeholder="0,00" className="h-7 w-full text-right" value={maoObra} onChange={(e) => onChange({ ...slot, custo_terceirizados_previsto: Number(e.target.value) || 0 })} /></div>
+        {onSetMaoObra && (
+          <div className="col-span-2 flex items-center gap-1.5 rounded-md border bg-muted/30 px-2 py-1 text-[11px]">
+            <span className="text-muted-foreground">Aprovar mão de obra:</span>
+            <span className="font-medium text-foreground">{maoObraAprovado === true ? "aprovado" : maoObraAprovado === false ? "reprovado" : "pendente"}</span>
+            <button type="button" aria-label="Aprovar custo de mão de obra" onClick={() => onSetMaoObra(true)}
+              className={`ml-auto inline-flex h-7 items-center gap-1 rounded border px-2 ${maoObraAprovado === true ? "border-emerald-600 text-emerald-600" : "text-muted-foreground hover:text-emerald-600"}`}>
+              <Check className="h-3.5 w-3.5" /> Aprovar
+            </button>
+            <button type="button" aria-label="Reprovar custo de mão de obra" onClick={() => onSetMaoObra(false)}
+              className={`inline-flex h-7 items-center gap-1 rounded border px-2 ${maoObraAprovado === false ? "border-red-600 text-red-600" : "text-muted-foreground hover:text-red-600"}`}>
+              <X className="h-3.5 w-3.5" /> Reprovar
+            </button>
+          </div>
+        )}
         <RO label="Custo total" value={brl(custoTotal)} />
         <RO label="Markup (linha)" value={markup > 0 ? `${markup.toFixed(2)}×` : "—"} />
         <RO label="Preço sugerido" value={pi.sugerido > 0 ? brl(pi.sugerido) : "—"} />
