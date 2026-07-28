@@ -30,6 +30,8 @@ import { tecidosDaArvore, slotMetros } from "@/lib/plan-tecido/calc";
 import { FazerPedidoWizard, type PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
 import { PlanTecidoDrawer, type DrawerState, type DrawerKind } from "@/components/plan-tecido/PlanTecidoDrawer";
 import { useSituacaoOcs } from "@/lib/plan-tecido/useSituacaoOcs";
+import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { DroppableLane, DraggableCard } from "@/components/plan-tecido/dnd";
 
 type Nome = { id: string; nome: string };
 
@@ -201,6 +203,19 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
     setDrawer((prev) => (prev && prev.kind === kind && (prev.arg ?? null) === (arg ?? null) ? null : { kind, arg: arg ?? null }));
   const { data: situacaoRows = [] } = useSituacaoOcs(colecaoId);
   const ocNumeroDe = (id: string) => situacaoRows.find((r) => r.oc_tecido_id === id)?.numero ?? null;
+  // arrastar card entre lanes (grip inicia; distância p/ não confundir com clique)
+  const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const [dragId, setDragId] = useState<string | null>(null);
+  const nomeDoChave = (chave: string): string | null => {
+    if (!arvore) return null;
+    const sub = arvore.subcolecoes[subAtiva];
+    for (let li = 0; li < (sub?.linhas.length ?? 0); li++)
+      for (let sli = 0; sli < sub.linhas[li].slots.length; sli++) {
+        const s = sub.linhas[li].slots[sli];
+        if (chaveSlot(s.id, subAtiva, li, sli) === chave) return s.nome ?? s.ref ?? "Modelo";
+      }
+    return null;
+  };
 
   const toggleRecolhido = (chave: string) =>
     setRecolhidos((prev) => { const n = new Set(prev); if (n.has(chave)) n.delete(chave); else n.add(chave); return n; });
@@ -469,6 +484,29 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
 
   const patch = (next: PtArvore) => { setArvore(next); setDirty(true); };
 
+  // solta o card numa lane → muda a categoria de tecido do modelo (id do drag = chave do slot)
+  const handleDragEnd = (e: DragEndEvent) => {
+    setDragId(null);
+    const { active, over } = e;
+    if (!over || !arvore) return;
+    const chave = String(active.id);
+    const laneId = String(over.id);
+    const alvo = laneId === "lane:__sem__" ? null : laneId.startsWith("lane:") ? laneId.slice(5) : undefined;
+    if (alvo === undefined) return;
+    const sub = arvore.subcolecoes[subAtiva];
+    for (let li = 0; li < sub.linhas.length; li++) {
+      const slots = sub.linhas[li].slots;
+      for (let sli = 0; sli < slots.length; sli++) {
+        if (chaveSlot(slots[sli].id, subAtiva, li, sli) !== chave) continue;
+        if ((slots[sli].categoria_tecido_id ?? null) === alvo) return; // já está nessa lane
+        const next = structuredClone(arvore) as PtArvore;
+        next.subcolecoes[subAtiva].linhas[li].slots[sli].categoria_tecido_id = alvo;
+        patch(next);
+        return;
+      }
+    }
+  };
+
   // Aplica um material (Tecido 1) em todos os slots selecionados (estado local)
   function aplicarTecidoEmMassa(material: PtMaterial) {
     if (!arvore) return;
@@ -707,37 +745,46 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                     <Button size="sm" variant="outline" className="gap-1" onClick={() => setAddCatOpen(true)}><Plus className="h-3.5 w-3.5" /> categoria</Button>
                   </div>
                 </div>
-                <div className="space-y-4">
-                  {laneCats.map((cid) => {
-                    const slots = slotsOf(cid);
-                    const laneKey = `${subAtiva}:${cid ?? "__sem__"}`;
-                    const laneRecolhida = lanesRecolhidas.has(laneKey);
-                    const laneMetros = slots.reduce((a, { slot }) => a + slotMetros(slot, "tecido"), 0);
-                    return (
-                      <section key={cid ?? "__sem__"}>
-                        <div className="mb-1 flex items-center gap-2">
-                          <button type="button" onClick={() => toggleLane(laneKey)} title={laneRecolhida ? "Expandir" : "Recolher"} className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground">
-                            {laneRecolhida ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                          </button>
-                          <span className={`text-sm font-semibold ${cid ? "" : "text-muted-foreground"}`}>{cid ? (catTecidoNome(cid) ?? "?") : "Sem categoria"}</span>
-                          <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{slots.length} modelo(s){laneMetros > 0 ? ` · ${Math.round(laneMetros)} m` : ""}</span>
-                          {cid && <button type="button" className="ml-1 rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Remover categoria" onClick={() => removeCategoria(cid)}><X className="h-3.5 w-3.5" /></button>}
-                        </div>
-                        {!laneRecolhida && (
-                          <div className="flex items-start gap-3 overflow-x-auto pb-2">
-                            {slots.length ? slots.map(({ slot, li, sli, chave }) => (
-                              <div key={slot.id ?? `${li}-${sli}`} className="w-[360px] shrink-0">{cardOf(slot, li, sli, chave)}</div>
-                            )) : (
-                              <div className="min-w-[280px] rounded-lg border border-dashed p-4 text-center text-xs italic text-muted-foreground">
-                                Selecione modelos e clique “Aplicar categoria”, ou defina a categoria de tecido dentro do card.
-                              </div>
-                            )}
+                <DndContext sensors={dndSensors} onDragStart={(e) => setDragId(String(e.active.id))} onDragCancel={() => setDragId(null)} onDragEnd={handleDragEnd}>
+                  <div className="space-y-4">
+                    {laneCats.map((cid) => {
+                      const slots = slotsOf(cid);
+                      const laneKey = `${subAtiva}:${cid ?? "__sem__"}`;
+                      const laneRecolhida = lanesRecolhidas.has(laneKey);
+                      const laneMetros = slots.reduce((a, { slot }) => a + slotMetros(slot, "tecido"), 0);
+                      return (
+                        <section key={cid ?? "__sem__"}>
+                          <div className="mb-1 flex items-center gap-2">
+                            <button type="button" onClick={() => toggleLane(laneKey)} title={laneRecolhida ? "Expandir" : "Recolher"} className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground">
+                              {laneRecolhida ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                            </button>
+                            <span className={`text-sm font-semibold ${cid ? "" : "text-muted-foreground"}`}>{cid ? (catTecidoNome(cid) ?? "?") : "Sem categoria"}</span>
+                            <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{slots.length} modelo(s){laneMetros > 0 ? ` · ${Math.round(laneMetros)} m` : ""}</span>
+                            {cid && <button type="button" className="ml-1 rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Remover categoria" onClick={() => removeCategoria(cid)}><X className="h-3.5 w-3.5" /></button>}
                           </div>
-                        )}
-                      </section>
-                    );
-                  })}
-                </div>
+                          {!laneRecolhida && (
+                            <DroppableLane id={`lane:${cid ?? "__sem__"}`}>
+                              {slots.length ? slots.map(({ slot, li, sli, chave }) => (
+                                <DraggableCard key={slot.id ?? `${li}-${sli}`} id={chave}>{cardOf(slot, li, sli, chave)}</DraggableCard>
+                              )) : (
+                                <div className="min-w-[280px] rounded-lg border border-dashed p-4 text-center text-xs italic text-muted-foreground">
+                                  Arraste um card aqui, ou defina a categoria de tecido dentro do card.
+                                </div>
+                              )}
+                            </DroppableLane>
+                          )}
+                        </section>
+                      );
+                    })}
+                  </div>
+                  <DragOverlay dropAnimation={null}>
+                    {dragId ? (
+                      <div className="w-[300px] rounded-lg border-2 border-primary bg-card px-3 py-2 text-sm font-semibold shadow-lg">
+                        {nomeDoChave(dragId) ?? "Modelo"}
+                      </div>
+                    ) : null}
+                  </DragOverlay>
+                </DndContext>
               </main>
             </div>
           );
