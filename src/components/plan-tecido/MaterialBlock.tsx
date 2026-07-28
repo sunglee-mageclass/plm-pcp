@@ -20,12 +20,12 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }:
   const { tecidoArtigos, forroArtigos, categoriaNomeDe, fornecedorDe, artigoTemCategoria } = useArtigosTecido();
   const { data: coresCombos = [] } = useCoresCombos();
   const rotulo = material.tipo === "forro" ? "forro" : "tecido";
-  // lista-base pelo PAPEL do bloco: TEC só tecidos; FOR só forros. Mostra TODOS (o filtro por
-  // categoria da lane escondia opções válidas). Se há categoria da lane, os tecidos DAQUELA
-  // categoria vão pro topo (ordenação, NÃO filtro) — nada some. Forro nunca reordena.
+  // lista-base pelo PAPEL do bloco: TEC só tecidos; FOR só forros. TECIDO é FILTRADO pela categoria
+  // da lane (ex.: lane Chiffon → só tecidos Chiffon); o artigo já escolhido continua visível. Forro
+  // tem categoria própria ("Forro") e nunca casa a categoria-de-tecido da lane → não filtra.
   const base = material.tipo === "forro" ? forroArtigos : tecidoArtigos;
   const artigosVisiveis = laneCategoriaId && material.tipo !== "forro"
-    ? [...base].sort((a, b) => Number(artigoTemCategoria(b.id, laneCategoriaId)) - Number(artigoTemCategoria(a.id, laneCategoriaId)))
+    ? base.filter((a) => artigoTemCategoria(a.id, laneCategoriaId) || a.id === material.artigo_id)
     : base;
   const categoriaNome = material.artigo_id ? categoriaNomeDe(material.artigo_id) : null;
 

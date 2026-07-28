@@ -18,7 +18,7 @@ export type ModeloRealMaterial = {
   consumo: number;
   loss_percent: number;
   // variantes do BOM: variante_tecido_id + ordem (=variante_numero na grade) + multiplicador + cor_nome
-  variantes: { variante_tecido_id: string; ordem: number; multiplicador: number; cor_nome?: string | null }[];
+  variantes: { variante_tecido_id: string; ordem: number; multiplicador: number; cor_nome?: string | null; label?: string | null }[];
 };
 export type ModeloReal = {
   id: string;
@@ -54,6 +54,7 @@ export function slotDeModeloReal(mr: ModeloReal, slotIndex: number): PtSlot {
           grades: g?.grades ?? {},
           grade_total: Number(g?.grade_total) || 0,
           cor_nome: v.cor_nome ?? null,
+          label: v.label ?? undefined,
         };
       });
     return {
