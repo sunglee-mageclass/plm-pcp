@@ -73,7 +73,12 @@ export function PlanTecidoDrawer({
         <table className="w-full text-xs tabular-nums">
           <thead className="text-[10px] uppercase tracking-wide text-muted-foreground">
             {kind === "comprar" ? (
-              <tr><th className="p-1.5 text-left font-medium">Tecido / variante</th><th className="p-1.5 text-right font-medium">Metragem</th></tr>
+              <tr>
+                <th className="p-1.5 text-left font-medium">Tecido / variante</th>
+                <th className="p-1.5 text-right font-medium">Nec.</th>
+                <th className="p-1.5 text-right font-medium">Pedido</th>
+                <th className="p-1.5 text-right font-medium">Receb.</th>
+              </tr>
             ) : (
               <tr>
                 <th className="p-1.5 text-left font-medium">Tecido / variante</th>
@@ -87,14 +92,13 @@ export function PlanTecidoDrawer({
           </thead>
           <tbody>
             {nec.length === 0 ? (
-              <tr><td colSpan={kind === "comprar" ? 2 : 6} className="p-3 text-center text-muted-foreground">
+              <tr><td colSpan={kind === "comprar" ? 4 : 6} className="p-3 text-center text-muted-foreground">
                 {kind === "ocnum" ? "Nenhum modelo atribuído a esta OC — use “OC vinculada” no card." : "Nenhum tecido planejado."}
               </td></tr>
             ) : nec.map((t) => (
               <Fragment key={t.artigo_id}>
                 <tr className="border-t bg-muted/40">
-                  <td className="p-1.5 font-medium" colSpan={kind === "comprar" ? 1 : 6}>{t.artigo_nome}</td>
-                  {kind === "comprar" && <td className="p-1.5 text-right font-medium">{nMet(t.totalMetros)} m</td>}
+                  <td className="p-1.5 font-medium" colSpan={kind === "comprar" ? 4 : 6}>{t.artigo_nome}</td>
                 </tr>
                 {t.variantes.map((v) => {
                   const s = (v.variante_tecido_id ? situ.get(v.variante_tecido_id) : undefined) ?? { pedida: 0, entregue: 0, usada: 0 };
@@ -103,11 +107,15 @@ export function PlanTecidoDrawer({
                     <tr key={v.key} className="border-t">
                       <td className="p-1.5">
                         <span className="flex min-w-0 items-center gap-1">
-                          <VarianteSwatch nome={v.cor_nome ?? v.label} /><span className="truncate">{v.label || "—"}</span>
+                          <VarianteSwatch nome={v.cor_nome ?? v.label} /><span className="truncate">{v.label || v.cor_nome || "—"}</span>
                         </span>
                       </td>
                       {kind === "comprar" ? (
-                        <td className="p-1.5 text-right">{nMet(v.metros)} m</td>
+                        <>
+                          <td className="p-1.5 text-right">{nMet(v.metros)}</td>
+                          <td className={`p-1.5 text-right ${s.pedida > 0 ? "font-medium text-emerald-600" : "text-muted-foreground"}`}>{nMet(s.pedida)}</td>
+                          <td className="p-1.5 text-right text-muted-foreground">{nMet(s.entregue)}</td>
+                        </>
                       ) : (
                         <>
                           <td className="p-1.5 text-right">{nMet(s.pedida)}</td>
