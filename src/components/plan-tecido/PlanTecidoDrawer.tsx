@@ -10,19 +10,10 @@ export type DrawerState = { kind: DrawerKind; arg: string | null };
 
 const nMet = (n: number) => `${Math.round(n)}`;
 const encomenda = (s: PtSlot) => !(s.usar_estoque ?? false);
-
-/** Σ pedida/entregue/usada por variante, a partir das linhas da RPC (filtradas por OC se preciso). */
-function situPorVariante(rows: SituacaoOcRow[]) {
-  const m = new Map<string, { pedida: number; entregue: number; usada: number }>();
-  for (const r of rows) {
-    const cur = m.get(r.variante_tecido_id) ?? { pedida: 0, entregue: 0, usada: 0 };
-    cur.pedida += r.pedida_m; cur.entregue += r.entregue_m; cur.usada += r.usada_m;
-    m.set(r.variante_tecido_id, cur);
-  }
-  return m;
-}
-
 const sobraCls = (s: number) => (s < 0 ? "text-red-600" : "text-emerald-600");
+
+type Linha = { key: string; label: string; cor_nome: string | null; reservada: number; pedida: number; entregue: number; usada: number };
+type Grupo = { artigo: string; variantes: Linha[] };
 
 export function PlanTecidoDrawer({
   state, subArvore, colecaoArvore, situacao, slotOcMap, ocNumeroDe, onClose,
@@ -37,17 +28,46 @@ export function PlanTecidoDrawer({
 }) {
   const { kind, arg } = state;
 
-  // fonte das linhas = NECESSIDADE (tecidos planejados); OC entra por lookup de variante
+  // NECESSIDADE (reservada) — 'comprar'/'oc' = coleção; 'ocnum' = só os cards atribuídos à OC.
   const nec =
     kind === "comprar"
       ? necessidadePorTecido(subArvore, encomenda)
       : kind === "ocnum" && arg
         ? necessidadePorTecido(colecaoArvore, (s) => encomenda(s) && !!s.id && (slotOcMap[s.id] ?? []).includes(arg))
         : necessidadePorTecido(colecaoArvore, encomenda);
+  const necByVar = new Map<string, number>();
+  for (const t of nec) for (const v of t.variantes) if (v.variante_tecido_id) necByVar.set(v.variante_tecido_id, (necByVar.get(v.variante_tecido_id) ?? 0) + v.metros);
 
   const situRows = kind === "ocnum" && arg ? situacao.filter((r) => r.oc_tecido_id === arg) : situacao;
-  const situ = situPorVariante(situRows);
-  const total = nec.reduce((a, t) => a + t.totalMetros, 0);
+
+  // 'comprar' = dirigido pela NECESSIDADE (o que planejei comprar) + pedido/recebido por variante.
+  // 'oc'/'ocnum' = dirigido pelos ITENS DA OC (mostra o pedido mesmo sem card atribuído) + reservada.
+  let grupos: Grupo[];
+  let total = 0;
+  if (kind === "comprar") {
+    const situ = new Map<string, { pedida: number; entregue: number }>();
+    for (const r of situRows) { const c = situ.get(r.variante_tecido_id) ?? { pedida: 0, entregue: 0 }; c.pedida += r.pedida_m; c.entregue += r.entregue_m; situ.set(r.variante_tecido_id, c); }
+    grupos = nec.map((t) => ({
+      artigo: t.artigo_nome,
+      variantes: t.variantes.map((v) => {
+        const s = (v.variante_tecido_id ? situ.get(v.variante_tecido_id) : undefined) ?? { pedida: 0, entregue: 0 };
+        total += v.metros;
+        return { key: v.key, label: v.label, cor_nome: v.cor_nome, reservada: v.metros, pedida: s.pedida, entregue: s.entregue, usada: 0 };
+      }),
+    }));
+  } else {
+    // agrupa os itens da OC (ou de todas as OCs, no 'oc') por artigo → variante
+    const porArtigo = new Map<string, Map<string, Linha>>();
+    for (const r of situRows) {
+      if (!porArtigo.has(r.artigo_nome)) porArtigo.set(r.artigo_nome, new Map());
+      const vm = porArtigo.get(r.artigo_nome)!;
+      const cur = vm.get(r.variante_tecido_id) ?? { key: r.variante_tecido_id, label: r.variante_label ?? "", cor_nome: null, reservada: necByVar.get(r.variante_tecido_id) ?? 0, pedida: 0, entregue: 0, usada: 0 };
+      cur.pedida += r.pedida_m; cur.entregue += r.entregue_m; cur.usada += r.usada_m;
+      vm.set(r.variante_tecido_id, cur);
+    }
+    grupos = [...porArtigo.entries()].map(([artigo, vm]) => ({ artigo, variantes: [...vm.values()] }));
+  }
+  const nCols = kind === "comprar" ? 4 : 6;
 
   const titulo =
     kind === "comprar" ? "A comprar — por tecido e variante"
@@ -55,7 +75,7 @@ export function PlanTecidoDrawer({
         : "Situação da OC — por tecido e variante";
   const sub =
     kind === "comprar" ? `total ${nMet(total)} m`
-      : kind === "ocnum" ? `${nec.length} tecido(s) atribuído(s)`
+      : kind === "ocnum" ? `${grupos.reduce((a, g) => a + g.variantes.length, 0)} item(ns) da OC`
         : "coleção · valores das OCs (m)";
 
   return (
@@ -91,18 +111,15 @@ export function PlanTecidoDrawer({
             )}
           </thead>
           <tbody>
-            {nec.length === 0 ? (
-              <tr><td colSpan={kind === "comprar" ? 4 : 6} className="p-3 text-center text-muted-foreground">
-                {kind === "ocnum" ? "Nenhum modelo atribuído a esta OC — use “OC vinculada” no card." : "Nenhum tecido planejado."}
+            {grupos.length === 0 ? (
+              <tr><td colSpan={nCols} className="p-3 text-center text-muted-foreground">
+                {kind === "ocnum" ? "Esta OC não tem itens." : kind === "oc" ? "Nenhuma OC com itens nesta coleção." : "Nenhum tecido planejado."}
               </td></tr>
-            ) : nec.map((t) => (
-              <Fragment key={t.artigo_id}>
-                <tr className="border-t bg-muted/40">
-                  <td className="p-1.5 font-medium" colSpan={kind === "comprar" ? 4 : 6}>{t.artigo_nome}</td>
-                </tr>
-                {t.variantes.map((v) => {
-                  const s = (v.variante_tecido_id ? situ.get(v.variante_tecido_id) : undefined) ?? { pedida: 0, entregue: 0, usada: 0 };
-                  const sobra = s.pedida - v.metros; // sobra prevista = pedida − reservada
+            ) : grupos.map((g) => (
+              <Fragment key={g.artigo}>
+                <tr className="border-t bg-muted/40"><td className="p-1.5 font-medium" colSpan={nCols}>{g.artigo}</td></tr>
+                {g.variantes.map((v) => {
+                  const sobra = v.pedida - v.reservada;
                   return (
                     <tr key={v.key} className="border-t">
                       <td className="p-1.5">
@@ -112,16 +129,16 @@ export function PlanTecidoDrawer({
                       </td>
                       {kind === "comprar" ? (
                         <>
-                          <td className="p-1.5 text-right">{nMet(v.metros)}</td>
-                          <td className={`p-1.5 text-right ${s.pedida > 0 ? "font-medium text-emerald-600" : "text-muted-foreground"}`}>{nMet(s.pedida)}</td>
-                          <td className="p-1.5 text-right text-muted-foreground">{nMet(s.entregue)}</td>
+                          <td className="p-1.5 text-right">{nMet(v.reservada)}</td>
+                          <td className={`p-1.5 text-right ${v.pedida > 0 ? "font-medium text-emerald-600" : "text-muted-foreground"}`}>{nMet(v.pedida)}</td>
+                          <td className="p-1.5 text-right text-muted-foreground">{nMet(v.entregue)}</td>
                         </>
                       ) : (
                         <>
-                          <td className="p-1.5 text-right">{nMet(s.pedida)}</td>
-                          <td className="p-1.5 text-right">{nMet(s.entregue)}</td>
-                          <td className="p-1.5 text-right text-muted-foreground">{nMet(v.metros)}</td>
-                          <td className="p-1.5 text-right">{nMet(s.usada)}</td>
+                          <td className="p-1.5 text-right">{nMet(v.pedida)}</td>
+                          <td className="p-1.5 text-right">{nMet(v.entregue)}</td>
+                          <td className="p-1.5 text-right text-muted-foreground">{nMet(v.reservada)}</td>
+                          <td className="p-1.5 text-right">{nMet(v.usada)}</td>
                           <td className={`p-1.5 text-right font-medium ${sobraCls(sobra)}`}>{sobra > 0 ? "+" : ""}{nMet(sobra)}</td>
                         </>
                       )}
