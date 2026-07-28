@@ -232,8 +232,9 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
   const { data: subNomes = [] } = useQuery({
     queryKey: ["plan-tecido-subnomes", colecaoId],
     queryFn: async () =>
-      ((await supabase.from("colecao_subcolecoes" as any).select("id, nome").eq("colecao_id", colecaoId)).data ?? []) as unknown as Nome[],
+      ((await supabase.from("colecao_subcolecoes" as any).select("id, nome, ordem").eq("colecao_id", colecaoId).order("ordem")).data ?? []) as unknown as (Nome & { ordem: number })[],
   });
+  const subOrdem = (id: string | null | undefined) => subNomes.find((s) => s.id === id)?.ordem ?? 999;
   // categorias de TECIDO (rótulos das lanes do canvas)
   const { data: catTecidoNomes = [] } = useQuery({
     queryKey: ["plan-tecido-cat-tecido-nomes"],
@@ -548,7 +549,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
 
   return (
     <Sheet open onOpenChange={(o) => { if (!o) requestClose(); }}>
-      <SheetContent side="right" className="w-screen max-w-none flex flex-col p-0 max-sm:[&>button]:hidden">
+      <SheetContent side="right" className="w-screen max-w-none sm:max-w-none flex flex-col p-0 max-sm:[&>button]:hidden">
         <div className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background p-3">
           <Breadcrumb items={[
             { label: "Estilo & Engenharia" },
@@ -577,7 +578,10 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
           <div className="flex-1 overflow-y-auto p-4">
             <div className="mb-3 text-sm text-muted-foreground">Escolha uma subcoleção para planejar os tecidos por categoria.</div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {arvore.subcolecoes.map((sub, si) => {
+              {arvore.subcolecoes
+                .map((sub, si) => ({ sub, si }))
+                .sort((a, b) => subOrdem(a.sub.subcolecao_id) - subOrdem(b.sub.subcolecao_id) || a.si - b.si)
+                .map(({ sub, si }) => {
                 const nSlots = sub.linhas.reduce((a, l) => a + l.slots.length, 0);
                 const cats = sub.categorias_tecido ?? [];
                 const semCat = sub.linhas.reduce((a, l) => a + l.slots.filter((s) => !s.categoria_tecido_id).length, 0);

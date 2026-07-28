@@ -26,7 +26,7 @@ export function Breadcrumb({ items }: BreadcrumbProps) {
               {item.to && !isLast ? (
                 <Link
                   to={item.to}
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  className="cursor-pointer text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
                 >
                   {item.label}
                 </Link>
@@ -34,7 +34,7 @@ export function Breadcrumb({ items }: BreadcrumbProps) {
                 <button
                   type="button"
                   onClick={item.onClick}
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  className="cursor-pointer text-xs text-muted-foreground underline-offset-2 transition-colors hover:text-foreground hover:underline"
                 >
                   {item.label}
                 </button>
