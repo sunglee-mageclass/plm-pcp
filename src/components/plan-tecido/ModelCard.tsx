@@ -18,6 +18,7 @@ import { GradeSection } from "./GradeSection";
 import { CustoSection } from "./CustoSection";
 import { ModeloThumb } from "./ModeloThumb";
 import { SlotOcHint } from "./SlotOcHint";
+import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 
 function novoMaterial(existentes: PtMaterial[], tipo: "tecido" | "forro"): PtMaterial {
   const numero = existentes.filter((m) => m.tipo === tipo).length + 1;
@@ -129,7 +130,7 @@ export function ModelCard({
       }[],
   });
 
-  const total = necessidadePorTecido({
+  const necTecidos = necessidadePorTecido({
     colecao_id: "",
     subcolecoes: [
       {
@@ -138,7 +139,10 @@ export function ModelCard({
         linhas: [{ linha_id: null, categoria_id: null, ordem: 0, slots: [slot] }],
       },
     ],
-  }).reduce((s, t) => s + t.totalMetros, 0);
+  });
+  const total = necTecidos.reduce((s, t) => s + t.totalMetros, 0);
+  // variantes (cor + metragem) p/ o card colapsado — como no mockup
+  const variantesFlat = necTecidos.flatMap((t) => t.variantes);
 
   const temGrade = slot.materiais.some((m) => m.variantes.some((v) => v.grade_total > 0));
   const usarEstoque = slot.usar_estoque ?? false;
@@ -216,6 +220,17 @@ export function ModelCard({
             </div>
           </div>
         </button>
+        {!open && variantesFlat.length > 0 && (
+          <div className="space-y-0.5 border-t px-2 py-1.5">
+            {variantesFlat.map((v, i) => (
+              <div key={i} className="flex items-center gap-2 text-[11px]">
+                <VarianteSwatch nome={v.cor_nome ?? undefined} />
+                <span className="min-w-0 flex-1 truncate text-muted-foreground">{v.label}</span>
+                <span className="shrink-0 tabular-nums text-muted-foreground">{Math.round(v.metros)} m</span>
+              </div>
+            ))}
+          </div>
+        )}
         {open && (
           <>
             {/* Grade = proporção por tamanho (fixa no topo, não colapsável) */}
