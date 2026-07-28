@@ -17,7 +17,7 @@ import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useAuth } from "@/hooks/useAuth";
-import { ArrowLeft, ShoppingCart, Undo2, Plus, X, Tag, PanelLeft, Ruler } from "lucide-react";
+import { ArrowLeft, ShoppingCart, Undo2, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, ChevronRight } from "lucide-react";
 import {
   semearComModelos, mergeArvore, type SeedInput, type ModeloReal, type ModeloRealMaterial,
 } from "@/lib/plan-tecido/engine";
@@ -26,7 +26,7 @@ import { ModelCard } from "@/components/plan-tecido/ModelCard";
 import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
-import { tecidosDaArvore } from "@/lib/plan-tecido/calc";
+import { tecidosDaArvore, slotMetros } from "@/lib/plan-tecido/calc";
 import { FazerPedidoWizard, type PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
 import { PlanTecidoDrawer, type DrawerState, type DrawerKind } from "@/components/plan-tecido/PlanTecidoDrawer";
 import { useSituacaoOcs } from "@/lib/plan-tecido/useSituacaoOcs";
@@ -195,6 +195,8 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
   const [recolhidos, setRecolhidos] = useState<Set<string>>(new Set()); // chaves de cards recolhidos
   const [resumoAberto, setResumoAberto] = useState(true); // resumo colapsável (trilho)
   const [drawer, setDrawer] = useState<DrawerState | null>(null); // subsheet "detalhar" (extensão)
+  const [lanesRecolhidas, setLanesRecolhidas] = useState<Set<string>>(new Set()); // lanes (categorias) colapsáveis
+  const toggleLane = (k: string) => setLanesRecolhidas((prev) => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
   const openDrawer = (kind: DrawerKind, arg?: string) =>
     setDrawer((prev) => (prev && prev.kind === kind && (prev.arg ?? null) === (arg ?? null) ? null : { kind, arg: arg ?? null }));
   const { data: situacaoRows = [] } = useSituacaoOcs(colecaoId);
@@ -708,22 +710,30 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                 <div className="space-y-4">
                   {laneCats.map((cid) => {
                     const slots = slotsOf(cid);
+                    const laneKey = `${subAtiva}:${cid ?? "__sem__"}`;
+                    const laneRecolhida = lanesRecolhidas.has(laneKey);
+                    const laneMetros = slots.reduce((a, { slot }) => a + slotMetros(slot, "tecido"), 0);
                     return (
                       <section key={cid ?? "__sem__"}>
                         <div className="mb-1 flex items-center gap-2">
+                          <button type="button" onClick={() => toggleLane(laneKey)} title={laneRecolhida ? "Expandir" : "Recolher"} className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground">
+                            {laneRecolhida ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                          </button>
                           <span className={`text-sm font-semibold ${cid ? "" : "text-muted-foreground"}`}>{cid ? (catTecidoNome(cid) ?? "?") : "Sem categoria"}</span>
-                          <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{slots.length} modelo(s)</span>
+                          <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{slots.length} modelo(s){laneMetros > 0 ? ` · ${Math.round(laneMetros)} m` : ""}</span>
                           {cid && <button type="button" className="ml-1 rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Remover categoria" onClick={() => removeCategoria(cid)}><X className="h-3.5 w-3.5" /></button>}
                         </div>
-                        <div className="flex items-start gap-3 overflow-x-auto pb-2">
-                          {slots.length ? slots.map(({ slot, li, sli, chave }) => (
-                            <div key={slot.id ?? `${li}-${sli}`} className="w-[360px] shrink-0">{cardOf(slot, li, sli, chave)}</div>
-                          )) : (
-                            <div className="min-w-[280px] rounded-lg border border-dashed p-4 text-center text-xs italic text-muted-foreground">
-                              Selecione modelos e clique “Aplicar categoria”, ou defina a categoria de tecido dentro do card.
-                            </div>
-                          )}
-                        </div>
+                        {!laneRecolhida && (
+                          <div className="flex items-start gap-3 overflow-x-auto pb-2">
+                            {slots.length ? slots.map(({ slot, li, sli, chave }) => (
+                              <div key={slot.id ?? `${li}-${sli}`} className="w-[360px] shrink-0">{cardOf(slot, li, sli, chave)}</div>
+                            )) : (
+                              <div className="min-w-[280px] rounded-lg border border-dashed p-4 text-center text-xs italic text-muted-foreground">
+                                Selecione modelos e clique “Aplicar categoria”, ou defina a categoria de tecido dentro do card.
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </section>
                     );
                   })}

@@ -1,86 +1,118 @@
 // src/components/plan-tecido/MaterialBlock.tsx
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { NumberInput } from "@/components/shared/NumberInput";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
-import { X } from "lucide-react";
+import { X, Plus, AlertTriangle } from "lucide-react";
 import { labelVarianteRow } from "@/lib/variante";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
+import { useCoresCombos } from "@/lib/plan-tecido/useCoresCombos";
+import { varKey } from "@/lib/plan-tecido/calc";
 import type { PtMaterial, PtVariante } from "@/lib/plan-tecido/types";
 
-type VarRow = { id: string; nome_variante: string | null; codigo_variante: string | null; cor: { nome: string | null } | null; apelido: { nome: string | null } | null };
+type VarRow = { id: string; nome_variante: string | null; codigo_variante: string | null; cor_id: string | null; cor_apelido_id: string | null; cor: { nome: string | null } | null; apelido: { nome: string | null } | null };
 
-export function MaterialBlock({ material, onChange, onRemove, paleta }: { material: PtMaterial; onChange: (m: PtMaterial) => void; onRemove: () => void; paleta?: { artigo_id: string; papel: string }[] }) {
-  const { tecidoArtigos, forroArtigos, categoriaNomeDe, fornecedorDe } = useArtigosTecido();
+const comboKey = (cid?: string | null, aid?: string | null) => `${cid ?? ""}|${aid ?? ""}`;
+
+export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }: { material: PtMaterial; onChange: (m: PtMaterial) => void; onRemove: () => void; laneCategoriaId?: string | null; paleta?: { artigo_id: string; papel: string }[] }) {
+  const { tecidoArtigos, forroArtigos, categoriaNomeDe, fornecedorDe, artigoTemCategoria } = useArtigosTecido();
+  const { data: coresCombos = [] } = useCoresCombos();
   const rotulo = material.tipo === "forro" ? "forro" : "tecido";
-  // lista-base pelo PAPEL do bloco: TEC só tecidos (sem forro/entretela); FOR só forros
+  // lista-base pelo PAPEL do bloco: TEC só tecidos; FOR só forros — e FILTRADA pela categoria da lane
   const base = material.tipo === "forro" ? forroArtigos : tecidoArtigos;
-  const categoriaNome = material.artigo_id ? categoriaNomeDe(material.artigo_id) : null;
-  // Paleta ("Insumos da coleção") APOSENTADA: quando não há paleta, mostra todos os artigos
-  // do tipo (o filtro fino por categoria da lane entra na Fase 4.2).
-  const paletaDoTipo = (paleta ?? []).filter((p) => p.papel === material.tipo).map((p) => p.artigo_id);
-  const artigosVisiveis = paletaDoTipo.length > 0
-    ? base.filter((a) => paletaDoTipo.includes(a.id) || a.id === material.artigo_id)
+  const artigosVisiveis = laneCategoriaId
+    ? base.filter((a) => artigoTemCategoria(a.id, laneCategoriaId) || a.id === material.artigo_id)
     : base;
+  const categoriaNome = material.artigo_id ? categoriaNomeDe(material.artigo_id) : null;
+
   const { data: variantesArtigo = [] } = useQuery({
     queryKey: ["plan-tecido-variantes-artigo", material.artigo_id],
     enabled: !!material.artigo_id,
     queryFn: async () => ((await supabase.from("variantes_tecido")
-      .select("id, nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)")
+      .select("id, nome_variante, codigo_variante, cor_id, cor_apelido_id, cor:cor_id(nome), apelido:cor_apelido_id(nome)")
       .eq("artigo_id", material.artigo_id!).order("id")).data ?? []) as unknown as VarRow[],
   });
+  const realById = new Map(variantesArtigo.map((v) => [v.id, v]));
+  const realByCombo = new Map(variantesArtigo.map((v) => [comboKey(v.cor_id, v.cor_apelido_id), v]));
 
-  const marcada = (vid: string) => material.variantes.some((v) => v.variante_tecido_id === vid);
-  const toggle = (vid: string) => {
-    let next: PtVariante[];
-    if (marcada(vid)) {
-      next = material.variantes.filter((v) => v.variante_tecido_id !== vid);
-    } else {
-      const row = variantesArtigo.find((x) => x.id === vid);
-      // carrega label + cor já na seleção (senão o Resumo mostra "—")
-      const nova: PtVariante = {
-        variante_tecido_id: vid, ordem: 0, multiplicador: 1, grades: {}, grade_total: 0,
-        label: row ? labelVarianteRow(row as any) : undefined,
-        cor_nome: row?.cor?.nome ?? null,
-      };
-      next = [...material.variantes, nova];
-    }
-    // renumerate 1..n to avoid gaps that would violate uq_plan_var (material_id, ordem)
-    next = next.map((v, i) => ({ ...v, ordem: i + 1 }));
-    onChange({ ...material, variantes: next });
+  // cor planejada que casa uma variante real do artigo → "vira" variante (variante_tecido_id)
+  useEffect(() => {
+    if (!material.artigo_id || variantesArtigo.length === 0) return;
+    let changed = false;
+    const next = material.variantes.map((v) => {
+      if (!v.variante_tecido_id && v.cor_id) {
+        const real = realByCombo.get(comboKey(v.cor_id, v.cor_apelido_id));
+        if (real) { changed = true; return { ...v, variante_tecido_id: real.id, label: labelVarianteRow(real as any), cor_nome: real.cor?.nome ?? v.cor_nome }; }
+      }
+      return v;
+    });
+    if (changed) onChange({ ...material, variantes: next });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [variantesArtigo, material.artigo_id, material.variantes.length]);
+
+  // divergência: cor que não existe nas variantes do artigo (só faz sentido com artigo escolhido)
+  const divergente = (v: PtVariante) => {
+    if (!material.artigo_id) return false;
+    if (v.variante_tecido_id) return !realById.has(v.variante_tecido_id);
+    return !realByCombo.has(comboKey(v.cor_id, v.cor_apelido_id));
+  };
+  const temDivergentes = material.variantes.some(divergente);
+
+  const renum = (vs: PtVariante[]) => vs.map((v, i) => ({ ...v, ordem: i + 1 }));
+  const removerVariante = (v: PtVariante) => onChange({ ...material, variantes: renum(material.variantes.filter((x) => varKey(x) !== varKey(v))) });
+  const removerDivergentes = () => onChange({ ...material, variantes: renum(material.variantes.filter((v) => !divergente(v))) });
+  const setGrade = (v: PtVariante, val: number) =>
+    onChange({ ...material, variantes: material.variantes.map((x) => (varKey(x) === varKey(v) ? { ...x, grade_total: val } : x)) });
+
+  const [menuOpen, setMenuOpen] = useState(false);
+  const usados = new Set(material.variantes.map((v) => varKey(v)));
+  const usadosCombo = new Set(material.variantes.map((v) => comboKey(v.cor_id, v.cor_apelido_id)).filter((k) => k !== "|"));
+  // opções: com artigo → variantes do tecido ainda não usadas; sem artigo → todas as combinações
+  const opcoesArtigo = variantesArtigo.filter((v) => !usados.has(v.id) && !usadosCombo.has(comboKey(v.cor_id, v.cor_apelido_id)));
+  const opcoesCombo = coresCombos.filter((c) => !usadosCombo.has(comboKey(c.cor_id, c.cor_apelido_id)));
+
+  const addDoArtigo = (v: VarRow) => {
+    const nova: PtVariante = {
+      variante_tecido_id: v.id, cor_id: v.cor_id ?? null, cor_apelido_id: v.cor_apelido_id ?? null,
+      ordem: 0, multiplicador: 1, grades: {}, grade_total: 0,
+      label: labelVarianteRow(v as any), cor_nome: v.cor?.nome ?? null,
+    };
+    onChange({ ...material, variantes: renum([...material.variantes, nova]) });
+    setMenuOpen(false);
+  };
+  const addPlanejada = (c: { cor_id: string; cor_nome: string; cor_apelido_id: string; apelido_nome: string }) => {
+    const nova: PtVariante = {
+      variante_tecido_id: null, cor_id: c.cor_id, cor_apelido_id: c.cor_apelido_id,
+      ordem: 0, multiplicador: 1, grades: {}, grade_total: 0,
+      label: `${c.cor_nome} - ${c.apelido_nome}`, cor_nome: c.cor_nome,
+    };
+    onChange({ ...material, variantes: renum([...material.variantes, nova]) });
+    setMenuOpen(false);
   };
 
-  // ao escolher o tecido/forro, carrega nome/unidade/rendimento/preço (usado pelo Resumo e custo)
   const escolherArtigo = (id: string) => {
     const a = base.find((x) => x.id === id) ?? null;
+    // NÃO limpa as cores: as planejadas que casarem viram variante (auto-upgrade); as que não, viram divergentes
     onChange({
-      ...material, artigo_id: id || null, variantes: [],
+      ...material, artigo_id: id || null,
       artigo_nome: a?.nome ?? null, unidade_medida: a?.unidade_medida ?? null,
       rendimento: a?.rendimento ?? null, preco_por_metro: a?.preco_por_metro ?? null,
     });
   };
-  const setVar = (vid: string, patch: Partial<PtVariante>) =>
-    onChange({ ...material, variantes: material.variantes.map((v) => (v.variante_tecido_id === vid ? { ...v, ...patch } : v)) });
 
   return (
     <div className="mb-2 rounded border">
       <div className="bg-muted/60 p-2">
-        {/* linha 1: TEC N + nome do tecido (largura total) + remover */}
         <div className="flex items-center gap-2">
           <span className="shrink-0 rounded bg-primary px-1.5 py-0.5 text-[10px] font-bold text-primary-foreground">{material.tipo === "tecido" ? "TEC" : "FOR"} {material.numero}</span>
-          <select
-            className="min-w-0 flex-1 rounded border bg-background px-2 py-1 text-xs"
-            value={material.artigo_id ?? ""}
-            onChange={(e) => escolherArtigo(e.target.value)}
-          >
+          <select className="min-w-0 flex-1 rounded border bg-background px-2 py-1 text-xs" value={material.artigo_id ?? ""} onChange={(e) => escolherArtigo(e.target.value)}>
             <option value="">{`Escolher ${rotulo}…`}</option>
             {artigosVisiveis.map((a) => { const f = fornecedorDe(a.id); return (<option key={a.id} value={a.id}>{a.nome}{f ? ` · ${f}` : ""}{a.unidade_medida === "kg" ? " [kg]" : ""}</option>); })}
           </select>
           <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={onRemove}><X className="h-3 w-3" /></Button>
         </div>
-        {/* linha 2: categoria (cadastro) + consumo (sem cortar) */}
         <div className="mt-1.5 flex items-center gap-2">
           {categoriaNome && (
             <span className="shrink-0 rounded-full border bg-background px-2 py-0.5 text-[10px] text-muted-foreground" title="Categoria do tecido (cadastro)">{categoriaNome}</span>
@@ -92,29 +124,63 @@ export function MaterialBlock({ material, onChange, onRemove, paleta }: { materi
           </div>
         </div>
       </div>
-      {material.artigo_id && (
-        <div className="p-2">
-          <div className="mb-1 text-[10px] text-muted-foreground">Variantes — marque as usadas · grade (pç) · metragem</div>
-          {variantesArtigo.map((v) => {
-            const on = marcada(v.id);
-            const pv = material.variantes.find((x) => x.variante_tecido_id === v.id);
+
+      <div className="p-2">
+        {/* cores selecionadas (variantes) */}
+        {material.variantes.length === 0 ? (
+          <div className="rounded border border-dashed p-2 text-center text-[10px] italic text-muted-foreground">Nenhuma cor. “+ adicionar cor” para escolher as variantes.</div>
+        ) : (
+          material.variantes.map((v) => {
+            const div = divergente(v);
+            const planejada = !v.variante_tecido_id;
             return (
-              <div key={v.id} className={`flex items-center gap-2 border-t border-dashed py-1 text-xs ${on ? "" : "opacity-50"}`}>
-                <Checkbox checked={on} onCheckedChange={() => toggle(v.id)} className="h-4 w-4" />
-                <VarianteSwatch nome={v.cor?.nome ?? undefined} />
-                <span className="min-w-0 flex-1 truncate">{labelVarianteRow(v)}</span>
-                {on && (
-                  <>
-                    <NumberInput integer blankZero placeholder="0" className="h-7 w-12 text-right" value={pv?.grade_total ?? 0} onChange={(e) => setVar(v.id, { grade_total: Number(e.target.value) || 0 })} />
-                    <span className="text-[9px] text-muted-foreground">pç</span>
-                    <span className="w-12 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground">{Math.round((material.consumo || 0) * (pv?.grade_total || 0))} m</span>
-                  </>
-                )}
+              <div key={varKey(v)} className={`flex items-center gap-2 border-t border-dashed py-1 text-xs first:border-t-0 ${div ? "rounded bg-red-50" : ""}`}>
+                <VarianteSwatch nome={v.cor_nome ?? v.label ?? undefined} />
+                <span className="min-w-0 flex-1 truncate" title={v.label ?? undefined}>{v.label || "—"}</span>
+                {div ? (
+                  <span className="flex shrink-0 items-center gap-0.5 text-[9px] font-medium text-red-600" title="Cor não existe nas variantes do tecido"><AlertTriangle className="h-3 w-3" />divergente</span>
+                ) : planejada ? (
+                  <span className="shrink-0 rounded bg-amber-100 px-1 text-[9px] font-medium text-amber-700" title="Cor planejada — vira variante quando o tecido tiver essa cor">planejada</span>
+                ) : null}
+                <NumberInput integer blankZero placeholder="0" className="h-7 w-12 shrink-0 text-right" value={v.grade_total ?? 0} onChange={(e) => setGrade(v, Number(e.target.value) || 0)} />
+                <span className="shrink-0 text-[9px] text-muted-foreground">pç</span>
+                <span className="w-12 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground">{Math.round((material.consumo || 0) * (v.grade_total || 0))} m</span>
+                <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => removerVariante(v)} title="Remover cor"><X className="h-3 w-3" /></Button>
               </div>
             );
-          })}
+          })
+        )}
+
+        {/* ações */}
+        <div className="mt-1.5 flex items-center gap-2">
+          <Button variant="outline" size="sm" className="h-7 gap-1 text-[11px]" onClick={() => setMenuOpen((o) => !o)}><Plus className="h-3 w-3" />adicionar cor</Button>
+          {temDivergentes && (
+            <Button variant="ghost" size="sm" className="h-7 gap-1 text-[11px] text-red-600 hover:text-red-700" onClick={removerDivergentes}><AlertTriangle className="h-3 w-3" />remover divergentes</Button>
+          )}
         </div>
-      )}
+
+        {/* menu de cores (in-flow p/ não recortar) */}
+        {menuOpen && (
+          <div className="mt-1 max-h-52 overflow-y-auto rounded border bg-background p-1">
+            <div className="px-1 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground">
+              {material.artigo_id ? "Cores do tecido" : "Adicionar cor (base + apelido)"}
+            </div>
+            {material.artigo_id ? (
+              opcoesArtigo.length ? opcoesArtigo.map((v) => (
+                <button key={v.id} type="button" onClick={() => addDoArtigo(v)} className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-xs hover:bg-muted">
+                  <VarianteSwatch nome={v.cor?.nome ?? undefined} /><span className="truncate">{labelVarianteRow(v as any)}</span>
+                </button>
+              )) : <div className="px-1.5 py-1 text-[10px] text-muted-foreground">Todas as cores do tecido já adicionadas.</div>
+            ) : (
+              opcoesCombo.length ? opcoesCombo.map((c) => (
+                <button key={comboKey(c.cor_id, c.cor_apelido_id)} type="button" onClick={() => addPlanejada(c)} className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-xs hover:bg-muted">
+                  <VarianteSwatch nome={c.cor_nome} /><span className="truncate">{c.cor_nome} <span className="text-muted-foreground">/ {c.apelido_nome}</span></span>
+                </button>
+              )) : <div className="px-1.5 py-1 text-[10px] text-muted-foreground">Todas as cores já adicionadas.</div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

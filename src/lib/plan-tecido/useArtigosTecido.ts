@@ -60,7 +60,9 @@ export function useArtigosTecido() {
     const artigosDoPapel = (papel: string) => (papel === "forro" ? forroArtigos : tecidoArtigos);
     // fornecedor (empresa) do artigo — p/ desambiguar tecidos de nome igual no seletor
     const fornecedorDe = (id: string) => artigoMap.get(id)?.empresa?.nome ?? null;
+    // o artigo pertence à categoria de tecido (lane)? — filtra o seletor pela categoria da lane
+    const artigoTemCategoria = (id: string, catId: string) => catsDoArtigo(id).has(catId);
 
-    return { artigos, artigoMap, tecidoArtigos, forroArtigos, forroIds, entretelaIds, categoriaNomeDe, artigosDoPapel, fornecedorDe };
+    return { artigos, artigoMap, tecidoArtigos, forroArtigos, forroIds, entretelaIds, categoriaNomeDe, artigosDoPapel, fornecedorDe, artigoTemCategoria };
   }, [artigos, links, cats]);
 }

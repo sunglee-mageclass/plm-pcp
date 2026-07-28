@@ -97,10 +97,10 @@ export function PlanTecidoDrawer({
                   {kind === "comprar" && <td className="p-1.5 text-right font-medium">{nMet(t.totalMetros)} m</td>}
                 </tr>
                 {t.variantes.map((v) => {
-                  const s = situ.get(v.variante_tecido_id) ?? { pedida: 0, entregue: 0, usada: 0 };
+                  const s = (v.variante_tecido_id ? situ.get(v.variante_tecido_id) : undefined) ?? { pedida: 0, entregue: 0, usada: 0 };
                   const sobra = s.pedida - v.metros; // sobra prevista = pedida − reservada
                   return (
-                    <tr key={v.variante_tecido_id} className="border-t">
+                    <tr key={v.key} className="border-t">
                       <td className="p-1.5">
                         <span className="flex min-w-0 items-center gap-1">
                           <VarianteSwatch nome={v.cor_nome ?? v.label} /><span className="truncate">{v.label || "—"}</span>

@@ -330,6 +330,7 @@ export function ModelCard({
                     <MaterialBlock
                       key={m.id ?? i}
                       material={m}
+                      laneCategoriaId={slot.categoria_tecido_id ?? null}
                       paleta={paleta}
                       onChange={(nm) => {
                         const materiais = slot.materiais.slice();

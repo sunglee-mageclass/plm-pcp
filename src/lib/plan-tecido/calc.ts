@@ -1,4 +1,4 @@
-import type { PtArvore, PtSlot } from "./types";
+import type { PtArvore, PtSlot, PtVariante } from "./types";
 
 /** Tecidos/forros já usados pelos cards da coleção (distinct artigo_id + papel), p/ a paleta. */
 export function tecidosDaArvore(arvore: PtArvore): { artigo_id: string; papel: string }[] {
@@ -46,12 +46,16 @@ export const metrosParaKg = (metros: number, rendimento: number | null): number 
 export const abaterEstoque = (necessidadeMetros: number, estoqueMetros: number): number =>
   Math.max(0, (Number(necessidadeMetros) || 0) - (Number(estoqueMetros) || 0));
 
+/** Chave estável da variante — usa variante_tecido_id real ou, se cor só-planejada, cor+apelido. */
+export const varKey = (v: PtVariante): string =>
+  v.variante_tecido_id ?? `plan:${v.cor_id ?? ""}|${v.cor_apelido_id ?? ""}`;
+
 export type NecTecido = {
   artigo_id: string;
   artigo_nome: string;
   unidade_medida: string | null;
   rendimento: number | null;
-  variantes: { variante_tecido_id: string; label: string; cor_nome: string | null; metros: number }[];
+  variantes: { key: string; variante_tecido_id: string | null; label: string; cor_nome: string | null; metros: number }[];
   totalMetros: number;
 };
 
@@ -72,8 +76,9 @@ export function necessidadePorTecido(arvore: PtArvore, filtroSlot?: (slot: PtSlo
             const gradeBase = v.grade_total; // forro tem grade PRÓPRIA por variante (não mais multiplicador do Tecido 1)
             const metros = necessidadeVariante(mat.consumo, gradeBase, v.multiplicador);
             if (metros <= 0) continue;
-            let vr = t.variantes.find((x) => x.variante_tecido_id === v.variante_tecido_id);
-            if (!vr) { vr = { variante_tecido_id: v.variante_tecido_id, label: (v.label || v.cor_nome) ?? "", cor_nome: v.cor_nome ?? null, metros: 0 }; t.variantes.push(vr); }
+            const k = varKey(v);
+            let vr = t.variantes.find((x) => x.key === k);
+            if (!vr) { vr = { key: k, variante_tecido_id: v.variante_tecido_id, label: (v.label || v.cor_nome) ?? "", cor_nome: v.cor_nome ?? null, metros: 0 }; t.variantes.push(vr); }
             vr.metros += metros;
             t.totalMetros += metros;
           }
