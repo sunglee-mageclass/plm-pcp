@@ -29,6 +29,17 @@ export function custoMateriaisPrevisto(slot: PtSlot): number {
 export const necessidadeVariante = (consumo: number, gradeTotal: number, mult: number): number =>
   (Number(consumo) || 0) * (Number(gradeTotal) || 0) * (Number(mult) || 0);
 
+/** Metros de necessidade de UM slot, filtrando os materiais por papel (tecido/forro/qualquer). */
+export function slotMetros(slot: PtSlot, papel?: "tecido" | "forro"): number {
+  let m = 0;
+  for (const mat of slot.materiais ?? []) {
+    if (papel === "tecido" && mat.tipo === "forro") continue;
+    if (papel === "forro" && mat.tipo !== "forro") continue;
+    for (const v of mat.variantes ?? []) m += necessidadeVariante(mat.consumo, v.grade_total, v.multiplicador);
+  }
+  return m;
+}
+
 export const metrosParaKg = (metros: number, rendimento: number | null): number =>
   rendimento && rendimento > 0 ? (Number(metros) || 0) / rendimento : 0;
 

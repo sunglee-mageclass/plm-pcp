@@ -17,7 +17,7 @@ import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useAuth } from "@/hooks/useAuth";
-import { ArrowLeft, ShoppingCart, Undo2, Plus, X, Tag, ChevronLeft } from "lucide-react";
+import { ArrowLeft, ShoppingCart, Undo2, Plus, X, Tag, PanelLeft, Ruler } from "lucide-react";
 import {
   semearComModelos, mergeArvore, type SeedInput, type ModeloReal, type ModeloRealMaterial,
 } from "@/lib/plan-tecido/engine";
@@ -28,6 +28,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
 import { tecidosDaArvore } from "@/lib/plan-tecido/calc";
 import { FazerPedidoWizard, type PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
+import { PlanTecidoDrawer, type DrawerState, type DrawerKind } from "@/components/plan-tecido/PlanTecidoDrawer";
+import { useSituacaoOcs } from "@/lib/plan-tecido/useSituacaoOcs";
 
 type Nome = { id: string; nome: string };
 
@@ -192,6 +194,11 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
   const [selecao, setSelecao] = useState<Set<string>>(new Set());
   const [recolhidos, setRecolhidos] = useState<Set<string>>(new Set()); // chaves de cards recolhidos
   const [resumoAberto, setResumoAberto] = useState(true); // resumo colapsável (trilho)
+  const [drawer, setDrawer] = useState<DrawerState | null>(null); // subsheet "detalhar" (extensão)
+  const openDrawer = (kind: DrawerKind, arg?: string) =>
+    setDrawer((prev) => (prev && prev.kind === kind && (prev.arg ?? null) === (arg ?? null) ? null : { kind, arg: arg ?? null }));
+  const { data: situacaoRows = [] } = useSituacaoOcs(colecaoId);
+  const ocNumeroDe = (id: string) => situacaoRows.find((r) => r.oc_tecido_id === id)?.numero ?? null;
 
   const toggleRecolhido = (chave: string) =>
     setRecolhidos((prev) => { const n = new Set(prev); if (n.has(chave)) n.delete(chave); else n.add(chave); return n; });
@@ -656,21 +663,33 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
           );
           return (
             <div className="flex flex-1 overflow-hidden">
-              {resumoAberto ? (
-                <aside className="hidden w-80 shrink-0 flex-col overflow-hidden border-r md:flex lg:w-96">
-                  <div className="flex items-center justify-between border-b px-3 py-2">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Resumo</span>
-                    <button type="button" onClick={() => setResumoAberto(false)} title="Recolher resumo" className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><ChevronLeft className="h-4 w-4" /></button>
-                  </div>
-                  <div className="flex-1 overflow-y-auto p-3"><ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} /></div>
-                </aside>
-              ) : (
-                <div className="hidden w-9 shrink-0 border-r md:block">
-                  <button type="button" onClick={() => setResumoAberto(true)} title="Abrir resumo"
-                    className="flex h-full w-full items-start justify-center pt-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground [writing-mode:vertical-rl] hover:bg-muted hover:text-foreground">
-                    Resumo
+              {/* Trilho fixo — Resumo · A comprar · OC (abrem como extensão que empurra) */}
+              <div className="hidden w-[46px] shrink-0 flex-col items-center gap-1.5 border-r pt-3 md:flex">
+                {([
+                  { k: "resumo", Icon: PanelLeft, label: "Resumo", on: resumoAberto, act: () => setResumoAberto((v) => !v) },
+                  { k: "comprar", Icon: Ruler, label: "A comprar", on: drawer?.kind === "comprar", act: () => openDrawer("comprar") },
+                  { k: "oc", Icon: ShoppingCart, label: "OC", on: drawer?.kind === "oc" || drawer?.kind === "ocnum", act: () => openDrawer("oc") },
+                ] as const).map(({ k, Icon, label, on, act }) => (
+                  <button key={k} type="button" onClick={act} title={label}
+                    className={`flex flex-col items-center gap-1 rounded-md border px-1 py-2 text-[9px] font-semibold uppercase tracking-wide ${on ? "border-primary/40 bg-primary/10 text-primary" : "border-transparent text-muted-foreground hover:bg-muted"}`}>
+                    <Icon className="h-4 w-4" />
+                    <span className="[writing-mode:vertical-rl] rotate-180">{label}</span>
                   </button>
-                </div>
+                ))}
+              </div>
+              {/* Painel Resumo (322px) */}
+              {resumoAberto && (
+                <aside className="hidden w-80 shrink-0 flex-col overflow-hidden border-r md:flex lg:w-96">
+                  <div className="flex-1 overflow-y-auto p-3">
+                    <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} catTecidoNome={catTecidoNome} onDetalhar={openDrawer} />
+                  </div>
+                </aside>
+              )}
+              {/* Drawer/subsheet (420px) — abre por "detalhar" / trilho */}
+              {drawer && (
+                <aside className="hidden w-[420px] shrink-0 overflow-hidden border-r lg:flex">
+                  <PlanTecidoDrawer state={drawer} subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} ocNumeroDe={ocNumeroDe} onClose={() => setDrawer(null)} />
+                </aside>
               )}
               <main className="flex-1 overflow-y-auto p-3">
                 <div className="mb-3 flex flex-wrap items-center gap-2">
