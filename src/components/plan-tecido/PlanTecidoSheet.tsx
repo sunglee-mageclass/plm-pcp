@@ -430,16 +430,20 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
   });
 
   useEffect(() => {
-    if (seed && salvo !== undefined && modelosDb !== undefined && arvore === null) {
-      const validIds = new Set(((modelosDb ?? []) as any[]).map((m) => m.id as string));
-      const merged = mergeArvore(semearComModelos({ ...seed, modelos: modelosReais }), salvo);
-      // limpa modelo_id ÓRFÃO (modelo excluído no Plan. Produto) → volta a permitir "Criar card"
-      merged.subcolecoes = merged.subcolecoes.map((s) => ({ ...s, linhas: s.linhas.map((l) => ({ ...l,
-        slots: l.slots.map((sl) => (sl.modelo_id && !validIds.has(sl.modelo_id) ? { ...sl, modelo_id: null, ref: null, nome: null, thumb_path: null } : sl)),
-      })) }));
-      setArvore(merged);
-    }
-  }, [seed, salvo, modelosDb, modelosReais, arvore]);
+    if (!seed || salvo === undefined || modelosDb === undefined) return;
+    // Re-mergeia sempre que as FONTES mudam (modelos novos, subcoleção nova, realocação, OTB) —
+    // MAS não sobrescreve edições não salvas do usuário (dirty). Sem isso, o plano ficava preso
+    // no 1º merge (com dados de cache) e ignorava o refetch fresco. Ver itens 3/6/7.
+    if (dirty) return;
+    const validIds = new Set((modelosDb as any[]).map((m) => m.id as string));
+    const merged = mergeArvore(semearComModelos({ ...seed, modelos: modelosReais }), salvo);
+    // limpa modelo_id ÓRFÃO (modelo excluído no Plan. Produto) → volta a permitir "Criar card"
+    merged.subcolecoes = merged.subcolecoes.map((s) => ({ ...s, linhas: s.linhas.map((l) => ({ ...l,
+      slots: l.slots.map((sl) => (sl.modelo_id && !validIds.has(sl.modelo_id) ? { ...sl, modelo_id: null, ref: null, nome: null, thumb_path: null } : sl)),
+    })) }));
+    setArvore(merged);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seed, salvo, modelosReais]);
 
 
   const salvarMut = useMutation({
@@ -796,16 +800,19 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
             <ArrowLeft className="mr-1 h-4 w-4" />
             {view === "canvas" ? "Subcoleções" : "Voltar"}
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={desfazerPedidoMut.isPending}
-            onClick={() => setDesfazerOpen(true)}
-            className="ml-auto max-sm:h-11"
-          >
-            <Undo2 className="mr-1 h-4 w-4" />
-            <span className="hidden sm:inline">Desfazer pedido</span>
-          </Button>
+          <div className="ml-auto" />
+          {view === "canvas" && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={desfazerPedidoMut.isPending}
+              onClick={() => setDesfazerOpen(true)}
+              className="max-sm:h-11"
+            >
+              <Undo2 className="mr-1 h-4 w-4" />
+              <span className="hidden sm:inline">Desfazer pedido</span>
+            </Button>
+          )}
           <Button
             variant="default"
             size="sm"

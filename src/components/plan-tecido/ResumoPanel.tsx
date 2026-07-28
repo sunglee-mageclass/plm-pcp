@@ -186,11 +186,12 @@ export function ResumoPanel({
           const sobra = o.pedida - reservada;
           return (
             <div key={o.oc_tecido_id} className="border-b p-2 text-xs last:border-b-0">
-              <div className="mb-1 flex items-center gap-2">
+              <div className="mb-0.5 flex items-center gap-2">
                 <b>{o.numero ?? "OC"}</b>
                 <span className="text-[10px] text-muted-foreground">{nPorOc.get(o.oc_tecido_id) ?? 0} modelo(s)</span>
                 <Detalhar onClick={() => onDetalhar("ocnum", o.oc_tecido_id)} />
               </div>
+              {o.tecidos.length > 0 && <div className="mb-1 truncate text-[10px] text-muted-foreground" title={o.tecidos.join(" · ")}>{o.tecidos.join(" · ")}</div>}
               <div className="flex justify-between text-muted-foreground"><span>Pedida</span><span>{nMet(o.pedida)} m</span></div>
               <div className="flex justify-between text-muted-foreground"><span>Entregue</span><span>{nMet(o.entregue)} m</span></div>
               <div className="flex justify-between text-muted-foreground"><span>Reservada</span><span>{nMet(reservada)} m</span></div>

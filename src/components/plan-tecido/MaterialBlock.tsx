@@ -70,6 +70,16 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }:
   const setGrade = (v: PtVariante, val: number) =>
     onChange({ ...material, variantes: material.variantes.map((x) => (varKey(x) === varKey(v) ? { ...x, grade_total: val } : x)) });
 
+  // nome completo "cor base - apelido": da variante real do artigo quando existir (o seed do Dev
+  // só traz a cor base), senão do label salvo / cor_nome.
+  const nomeVariante = (v: PtVariante): string => {
+    if (v.variante_tecido_id) {
+      const r = realById.get(v.variante_tecido_id);
+      if (r) return labelVarianteRow(r as any);
+    }
+    return v.label || v.cor_nome || "—";
+  };
+
   const [menuOpen, setMenuOpen] = useState(false);
   const usados = new Set(material.variantes.map((v) => varKey(v)));
   const usadosCombo = new Set(material.variantes.map((v) => comboKey(v.cor_id, v.cor_apelido_id)).filter((k) => k !== "|"));
@@ -140,7 +150,7 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }:
             return (
               <div key={varKey(v)} className={`flex items-center gap-2 border-t border-dashed py-1 text-xs first:border-t-0 ${div ? "rounded bg-red-50" : ""}`}>
                 <VarianteSwatch nome={v.cor_nome ?? v.label ?? undefined} />
-                <span className="min-w-0 flex-1 truncate" title={v.label ?? v.cor_nome ?? undefined}>{v.label || v.cor_nome || "—"}</span>
+                <span className="min-w-0 flex-1 truncate" title={nomeVariante(v)}>{nomeVariante(v)}</span>
                 {div ? (
                   <span className="flex shrink-0 items-center gap-0.5 text-[9px] font-medium text-red-600" title="Cor não existe nas variantes do tecido"><AlertTriangle className="h-3 w-3" />divergente</span>
                 ) : planejada ? (
