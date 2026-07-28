@@ -71,6 +71,7 @@ digitáveis SEM setinhas (`NumberInput` type=text já resolve).
 - **Situação da OC ao vivo**: reserva = demanda dos cards atribuídos; sobra recalcula. `[3]`
 - **Divergência de cor**: cor planejada que não existe no tecido → alerta + "remover divergentes". `[4.2]`
 - **Consumo compartilhado com Dev**: travado + selo quando o modelo é avançado. `[4.2]`
+- **Mão de obra / custo refletidos do Dev (INTEGRIDADE)** `[4.2]`: quando o modelo tem custo REAL no Desenvolvimento (mão de obra estabelecida/aprovada em Planejamento de Produto), o campo **"mão de obra prevista"** do card do Plan. Tecido deve **refletir esse valor** (via `custo_unitario_modelos` → `mao_obra_previsto`/`_real`, respeitando o gate de permissão #12), travado, em vez de ser estimativa livre. Fonte única = Dev. (Fora do Plan. Tecido, mas relacionado: a **simulação de custo do Planejamento de Produto** também deve refletir a mão de obra do Desenvolvimento.)
 - **Re-render cirúrgico**: não reconstruir o canvas a cada tecla (preservar scroll/foco). `[4]`
 
 ## Features pré-existentes — decisões manter/dropar (aprovadas pelo dono, jul/2026)
