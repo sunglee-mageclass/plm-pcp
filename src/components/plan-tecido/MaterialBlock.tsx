@@ -36,17 +36,34 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }:
       .select("id, nome_variante, codigo_variante, cor_id, cor_apelido_id, cor:cor_id(nome), apelido:cor_apelido_id(nome)")
       .eq("artigo_id", material.artigo_id!).order("id")).data ?? []) as unknown as VarRow[],
   });
+  const norm = (s?: string | null) => (s ?? "").trim().toLowerCase();
   const realById = new Map(variantesArtigo.map((v) => [v.id, v]));
-  const realByCombo = new Map(variantesArtigo.map((v) => [comboKey(v.cor_id, v.cor_apelido_id), v]));
+  const realByCombo = new Map<string, VarRow>();   // EXATO: cor base + apelido
+  const realByCorId = new Map<string, VarRow>();    // por cor base (id)
+  const realByCorNome = new Map<string, VarRow>();  // por cor base (nome) — p/ referência de outro tecido
+  for (const v of variantesArtigo) {
+    realByCombo.set(comboKey(v.cor_id, v.cor_apelido_id), v);
+    if (v.cor_id && !realByCorId.has(v.cor_id)) realByCorId.set(v.cor_id, v);
+    const k = norm(v.cor?.nome); if (k && !realByCorNome.has(k)) realByCorNome.set(k, v);
+  }
+  // variante REAL do artigo que corresponde a esta cor do plano. Prioridade: id real → EXATO
+  // (cor base + apelido) → cor base (id) → cor base (nome). O dono considera "Preto" (base) a
+  // mesma cor de "Malha Tessa - Preto" mesmo com apelido diferente, então cai p/ a cor base.
+  const casaReal = (v: PtVariante): VarRow | undefined => {
+    if (v.variante_tecido_id && realById.has(v.variante_tecido_id)) return realById.get(v.variante_tecido_id);
+    if (v.cor_id) return realByCombo.get(comboKey(v.cor_id, v.cor_apelido_id)) ?? realByCorId.get(v.cor_id) ?? realByCorNome.get(norm(v.cor_nome));
+    return realByCorNome.get(norm(v.cor_nome ?? v.label));
+  };
 
-  // cor planejada que casa uma variante real do artigo → "vira" variante (variante_tecido_id)
+  // ao escolher o tecido, cada cor do plano que casa (por cor base) vira a variante REAL do artigo
   useEffect(() => {
     if (!material.artigo_id || variantesArtigo.length === 0) return;
     let changed = false;
     const next = material.variantes.map((v) => {
-      if (!v.variante_tecido_id && v.cor_id) {
-        const real = realByCombo.get(comboKey(v.cor_id, v.cor_apelido_id));
-        if (real) { changed = true; return { ...v, variante_tecido_id: real.id, label: labelVarianteRow(real as any), cor_nome: real.cor?.nome ?? v.cor_nome }; }
+      const real = casaReal(v);
+      if (real && real.id !== v.variante_tecido_id) {
+        changed = true;
+        return { ...v, variante_tecido_id: real.id, cor_id: real.cor_id, cor_apelido_id: real.cor_apelido_id, label: labelVarianteRow(real as any), cor_nome: real.cor?.nome ?? v.cor_nome };
       }
       return v;
     });
@@ -54,14 +71,9 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [variantesArtigo, material.artigo_id, material.variantes.length]);
 
-  // divergência: cor que não existe nas variantes do artigo (só faz sentido com artigo escolhido
-  // E com as variantes JÁ carregadas — senão marcaria tudo como divergente durante o load e
-  // "remover divergentes" apagaria cores reais).
-  const divergente = (v: PtVariante) => {
-    if (!material.artigo_id || variantesArtigo.length === 0) return false;
-    if (v.variante_tecido_id) return !realById.has(v.variante_tecido_id);
-    return !realByCombo.has(comboKey(v.cor_id, v.cor_apelido_id));
-  };
+  // divergência: cor cuja COR BASE não existe em NENHUMA variante do tecido (só com artigo escolhido
+  // E variantes já carregadas — senão marcaria tudo durante o load e "remover divergentes" apagaria).
+  const divergente = (v: PtVariante) => !!material.artigo_id && variantesArtigo.length > 0 && !casaReal(v);
   const temDivergentes = material.variantes.some(divergente);
 
   const renum = (vs: PtVariante[]) => vs.map((v, i) => ({ ...v, ordem: i + 1 }));
