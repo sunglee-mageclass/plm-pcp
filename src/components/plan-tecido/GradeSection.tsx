@@ -8,7 +8,6 @@ const labelTamanho = (t: string) => (t.includes("|") ? t.split("|")[1] || t : t)
 const FALLBACK = ["34|PPP", "36|PP", "38|P", "40|M", "42|G", "44|GG"];
 
 export function GradeSection({ slot, onChange, tamanhos }: { slot: PtSlot; onChange: (s: PtSlot) => void; tamanhos?: string[] }) {
-  const tec1 = slot.materiais.find((m) => m.tipo === "tecido" && m.numero === 1);
   const { data: prop } = useQuery({
     queryKey: ["plan-tecido-proporcoes", slot.modelo_id],
     enabled: !!slot.modelo_id,
@@ -28,24 +27,23 @@ export function GradeSection({ slot, onChange, tamanhos }: { slot: PtSlot; onCha
     for (const k of keys) base[k] = valorDe(k); // congela os valores atuais sobre as chaves cadastradas
     onChange({ ...slot, proporcoes: { ...base, [t]: val } });
   };
-  const somaProp = keys.reduce((s, t) => s + valorDe(t), 0) || 1;
-  const totalTec1 = (tec1?.variantes ?? []).reduce((s, v) => s + (v.grade_total || 0), 0);
-
-  if (!tec1 || !tec1.artigo_id) return <div className="p-2 text-xs text-muted-foreground">Defina o Tecido 1 para editar a grade.</div>;
-
   return (
-    <div className="p-2">
-      <div className="mb-1 text-[10px] text-muted-foreground">Proporção de tamanho (editável — salva no plano)</div>
+    <div className="px-2 pb-1">
       <div className="flex flex-wrap gap-1">
         {keys.map((t) => (
-          <div key={t} className="flex flex-col items-center rounded border px-2 py-1">
-            <NumberInput integer blankZero placeholder="0" className="h-6 w-10 text-center" value={valorDe(t)}
-              onChange={(e) => setProp(t, Number(e.target.value) || 0)} />
-            <span className="text-[9px] text-muted-foreground">{labelTamanho(t)}</span>
+          <div key={t} className="flex w-[30px] flex-col items-center overflow-hidden rounded border bg-background">
+            <NumberInput
+              integer
+              blankZero
+              placeholder="0"
+              className="h-6 w-full rounded-none border-0 bg-transparent px-0 text-center text-xs shadow-none focus-visible:ring-0"
+              value={valorDe(t)}
+              onChange={(e) => setProp(t, Number(e.target.value) || 0)}
+            />
+            <span className="pb-0.5 text-[8px] uppercase tracking-tight text-muted-foreground">{labelTamanho(t)}</span>
           </div>
         ))}
       </div>
-      <div className="mt-2 text-right text-xs text-muted-foreground">grade total <b>{totalTec1} pç</b> · Σ proporção {somaProp}</div>
     </div>
   );
 }
