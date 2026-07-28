@@ -13,7 +13,7 @@ const encomenda = (s: PtSlot) => !(s.usar_estoque ?? false);
 const sobraCls = (s: number) => (s < 0 ? "text-red-600" : "text-emerald-600");
 
 type Linha = { key: string; label: string; cor_nome: string | null; reservada: number; pedida: number; entregue: number; usada: number };
-type Grupo = { artigo: string; variantes: Linha[] };
+type Grupo = { artigo_id: string; artigo: string; variantes: Linha[] };
 
 export function PlanTecidoDrawer({
   state, subArvore, colecaoArvore, situacao, slotOcMap, ocNumeroDe, onClose,
@@ -48,6 +48,7 @@ export function PlanTecidoDrawer({
     const situ = new Map<string, { pedida: number; entregue: number }>();
     for (const r of situRows) { const c = situ.get(r.variante_tecido_id) ?? { pedida: 0, entregue: 0 }; c.pedida += r.pedida_m; c.entregue += r.entregue_m; situ.set(r.variante_tecido_id, c); }
     grupos = nec.map((t) => ({
+      artigo_id: t.artigo_id,
       artigo: t.artigo_nome,
       variantes: t.variantes.map((v) => {
         const s = (v.variante_tecido_id ? situ.get(v.variante_tecido_id) : undefined) ?? { pedida: 0, entregue: 0 };
@@ -56,16 +57,16 @@ export function PlanTecidoDrawer({
       }),
     }));
   } else {
-    // agrupa os itens da OC (ou de todas as OCs, no 'oc') por artigo → variante
-    const porArtigo = new Map<string, Map<string, Linha>>();
+    // agrupa os itens da OC (ou de todas as OCs, no 'oc') por ARTIGO (id — nomes iguais NÃO fundem) → variante
+    const porArtigo = new Map<string, { nome: string; vm: Map<string, Linha> }>();
     for (const r of situRows) {
-      if (!porArtigo.has(r.artigo_nome)) porArtigo.set(r.artigo_nome, new Map());
-      const vm = porArtigo.get(r.artigo_nome)!;
-      const cur = vm.get(r.variante_tecido_id) ?? { key: r.variante_tecido_id, label: r.variante_label ?? "", cor_nome: null, reservada: necByVar.get(r.variante_tecido_id) ?? 0, pedida: 0, entregue: 0, usada: 0 };
+      let g = porArtigo.get(r.artigo_id);
+      if (!g) { g = { nome: r.artigo_nome, vm: new Map() }; porArtigo.set(r.artigo_id, g); }
+      const cur = g.vm.get(r.variante_tecido_id) ?? { key: r.variante_tecido_id, label: r.variante_label ?? "", cor_nome: null, reservada: necByVar.get(r.variante_tecido_id) ?? 0, pedida: 0, entregue: 0, usada: 0 };
       cur.pedida += r.pedida_m; cur.entregue += r.entregue_m; cur.usada += r.usada_m;
-      vm.set(r.variante_tecido_id, cur);
+      g.vm.set(r.variante_tecido_id, cur);
     }
-    grupos = [...porArtigo.entries()].map(([artigo, vm]) => ({ artigo, variantes: [...vm.values()] }));
+    grupos = [...porArtigo.entries()].map(([artigo_id, g]) => ({ artigo_id, artigo: g.nome, variantes: [...g.vm.values()] }));
   }
   const nCols = kind === "comprar" ? 4 : 6;
 
@@ -116,7 +117,7 @@ export function PlanTecidoDrawer({
                 {kind === "ocnum" ? "Esta OC não tem itens." : kind === "oc" ? "Nenhuma OC com itens nesta coleção." : "Nenhum tecido planejado."}
               </td></tr>
             ) : grupos.map((g) => (
-              <Fragment key={g.artigo}>
+              <Fragment key={g.artigo_id}>
                 <tr className="border-t bg-muted/40"><td className="p-1.5 font-medium" colSpan={nCols}>{g.artigo}</td></tr>
                 {g.variantes.map((v) => {
                   const sobra = v.pedida - v.reservada;
