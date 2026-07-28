@@ -17,7 +17,7 @@ import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useAuth } from "@/hooks/useAuth";
-import { ArrowLeft, ShoppingCart, Undo2, Plus, X, Tag } from "lucide-react";
+import { ArrowLeft, ShoppingCart, Undo2, Plus, X, Tag, ChevronLeft } from "lucide-react";
 import {
   semearComModelos, mergeArvore, type SeedInput, type ModeloReal, type ModeloRealMaterial,
 } from "@/lib/plan-tecido/engine";
@@ -191,6 +191,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
   const [aplicarCatOpen, setAplicarCatOpen] = useState(false);
   const [selecao, setSelecao] = useState<Set<string>>(new Set());
   const [recolhidos, setRecolhidos] = useState<Set<string>>(new Set()); // chaves de cards recolhidos
+  const [resumoAberto, setResumoAberto] = useState(true); // resumo colapsável (trilho)
 
   const toggleRecolhido = (chave: string) =>
     setRecolhidos((prev) => { const n = new Set(prev); if (n.has(chave)) n.delete(chave); else n.add(chave); return n; });
@@ -654,9 +655,22 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
           );
           return (
             <div className="flex flex-1 overflow-hidden">
-              <aside className="hidden w-80 shrink-0 overflow-y-auto border-r p-3 md:block lg:w-96">
-                <ResumoPanel arvore={subArvore} />
-              </aside>
+              {resumoAberto ? (
+                <aside className="hidden w-80 shrink-0 flex-col overflow-hidden border-r md:flex lg:w-96">
+                  <div className="flex items-center justify-between border-b px-3 py-2">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Resumo</span>
+                    <button type="button" onClick={() => setResumoAberto(false)} title="Recolher resumo" className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><ChevronLeft className="h-4 w-4" /></button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-3"><ResumoPanel arvore={subArvore} /></div>
+                </aside>
+              ) : (
+                <div className="hidden w-9 shrink-0 border-r md:block">
+                  <button type="button" onClick={() => setResumoAberto(true)} title="Abrir resumo"
+                    className="flex h-full w-full items-start justify-center pt-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground [writing-mode:vertical-rl] hover:bg-muted hover:text-foreground">
+                    Resumo
+                  </button>
+                </div>
+              )}
               <main className="flex-1 overflow-y-auto p-3">
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                   <button type="button" className={chipCls(!catFilter)} onClick={() => setCatFilter(null)}>Todos ({flat.length})</button>
