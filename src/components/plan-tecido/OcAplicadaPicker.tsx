@@ -5,6 +5,7 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Plus } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
@@ -60,6 +61,7 @@ export function OcAplicadaPicker({ colecaoId }: { colecaoId: string }) {
       toast.success("OCs aplicadas atualizadas.");
       setOpen(false);
       qc.invalidateQueries({ queryKey: ["plan-tecido-oc-aplicada", colecaoId] });
+      qc.invalidateQueries({ queryKey: ["plan-tecido-situacao-ocs", colecaoId] });
       qc.invalidateQueries({ queryKey: ["plan-tecido-cobertura", colecaoId] });
     },
     onError: (e) => toast.error(mensagemErro(e, "Não foi possível salvar.")),
@@ -80,8 +82,8 @@ export function OcAplicadaPicker({ colecaoId }: { colecaoId: string }) {
         <span className="text-[10px] text-muted-foreground">
           {aplicadas.length > 0 ? `${aplicadas.length} OC(s) aplicada(s)` : "Nenhuma OC aplicada"}
         </span>
-        <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={() => setOpen(true)}>
-          Aplicar OC
+        <Button variant="ghost" size="sm" className="h-6 gap-1 px-2 text-[10px] text-primary" onClick={() => setOpen(true)}>
+          <Plus className="h-3 w-3" /> vincular OC existente
         </Button>
       </div>
 

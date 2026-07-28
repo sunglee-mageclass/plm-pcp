@@ -6,6 +6,7 @@ import { useSituacaoOcs, agruparPorOc } from "@/lib/plan-tecido/useSituacaoOcs";
 import { precoInfo } from "@/lib/preco";
 import { brl } from "@/lib/format";
 import { Lock, ChevronDown, ShoppingCart } from "lucide-react";
+import { OcAplicadaPicker } from "@/components/plan-tecido/OcAplicadaPicker";
 
 const nMet = (n: number) => `${Math.round(n)}`;
 const dot = (st: "g" | "a" | "n") => (st === "g" ? "bg-emerald-500" : st === "a" ? "bg-amber-500" : "bg-red-400");
@@ -166,14 +167,15 @@ export function ResumoPanel({
         <div className="border-b p-2 font-display text-xs font-semibold">OCs vinculadas</div>
         {ocs.length ? ocs.map((o) => (
           <button key={o.oc_tecido_id} type="button" onClick={() => onDetalhar("ocnum", o.oc_tecido_id)}
-            className="flex w-full items-center gap-2 border-b px-2 py-1.5 text-left text-xs last:border-b-0 hover:bg-muted/50">
+            className="flex w-full items-center gap-2 border-b px-2 py-1.5 text-left text-xs hover:bg-muted/50">
             <ShoppingCart className="h-3 w-3 shrink-0 text-muted-foreground" />
             <span className="shrink-0 font-medium">{o.numero ?? "OC"}</span>
             <span className="truncate text-muted-foreground">{o.tecidos.join(" · ") || "—"}</span>
           </button>
         )) : (
-          <div className="p-2 text-[10px] text-muted-foreground">Nenhuma OC vinculada.</div>
+          <div className="px-2 py-1.5 text-[10px] text-muted-foreground">Nenhuma OC vinculada.</div>
         )}
+        <OcAplicadaPicker colecaoId={colecaoId} />
       </div>
 
       {/* Situação da OC — por OC */}
