@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
-export type ArtigoTec = { id: string; nome: string; unidade_medida: string | null; rendimento: number | null; preco_por_metro: number | null; categoria_tecido_id: string | null; empresa?: { nome: string | null } | null };
+export type ArtigoTec = { id: string; nome: string; unidade_medida: string | null; rendimento: number | null; preco_por_metro: number | null; categoria_tecido_id: string | null; empresa?: { nome_fantasia: string | null } | null };
 
 /**
  * Classifica os artigos em tecido / forro / entretela pela CATEGORIA (mesma regra do
@@ -13,7 +13,7 @@ export function useArtigosTecido() {
   const { data: artigos = [] } = useQuery({
     queryKey: ["plan-tecido-artigos-all"],
     queryFn: async () =>
-      ((await supabase.from("artigos").select("id, nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id, empresa:empresa_id(nome)").order("nome")).data ?? []) as unknown as ArtigoTec[],
+      ((await supabase.from("artigos").select("id, nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id, empresa:empresa_id(nome_fantasia)").order("nome")).data ?? []) as unknown as ArtigoTec[],
   });
   const { data: links = [] } = useQuery({
     queryKey: ["plan-tecido-artigo-cat-links"],
@@ -59,7 +59,7 @@ export function useArtigosTecido() {
     // lista de artigos para um "papel" do plano (tecido/forro)
     const artigosDoPapel = (papel: string) => (papel === "forro" ? forroArtigos : tecidoArtigos);
     // fornecedor (empresa) do artigo — p/ desambiguar tecidos de nome igual no seletor
-    const fornecedorDe = (id: string) => artigoMap.get(id)?.empresa?.nome ?? null;
+    const fornecedorDe = (id: string) => artigoMap.get(id)?.empresa?.nome_fantasia ?? null;
     // o artigo pertence à categoria de tecido (lane)? — filtra o seletor pela categoria da lane
     const artigoTemCategoria = (id: string, catId: string) => catsDoArtigo(id).has(catId);
 
