@@ -5,7 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Button } from "@/components/ui/button";
 import { X, Plus, AlertTriangle } from "lucide-react";
-import { labelVarianteRow } from "@/lib/variante";
+import { corApelidoLabel } from "@/lib/variante";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
 import { useCoresCombos } from "@/lib/plan-tecido/useCoresCombos";
@@ -63,7 +63,7 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }:
       const real = casaReal(v);
       if (real && real.id !== v.variante_tecido_id) {
         changed = true;
-        return { ...v, variante_tecido_id: real.id, cor_id: real.cor_id, cor_apelido_id: real.cor_apelido_id, label: labelVarianteRow(real as any), cor_nome: real.cor?.nome ?? v.cor_nome };
+        return { ...v, variante_tecido_id: real.id, cor_id: real.cor_id, cor_apelido_id: real.cor_apelido_id, label: corApelidoLabel(real.cor?.nome, real.apelido?.nome), cor_nome: real.cor?.nome ?? v.cor_nome };
       }
       return v;
     });
@@ -87,7 +87,7 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }:
   const nomeVariante = (v: PtVariante): string => {
     if (v.variante_tecido_id) {
       const r = realById.get(v.variante_tecido_id);
-      if (r) return labelVarianteRow(r as any);
+      if (r) return corApelidoLabel(r.cor?.nome, r.apelido?.nome) || v.cor_nome || "—";
     }
     return v.label || v.cor_nome || "—";
   };
@@ -103,7 +103,7 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }:
     const nova: PtVariante = {
       variante_tecido_id: v.id, cor_id: v.cor_id ?? null, cor_apelido_id: v.cor_apelido_id ?? null,
       ordem: 0, multiplicador: 1, grades: {}, grade_total: 0,
-      label: labelVarianteRow(v as any), cor_nome: v.cor?.nome ?? null,
+      label: corApelidoLabel(v.cor?.nome, v.apelido?.nome), cor_nome: v.cor?.nome ?? null,
     };
     onChange({ ...material, variantes: renum([...material.variantes, nova]) });
     setMenuOpen(false);
@@ -194,7 +194,7 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }:
             {material.artigo_id ? (
               opcoesArtigo.length ? opcoesArtigo.map((v) => (
                 <button key={v.id} type="button" onClick={() => addDoArtigo(v)} className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-xs hover:bg-muted">
-                  <VarianteSwatch nome={v.cor?.nome ?? undefined} /><span className="truncate">{labelVarianteRow(v as any)}</span>
+                  <VarianteSwatch nome={v.cor?.nome ?? undefined} /><span className="truncate">{corApelidoLabel(v.cor?.nome, v.apelido?.nome)}</span>
                 </button>
               )) : <div className="px-1.5 py-1 text-[10px] text-muted-foreground">Todas as cores do tecido já adicionadas.</div>
             ) : (

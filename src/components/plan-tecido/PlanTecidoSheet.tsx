@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
-import { labelVarianteRow } from "@/lib/variante";
+import { corApelidoLabel } from "@/lib/variante";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -165,7 +165,7 @@ function FormAplicarTecido({
                       onCheckedChange={() => toggle(v.id)}
                       className="h-4 w-4"
                     />
-                    <span>{labelVarianteRow(v as any)}</span>
+                    <span>{corApelidoLabel(v.cor?.nome, v.apelido?.nome)}</span>
                   </label>
                 ))}
               </div>
@@ -377,7 +377,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
             multiplicador: Number(v.multiplicador) || 1,
             cor_nome: (v.variante?.cor?.nome ?? null) as string | null,
             // label completo "cor base - apelido" (o Resumo/subsheet mostravam só a base)
-            label: labelVarianteRow({ nome_variante: v.variante?.nome_variante ?? null, cor: v.variante?.cor ?? null, apelido: v.variante?.apelido ?? null }),
+            label: corApelidoLabel(v.variante?.cor?.nome ?? null, v.variante?.apelido?.nome ?? null),
           })),
         }));
       return {
