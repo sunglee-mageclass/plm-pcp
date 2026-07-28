@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -431,12 +431,19 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
     onError: (e) => toast.error(mensagemErro(e, "Não foi possível aprovar o custo de mão de obra.")),
   });
 
+  // Fontes do merge: seed (OTB) e modelosReais (modelos+BOM+consumo+subcoleção). O react-query dá
+  // referência ESTÁVEL quando o dado não muda, então comparar referência distingue "mudou de verdade"
+  // (modelo/consumo/subcoleção/OTB novos → re-mergeia; itens 3/6/7/13) de "só salvei o plano" (só o
+  // `salvo` refetcha, seed/modelosReais iguais → NÃO re-mergeia, senão reverteria p/ o seed e o
+  // auto-upgrade de cor re-sujaria = loop de "alterações não salvas"; item 12).
+  const srcRef = useRef<{ seed: unknown; models: unknown } | null>(null);
+
   useEffect(() => {
     if (!seed || salvo === undefined || modelosDb === undefined) return;
-    // Re-mergeia sempre que as FONTES mudam (modelos novos, subcoleção nova, realocação, OTB) —
-    // MAS não sobrescreve edições não salvas do usuário (dirty). Sem isso, o plano ficava preso
-    // no 1º merge (com dados de cache) e ignorava o refetch fresco. Ver itens 3/6/7.
-    if (dirty) return;
+    if (dirty) return; // não sobrescreve edições não salvas do usuário
+    const fonteMudou = !srcRef.current || srcRef.current.seed !== seed || srcRef.current.models !== modelosReais;
+    if (arvore !== null && !fonteMudou) return; // só o `salvo` mudou (acabei de salvar) → não re-mergeia
+    srcRef.current = { seed, models: modelosReais };
     const validIds = new Set((modelosDb as any[]).map((m) => m.id as string));
     const merged = mergeArvore(semearComModelos({ ...seed, modelos: modelosReais }), salvo);
     // limpa modelo_id ÓRFÃO (modelo excluído no Plan. Produto) → volta a permitir "Criar card"
@@ -445,7 +452,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
     })) }));
     setArvore(merged);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seed, salvo, modelosReais]);
+  }, [seed, salvo, modelosReais, dirty, arvore]);
 
 
   const salvarMut = useMutation({
