@@ -73,6 +73,14 @@ digitáveis SEM setinhas (`NumberInput` type=text já resolve).
 - **Consumo compartilhado com Dev**: travado + selo quando o modelo é avançado. `[4.2]`
 - **Re-render cirúrgico**: não reconstruir o canvas a cada tecla (preservar scroll/foco). `[4]`
 
+## Features pré-existentes — decisões manter/dropar (aprovadas pelo dono, jul/2026)
+- **"Por linha / Por tecido" (VisaoPorTecido)** → **DROPADO** `[1b ✔]`.
+- **PaletaColecao ("Insumos da coleção")** → **DROPAR**: o seletor de tecido do card passa a filtrar **só pela categoria da lane** (não mais pela paleta manual). Ajustar `MaterialBlock` (filtro por categoria) e o "Aplicar tecido" em massa. `[4.2]`
+- **"Usar estoque existente" (por card)** → **MANTER**: se vai usar estoque, precisa da funcionalidade (a-comprar vs usar-do-estoque). `[manter]`
+- **Categoria de PRODUTO no card** → **MANTER**: é dado do modelo (alimenta o "Criar card"); não confundir com a categoria de tecido (lane). `[manter]`
+- **OC por SLOT (SlotOcHint)** → **SUBSTITUIR** pelo **"OC vinculada" por modelo** da Fase 2 (filtrado pelo tecido + auto-atribuição no pedido). Um conceito só. `[2]`
+- **OC vinculada do Desenvolvimento (vinculos, congela custo)** → **MANTER** (é o vínculo do Dev, cadeado; diferente do hint do plano). `[manter]`
+
 ## Status de aplicação (atualizar conforme avança)
 - `[1b]` estrutura FEITA (nav, lanes, chips, aplicar categoria, resumo escopado). Falta polir cards de coleção/subcoleção.
 - `[4.1]` FEITO: grade compacta no topo, recolher/expandir todos, custo tec/forro separado.
