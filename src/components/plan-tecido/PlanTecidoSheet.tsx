@@ -547,6 +547,12 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
     }
   }
 
+  // status por fornecedor (empresa_id do artigo) → selos no card e na subcoleção
+  const { fornecedorDe } = useArtigosTecido();
+  const matTemFornec = (m: PtMaterial) => !!m.artigo_id && !!fornecedorDe(m.artigo_id);
+  const slotFornec = (slot: PtSlot) => ({ com: slot.materiais.filter(matTemFornec).length, total: slot.materiais.length });
+  const slotReady = (slot: PtSlot) => { const f = slotFornec(slot); return f.total > 0 && f.com === f.total; };
+
   const subAtual = arvore ? (arvore.subcolecoes[subAtiva] ?? null) : null;
   const chipCls = (active: boolean) =>
     `rounded-full border px-3 py-1 text-xs font-medium transition-colors ${active ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background text-muted-foreground hover:border-primary"}`;
@@ -580,7 +586,10 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
           <div className="p-6 text-sm text-muted-foreground">Carregando…</div>
         ) : view === "subcolecoes" ? (
           <div className="flex-1 overflow-y-auto p-4">
-            <div className="mb-3 text-sm text-muted-foreground">Escolha uma subcoleção para planejar os tecidos por categoria.</div>
+            <div className="mb-3">
+              <h2 className="font-display text-lg font-semibold tracking-tight">Subcoleções</h2>
+              <p className="text-sm text-muted-foreground">Escolha uma subcoleção para planejar os tecidos por categoria.</p>
+            </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {arvore.subcolecoes
                 .map((sub, si) => ({ sub, si }))
@@ -589,11 +598,20 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                 const nSlots = sub.linhas.reduce((a, l) => a + l.slots.length, 0);
                 const cats = sub.categorias_tecido ?? [];
                 const semCat = sub.linhas.reduce((a, l) => a + l.slots.filter((s) => !s.categoria_tecido_id).length, 0);
+                const allSubSlots = sub.linhas.flatMap((l) => l.slots);
+                const readyCats = cats.filter((cid) => { const ms = allSubSlots.filter((s) => s.categoria_tecido_id === cid); return ms.length > 0 && ms.every(slotReady); }).length;
+                const status = cats.length === 0 ? null
+                  : readyCats === 0 ? { green: false, txt: "sem fornecedor" }
+                  : readyCats < cats.length ? { green: false, txt: `${readyCats}/${cats.length} prontas` }
+                  : { green: true, txt: "pronto p/ pedido" };
                 return (
                   <button key={sub.id ?? si} type="button"
                     className="flex flex-col gap-2 rounded-lg border bg-background p-4 text-left shadow-sm transition-shadow hover:border-primary hover:shadow-md"
                     onClick={() => { setSubAtiva(si); setCatFilter(null); setSelecao(new Set()); setRecolhidos(new Set()); setView("canvas"); }}>
-                    <div className="font-medium">{nameOf(subNomes, sub.subcolecao_id) ?? "Sem subcoleção"}</div>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-medium">{nameOf(subNomes, sub.subcolecao_id) ?? "Sem subcoleção"}</div>
+                      {status && <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${status.green ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{status.txt}</span>}
+                    </div>
                     <div className="flex flex-wrap gap-1">
                       {cats.length ? cats.map((cid) => (
                         <span key={cid} className="rounded bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">{catTecidoNome(cid) ?? "?"}</span>
@@ -631,6 +649,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
               onEnsureSaved={ensureSaved}
               onChange={(ns) => { const next = structuredClone(arvore) as PtArvore; next.subcolecoes[subAtiva].linhas[li].slots[sli] = ns; patch(next); }}
               open={!recolhidos.has(chave)} onToggleOpen={() => toggleRecolhido(chave)}
+              fornecCom={slotFornec(slot).com} fornecTotal={slotFornec(slot).total}
               selected={selecao.has(chave)} onToggleSelect={() => toggleSel(chave)} />
           );
           return (

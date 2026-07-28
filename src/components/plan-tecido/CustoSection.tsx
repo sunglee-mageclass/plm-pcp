@@ -26,6 +26,9 @@ export function CustoSection({ slot, onChange, maoObraAprovado }: { slot: PtSlot
   const maoObra = Number(slot.custo_terceirizados_previsto) || 0;
   const custoTotal = custoTecido + custoForro + materiais + maoObra;
   const pi = precoInfo(custoTotal, markup, slot.preco_venda ?? null);
+  // valores ligados ao modelo REAL (Desenvolvimento) → borda verde (integridade). A reflexão
+  // efetiva do valor do Dev (travado) é finalizada na Fase 4.2.
+  const fromDev = !!slot.modelo_id;
 
   const RO = ({ label, value }: { label: string; value: string }) => (
     <div><div className="text-[10px] text-muted-foreground">{label}</div><div className="rounded-md border bg-muted px-2 py-1 text-right text-xs text-muted-foreground">{value}</div></div>
@@ -39,13 +42,13 @@ export function CustoSection({ slot, onChange, maoObraAprovado }: { slot: PtSlot
       <div className="grid grid-cols-2 gap-2">
         <RO label="Custo de tecido (auto)" value={brl(custoTecido)} />
         <RO label="Custo de forro (auto)" value={brl(custoForro)} />
-        <div><div className="text-[10px] text-muted-foreground">Materiais (edita)</div>
-          <NumberInput blankZero placeholder="0,00" className="h-7 w-full text-right" value={materiais} onChange={(e) => onChange({ ...slot, custo_simulado: { ...cs, materiais: Number(e.target.value) || 0 } })} /></div>
+        <div><div className="text-[10px] text-muted-foreground">Materiais</div>
+          <NumberInput blankZero placeholder="0,00" className={`h-7 w-full text-right ${fromDev ? "border-emerald-500" : ""}`} title={fromDev ? "Valor ligado ao modelo do Desenvolvimento" : undefined} value={materiais} onChange={(e) => onChange({ ...slot, custo_simulado: { ...cs, materiais: Number(e.target.value) || 0 } })} /></div>
         <div><div className="text-[10px] text-muted-foreground">Mão de obra prevista</div>
-          <NumberInput blankZero placeholder="0,00" className="h-7 w-full text-right" value={maoObra} onChange={(e) => onChange({ ...slot, custo_terceirizados_previsto: Number(e.target.value) || 0 })} /></div>
+          <NumberInput blankZero placeholder="0,00" className={`h-7 w-full text-right ${fromDev ? "border-emerald-500" : ""}`} title={fromDev ? "Valor ligado ao modelo do Desenvolvimento" : undefined} value={maoObra} onChange={(e) => onChange({ ...slot, custo_terceirizados_previsto: Number(e.target.value) || 0 })} /></div>
         {slot.modelo_id && (
           <div className="col-span-2 flex items-center gap-2 text-[11px]">
-            <span className="text-muted-foreground">Mão de obra (aprovação no Planejamento):</span>
+            <span className="text-muted-foreground">Aprovação de Mão de Obra:</span>
             <span className={`ml-auto rounded px-2 py-0.5 font-medium ${maoObraAprovado === true ? "bg-emerald-100 text-emerald-700" : maoObraAprovado === false ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>
               {maoObraAprovado === true ? "aprovada" : maoObraAprovado === false ? "reprovada" : "pendente"}
             </span>

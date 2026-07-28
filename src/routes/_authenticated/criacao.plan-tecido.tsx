@@ -74,6 +74,7 @@ function PlanTecidoListPage() {
     <div className="p-4 sm:p-6">
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.11em] text-primary">Estilo &amp; Engenharia</div>
           <h1 className="font-display text-2xl font-semibold tracking-tight">Planejamento de Tecido</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">Escolha uma coleção para planejar os tecidos. (Só clicar e entrar.)</p>
         </div>

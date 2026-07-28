@@ -44,6 +44,8 @@ export function ModelCard({
   defaultOpen,
   open: openProp,
   onToggleOpen,
+  fornecCom,
+  fornecTotal,
 }: {
   slot: PtSlot;
   onChange: (s: PtSlot) => void;
@@ -64,6 +66,9 @@ export function ModelCard({
   /** Controle externo do aberto/recolhido (para "recolher/expandir todos"). Se ausente, usa estado local. */
   open?: boolean;
   onToggleOpen?: () => void;
+  /** Status de fornecedor: nº de materiais com fornecedor / total (selo no header). */
+  fornecCom?: number;
+  fornecTotal?: number;
 }) {
   const qc = useQueryClient();
   const [openLocal, setOpenLocal] = useState(defaultOpen ?? false);
@@ -205,6 +210,11 @@ export function ModelCard({
               {usarEstoque && <span className="text-amber-600">estoque</span>}
             </div>
           </div>
+          {fornecTotal ? (
+            fornecCom === fornecTotal
+              ? <span className="shrink-0 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700" title="Todos os materiais têm fornecedor">✓ fornec.</span>
+              : <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700" title="Materiais com fornecedor">{fornecCom}/{fornecTotal}</span>
+          ) : null}
           {!temGrade && <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700" title="Falta preencher a grade">⚠ grade</span>}
           <ChevronRight className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
         </button>
