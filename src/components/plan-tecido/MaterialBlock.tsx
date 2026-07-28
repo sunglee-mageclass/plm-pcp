@@ -20,11 +20,14 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }:
   const { tecidoArtigos, forroArtigos, categoriaNomeDe, fornecedorDe, artigoTemCategoria } = useArtigosTecido();
   const { data: coresCombos = [] } = useCoresCombos();
   const rotulo = material.tipo === "forro" ? "forro" : "tecido";
-  // lista-base pelo PAPEL do bloco: TEC só tecidos; FOR só forros — e FILTRADA pela categoria da lane
+  // lista-base pelo PAPEL do bloco: TEC só tecidos; FOR só forros.
+  // Filtro pela categoria da lane só p/ TECIDO (forro tem categoria própria "Forro", nunca casa a
+  // categoria-de-tecido da lane) e NUNCA esvazia: se nenhum tecido casar, cai pra todos.
   const base = material.tipo === "forro" ? forroArtigos : tecidoArtigos;
-  const artigosVisiveis = laneCategoriaId
+  const filtrados = laneCategoriaId && material.tipo !== "forro"
     ? base.filter((a) => artigoTemCategoria(a.id, laneCategoriaId) || a.id === material.artigo_id)
     : base;
+  const artigosVisiveis = filtrados.length > 0 ? filtrados : base;
   const categoriaNome = material.artigo_id ? categoriaNomeDe(material.artigo_id) : null;
 
   const { data: variantesArtigo = [] } = useQuery({
@@ -52,9 +55,11 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [variantesArtigo, material.artigo_id, material.variantes.length]);
 
-  // divergência: cor que não existe nas variantes do artigo (só faz sentido com artigo escolhido)
+  // divergência: cor que não existe nas variantes do artigo (só faz sentido com artigo escolhido
+  // E com as variantes JÁ carregadas — senão marcaria tudo como divergente durante o load e
+  // "remover divergentes" apagaria cores reais).
   const divergente = (v: PtVariante) => {
-    if (!material.artigo_id) return false;
+    if (!material.artigo_id || variantesArtigo.length === 0) return false;
     if (v.variante_tecido_id) return !realById.has(v.variante_tecido_id);
     return !realByCombo.has(comboKey(v.cor_id, v.cor_apelido_id));
   };
