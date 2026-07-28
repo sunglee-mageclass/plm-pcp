@@ -180,7 +180,7 @@ export function ResumoPanel({
 
       {/* Situação da OC — por OC */}
       <div className="rounded-lg border">
-        <div className="border-b p-2 font-display text-xs font-semibold">Situação da OC — por OC</div>
+        <div className="flex items-center border-b p-2 font-display text-xs font-semibold">Situação da OC — por OC<Detalhar onClick={() => onDetalhar("oc")} /></div>
         {ocs.length ? ocs.map((o) => {
           const reservada = reservPorOc.get(o.oc_tecido_id) ?? 0;
           const sobra = o.pedida - reservada;
