@@ -20,14 +20,13 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }:
   const { tecidoArtigos, forroArtigos, categoriaNomeDe, fornecedorDe, artigoTemCategoria } = useArtigosTecido();
   const { data: coresCombos = [] } = useCoresCombos();
   const rotulo = material.tipo === "forro" ? "forro" : "tecido";
-  // lista-base pelo PAPEL do bloco: TEC só tecidos; FOR só forros.
-  // Filtro pela categoria da lane só p/ TECIDO (forro tem categoria própria "Forro", nunca casa a
-  // categoria-de-tecido da lane) e NUNCA esvazia: se nenhum tecido casar, cai pra todos.
+  // lista-base pelo PAPEL do bloco: TEC só tecidos; FOR só forros. Mostra TODOS (o filtro por
+  // categoria da lane escondia opções válidas). Se há categoria da lane, os tecidos DAQUELA
+  // categoria vão pro topo (ordenação, NÃO filtro) — nada some. Forro nunca reordena.
   const base = material.tipo === "forro" ? forroArtigos : tecidoArtigos;
-  const filtrados = laneCategoriaId && material.tipo !== "forro"
-    ? base.filter((a) => artigoTemCategoria(a.id, laneCategoriaId) || a.id === material.artigo_id)
+  const artigosVisiveis = laneCategoriaId && material.tipo !== "forro"
+    ? [...base].sort((a, b) => Number(artigoTemCategoria(b.id, laneCategoriaId)) - Number(artigoTemCategoria(a.id, laneCategoriaId)))
     : base;
-  const artigosVisiveis = filtrados.length > 0 ? filtrados : base;
   const categoriaNome = material.artigo_id ? categoriaNomeDe(material.artigo_id) : null;
 
   const { data: variantesArtigo = [] } = useQuery({
@@ -141,7 +140,7 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }:
             return (
               <div key={varKey(v)} className={`flex items-center gap-2 border-t border-dashed py-1 text-xs first:border-t-0 ${div ? "rounded bg-red-50" : ""}`}>
                 <VarianteSwatch nome={v.cor_nome ?? v.label ?? undefined} />
-                <span className="min-w-0 flex-1 truncate" title={v.label ?? undefined}>{v.label || "—"}</span>
+                <span className="min-w-0 flex-1 truncate" title={v.label ?? v.cor_nome ?? undefined}>{v.label || v.cor_nome || "—"}</span>
                 {div ? (
                   <span className="flex shrink-0 items-center gap-0.5 text-[9px] font-medium text-red-600" title="Cor não existe nas variantes do tecido"><AlertTriangle className="h-3 w-3" />divergente</span>
                 ) : planejada ? (
