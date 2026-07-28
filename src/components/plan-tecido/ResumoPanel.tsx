@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import type { PtArvore } from "@/lib/plan-tecido/types";
-import { necessidadePorTecido, custoMateriaisPrevisto, tecidosDaArvore } from "@/lib/plan-tecido/calc";
+import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
+import { necessidadePorTecido, custoMateriaisPrevisto } from "@/lib/plan-tecido/calc";
 import { precoInfo } from "@/lib/preco";
 import { brl } from "@/lib/format";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
-import { PaletaColecao } from "./PaletaColecao";
+import { Lock } from "lucide-react";
 
 type EstoqueRow = { variante_tecido_id: string; fisico: number; a_receber: number; reservado: number; previsto: number };
 type EstoqueMap = Record<string, EstoqueRow>;
@@ -69,6 +69,9 @@ function NecBlock({
 }
 
 export function ResumoPanel({ arvore }: { arvore: PtArvore }) {
+  const slots = arvore.subcolecoes.flatMap((sub) => sub.linhas.flatMap((ln) => ln.slots));
+  const firstTec = (slot: PtSlot) => slot.materiais.find((m) => m.tipo === "tecido");
+
   const necComprar = necessidadePorTecido(arvore, (s) => !(s.usar_estoque ?? false));
   const necEstoque = necessidadePorTecido(arvore, (s) => !!(s.usar_estoque ?? false));
   const temEstoque = necEstoque.some((t) => t.totalMetros > 0);
@@ -86,6 +89,17 @@ export function ResumoPanel({ arvore }: { arvore: PtArvore }) {
     },
   });
 
+  // quais artigos (tecidos) têm FORNECEDOR (artigos.empresa_id) — base do gating por fornecedor
+  const artigoIds = [...new Set(slots.flatMap((s) => s.materiais).map((m) => m.artigo_id).filter((x): x is string => !!x))].sort();
+  const { data: fornecSet = new Set<string>() } = useQuery({
+    queryKey: ["plan-tecido-artigo-fornecedor", artigoIds],
+    enabled: artigoIds.length > 0,
+    queryFn: async () => {
+      const rows = ((await supabase.from("artigos").select("id, empresa_id").in("id", artigoIds)).data ?? []) as { id: string; empresa_id: string | null }[];
+      return new Set(rows.filter((r) => r.empresa_id).map((r) => r.id));
+    },
+  });
+
   // markup por linha (linhas.markup) — p/ o preço sugerido no efetivo
   const { data: markupMap = {} } = useQuery({
     queryKey: ["plan-tecido-linhas-markup"],
@@ -95,11 +109,24 @@ export function ResumoPanel({ arvore }: { arvore: PtArvore }) {
     },
   });
 
-  // poder de venda previsto = Σ (preço efetivo × grade_total) por slot
-  // efetivo = preço p/ venda (se houver) OU preço sugerido (custo × markup da linha, arredondado)
-  let pv = 0;
-  for (const sub of arvore.subcolecoes) for (const ln of sub.linhas) for (const slot of ln.slots) {
-    const tec1 = slot.materiais.find((m) => m.tipo === "tecido" && m.numero === 1);
+  // Pendências (computáveis a partir da árvore + fornecedor)
+  const semCategoria = slots.filter((s) => !s.categoria_tecido_id).length;
+  const semTecido = slots.filter((s) => !s.materiais.some((m) => m.tipo === "tecido" && m.artigo_id)).length;
+  const semFornecedor = slots.filter((s) => { const t = firstTec(s); return !!t?.artigo_id && !fornecSet.has(t.artigo_id); }).length;
+  const pendenciasRaw: [number, string][] = [
+    [semCategoria, "sem categoria de tecido"],
+    [semTecido, "sem tecido escolhido"],
+    [semFornecedor, "tecido sem fornecedor"],
+  ];
+  const pendencias = pendenciasRaw.filter(([n]) => n > 0);
+
+  // Poder de venda GATED por fornecedor: só conta o realizado (tecido com fornecedor)
+  const comFornec = (slot: PtSlot) => { const t = firstTec(slot); return !!t?.artigo_id && fornecSet.has(t.artigo_id); };
+  let pv = 0; let nComFornec = 0;
+  for (const slot of slots) {
+    if (!comFornec(slot)) continue;
+    nComFornec++;
+    const tec1 = firstTec(slot);
     const grade = (tec1?.variantes ?? []).reduce((s, v) => s + (v.grade_total || 0), 0);
     const cs = (slot.custo_simulado ?? {}) as { materiais?: number };
     const custo = custoMateriaisPrevisto(slot) + (Number(cs.materiais) || 0) + (Number(slot.custo_terceirizados_previsto) || 0);
@@ -109,12 +136,33 @@ export function ResumoPanel({ arvore }: { arvore: PtArvore }) {
 
   return (
     <div className="space-y-2">
-      {arvore.colecao_id && <PaletaColecao colecaoId={arvore.colecao_id} emUso={tecidosDaArvore(arvore)} />}
+      {/* Pendências */}
+      <div className="rounded-lg border">
+        <div className="border-b p-2 font-display text-xs font-semibold">Pendências p/ planejamento</div>
+        {pendencias.length ? pendencias.map(([n, l]) => (
+          <div key={l} className="flex items-center justify-between gap-2 border-b px-2 py-1 text-xs last:border-b-0">
+            <span className="flex items-center gap-2 text-muted-foreground"><span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />{l}</span>
+            <b>{n}</b>
+          </div>
+        )) : (
+          <div className="flex items-center gap-2 p-2 text-xs text-muted-foreground"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />Sem pendências</div>
+        )}
+      </div>
       <NecBlock titulo="A comprar (encomenda)" nec={necComprar} estoque={estoqueMap} />
       {temEstoque && <NecBlock titulo="Usar do estoque" nec={necEstoque} />}
+      {/* Poder de venda — gated por fornecedor */}
       <div className="rounded-lg border">
         <div className="border-b p-2 font-display text-xs font-semibold">Poder de venda (previsto)</div>
-        <div className="flex justify-between p-2 text-xs"><span>Σ preço × grade</span><b>{brl(pv)}</b></div>
+        {nComFornec > 0 ? (
+          <div className="p-2">
+            <div className="flex justify-between text-xs"><span>Σ preço × grade</span><b>{brl(pv)}</b></div>
+            <div className="mt-0.5 text-[10px] text-muted-foreground">{nComFornec} de {slots.length} modelos com fornecedor</div>
+          </div>
+        ) : (
+          <div className="flex items-start gap-1.5 p-2 text-[11px] text-amber-700">
+            <Lock className="mt-0.5 h-3 w-3 shrink-0" />Preço e poder de venda aparecem quando um tecido tiver fornecedor.
+          </div>
+        )}
       </div>
     </div>
   );
