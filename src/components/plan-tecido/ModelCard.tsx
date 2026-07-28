@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import type { PtSlot, PtMaterial } from "@/lib/plan-tecido/types";
 import { ChevronRight, Lock } from "lucide-react";
+import type { DragHandle } from "./dnd";
 import { necessidadePorTecido, distribuirGrade } from "@/lib/plan-tecido/calc";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
@@ -46,6 +47,7 @@ export function ModelCard({
   onToggleOpen,
   fornecCom,
   fornecTotal,
+  dragHandle,
 }: {
   slot: PtSlot;
   onChange: (s: PtSlot) => void;
@@ -69,6 +71,8 @@ export function ModelCard({
   /** Status de fornecedor: nº de materiais com fornecedor / total (selo no header). */
   fornecCom?: number;
   fornecTotal?: number;
+  /** Alça de arraste (o header vira handle do drag-n-drop entre lanes). */
+  dragHandle?: DragHandle;
 }) {
   const qc = useQueryClient();
   const [openLocal, setOpenLocal] = useState(defaultOpen ?? false);
@@ -197,8 +201,11 @@ export function ModelCard({
           </div>
         )}
         <button
-          className="flex w-full items-center gap-2 p-2 text-left"
+          className={`flex w-full items-center gap-2 p-2 text-left ${dragHandle ? "cursor-grab active:cursor-grabbing" : ""}`}
           onClick={toggleOpen}
+          {...(dragHandle?.attributes ?? {})}
+          {...(dragHandle?.listeners ?? {})}
+          title={dragHandle ? "Arraste para outra categoria (ou clique para recolher)" : undefined}
         >
           <ModeloThumb path={slot.thumb_path} />
           <div className={`min-w-0 flex-1 ${onToggleSelect ? "ml-3" : ""}`}>

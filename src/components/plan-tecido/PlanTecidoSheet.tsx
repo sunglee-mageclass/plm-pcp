@@ -31,7 +31,7 @@ import { FazerPedidoWizard, type PreviaRpc } from "@/components/plan-tecido/Faze
 import { PlanTecidoDrawer, type DrawerState, type DrawerKind } from "@/components/plan-tecido/PlanTecidoDrawer";
 import { useSituacaoOcs } from "@/lib/plan-tecido/useSituacaoOcs";
 import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
-import { DroppableLane, DraggableCard } from "@/components/plan-tecido/dnd";
+import { DroppableLane, DraggableCard, type DragHandle } from "@/components/plan-tecido/dnd";
 
 type Nome = { id: string; nome: string };
 
@@ -687,7 +687,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
             if (todosRecolhidos) { const n = new Set(prev); allChaves.forEach((c) => n.delete(c)); return n; }
             return new Set([...prev, ...allChaves]);
           });
-          const cardOf = (slot: PtSlot, li: number, sli: number, chave: string) => (
+          const cardOf = (slot: PtSlot, li: number, sli: number, chave: string, dragHandle?: DragHandle) => (
             <ModelCard key={slot.id ?? `${li}-${sli}`} slot={slot} colecaoId={colecaoId} subcolecaoId={sub.subcolecao_id}
               paleta={paleta} tamanhos={tamanhos} ocsAplicadas={ocsAplicadas}
               slotOcIds={slot.id ? (slotOcMap[slot.id] ?? []) : []}
@@ -699,6 +699,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
               onChange={(ns) => { const next = structuredClone(arvore) as PtArvore; next.subcolecoes[subAtiva].linhas[li].slots[sli] = ns; patch(next); }}
               open={!recolhidos.has(chave)} onToggleOpen={() => toggleRecolhido(chave)}
               fornecCom={slotFornec(slot).com} fornecTotal={slotFornec(slot).total}
+              dragHandle={dragHandle}
               selected={selecao.has(chave)} onToggleSelect={() => toggleSel(chave)} />
           );
           return (
@@ -765,7 +766,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                           {!laneRecolhida && (
                             <DroppableLane id={`lane:${cid ?? "__sem__"}`}>
                               {slots.length ? slots.map(({ slot, li, sli, chave }) => (
-                                <DraggableCard key={slot.id ?? `${li}-${sli}`} id={chave}>{cardOf(slot, li, sli, chave)}</DraggableCard>
+                                <DraggableCard key={slot.id ?? `${li}-${sli}`} id={chave}>{(handle) => cardOf(slot, li, sli, chave, handle)}</DraggableCard>
                               )) : (
                                 <div className="min-w-[280px] rounded-lg border border-dashed p-4 text-center text-xs italic text-muted-foreground">
                                   Arraste um card aqui, ou defina a categoria de tecido dentro do card.

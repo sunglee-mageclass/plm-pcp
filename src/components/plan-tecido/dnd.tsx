@@ -1,6 +1,9 @@
 import type { ReactNode } from "react";
-import { useDraggable, useDroppable } from "@dnd-kit/core";
-import { GripVertical } from "lucide-react";
+import { useDraggable, useDroppable, type DraggableAttributes } from "@dnd-kit/core";
+import type { SyntheticListenerMap } from "@dnd-kit/core/dist/hooks/utilities";
+
+/** Props da ALÇA de arraste (o header do card) — espalhadas no elemento que inicia o drag. */
+export type DragHandle = { attributes: DraggableAttributes; listeners: SyntheticListenerMap | undefined };
 
 /** Lane (categoria) = zona onde se solta o card. id = `lane:${cid ?? "__sem__"}`. */
 export function DroppableLane({ id, children }: { id: string; children: ReactNode }) {
@@ -12,22 +15,17 @@ export function DroppableLane({ id, children }: { id: string; children: ReactNod
   );
 }
 
-/** Card arrastável — a alça "mover" (grip) inicia o arraste; o resto do card fica clicável. */
-export function DraggableCard({ id, children }: { id: string; children: ReactNode }) {
+/**
+ * Card arrastável. O drag é iniciado pela ALÇA (o header do card) — passada via children(handle).
+ * Assim o corpo (inputs/botões/dropdowns) segue 100% clicável; a distância de ativação (no sensor)
+ * deixa o clique simples passar (ex.: recolher/expandir o card).
+ */
+export function DraggableCard({ id, children }: { id: string; children: (handle: DragHandle) => ReactNode }) {
   const { setNodeRef, attributes, listeners, transform, isDragging } = useDraggable({ id });
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 50 } : undefined;
   return (
-    <div ref={setNodeRef} style={style} className={`relative w-[360px] shrink-0 ${isDragging ? "opacity-60" : ""}`}>
-      <button
-        type="button"
-        {...attributes}
-        {...listeners}
-        className="absolute -top-2 left-1/2 z-10 flex -translate-x-1/2 cursor-grab touch-none items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-[10px] text-muted-foreground shadow-sm hover:text-foreground active:cursor-grabbing"
-        title="Arraste para outra categoria"
-      >
-        <GripVertical className="h-3 w-3" /> mover
-      </button>
-      {children}
+    <div ref={setNodeRef} style={style} className={`w-[360px] shrink-0 ${isDragging ? "opacity-40" : ""}`}>
+      {children({ attributes, listeners })}
     </div>
   );
 }
