@@ -190,6 +190,10 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
   const [addCatOpen, setAddCatOpen] = useState(false);
   const [aplicarCatOpen, setAplicarCatOpen] = useState(false);
   const [selecao, setSelecao] = useState<Set<string>>(new Set());
+  const [recolhidos, setRecolhidos] = useState<Set<string>>(new Set()); // chaves de cards recolhidos
+
+  const toggleRecolhido = (chave: string) =>
+    setRecolhidos((prev) => { const n = new Set(prev); if (n.has(chave)) n.delete(chave); else n.add(chave); return n; });
   const [formTipo, setFormTipo] = useState<"tecido" | "forro" | null>(null);
   const [previaOpen, setPreviaOpen] = useState(false);
   const [previaData, setPreviaData] = useState<PreviaRpc | null>(null);
@@ -588,7 +592,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                 return (
                   <button key={sub.id ?? si} type="button"
                     className="flex flex-col gap-2 rounded-lg border bg-background p-4 text-left shadow-sm transition-shadow hover:border-primary hover:shadow-md"
-                    onClick={() => { setSubAtiva(si); setCatFilter(null); setSelecao(new Set()); setView("canvas"); }}>
+                    onClick={() => { setSubAtiva(si); setCatFilter(null); setSelecao(new Set()); setRecolhidos(new Set()); setView("canvas"); }}>
                     <div className="font-medium">{nameOf(subNomes, sub.subcolecao_id) ?? "Sem subcoleção"}</div>
                     <div className="flex flex-wrap gap-1">
                       {cats.length ? cats.map((cid) => (
@@ -610,6 +614,12 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
           const cats = sub.categorias_tecido ?? [];
           const slotsOf = (cid: string | null) => flat.filter((f) => (f.slot.categoria_tecido_id ?? null) === cid);
           const laneCats: (string | null)[] = catFilter === "__sem__" ? [null] : catFilter ? [catFilter] : [...cats, null];
+          const allChaves = flat.map((f) => f.chave);
+          const todosRecolhidos = allChaves.length > 0 && allChaves.every((c) => recolhidos.has(c));
+          const toggleTodos = () => setRecolhidos((prev) => {
+            if (todosRecolhidos) { const n = new Set(prev); allChaves.forEach((c) => n.delete(c)); return n; }
+            return new Set([...prev, ...allChaves]);
+          });
           const cardOf = (slot: PtSlot, li: number, sli: number, chave: string) => (
             <ModelCard key={slot.id ?? `${li}-${sli}`} slot={slot} colecaoId={colecaoId} subcolecaoId={sub.subcolecao_id}
               paleta={paleta} tamanhos={tamanhos} ocsAplicadas={ocsAplicadas}
@@ -620,6 +630,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
               onSetMaoObra={slot.modelo_id && podeAprovarMaoObra ? (aprovado) => aprovarMaoObraMut.mutate({ id: slot.modelo_id!, aprovado }) : undefined}
               onEnsureSaved={ensureSaved}
               onChange={(ns) => { const next = structuredClone(arvore) as PtArvore; next.subcolecoes[subAtiva].linhas[li].slots[sli] = ns; patch(next); }}
+              open={!recolhidos.has(chave)} onToggleOpen={() => toggleRecolhido(chave)}
               selected={selecao.has(chave)} onToggleSelect={() => toggleSel(chave)} />
           );
           return (
@@ -636,7 +647,10 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                   {flat.some((f) => !f.slot.categoria_tecido_id) && (
                     <button type="button" className={chipCls(catFilter === "__sem__")} onClick={() => setCatFilter("__sem__")}>Sem categoria ({slotsOf(null).length})</button>
                   )}
-                  <Button size="sm" variant="outline" className="ml-auto gap-1" onClick={() => setAddCatOpen(true)}><Plus className="h-3.5 w-3.5" /> categoria</Button>
+                  <div className="ml-auto flex items-center gap-2">
+                    <Button size="sm" variant="ghost" onClick={toggleTodos}>{todosRecolhidos ? "Expandir todos" : "Recolher todos"}</Button>
+                    <Button size="sm" variant="outline" className="gap-1" onClick={() => setAddCatOpen(true)}><Plus className="h-3.5 w-3.5" /> categoria</Button>
+                  </div>
                 </div>
                 <div className="space-y-4">
                   {laneCats.map((cid) => {

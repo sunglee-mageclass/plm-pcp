@@ -41,6 +41,8 @@ export function ModelCard({
   onSetMaoObra,
   onEnsureSaved,
   defaultOpen,
+  open: openProp,
+  onToggleOpen,
 }: {
   slot: PtSlot;
   onChange: (s: PtSlot) => void;
@@ -58,9 +60,14 @@ export function ModelCard({
   onSetMaoObra?: (aprovado: boolean) => void;
   onEnsureSaved?: () => Promise<boolean>;
   defaultOpen?: boolean;
+  /** Controle externo do aberto/recolhido (para "recolher/expandir todos"). Se ausente, usa estado local. */
+  open?: boolean;
+  onToggleOpen?: () => void;
 }) {
   const qc = useQueryClient();
-  const [open, setOpen] = useState(defaultOpen ?? false);
+  const [openLocal, setOpenLocal] = useState(defaultOpen ?? false);
+  const open = openProp ?? openLocal;
+  const toggleOpen = onToggleOpen ?? (() => setOpenLocal((o) => !o));
   const [confirmGrade, setConfirmGrade] = useState(false);
   const [aplicandoGrade, setAplicandoGrade] = useState(false);
   const [criandoCard, setCriandoCard] = useState(false);
@@ -188,7 +195,7 @@ export function ModelCard({
         )}
         <button
           className="flex min-h-[68px] w-full items-center gap-2 p-2 text-left"
-          onClick={() => setOpen((o) => !o)}
+          onClick={toggleOpen}
         >
           <ChevronRight className={`h-4 w-4 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
           <ModeloThumb path={slot.thumb_path} />
@@ -211,6 +218,11 @@ export function ModelCard({
         </button>
         {open && (
           <>
+            {/* Grade = proporção por tamanho (fixa no topo, não colapsável) */}
+            <div className="border-t bg-muted/20 pb-1">
+              <div className="px-2 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Grade — proporção por tamanho</div>
+              <GradeSection slot={slot} onChange={onChange} tamanhos={tamanhos} />
+            </div>
             <div className="border-t px-2 py-1 flex items-center gap-2">
               <span className="text-[10px] text-muted-foreground shrink-0">Categoria</span>
               <select
@@ -366,14 +378,8 @@ export function ModelCard({
                   </div>
                 </AccordionContent>
               </AccordionItem>
-              <AccordionItem value="grade">
-                <AccordionTrigger className="py-2 text-xs">2. Grade</AccordionTrigger>
-                <AccordionContent>
-                  <GradeSection slot={slot} onChange={onChange} tamanhos={tamanhos} />
-                </AccordionContent>
-              </AccordionItem>
               <AccordionItem value="custo">
-                <AccordionTrigger className="py-2 text-xs">3. Custo &amp; Preço</AccordionTrigger>
+                <AccordionTrigger className="py-2 text-xs">2. Custo &amp; Preço</AccordionTrigger>
                 <AccordionContent>
                   <CustoSection slot={slot} onChange={onChange} />
                 </AccordionContent>

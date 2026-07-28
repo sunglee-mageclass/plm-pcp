@@ -19,10 +19,12 @@ export function CustoSection({ slot, onChange }: { slot: PtSlot; onChange: (s: P
   const markup = slot.linha_id ? (markupMap[slot.linha_id] ?? 0) : 0;
 
   const cs = (slot.custo_simulado ?? {}) as { materiais?: number };
-  const custoTecido = custoMateriaisPrevisto(slot); // travado: Σ consumo × preço/m dos tecidos/forros
+  // custos automáticos destrinchados por papel: Σ consumo × preço/m
+  const custoTecido = custoMateriaisPrevisto({ ...slot, materiais: slot.materiais.filter((m) => m.tipo === "tecido") });
+  const custoForro = custoMateriaisPrevisto({ ...slot, materiais: slot.materiais.filter((m) => m.tipo === "forro") });
   const materiais = Number(cs.materiais) || 0; // editável: outros materiais/aviamentos
   const maoObra = Number(slot.custo_terceirizados_previsto) || 0;
-  const custoTotal = custoTecido + materiais + maoObra;
+  const custoTotal = custoTecido + custoForro + materiais + maoObra;
   const pi = precoInfo(custoTotal, markup, slot.preco_venda ?? null);
 
   const RO = ({ label, value }: { label: string; value: string }) => (
@@ -36,6 +38,7 @@ export function CustoSection({ slot, onChange }: { slot: PtSlot; onChange: (s: P
       </div>
       <div className="grid grid-cols-2 gap-2">
         <RO label="Custo de tecido (auto)" value={brl(custoTecido)} />
+        <RO label="Custo de forro (auto)" value={brl(custoForro)} />
         <div><div className="text-[10px] text-muted-foreground">Materiais (edita)</div>
           <NumberInput blankZero placeholder="0,00" className="h-7 w-full text-right" value={materiais} onChange={(e) => onChange({ ...slot, custo_simulado: { ...cs, materiais: Number(e.target.value) || 0 } })} /></div>
         <div><div className="text-[10px] text-muted-foreground">Mão de obra prevista</div>
