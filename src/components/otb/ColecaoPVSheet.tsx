@@ -328,7 +328,12 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
     if (error) throw error;
     return data as string;
   };
-  const feito = (cid: string) => { setSavedId(cid); qc.invalidateQueries({ queryKey: ["colecao-pv", cid] }); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); onSaved?.(); };
+  const invalidarDownstream = () => {
+    qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+    qc.invalidateQueries({ queryKey: ["otb-modelos-link"] });
+    qc.invalidateQueries({ predicate: (q) => typeof q.queryKey?.[0] === "string" && (q.queryKey[0] as string).startsWith("plan-tecido") });
+  };
+  const feito = (cid: string) => { setSavedId(cid); qc.invalidateQueries({ queryKey: ["colecao-pv", cid] }); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); invalidarDownstream(); onSaved?.(); };
   const salvar = useMutation({ mutationFn: salvarRaw, onSuccess: (cid) => { toast.success("Coleção salva."); markClean(); feito(cid); }, onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar a coleção.")) });
   const confirmar = useMutation({
     mutationFn: async () => { const cid = await salvarRaw(); const { error } = await supabase.rpc("otb_confirmar_pv" as any, { _colecao_id: cid }); if (error) throw error; return cid; },
@@ -337,7 +342,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
   });
   const desconfirmar = useMutation({
     mutationFn: async () => { if (!savedId) return; const { error } = await supabase.rpc("otb_desconfirmar" as any, { _colecao_id: savedId }); if (error) throw error; },
-    onSuccess: () => { toast.success("Coleção desconfirmada."); setConfirmada(false); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); onSaved?.(); },
+    onSuccess: () => { toast.success("Coleção desconfirmada."); setConfirmada(false); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); invalidarDownstream(); onSaved?.(); },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desconfirmar a coleção.")),
   });
   const excluir = useMutation({

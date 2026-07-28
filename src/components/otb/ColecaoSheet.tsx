@@ -482,6 +482,14 @@ export function ColecaoSheet({
 
   const isConfirmada = data?.status === "confirmada";
 
+  // Mudanças na coleção (atribuir subcoleção/semana, confirmar, desconfirmar) mexem em modelos.subcolecao
+  // → precisam refrescar Planejamento E Plan. Tecido (senão ficam presos no cache). Ver itens 4/5.
+  const invalidarDownstream = () => {
+    qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+    qc.invalidateQueries({ queryKey: ["otb-modelos-link"] });
+    qc.invalidateQueries({ predicate: (q) => typeof q.queryKey?.[0] === "string" && (q.queryKey[0] as string).startsWith("plan-tecido") });
+  };
+
   const save = useMutation({
     mutationFn: async () => {
       const id = await persistColecao();
@@ -499,10 +507,7 @@ export function ColecaoSheet({
       markClean();
       qc.invalidateQueries({ queryKey: ["otb-colecoes"] });
       qc.invalidateQueries({ queryKey: ["otb-semanas-todas"] });
-      if (isConfirmada) {
-        qc.invalidateQueries({ queryKey: ["otb-modelos-link"] });
-        qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
-      }
+      invalidarDownstream();
       onSaved(); onClose();
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar coleção")),
@@ -520,6 +525,7 @@ export function ColecaoSheet({
       markClean();
       qc.invalidateQueries({ queryKey: ["otb-colecoes"] });
       qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
+      invalidarDownstream();
       onSaved(); onClose();
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao confirmar coleção")),
@@ -531,6 +537,7 @@ export function ColecaoSheet({
       toast.success("Coleção desconfirmada.");
       qc.invalidateQueries({ queryKey: ["otb-colecoes"] });
       qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
+      invalidarDownstream();
       onSaved(); onClose();
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao desconfirmar coleção")),
