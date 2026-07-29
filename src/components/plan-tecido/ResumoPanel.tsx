@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
-import { custoMateriaisPrevisto, slotMetros } from "@/lib/plan-tecido/calc";
+import { custoMateriaisPrevisto, slotMetros, detalheOc } from "@/lib/plan-tecido/calc";
 import { useSituacaoOcs, agruparPorOc } from "@/lib/plan-tecido/useSituacaoOcs";
 import type { PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
 import { precoInfo } from "@/lib/preco";
@@ -150,23 +150,10 @@ export function ResumoPanel({
   // OC EFETIVA do slot: o VÍNCULO real do Desenvolvimento (modelo_tecido_oc_links, via vinculoOcMap)
   // vence o hint do plano (slotOcMap) — senão, ao trocar a OC direto no Dev, a Reservada/Sobra ficava
   // defasada (o Dev não atualiza plan_tecido_slot_oc). Slot ainda sem vínculo usa o hint do plano.
-  const reservPorOc = new Map<string, number>();
-  const nPorOc = new Map<string, number>();
-  // COMPROMETIDA (laranja) AO VIVO: reservada dos cards JÁ enviados à explosão (enviado_cad). Computado
-  // no front (não pela RPC) p/ atualizar na hora ao enviar ao CAD e usar a MESMA OC efetiva da reservada.
-  const comprometidoPorOc = new Map<string, number>();
-  for (const sub of colecaoArvore.subcolecoes) for (const ln of sub.linhas) for (const slot of ln.slots) {
-    if (!slot.id) continue;
-    const devOc = slot.modelo_id ? (vinculoOcMap[slot.modelo_id] ?? []) : [];
-    const ocIds = devOc.length ? devOc : (slotOcMap[slot.id] ?? []);
-    if (!ocIds.length) continue;
-    const m = slotMetros(slot);
-    const enviado = !!slot.modelo_id && !!enviadoCadSet?.has(slot.modelo_id);
-    for (const ocId of ocIds) {
-      reservPorOc.set(ocId, (reservPorOc.get(ocId) ?? 0) + m); nPorOc.set(ocId, (nPorOc.get(ocId) ?? 0) + 1);
-      if (enviado) comprometidoPorOc.set(ocId, (comprometidoPorOc.get(ocId) ?? 0) + m);
-    }
-  }
+  // FONTE ÚNICA (calc.detalheOc) — o Drawer usa a MESMA fn (por OC×variante), então nunca divergem.
+  // COMPROMETIDA (laranja) = reservada dos cards JÁ enviados à explosão (enviado_cad); computada no
+  // front (não pela RPC) p/ atualizar na hora ao enviar ao CAD e usar a MESMA OC efetiva da reservada.
+  const { reservPorOc, comprometidoPorOc, nPorOc } = detalheOc(colecaoArvore, vinculoOcMap, slotOcMap, enviadoCadSet);
 
   // ---- Pendências (subcoleção) ----
   const semCategoria = slots.filter((s) => !s.categoria_tecido_id).length;
@@ -293,9 +280,13 @@ export function ResumoPanel({
       {/* Situação da OC — por OC */}
       <Secao title="Situação da OC — por OC" right={<Detalhar onClick={() => onDetalhar("oc")} />}>
         {ocs.length ? ocs.map((o) => {
-          const reservada = reservPorOc.get(o.oc_tecido_id) ?? 0;
+          const reservadaTotal = reservPorOc.get(o.oc_tecido_id) ?? 0;
           const comprometido = comprometidoPorOc.get(o.oc_tecido_id) ?? 0; // enviado à explosão (laranja)
-          const sobra = o.pedida - reservada;
+          // Contabilidade: o que foi USADO (comprometido/cortado) SAI da reservada. usada = max(comprometido,
+          // baixa real); reservada exibida = total − usada; reservada + usada = total; sobra = pedida − total.
+          const usada = Math.max(comprometido, o.usada);
+          const reservada = Math.max(0, reservadaTotal - usada);
+          const sobra = o.pedida - Math.max(reservadaTotal, usada);
           return (
             <div key={o.oc_tecido_id} className="border-b p-2 text-xs last:border-b-0">
               <div className="mb-0.5 flex items-center gap-2">
@@ -307,13 +298,13 @@ export function ResumoPanel({
               <div className="flex justify-between text-muted-foreground"><span>Pedida</span><span>{nMet(o.pedida)} m</span></div>
               <div className="flex justify-between text-muted-foreground"><span>Entregue</span><span>{nMet(o.entregue)} m</span></div>
               <div className="flex justify-between text-muted-foreground"><span>Reservada</span><span>{nMet(reservada)} m</span></div>
-              {/* Usada: baixa REAL (vermelho) tem prioridade; senão o comprometido = enviado à
-                  explosão (laranja). Cinza quando 0. */}
+              {/* Usada (saiu da reservada): baixa REAL (vermelho) tem prioridade; senão o comprometido =
+                  enviado à explosão (laranja). Cinza quando 0. */}
               <div className="flex justify-between text-muted-foreground">
                 <span>Usada</span>
                 <span className={o.usada > 0 ? "font-medium text-red-600" : comprometido > 0 ? "font-medium text-amber-600" : ""}
                       title={o.usada > 0 ? "Baixa real (corte enviado)" : comprometido > 0 ? "Comprometido — enviado à explosão" : undefined}>
-                  {(o.usada > 0 ? nMet(o.usada) : comprometido > 0 ? nMet(comprometido) : nMet(0))} m
+                  {nMet(usada)} m
                 </span>
               </div>
               <div className={`mt-0.5 flex justify-between border-t pt-0.5 font-display font-semibold ${sobraCls(sobra)}`}><span>Sobra prevista</span><span>{sobra > 0 ? "+" : ""}{nMet(sobra)} m</span></div>

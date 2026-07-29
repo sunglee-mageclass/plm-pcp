@@ -89,6 +89,58 @@ export function necessidadePorTecido(arvore: PtArvore, filtroSlot?: (slot: PtSlo
   return [...byArtigo.values()];
 }
 
+/** Reservada/comprometida por OC — FONTE ÚNICA consumida pelo Resumo (por OC) e pelo Drawer
+ *  (por OC×variante), pra os dois NUNCA divergirem. "Comprometido" = demanda dos cards já
+ *  ENVIADOS À EXPLOSÃO (enviado_cad); no modelo de contabilidade, o comprometido SAI da reservada
+ *  (reservada exibida = total − comprometido; reservada+usada = total). OC efetiva do slot: o
+ *  vínculo real do Dev (vinculoOcMap por modelo) vence o hint do plano (slotOcMap por slot). */
+export type DetalheOc = {
+  reservPorOc: Map<string, number>;
+  comprometidoPorOc: Map<string, number>;
+  nPorOc: Map<string, number>;
+  /** key = `${ocId}|${variante_tecido_id}` */
+  reservPorOcVar: Map<string, number>;
+  comprometidoPorOcVar: Map<string, number>;
+};
+
+export function detalheOc(
+  arvore: PtArvore,
+  vinculoOcMap: Record<string, string[]>,
+  slotOcMap: Record<string, string[]>,
+  enviadoCadSet?: Set<string>,
+): DetalheOc {
+  const reservPorOc = new Map<string, number>();
+  const comprometidoPorOc = new Map<string, number>();
+  const nPorOc = new Map<string, number>();
+  const reservPorOcVar = new Map<string, number>();
+  const comprometidoPorOcVar = new Map<string, number>();
+  for (const sub of arvore.subcolecoes ?? []) for (const ln of sub.linhas ?? []) for (const slot of ln.slots ?? []) {
+    if (!slot.id) continue;
+    const devOc = slot.modelo_id ? (vinculoOcMap[slot.modelo_id] ?? []) : [];
+    const ocIds = devOc.length ? devOc : (slotOcMap[slot.id] ?? []);
+    if (!ocIds.length) continue;
+    const enviado = !!slot.modelo_id && !!enviadoCadSet?.has(slot.modelo_id);
+    const mTotal = slotMetros(slot); // total do slot (bate com o Resumo antigo)
+    const perVar = new Map<string, number>(); // metros por variante_tecido_id (só reais)
+    for (const mat of slot.materiais ?? []) for (const v of mat.variantes ?? []) {
+      const metros = necessidadeVariante(mat.consumo, v.grade_total, v.multiplicador);
+      if (metros <= 0 || !v.variante_tecido_id) continue;
+      perVar.set(v.variante_tecido_id, (perVar.get(v.variante_tecido_id) ?? 0) + metros);
+    }
+    for (const ocId of ocIds) {
+      reservPorOc.set(ocId, (reservPorOc.get(ocId) ?? 0) + mTotal);
+      nPorOc.set(ocId, (nPorOc.get(ocId) ?? 0) + 1);
+      if (enviado) comprometidoPorOc.set(ocId, (comprometidoPorOc.get(ocId) ?? 0) + mTotal);
+      for (const [vid, metros] of perVar) {
+        const k = `${ocId}|${vid}`;
+        reservPorOcVar.set(k, (reservPorOcVar.get(k) ?? 0) + metros);
+        if (enviado) comprometidoPorOcVar.set(k, (comprometidoPorOcVar.get(k) ?? 0) + metros);
+      }
+    }
+  }
+  return { reservPorOc, comprometidoPorOc, nPorOc, reservPorOcVar, comprometidoPorOcVar };
+}
+
 /**
  * Distribui gradeTotal pelos tamanhos de proporcoes, proporcional ao peso.
  * Resto de arredondamento vai pro tamanho de maior peso.

@@ -1,7 +1,7 @@
 import { Fragment } from "react";
 import { X } from "lucide-react";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
-import { necessidadePorTecido } from "@/lib/plan-tecido/calc";
+import { necessidadePorTecido, detalheOc } from "@/lib/plan-tecido/calc";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import type { SituacaoOcRow } from "@/lib/plan-tecido/useSituacaoOcs";
 
@@ -48,15 +48,22 @@ export function PlanTecidoDrawer({
   const necByVar = new Map<string, number>();
   for (const t of nec) for (const v of t.variantes) if (v.variante_tecido_id) necByVar.set(v.variante_tecido_id, (necByVar.get(v.variante_tecido_id) ?? 0) + v.metros);
 
-  // COMPROMETIDO por variante (laranja) = necessidade dos cards ENVIADOS À EXPLOSÃO, MESMO filtro do
-  // Resumo (front) — senão o "detalhar" mostrava 0 enquanto o Resumo mostrava o comprometido.
+  // COMPROMETIDO por variante (laranja) = necessidade dos cards ENVIADOS À EXPLOSÃO (colecao-wide, p/ 'oc').
   const necComprometida =
     kind === "comprar" ? []
-      : kind === "ocnum" && arg
-        ? necessidadePorTecido(colecaoArvore, (s) => encomenda(s) && enviadoCad(s) && ocsDoSlot(s).includes(arg))
-        : necessidadePorTecido(colecaoArvore, (s) => encomenda(s) && enviadoCad(s));
+      : necessidadePorTecido(colecaoArvore, (s) => encomenda(s) && enviadoCad(s));
   const comprometidoByVar = new Map<string, number>();
   for (const t of necComprometida) for (const v of t.variantes) if (v.variante_tecido_id) comprometidoByVar.set(v.variante_tecido_id, (comprometidoByVar.get(v.variante_tecido_id) ?? 0) + v.metros);
+
+  // Por OC (kind='ocnum') a reservada/comprometida vêm da FONTE ÚNICA detalheOc — a MESMA fn do Resumo
+  // por OC×variante — pra nunca divergir (antes o "detalhar da OC" mostrava 0 enquanto o Resumo mostrava
+  // o comprometido). 'oc'/'comprar' seguem colecao-wide (necByVar/comprometidoByVar).
+  const det = detalheOc(colecaoArvore, vinculoOcMap, slotOcMap, enviadoCadSet);
+  const reservaVar = (vid: string): number =>
+    kind === "ocnum" && arg ? (det.reservPorOcVar.get(`${arg}|${vid}`) ?? 0) : (necByVar.get(vid) ?? 0);
+  const comprometidaVar = (vid: string): number =>
+    kind === "comprar" ? 0
+      : kind === "ocnum" && arg ? (det.comprometidoPorOcVar.get(`${arg}|${vid}`) ?? 0) : (comprometidoByVar.get(vid) ?? 0);
 
   const situRows = kind === "ocnum" && arg ? situacao.filter((r) => r.oc_tecido_id === arg) : situacao;
 
@@ -82,8 +89,8 @@ export function PlanTecidoDrawer({
     for (const r of situRows) {
       let g = porArtigo.get(r.artigo_id);
       if (!g) { g = { nome: r.artigo_nome, vm: new Map() }; porArtigo.set(r.artigo_id, g); }
-      const cur = g.vm.get(r.variante_tecido_id) ?? { key: r.variante_tecido_id, label: r.variante_label ?? "", cor_nome: null, reservada: necByVar.get(r.variante_tecido_id) ?? 0, pedida: 0, entregue: 0, usada: 0, comprometida: comprometidoByVar.get(r.variante_tecido_id) ?? 0 };
-      cur.pedida += r.pedida_m; cur.entregue += r.entregue_m; cur.usada += r.usada_m; // comprometida vem do front (comprometidoByVar), não da RPC
+      const cur = g.vm.get(r.variante_tecido_id) ?? { key: r.variante_tecido_id, label: r.variante_label ?? "", cor_nome: null, reservada: reservaVar(r.variante_tecido_id), pedida: 0, entregue: 0, usada: 0, comprometida: comprometidaVar(r.variante_tecido_id) };
+      cur.pedida += r.pedida_m; cur.entregue += r.entregue_m; cur.usada += r.usada_m; // reservada/comprometida vêm do front (detalheOc), não da RPC
       g.vm.set(r.variante_tecido_id, cur);
     }
     grupos = [...porArtigo.entries()].map(([artigo_id, g]) => ({ artigo_id, artigo: g.nome, variantes: [...g.vm.values()] }));
@@ -140,7 +147,11 @@ export function PlanTecidoDrawer({
               <Fragment key={g.artigo_id}>
                 <tr className="border-t bg-muted/40"><td className="p-1.5 font-medium" colSpan={nCols}>{g.artigo}</td></tr>
                 {g.variantes.map((v) => {
-                  const sobra = v.pedida - v.reservada;
+                  // Contabilidade (igual ao Resumo): usado (comprometido/cortado) SAI da reservada.
+                  // usada = max(comprometido, baixa real); reservada exibida = total − usada; sobra = pedida − total.
+                  const usada = Math.max(v.comprometida, v.usada);
+                  const reservadaLivre = Math.max(0, v.reservada - usada);
+                  const sobra = v.pedida - Math.max(v.reservada, usada);
                   return (
                     <tr key={v.key} className="border-t">
                       <td className="p-1.5">
@@ -158,12 +169,12 @@ export function PlanTecidoDrawer({
                         <>
                           <td className="p-1.5 text-right">{nMet(v.pedida)}</td>
                           <td className="p-1.5 text-right">{nMet(v.entregue)}</td>
-                          <td className="p-1.5 text-right text-muted-foreground">{nMet(v.reservada)}</td>
-                          {/* Usada: baixa REAL (vermelho) tem prioridade; senão o comprometido = enviado
-                              à explosão (laranja). Cinza quando 0. */}
+                          <td className="p-1.5 text-right text-muted-foreground">{nMet(reservadaLivre)}</td>
+                          {/* Usada (saiu da reservada): baixa REAL (vermelho) tem prioridade; senão o
+                              comprometido = enviado à explosão (laranja). Cinza quando 0. */}
                           <td className={`p-1.5 text-right ${v.usada > 0 ? "font-medium text-red-600" : v.comprometida > 0 ? "font-medium text-amber-600" : "text-muted-foreground"}`}
                               title={v.usada > 0 ? "Baixa real (corte enviado)" : v.comprometida > 0 ? "Comprometido — enviado à explosão" : undefined}>
-                            {v.usada > 0 ? nMet(v.usada) : v.comprometida > 0 ? nMet(v.comprometida) : nMet(0)}
+                            {nMet(usada)}
                           </td>
                           <td className={`p-1.5 text-right font-medium ${sobraCls(sobra)}`}>{sobra > 0 ? "+" : ""}{nMet(sobra)}</td>
                         </>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { necessidadeVariante, necessidadePorTecido, metrosParaKg, abaterEstoque, custoMateriaisPrevisto, distribuirGrade } from "@/lib/plan-tecido/calc";
+import { necessidadeVariante, necessidadePorTecido, metrosParaKg, abaterEstoque, custoMateriaisPrevisto, distribuirGrade, detalheOc } from "@/lib/plan-tecido/calc";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
 
 describe("plan-tecido/calc", () => {
@@ -143,5 +143,37 @@ describe("distribuirGrade", () => {
     const r = distribuirGrade(10, { PP: 0, M: 1 });
     expect(r["PP"]).toBe(0);
     expect(r["M"]).toBe(10);
+  });
+
+  it("detalheOc: comprometido (enviado_cad) sai da reservada; por OC e por OC×variante", () => {
+    const mat = (consumo: number, grade: number) => ({
+      artigo_id: "A", artigo_nome: "Viscose", unidade_medida: "metro", rendimento: null, tipo: "tecido", numero: 1, consumo, loss_percent: 0, ordem: 0,
+      variantes: [{ variante_tecido_id: "v1", label: "Off-white", ordem: 1, multiplicador: 1, grades: {}, grade_total: grade }],
+    });
+    const arv: PtArvore = { colecao_id: "c", subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [{ linha_id: null, categoria_id: null, ordem: 0, slots: [
+      { id: "sA", modelo_id: "mA", materiais: [mat(1, 100)] } as unknown as PtSlot, // enviado_cad → 100m
+      { id: "sB", modelo_id: "mB", materiais: [mat(1, 50)] } as unknown as PtSlot,  // não enviado → 50m
+    ] }] }] };
+    const d = detalheOc(arv, { mA: ["oc1"], mB: ["oc1"] }, {}, new Set(["mA"]));
+    expect(d.reservPorOc.get("oc1")).toBeCloseTo(150, 5);     // 100 + 50
+    expect(d.comprometidoPorOc.get("oc1")).toBeCloseTo(100, 5); // só mA (enviado_cad)
+    expect(d.nPorOc.get("oc1")).toBe(2);
+    expect(d.reservPorOcVar.get("oc1|v1")).toBeCloseTo(150, 5);
+    expect(d.comprometidoPorOcVar.get("oc1|v1")).toBeCloseTo(100, 5);
+    // Contabilidade: reservada exibida = total − usada = 150 − 100 = 50
+    const usada = Math.max(d.comprometidoPorOc.get("oc1")!, 0);
+    expect(Math.max(0, d.reservPorOc.get("oc1")! - usada)).toBeCloseTo(50, 5);
+  });
+
+  it("detalheOc: vínculo do Dev (vinculoOcMap) vence o hint do plano (slotOcMap)", () => {
+    const mat = { artigo_id: "A", artigo_nome: "V", unidade_medida: "metro", rendimento: null, tipo: "tecido", numero: 1, consumo: 1, loss_percent: 0, ordem: 0,
+      variantes: [{ variante_tecido_id: "v1", label: "x", ordem: 1, multiplicador: 1, grades: {}, grade_total: 10 }] };
+    const arv: PtArvore = { colecao_id: "c", subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [{ linha_id: null, categoria_id: null, ordem: 0, slots: [
+      { id: "s1", modelo_id: "m1", materiais: [mat] } as unknown as PtSlot,
+    ] }] }] };
+    // hint aponta oc-hint, mas o Dev vinculou em oc-dev → vale o oc-dev
+    const d = detalheOc(arv, { m1: ["oc-dev"] }, { s1: ["oc-hint"] }, new Set());
+    expect(d.reservPorOc.get("oc-dev")).toBeCloseTo(10, 5);
+    expect(d.reservPorOc.has("oc-hint")).toBe(false);
   });
 });
