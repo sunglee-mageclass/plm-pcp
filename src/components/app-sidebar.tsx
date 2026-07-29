@@ -242,10 +242,11 @@ export function AppSidebar() {
       <Collapsible key={item.url} defaultOpen={active} className="group/collapsible">
         <SidebarMenuItem>
           {collapsed ? (
-            // Sidebar recolhida: o ícone do módulo NAVEGA pra página de cards
-            // (basePath), em vez de só abrir o submenu (que fica escondido).
+            // Sidebar recolhida: o ícone do módulo NAVEGA pra 1ª sub-página REAL do setor (a mesma
+            // lista gated/atual do submenu), em vez do hub estático em basePath — que ficava
+            // desatualizado (blocos hardcoded não acompanhavam as páginas do setor).
             <SidebarMenuButton asChild isActive={active} tooltip={item.title}>
-              <Link to={item.url} className="relative">
+              <Link to={item.subs[0]?.url ?? item.url} className="relative">
                 <item.icon className="h-4 w-4" />
                 <span>{item.title}</span>
                 {/* Ícone-only (sidebar recolhida): dot no canto sinaliza pendências. */}

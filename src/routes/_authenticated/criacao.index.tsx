@@ -1,12 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Palette, ClipboardList, Hammer } from "lucide-react";
+import { Palette, ClipboardList, Hammer, Layers } from "lucide-react";
 import { Card } from "@/components/ui/card";
 
 export const Route = createFileRoute("/_authenticated/criacao/")({
   component: CriacaoIndex,
 });
 
+// Blocos do setor Estilo & Engenharia. Manter em dia com as rotas /criacao/* (o hub estava sem
+// Plan. Tecido — o dono viu blocos desatualizados ao entrar pela sidebar recolhida).
 const sections = [
+  { to: "/criacao/plan-tecido", title: "Plan. Tecido", desc: "Planejamento de tecido por coleção.", icon: Layers },
   { to: "/criacao/planejamento", title: "Planejamento de Produto", desc: "Cards de modelos em planejamento.", icon: ClipboardList },
   { to: "/criacao/desenvolvimento", title: "Desenvolvimento", desc: "Modelos aprovados em desenvolvimento.", icon: Hammer },
 ];
