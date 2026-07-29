@@ -90,4 +90,24 @@ describe("plan-tecido/engine", () => {
     const merged = mergeArvore(seed as any, salvo as any);
     expect(merged.subcolecoes[0].linhas[0].slots[0].materiais[0].artigo_id).toBe("B"); // rascunho salvo vence
   });
+
+  it("mergeArvore: slot de modelo SALVO desalinhado puxa o BOM VIVO por modelo_id (bug Renda Delicate)", () => {
+    // Seed: M1 com BOM vivo ANGELIM no índice 0; índice 1 é um slot VAZIO (sem modelo).
+    const seed = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [{ linha_id: null, categoria_id: "cat", ordem: 0,
+      slots: [
+        { modelo_id: "M1", slot_index: 0, custos_adicionais: [], materiais: [{ artigo_id: "ANGELIM", tipo: "tecido" as const, numero: 1, consumo: 1.7, loss_percent: 0, ordem: 0, variantes: [] }] },
+        { modelo_id: null, slot_index: 1, custos_adicionais: [], materiais: [] },
+      ] }] }] };
+    // Salvo (stale): M1 caiu no índice 1 com um snapshot ANTIGO RENDA; índice 0 é rascunho vazio.
+    const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [{ linha_id: null, categoria_id: "cat", ordem: 0,
+      slots: [
+        { modelo_id: null, slot_index: 0, custos_adicionais: [], materiais: [] },
+        { modelo_id: "M1", slot_index: 1, ref: "REF1", custos_adicionais: [], materiais: [{ artigo_id: "RENDA", tipo: "tecido" as const, numero: 1, consumo: 2, loss_percent: 0, ordem: 0, variantes: [] }] },
+      ] }] }] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    const slotM1 = merged.subcolecoes[0].linhas[0].slots[1];
+    expect(slotM1.modelo_id).toBe("M1");
+    // Antes do fix: RENDA (snapshot salvo, pela posição). Depois: ANGELIM (BOM vivo por id).
+    expect(slotM1.materiais[0].artigo_id).toBe("ANGELIM");
+  });
 });

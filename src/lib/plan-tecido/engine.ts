@@ -166,6 +166,17 @@ const savedTemDados = (s?: PtSlot): boolean =>
 
 export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
   if (!salvo) return seed;
+  // BOM VIVO por modelo_id: cada slot de modelo do seed carrega o BOM atual do Desenvolvimento.
+  // O merge é POSICIONAL (por índice de linha), então um slot SALVO de modelo pode desalinhar e
+  // cair sobre um slot do seed sem modelo (vazio) — nesse caso a decisão de materiais baseada no
+  // `slot.modelo_id` (do seed) usaria o snapshot SALVO (stale) em vez do BOM vivo. Indexar o BOM
+  // vivo por modelo_id garante fidelidade INDEPENDENTE da posição na grade (bug real: card com
+  // tecido do Dev = Angelim aparecia no plano como Renda Delicate, um snapshot antigo salvo).
+  const liveByModelo = new Map<string, PtSlot>();
+  for (const sub of seed.subcolecoes)
+    for (const ln of sub.linhas)
+      for (const slot of ln.slots)
+        if (slot.modelo_id) liveByModelo.set(slot.modelo_id, slot);
   return {
     ...seed,
     plan_id: salvo.plan_id,
@@ -179,23 +190,30 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
         return { ...l, id: sl.id, slots: l.slots.map((slot, i) => {
           const saved = sl.slots[i];
           if (!savedTemDados(saved)) return slot; // não deixa slot salvo vazio apagar o modelo semeado
+          // modelo_id EFETIVO do slot resultante (salvo tem prioridade; senão o do seed posicional)
+          const effModeloId = saved.modelo_id ?? slot.modelo_id;
+          // BOM vivo do modelo efetivo (por id, não por posição) — pode não existir se o modelo
+          // foi excluído do Desenvolvimento; aí cai no snapshot salvo.
+          const live = effModeloId ? liveByModelo.get(effModeloId) : undefined;
           // salvo tem dados do usuário: usa o salvo, mas preserva a identidade do seed onde o salvo não tem
           return {
             ...slot, ...saved,
-            modelo_id: saved.modelo_id ?? slot.modelo_id,
+            modelo_id: effModeloId,
             ref: saved.ref ?? slot.ref,
             nome: saved.nome ?? slot.nome,
             thumb_path: saved.thumb_path ?? slot.thumb_path,
             categoria_id: saved.categoria_id ?? slot.categoria_id,
             linha_id: saved.linha_id ?? slot.linha_id,
             proporcoes: saved.proporcoes ?? slot.proporcoes,
-            // custo de materiais pré-preenchido do BOM não é apagado por save antigo (null)
+            // custo de materiais (aviamentos/insumos) pré-preenchido do BOM não é apagado por save
+            // antigo (null). NÃO forçamos o vivo aqui: o editor "Custo & Preço" do plano pode ter
+            // ajustado esse custo (o salvo vence); só o BOM de TECIDO (materiais) puxa o vivo.
             custo_simulado: saved.custo_simulado ?? slot.custo_simulado,
-            // Consistência (a.1): modelo REAL usa o BOM VIVO do Desenvolvimento (seed), não o snapshot
-            // salvo — assim que o card avança/muda o BOM, o plano reflete. Slot de planejamento (sem
-            // modelo) mantém o rascunho salvo.
-            materiais: slot.modelo_id
-              ? (slot.materiais?.length ? slot.materiais : (saved.materiais ?? []))
+            // Consistência (a.1): modelo REAL usa o BOM VIVO do Desenvolvimento (por modelo_id, não
+            // pela posição), não o snapshot salvo — assim que o card avança/muda o BOM, o plano
+            // reflete. Slot de planejamento (sem modelo) mantém o rascunho salvo.
+            materiais: effModeloId
+              ? (live?.materiais?.length ? live.materiais : (saved.materiais ?? []))
               : (saved.materiais?.length ? saved.materiais : slot.materiais),
           };
         }) };
