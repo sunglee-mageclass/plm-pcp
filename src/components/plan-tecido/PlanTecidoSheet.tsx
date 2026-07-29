@@ -635,7 +635,25 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
   }
 
   // status por fornecedor (empresa_id do artigo) → selos no card e na subcoleção
-  const { fornecedorDe } = useArtigosTecido();
+  const { fornecedorDe, artigoMap } = useArtigosTecido();
+  // Agrupa os cards da subcoleção pela CATEGORIA do Tecido 1 (lê o tecido → categoria de tecido do
+  // cadastro). É o default pedido pelo dono — antes tudo entrava "sem categoria" (manual).
+  function agruparPorCategoriaTecido() {
+    if (!arvore) return;
+    const next = structuredClone(arvore) as PtArvore;
+    const sub = next.subcolecoes[subAtiva];
+    if (!sub) return;
+    const cats = new Set(sub.categorias_tecido ?? []);
+    for (const ln of sub.linhas) for (const sl of ln.slots) {
+      const tec1 = sl.materiais.find((m) => m.tipo === "tecido" && m.artigo_id);
+      const catId = tec1?.artigo_id ? (artigoMap.get(tec1.artigo_id)?.categoria_tecido_id ?? null) : null;
+      sl.categoria_tecido_id = catId;
+      if (catId) cats.add(catId);
+    }
+    sub.categorias_tecido = [...cats];
+    patch(next);
+    toast.success("Cards agrupados pela categoria do tecido.");
+  }
   const matTemFornec = (m: PtMaterial) => !!m.artigo_id && !!fornecedorDe(m.artigo_id);
   const slotFornec = (slot: PtSlot) => ({ com: slot.materiais.filter(matTemFornec).length, total: slot.materiais.length });
   const slotReady = (slot: PtSlot) => { const f = slotFornec(slot); return f.total > 0 && f.com === f.total; };
@@ -796,6 +814,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                   )}
                   <div className="ml-auto flex items-center gap-2">
                     <Button size="sm" variant="ghost" onClick={toggleTodos}>{todosRecolhidos ? "Expandir todos" : "Recolher todos"}</Button>
+                    <Button size="sm" variant="outline" className="gap-1" onClick={agruparPorCategoriaTecido} title="Lê o Tecido 1 de cada card e agrupa pela categoria de tecido dele"><Tag className="h-3.5 w-3.5" /> Agrupar por tecido</Button>
                     <Button size="sm" variant="outline" className="gap-1" onClick={() => setAddCatOpen(true)}><Plus className="h-3.5 w-3.5" /> categoria</Button>
                   </div>
                 </div>
