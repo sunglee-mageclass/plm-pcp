@@ -12,7 +12,7 @@ const nMet = (n: number) => `${Math.round(n)}`;
 const encomenda = (s: PtSlot) => !(s.usar_estoque ?? false);
 const sobraCls = (s: number) => (s < 0 ? "text-red-600" : "text-emerald-600");
 
-type Linha = { key: string; label: string; cor_nome: string | null; reservada: number; pedida: number; entregue: number; usada: number };
+type Linha = { key: string; label: string; cor_nome: string | null; reservada: number; pedida: number; entregue: number; usada: number; comprometida: number };
 type Grupo = { artigo_id: string; artigo: string; variantes: Linha[] };
 
 export function PlanTecidoDrawer({
@@ -60,7 +60,7 @@ export function PlanTecidoDrawer({
       variantes: t.variantes.map((v) => {
         const s = (v.variante_tecido_id ? situ.get(v.variante_tecido_id) : undefined) ?? { pedida: 0, entregue: 0 };
         total += v.metros;
-        return { key: v.key, label: v.label, cor_nome: v.cor_nome, reservada: v.metros, pedida: s.pedida, entregue: s.entregue, usada: 0 };
+        return { key: v.key, label: v.label, cor_nome: v.cor_nome, reservada: v.metros, pedida: s.pedida, entregue: s.entregue, usada: 0, comprometida: 0 };
       }),
     }));
   } else {
@@ -69,8 +69,8 @@ export function PlanTecidoDrawer({
     for (const r of situRows) {
       let g = porArtigo.get(r.artigo_id);
       if (!g) { g = { nome: r.artigo_nome, vm: new Map() }; porArtigo.set(r.artigo_id, g); }
-      const cur = g.vm.get(r.variante_tecido_id) ?? { key: r.variante_tecido_id, label: r.variante_label ?? "", cor_nome: null, reservada: necByVar.get(r.variante_tecido_id) ?? 0, pedida: 0, entregue: 0, usada: 0 };
-      cur.pedida += r.pedida_m; cur.entregue += r.entregue_m; cur.usada += r.usada_m;
+      const cur = g.vm.get(r.variante_tecido_id) ?? { key: r.variante_tecido_id, label: r.variante_label ?? "", cor_nome: null, reservada: necByVar.get(r.variante_tecido_id) ?? 0, pedida: 0, entregue: 0, usada: 0, comprometida: 0 };
+      cur.pedida += r.pedida_m; cur.entregue += r.entregue_m; cur.usada += r.usada_m; cur.comprometida += r.comprometida_m;
       g.vm.set(r.variante_tecido_id, cur);
     }
     grupos = [...porArtigo.entries()].map(([artigo_id, g]) => ({ artigo_id, artigo: g.nome, variantes: [...g.vm.values()] }));
@@ -146,7 +146,12 @@ export function PlanTecidoDrawer({
                           <td className="p-1.5 text-right">{nMet(v.pedida)}</td>
                           <td className="p-1.5 text-right">{nMet(v.entregue)}</td>
                           <td className="p-1.5 text-right text-muted-foreground">{nMet(v.reservada)}</td>
-                          <td className="p-1.5 text-right">{nMet(v.usada)}</td>
+                          {/* Usada: baixa REAL (vermelho) tem prioridade; senão o comprometido = enviado
+                              à explosão (laranja). Cinza quando 0. */}
+                          <td className={`p-1.5 text-right ${v.usada > 0 ? "font-medium text-red-600" : v.comprometida > 0 ? "font-medium text-amber-600" : "text-muted-foreground"}`}
+                              title={v.usada > 0 ? "Baixa real (corte enviado)" : v.comprometida > 0 ? "Comprometido — enviado à explosão" : undefined}>
+                            {v.usada > 0 ? nMet(v.usada) : v.comprometida > 0 ? nMet(v.comprometida) : nMet(0)}
+                          </td>
                           <td className={`p-1.5 text-right font-medium ${sobraCls(sobra)}`}>{sobra > 0 ? "+" : ""}{nMet(sobra)}</td>
                         </>
                       )}

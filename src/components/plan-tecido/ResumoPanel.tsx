@@ -202,7 +202,15 @@ export function ResumoPanel({
               <div className="flex justify-between text-muted-foreground"><span>Pedida</span><span>{nMet(o.pedida)} m</span></div>
               <div className="flex justify-between text-muted-foreground"><span>Entregue</span><span>{nMet(o.entregue)} m</span></div>
               <div className="flex justify-between text-muted-foreground"><span>Reservada</span><span>{nMet(reservada)} m</span></div>
-              <div className="flex justify-between text-muted-foreground"><span>Usada</span><span>{nMet(o.usada)} m</span></div>
+              {/* Usada: baixa REAL (vermelho) tem prioridade; senão o comprometido = enviado à
+                  explosão (laranja). Cinza quando 0. */}
+              <div className="flex justify-between text-muted-foreground">
+                <span>Usada</span>
+                <span className={o.usada > 0 ? "font-medium text-red-600" : o.comprometida > 0 ? "font-medium text-amber-600" : ""}
+                      title={o.usada > 0 ? "Baixa real (corte enviado)" : o.comprometida > 0 ? "Comprometido — enviado à explosão" : undefined}>
+                  {(o.usada > 0 ? nMet(o.usada) : o.comprometida > 0 ? nMet(o.comprometida) : nMet(0))} m
+                </span>
+              </div>
               <div className={`mt-0.5 flex justify-between border-t pt-0.5 font-display font-semibold ${sobraCls(sobra)}`}><span>Sobra prevista</span><span>{sobra > 0 ? "+" : ""}{nMet(sobra)} m</span></div>
             </div>
           );

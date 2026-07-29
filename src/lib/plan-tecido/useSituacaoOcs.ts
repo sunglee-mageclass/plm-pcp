@@ -13,7 +13,8 @@ export type SituacaoOcRow = {
   variante_label: string | null;
   pedida_m: number;
   entregue_m: number;
-  usada_m: number;
+  usada_m: number;          // pt2 — baixa real no ledger (vermelho)
+  comprometida_m: number;   // pt1 — enviado à explosão / uso planejado (laranja)
 };
 
 export function useSituacaoOcs(colecaoId: string) {
@@ -26,6 +27,7 @@ export function useSituacaoOcs(colecaoId: string) {
         pedida_m: Number(r.pedida_m) || 0,
         entregue_m: Number(r.entregue_m) || 0,
         usada_m: Number(r.usada_m) || 0,
+        comprometida_m: Number(r.comprometida_m) || 0,
       }));
     },
   });
@@ -33,11 +35,11 @@ export function useSituacaoOcs(colecaoId: string) {
 
 /** Agrupa as linhas por OC (para os quadros "Situação da OC — por OC" e "OCs vinculadas"). */
 export function agruparPorOc(rows: SituacaoOcRow[]) {
-  const map = new Map<string, { oc_tecido_id: string; numero: string | null; status: string | null; tecidos: string[]; pedida: number; entregue: number; usada: number }>();
+  const map = new Map<string, { oc_tecido_id: string; numero: string | null; status: string | null; tecidos: string[]; pedida: number; entregue: number; usada: number; comprometida: number }>();
   for (const r of rows) {
     let g = map.get(r.oc_tecido_id);
-    if (!g) { g = { oc_tecido_id: r.oc_tecido_id, numero: r.numero, status: r.status, tecidos: [], pedida: 0, entregue: 0, usada: 0 }; map.set(r.oc_tecido_id, g); }
-    g.pedida += r.pedida_m; g.entregue += r.entregue_m; g.usada += r.usada_m;
+    if (!g) { g = { oc_tecido_id: r.oc_tecido_id, numero: r.numero, status: r.status, tecidos: [], pedida: 0, entregue: 0, usada: 0, comprometida: 0 }; map.set(r.oc_tecido_id, g); }
+    g.pedida += r.pedida_m; g.entregue += r.entregue_m; g.usada += r.usada_m; g.comprometida += r.comprometida_m;
     if (r.artigo_nome && !g.tecidos.includes(r.artigo_nome)) g.tecidos.push(r.artigo_nome);
   }
   return [...map.values()];
