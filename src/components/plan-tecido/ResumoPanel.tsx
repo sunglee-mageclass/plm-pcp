@@ -68,15 +68,17 @@ export function ResumoPanel({
   const ocs = agruparPorOc(situacao);
 
   // OCs APLICADAS (vinculadas à mão) — só essas dá pra desvincular por-OC aqui (1 clique). As GERADAS
-  // pelo "Fazer pedido" são reais e saem no "Desfazer pedido" (global). Mesma queryKey do picker.
+  // pelo "Fazer pedido" são reais e saem no "Desfazer pedido" (global). ⚠️ MESMA queryKey do
+  // OcAplicadaPicker → PRECISA do MESMO formato (array de ids), senão o cache compartilhado devolve o
+  // shape do outro e `.has()`/`.includes()` quebra (bug de queryKey compartilhada — ver CLAUDE.md).
   const qc = useQueryClient();
-  const { data: aplicadasSet = new Set<string>() } = useQuery({
+  const { data: aplicadas = [] } = useQuery<string[]>({
     queryKey: ["plan-tecido-oc-aplicada", colecaoId],
-    queryFn: async () => new Set((((await supabase.from("plan_tecido_oc_aplicada" as any).select("oc_tecido_id").eq("colecao_id", colecaoId)).data ?? []) as unknown as { oc_tecido_id: string }[]).map((r) => r.oc_tecido_id)),
+    queryFn: async () => (((await supabase.from("plan_tecido_oc_aplicada" as any).select("oc_tecido_id").eq("colecao_id", colecaoId)).data ?? []) as unknown as { oc_tecido_id: string }[]).map((r) => r.oc_tecido_id),
   });
   const desvincularAplicada = useMutation({
     mutationFn: async (ocId: string) => {
-      const restantes = [...aplicadasSet].filter((id) => id !== ocId);
+      const restantes = aplicadas.filter((id) => id !== ocId);
       const { error } = await supabase.rpc("plan_tecido_set_oc_aplicada" as any, { _colecao_id: colecaoId, _oc_ids: restantes });
       if (error) throw error;
     },
@@ -245,7 +247,7 @@ export function ResumoPanel({
       {/* OCs vinculadas */}
       <Secao title="OCs vinculadas">
         {ocs.length ? ocs.map((o) => {
-          const aplicada = aplicadasSet.has(o.oc_tecido_id);
+          const aplicada = aplicadas.includes(o.oc_tecido_id);
           return (
             <div key={o.oc_tecido_id} className="flex items-center gap-2 border-b px-2 py-1.5 text-xs">
               <button type="button" onClick={() => onDetalhar("ocnum", o.oc_tecido_id)} className="flex min-w-0 flex-1 items-center gap-2 text-left hover:underline">
