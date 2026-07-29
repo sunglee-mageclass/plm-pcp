@@ -73,6 +73,7 @@ export function ResumoPanel({
   // ninguém mais usa; o botão chama a RPC imperativamente.)
   const { data: previa } = useQuery({
     queryKey: ["plan-tecido-previa", colecaoId],
+    refetchOnWindowFocus: true, // estoque/OCs mudam fora do plano → "a comprar" fresco ao voltar
     queryFn: async () => ((await supabase.rpc("plan_tecido_previa_pedido" as any, { _colecao_id: colecaoId })).data ?? null) as PreviaRpc | null,
   });
 

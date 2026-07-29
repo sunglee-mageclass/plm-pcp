@@ -282,6 +282,9 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
 
   const { data: modelosDb } = useQuery({
     queryKey: ["plan-tecido-modelos", colecaoId],
+    // enviado_cad/lancado/BOM mudam FORA do plano (Dev/CAD/produção) → refetcha ao voltar o foco,
+    // senão a "Usada" comprometida (laranja) e o BOM ficam defasados.
+    refetchOnWindowFocus: true,
     queryFn: async () =>
       ((await supabase
         .from("modelos")
