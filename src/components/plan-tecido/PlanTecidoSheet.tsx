@@ -279,7 +279,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
       ((await supabase
         .from("modelos")
         .select(
-          "id, ref, nome, versao, subcolecao, linha_id, categoria_principal_id, proporcoes, lancado, custo_terceirizados_aprovado, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(artigo_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total)",
+          "id, ref, nome, versao, subcolecao, linha_id, categoria_principal_id, proporcoes, lancado, enviado_cad, custo_terceirizados_aprovado, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(artigo_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total)",
         )
         .eq("colecao_id", colecaoId)).data ?? []) as any[],
   });
@@ -438,6 +438,9 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
 
   // modelos lançados (não podem receber "Aplicar ao modelo")
   const lancadoSet = useMemo(() => new Set(((modelosDb ?? []) as any[]).filter((m) => m.lancado).map((m) => m.id as string)), [modelosDb]);
+  // modelos já enviados ao CAD (Explosão) = TRAVADOS p/ edição no Dev → "Aplicar ao modelo" não deve
+  // alterar o BOM (o CAD já explodiu o BOM antigo); o card avisa e desabilita (pedido do dono).
+  const enviadoCadSet = useMemo(() => new Set(((modelosDb ?? []) as any[]).filter((m) => m.enviado_cad).map((m) => m.id as string)), [modelosDb]);
 
   // Custo do Desenvolvimento (mão de obra real) p/ refletir no card (read-only) — bug 6
   const modeloIdsDb = useMemo(() => [...new Set(((modelosDb ?? []) as any[]).map((m) => m.id as string))].sort(), [modelosDb]);
@@ -795,6 +798,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
               slotOcIds={slot.id ? (slotOcMap[slot.id] ?? []) : []}
               vinculos={slot.modelo_id ? (vinculosMap[slot.modelo_id] ?? []) : []}
               lancado={slot.modelo_id ? lancadoSet.has(slot.modelo_id) : false}
+              travado={slot.modelo_id ? enviadoCadSet.has(slot.modelo_id) : false}
               maoObraAprovado={slot.modelo_id ? (maoObraAprovadoMap.get(slot.modelo_id) ?? null) : null}
               maoObraDev={slot.modelo_id ? maoObraDevDe(slot.modelo_id) : null}
               versao={slot.modelo_id ? (versaoMap[slot.modelo_id] ?? null) : null}

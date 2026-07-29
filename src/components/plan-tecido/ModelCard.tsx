@@ -39,6 +39,7 @@ export function ModelCard({
   slotOcIds,
   vinculos,
   lancado,
+  travado,
   maoObraAprovado,
   maoObraDev,
   versao,
@@ -63,6 +64,8 @@ export function ModelCard({
   slotOcIds?: string[];
   vinculos?: { oc_id: string; numero_pedido: string | null; tecidos: string | null }[];
   lancado?: boolean;
+  /** Modelo já enviado ao CAD (travado p/ edição no Dev): "Aplicar ao modelo" fica desabilitado. */
+  travado?: boolean;
   maoObraAprovado?: boolean | null;
   maoObraDev?: number | null;
   versao?: number | null;
@@ -175,14 +178,16 @@ export function ModelCard({
   const borderClass = open ? "border-primary" : usarEstoque ? "border-amber-500" : "";
 
   // Estado do botão "Aplicar ao modelo" (empurra o BOM completo). Bloqueia só se lançado.
-  const gradeDisabled = !slot.id || !slot.modelo_id || !!lancado || aplicandoGrade;
+  const gradeDisabled = !slot.id || !slot.modelo_id || !!lancado || !!travado || aplicandoGrade;
   const gradeTitle = !slot.id
     ? "Salve o plano primeiro"
     : !slot.modelo_id
       ? "Este item não está ligado a um card de modelo"
       : lancado
         ? "Modelo já lançado — não é possível alterar"
-        : undefined;
+        : travado
+          ? "Modelo já enviado ao CAD (travado) — destrave no Desenvolvimento para alterar"
+          : undefined;
 
   async function aplicarAoModelo() {
     if (!slot.id) { setConfirmGrade(false); return; }
@@ -312,7 +317,14 @@ export function ModelCard({
                   >
                     {aplicandoGrade ? "Aplicando…" : "Aplicar ao modelo"}
                   </Button>
-                ) : (
+                ) : null}
+                {slot.modelo_id && (lancado || travado) && (
+                  <p className="mt-1 flex items-start gap-1 text-[11px] text-amber-600">
+                    <Lock className="mt-0.5 h-3 w-3 shrink-0" />
+                    <span>{lancado ? "Modelo lançado — aplicar não altera o BOM." : "Modelo enviado ao CAD (travado). Destrave no Desenvolvimento para alterar; aplicar aqui não terá efeito."}</span>
+                  </p>
+                )}
+                {!slot.modelo_id && (
                   // card ainda não existe → criar
                   <Button
                     variant="outline"
