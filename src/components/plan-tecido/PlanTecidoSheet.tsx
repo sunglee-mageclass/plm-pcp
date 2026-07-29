@@ -332,6 +332,11 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
       return map;
     },
   });
+  // OC REAL vinculada no Dev por modelo_id (só os oc_ids) — fonte da verdade p/ a Reservada do Resumo.
+  const vinculoOcMap = useMemo(
+    () => Object.fromEntries(Object.entries(vinculosMap).map(([mid, arr]) => [mid, arr.map((v) => v.oc_id)])) as Record<string, string[]>,
+    [vinculosMap],
+  );
 
   // hint OC por SLOT → Map<slot_id, oc_ids[]>
   const { data: slotOcMap = {} } = useQuery({
@@ -859,14 +864,14 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
               {resumoAberto && (
                 <aside className="hidden w-80 shrink-0 flex-col overflow-hidden border-r md:flex lg:w-96">
                   <div className="flex-1 overflow-y-auto p-3">
-                    <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} catTecidoNome={catTecidoNome} onDetalhar={openDrawer} />
+                    <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} catTecidoNome={catTecidoNome} onDetalhar={openDrawer} />
                   </div>
                 </aside>
               )}
               {/* Drawer/subsheet (420px) — abre por "detalhar" / trilho */}
               {drawer && (
                 <aside className="hidden w-[420px] shrink-0 overflow-hidden border-r lg:flex">
-                  <PlanTecidoDrawer state={drawer} subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} ocNumeroDe={ocNumeroDe} onClose={() => setDrawer(null)} />
+                  <PlanTecidoDrawer state={drawer} subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} ocNumeroDe={ocNumeroDe} onClose={() => setDrawer(null)} />
                 </aside>
               )}
               <main className="flex-1 overflow-y-auto p-3">

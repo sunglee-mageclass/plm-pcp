@@ -16,24 +16,31 @@ type Linha = { key: string; label: string; cor_nome: string | null; reservada: n
 type Grupo = { artigo_id: string; artigo: string; variantes: Linha[] };
 
 export function PlanTecidoDrawer({
-  state, subArvore, colecaoArvore, situacao, slotOcMap, ocNumeroDe, onClose,
+  state, subArvore, colecaoArvore, situacao, slotOcMap, vinculoOcMap = {}, ocNumeroDe, onClose,
 }: {
   state: DrawerState;
   subArvore: PtArvore;
   colecaoArvore: PtArvore;
   situacao: SituacaoOcRow[];
   slotOcMap: Record<string, string[]>;
+  /** OC REAL vinculada no Dev por modelo_id — vence o hint do plano (slotOcMap) quando existe. */
+  vinculoOcMap?: Record<string, string[]>;
   ocNumeroDe: (ocId: string) => string | null;
   onClose: () => void;
 }) {
   const { kind, arg } = state;
+  // OC efetiva de um slot: vínculo real do Dev (por modelo) vence o hint do plano (por slot).
+  const ocsDoSlot = (s: PtSlot): string[] => {
+    const devOc = s.modelo_id ? (vinculoOcMap[s.modelo_id] ?? []) : [];
+    return devOc.length ? devOc : (s.id ? (slotOcMap[s.id] ?? []) : []);
+  };
 
   // NECESSIDADE (reservada) — 'comprar'/'oc' = coleção; 'ocnum' = só os cards atribuídos à OC.
   const nec =
     kind === "comprar"
       ? necessidadePorTecido(subArvore, encomenda)
       : kind === "ocnum" && arg
-        ? necessidadePorTecido(colecaoArvore, (s) => encomenda(s) && !!s.id && (slotOcMap[s.id] ?? []).includes(arg))
+        ? necessidadePorTecido(colecaoArvore, (s) => encomenda(s) && ocsDoSlot(s).includes(arg))
         : necessidadePorTecido(colecaoArvore, encomenda);
   const necByVar = new Map<string, number>();
   for (const t of nec) for (const v of t.variantes) if (v.variante_tecido_id) necByVar.set(v.variante_tecido_id, (necByVar.get(v.variante_tecido_id) ?? 0) + v.metros);

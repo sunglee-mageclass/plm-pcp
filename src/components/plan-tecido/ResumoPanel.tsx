@@ -21,12 +21,15 @@ function Detalhar({ onClick }: { onClick: () => void }) {
 }
 
 export function ResumoPanel({
-  arvore, colecaoArvore, colecaoId, slotOcMap, catTecidoNome, onDetalhar,
+  arvore, colecaoArvore, colecaoId, slotOcMap, vinculoOcMap = {}, catTecidoNome, onDetalhar,
 }: {
   arvore: PtArvore;
   colecaoArvore: PtArvore;
   colecaoId: string;
   slotOcMap: Record<string, string[]>;
+  /** OC REAL vinculada no Desenvolvimento por modelo_id (modelo_tecido_oc_links). Fonte da verdade:
+   * quando o modelo tem vínculo no Dev, ele vence o hint do plano (que o Dev não atualiza). */
+  vinculoOcMap?: Record<string, string[]>;
   catTecidoNome: (id: string) => string | null | undefined;
   onDetalhar: (kind: "comprar" | "oc" | "ocnum", arg?: string) => void;
 }) {
@@ -70,11 +73,15 @@ export function ResumoPanel({
   const semCatMetros = catTecMetros(null);
 
   // ---- Situação da OC por OC: reservada AO VIVO (demanda dos cards atribuídos, coleção toda) ----
+  // OC EFETIVA do slot: o VÍNCULO real do Desenvolvimento (modelo_tecido_oc_links, via vinculoOcMap)
+  // vence o hint do plano (slotOcMap) — senão, ao trocar a OC direto no Dev, a Reservada/Sobra ficava
+  // defasada (o Dev não atualiza plan_tecido_slot_oc). Slot ainda sem vínculo usa o hint do plano.
   const reservPorOc = new Map<string, number>();
   const nPorOc = new Map<string, number>();
   for (const sub of colecaoArvore.subcolecoes) for (const ln of sub.linhas) for (const slot of ln.slots) {
     if (!slot.id) continue;
-    const ocIds = slotOcMap[slot.id] ?? [];
+    const devOc = slot.modelo_id ? (vinculoOcMap[slot.modelo_id] ?? []) : [];
+    const ocIds = devOc.length ? devOc : (slotOcMap[slot.id] ?? []);
     if (!ocIds.length) continue;
     const m = slotMetros(slot);
     for (const ocId of ocIds) { reservPorOc.set(ocId, (reservPorOc.get(ocId) ?? 0) + m); nPorOc.set(ocId, (nPorOc.get(ocId) ?? 0) + 1); }
