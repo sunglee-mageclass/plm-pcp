@@ -957,11 +957,13 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
           </div>
           <p className="text-xs text-muted-foreground truncate">{modelo.semana ? `Lançamento ${modelo.semana}` : "—"}</p>
           <p className="text-xs text-muted-foreground truncate">{[mesNome, anoNome].filter(Boolean).join(" / ") || "—"}</p>
-          {/* Linha | Categoria | Markup (Markup = custo → gated) */}
-          <div className="grid grid-cols-3 gap-x-3 [&>span]:truncate text-xs text-muted-foreground">
-            <span>{linhaNome ?? "—"}</span><span>{categoriaNome ?? "—"}</span>
-            {podeVerCustos && <span>Markup: {markup != null ? Number(markup).toLocaleString("pt-BR",{maximumFractionDigits:2}) : "—"}</span>}
+          {/* Linha | Categoria em 2 colunas (cabe sem cortar); Markup vai p/ a própria linha
+              (antes eram 3 colunas num card estreito e o texto cortava). Markup = custo → gated. */}
+          <div className="grid grid-cols-2 gap-x-3 [&>span]:truncate text-xs text-muted-foreground">
+            <span title={linhaNome ?? undefined}>{linhaNome ?? "—"}</span>
+            <span title={categoriaNome ?? undefined}>{categoriaNome ?? "—"}</span>
           </div>
+          {podeVerCustos && <p className="text-xs text-muted-foreground truncate">Markup: {markup != null ? Number(markup).toLocaleString("pt-BR",{maximumFractionDigits:2}) : "—"}</p>}
           {podeVerCustos && <p className="text-xs text-muted-foreground truncate">{custoReal ? "Custo" : "Custo prev."}: {custoMat != null ? brl(custoMat) : "—"}</p>}
           {(podeVerCustos || podeAprovarMaoObra) && (
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
