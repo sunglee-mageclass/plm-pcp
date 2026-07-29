@@ -62,6 +62,7 @@ export function OcAplicadaPicker({ colecaoId }: { colecaoId: string }) {
       setOpen(false);
       qc.invalidateQueries({ queryKey: ["plan-tecido-oc-aplicada", colecaoId] });
       qc.invalidateQueries({ queryKey: ["plan-tecido-situacao-ocs", colecaoId] });
+      qc.invalidateQueries({ queryKey: ["plan-tecido-previa", colecaoId] }); // cobertura mudou → "a comprar" muda
       qc.invalidateQueries({ queryKey: ["plan-tecido-cobertura", colecaoId] });
     },
     onError: (e) => toast.error(mensagemErro(e, "Não foi possível salvar.")),

@@ -529,6 +529,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
       setDirty(false);
       toast.success("Planejamento de tecido salvo.");
       qc.invalidateQueries({ queryKey: ["plan-tecido-arvore", colecaoId] });
+      qc.invalidateQueries({ queryKey: ["plan-tecido-previa", colecaoId] }); // "a comprar" exato do Resumo
     },
     onError: (e) => toast.error(mensagemErro(e, "Não foi possível salvar.")),
   });
@@ -554,6 +555,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
       qc.invalidateQueries({ queryKey: ["ocs_tecido"] });
       qc.invalidateQueries({ queryKey: ["plan-tecido-status-pedidos"] });
       qc.invalidateQueries({ queryKey: ["plan-tecido-situacao-ocs", colecaoId] });
+      qc.invalidateQueries({ queryKey: ["plan-tecido-previa", colecaoId] }); // "a comprar" volta a subir
       qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
       qc.invalidateQueries({ queryKey: ["dash-estoque"] });
     },

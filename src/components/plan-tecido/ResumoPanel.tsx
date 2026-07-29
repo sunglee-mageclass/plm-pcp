@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
 import { custoMateriaisPrevisto, slotMetros } from "@/lib/plan-tecido/calc";
 import { useSituacaoOcs, agruparPorOc } from "@/lib/plan-tecido/useSituacaoOcs";
+import type { PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
 import { precoInfo } from "@/lib/preco";
 import { brl } from "@/lib/format";
 import { Lock, ChevronDown, ChevronRight, ShoppingCart, X } from "lucide-react";
@@ -67,6 +68,14 @@ export function ResumoPanel({
   const { data: situacao = [] } = useSituacaoOcs(colecaoId);
   const ocs = agruparPorOc(situacao);
 
+  // "A comprar" EXATO = déficit da MESMA conta do "Fazer pedido" (necessidade − cobertura das OCs
+  // vinculadas). Lê o plano SALVO no servidor; invalidado no salvar/pedido. (queryKey própria —
+  // ninguém mais usa; o botão chama a RPC imperativamente.)
+  const { data: previa } = useQuery({
+    queryKey: ["plan-tecido-previa", colecaoId],
+    queryFn: async () => ((await supabase.rpc("plan_tecido_previa_pedido" as any, { _colecao_id: colecaoId })).data ?? null) as PreviaRpc | null,
+  });
+
   // OCs APLICADAS (vinculadas à mão) — só essas dá pra desvincular por-OC aqui (1 clique). As GERADAS
   // pelo "Fazer pedido" são reais e saem no "Desfazer pedido" (global). ⚠️ MESMA queryKey do
   // OcAplicadaPicker → PRECISA do MESMO formato (array de ids), senão o cache compartilhado devolve o
@@ -86,6 +95,7 @@ export function ResumoPanel({
       toast.success("OC desvinculada.");
       qc.invalidateQueries({ queryKey: ["plan-tecido-oc-aplicada", colecaoId] });
       qc.invalidateQueries({ queryKey: ["plan-tecido-situacao-ocs", colecaoId] });
+      qc.invalidateQueries({ queryKey: ["plan-tecido-previa", colecaoId] }); // cobertura mudou → "a comprar" muda
     },
     onError: (e) => toast.error(mensagemErro(e, "Não foi possível desvincular.")),
   });
@@ -121,14 +131,19 @@ export function ResumoPanel({
   const totTec = enc.reduce((a, s) => a + slotMetros(s, "tecido"), 0);
   const totForro = enc.reduce((a, s) => a + slotMetros(s, "forro"), 0);
   const semCatMetros = catTecMetros(null);
-  // PEDIDO (o que já foi encomendado) por categoria de tecido, p/ o dono comparar com o necessário
-  // (a seção mostrava só a NECESSIDADE, então seguia "900m a comprar" mesmo após o pedido).
+  // A COMPRAR EXATO por categoria = Σ deficit_m da prévia (necessidade − OCs vinculadas), agregado
+  // pelo artigo real → categoria de tecido. É o MESMO número do "Fazer pedido"; cai depois do pedido.
   const catDeArtigo = new Map<string, string>();
   for (const s of slots) { if (!s.categoria_tecido_id) continue; for (const m of s.materiais) if (m.tipo === "tecido" && m.artigo_id) catDeArtigo.set(m.artigo_id, s.categoria_tecido_id); }
-  const pedidoPorCat = new Map<string, number>();
-  for (const r of situacao) { const cid = catDeArtigo.get(r.artigo_id); if (cid) pedidoPorCat.set(cid, (pedidoPorCat.get(cid) ?? 0) + r.pedida_m); }
-  const pedidoCat = (cid: string | null) => (cid ? pedidoPorCat.get(cid) ?? 0 : 0);
-  const totPedido = [...pedidoPorCat.values()].reduce((a, b) => a + b, 0);
+  const deficitPorCat = new Map<string, number>();
+  for (const f of previa?.fornecedores ?? []) for (const it of f.itens) {
+    if (it.deficit_m <= 0) continue;
+    const cid = catDeArtigo.get(it.artigo_id);
+    if (cid) deficitPorCat.set(cid, (deficitPorCat.get(cid) ?? 0) + it.deficit_m);
+  }
+  const aComprarCat = (cid: string | null) => (cid ? deficitPorCat.get(cid) ?? 0 : 0);
+  const totComprar = [...deficitPorCat.values()].reduce((a, b) => a + b, 0);
+  const previaCarregada = previa !== undefined; // enquanto false, mostra "…" no "a comprar"
 
   // ---- Situação da OC por OC: reservada AO VIVO (demanda dos cards atribuídos, coleção toda) ----
   // OC EFETIVA do slot: o VÍNCULO real do Desenvolvimento (modelo_tecido_oc_links, via vinculoOcMap)
@@ -191,21 +206,22 @@ export function ResumoPanel({
         )}
       </Secao>
 
-      {/* A comprar (encomenda) — por categoria. Mostra NECESSÁRIO e PEDIDO (o que já foi encomendado),
-          pra não parecer que ainda há "900m a comprar" depois do pedido. Verde = pedido cobre. */}
+      {/* A comprar (encomenda) — por categoria. `nec.` = necessidade (viva do plano); `a comprar` =
+          déficit EXATO da prévia (necessidade − OCs vinculadas), o MESMO número do "Fazer pedido" →
+          cai depois do pedido. Vermelho = falta comprar; verde = coberto. */}
       <Secao title="A comprar (encomenda)" right={<Detalhar onClick={() => onDetalhar("comprar")} />}>
         {catsSub.length === 0 && semCatMetros === 0 ? (
           <div className="p-2 text-[10px] text-muted-foreground">Nenhuma categoria ainda.</div>
         ) : (
           <>
             {catsSub.map((cid) => {
-              const nec = catTecMetros(cid); const ped = pedidoCat(cid);
+              const nec = catTecMetros(cid); const comprar = aComprarCat(cid);
               return (
                 <div key={cid} className="border-b px-2 py-1 text-xs">
                   <div className="flex items-center gap-2"><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot(catStatus(cid))}`} /><span className="truncate">{catTecidoNome(cid) ?? "?"}</span></div>
-                  <div className="mt-0.5 flex gap-4 pl-3.5 text-[11px] tabular-nums text-muted-foreground">
-                    <span>nec. <b className="text-foreground">{nMet(nec)}</b> m</span>
-                    <span className={ped >= nec && nec > 0 ? "text-emerald-600" : ""}>ped. <b>{nMet(ped)}</b> m</span>
+                  <div className="mt-0.5 flex gap-4 pl-3.5 text-[11px] tabular-nums">
+                    <span className="text-muted-foreground">nec. <b className="text-foreground">{nMet(nec)}</b> m</span>
+                    <span className={!previaCarregada ? "text-muted-foreground" : comprar > 0 ? "font-medium text-red-600" : "text-emerald-600"}>a comprar <b>{previaCarregada ? nMet(comprar) : "…"}</b> m</span>
                   </div>
                 </div>
               );
@@ -213,7 +229,7 @@ export function ResumoPanel({
             {semCatMetros > 0 && (
               <div className="border-b px-2 py-1 text-xs">
                 <div className="flex items-center gap-2 text-muted-foreground"><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot("n")}`} />Sem categoria</div>
-                <div className="mt-0.5 flex gap-4 pl-3.5 text-[11px] tabular-nums text-muted-foreground"><span>nec. <b className="text-foreground">{nMet(semCatMetros)}</b> m</span><span>ped. <b>{nMet(pedidoCat(null))}</b> m</span></div>
+                <div className="mt-0.5 flex gap-4 pl-3.5 text-[11px] tabular-nums"><span className="text-muted-foreground">nec. <b className="text-foreground">{nMet(semCatMetros)}</b> m</span><span className="text-muted-foreground">a comprar <b>{previaCarregada ? nMet(aComprarCat(null)) : "…"}</b> m</span></div>
               </div>
             )}
             <div className="flex items-center gap-4 px-2 py-1 text-[11px] text-muted-foreground">
@@ -221,11 +237,12 @@ export function ResumoPanel({
             </div>
             <div className="border-t px-2 py-1.5 font-display text-xs font-semibold">
               <div>Total</div>
-              <div className="mt-0.5 flex gap-4 pl-0 text-[11px] tabular-nums font-normal text-muted-foreground">
-                <span>nec. <b className="text-foreground">{nMet(totTec + totForro)}</b> m</span>
-                <span className={totPedido >= totTec && totTec > 0 ? "text-emerald-600" : ""}>ped. <b>{nMet(totPedido)}</b> m</span>
+              <div className="mt-0.5 flex gap-4 pl-0 text-[11px] tabular-nums font-normal">
+                <span className="text-muted-foreground">nec. <b className="text-foreground">{nMet(totTec + totForro)}</b> m</span>
+                <span className={!previaCarregada ? "text-muted-foreground" : totComprar > 0 ? "font-medium text-red-600" : "text-emerald-600"}>a comprar <b>{previaCarregada ? nMet(totComprar) : "…"}</b> m</span>
               </div>
             </div>
+            <div className="px-2 pb-1 text-[9px] leading-tight text-muted-foreground">"a comprar" = necessidade − OCs vinculadas (mesma conta do Fazer pedido; plano salvo).</div>
           </>
         )}
       </Secao>
