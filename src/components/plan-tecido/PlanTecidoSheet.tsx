@@ -816,20 +816,28 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
               ? <DraggableCard key={slot.id ?? `${li}-${sli}`} id={chave}>{(handle) => cardOf(slot, li, sli, chave, handle)}</DraggableCard>
               : <div key={slot.id ?? `${li}-${sli}`} className="w-[360px] shrink-0">{cardOf(slot, li, sli, chave)}</div>);
           // Corpo de uma lane: vazio → placeholder; 2º nível ligado → sub-grupos por nome do tecido
-          // (cada um uma linha horizontal); senão → cartões direto.
-          const laneBody = (slots: typeof flat, draggable: boolean) =>
+          // (cada um uma linha horizontal, COLAPSÁVEL como as lanes); senão → cartões direto.
+          const laneBody = (slots: typeof flat, draggable: boolean, laneId: string) =>
             slots.length === 0
               ? <div className="min-w-[280px] rounded-lg border border-dashed p-4 text-center text-xs italic text-muted-foreground">Arraste um card aqui, ou defina a categoria de tecido dentro do card.</div>
               : groupByNome
-                ? porNome(slots).map(([nome, items]) => (
-                    <div key={nome}>
-                      <div className="mb-1 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                        <span>{nome}</span>
-                        <span className="rounded-full border px-1.5 text-[10px]">{items.length}</span>
+                ? porNome(slots).map(([nome, items]) => {
+                    const nomeKey = `${subAtiva}:${laneId}:nome:${nome}`;
+                    const nomeRecolhido = lanesRecolhidas.has(nomeKey);
+                    const nomeMetros = items.reduce((a, { slot }) => a + slotMetros(slot, "tecido"), 0);
+                    return (
+                      <div key={nome}>
+                        <div className="mb-1 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                          <button type="button" onClick={() => toggleLane(nomeKey)} title={nomeRecolhido ? "Expandir" : "Recolher"} className="rounded p-0.5 hover:bg-muted hover:text-foreground">
+                            {nomeRecolhido ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                          </button>
+                          <span>{nome}</span>
+                          <span className="rounded-full border px-1.5 text-[10px]">{items.length}{nomeMetros > 0 ? ` · ${Math.round(nomeMetros)} m` : ""}</span>
+                        </div>
+                        {!nomeRecolhido && <div className="flex items-start gap-3 overflow-x-auto">{renderCards(items, draggable)}</div>}
                       </div>
-                      <div className="flex items-start gap-3 overflow-x-auto">{renderCards(items, draggable)}</div>
-                    </div>
-                  ))
+                    );
+                  })
                 : renderCards(slots, draggable);
           return (
             <div className="flex flex-1 overflow-hidden">
@@ -900,7 +908,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                           </div>
                           {!laneRecolhida && (
                             <DroppableLane id={`lane:${cid ?? "__sem__"}`} vertical={groupByNome}>
-                              {laneBody(slots, true)}
+                              {laneBody(slots, true, cid ?? "__sem__")}
                             </DroppableLane>
                           )}
                         </section>
@@ -910,7 +918,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                       // continua valendo se ligado.
                       <section>
                         <div className={groupByNome ? "flex flex-col gap-3" : "flex items-start gap-3 overflow-x-auto"}>
-                          {laneBody(flat, false)}
+                          {laneBody(flat, false, "__all__")}
                         </div>
                       </section>
                     )}
