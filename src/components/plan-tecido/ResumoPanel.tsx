@@ -1,12 +1,14 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
+import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
 import { custoMateriaisPrevisto, slotMetros } from "@/lib/plan-tecido/calc";
 import { useSituacaoOcs, agruparPorOc } from "@/lib/plan-tecido/useSituacaoOcs";
 import { precoInfo } from "@/lib/preco";
 import { brl } from "@/lib/format";
-import { Lock, ChevronDown, ChevronRight, ShoppingCart } from "lucide-react";
+import { Lock, ChevronDown, ChevronRight, ShoppingCart, X } from "lucide-react";
 import { OcAplicadaPicker } from "@/components/plan-tecido/OcAplicadaPicker";
 
 const nMet = (n: number) => `${Math.round(n)}`;
@@ -64,6 +66,27 @@ export function ResumoPanel({
 
   const { data: situacao = [] } = useSituacaoOcs(colecaoId);
   const ocs = agruparPorOc(situacao);
+
+  // OCs APLICADAS (vinculadas à mão) — só essas dá pra desvincular por-OC aqui (1 clique). As GERADAS
+  // pelo "Fazer pedido" são reais e saem no "Desfazer pedido" (global). Mesma queryKey do picker.
+  const qc = useQueryClient();
+  const { data: aplicadasSet = new Set<string>() } = useQuery({
+    queryKey: ["plan-tecido-oc-aplicada", colecaoId],
+    queryFn: async () => new Set((((await supabase.from("plan_tecido_oc_aplicada" as any).select("oc_tecido_id").eq("colecao_id", colecaoId)).data ?? []) as unknown as { oc_tecido_id: string }[]).map((r) => r.oc_tecido_id)),
+  });
+  const desvincularAplicada = useMutation({
+    mutationFn: async (ocId: string) => {
+      const restantes = [...aplicadasSet].filter((id) => id !== ocId);
+      const { error } = await supabase.rpc("plan_tecido_set_oc_aplicada" as any, { _colecao_id: colecaoId, _oc_ids: restantes });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("OC desvinculada.");
+      qc.invalidateQueries({ queryKey: ["plan-tecido-oc-aplicada", colecaoId] });
+      qc.invalidateQueries({ queryKey: ["plan-tecido-situacao-ocs", colecaoId] });
+    },
+    onError: (e) => toast.error(mensagemErro(e, "Não foi possível desvincular.")),
+  });
 
   // artigos (tecidos) com FORNECEDOR — base do gating e do status por categoria
   const artigoIds = [...new Set(slots.flatMap((s) => s.materiais).map((m) => m.artigo_id).filter((x): x is string => !!x))].sort();
@@ -221,14 +244,27 @@ export function ResumoPanel({
 
       {/* OCs vinculadas */}
       <Secao title="OCs vinculadas">
-        {ocs.length ? ocs.map((o) => (
-          <button key={o.oc_tecido_id} type="button" onClick={() => onDetalhar("ocnum", o.oc_tecido_id)}
-            className="flex w-full items-center gap-2 border-b px-2 py-1.5 text-left text-xs hover:bg-muted/50">
-            <ShoppingCart className="h-3 w-3 shrink-0 text-muted-foreground" />
-            <span className="shrink-0 font-medium">{o.numero ?? "OC"}</span>
-            <span className="truncate text-muted-foreground">{o.tecidos.join(" · ") || "—"}</span>
-          </button>
-        )) : (
+        {ocs.length ? ocs.map((o) => {
+          const aplicada = aplicadasSet.has(o.oc_tecido_id);
+          return (
+            <div key={o.oc_tecido_id} className="flex items-center gap-2 border-b px-2 py-1.5 text-xs">
+              <button type="button" onClick={() => onDetalhar("ocnum", o.oc_tecido_id)} className="flex min-w-0 flex-1 items-center gap-2 text-left hover:underline">
+                <ShoppingCart className="h-3 w-3 shrink-0 text-muted-foreground" />
+                <span className="shrink-0 font-medium">{o.numero ?? "OC"}</span>
+                <span className="truncate text-muted-foreground">{o.tecidos.join(" · ") || "—"}</span>
+              </button>
+              {aplicada ? (
+                <button type="button" title="Desvincular esta OC do plano" disabled={desvincularAplicada.isPending}
+                  onClick={() => desvincularAplicada.mutate(o.oc_tecido_id)}
+                  className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              ) : (
+                <span className="shrink-0 rounded bg-muted px-1 text-[9px] text-muted-foreground" title="OC gerada pelo pedido — remova em 'Desfazer pedido'">gerada</span>
+              )}
+            </div>
+          );
+        }) : (
           <div className="px-2 py-1.5 text-[10px] text-muted-foreground">Nenhuma OC vinculada.</div>
         )}
         <OcAplicadaPicker colecaoId={colecaoId} />
