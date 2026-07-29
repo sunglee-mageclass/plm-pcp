@@ -253,8 +253,21 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
         }));
         return { colecao_id: colecaoId, tipo, buckets, subcolecoes };
       }
-      const rows = ((await supabase.from("colecao_semana_categorias" as any).select("subcolecao_id, categoria_id, qtd").eq("colecao_id", colecaoId)).data ?? []) as any[];
-      const buckets = rows.map((r) => ({ subcolecao_id: r.subcolecao_id, linha_id: null, categoria_id: r.categoria_id, qtd: Number(r.qtd) || 0 }));
+      // Split de categoria (colecao_semana_categorias) é PARCIAL; o total planejado (OTB) vem das
+      // SEMANAS (colecao_semanas.qtd_planejada). Buckets = split por categoria + RESTANTE "sem
+      // categoria" por sub (total OTB − Σ split) — senão o planejado mostrava só o split (ex.: 19 em
+      // vez de 43) e a subcoleção só-total (sem split) ficava sem slots.
+      const catRows = ((await supabase.from("colecao_semana_categorias" as any).select("subcolecao_id, categoria_id, qtd").eq("colecao_id", colecaoId)).data ?? []) as any[];
+      const semanaRows = ((await supabase.from("colecao_semanas" as any).select("subcolecao_id, qtd_planejada").eq("colecao_id", colecaoId)).data ?? []) as any[];
+      const buckets = catRows.map((r) => ({ subcolecao_id: r.subcolecao_id, linha_id: null, categoria_id: r.categoria_id, qtd: Number(r.qtd) || 0 }));
+      const totalPorSub = new Map<string | null, number>();
+      for (const r of semanaRows) { const k = (r.subcolecao_id ?? null) as string | null; totalPorSub.set(k, (totalPorSub.get(k) ?? 0) + (Number(r.qtd_planejada) || 0)); }
+      const splitPorSub = new Map<string | null, number>();
+      for (const r of catRows) { const k = (r.subcolecao_id ?? null) as string | null; splitPorSub.set(k, (splitPorSub.get(k) ?? 0) + (Number(r.qtd) || 0)); }
+      for (const [sub, total] of totalPorSub) {
+        const rem = total - (splitPorSub.get(sub) ?? 0);
+        if (rem > 0) buckets.push({ subcolecao_id: sub, linha_id: null, categoria_id: null, qtd: rem });
+      }
       return { colecao_id: colecaoId, tipo, buckets, subcolecoes };
     },
   });
