@@ -45,16 +45,19 @@ export function SlotOcHint({
   const add = (id: string) => { if (id && !selected.includes(id)) salvar.mutate([...selected, id]); };
   const remove = (id: string) => salvar.mutate(selected.filter((x) => x !== id));
 
-  // Filtro em CASCATA (do mais preciso ao mais amplo), nunca um gate que trave a adição:
-  //  1) OCs que contêm o TECIDO escolhido no card (artigo real) — o mais específico;
-  //  2) senão, OCs da CATEGORIA de tecido da lane do card;
-  //  3) senão (nada casa), todas as não-escolhidas (senão o dropdown travaria em "todas já escolhidas").
+  // Card COM tecido escolhido → filtra ESTRITO pelo TECIDO (artigo real da variante); NÃO cai pra
+  // categoria, senão mostrava OC de outro tecido da MESMA categoria (ex.: Fiore num card de Malha
+  // Tessa — ambos "Malha"). Sem OC do tecido, o dropdown fica vazio com mensagem honesta (não some
+  // pra outro tecido). Card SEM tecido → filtra pela categoria da lane (fallback nas não-escolhidas).
   const naCategoria = (o: OcLite) => !categoriaLane || !o.categorias || o.categorias.length === 0 || o.categorias.includes(categoriaLane);
-  const doArtigo = (o: OcLite) => slotArtigos.length > 0 && !!o.artigos && o.artigos.some((a) => slotArtigos.includes(a));
+  const doArtigo = (o: OcLite) => !!o.artigos && o.artigos.some((a) => slotArtigos.includes(a));
   const naoEscolhidas = ocsAplicadas.filter((o) => !selected.includes(o.id));
-  const porArtigo = naoEscolhidas.filter(doArtigo);
-  const porCategoria = naoEscolhidas.filter(naCategoria);
-  const disponiveis = porArtigo.length ? porArtigo : porCategoria.length ? porCategoria : naoEscolhidas;
+  const disponiveis = slotArtigos.length > 0
+    ? naoEscolhidas.filter(doArtigo)
+    : (naoEscolhidas.filter(naCategoria).length ? naoEscolhidas.filter(naCategoria) : naoEscolhidas);
+  const vazioMsg = naoEscolhidas.length === 0
+    ? "Todas as OCs já escolhidas"
+    : slotArtigos.length > 0 ? "Nenhuma OC deste tecido" : "Nenhuma OC desta categoria";
 
   return (
     <div>
@@ -84,7 +87,7 @@ export function SlotOcHint({
             disabled={salvar.isPending || disponiveis.length === 0}
             onChange={(e) => { add(e.target.value); e.currentTarget.value = ""; }}
           >
-            <option value="">{disponiveis.length ? "Adicionar OC…" : "Todas as OCs já escolhidas"}</option>
+            <option value="">{disponiveis.length ? "Adicionar OC…" : vazioMsg}</option>
             {disponiveis.map((oc) => (<option key={oc.id} value={oc.id}>{label(oc)}</option>))}
           </select>
         </div>
