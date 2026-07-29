@@ -4,6 +4,9 @@ export type SeedInput = {
   colecao_id: string;
   tipo: "orcamento" | "poder_venda";
   buckets: { subcolecao_id: string | null; linha_id: string | null; categoria_id: string | null; qtd: number }[];
+  // TODAS as subcoleções da coleção (em ordem) — garante que subcoleção sem modelo/bucket (ex.: R3
+  // recém-criada) ainda apareça no plano. Opcional p/ compatibilidade com chamadas antigas.
+  subcolecoes?: { subcolecao_id: string | null; ordem: number }[];
 };
 
 // Modelo real mapeado do banco (BOM + grade + classificação), pronto p/ virar slot.
@@ -117,6 +120,10 @@ export function semearComModelos(input: SeedComModelosInput): PtArvore {
     if (!ln) { ln = { linha_id, categoria_id, ordem: sub.linhas.length, slots: [] }; sub.linhas.push(ln); }
     return ln;
   };
+
+  // 0) Garante TODAS as subcoleções da coleção (em ordem), MESMO vazias — senão uma subcoleção sem
+  //    modelo nem bucket (ex.: R3 recém-criada) não aparecia no plano.
+  for (const sc of [...(input.subcolecoes ?? [])].sort((a, b) => a.ordem - b.ordem)) getSub(sc.subcolecao_id);
 
   // 1) Coloca cada modelo real no seu bucket (subcoleção + linha/categoria conforme o tipo).
   for (const mr of input.modelos) {

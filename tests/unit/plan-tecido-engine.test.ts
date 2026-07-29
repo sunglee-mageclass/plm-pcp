@@ -121,6 +121,22 @@ describe("plan-tecido/engine", () => {
     expect(arv.subcolecoes[0].linhas[0].slots[0].categoria_tecido_id).toBe("CAT_CHIFFON");
   });
 
+  it("semearComModelos: subcoleção SEM modelo nem bucket ainda aparece (bug R3 sumida)", () => {
+    const modelo: ModeloReal = {
+      id: "M1", ref: null, nome: "Vestido", thumb_path: null, subcolecao: "R1", subcolecao_id: "S1",
+      linha_id: null, categoria_id: null, materiais: [], grade: {},
+    };
+    // 3 subcoleções na coleção, mas modelos só em S1 e nenhum bucket → S2 e S3 ainda devem existir.
+    const arv = semearComModelos({
+      colecao_id: "c", tipo: "orcamento", buckets: [],
+      subcolecoes: [{ subcolecao_id: "S1", ordem: 0 }, { subcolecao_id: "S2", ordem: 1 }, { subcolecao_id: "S3", ordem: 2 }],
+      modelos: [modelo],
+    });
+    const ids = arv.subcolecoes.map((s) => s.subcolecao_id);
+    expect(arv.subcolecoes).toHaveLength(3);
+    expect(ids).toEqual(["S1", "S2", "S3"]); // ordem preservada
+  });
+
   it("mergeArvore: categoria manual salva VENCE, mas sem categoria salva auto-preenche do seed", () => {
     const seed = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [{ linha_id: null, categoria_id: "cat", ordem: 0,
       slots: [

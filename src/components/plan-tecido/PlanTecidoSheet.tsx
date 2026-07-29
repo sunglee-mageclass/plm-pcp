@@ -18,7 +18,7 @@ import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/Unsave
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { AgrupamentoButton } from "@/components/shared/filters";
 import { useAuth } from "@/hooks/useAuth";
-import { ArrowLeft, ShoppingCart, Undo2, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, ChevronRight } from "lucide-react";
+import { ArrowLeft, ShoppingCart, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, ChevronRight } from "lucide-react";
 import {
   semearComModelos, mergeArvore, type SeedInput, type ModeloReal, type ModeloRealMaterial,
 } from "@/lib/plan-tecido/engine";
@@ -228,7 +228,6 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
   const [previaOpen, setPreviaOpen] = useState(false);
   const [previaData, setPreviaData] = useState<PreviaRpc | null>(null);
   const [previaLoading, setPreviaLoading] = useState(false);
-  const [desfazerOpen, setDesfazerOpen] = useState(false);
 
   const { data: colecao } = useQuery({
     queryKey: ["plan-tecido-colecao", colecaoId],
@@ -241,6 +240,9 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
     enabled: !!colecao,
     queryFn: async (): Promise<SeedInput> => {
       const tipo = (colecao.tipo === "poder_venda" ? "poder_venda" : "orcamento") as SeedInput["tipo"];
+      // TODAS as subcoleções (em ordem) — p/ a subcoleção sem modelo/bucket (R3) ainda aparecer.
+      const subcolecoes = (((await supabase.from("colecao_subcolecoes" as any).select("id, ordem").eq("colecao_id", colecaoId).order("ordem")).data ?? []) as any[])
+        .map((s) => ({ subcolecao_id: s.id as string, ordem: Number(s.ordem) || 0 }));
       if (tipo === "poder_venda") {
         const rows = ((await supabase.from("colecao_pv_itens" as any).select("subcolecao_id, linha_id, qtd_semanas").eq("colecao_id", colecaoId)).data ?? []) as any[];
         const buckets = rows.map((r) => ({
@@ -249,11 +251,11 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
           categoria_id: null,
           qtd: Object.values((r.qtd_semanas ?? {}) as Record<string, number>).reduce((s, n) => s + (Number(n) || 0), 0),
         }));
-        return { colecao_id: colecaoId, tipo, buckets };
+        return { colecao_id: colecaoId, tipo, buckets, subcolecoes };
       }
       const rows = ((await supabase.from("colecao_semana_categorias" as any).select("subcolecao_id, categoria_id, qtd").eq("colecao_id", colecaoId)).data ?? []) as any[];
       const buckets = rows.map((r) => ({ subcolecao_id: r.subcolecao_id, linha_id: null, categoria_id: r.categoria_id, qtd: Number(r.qtd) || 0 }));
-      return { colecao_id: colecaoId, tipo, buckets };
+      return { colecao_id: colecaoId, tipo, buckets, subcolecoes };
     },
   });
 
@@ -541,26 +543,6 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
     catch { return false; }
   };
 
-  const desfazerPedidoMut = useMutation({
-    mutationFn: async () => {
-      const { data, error } = await supabase.rpc("plan_tecido_desfazer_pedido" as any, {
-        _colecao_id: colecaoId,
-      });
-      if (error) throw error;
-      return data as number;
-    },
-    onSuccess: (removidas) => {
-      toast.success(`Pedido desfeito (${removidas} OC(s) removida(s)).`);
-      setDesfazerOpen(false);
-      qc.invalidateQueries({ queryKey: ["ocs_tecido"] });
-      qc.invalidateQueries({ queryKey: ["plan-tecido-status-pedidos"] });
-      qc.invalidateQueries({ queryKey: ["plan-tecido-situacao-ocs", colecaoId] });
-      qc.invalidateQueries({ queryKey: ["plan-tecido-previa", colecaoId] }); // "a comprar" volta a subir
-      qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
-      qc.invalidateQueries({ queryKey: ["dash-estoque"] });
-    },
-    onError: (e) => toast.error(mensagemErro(e, "Não foi possível desfazer o pedido.")),
-  });
 
   const patch = (next: PtArvore) => { setArvore(next); setDirty(true); };
 
@@ -949,18 +931,6 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
             {view === "canvas" ? "Subcoleções" : "Voltar"}
           </Button>
           <div className="ml-auto" />
-          {view === "canvas" && (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={desfazerPedidoMut.isPending}
-              onClick={() => setDesfazerOpen(true)}
-              className="max-sm:h-11"
-            >
-              <Undo2 className="mr-1 h-4 w-4" />
-              <span className="hidden sm:inline">Desfazer pedido</span>
-            </Button>
-          )}
           <Button
             variant="default"
             size="sm"
@@ -1033,27 +1003,6 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
           )}
         </AlertDialog>
 
-        {/* AlertDialog: Desfazer pedido */}
-        <AlertDialog open={desfazerOpen} onOpenChange={setDesfazerOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Desfazer pedido?</AlertDialogTitle>
-              <AlertDialogDescription>
-                As OCs de tecido desta coleção serão removidas (apenas as não recebidas).
-                Essa ação não pode ser desfeita.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancelar</AlertDialogCancel>
-              <AlertDialogAction
-                disabled={desfazerPedidoMut.isPending}
-                onClick={() => desfazerPedidoMut.mutate()}
-              >
-                {desfazerPedidoMut.isPending ? "Desfazendo…" : "Desfazer"}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
 
         {/* Fazer pedido — wizard paginado (1 página por OC, respeita fornecedores) */}
         {previaOpen && previaData && (
