@@ -426,7 +426,7 @@ function TecidosGallery() {
       <Sheet open={!!openId} onOpenChange={(o) => { if (!o) setOpenId(null); }}>
         <SheetContent side="right" className="w-full overflow-y-auto p-4 sm:w-[70vw] sm:max-w-[70vw] sm:p-6 [&>button]:hidden">
           <SheetTitle className="sr-only">Detalhes do tecido</SheetTitle>
-          {openId && <TecidoDetail artigoId={openId} onClose={() => setOpenId(null)} />}
+          {openId && <TecidoDetail artigoId={openId} onClose={() => setOpenId(null)} embedded />}
         </SheetContent>
       </Sheet>
 

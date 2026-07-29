@@ -120,7 +120,7 @@ type Variante = {
 type Cor = { id: string; nome: string };
 type Apelido = { id: string; nome: string; cor_base_id: string | null };
 
-export function TecidoDetail({ artigoId, onClose }: { artigoId: string; onClose: () => void }) {
+export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId: string; onClose: () => void; embedded?: boolean }) {
   const qc = useQueryClient();
   const readOnly = useReadOnly();
 
@@ -349,23 +349,33 @@ export function TecidoDetail({ artigoId, onClose }: { artigoId: string; onClose:
         <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
       </header>
 
-      {/* Barra de ações no rodapé — todos os tamanhos (PageActionBar via portal). */}
-      <PageActionBar>
-        <Button variant="outline" onClick={requestClose}>
-          <ArrowLeft className="h-4 w-4 mr-1" /> Voltar
-        </Button>
-        {!readOnly && (
+      {/* Barra de ações no rodapé. Na PÁGINA inteira usa PageActionBar (portal, rodapé do viewport);
+          EMBUTIDO num Sheet, o portal cairia FORA do sheet → usa uma barra sticky DENTRO do sheet. */}
+      {(() => {
+        const acoes = (
           <>
-            <Button variant="destructive" onClick={() => setConfirmDel(true)} disabled={excluirMut.isPending}>
-              <Trash2 className="h-4 w-4 mr-1" /> Excluir
+            <Button variant="outline" onClick={requestClose}>
+              <ArrowLeft className="h-4 w-4 mr-1" /> Voltar
+            </Button>
+            {!readOnly && (
+              <Button variant="destructive" onClick={() => setConfirmDel(true)} disabled={excluirMut.isPending}>
+                <Trash2 className="h-4 w-4 mr-1" /> Excluir
+              </Button>
+            )}
+            <Button className="ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
+              <Save className="h-4 w-4 mr-1" />
+              {saveMut.isPending ? "Salvando…" : "Salvar"}
             </Button>
           </>
-        )}
-        <Button className="ml-auto sm:ml-0" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
-          <Save className="h-4 w-4 mr-1" />
-          {saveMut.isPending ? "Salvando…" : "Salvar"}
-        </Button>
-      </PageActionBar>
+        );
+        return embedded ? (
+          <div className="sticky bottom-0 z-10 -mx-4 -mb-4 mt-4 flex items-center gap-2 border-t bg-background p-3 sm:-mx-6 sm:-mb-6">
+            {acoes}
+          </div>
+        ) : (
+          <PageActionBar>{acoes}</PageActionBar>
+        );
+      })()}
 
       <AlertDialog open={confirmDel} onOpenChange={setConfirmDel}>
         <AlertDialogContent>
