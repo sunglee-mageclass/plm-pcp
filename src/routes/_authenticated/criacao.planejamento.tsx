@@ -197,7 +197,8 @@ function PlanejamentoPage() {
   const [openNew, setOpenNew] = useState(false);
   const [openBatch, setOpenBatch] = useState(false);
   const [openBulk, setOpenBulk] = useState(false);
-  const [selMode, setSelMode] = useState(false);
+  // Seleção múltipla SEM "modo": o checkbox fica sempre à mostra no card (pedido do dono) e a barra
+  // de ações em massa aparece quando há ≥1 selecionado.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const toggleSel = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const selectAllFiltered = () => setSelected(new Set(sorted.map((m) => m.id)));
@@ -213,7 +214,7 @@ function PlanejamentoPage() {
     },
     onSuccess: (n) => {
       toast.success(`${n} card(s) excluído(s)`);
-      clearSel(); setSelMode(false); setConfirmBulkDel(false);
+      clearSel(); setConfirmBulkDel(false);
       qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
       qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
     },
@@ -501,11 +502,9 @@ function PlanejamentoPage() {
 
   const renderCard = (m: Modelo) => (
     <div key={m.id} className="relative">
-      {selMode && (
-        <div className="absolute left-2 top-2 z-10">
-          <Checkbox checked={selected.has(m.id)} onCheckedChange={() => toggleSel(m.id)} />
-        </div>
-      )}
+      <div className="absolute left-2 top-2 z-10">
+        <Checkbox checked={selected.has(m.id)} onCheckedChange={() => toggleSel(m.id)} className="bg-background/80 shadow-sm" />
+      </div>
       <ModeloCard
         modelo={m}
         estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
@@ -537,7 +536,7 @@ function PlanejamentoPage() {
         lancStatus={lancStatusDe(m)}
         mesNome={m.mes_id ? mesMap[m.mes_id] : null}
         anoNome={m.ano_id ? anoMap[m.ano_id] : null}
-        onOpen={() => (selMode ? toggleSel(m.id) : setOpenId(m.id))}
+        onOpen={() => setOpenId(m.id)}
         compact={compact}
       />
     </div>
@@ -661,18 +660,19 @@ function PlanejamentoPage() {
       {/* Seleção múltipla no HEADER STICKY (portal), ao lado do nome do módulo. Ativa
           mostra Todos / contagem / Definir em massa ali mesmo. */}
       <HeaderActions>
-        <Button size="sm" variant={selMode ? "default" : "outline"} onClick={() => { setSelMode((v) => !v); clearSel(); }} aria-label="Selecionar">
-          <CheckSquare className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Selecionar</span>
-        </Button>
-        {selMode && (
+        {selected.size > 0 ? (
           <>
+            <Button size="sm" variant="ghost" onClick={clearSel}>Limpar ({selected.size})</Button>
             <Button size="sm" variant="ghost" onClick={selectAllFiltered}>Todos ({sorted.length})</Button>
-            <span className="whitespace-nowrap text-xs text-muted-foreground">{selected.size} selec.</span>
-            <Button size="sm" disabled={selected.size === 0} onClick={() => setOpenBulk(true)}>Definir em massa</Button>
-            <Button size="sm" variant="destructive" disabled={selected.size === 0 || bulkDel.isPending} onClick={() => setConfirmBulkDel(true)} aria-label="Excluir selecionados">
+            <Button size="sm" onClick={() => setOpenBulk(true)}>Definir em massa</Button>
+            <Button size="sm" variant="destructive" disabled={bulkDel.isPending} onClick={() => setConfirmBulkDel(true)} aria-label="Excluir selecionados">
               <Trash2 className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Excluir</span>
             </Button>
           </>
+        ) : (
+          <Button size="sm" variant="outline" onClick={selectAllFiltered} aria-label="Selecionar todos">
+            <CheckSquare className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">Selecionar todos</span>
+          </Button>
         )}
       </HeaderActions>
       <header className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
@@ -819,7 +819,7 @@ function PlanejamentoPage() {
           anos={anos}
           statusOpts={STATUS_OPTS.map((s) => ({ id: s.value, nome: s.label }))}
           onClose={() => setOpenBulk(false)}
-          onSaved={() => { qc.invalidateQueries({ queryKey: ["modelos-planejamento"] }); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); clearSel(); setSelMode(false); }}
+          onSaved={() => { qc.invalidateQueries({ queryKey: ["modelos-planejamento"] }); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); clearSel(); }}
         />
       )}
 
