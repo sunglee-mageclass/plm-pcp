@@ -110,4 +110,31 @@ describe("plan-tecido/engine", () => {
     // Antes do fix: RENDA (snapshot salvo, pela posição). Depois: ANGELIM (BOM vivo por id).
     expect(slotM1.materiais[0].artigo_id).toBe("ANGELIM");
   });
+
+  it("semearComModelos: card nasce com categoria_tecido_id do Tecido 1 (auto-categorização)", () => {
+    const modelo: ModeloReal = {
+      id: "M1", ref: null, nome: "Vestido", thumb_path: null, subcolecao: null, subcolecao_id: null,
+      linha_id: null, categoria_id: null, categoria_tecido_id: "CAT_CHIFFON",
+      materiais: [{ tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0, variantes: [] }], grade: {},
+    };
+    const arv = semearComModelos({ colecao_id: "c", tipo: "orcamento", buckets: [{ subcolecao_id: null, linha_id: null, categoria_id: null, qtd: 1 }], modelos: [modelo] });
+    expect(arv.subcolecoes[0].linhas[0].slots[0].categoria_tecido_id).toBe("CAT_CHIFFON");
+  });
+
+  it("mergeArvore: categoria manual salva VENCE, mas sem categoria salva auto-preenche do seed", () => {
+    const seed = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [{ linha_id: null, categoria_id: "cat", ordem: 0,
+      slots: [
+        { modelo_id: "M1", slot_index: 0, categoria_tecido_id: "AUTO_A", custos_adicionais: [], materiais: [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [] }] },
+        { modelo_id: "M2", slot_index: 1, categoria_tecido_id: "AUTO_B", custos_adicionais: [], materiais: [{ artigo_id: "B", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [] }] },
+      ] }] }] };
+    const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [{ linha_id: null, categoria_id: "cat", ordem: 0,
+      slots: [
+        { modelo_id: "M1", slot_index: 0, categoria_tecido_id: "MANUAL_X", custos_adicionais: [], materiais: [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [] }] },
+        { modelo_id: "M2", slot_index: 1, categoria_tecido_id: null, custos_adicionais: [], materiais: [{ artigo_id: "B", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [] }] },
+      ] }] }] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    const slots = merged.subcolecoes[0].linhas[0].slots;
+    expect(slots[0].categoria_tecido_id).toBe("MANUAL_X"); // override manual do usuário preservado
+    expect(slots[1].categoria_tecido_id).toBe("AUTO_B");   // salvo sem categoria → auto do seed
+  });
 });

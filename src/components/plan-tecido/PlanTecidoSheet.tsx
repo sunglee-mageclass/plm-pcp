@@ -279,7 +279,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
       ((await supabase
         .from("modelos")
         .select(
-          "id, ref, nome, versao, subcolecao, linha_id, categoria_principal_id, proporcoes, lancado, custo_terceirizados_aprovado, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(artigo_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total)",
+          "id, ref, nome, versao, subcolecao, linha_id, categoria_principal_id, proporcoes, lancado, custo_terceirizados_aprovado, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(artigo_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total)",
         )
         .eq("colecao_id", colecaoId)).data ?? []) as any[],
   });
@@ -408,10 +408,15 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
         }
       }
       const materiais: ModeloRealMaterial[] = [...matByArtigo.values()];
+      // categoria de TECIDO do card = categoria do Tecido 1 (artigo.categoria_tecido_id) → categoriza
+      // o card AUTOMATICAMENTE no canvas (mesma leitura que o botão "Agrupar por tecido" fazia manual).
+      const tec1 = (blocks as any[]).find((b) => b.tipo === "tecido" && Number(b.numero) === 1) ?? (blocks as any[]).find((b) => b.tipo === "tecido");
+      const categoria_tecido_id = (tec1?.artigo?.categoria_tecido_id ?? null) as string | null;
       return {
         id: m.id,
         ref: m.ref ?? null,
         nome: m.nome ?? null,
+        categoria_tecido_id,
         // hierarquia de imagem: foto de modelo → desenho técnico → croqui → vazio
         thumb_path:
           (Array.isArray(m.fotos_modelo) ? m.fotos_modelo[0] : null) ||
@@ -769,7 +774,13 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
           const sub = subAtual;
           const subArvore: PtArvore = { ...arvore, subcolecoes: [sub] };
           const flat = sub.linhas.flatMap((ln, li) => ln.slots.map((slot, sli) => ({ slot, li, sli, chave: chaveSlot(slot.id, subAtiva, li, sli) })));
-          const cats = sub.categorias_tecido ?? [];
+          // Lanes = UNIÃO das categorias declaradas (categorias_tecido, incl. lanes vazias criadas à
+          // mão) + as categorias AUTO presentes nos slots (Tecido 1). Sem a união, um card
+          // auto-categorizado numa categoria fora de categorias_tecido não renderia em lane nenhuma.
+          const cats = [...new Set<string>([
+            ...(sub.categorias_tecido ?? []),
+            ...flat.map((f) => f.slot.categoria_tecido_id).filter((c): c is string => !!c),
+          ])];
           const slotsOf = (cid: string | null) => flat.filter((f) => (f.slot.categoria_tecido_id ?? null) === cid);
           const laneCats: (string | null)[] = catFilter === "__sem__" ? [null] : catFilter ? [catFilter] : [...cats, null];
           const allChaves = flat.map((f) => f.chave);

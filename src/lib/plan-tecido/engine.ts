@@ -29,6 +29,9 @@ export type ModeloReal = {
   subcolecao_id: string | null;   // resolvido pelo chamador (nome → id do plano), se possível
   linha_id: string | null;
   categoria_id: string | null;
+  // categoria de TECIDO derivada do Tecido 1 (artigo.categoria_tecido_id) — categoriza o card no
+  // canvas AUTOMATICAMENTE (o dono não quer clicar "Agrupar por tecido"; é o default).
+  categoria_tecido_id?: string | null;
   proporcoes: Record<string, number> | null;
   materiais: ModeloRealMaterial[];
   // custo de materiais (Σ aviamentos/insumos do BOM) — pré-preenche custo_simulado.materiais (editável)
@@ -83,6 +86,8 @@ export function slotDeModeloReal(mr: ModeloReal, slotIndex: number): PtSlot {
     proporcoes: mr.proporcoes ?? null,
     custos_adicionais: [],
     categoria_id: mr.categoria_id ?? null,
+    // categoriza AUTOMATICAMENTE pela categoria de tecido do Tecido 1 (sem clicar "Agrupar")
+    categoria_tecido_id: mr.categoria_tecido_id ?? null,
     linha_id: mr.linha_id ?? null,
     // materiais (aviamentos/insumos) do desenvolvimento — editável em Custo & Preço
     custo_simulado: mr.materiais_custo ? { materiais: mr.materiais_custo } : undefined,
@@ -203,6 +208,10 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
             nome: saved.nome ?? slot.nome,
             thumb_path: saved.thumb_path ?? slot.thumb_path,
             categoria_id: saved.categoria_id ?? slot.categoria_id,
+            // categoria de TECIDO (lane): manual salvo VENCE; se o slot salvo está sem categoria,
+            // usa a AUTO do seed (Tecido 1). Assim planos antigos "sem categoria" auto-preenchem ao
+            // reabrir, e uma categorização manual do usuário é preservada.
+            categoria_tecido_id: saved.categoria_tecido_id ?? slot.categoria_tecido_id,
             linha_id: saved.linha_id ?? slot.linha_id,
             proporcoes: saved.proporcoes ?? slot.proporcoes,
             // custo de materiais (aviamentos/insumos) pré-preenchido do BOM não é apagado por save
