@@ -981,6 +981,13 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   // grade) — assim o "cálculo automático" do CAD calcula a variante recém-adicionada na hora,
   // em vez de deixá-la zerada por falta de grade. Só ADICIONA linhas faltantes; preserva as
   // existentes (o usuário pode ajustar a grade de cada cor depois).
+  // ⚠️ `grades` PRECISA estar nas deps: as queries de seed são independentes e paralelas — se
+  // `grades` (query ["modelo-grades"]) chega DEPOIS de `cadSeeded` (que espera tecidos/preços),
+  // este efeito rodava no flanco de cadSeeded com prev=[] (no-op) e NUNCA re-rodava quando a grade
+  // parcial chegava (grades não era dep) → linhas 2..N nunca herdadas → `seedSettled` (que exige
+  // grade cobrindo o Tecido 1) ficava false p/ sempre → o guarda de "não salvo" nunca armava
+  // (perda silenciosa de edição). O efeito é MONOTÔNICO (só adiciona; quando 1..N já existem
+  // retorna `prev` = mesma ref → React aborta o setState), então `grades` na dep NÃO faz loop.
   useEffect(() => {
     if (!cadSeeded || tecido1VarianteIds.length === 0) return;
     setGrades((prev) => {
@@ -997,7 +1004,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
       }
       return changed ? next.sort((a, b) => a.variante_numero - b.variante_numero) : prev;
     });
-  }, [tecido1VarianteIds, cadSeeded]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tecido1VarianteIds, cadSeeded, grades]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data: tecido1VariantesLabels = {} } = useQuery({
     queryKey: ["variantes-labels", tecido1VarianteIds.join(",")],

@@ -103,9 +103,23 @@ export function ModelCard({
   const invalidarModelo = () => {
     void qc.invalidateQueries({ queryKey: ["modelo"] });
     void qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
-    void qc.invalidateQueries({ queryKey: ["cad-grades"] });
     void qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
     void qc.invalidateQueries({ queryKey: ["dash-estoque"] });
+    // Chaves do DESENVOLVIMENTO afetadas por criar/aplicar (BOM, grade, proporção e VÍNCULO de OC):
+    // sem isto, o card do Dev, se já montado/cacheado, mostra dado velho e a OC propagada pelo
+    // "aplicar" não aparece selecionada. (["cad-grades"] era alvo errado — aplicar mexe em
+    // modelo_grades, não cad_grades — e ["modelo"] casa só o Planejamento, não o Dev.)
+    const mid = slot.modelo_id;
+    if (mid) {
+      void qc.invalidateQueries({ queryKey: ["modelo-detail", mid] });
+      void qc.invalidateQueries({ queryKey: ["modelo-tecidos", mid] });
+      void qc.invalidateQueries({ queryKey: ["modelo-grades", mid] });
+      void qc.invalidateQueries({ queryKey: ["modelo-tecido-oc-links", mid] });
+      void qc.invalidateQueries({ queryKey: ["modelo-precos-congelado", mid] });
+      void qc.invalidateQueries({ queryKey: ["dev-cad-precos-congelado", mid] });
+    }
+    // Chips "OC do Desenvolvimento" no card do plano refletem na hora (senão só ao refocar a janela).
+    if (colecaoId) void qc.invalidateQueries({ queryKey: ["plan-tecido-vinculos", colecaoId] });
   };
 
   async function criarCard() {
