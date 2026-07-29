@@ -456,8 +456,9 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   const [baselineTick, setBaselineTick] = useState(0);
   const markClean = () => { baselineRef.current = guardSnapshotStr; setBaselineTick((n) => n + 1); };
   const changed = baselineRef.current !== null && guardSnapshotStr !== baselineRef.current;
-  // Grade automática: ao digitar uma célula, escala as demais pela proporção.
-  const [gradeAuto, setGradeAuto] = useState(false);
+  // Grade automática: LIGADA por padrão (o dono quer o cálculo por proporção sem ter que clicar).
+  // Ao digitar uma célula/grade total, escala as demais pela proporção; desmarcar = grade manual.
+  const [gradeAuto, setGradeAuto] = useState(true);
 
   // Tecidos planejados (Planejamento): preenchem os blocos Tecido 1/2/3 (1 por
   // artigo) e alimentam o mapa variante→artigo p/ o custo. NÃO são pool comum de
