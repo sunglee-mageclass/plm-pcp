@@ -4,7 +4,7 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { X } from "lucide-react";
 
-type OcLite = { id: string; numero_pedido: string | null; tecidos: string[]; categorias?: string[] };
+type OcLite = { id: string; numero_pedido: string | null; tecidos: string[]; categorias?: string[]; artigos?: string[] };
 
 /**
  * OC (planejamento) por card, chaveado por SLOT: dropdown p/ escolher a(s) OC(s) — mostra o nº da OC
@@ -16,6 +16,7 @@ export function SlotOcHint({
   ocsAplicadas,
   selected,
   categoriaLane,
+  slotArtigos = [],
   onEnsureSaved,
 }: {
   colecaoId: string;
@@ -23,6 +24,8 @@ export function SlotOcHint({
   ocsAplicadas: OcLite[];
   selected: string[];
   categoriaLane?: string | null;
+  /** artigo_id(s) dos tecidos ESCOLHIDOS neste card — filtro primário (mais preciso que a categoria). */
+  slotArtigos?: string[];
   onEnsureSaved?: () => Promise<boolean>;
 }) {
   const qc = useQueryClient();
@@ -42,14 +45,16 @@ export function SlotOcHint({
   const add = (id: string) => { if (id && !selected.includes(id)) salvar.mutate([...selected, id]); };
   const remove = (id: string) => salvar.mutate(selected.filter((x) => x !== id));
 
-  // PREFERE as OCs que contêm tecido da CATEGORIA da lane do card; a OC sem categoria conhecida ou
-  // quando o card não tem lane casa sempre. É um FALLBACK, não um gate: se NENHUMA OC casa a categoria,
-  // mostra todas as não-escolhidas (senão, ao remover a única OC da categoria, o dropdown travava em
-  // "Todas as OCs já escolhidas" impedindo qualquer adição).
+  // Filtro em CASCATA (do mais preciso ao mais amplo), nunca um gate que trave a adição:
+  //  1) OCs que contêm o TECIDO escolhido no card (artigo real) — o mais específico;
+  //  2) senão, OCs da CATEGORIA de tecido da lane do card;
+  //  3) senão (nada casa), todas as não-escolhidas (senão o dropdown travaria em "todas já escolhidas").
   const naCategoria = (o: OcLite) => !categoriaLane || !o.categorias || o.categorias.length === 0 || o.categorias.includes(categoriaLane);
+  const doArtigo = (o: OcLite) => slotArtigos.length > 0 && !!o.artigos && o.artigos.some((a) => slotArtigos.includes(a));
   const naoEscolhidas = ocsAplicadas.filter((o) => !selected.includes(o.id));
-  const daCategoria = naoEscolhidas.filter(naCategoria);
-  const disponiveis = daCategoria.length ? daCategoria : naoEscolhidas;
+  const porArtigo = naoEscolhidas.filter(doArtigo);
+  const porCategoria = naoEscolhidas.filter(naCategoria);
+  const disponiveis = porArtigo.length ? porArtigo : porCategoria.length ? porCategoria : naoEscolhidas;
 
   return (
     <div>

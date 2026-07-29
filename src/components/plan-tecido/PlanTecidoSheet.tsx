@@ -322,21 +322,36 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
   // OCs aplicadas (nº + tecidos que contém) — oferecidas como hint de OC por card (#5)
   const { data: ocsAplicadas = [] } = useQuery({
     queryKey: ["plan-tecido-oc-aplicada-lista", colecaoId],
-    queryFn: async () =>
-      (((await supabase.from("plan_tecido_oc_aplicada" as any)
-        .select("oc_tecido_id, oc:oc_tecido_id(numero_pedido, itens:ocs_tecido_itens(cancelado, artigo:artigo_id(nome, categoria_tecido_id, cats:artigo_categorias_tecido(categoria_tecido_id))))")
-        .eq("colecao_id", colecaoId)).data ?? []) as unknown as { oc_tecido_id: string; oc: { numero_pedido: string | null; itens: { cancelado: boolean | null; artigo: { nome: string | null; categoria_tecido_id: string | null; cats: { categoria_tecido_id: string }[] | null } | null }[] | null } | null }[])
+    queryFn: async () => {
+      type Art = { id: string | null; nome: string | null; categoria_tecido_id: string | null; cats: { categoria_tecido_id: string }[] | null };
+      type Item = { cancelado: boolean | null; artigo: Art | null; variante: { artigo: Art | null } | null };
+      return (((await supabase.from("plan_tecido_oc_aplicada" as any)
+        .select("oc_tecido_id, oc:oc_tecido_id(numero_pedido, itens:ocs_tecido_itens(cancelado, artigo:artigo_id(id, nome, categoria_tecido_id, cats:artigo_categorias_tecido(categoria_tecido_id)), variante:variante_tecido_id(artigo:artigo_id(id, nome, categoria_tecido_id, cats:artigo_categorias_tecido(categoria_tecido_id)))))")
+        .eq("colecao_id", colecaoId)).data ?? []) as unknown as { oc_tecido_id: string; oc: { numero_pedido: string | null; itens: Item[] | null } | null }[])
         .map((r) => {
-          const itens = (r.oc?.itens ?? []).filter((i) => !i.cancelado && i.artigo?.nome);
+          // ARTIGO REAL da variante vence o artigo do ITEM (que pode estar mislabeled pelo cross-artigo
+          // legado) — senão a OC de Malha Tessa era catalogada como Fiore e não casava o card certo.
+          const itens = (r.oc?.itens ?? []).filter((i) => !i.cancelado);
+          const artigos = new Set<string>();
           const categorias = new Set<string>();
-          for (const i of itens) { if (i.artigo?.categoria_tecido_id) categorias.add(i.artigo.categoria_tecido_id); for (const c of i.artigo?.cats ?? []) categorias.add(c.categoria_tecido_id); }
+          const nomes = new Set<string>();
+          for (const i of itens) {
+            const a = i.variante?.artigo ?? i.artigo;
+            if (!a?.nome) continue;
+            nomes.add(a.nome);
+            if (a.id) artigos.add(a.id);
+            if (a.categoria_tecido_id) categorias.add(a.categoria_tecido_id);
+            for (const c of a.cats ?? []) categorias.add(c.categoria_tecido_id);
+          }
           return {
             id: r.oc_tecido_id,
             numero_pedido: r.oc?.numero_pedido ?? null,
-            tecidos: [...new Set(itens.map((i) => i.artigo!.nome as string))],
+            tecidos: [...nomes],
             categorias: [...categorias],
+            artigos: [...artigos],
           };
-        }),
+        });
+    },
   });
 
   // OCs VINCULADAS no Desenvolvimento (read-only) → Map<modelo_id, [{oc_id, numero, tecidos}]>

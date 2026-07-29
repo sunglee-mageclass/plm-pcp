@@ -356,7 +356,7 @@ export function ModelCard({
                         </div>
                       </div>
                     ) : (
-                      <SlotOcHint colecaoId={colecaoId} slotId={slot.id} ocsAplicadas={ocsAplicadas ?? []} selected={slotOcIds ?? []} categoriaLane={slot.categoria_tecido_id ?? null} onEnsureSaved={onEnsureSaved} />
+                      <SlotOcHint colecaoId={colecaoId} slotId={slot.id} ocsAplicadas={ocsAplicadas ?? []} selected={slotOcIds ?? []} categoriaLane={slot.categoria_tecido_id ?? null} slotArtigos={(slot.materiais ?? []).map((m) => m.artigo_id).filter((a): a is string => !!a)} onEnsureSaved={onEnsureSaved} />
                     )}
                   </div>
                 )}
