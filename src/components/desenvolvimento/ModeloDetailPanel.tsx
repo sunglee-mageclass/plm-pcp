@@ -534,6 +534,12 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
         subcategoria2_id: (modelo as any).subcategoria2_id ?? null,
         colecao_id: (modelo as any).colecao_id ?? null,
         subcolecao: (modelo as any).subcolecao ?? "",
+        // Lançamento (mês/ano/semana) — o SAVE grava os 3; se não carregar aqui, `draft.x || null`
+        // ZERAVA a semana/lançamento a cada save no Desenvolvimento (card saía de "classificado" no
+        // OTB por perder a semana). Carrega do modelo p/ preservar quando não editado.
+        mes_id: (modelo as any).mes_id ?? null,
+        ano_id: (modelo as any).ano_id ?? null,
+        semana: (modelo as any).semana ?? "",
       });
     }
   }, [modelo]);
