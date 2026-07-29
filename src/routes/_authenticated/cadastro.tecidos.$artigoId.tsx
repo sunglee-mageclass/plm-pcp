@@ -336,8 +336,26 @@ export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId
     ? form.historico_precos
     : [];
 
-  return (
-    <div className="flex min-h-full flex-col gap-6">
+  const acoes = (
+    <>
+      <Button variant="outline" onClick={requestClose}>
+        <ArrowLeft className="h-4 w-4 mr-1" /> Voltar
+      </Button>
+      {!readOnly && (
+        <Button variant="destructive" onClick={() => setConfirmDel(true)} disabled={excluirMut.isPending}>
+          <Trash2 className="h-4 w-4 mr-1" /> Excluir
+        </Button>
+      )}
+      <Button className="ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
+        <Save className="h-4 w-4 mr-1" />
+        {saveMut.isPending ? "Salvando…" : "Salvar"}
+      </Button>
+    </>
+  );
+
+  // Conteúdo (sem wrapper) — usado nos dois modos.
+  const corpo = (
+    <>
       <header className="flex items-center gap-3">
         <Button variant="outline" size="icon" onClick={requestClose} aria-label="Fechar">
           <ArrowLeft className="h-4 w-4" />
@@ -591,36 +609,21 @@ export function TecidoDetail({ artigoId, onClose, embedded = false }: { artigoId
       </Card>
 
       <VariantesSection artigoId={artigoId} readOnly={readOnly} precoArtigo={form.preco ?? null} />
+    </>
+  );
 
-      {/* Barra de ações — ÚLTIMO filho, p/ o sticky colar no RODAPÉ. Na PÁGINA inteira usa PageActionBar
-          (portal, rodapé do viewport); EMBUTIDO num Sheet o portal cairia FORA → barra sticky DENTRO. */}
-      {(() => {
-        const acoes = (
-          <>
-            <Button variant="outline" onClick={requestClose}>
-              <ArrowLeft className="h-4 w-4 mr-1" /> Voltar
-            </Button>
-            {!readOnly && (
-              <Button variant="destructive" onClick={() => setConfirmDel(true)} disabled={excluirMut.isPending}>
-                <Trash2 className="h-4 w-4 mr-1" /> Excluir
-              </Button>
-            )}
-            <Button className="ml-auto" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
-              <Save className="h-4 w-4 mr-1" />
-              {saveMut.isPending ? "Salvando…" : "Salvar"}
-            </Button>
-          </>
-        );
-        return embedded ? (
-          // mt-auto empurra pro RODAPÉ quando o conteúdo é curto; sticky bottom-0 mantém visível ao
-          // rolar quando é longo. -mx/-mb sangram até a borda do padding do SheetContent.
-          <div className="mt-auto sticky bottom-0 z-10 -mx-4 -mb-4 flex items-center gap-2 border-t bg-background p-3 sm:-mx-6 sm:-mb-6">
-            {acoes}
-          </div>
-        ) : (
-          <PageActionBar>{acoes}</PageActionBar>
-        );
-      })()}
+  // EMBUTIDO num Sheet: flex-col ocupando a altura toda → corpo rolável (flex-1 overflow) + rodapé
+  // FIXO (shrink-0) sempre colado embaixo. (sticky brigava com o padding do SheetContent.) PÁGINA
+  // inteira: fluxo normal + PageActionBar (portal no rodapé do viewport).
+  return embedded ? (
+    <div className="flex h-full flex-col">
+      <div className="flex-1 space-y-6 overflow-y-auto p-4 sm:p-6">{corpo}</div>
+      <div className="flex shrink-0 items-center gap-2 border-t bg-background p-3">{acoes}</div>
+    </div>
+  ) : (
+    <div className="space-y-6">
+      {corpo}
+      <PageActionBar>{acoes}</PageActionBar>
     </div>
   );
 }
