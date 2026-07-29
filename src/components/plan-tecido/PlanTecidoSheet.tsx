@@ -405,6 +405,23 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
 
   // modelos lançados (não podem receber "Aplicar ao modelo")
   const lancadoSet = useMemo(() => new Set(((modelosDb ?? []) as any[]).filter((m) => m.lancado).map((m) => m.id as string)), [modelosDb]);
+
+  // Custo do Desenvolvimento (mão de obra real) p/ refletir no card (read-only) — bug 6
+  const modeloIdsDb = useMemo(() => [...new Set(((modelosDb ?? []) as any[]).map((m) => m.id as string))].sort(), [modelosDb]);
+  const { data: custoDevMap = {} } = useQuery({
+    queryKey: ["plan-tecido-custo-dev", modeloIdsDb],
+    enabled: modeloIdsDb.length > 0,
+    queryFn: async () => {
+      const { data } = await supabase.rpc("custo_unitario_modelos" as any, { _ids: modeloIdsDb });
+      return (data ?? {}) as Record<string, { previsto: number; real: number; confirmado: boolean; mao_obra_previsto: number; mao_obra_real: number }>;
+    },
+  });
+  const maoObraDevDe = (modeloId: string): number | null => {
+    const c = custoDevMap[modeloId];
+    if (!c) return null;
+    const v = lancadoSet.has(modeloId) ? c.mao_obra_real : c.mao_obra_previsto;
+    return v == null ? null : Number(v);
+  };
   // Aprovação de custo de mão de obra por modelo (mesmo flag do Planejamento).
   const maoObraAprovadoMap = useMemo(
     () => new Map(((modelosDb ?? []) as any[]).map((m) => [m.id as string, (m.custo_terceirizados_aprovado ?? null) as boolean | null])),
@@ -707,6 +724,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
               vinculos={slot.modelo_id ? (vinculosMap[slot.modelo_id] ?? []) : []}
               lancado={slot.modelo_id ? lancadoSet.has(slot.modelo_id) : false}
               maoObraAprovado={slot.modelo_id ? (maoObraAprovadoMap.get(slot.modelo_id) ?? null) : null}
+              maoObraDev={slot.modelo_id ? maoObraDevDe(slot.modelo_id) : null}
               onSetMaoObra={slot.modelo_id && podeAprovarMaoObra ? (aprovado) => aprovarMaoObraMut.mutate({ id: slot.modelo_id!, aprovado }) : undefined}
               onEnsureSaved={ensureSaved}
               onChange={(ns) => { const next = structuredClone(arvore) as PtArvore; next.subcolecoes[subAtiva].linhas[li].slots[sli] = ns; patch(next); }}

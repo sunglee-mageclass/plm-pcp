@@ -40,6 +40,7 @@ export function ModelCard({
   vinculos,
   lancado,
   maoObraAprovado,
+  maoObraDev,
   onSetMaoObra,
   onEnsureSaved,
   defaultOpen,
@@ -62,6 +63,7 @@ export function ModelCard({
   vinculos?: { oc_id: string; numero_pedido: string | null; tecidos: string | null }[];
   lancado?: boolean;
   maoObraAprovado?: boolean | null;
+  maoObraDev?: number | null;
   onSetMaoObra?: (aprovado: boolean) => void;
   onEnsureSaved?: () => Promise<boolean>;
   defaultOpen?: boolean;
@@ -380,7 +382,7 @@ export function ModelCard({
               <AccordionItem value="custo">
                 <AccordionTrigger className="py-2 text-xs">2. Custo &amp; Preço</AccordionTrigger>
                 <AccordionContent>
-                  <CustoSection slot={slot} onChange={onChange} maoObraAprovado={maoObraAprovado} />
+                  <CustoSection slot={slot} onChange={onChange} maoObraAprovado={maoObraAprovado} maoObraDev={maoObraDev} />
                 </AccordionContent>
               </AccordionItem>
             </Accordion>

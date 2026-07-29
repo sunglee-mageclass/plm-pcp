@@ -7,7 +7,7 @@ import { AlertTriangle } from "lucide-react";
 import type { PtSlot } from "@/lib/plan-tecido/types";
 import { custoMateriaisPrevisto } from "@/lib/plan-tecido/calc";
 
-export function CustoSection({ slot, onChange, maoObraAprovado }: { slot: PtSlot; onChange: (s: PtSlot) => void; maoObraAprovado?: boolean | null }) {
+export function CustoSection({ slot, onChange, maoObraAprovado, maoObraDev }: { slot: PtSlot; onChange: (s: PtSlot) => void; maoObraAprovado?: boolean | null; maoObraDev?: number | null }) {
   // markup vem da LINHA do modelo (linhas.markup) — necessário p/ o preço sugerido
   const { data: markupMap = {} } = useQuery({
     queryKey: ["plan-tecido-linhas-markup"],
@@ -22,13 +22,14 @@ export function CustoSection({ slot, onChange, maoObraAprovado }: { slot: PtSlot
   // custos automáticos destrinchados por papel: Σ consumo × preço/m
   const custoTecido = custoMateriaisPrevisto({ ...slot, materiais: slot.materiais.filter((m) => m.tipo === "tecido") });
   const custoForro = custoMateriaisPrevisto({ ...slot, materiais: slot.materiais.filter((m) => m.tipo === "forro") });
-  const materiais = Number(cs.materiais) || 0; // editável: outros materiais/aviamentos
-  const maoObra = Number(slot.custo_terceirizados_previsto) || 0;
+  const materiais = Number(cs.materiais) || 0; // materiais/aviamentos (semeado dos aviamentos do Dev)
+  // Mão de obra: puxa do Desenvolvimento (custo_unitario_modelos → previsto/real) quando o slot é um
+  // modelo REAL → READ-ONLY (integridade, fonte única). Slot de planejamento sem modelo = editável.
+  const maoObraDevOn = maoObraDev != null;
+  const maoObra = maoObraDevOn ? Number(maoObraDev) : (Number(slot.custo_terceirizados_previsto) || 0);
   const custoTotal = custoTecido + custoForro + materiais + maoObra;
   const pi = precoInfo(custoTotal, markup, slot.preco_venda ?? null);
-  // valores ligados ao modelo REAL (Desenvolvimento) → borda verde (integridade). A reflexão
-  // efetiva do valor do Dev (travado) é finalizada na Fase 4.2.
-  const fromDev = !!slot.modelo_id;
+  const fromDev = !!slot.modelo_id; // materiais vem dos aviamentos do Dev quando é modelo
 
   const RO = ({ label, value }: { label: string; value: string }) => (
     <div><div className="text-[10px] text-muted-foreground">{label}</div><div className="rounded-md border bg-muted px-2 py-1 text-right text-xs text-muted-foreground">{value}</div></div>
@@ -44,8 +45,12 @@ export function CustoSection({ slot, onChange, maoObraAprovado }: { slot: PtSlot
         <RO label="Custo de forro (auto)" value={brl(custoForro)} />
         <div><div className="text-[10px] text-muted-foreground">Materiais</div>
           <NumberInput blankZero placeholder="0,00" className={`h-7 w-full text-right ${fromDev ? "border-emerald-500" : ""}`} title={fromDev ? "Valor ligado ao modelo do Desenvolvimento" : undefined} value={materiais} onChange={(e) => onChange({ ...slot, custo_simulado: { ...cs, materiais: Number(e.target.value) || 0 } })} /></div>
-        <div><div className="text-[10px] text-muted-foreground">Mão de obra prevista</div>
-          <NumberInput blankZero placeholder="0,00" className={`h-7 w-full text-right ${fromDev ? "border-emerald-500" : ""}`} title={fromDev ? "Valor ligado ao modelo do Desenvolvimento" : undefined} value={maoObra} onChange={(e) => onChange({ ...slot, custo_terceirizados_previsto: Number(e.target.value) || 0 })} /></div>
+        {maoObraDevOn ? (
+          <RO label="Mão de obra (Desenvolvimento)" value={brl(maoObra)} />
+        ) : (
+          <div><div className="text-[10px] text-muted-foreground">Mão de obra prevista</div>
+            <NumberInput blankZero placeholder="0,00" className="h-7 w-full text-right" value={maoObra} onChange={(e) => onChange({ ...slot, custo_terceirizados_previsto: Number(e.target.value) || 0 })} /></div>
+        )}
         {slot.modelo_id && (
           <div className="col-span-2 flex items-center gap-2 text-[11px]">
             <span className="text-muted-foreground">Aprovação de Mão de Obra:</span>
