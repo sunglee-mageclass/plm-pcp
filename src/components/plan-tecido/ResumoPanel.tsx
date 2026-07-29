@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState, type ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
 import { custoMateriaisPrevisto, slotMetros } from "@/lib/plan-tecido/calc";
 import { useSituacaoOcs, agruparPorOc } from "@/lib/plan-tecido/useSituacaoOcs";
 import { precoInfo } from "@/lib/preco";
 import { brl } from "@/lib/format";
-import { Lock, ChevronDown, ShoppingCart } from "lucide-react";
+import { Lock, ChevronDown, ChevronRight, ShoppingCart } from "lucide-react";
 import { OcAplicadaPicker } from "@/components/plan-tecido/OcAplicadaPicker";
 
 const nMet = (n: number) => `${Math.round(n)}`;
@@ -17,6 +18,23 @@ function Detalhar({ onClick }: { onClick: () => void }) {
     <button type="button" onClick={onClick} className="ml-auto flex items-center gap-0.5 text-[10px] font-medium text-primary hover:underline">
       detalhar <ChevronDown className="h-3 w-3" />
     </button>
+  );
+}
+
+/** Bloco colapsável do Resumo (o dono quer recolher cada seção). Estado próprio por bloco. */
+function Secao({ title, right, defaultOpen = true, children }: { title: string; right?: ReactNode; defaultOpen?: boolean; children: ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="rounded-lg border">
+      <div className="flex items-center border-b p-2 font-display text-xs font-semibold">
+        <button type="button" onClick={() => setOpen((o) => !o)} className="mr-1 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground" title={open ? "Recolher" : "Expandir"}>
+          {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        </button>
+        <span className="flex-1">{title}</span>
+        {right}
+      </div>
+      {open && children}
+    </div>
   );
 }
 
@@ -35,7 +53,12 @@ export function ResumoPanel({
 }) {
   const slots = arvore.subcolecoes.flatMap((sub) => sub.linhas.flatMap((ln) => ln.slots));
   const firstTec = (slot: PtSlot) => slot.materiais.find((m) => m.tipo === "tecido");
-  const catsSub = arvore.subcolecoes[0]?.categorias_tecido ?? [];
+  // categorias = declaradas + as AUTO presentes nos slots (categorização automática) — senão a
+  // "A comprar" por categoria some com card auto-categorizado fora de categorias_tecido.
+  const catsSub = [...new Set<string>([
+    ...(arvore.subcolecoes[0]?.categorias_tecido ?? []),
+    ...arvore.subcolecoes.flatMap((s) => s.linhas.flatMap((l) => l.slots)).map((s) => s.categoria_tecido_id).filter((c): c is string => !!c),
+  ])];
 
   const { data: situacao = [] } = useSituacaoOcs(colecaoId);
   const ocs = agruparPorOc(situacao);
@@ -71,6 +94,14 @@ export function ResumoPanel({
   const totTec = enc.reduce((a, s) => a + slotMetros(s, "tecido"), 0);
   const totForro = enc.reduce((a, s) => a + slotMetros(s, "forro"), 0);
   const semCatMetros = catTecMetros(null);
+  // PEDIDO (o que já foi encomendado) por categoria de tecido, p/ o dono comparar com o necessário
+  // (a seção mostrava só a NECESSIDADE, então seguia "900m a comprar" mesmo após o pedido).
+  const catDeArtigo = new Map<string, string>();
+  for (const s of slots) { if (!s.categoria_tecido_id) continue; for (const m of s.materiais) if (m.tipo === "tecido" && m.artigo_id) catDeArtigo.set(m.artigo_id, s.categoria_tecido_id); }
+  const pedidoPorCat = new Map<string, number>();
+  for (const r of situacao) { const cid = catDeArtigo.get(r.artigo_id); if (cid) pedidoPorCat.set(cid, (pedidoPorCat.get(cid) ?? 0) + r.pedida_m); }
+  const pedidoCat = (cid: string | null) => (cid ? pedidoPorCat.get(cid) ?? 0 : 0);
+  const totPedido = [...pedidoPorCat.values()].reduce((a, b) => a + b, 0);
 
   // ---- Situação da OC por OC: reservada AO VIVO (demanda dos cards atribuídos, coleção toda) ----
   // OC EFETIVA do slot: o VÍNCULO real do Desenvolvimento (modelo_tecido_oc_links, via vinculoOcMap)
@@ -115,8 +146,7 @@ export function ResumoPanel({
   return (
     <div className="space-y-2">
       {/* Pendências */}
-      <div className="rounded-lg border">
-        <div className="border-b p-2 font-display text-xs font-semibold">Pendências p/ planejamento</div>
+      <Secao title="Pendências p/ planejamento">
         {pend.length ? pend.map(([n, l]) => (
           <div key={l} className="flex items-center justify-between gap-2 border-b px-2 py-1 text-xs last:border-b-0">
             <span className="flex items-center gap-2 text-muted-foreground"><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot("a")}`} />{l}</span>
@@ -125,38 +155,47 @@ export function ResumoPanel({
         )) : (
           <div className="flex items-center gap-2 p-2 text-xs text-muted-foreground"><span className={`h-1.5 w-1.5 rounded-full ${dot("g")}`} />Sem pendências</div>
         )}
-      </div>
+      </Secao>
 
-      {/* A comprar (encomenda) — por categoria */}
-      <div className="rounded-lg border">
-        <div className="flex items-center border-b p-2 font-display text-xs font-semibold">A comprar (encomenda)<Detalhar onClick={() => onDetalhar("comprar")} /></div>
+      {/* A comprar (encomenda) — por categoria. Mostra NECESSÁRIO e PEDIDO (o que já foi encomendado),
+          pra não parecer que ainda há "900m a comprar" depois do pedido. Verde = pedido cobre. */}
+      <Secao title="A comprar (encomenda)" right={<Detalhar onClick={() => onDetalhar("comprar")} />}>
         {catsSub.length === 0 && semCatMetros === 0 ? (
           <div className="p-2 text-[10px] text-muted-foreground">Nenhuma categoria ainda.</div>
         ) : (
           <>
-            {catsSub.map((cid) => (
-              <div key={cid} className="flex items-center justify-between gap-2 border-b px-2 py-1 text-xs">
-                <span className="flex min-w-0 items-center gap-2"><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot(catStatus(cid))}`} /><span className="truncate">{catTecidoNome(cid) ?? "?"}</span></span>
-                <b className="shrink-0">{nMet(catTecMetros(cid))} m</b>
-              </div>
-            ))}
+            <div className="flex items-center justify-end gap-3 border-b px-2 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground"><span>nec.</span><span>ped.</span></div>
+            {catsSub.map((cid) => {
+              const nec = catTecMetros(cid); const ped = pedidoCat(cid);
+              return (
+                <div key={cid} className="flex items-center justify-between gap-2 border-b px-2 py-1 text-xs">
+                  <span className="flex min-w-0 items-center gap-2"><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot(catStatus(cid))}`} /><span className="truncate">{catTecidoNome(cid) ?? "?"}</span></span>
+                  <span className="flex shrink-0 items-baseline gap-3 tabular-nums">
+                    <b>{nMet(nec)}</b>
+                    <span className={`w-10 text-right ${ped >= nec && nec > 0 ? "font-medium text-emerald-600" : "text-muted-foreground"}`}>{nMet(ped)}</span>
+                  </span>
+                </div>
+              );
+            })}
             {semCatMetros > 0 && (
               <div className="flex items-center justify-between gap-2 border-b px-2 py-1 text-xs">
                 <span className="flex items-center gap-2 text-muted-foreground"><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot("n")}`} />Sem categoria</span>
-                <b>{nMet(semCatMetros)} m</b>
+                <span className="flex shrink-0 items-baseline gap-3 tabular-nums"><b>{nMet(semCatMetros)}</b><span className="w-10 text-right text-muted-foreground">{nMet(pedidoCat(null))}</span></span>
               </div>
             )}
             <div className="flex items-center justify-between gap-2 px-2 py-1 text-[11px] text-muted-foreground">
               <span>Forros (dentro dos modelos)</span><span>{nMet(totForro)} m</span>
             </div>
-            <div className="flex items-center justify-between gap-2 border-t px-2 py-1.5 font-display text-xs font-semibold"><span>Total</span><span>{nMet(totTec + totForro)} m</span></div>
+            <div className="flex items-center justify-between gap-2 border-t px-2 py-1.5 font-display text-xs font-semibold">
+              <span>Total</span>
+              <span className="flex items-baseline gap-3 tabular-nums"><span>{nMet(totTec + totForro)}</span><span className={`w-10 text-right ${totPedido >= totTec && totTec > 0 ? "text-emerald-600" : "text-muted-foreground"}`}>{nMet(totPedido)}</span></span>
+            </div>
           </>
         )}
-      </div>
+      </Secao>
 
       {/* Poder de venda — gated por fornecedor */}
-      <div className="rounded-lg border">
-        <div className="border-b p-2 font-display text-xs font-semibold">Poder de venda (previsto)</div>
+      <Secao title="Poder de venda (previsto)">
         {nComFornec > 0 ? (
           <div className="p-2">
             <div className="flex justify-between text-xs"><span>Σ preço × grade</span><b>{brl(pv)}</b></div>
@@ -167,11 +206,10 @@ export function ResumoPanel({
             <Lock className="mt-0.5 h-3 w-3 shrink-0" />Preço e poder de venda aparecem quando um tecido tiver fornecedor.
           </div>
         )}
-      </div>
+      </Secao>
 
       {/* OCs vinculadas */}
-      <div className="rounded-lg border">
-        <div className="border-b p-2 font-display text-xs font-semibold">OCs vinculadas</div>
+      <Secao title="OCs vinculadas">
         {ocs.length ? ocs.map((o) => (
           <button key={o.oc_tecido_id} type="button" onClick={() => onDetalhar("ocnum", o.oc_tecido_id)}
             className="flex w-full items-center gap-2 border-b px-2 py-1.5 text-left text-xs hover:bg-muted/50">
@@ -183,11 +221,10 @@ export function ResumoPanel({
           <div className="px-2 py-1.5 text-[10px] text-muted-foreground">Nenhuma OC vinculada.</div>
         )}
         <OcAplicadaPicker colecaoId={colecaoId} />
-      </div>
+      </Secao>
 
       {/* Situação da OC — por OC */}
-      <div className="rounded-lg border">
-        <div className="flex items-center border-b p-2 font-display text-xs font-semibold">Situação da OC — por OC<Detalhar onClick={() => onDetalhar("oc")} /></div>
+      <Secao title="Situação da OC — por OC" right={<Detalhar onClick={() => onDetalhar("oc")} />}>
         {ocs.length ? ocs.map((o) => {
           const reservada = reservPorOc.get(o.oc_tecido_id) ?? 0;
           const sobra = o.pedida - reservada;
@@ -218,7 +255,7 @@ export function ResumoPanel({
           <div className="p-2 text-[10px] text-muted-foreground">Sem OC ainda — gere um pedido ou vincule uma OC existente.</div>
         )}
         <div className="p-2 text-[9px] leading-tight text-muted-foreground">Reservada = demanda dos cards atribuídos à OC (ao vivo). Entregue/Usada vêm da OC. Sobra prevista = Pedida − Reservada (pode ser negativa).</div>
-      </div>
+      </Secao>
     </div>
   );
 }
