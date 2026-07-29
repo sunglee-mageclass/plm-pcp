@@ -135,6 +135,11 @@ describe("plan-tecido/engine", () => {
     const ids = arv.subcolecoes.map((s) => s.subcolecao_id);
     expect(arv.subcolecoes).toHaveLength(3);
     expect(ids).toEqual(["S1", "S2", "S3"]); // ordem preservada
+    // ⚠️ e o MODELO continua colocado na sua sub (S1) — enumerar as subs não pode roubar o modelo
+    const nModelos = arv.subcolecoes.reduce((a, s) => a + s.linhas.reduce((b, l) => b + l.slots.filter((x) => x.modelo_id).length, 0), 0);
+    expect(nModelos).toBe(1);
+    const s1 = arv.subcolecoes.find((s) => s.subcolecao_id === "S1")!;
+    expect(s1.linhas.reduce((b, l) => b + l.slots.filter((x) => x.modelo_id === "M1").length, 0)).toBe(1);
   });
 
   it("mergeArvore: categoria manual salva VENCE, mas sem categoria salva auto-preenche do seed", () => {
