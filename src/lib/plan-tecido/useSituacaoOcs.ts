@@ -20,6 +20,9 @@ export type SituacaoOcRow = {
 export function useSituacaoOcs(colecaoId: string) {
   return useQuery({
     queryKey: ["plan-tecido-situacao-ocs", colecaoId],
+    // a baixa real (usada) e o comprometido do Dev mudam FORA do plano (corte/explosão) → refetcha
+    // ao voltar o foco pra não mostrar "usada" defasada.
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       const { data } = await supabase.rpc("plan_tecido_situacao_ocs" as any, { _colecao_id: colecaoId });
       return ((data ?? []) as SituacaoOcRow[]).map((r) => ({

@@ -39,7 +39,7 @@ function Secao({ title, right, defaultOpen = true, children }: { title: string; 
 }
 
 export function ResumoPanel({
-  arvore, colecaoArvore, colecaoId, slotOcMap, vinculoOcMap = {}, catTecidoNome, onDetalhar,
+  arvore, colecaoArvore, colecaoId, slotOcMap, vinculoOcMap = {}, enviadoCadSet, catTecidoNome, onDetalhar,
 }: {
   arvore: PtArvore;
   colecaoArvore: PtArvore;
@@ -48,6 +48,8 @@ export function ResumoPanel({
   /** OC REAL vinculada no Desenvolvimento por modelo_id (modelo_tecido_oc_links). Fonte da verdade:
    * quando o modelo tem vínculo no Dev, ele vence o hint do plano (que o Dev não atualiza). */
   vinculoOcMap?: Record<string, string[]>;
+  /** modelos já ENVIADOS À EXPLOSÃO (enviado_cad) — p/ a "Usada" comprometida (laranja) AO VIVO. */
+  enviadoCadSet?: Set<string>;
   catTecidoNome: (id: string) => string | null | undefined;
   onDetalhar: (kind: "comprar" | "oc" | "ocnum", arg?: string) => void;
 }) {
@@ -109,13 +111,20 @@ export function ResumoPanel({
   // defasada (o Dev não atualiza plan_tecido_slot_oc). Slot ainda sem vínculo usa o hint do plano.
   const reservPorOc = new Map<string, number>();
   const nPorOc = new Map<string, number>();
+  // COMPROMETIDA (laranja) AO VIVO: reservada dos cards JÁ enviados à explosão (enviado_cad). Computado
+  // no front (não pela RPC) p/ atualizar na hora ao enviar ao CAD e usar a MESMA OC efetiva da reservada.
+  const comprometidoPorOc = new Map<string, number>();
   for (const sub of colecaoArvore.subcolecoes) for (const ln of sub.linhas) for (const slot of ln.slots) {
     if (!slot.id) continue;
     const devOc = slot.modelo_id ? (vinculoOcMap[slot.modelo_id] ?? []) : [];
     const ocIds = devOc.length ? devOc : (slotOcMap[slot.id] ?? []);
     if (!ocIds.length) continue;
     const m = slotMetros(slot);
-    for (const ocId of ocIds) { reservPorOc.set(ocId, (reservPorOc.get(ocId) ?? 0) + m); nPorOc.set(ocId, (nPorOc.get(ocId) ?? 0) + 1); }
+    const enviado = !!slot.modelo_id && !!enviadoCadSet?.has(slot.modelo_id);
+    for (const ocId of ocIds) {
+      reservPorOc.set(ocId, (reservPorOc.get(ocId) ?? 0) + m); nPorOc.set(ocId, (nPorOc.get(ocId) ?? 0) + 1);
+      if (enviado) comprometidoPorOc.set(ocId, (comprometidoPorOc.get(ocId) ?? 0) + m);
+    }
   }
 
   // ---- Pendências (subcoleção) ----
@@ -164,31 +173,33 @@ export function ResumoPanel({
           <div className="p-2 text-[10px] text-muted-foreground">Nenhuma categoria ainda.</div>
         ) : (
           <>
-            <div className="flex items-center justify-end gap-3 border-b px-2 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground"><span>nec.</span><span>ped.</span></div>
             {catsSub.map((cid) => {
               const nec = catTecMetros(cid); const ped = pedidoCat(cid);
               return (
-                <div key={cid} className="flex items-center justify-between gap-2 border-b px-2 py-1 text-xs">
-                  <span className="flex min-w-0 items-center gap-2"><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot(catStatus(cid))}`} /><span className="truncate">{catTecidoNome(cid) ?? "?"}</span></span>
-                  <span className="flex shrink-0 items-baseline gap-3 tabular-nums">
-                    <b>{nMet(nec)}</b>
-                    <span className={`w-10 text-right ${ped >= nec && nec > 0 ? "font-medium text-emerald-600" : "text-muted-foreground"}`}>{nMet(ped)}</span>
-                  </span>
+                <div key={cid} className="border-b px-2 py-1 text-xs">
+                  <div className="flex items-center gap-2"><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot(catStatus(cid))}`} /><span className="truncate">{catTecidoNome(cid) ?? "?"}</span></div>
+                  <div className="mt-0.5 flex gap-4 pl-3.5 text-[11px] tabular-nums text-muted-foreground">
+                    <span>nec. <b className="text-foreground">{nMet(nec)}</b> m</span>
+                    <span className={ped >= nec && nec > 0 ? "text-emerald-600" : ""}>ped. <b>{nMet(ped)}</b> m</span>
+                  </div>
                 </div>
               );
             })}
             {semCatMetros > 0 && (
-              <div className="flex items-center justify-between gap-2 border-b px-2 py-1 text-xs">
-                <span className="flex items-center gap-2 text-muted-foreground"><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot("n")}`} />Sem categoria</span>
-                <span className="flex shrink-0 items-baseline gap-3 tabular-nums"><b>{nMet(semCatMetros)}</b><span className="w-10 text-right text-muted-foreground">{nMet(pedidoCat(null))}</span></span>
+              <div className="border-b px-2 py-1 text-xs">
+                <div className="flex items-center gap-2 text-muted-foreground"><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot("n")}`} />Sem categoria</div>
+                <div className="mt-0.5 flex gap-4 pl-3.5 text-[11px] tabular-nums text-muted-foreground"><span>nec. <b className="text-foreground">{nMet(semCatMetros)}</b> m</span><span>ped. <b>{nMet(pedidoCat(null))}</b> m</span></div>
               </div>
             )}
-            <div className="flex items-center justify-between gap-2 px-2 py-1 text-[11px] text-muted-foreground">
-              <span>Forros (dentro dos modelos)</span><span>{nMet(totForro)} m</span>
+            <div className="flex items-center gap-4 px-2 py-1 text-[11px] text-muted-foreground">
+              <span>Forros (dentro dos modelos)</span><span className="tabular-nums">{nMet(totForro)} m</span>
             </div>
-            <div className="flex items-center justify-between gap-2 border-t px-2 py-1.5 font-display text-xs font-semibold">
-              <span>Total</span>
-              <span className="flex items-baseline gap-3 tabular-nums"><span>{nMet(totTec + totForro)}</span><span className={`w-10 text-right ${totPedido >= totTec && totTec > 0 ? "text-emerald-600" : "text-muted-foreground"}`}>{nMet(totPedido)}</span></span>
+            <div className="border-t px-2 py-1.5 font-display text-xs font-semibold">
+              <div>Total</div>
+              <div className="mt-0.5 flex gap-4 pl-0 text-[11px] tabular-nums font-normal text-muted-foreground">
+                <span>nec. <b className="text-foreground">{nMet(totTec + totForro)}</b> m</span>
+                <span className={totPedido >= totTec && totTec > 0 ? "text-emerald-600" : ""}>ped. <b>{nMet(totPedido)}</b> m</span>
+              </div>
             </div>
           </>
         )}
@@ -227,6 +238,7 @@ export function ResumoPanel({
       <Secao title="Situação da OC — por OC" right={<Detalhar onClick={() => onDetalhar("oc")} />}>
         {ocs.length ? ocs.map((o) => {
           const reservada = reservPorOc.get(o.oc_tecido_id) ?? 0;
+          const comprometido = comprometidoPorOc.get(o.oc_tecido_id) ?? 0; // enviado à explosão (laranja)
           const sobra = o.pedida - reservada;
           return (
             <div key={o.oc_tecido_id} className="border-b p-2 text-xs last:border-b-0">
@@ -243,9 +255,9 @@ export function ResumoPanel({
                   explosão (laranja). Cinza quando 0. */}
               <div className="flex justify-between text-muted-foreground">
                 <span>Usada</span>
-                <span className={o.usada > 0 ? "font-medium text-red-600" : o.comprometida > 0 ? "font-medium text-amber-600" : ""}
-                      title={o.usada > 0 ? "Baixa real (corte enviado)" : o.comprometida > 0 ? "Comprometido — enviado à explosão" : undefined}>
-                  {(o.usada > 0 ? nMet(o.usada) : o.comprometida > 0 ? nMet(o.comprometida) : nMet(0))} m
+                <span className={o.usada > 0 ? "font-medium text-red-600" : comprometido > 0 ? "font-medium text-amber-600" : ""}
+                      title={o.usada > 0 ? "Baixa real (corte enviado)" : comprometido > 0 ? "Comprometido — enviado à explosão" : undefined}>
+                  {(o.usada > 0 ? nMet(o.usada) : comprometido > 0 ? nMet(comprometido) : nMet(0))} m
                 </span>
               </div>
               <div className={`mt-0.5 flex justify-between border-t pt-0.5 font-display font-semibold ${sobraCls(sobra)}`}><span>Sobra prevista</span><span>{sobra > 0 ? "+" : ""}{nMet(sobra)} m</span></div>

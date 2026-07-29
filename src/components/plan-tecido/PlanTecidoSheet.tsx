@@ -864,7 +864,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
               {resumoAberto && (
                 <aside className="hidden w-80 shrink-0 flex-col overflow-hidden border-r md:flex lg:w-96">
                   <div className="flex-1 overflow-y-auto p-3">
-                    <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} catTecidoNome={catTecidoNome} onDetalhar={openDrawer} />
+                    <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={openDrawer} />
                   </div>
                 </aside>
               )}
