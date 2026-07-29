@@ -858,7 +858,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
               {/* Drawer/subsheet (420px) — abre por "detalhar" / trilho */}
               {drawer && (
                 <aside className="hidden w-[420px] shrink-0 overflow-hidden border-r lg:flex">
-                  <PlanTecidoDrawer state={drawer} subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} ocNumeroDe={ocNumeroDe} onClose={() => setDrawer(null)} />
+                  <PlanTecidoDrawer state={drawer} subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} enviadoCadSet={enviadoCadSet} ocNumeroDe={ocNumeroDe} onClose={() => setDrawer(null)} />
                 </aside>
               )}
               <main className="flex-1 overflow-y-auto p-3">

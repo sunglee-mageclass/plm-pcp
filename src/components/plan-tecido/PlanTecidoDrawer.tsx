@@ -16,7 +16,7 @@ type Linha = { key: string; label: string; cor_nome: string | null; reservada: n
 type Grupo = { artigo_id: string; artigo: string; variantes: Linha[] };
 
 export function PlanTecidoDrawer({
-  state, subArvore, colecaoArvore, situacao, slotOcMap, vinculoOcMap = {}, ocNumeroDe, onClose,
+  state, subArvore, colecaoArvore, situacao, slotOcMap, vinculoOcMap = {}, enviadoCadSet, ocNumeroDe, onClose,
 }: {
   state: DrawerState;
   subArvore: PtArvore;
@@ -25,6 +25,8 @@ export function PlanTecidoDrawer({
   slotOcMap: Record<string, string[]>;
   /** OC REAL vinculada no Dev por modelo_id — vence o hint do plano (slotOcMap) quando existe. */
   vinculoOcMap?: Record<string, string[]>;
+  /** modelos ENVIADOS À EXPLOSÃO (enviado_cad) — p/ a "Usada" comprometida (laranja) por variante. */
+  enviadoCadSet?: Set<string>;
   ocNumeroDe: (ocId: string) => string | null;
   onClose: () => void;
 }) {
@@ -34,6 +36,7 @@ export function PlanTecidoDrawer({
     const devOc = s.modelo_id ? (vinculoOcMap[s.modelo_id] ?? []) : [];
     return devOc.length ? devOc : (s.id ? (slotOcMap[s.id] ?? []) : []);
   };
+  const enviadoCad = (s: PtSlot) => !!s.modelo_id && !!enviadoCadSet?.has(s.modelo_id);
 
   // NECESSIDADE (reservada) — 'comprar'/'oc' = coleção; 'ocnum' = só os cards atribuídos à OC.
   const nec =
@@ -44,6 +47,16 @@ export function PlanTecidoDrawer({
         : necessidadePorTecido(colecaoArvore, encomenda);
   const necByVar = new Map<string, number>();
   for (const t of nec) for (const v of t.variantes) if (v.variante_tecido_id) necByVar.set(v.variante_tecido_id, (necByVar.get(v.variante_tecido_id) ?? 0) + v.metros);
+
+  // COMPROMETIDO por variante (laranja) = necessidade dos cards ENVIADOS À EXPLOSÃO, MESMO filtro do
+  // Resumo (front) — senão o "detalhar" mostrava 0 enquanto o Resumo mostrava o comprometido.
+  const necComprometida =
+    kind === "comprar" ? []
+      : kind === "ocnum" && arg
+        ? necessidadePorTecido(colecaoArvore, (s) => encomenda(s) && enviadoCad(s) && ocsDoSlot(s).includes(arg))
+        : necessidadePorTecido(colecaoArvore, (s) => encomenda(s) && enviadoCad(s));
+  const comprometidoByVar = new Map<string, number>();
+  for (const t of necComprometida) for (const v of t.variantes) if (v.variante_tecido_id) comprometidoByVar.set(v.variante_tecido_id, (comprometidoByVar.get(v.variante_tecido_id) ?? 0) + v.metros);
 
   const situRows = kind === "ocnum" && arg ? situacao.filter((r) => r.oc_tecido_id === arg) : situacao;
 
@@ -69,8 +82,8 @@ export function PlanTecidoDrawer({
     for (const r of situRows) {
       let g = porArtigo.get(r.artigo_id);
       if (!g) { g = { nome: r.artigo_nome, vm: new Map() }; porArtigo.set(r.artigo_id, g); }
-      const cur = g.vm.get(r.variante_tecido_id) ?? { key: r.variante_tecido_id, label: r.variante_label ?? "", cor_nome: null, reservada: necByVar.get(r.variante_tecido_id) ?? 0, pedida: 0, entregue: 0, usada: 0, comprometida: 0 };
-      cur.pedida += r.pedida_m; cur.entregue += r.entregue_m; cur.usada += r.usada_m; cur.comprometida += r.comprometida_m;
+      const cur = g.vm.get(r.variante_tecido_id) ?? { key: r.variante_tecido_id, label: r.variante_label ?? "", cor_nome: null, reservada: necByVar.get(r.variante_tecido_id) ?? 0, pedida: 0, entregue: 0, usada: 0, comprometida: comprometidoByVar.get(r.variante_tecido_id) ?? 0 };
+      cur.pedida += r.pedida_m; cur.entregue += r.entregue_m; cur.usada += r.usada_m; // comprometida vem do front (comprometidoByVar), não da RPC
       g.vm.set(r.variante_tecido_id, cur);
     }
     grupos = [...porArtigo.entries()].map(([artigo_id, g]) => ({ artigo_id, artigo: g.nome, variantes: [...g.vm.values()] }));
