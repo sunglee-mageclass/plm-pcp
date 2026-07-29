@@ -301,13 +301,19 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
     queryKey: ["plan-tecido-oc-aplicada-lista", colecaoId],
     queryFn: async () =>
       (((await supabase.from("plan_tecido_oc_aplicada" as any)
-        .select("oc_tecido_id, oc:oc_tecido_id(numero_pedido, itens:ocs_tecido_itens(cancelado, artigo:artigo_id(nome)))")
-        .eq("colecao_id", colecaoId)).data ?? []) as unknown as { oc_tecido_id: string; oc: { numero_pedido: string | null; itens: { cancelado: boolean | null; artigo: { nome: string | null } | null }[] | null } | null }[])
-        .map((r) => ({
-          id: r.oc_tecido_id,
-          numero_pedido: r.oc?.numero_pedido ?? null,
-          tecidos: [...new Set((r.oc?.itens ?? []).filter((i) => !i.cancelado && i.artigo?.nome).map((i) => i.artigo!.nome as string))],
-        })),
+        .select("oc_tecido_id, oc:oc_tecido_id(numero_pedido, itens:ocs_tecido_itens(cancelado, artigo:artigo_id(nome, categoria_tecido_id, cats:artigo_categorias_tecido(categoria_tecido_id))))")
+        .eq("colecao_id", colecaoId)).data ?? []) as unknown as { oc_tecido_id: string; oc: { numero_pedido: string | null; itens: { cancelado: boolean | null; artigo: { nome: string | null; categoria_tecido_id: string | null; cats: { categoria_tecido_id: string }[] | null } | null }[] | null } | null }[])
+        .map((r) => {
+          const itens = (r.oc?.itens ?? []).filter((i) => !i.cancelado && i.artigo?.nome);
+          const categorias = new Set<string>();
+          for (const i of itens) { if (i.artigo?.categoria_tecido_id) categorias.add(i.artigo.categoria_tecido_id); for (const c of i.artigo?.cats ?? []) categorias.add(c.categoria_tecido_id); }
+          return {
+            id: r.oc_tecido_id,
+            numero_pedido: r.oc?.numero_pedido ?? null,
+            tecidos: [...new Set(itens.map((i) => i.artigo!.nome as string))],
+            categorias: [...categorias],
+          };
+        }),
   });
 
   // OCs VINCULADAS no Desenvolvimento (read-only) → Map<modelo_id, [{oc_id, numero, tecidos}]>

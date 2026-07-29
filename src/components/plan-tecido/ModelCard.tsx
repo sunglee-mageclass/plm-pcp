@@ -59,7 +59,7 @@ export function ModelCard({
   subcolecaoId?: string | null;
   paleta?: { artigo_id: string; papel: string }[];
   tamanhos?: string[];
-  ocsAplicadas?: { id: string; numero_pedido: string | null; tecidos: string[] }[];
+  ocsAplicadas?: { id: string; numero_pedido: string | null; tecidos: string[]; categorias?: string[] }[];
   slotOcIds?: string[];
   vinculos?: { oc_id: string; numero_pedido: string | null; tecidos: string | null }[];
   lancado?: boolean;
@@ -330,7 +330,7 @@ export function ModelCard({
                         </div>
                       </div>
                     ) : (
-                      <SlotOcHint colecaoId={colecaoId} slotId={slot.id} ocsAplicadas={ocsAplicadas ?? []} selected={slotOcIds ?? []} />
+                      <SlotOcHint colecaoId={colecaoId} slotId={slot.id} ocsAplicadas={ocsAplicadas ?? []} selected={slotOcIds ?? []} categoriaLane={slot.categoria_tecido_id ?? null} />
                     )}
                   </div>
                 )}

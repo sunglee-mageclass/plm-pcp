@@ -4,7 +4,7 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { X } from "lucide-react";
 
-type OcLite = { id: string; numero_pedido: string | null; tecidos: string[] };
+type OcLite = { id: string; numero_pedido: string | null; tecidos: string[]; categorias?: string[] };
 
 /**
  * OC (planejamento) por card, chaveado por SLOT: dropdown p/ escolher a(s) OC(s) — mostra o nº da OC
@@ -15,11 +15,13 @@ export function SlotOcHint({
   slotId,
   ocsAplicadas,
   selected,
+  categoriaLane,
 }: {
   colecaoId: string;
   slotId?: string;
   ocsAplicadas: OcLite[];
   selected: string[];
+  categoriaLane?: string | null;
 }) {
   const qc = useQueryClient();
   const salvar = useMutation({
@@ -36,7 +38,10 @@ export function SlotOcHint({
   const add = (id: string) => { if (id && !selected.includes(id)) salvar.mutate([...selected, id]); };
   const remove = (id: string) => salvar.mutate(selected.filter((x) => x !== id));
 
-  const disponiveis = ocsAplicadas.filter((o) => !selected.includes(o.id));
+  // filtra pelas OCs que contêm tecido da CATEGORIA da lane do card (se houver categoria); a OC sem
+  // categoria conhecida ou quando o card não tem lane aparece sempre.
+  const naCategoria = (o: OcLite) => !categoriaLane || !o.categorias || o.categorias.length === 0 || o.categorias.includes(categoriaLane);
+  const disponiveis = ocsAplicadas.filter((o) => !selected.includes(o.id) && naCategoria(o));
 
   return (
     <div>
