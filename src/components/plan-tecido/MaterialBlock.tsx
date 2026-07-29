@@ -9,7 +9,7 @@ import { corApelidoLabel } from "@/lib/variante";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
 import { useCoresCombos } from "@/lib/plan-tecido/useCoresCombos";
-import { varKey } from "@/lib/plan-tecido/calc";
+import { varKey, fmtMetros } from "@/lib/plan-tecido/calc";
 import type { PtMaterial, PtVariante } from "@/lib/plan-tecido/types";
 
 type VarRow = { id: string; nome_variante: string | null; codigo_variante: string | null; cor_id: string | null; cor_apelido_id: string | null; cor: { nome: string | null } | null; apelido: { nome: string | null } | null };
@@ -169,7 +169,7 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }:
                 ) : null}
                 <NumberInput integer blankZero placeholder="0" className="h-7 w-12 shrink-0 text-right" value={v.grade_total ?? 0} onChange={(e) => setGrade(v, Number(e.target.value) || 0)} />
                 <span className="shrink-0 text-[9px] text-muted-foreground">pç</span>
-                <span className="w-12 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground">{Math.round((material.consumo || 0) * (v.grade_total || 0))} m</span>
+                <span className="w-12 shrink-0 text-right text-[10px] tabular-nums text-muted-foreground">{fmtMetros((material.consumo || 0) * (v.grade_total || 0))} m</span>
                 <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => removerVariante(v)} title="Remover cor"><X className="h-3 w-3" /></Button>
               </div>
             );

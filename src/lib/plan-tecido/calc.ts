@@ -26,6 +26,11 @@ export function custoMateriaisPrevisto(slot: PtSlot): number {
   }, 0);
 }
 
+/** Metragem para exibição — pt-BR, DECIMAL (até 2 casas), nunca arredonda pra inteiro (a metragem
+ *  de tecido é fracionária: consumo m/pç × grade). Ex.: 126.8 → "126,8"; 900 → "900". */
+export const fmtMetros = (n: number): string =>
+  (Number(n) || 0).toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+
 export const necessidadeVariante = (consumo: number, gradeTotal: number, mult: number): number =>
   (Number(consumo) || 0) * (Number(gradeTotal) || 0) * (Number(mult) || 0);
 

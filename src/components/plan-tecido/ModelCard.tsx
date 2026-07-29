@@ -6,7 +6,7 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import type { PtSlot, PtMaterial } from "@/lib/plan-tecido/types";
 import { ChevronRight, Lock } from "lucide-react";
 import type { DragHandle } from "./dnd";
-import { necessidadePorTecido, distribuirGrade } from "@/lib/plan-tecido/calc";
+import { necessidadePorTecido, distribuirGrade, fmtMetros } from "@/lib/plan-tecido/calc";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -260,7 +260,7 @@ export function ModelCard({
                   <div key={i} className="flex items-center gap-2 pl-1 text-[11px]">
                     <VarianteSwatch nome={v.cor_nome ?? undefined} />
                     <span className="min-w-0 flex-1 truncate text-muted-foreground">{v.label}</span>
-                    <span className="shrink-0 tabular-nums text-muted-foreground">{Math.round(v.metros)} m</span>
+                    <span className="shrink-0 tabular-nums text-muted-foreground">{fmtMetros(v.metros)} m</span>
                   </div>
                 ))}
               </div>

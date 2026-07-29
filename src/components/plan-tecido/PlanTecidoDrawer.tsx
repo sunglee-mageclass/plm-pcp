@@ -1,14 +1,14 @@
 import { Fragment } from "react";
 import { X } from "lucide-react";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
-import { necessidadePorTecido, detalheOc } from "@/lib/plan-tecido/calc";
+import { necessidadePorTecido, detalheOc, fmtMetros } from "@/lib/plan-tecido/calc";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import type { SituacaoOcRow } from "@/lib/plan-tecido/useSituacaoOcs";
 
 export type DrawerKind = "comprar" | "oc" | "ocnum";
 export type DrawerState = { kind: DrawerKind; arg: string | null };
 
-const nMet = (n: number) => `${Math.round(n)}`;
+const nMet = fmtMetros;
 const encomenda = (s: PtSlot) => !(s.usar_estoque ?? false);
 const sobraCls = (s: number) => (s < 0 ? "text-red-600" : "text-emerald-600");
 

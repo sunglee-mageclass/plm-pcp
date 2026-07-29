@@ -27,7 +27,7 @@ import { ModelCard } from "@/components/plan-tecido/ModelCard";
 import { ResumoPanel } from "@/components/plan-tecido/ResumoPanel";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
-import { tecidosDaArvore, slotMetros } from "@/lib/plan-tecido/calc";
+import { tecidosDaArvore, slotMetros, fmtMetros } from "@/lib/plan-tecido/calc";
 import { FazerPedidoWizard, type PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
 import { PlanTecidoDrawer, type DrawerState, type DrawerKind } from "@/components/plan-tecido/PlanTecidoDrawer";
 import { useSituacaoOcs } from "@/lib/plan-tecido/useSituacaoOcs";
@@ -325,32 +325,35 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
     queryFn: async () => {
       type Art = { id: string | null; nome: string | null; categoria_tecido_id: string | null; cats: { categoria_tecido_id: string }[] | null };
       type Item = { cancelado: boolean | null; artigo: Art | null; variante: { artigo: Art | null } | null };
-      return (((await supabase.from("plan_tecido_oc_aplicada" as any)
-        .select("oc_tecido_id, oc:oc_tecido_id(numero_pedido, itens:ocs_tecido_itens(cancelado, artigo:artigo_id(id, nome, categoria_tecido_id, cats:artigo_categorias_tecido(categoria_tecido_id)), variante:variante_tecido_id(artigo:artigo_id(id, nome, categoria_tecido_id, cats:artigo_categorias_tecido(categoria_tecido_id)))))")
-        .eq("colecao_id", colecaoId)).data ?? []) as unknown as { oc_tecido_id: string; oc: { numero_pedido: string | null; itens: Item[] | null } | null }[])
-        .map((r) => {
-          // ARTIGO REAL da variante vence o artigo do ITEM (que pode estar mislabeled pelo cross-artigo
-          // legado) — senão a OC de Malha Tessa era catalogada como Fiore e não casava o card certo.
-          const itens = (r.oc?.itens ?? []).filter((i) => !i.cancelado);
-          const artigos = new Set<string>();
-          const categorias = new Set<string>();
-          const nomes = new Set<string>();
-          for (const i of itens) {
-            const a = i.variante?.artigo ?? i.artigo;
-            if (!a?.nome) continue;
-            nomes.add(a.nome);
-            if (a.id) artigos.add(a.id);
-            if (a.categoria_tecido_id) categorias.add(a.categoria_tecido_id);
-            for (const c of a.cats ?? []) categorias.add(c.categoria_tecido_id);
-          }
-          return {
-            id: r.oc_tecido_id,
-            numero_pedido: r.oc?.numero_pedido ?? null,
-            tecidos: [...nomes],
-            categorias: [...categorias],
-            artigos: [...artigos],
-          };
-        });
+      // Pool = TODAS as OCs vinculadas à coleção: aplicadas manualmente (plan_tecido_oc_aplicada) +
+      // GERADAS pelo Fazer pedido (plan_tecido_ocs). Antes lia só as aplicadas → o card não achava a
+      // OC gerada do seu próprio tecido ("Nenhuma OC deste tecido" com a OC gerada bem ali na lista).
+      const [apl, ger] = await Promise.all([
+        supabase.from("plan_tecido_oc_aplicada" as any).select("oc_tecido_id").eq("colecao_id", colecaoId),
+        supabase.from("plan_tecido_ocs" as any).select("oc_tecido_id").eq("colecao_id", colecaoId),
+      ]);
+      const ids = [...new Set([...(apl.data ?? []), ...(ger.data ?? [])].map((r: any) => r.oc_tecido_id as string))];
+      if (!ids.length) return [] as { id: string; numero_pedido: string | null; tecidos: string[]; categorias: string[]; artigos: string[] }[];
+      const rows = (((await supabase.from("ocs_tecido" as any)
+        .select("id, numero_pedido, itens:ocs_tecido_itens(cancelado, artigo:artigo_id(id, nome, categoria_tecido_id, cats:artigo_categorias_tecido(categoria_tecido_id)), variante:variante_tecido_id(artigo:artigo_id(id, nome, categoria_tecido_id, cats:artigo_categorias_tecido(categoria_tecido_id))))")
+        .in("id", ids)).data ?? []) as unknown as { id: string; numero_pedido: string | null; itens: Item[] | null }[]);
+      return rows.map((oc) => {
+        // ARTIGO REAL da variante vence o artigo do ITEM (que pode estar mislabeled pelo cross-artigo
+        // legado) — senão a OC de Malha Tessa era catalogada como Fiore e não casava o card certo.
+        const itens = (oc.itens ?? []).filter((i) => !i.cancelado);
+        const artigos = new Set<string>();
+        const categorias = new Set<string>();
+        const nomes = new Set<string>();
+        for (const i of itens) {
+          const a = i.variante?.artigo ?? i.artigo;
+          if (!a?.nome) continue;
+          nomes.add(a.nome);
+          if (a.id) artigos.add(a.id);
+          if (a.categoria_tecido_id) categorias.add(a.categoria_tecido_id);
+          for (const c of a.cats ?? []) categorias.add(c.categoria_tecido_id);
+        }
+        return { id: oc.id, numero_pedido: oc.numero_pedido ?? null, tecidos: [...nomes], categorias: [...categorias], artigos: [...artigos] };
+      });
     },
   });
 
@@ -852,7 +855,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                             {nomeRecolhido ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                           </button>
                           <span>{nome}</span>
-                          <span className="rounded-full border px-1.5 text-[10px]">{items.length}{nomeMetros > 0 ? ` · ${Math.round(nomeMetros)} m` : ""}</span>
+                          <span className="rounded-full border px-1.5 text-[10px]">{items.length}{nomeMetros > 0 ? ` · ${fmtMetros(nomeMetros)} m` : ""}</span>
                         </div>
                         {!nomeRecolhido && <div className="flex items-start gap-3 overflow-x-auto">{renderCards(items, draggable)}</div>}
                       </div>
@@ -923,7 +926,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                               {laneRecolhida ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                             </button>
                             <span className={`text-sm font-semibold ${cid ? "" : "text-muted-foreground"}`}>{cid ? (catTecidoNome(cid) ?? "?") : "Sem categoria"}</span>
-                            <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{slots.length} modelo(s){laneMetros > 0 ? ` · ${Math.round(laneMetros)} m` : ""}</span>
+                            <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{slots.length} modelo(s){laneMetros > 0 ? ` · ${fmtMetros(laneMetros)} m` : ""}</span>
                             {cid && <button type="button" className="ml-1 rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Remover categoria" onClick={() => removeCategoria(cid)}><X className="h-3.5 w-3.5" /></button>}
                           </div>
                           {!laneRecolhida && (

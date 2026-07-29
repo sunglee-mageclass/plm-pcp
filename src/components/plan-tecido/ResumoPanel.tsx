@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
-import { custoMateriaisPrevisto, slotMetros, detalheOc } from "@/lib/plan-tecido/calc";
+import { custoMateriaisPrevisto, slotMetros, detalheOc, fmtMetros } from "@/lib/plan-tecido/calc";
 import { useSituacaoOcs, agruparPorOc } from "@/lib/plan-tecido/useSituacaoOcs";
 import type { PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
 import { precoInfo } from "@/lib/preco";
@@ -12,7 +12,7 @@ import { brl } from "@/lib/format";
 import { Lock, ChevronDown, ChevronRight, ShoppingCart, X } from "lucide-react";
 import { OcAplicadaPicker } from "@/components/plan-tecido/OcAplicadaPicker";
 
-const nMet = (n: number) => `${Math.round(n)}`;
+const nMet = fmtMetros;
 const dot = (st: "g" | "a" | "n") => (st === "g" ? "bg-emerald-500" : st === "a" ? "bg-amber-500" : "bg-red-400");
 const sobraCls = (s: number) => (s < 0 ? "text-red-600" : "text-emerald-600");
 
