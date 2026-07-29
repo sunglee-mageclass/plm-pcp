@@ -673,16 +673,29 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
           <div className="p-6 text-sm text-muted-foreground">Carregando…</div>
         ) : view === "subcolecoes" ? (
           <div className="flex-1 overflow-y-auto p-4">
-            <div className="mb-3">
-              <h2 className="font-display text-lg font-semibold tracking-tight">Subcoleções</h2>
-              <p className="text-sm text-muted-foreground">Escolha uma subcoleção para planejar os tecidos por categoria.</p>
+            <div className="mb-3 flex items-end justify-between gap-3">
+              <div>
+                <h2 className="font-display text-lg font-semibold tracking-tight">Subcoleções</h2>
+                <p className="text-sm text-muted-foreground">Escolha uma subcoleção para planejar os tecidos por categoria.</p>
+              </div>
+              {(() => {
+                const totalReal = arvore.subcolecoes.reduce((a, s) => a + s.linhas.reduce((b, l) => b + l.slots.filter((x) => x.modelo_id).length, 0), 0);
+                const totalPlan = (seed?.buckets ?? []).reduce((a, b) => a + (Number(b.qtd) || 0), 0);
+                return (
+                  <div className="shrink-0 rounded-lg border bg-muted/40 px-3 py-1.5 text-right text-xs">
+                    <div className="font-display text-sm font-semibold"><span className="text-foreground">{totalReal}</span>{totalPlan > 0 ? <span className="text-muted-foreground"> / {totalPlan}</span> : null} modelos</div>
+                    <div className="text-[10px] text-muted-foreground">realizado{totalPlan > 0 ? " / planejado (OTB)" : ""}{totalReal > totalPlan && totalPlan > 0 ? ` · +${totalReal - totalPlan} acima do plano` : ""}</div>
+                  </div>
+                );
+              })()}
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {arvore.subcolecoes
                 .map((sub, si) => ({ sub, si }))
                 .sort((a, b) => subOrdem(a.sub.subcolecao_id) - subOrdem(b.sub.subcolecao_id) || a.si - b.si)
                 .map(({ sub, si }) => {
-                const nSlots = sub.linhas.reduce((a, l) => a + l.slots.length, 0);
+                const realizado = sub.linhas.reduce((a, l) => a + l.slots.filter((s) => s.modelo_id).length, 0);
+                const planejado = (seed?.buckets ?? []).filter((b) => (b.subcolecao_id ?? null) === (sub.subcolecao_id ?? null)).reduce((a, b) => a + (Number(b.qtd) || 0), 0);
                 const cats = sub.categorias_tecido ?? [];
                 const semCat = sub.linhas.reduce((a, l) => a + l.slots.filter((s) => !s.categoria_tecido_id).length, 0);
                 const allSubSlots = sub.linhas.flatMap((l) => l.slots);
@@ -705,7 +718,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                       )) : <span className="text-[11px] text-muted-foreground">sem categorias</span>}
                       {semCat > 0 && <span className="rounded bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{semCat} sem categoria</span>}
                     </div>
-                    <div className="mt-auto text-xs text-muted-foreground"><b className="text-foreground">{nSlots}</b> modelo(s)</div>
+                    <div className="mt-auto text-xs text-muted-foreground"><b className="text-foreground">{realizado}</b>{planejado > 0 ? <> / {planejado}</> : null} modelo(s){realizado > planejado && planejado > 0 ? <span className="ml-1 text-amber-600">(+{realizado - planejado})</span> : null}</div>
                   </button>
                 );
               })}
