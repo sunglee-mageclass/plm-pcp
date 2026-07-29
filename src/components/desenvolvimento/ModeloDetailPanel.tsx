@@ -1076,7 +1076,14 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   const seedSettled =
     cadSeeded
     && (allBlockVarianteIds.length === 0 || blockVariantesInfoFetched)
-    && (etiquetasState.length === 0 || etiquetasListFetched);
+    && (etiquetasState.length === 0 || etiquetasListFetched)
+    // Grade coberta: o efeito de HERANÇA de grade (adiciona uma linha por variante do Tecido 1
+    // que ainda não tem grade) muta `grades` DEPOIS que os blocks assentam — fora dos outros
+    // gates. Se armássemos antes dele rodar (ex.: após "aplicar ao modelo", quando modelo_grades
+    // tem menos linhas que as variantes do Tecido 1), a linha herdada divergiria do baseline e o
+    // card abriria FALSO "não salvo". Só considera assentado quando toda variante do Tecido 1 já
+    // tem linha de grade (ou não há grade base p/ herdar).
+    && (grades.length === 0 || tecido1VarianteIds.every((_, i) => grades.some((g) => g.variante_numero === i + 1)));
   // `prevSnapStr` guarda o snapshot do render anterior JÁ com `seedSettled=true`. Fica null
   // enquanto as fontes não assentaram; assim, no PRIMEIRO render assentado a comparação
   // falha de propósito (não arma). Isso cobre o caso em que `blockVariantesInfo` chega e,
