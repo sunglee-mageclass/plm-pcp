@@ -279,7 +279,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
       ((await supabase
         .from("modelos")
         .select(
-          "id, ref, nome, subcolecao, linha_id, categoria_principal_id, proporcoes, lancado, custo_terceirizados_aprovado, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total)",
+          "id, ref, nome, versao, subcolecao, linha_id, categoria_principal_id, proporcoes, lancado, custo_terceirizados_aprovado, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total)",
         )
         .eq("colecao_id", colecaoId)).data ?? []) as any[],
   });
@@ -416,6 +416,8 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
       return (data ?? {}) as Record<string, { previsto: number; real: number; confirmado: boolean; mao_obra_previsto: number; mao_obra_real: number }>;
     },
   });
+  // versão do modelo (Planejamento de Produto) → badge no card p/ ver repetição (item 14)
+  const versaoMap = useMemo(() => Object.fromEntries(((modelosDb ?? []) as any[]).map((m) => [m.id as string, Number(m.versao) || null])) as Record<string, number | null>, [modelosDb]);
   const maoObraDevDe = (modeloId: string): number | null => {
     const c = custoDevMap[modeloId];
     if (!c) return null;
@@ -725,6 +727,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
               lancado={slot.modelo_id ? lancadoSet.has(slot.modelo_id) : false}
               maoObraAprovado={slot.modelo_id ? (maoObraAprovadoMap.get(slot.modelo_id) ?? null) : null}
               maoObraDev={slot.modelo_id ? maoObraDevDe(slot.modelo_id) : null}
+              versao={slot.modelo_id ? (versaoMap[slot.modelo_id] ?? null) : null}
               onSetMaoObra={slot.modelo_id && podeAprovarMaoObra ? (aprovado) => aprovarMaoObraMut.mutate({ id: slot.modelo_id!, aprovado }) : undefined}
               onEnsureSaved={ensureSaved}
               onChange={(ns) => { const next = structuredClone(arvore) as PtArvore; next.subcolecoes[subAtiva].linhas[li].slots[sli] = ns; patch(next); }}

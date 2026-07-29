@@ -41,6 +41,7 @@ export function ModelCard({
   lancado,
   maoObraAprovado,
   maoObraDev,
+  versao,
   onSetMaoObra,
   onEnsureSaved,
   defaultOpen,
@@ -64,6 +65,7 @@ export function ModelCard({
   lancado?: boolean;
   maoObraAprovado?: boolean | null;
   maoObraDev?: number | null;
+  versao?: number | null;
   onSetMaoObra?: (aprovado: boolean) => void;
   onEnsureSaved?: () => Promise<boolean>;
   defaultOpen?: boolean;
@@ -211,7 +213,10 @@ export function ModelCard({
         >
           <ModeloThumb path={slot.thumb_path} />
           <div className={`min-w-0 flex-1 ${onToggleSelect ? "ml-3" : ""}`}>
-            <div className="truncate text-[13px] font-semibold leading-tight">{slot.nome ?? "Modelo"}</div>
+            <div className="flex items-center gap-1.5">
+              <span className="truncate text-[13px] font-semibold leading-tight">{slot.nome ?? "Modelo"}</span>
+              {versao != null && <span className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[9px] font-bold text-primary" title="Versão do modelo (Planejamento de Produto)">v{versao}</span>}
+            </div>
             <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
               {slot.ref && <span className="tabular-nums">{slot.ref}</span>}
               <span className="tabular-nums">{pieces} pç</span>
