@@ -115,7 +115,10 @@ function OcTecidoPage() {
 
   const deleteMut = useMutation({
     mutationFn: async (oc: OC) => {
-      const { error } = await supabase.from("ocs_tecido").delete().eq("id", oc.id);
+      // Via RPC com guarda (excluir_oc_tecido): o `.delete()` cru cascateava ocs_tecido_itens →
+      // estoque_tecido_baixas (LEDGER), modelo_tecido_oc_links (vínculos de Dev) e enderecamento,
+      // apagando tudo em silêncio. A RPC bloqueia OC em uso (invariantes #5 + #9).
+      const { error } = await supabase.rpc("excluir_oc_tecido" as any, { _oc_id: oc.id });
       if (error) throw error;
     },
     onSuccess: () => {
