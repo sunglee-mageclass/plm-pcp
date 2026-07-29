@@ -36,23 +36,22 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }:
       .select("id, nome_variante, codigo_variante, cor_id, cor_apelido_id, cor:cor_id(nome), apelido:cor_apelido_id(nome)")
       .eq("artigo_id", material.artigo_id!).order("id")).data ?? []) as unknown as VarRow[],
   });
-  const norm = (s?: string | null) => (s ?? "").trim().toLowerCase();
   const realById = new Map(variantesArtigo.map((v) => [v.id, v]));
   const realByCombo = new Map<string, VarRow>();   // EXATO: cor base + apelido
   const realByCorId = new Map<string, VarRow>();    // por cor base (id)
-  const realByCorNome = new Map<string, VarRow>();  // por cor base (nome) — p/ referência de outro tecido
   for (const v of variantesArtigo) {
     realByCombo.set(comboKey(v.cor_id, v.cor_apelido_id), v);
     if (v.cor_id && !realByCorId.has(v.cor_id)) realByCorId.set(v.cor_id, v);
-    const k = norm(v.cor?.nome); if (k && !realByCorNome.has(k)) realByCorNome.set(k, v);
   }
-  // variante REAL do artigo que corresponde a esta cor do plano. Prioridade: id real → EXATO
-  // (cor base + apelido) → cor base (id) → cor base (nome). O dono considera "Preto" (base) a
-  // mesma cor de "Malha Tessa - Preto" mesmo com apelido diferente, então cai p/ a cor base.
+  // Variante REAL do artigo que corresponde a esta cor do plano:
+  // - variante real (variante_tecido_id): só casa se for variante DESTE artigo (NÃO remapeia por cor
+  //   entre artigos — isso DUPLICAVA cores e sujava o card ao abrir; a separação por artigo agora é
+  //   feita no seed). Cross-artigo → undefined → aparece como divergente (honesto).
+  // - cor PLANEJADA (sem variante): sobe pra real por cor base+apelido (exato) ou cor base (id).
   const casaReal = (v: PtVariante): VarRow | undefined => {
-    if (v.variante_tecido_id && realById.has(v.variante_tecido_id)) return realById.get(v.variante_tecido_id);
-    if (v.cor_id) return realByCombo.get(comboKey(v.cor_id, v.cor_apelido_id)) ?? realByCorId.get(v.cor_id) ?? realByCorNome.get(norm(v.cor_nome));
-    return realByCorNome.get(norm(v.cor_nome ?? v.label));
+    if (v.variante_tecido_id) return realById.get(v.variante_tecido_id);
+    if (v.cor_id) return realByCombo.get(comboKey(v.cor_id, v.cor_apelido_id)) ?? realByCorId.get(v.cor_id);
+    return undefined;
   };
 
   // ao escolher o tecido, cada cor do plano que casa (por cor base) vira a variante REAL do artigo

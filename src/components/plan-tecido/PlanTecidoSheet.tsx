@@ -279,7 +279,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
       ((await supabase
         .from("modelos")
         .select(
-          "id, ref, nome, versao, subcolecao, linha_id, categoria_principal_id, proporcoes, lancado, custo_terceirizados_aprovado, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total)",
+          "id, ref, nome, versao, subcolecao, linha_id, categoria_principal_id, proporcoes, lancado, custo_terceirizados_aprovado, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(artigo_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total)",
         )
         .eq("colecao_id", colecaoId)).data ?? []) as any[],
   });
@@ -365,27 +365,49 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
       for (const g of m.modelo_grades ?? []) {
         grade[Number(g.variante_numero)] = { grades: (g.grades ?? {}) as Record<string, number>, grade_total: Number(g.grade_total) || 0 };
       }
-      const materiais: ModeloRealMaterial[] = (m.modelo_tecidos ?? [])
-        .filter((t: any) => t.tipo === "tecido" || t.tipo === "forro")
-        .map((t: any): ModeloRealMaterial => ({
-          tipo: t.tipo as "tecido" | "forro",
-          numero: Number(t.numero) || 1,
-          artigo_id: t.artigo_id ?? null,
-          artigo_nome: (t.artigo?.nome ?? null) as string | null,
-          artigo_unidade_medida: (t.artigo?.unidade_medida ?? null) as string | null,
-          artigo_rendimento: t.artigo?.rendimento != null ? Number(t.artigo.rendimento) : null,
-          preco_por_metro: t.artigo?.preco_por_metro != null ? Number(t.artigo.preco_por_metro) : null,
-          consumo: Number(t.consumo) || 0,
-          loss_percent: Number(t.loss_percent) || 0,
-          variantes: (t.modelo_tecido_variantes ?? []).map((v: any) => ({
+      // PARTICIONA por artigo REAL de cada variante: no BOM do Dev, variantes de OUTRO tecido podem
+      // vir penduradas num bloco (mecanismo de "substitutos"). Aqui cada variante vai pro material do
+      // SEU artigo (Malha Tessa com as dela, Fiore num material próprio) — sem lumpar/duplicar cor.
+      const blocks = (m.modelo_tecidos ?? []).filter((t: any) => t.tipo === "tecido" || t.tipo === "forro");
+      const matByArtigo = new Map<string, ModeloRealMaterial>();
+      const materialFor = (artigoId: string | null, artigoDet: any, refBlock: any): ModeloRealMaterial => {
+        const key = artigoId ?? `__null_${refBlock?.numero ?? "x"}`;
+        let mat = matByArtigo.get(key);
+        if (!mat) {
+          const ownBlock = blocks.find((b: any) => (b.artigo_id ?? null) === artigoId); // bloco do próprio artigo (consumo/tipo/numero)
+          const block = ownBlock ?? refBlock;
+          const det = ownBlock?.artigo ?? artigoDet ?? refBlock?.artigo ?? null;
+          mat = {
+            tipo: (block?.tipo ?? "tecido") as "tecido" | "forro",
+            numero: Number(block?.numero) || 1,
+            artigo_id: artigoId,
+            artigo_nome: (det?.nome ?? null) as string | null,
+            artigo_unidade_medida: (det?.unidade_medida ?? null) as string | null,
+            artigo_rendimento: det?.rendimento != null ? Number(det.rendimento) : null,
+            preco_por_metro: det?.preco_por_metro != null ? Number(det.preco_por_metro) : null,
+            consumo: Number(block?.consumo) || 0,
+            loss_percent: Number(block?.loss_percent) || 0,
+            variantes: [],
+          };
+          matByArtigo.set(key, mat);
+        }
+        return mat;
+      };
+      for (const block of blocks) {
+        const vs = (block.modelo_tecido_variantes ?? []) as any[];
+        if (vs.length === 0) { materialFor(block.artigo_id ?? null, block.artigo, block); continue; }
+        for (const v of vs) {
+          const artigoReal = (v.variante?.artigo_id ?? block.artigo_id ?? null) as string | null;
+          materialFor(artigoReal, v.variante?.artigo, block).variantes.push({
             variante_tecido_id: v.variante_tecido_id,
             ordem: Number(v.ordem) || 0,
             multiplicador: Number(v.multiplicador) || 1,
             cor_nome: (v.variante?.cor?.nome ?? null) as string | null,
-            // label completo "cor base - apelido" (o Resumo/subsheet mostravam só a base)
             label: corApelidoLabel(v.variante?.cor?.nome ?? null, v.variante?.apelido?.nome ?? null),
-          })),
-        }));
+          });
+        }
+      }
+      const materiais: ModeloRealMaterial[] = [...matByArtigo.values()];
       return {
         id: m.id,
         ref: m.ref ?? null,
