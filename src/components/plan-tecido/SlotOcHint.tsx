@@ -16,16 +16,20 @@ export function SlotOcHint({
   ocsAplicadas,
   selected,
   categoriaLane,
+  onEnsureSaved,
 }: {
   colecaoId: string;
   slotId?: string;
   ocsAplicadas: OcLite[];
   selected: string[];
   categoriaLane?: string | null;
+  onEnsureSaved?: () => Promise<boolean>;
 }) {
   const qc = useQueryClient();
   const salvar = useMutation({
     mutationFn: async (ids: string[]) => {
+      // garante o plano salvo (o slot precisa existir no banco pro FK; o id é preservado no save)
+      if (onEnsureSaved && !(await onEnsureSaved())) return;
       const { error } = await supabase.rpc("plan_tecido_set_slot_oc" as any, { _colecao_id: colecaoId, _slot_id: slotId, _oc_ids: ids });
       if (error) throw error;
     },

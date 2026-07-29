@@ -330,7 +330,7 @@ export function ModelCard({
                         </div>
                       </div>
                     ) : (
-                      <SlotOcHint colecaoId={colecaoId} slotId={slot.id} ocsAplicadas={ocsAplicadas ?? []} selected={slotOcIds ?? []} categoriaLane={slot.categoria_tecido_id ?? null} />
+                      <SlotOcHint colecaoId={colecaoId} slotId={slot.id} ocsAplicadas={ocsAplicadas ?? []} selected={slotOcIds ?? []} categoriaLane={slot.categoria_tecido_id ?? null} onEnsureSaved={onEnsureSaved} />
                     )}
                   </div>
                 )}

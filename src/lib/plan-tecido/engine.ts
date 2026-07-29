@@ -37,7 +37,9 @@ export type ModeloReal = {
   grade: Record<number, { grades: Record<string, number>; grade_total: number }>;
 };
 
-const slotVazio = (i: number): PtSlot => ({ modelo_id: null, slot_index: i, nome: null, custos_adicionais: [], materiais: [] });
+// id client-side estável desde a criação: o save PRESERVA esse id (não regenera), então o slot.id em
+// memória bate com o do banco após salvar → aplicar_ao_modelo/set_slot_oc não recebem id defasado.
+const slotVazio = (i: number): PtSlot => ({ id: crypto.randomUUID(), modelo_id: null, slot_index: i, nome: null, custos_adicionais: [], materiais: [] });
 
 /** Converte um modelo real (BOM + grade) num slot pré-preenchido do Plan. Tecido. */
 export function slotDeModeloReal(mr: ModeloReal, slotIndex: number): PtSlot {
@@ -72,6 +74,7 @@ export function slotDeModeloReal(mr: ModeloReal, slotIndex: number): PtSlot {
     };
   });
   return {
+    id: crypto.randomUUID(), // id client-side estável (o save preserva) — ver slotVazio
     modelo_id: mr.id,
     slot_index: slotIndex,
     ref: mr.ref ?? null,
