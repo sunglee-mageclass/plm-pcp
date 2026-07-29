@@ -1697,6 +1697,32 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     }
   };
 
+  // Ligar o "cálculo automático" REDISTRIBUI a grade de cada variante pela proporção atual na hora
+  // (mantendo o grade_total) — antes só distribuía ao re-digitar a grade total. Ex.: após "Aplicar ao
+  // modelo" trazer nova proporção + grade total, ligar o auto recalcula quantos vão em cada tamanho.
+  const toggleGradeAuto = (v: boolean) => {
+    setGradeAuto(v);
+    if (!v) return;
+    const props = (draft?.proporcoes ?? {}) as Record<string, number>;
+    const sum = tamanhos.reduce((s, t) => s + (Number(props[t]) || 0), 0);
+    if (sum <= 0) return;
+    setGradeAlterada(true);
+    setGrades((gs) => gs.map((g) => {
+      const total = g.grade_total || 0;
+      if (total <= 0) return g;
+      const next: Record<string, number> = {};
+      tamanhos.forEach((t) => { next[t] = Math.round(((Number(props[t]) || 0) / sum) * total); });
+      const rounded = tamanhos.reduce((s, t) => s + (next[t] || 0), 0);
+      const diff = total - rounded;
+      if (diff !== 0) {
+        let maxTam = tamanhos[0]; let maxProp = -Infinity;
+        tamanhos.forEach((t) => { const p = Number(props[t]) || 0; if (p > maxProp) { maxProp = p; maxTam = t; } });
+        next[maxTam] = Math.max(0, (next[maxTam] || 0) + diff);
+      }
+      return { ...g, grades: next, grade_total: total };
+    }));
+  };
+
   const uploadFicha = async (file: File) => {
     setUploading(true);
     try {
@@ -1930,7 +1956,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
                 onChangeGradeCell={updateGradeCell}
                 tecido1Variantes={tecido1VariantesInfo}
                 gradeAuto={gradeAuto}
-                onToggleGradeAuto={setGradeAuto}
+                onToggleGradeAuto={toggleGradeAuto}
                 camposCopiados={camposCopiados}
                 onCampoEditado={onCampoEditado}
               />
