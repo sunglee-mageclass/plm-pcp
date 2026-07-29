@@ -42,10 +42,14 @@ export function SlotOcHint({
   const add = (id: string) => { if (id && !selected.includes(id)) salvar.mutate([...selected, id]); };
   const remove = (id: string) => salvar.mutate(selected.filter((x) => x !== id));
 
-  // filtra pelas OCs que contêm tecido da CATEGORIA da lane do card (se houver categoria); a OC sem
-  // categoria conhecida ou quando o card não tem lane aparece sempre.
+  // PREFERE as OCs que contêm tecido da CATEGORIA da lane do card; a OC sem categoria conhecida ou
+  // quando o card não tem lane casa sempre. É um FALLBACK, não um gate: se NENHUMA OC casa a categoria,
+  // mostra todas as não-escolhidas (senão, ao remover a única OC da categoria, o dropdown travava em
+  // "Todas as OCs já escolhidas" impedindo qualquer adição).
   const naCategoria = (o: OcLite) => !categoriaLane || !o.categorias || o.categorias.length === 0 || o.categorias.includes(categoriaLane);
-  const disponiveis = ocsAplicadas.filter((o) => !selected.includes(o.id) && naCategoria(o));
+  const naoEscolhidas = ocsAplicadas.filter((o) => !selected.includes(o.id));
+  const daCategoria = naoEscolhidas.filter(naCategoria);
+  const disponiveis = daCategoria.length ? daCategoria : naoEscolhidas;
 
   return (
     <div>
