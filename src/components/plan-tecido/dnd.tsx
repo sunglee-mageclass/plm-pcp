@@ -5,11 +5,13 @@ import type { SyntheticListenerMap } from "@dnd-kit/core/dist/hooks/utilities";
 /** Props da ALÇA de arraste (o header do card) — espalhadas no elemento que inicia o drag. */
 export type DragHandle = { attributes: DraggableAttributes; listeners: SyntheticListenerMap | undefined };
 
-/** Lane (categoria) = zona onde se solta o card. id = `lane:${cid ?? "__sem__"}`. */
-export function DroppableLane({ id, children }: { id: string; children: ReactNode }) {
+/** Lane (categoria) = zona onde se solta o card. id = `lane:${cid ?? "__sem__"}`.
+ * `vertical` empilha o conteúdo (usado quando há 2º nível de agrupamento por nome do tecido:
+ * cada sub-grupo de nome é uma linha horizontal própria). */
+export function DroppableLane({ id, children, vertical }: { id: string; children: ReactNode; vertical?: boolean }) {
   const { setNodeRef, isOver } = useDroppable({ id });
   return (
-    <div ref={setNodeRef} className={`flex items-start gap-3 overflow-x-auto rounded-lg pb-2 transition-shadow ${isOver ? "bg-primary/5 ring-2 ring-inset ring-primary/50" : ""}`}>
+    <div ref={setNodeRef} className={`${vertical ? "flex flex-col gap-3" : "flex items-start gap-3 overflow-x-auto"} rounded-lg pb-2 transition-shadow ${isOver ? "bg-primary/5 ring-2 ring-inset ring-primary/50" : ""}`}>
       {children}
     </div>
   );

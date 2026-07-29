@@ -16,6 +16,7 @@ import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
+import { AgrupamentoButton } from "@/components/shared/filters";
 import { useAuth } from "@/hooks/useAuth";
 import { ArrowLeft, ShoppingCart, Undo2, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, ChevronRight } from "lucide-react";
 import {
@@ -199,6 +200,10 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
   const [drawer, setDrawer] = useState<DrawerState | null>(null); // subsheet "detalhar" (extensão)
   const [lanesRecolhidas, setLanesRecolhidas] = useState<Set<string>>(new Set()); // lanes (categorias) colapsáveis
   const toggleLane = (k: string) => setLanesRecolhidas((prev) => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
+  // Agrupamento combinável (popover "Agrupar", padrão das outras telas): macro = categoria de tecido
+  // (default ON = lanes com drag), micro = nome do tecido (2º nível, sub-grupos dentro da lane).
+  const [groupByCategoria, setGroupByCategoria] = useState(true);
+  const [groupByNome, setGroupByNome] = useState(false);
   const openDrawer = (kind: DrawerKind, arg?: string) =>
     setDrawer((prev) => (prev && prev.kind === kind && (prev.arg ?? null) === (arg ?? null) ? null : { kind, arg: arg ?? null }));
   const { data: situacaoRows = [] } = useSituacaoOcs(colecaoId);
@@ -666,24 +671,8 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
 
   // status por fornecedor (empresa_id do artigo) → selos no card e na subcoleção
   const { fornecedorDe, artigoMap } = useArtigosTecido();
-  // Agrupa os cards da subcoleção pela CATEGORIA do Tecido 1 (lê o tecido → categoria de tecido do
-  // cadastro). É o default pedido pelo dono — antes tudo entrava "sem categoria" (manual).
-  function agruparPorCategoriaTecido() {
-    if (!arvore) return;
-    const next = structuredClone(arvore) as PtArvore;
-    const sub = next.subcolecoes[subAtiva];
-    if (!sub) return;
-    const cats = new Set(sub.categorias_tecido ?? []);
-    for (const ln of sub.linhas) for (const sl of ln.slots) {
-      const tec1 = sl.materiais.find((m) => m.tipo === "tecido" && m.artigo_id);
-      const catId = tec1?.artigo_id ? (artigoMap.get(tec1.artigo_id)?.categoria_tecido_id ?? null) : null;
-      sl.categoria_tecido_id = catId;
-      if (catId) cats.add(catId);
-    }
-    sub.categorias_tecido = [...cats];
-    patch(next);
-    toast.success("Cards agrupados pela categoria do tecido.");
-  }
+  // (A categorização por categoria de tecido agora é AUTOMÁTICA no seed — ver modelosReais/engine;
+  // o antigo botão "Agrupar por tecido" saiu, substituído pelo popover AgrupamentoButton.)
   const matTemFornec = (m: PtMaterial) => !!m.artigo_id && !!fornecedorDe(m.artigo_id);
   const slotFornec = (slot: PtSlot) => ({ com: slot.materiais.filter(matTemFornec).length, total: slot.materiais.length });
   const slotReady = (slot: PtSlot) => { const f = slotFornec(slot); return f.total > 0 && f.com === f.total; };
@@ -786,6 +775,17 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
           ])];
           const slotsOf = (cid: string | null) => flat.filter((f) => (f.slot.categoria_tecido_id ?? null) === cid);
           const laneCats: (string | null)[] = catFilter === "__sem__" ? [null] : catFilter ? [catFilter] : [...cats, null];
+          // 2º nível de agrupamento: nome do tecido (Tecido 1). `porNome` agrupa mantendo a ordem de
+          // 1ª aparição; usado dentro de cada lane de categoria quando "Nome do tecido" está ligado.
+          const tecidoNomeDoSlot = (slot: PtSlot): string => {
+            const t = slot.materiais.find((m) => m.tipo === "tecido" && m.artigo_id);
+            return (t?.artigo_nome ?? (t?.artigo_id ? artigoMap.get(t.artigo_id)?.nome ?? null : null)) ?? "Sem tecido";
+          };
+          const porNome = (items: typeof flat): [string, typeof flat][] => {
+            const m = new Map<string, typeof flat>();
+            for (const f of items) { const n = tecidoNomeDoSlot(f.slot); const arr = m.get(n) ?? (m.set(n, []).get(n)!); arr.push(f); }
+            return [...m.entries()];
+          };
           const allChaves = flat.map((f) => f.chave);
           const todosRecolhidos = allChaves.length > 0 && allChaves.every((c) => recolhidos.has(c));
           const toggleTodos = () => setRecolhidos((prev) => {
@@ -810,6 +810,27 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
               dragHandle={dragHandle}
               selected={selecao.has(chave)} onToggleSelect={() => toggleSel(chave)} />
           );
+          // Cartões de uma lista (arrastáveis só no modo categoria, onde soltar reatribui a categoria).
+          const renderCards = (items: typeof flat, draggable: boolean) =>
+            items.map(({ slot, li, sli, chave }) => draggable
+              ? <DraggableCard key={slot.id ?? `${li}-${sli}`} id={chave}>{(handle) => cardOf(slot, li, sli, chave, handle)}</DraggableCard>
+              : <div key={slot.id ?? `${li}-${sli}`} className="w-[360px] shrink-0">{cardOf(slot, li, sli, chave)}</div>);
+          // Corpo de uma lane: vazio → placeholder; 2º nível ligado → sub-grupos por nome do tecido
+          // (cada um uma linha horizontal); senão → cartões direto.
+          const laneBody = (slots: typeof flat, draggable: boolean) =>
+            slots.length === 0
+              ? <div className="min-w-[280px] rounded-lg border border-dashed p-4 text-center text-xs italic text-muted-foreground">Arraste um card aqui, ou defina a categoria de tecido dentro do card.</div>
+              : groupByNome
+                ? porNome(slots).map(([nome, items]) => (
+                    <div key={nome}>
+                      <div className="mb-1 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                        <span>{nome}</span>
+                        <span className="rounded-full border px-1.5 text-[10px]">{items.length}</span>
+                      </div>
+                      <div className="flex items-start gap-3 overflow-x-auto">{renderCards(items, draggable)}</div>
+                    </div>
+                  ))
+                : renderCards(slots, draggable);
           return (
             <div className="flex flex-1 overflow-hidden">
               {/* Trilho fixo — Resumo · A comprar · OC (abrem como extensão que empurra) */}
@@ -842,22 +863,27 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
               )}
               <main className="flex-1 overflow-y-auto p-3">
                 <div className="mb-3 flex flex-wrap items-center gap-2">
-                  <button type="button" className={chipCls(!catFilter)} onClick={() => setCatFilter(null)}>Todos ({flat.length})</button>
-                  {cats.map((cid) => (
-                    <button key={cid} type="button" className={chipCls(catFilter === cid)} onClick={() => setCatFilter(cid)}>{catTecidoNome(cid) ?? "?"} ({slotsOf(cid).length})</button>
-                  ))}
-                  {flat.some((f) => !f.slot.categoria_tecido_id) && (
-                    <button type="button" className={chipCls(catFilter === "__sem__")} onClick={() => setCatFilter("__sem__")}>Sem categoria ({slotsOf(null).length})</button>
-                  )}
+                  {groupByCategoria && <>
+                    <button type="button" className={chipCls(!catFilter)} onClick={() => setCatFilter(null)}>Todos ({flat.length})</button>
+                    {cats.map((cid) => (
+                      <button key={cid} type="button" className={chipCls(catFilter === cid)} onClick={() => setCatFilter(cid)}>{catTecidoNome(cid) ?? "?"} ({slotsOf(cid).length})</button>
+                    ))}
+                    {flat.some((f) => !f.slot.categoria_tecido_id) && (
+                      <button type="button" className={chipCls(catFilter === "__sem__")} onClick={() => setCatFilter("__sem__")}>Sem categoria ({slotsOf(null).length})</button>
+                    )}
+                  </>}
                   <div className="ml-auto flex items-center gap-2">
                     <Button size="sm" variant="ghost" onClick={toggleTodos}>{todosRecolhidos ? "Expandir todos" : "Recolher todos"}</Button>
-                    <Button size="sm" variant="outline" className="gap-1" onClick={agruparPorCategoriaTecido} title="Lê o Tecido 1 de cada card e agrupa pela categoria de tecido dele"><Tag className="h-3.5 w-3.5" /> Agrupar por tecido</Button>
+                    <AgrupamentoButton groups={[
+                      { label: "Categoria de tecido", active: groupByCategoria, onToggle: () => setGroupByCategoria((v) => !v) },
+                      { label: "Nome do tecido", active: groupByNome, onToggle: () => setGroupByNome((v) => !v) },
+                    ]} />
                     <Button size="sm" variant="outline" className="gap-1" onClick={() => setAddCatOpen(true)}><Plus className="h-3.5 w-3.5" /> categoria</Button>
                   </div>
                 </div>
                 <DndContext sensors={dndSensors} onDragStart={(e) => setDragId(String(e.active.id))} onDragCancel={() => setDragId(null)} onDragEnd={handleDragEnd}>
                   <div className="space-y-4">
-                    {laneCats.map((cid) => {
+                    {groupByCategoria ? laneCats.map((cid) => {
                       const slots = slotsOf(cid);
                       const laneKey = `${subAtiva}:${cid ?? "__sem__"}`;
                       const laneRecolhida = lanesRecolhidas.has(laneKey);
@@ -873,19 +899,21 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                             {cid && <button type="button" className="ml-1 rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Remover categoria" onClick={() => removeCategoria(cid)}><X className="h-3.5 w-3.5" /></button>}
                           </div>
                           {!laneRecolhida && (
-                            <DroppableLane id={`lane:${cid ?? "__sem__"}`}>
-                              {slots.length ? slots.map(({ slot, li, sli, chave }) => (
-                                <DraggableCard key={slot.id ?? `${li}-${sli}`} id={chave}>{(handle) => cardOf(slot, li, sli, chave, handle)}</DraggableCard>
-                              )) : (
-                                <div className="min-w-[280px] rounded-lg border border-dashed p-4 text-center text-xs italic text-muted-foreground">
-                                  Arraste um card aqui, ou defina a categoria de tecido dentro do card.
-                                </div>
-                              )}
+                            <DroppableLane id={`lane:${cid ?? "__sem__"}`} vertical={groupByNome}>
+                              {laneBody(slots, true)}
                             </DroppableLane>
                           )}
                         </section>
                       );
-                    })}
+                    }) : (
+                      // "Categoria de tecido" desligado: bloco único (sem lane/drag); 2º nível por nome
+                      // continua valendo se ligado.
+                      <section>
+                        <div className={groupByNome ? "flex flex-col gap-3" : "flex items-start gap-3 overflow-x-auto"}>
+                          {laneBody(flat, false)}
+                        </div>
+                      </section>
+                    )}
                   </div>
                   <DragOverlay dropAnimation={null}>
                     {dragId ? (
