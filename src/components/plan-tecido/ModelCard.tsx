@@ -248,7 +248,7 @@ export function ModelCard({
               ? <span className="shrink-0 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700" title="Todos os materiais têm fornecedor">✓ fornec.</span>
               : <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700" title="Materiais com fornecedor">{fornecCom}/{fornecTotal}</span>
           ) : null}
-          {!temGrade && <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700" title="Falta preencher a grade">⚠ grade</span>}
+          {!temGrade && <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700" title="Falta a grade: informe as PEÇAS (campo 'pç' de cada cor) em 'Tecidos & Forros'. A 'Proporção por tamanho' só distribui essa quantidade — não substitui o 'pç'.">⚠ sem peças</span>}
           <ChevronRight className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
         </button>
         {!open && necTecidos.length > 0 && (
@@ -269,9 +269,10 @@ export function ModelCard({
         )}
         {open && (
           <>
-            {/* Grade = proporção por tamanho (fixa no topo, não colapsável) */}
+            {/* Proporção por tamanho (fixa no topo, não colapsável) — só a DISTRIBUIÇÃO; a quantidade
+                (peças) é o 'pç' por cor no bloco do tecido. Antes chamava "Grade" e colidia com a badge. */}
             <div className="border-t bg-muted/20 pb-1">
-              <div className="px-2 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Grade — proporção por tamanho</div>
+              <div className="px-2 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground" title="Distribui as peças (pç) entre os tamanhos. A quantidade é o 'pç' de cada cor, abaixo em Tecidos & Forros.">Proporção por tamanho</div>
               <GradeSection slot={slot} onChange={onChange} tamanhos={tamanhos} />
             </div>
             <div className="border-t px-2 py-1 flex items-center gap-2">
