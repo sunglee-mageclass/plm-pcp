@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
-import { custoMateriaisPrevisto, slotMetros, detalheOc, fmtMetros, contabilizarOc } from "@/lib/plan-tecido/calc";
+import { custoMateriaisPrevisto, slotMetros, detalheOc, fmtMetros, contabilizarOc, necessidadePorTecido, rateioDeficitSub } from "@/lib/plan-tecido/calc";
 import { useSituacaoOcs, agruparPorOc } from "@/lib/plan-tecido/useSituacaoOcs";
 import type { PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
 import { precoInfo } from "@/lib/preco";
@@ -133,18 +133,34 @@ export function ResumoPanel({
   const totTec = enc.reduce((a, s) => a + slotMetros(s, "tecido"), 0);
   const totForro = enc.reduce((a, s) => a + slotMetros(s, "forro"), 0);
   const semCatMetros = catTecMetros(null);
-  // A COMPRAR EXATO por categoria = Σ deficit_m da prévia (necessidade − OCs vinculadas), agregado
-  // pelo artigo real → categoria de tecido. É o MESMO número do "Fazer pedido"; cai depois do pedido.
+  // A COMPRAR da SUBCOLEÇÃO (decisão do dono, auditoria jul/2026): o déficit da prévia é da
+  // COLEÇÃO (necessidade − OCs vinculadas, plano salvo) — exibi-lo cru aqui produzia "nec 0 ·
+  // a comprar 1.591,68" (o déficit era de outras subcoleções). Agora cada artigo entra com a
+  // PARTE desta subcoleção (rateioDeficitSub: proporcional à necessidade, limitado à nec da sub).
   const catDeArtigo = new Map<string, string>();
   for (const s of slots) { if (!s.categoria_tecido_id) continue; for (const m of s.materiais) if (m.tipo === "tecido" && m.artigo_id) catDeArtigo.set(m.artigo_id, s.categoria_tecido_id); }
-  const deficitPorCat = new Map<string, number>();
+  const deficitPorArtigo = new Map<string, number>();
   for (const f of previa?.fornecedores ?? []) for (const it of f.itens) {
-    if (it.deficit_m <= 0) continue;
-    const cid = catDeArtigo.get(it.artigo_id);
-    if (cid) deficitPorCat.set(cid, (deficitPorCat.get(cid) ?? 0) + it.deficit_m);
+    if (it.deficit_m > 0) deficitPorArtigo.set(it.artigo_id, (deficitPorArtigo.get(it.artigo_id) ?? 0) + it.deficit_m);
+  }
+  const necPorArtigo = (arv: PtArvore) => {
+    const m = new Map<string, number>();
+    for (const t of necessidadePorTecido(arv, (s) => !(s.usar_estoque ?? false))) m.set(t.artigo_id, t.totalMetros);
+    return m;
+  };
+  const necSubArt = necPorArtigo(arvore);
+  const necColArt = necPorArtigo(colecaoArvore);
+  const aComprarArtigo = (aid: string) =>
+    rateioDeficitSub(deficitPorArtigo.get(aid) ?? 0, necSubArt.get(aid) ?? 0, necColArt.get(aid) ?? 0);
+  const deficitPorCat = new Map<string, number>();
+  for (const aid of necSubArt.keys()) {
+    const parte = aComprarArtigo(aid);
+    if (parte <= 0) continue;
+    const cid = catDeArtigo.get(aid);
+    if (cid) deficitPorCat.set(cid, (deficitPorCat.get(cid) ?? 0) + parte);
   }
   const aComprarCat = (cid: string | null) => (cid ? deficitPorCat.get(cid) ?? 0 : 0);
-  const totComprar = [...deficitPorCat.values()].reduce((a, b) => a + b, 0);
+  const totComprar = [...necSubArt.keys()].reduce((a, aid) => a + aComprarArtigo(aid), 0);
   const previaCarregada = previa !== undefined; // enquanto false, mostra "…" no "a comprar"
 
   // ---- Situação da OC por OC: reservada AO VIVO (demanda dos cards atribuídos, coleção toda) ----
@@ -154,7 +170,14 @@ export function ResumoPanel({
   // FONTE ÚNICA (calc.detalheOc) — o Drawer usa a MESMA fn (por OC×variante), então nunca divergem.
   // COMPROMETIDA (laranja) = reservada dos cards JÁ enviados à explosão (enviado_cad); computada no
   // front (não pela RPC) p/ atualizar na hora ao enviar ao CAD e usar a MESMA OC efetiva da reservada.
-  const { reservPorOc, comprometidoPorOc, nPorOc } = detalheOc(colecaoArvore, vinculoOcMap, slotOcMap, enviadoCadSet);
+  // OC → artigos dos itens dela (da RPC): a reserva por OC conta SÓ os metros desses artigos.
+  const ocArtigos = new Map<string, Set<string>>();
+  for (const r of situacao) {
+    let s = ocArtigos.get(r.oc_tecido_id);
+    if (!s) { s = new Set(); ocArtigos.set(r.oc_tecido_id, s); }
+    s.add(r.artigo_id);
+  }
+  const { reservPorOc, comprometidoPorOc, nPorOc } = detalheOc(colecaoArvore, vinculoOcMap, slotOcMap, enviadoCadSet, ocArtigos);
 
   // ---- Pendências (subcoleção) ----
   const semCategoria = slots.filter((s) => !s.categoria_tecido_id).length;
@@ -231,7 +254,7 @@ export function ResumoPanel({
                 <span className={!previaCarregada ? "text-muted-foreground" : totComprar > 0 ? "font-medium text-red-600" : "text-emerald-600"}>a comprar <b>{previaCarregada ? nMet(totComprar) : "…"}</b> m</span>
               </div>
             </div>
-            <div className="px-2 pb-1 text-[9px] leading-tight text-muted-foreground">"a comprar" = necessidade − OCs vinculadas (mesma conta do Fazer pedido; plano salvo).</div>
+            <div className="px-2 pb-1 text-[9px] leading-tight text-muted-foreground">"a comprar" = parte DESTA subcoleção do déficit da coleção (necessidade − OCs vinculadas; plano salvo). O Fazer pedido usa a coleção inteira.</div>
           </>
         )}
       </Secao>
@@ -294,8 +317,8 @@ export function ResumoPanel({
               </div>
               {o.tecidos.length > 0 && <div className="mb-1 truncate text-[10px] text-muted-foreground" title={o.tecidos.join(" · ")}>{o.tecidos.join(" · ")}</div>}
               <div className="flex justify-between text-muted-foreground"><span>Pedida</span><span>{nMet(o.pedida)} m</span></div>
-              <div className="flex justify-between text-muted-foreground"><span>Entregue</span><span>{nMet(o.entregue)} m</span></div>
-              <div className="flex justify-between text-muted-foreground"><span>Reservada</span><span>{nMet(reservada)} m</span></div>
+              <div className="flex justify-between text-muted-foreground" title="Entrega parcial: parte da Pedida (não soma com ela)"><span>Entregue</span><span>{nMet(o.entregue)} de {nMet(o.pedida)} m</span></div>
+              <div className="flex justify-between text-muted-foreground" title="Reserva LIVRE (ainda não usada). Reserva total = livre + Usada"><span>Reservada (livre)</span><span>{nMet(reservada)} m</span></div>
               {/* Usada (saiu da reservada): vermelho quando a BAIXA real domina; senão âmbar (comprometido
                   = enviado à explosão). Cinza quando 0. Cor/valor pela MESMA regra (contabilizarOc). */}
               <div className="flex justify-between text-muted-foreground">

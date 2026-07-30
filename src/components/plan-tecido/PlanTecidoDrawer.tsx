@@ -58,7 +58,13 @@ export function PlanTecidoDrawer({
   // Por OC (kind='ocnum') a reservada/comprometida vêm da FONTE ÚNICA detalheOc — a MESMA fn do Resumo
   // por OC×variante — pra nunca divergir (antes o "detalhar da OC" mostrava 0 enquanto o Resumo mostrava
   // o comprometido). 'oc'/'comprar' seguem colecao-wide (necByVar/comprometidoByVar).
-  const det = detalheOc(colecaoArvore, vinculoOcMap, slotOcMap, enviadoCadSet);
+  const ocArtigos = new Map<string, Set<string>>();
+  for (const r of situacao) {
+    let s = ocArtigos.get(r.oc_tecido_id);
+    if (!s) { s = new Set(); ocArtigos.set(r.oc_tecido_id, s); }
+    s.add(r.artigo_id);
+  }
+  const det = detalheOc(colecaoArvore, vinculoOcMap, slotOcMap, enviadoCadSet, ocArtigos);
   const reservaVar = (vid: string): number =>
     kind === "ocnum" && arg ? (det.reservPorOcVar.get(`${arg}|${vid}`) ?? 0) : (necByVar.get(vid) ?? 0);
   const comprometidaVar = (vid: string): number =>
@@ -132,7 +138,7 @@ export function PlanTecidoDrawer({
                 <th className="p-1.5 text-left font-medium">Tecido / variante</th>
                 <th className="p-1.5 text-right font-medium">Ped.</th>
                 <th className="p-1.5 text-right font-medium">Entr.</th>
-                <th className="p-1.5 text-right font-medium">Res.</th>
+                <th className="p-1.5 text-right font-medium" title="Reserva LIVRE (ainda não usada); reserva total = livre + Usada">Res. livre</th>
                 <th className="p-1.5 text-right font-medium">Usada</th>
                 <th className="p-1.5 text-right font-medium">Sobra</th>
               </tr>

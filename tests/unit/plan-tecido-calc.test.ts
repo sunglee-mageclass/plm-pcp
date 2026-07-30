@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { necessidadeVariante, necessidadePorTecido, metrosParaKg, abaterEstoque, custoMateriaisPrevisto, distribuirGrade, detalheOc, contabilizarOc } from "@/lib/plan-tecido/calc";
+import { necessidadeVariante, necessidadePorTecido, metrosParaKg, abaterEstoque, custoMateriaisPrevisto, distribuirGrade, detalheOc, contabilizarOc, rateioDeficitSub } from "@/lib/plan-tecido/calc";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
 
 describe("plan-tecido/calc", () => {
@@ -228,5 +228,54 @@ describe("distribuirGrade", () => {
     const d = detalheOc(arv, { m1: ["oc-dev"] }, { s1: ["oc-hint"] }, new Set());
     expect(d.reservPorOc.get("oc-dev")).toBeCloseTo(10, 5);
     expect(d.reservPorOc.has("oc-hint")).toBe(false);
+  });
+});
+
+describe("plan-tecido/calc — auditoria jul/2026 (Ave Rara)", () => {
+  // 1 slot: TECIDO A (100 m em VA) + FORRO F (40 m em VF); M1 vinculado (Dev) à OC1; OC1 só tem A.
+  const arvAud = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "S1", ordem: 0, linhas: [{ linha_id: null, categoria_id: null, ordem: 0,
+    slots: [{ id: "slot1", modelo_id: "M1", slot_index: 0, custos_adicionais: [], materiais: [
+      { artigo_id: "A", tipo: "tecido", numero: 1, consumo: 2, loss_percent: 0, ordem: 0,
+        variantes: [{ variante_tecido_id: "VA", ordem: 1, multiplicador: 1, grades: {}, grade_total: 50 }] },
+      { artigo_id: "F", tipo: "forro", numero: 1, consumo: 1, loss_percent: 0, ordem: 1,
+        variantes: [{ variante_tecido_id: "VF", ordem: 1, multiplicador: 1, grades: {}, grade_total: 40 }] },
+    ] }] }] }] } as any;
+
+  it("detalheOc COM ocArtigos: a OC reserva SÓ os metros do artigo dela (forro fica fora)", () => {
+    const ocArtigos = new Map([["OC1", new Set(["A"])]]);
+    const det = detalheOc(arvAud, { M1: ["OC1"] }, {}, new Set(["M1"]), ocArtigos);
+    expect(det.reservPorOc.get("OC1")).toBe(100);             // era 140 (card inteiro) antes do fix
+    expect(det.comprometidoPorOc.get("OC1")).toBe(100);
+    expect(det.reservPorOcVar.get("OC1|VA")).toBe(100);
+    expect(det.reservPorOcVar.get("OC1|VF")).toBeUndefined(); // forro não pertence à OC1
+  });
+
+  it("detalheOc SEM ocArtigos (compat): comportamento antigo — card inteiro", () => {
+    const det = detalheOc(arvAud, { M1: ["OC1"] }, {}, undefined);
+    expect(det.reservPorOc.get("OC1")).toBe(140);
+    expect(det.reservPorOcVar.get("OC1|VF")).toBe(40);
+  });
+
+  it("contabilizarOc: sobra = pedida − reserva total (caso Marrom ANGELIM·Café)", () => {
+    // reserva total 362,56 (livre 76,8 + comprometido 285,76), baixa 0, pedida 1000
+    const r = contabilizarOc(362.56, 285.76, 0, 1000);
+    expect(r.usada).toBeCloseTo(285.76, 2);
+    expect(r.reservadaLivre).toBeCloseTo(76.8, 2);
+    expect(r.sobra).toBeCloseTo(637.44, 2);                   // a conta do dono, confirmada
+    expect(r.baixaDomina).toBe(false);
+  });
+
+  it("rateioDeficitSub: nec 0 → 0 (mata o 'nec 0 · a comprar 1.591,68')", () => {
+    expect(rateioDeficitSub(1591.68, 0, 1591.68)).toBe(0);
+  });
+
+  it("rateioDeficitSub: proporcional, limitado à nec da sub, Σ das subs = déficit", () => {
+    const deficit = 900, necCol = 1200;
+    const r1 = rateioDeficitSub(deficit, 800, necCol);        // 600
+    const r2 = rateioDeficitSub(deficit, 400, necCol);        // 300
+    expect(r1).toBeCloseTo(600, 6);
+    expect(r2).toBeCloseTo(300, 6);
+    expect(r1 + r2).toBeCloseTo(deficit, 6);
+    expect(rateioDeficitSub(2000, 100, 100)).toBe(100);       // nunca acima da nec da sub
   });
 });

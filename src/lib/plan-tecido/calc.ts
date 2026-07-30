@@ -127,37 +127,66 @@ export function detalheOc(
   vinculoOcMap: Record<string, string[]>,
   slotOcMap: Record<string, string[]>,
   enviadoCadSet?: Set<string>,
+  /** OC → set de artigo_id dos ITENS dela (da RPC de situação). Com o mapa, cada OC reserva SÓ os
+   *  metros dos materiais cujo artigo pertence a ela — antes o card INTEIRO (forro + outros tecidos)
+   *  era reservado em cada OC vinculada, inflando a reserva e deflacionando a Sobra (auditoria
+   *  jul/2026, decisão do dono). Sem o mapa (compat), comportamento antigo. */
+  ocArtigos?: Map<string, Set<string>>,
 ): DetalheOc {
   const reservPorOc = new Map<string, number>();
   const comprometidoPorOc = new Map<string, number>();
   const nPorOc = new Map<string, number>();
   const reservPorOcVar = new Map<string, number>();
   const comprometidoPorOcVar = new Map<string, number>();
+  const pertence = (ocId: string, artigoId: string | null | undefined): boolean => {
+    const s = ocArtigos?.get(ocId);
+    return !s ? true : (!!artigoId && s.has(artigoId));
+  };
   for (const sub of arvore.subcolecoes ?? []) for (const ln of sub.linhas ?? []) for (const slot of ln.slots ?? []) {
     if (!slot.id) continue;
     const devOc = slot.modelo_id ? (vinculoOcMap[slot.modelo_id] ?? []) : [];
     const ocIds = devOc.length ? devOc : (slotOcMap[slot.id] ?? []);
     if (!ocIds.length) continue;
     const enviado = !!slot.modelo_id && !!enviadoCadSet?.has(slot.modelo_id);
-    const mTotal = slotMetros(slot); // total do slot (bate com o Resumo antigo)
-    const perVar = new Map<string, number>(); // metros por variante_tecido_id (só reais)
+    // metros por MATERIAL (artigo) e por variante — a atribuição por OC filtra pelo artigo da OC
+    const porArtigo = new Map<string, number>();
+    const perVar = new Map<string, { artigoId: string | null; metros: number }>();
     for (const mat of slot.materiais ?? []) for (const v of mat.variantes ?? []) {
       const metros = necessidadeVariante(mat.consumo, v.grade_total, v.multiplicador);
-      if (metros <= 0 || !v.variante_tecido_id) continue;
-      perVar.set(v.variante_tecido_id, (perVar.get(v.variante_tecido_id) ?? 0) + metros);
+      if (metros <= 0) continue;
+      if (mat.artigo_id) porArtigo.set(mat.artigo_id, (porArtigo.get(mat.artigo_id) ?? 0) + metros);
+      if (v.variante_tecido_id) {
+        const cur = perVar.get(v.variante_tecido_id) ?? { artigoId: mat.artigo_id ?? null, metros: 0 };
+        cur.metros += metros;
+        perVar.set(v.variante_tecido_id, cur);
+      }
     }
     for (const ocId of ocIds) {
-      reservPorOc.set(ocId, (reservPorOc.get(ocId) ?? 0) + mTotal);
+      let mOc = 0;
+      for (const [aid, metros] of porArtigo) if (pertence(ocId, aid)) mOc += metros;
+      reservPorOc.set(ocId, (reservPorOc.get(ocId) ?? 0) + mOc);
       nPorOc.set(ocId, (nPorOc.get(ocId) ?? 0) + 1);
-      if (enviado) comprometidoPorOc.set(ocId, (comprometidoPorOc.get(ocId) ?? 0) + mTotal);
-      for (const [vid, metros] of perVar) {
+      if (enviado) comprometidoPorOc.set(ocId, (comprometidoPorOc.get(ocId) ?? 0) + mOc);
+      for (const [vid, pv] of perVar) {
+        if (!pertence(ocId, pv.artigoId)) continue;
         const k = `${ocId}|${vid}`;
-        reservPorOcVar.set(k, (reservPorOcVar.get(k) ?? 0) + metros);
-        if (enviado) comprometidoPorOcVar.set(k, (comprometidoPorOcVar.get(k) ?? 0) + metros);
+        reservPorOcVar.set(k, (reservPorOcVar.get(k) ?? 0) + pv.metros);
+        if (enviado) comprometidoPorOcVar.set(k, (comprometidoPorOcVar.get(k) ?? 0) + pv.metros);
       }
     }
   }
   return { reservPorOc, comprometidoPorOc, nPorOc, reservPorOcVar, comprometidoPorOcVar };
+}
+
+/** Rateio do déficit da COLEÇÃO para uma SUBCOLEÇÃO, por artigo: parte proporcional à necessidade
+ *  da sub sobre a da coleção, limitada à necessidade da sub. nec 0 ⇒ 0 (a sub não deve nada);
+ *  Σ dos rateios das subs = déficit da coleção. (Auditoria jul/2026: "nec 0 · a comprar 1.591,68"
+ *  era o déficit da coleção inteira exibido no painel da subcoleção.) */
+export function rateioDeficitSub(deficitColecao: number, necSub: number, necColecao: number): number {
+  const d = Number(deficitColecao) || 0, ns = Number(necSub) || 0, nc = Number(necColecao) || 0;
+  if (d <= 0 || ns <= 0) return 0;
+  if (nc <= 0) return Math.min(ns, d);
+  return Math.min(ns, (d * ns) / nc);
 }
 
 /**
