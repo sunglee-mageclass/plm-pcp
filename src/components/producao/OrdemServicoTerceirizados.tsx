@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { PrintArea } from "@/components/shared/PrintArea";
 
 export type OSItem = {
@@ -5,12 +6,17 @@ export type OSItem = {
   responsavel: string;
   interno: boolean;
   quantidade: number;
+  // Quando o serviço é destrinchado por tamanho/variante, a grade ENVIADA (senão `null`/ausente).
+  detalhado?: boolean;
+  grade?: { tamanhos: string[]; linhas: { label: string; valores: number[]; total: number }[] } | null;
   dataEnviado: string | null;
   dataPrevista: string | null;
   observacao: string;
   aviamentos: string[];
   tecidos: string[];
 };
+
+const thTd: CSSProperties = { border: "1px solid #999", padding: "3px 6px", textAlign: "center", fontSize: 11 };
 
 function fmtDate(d: string | null) {
   if (!d) return "—";
@@ -60,6 +66,30 @@ export function OrdemServicoTerceirizados({
             <div><b>Quantidade enviada:</b> {it.quantidade}</div>
             <div><b>Data de envio:</b> {fmtDate(it.dataEnviado)} &nbsp;·&nbsp; <b>Prazo:</b> {fmtDate(it.dataPrevista)}</div>
           </div>
+
+          {it.detalhado && it.grade && it.grade.linhas.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>Grade enviada (por tamanho × variante)</div>
+              <table style={{ borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    <th style={{ ...thTd, textAlign: "left" }}>Variante</th>
+                    {it.grade.tamanhos.map((t, i) => <th key={i} style={thTd}>{t}</th>)}
+                    <th style={thTd}>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {it.grade.linhas.map((l, i) => (
+                    <tr key={i}>
+                      <td style={{ ...thTd, textAlign: "left" }}>{l.label}</td>
+                      {l.valores.map((v, j) => <td key={j} style={thTd}>{v || ""}</td>)}
+                      <td style={{ ...thTd, fontWeight: 700 }}>{l.total}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {it.tecidos.length > 0 && (
             <div style={{ fontSize: 12, marginBottom: 8 }}><b>Tecidos enviados:</b> {it.tecidos.join(", ")}</div>

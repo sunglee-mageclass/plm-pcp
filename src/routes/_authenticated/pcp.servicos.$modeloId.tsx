@@ -75,7 +75,21 @@ type Bloco = {
   observacao: string;
   aviamentos_enviados: string[];
   tecidos_enviados: string[];
+  // Quantidade por tamanho × variante (opt-in). Quando `detalhado`, os 3 totais viram Σ da grade.
+  detalhado: boolean;
+  grade_detalhe: GradeDetalhe;
 };
+
+// { variante_tecido_id: { tamanho: { enviada, recebida, defeito } } }
+type CelulaGrade = { enviada: number; recebida: number; defeito: number };
+type GradeDetalhe = Record<string, Record<string, CelulaGrade>>;
+const CELULA_ZERO: CelulaGrade = { enviada: 0, recebida: 0, defeito: 0 };
+// Soma um campo (enviada/recebida/defeito) sobre toda a grade de um bloco.
+function somaGrade(g: GradeDetalhe | undefined, campo: keyof CelulaGrade): number {
+  let s = 0;
+  for (const varId in g ?? {}) for (const tam in g![varId]) s += Number(g![varId][tam]?.[campo]) || 0;
+  return s;
+}
 
 const STATUS_COLORS: Record<string, string> = {
   pendente: "bg-amber-500",
@@ -311,6 +325,40 @@ export function TerceirizadosDetail({
     },
   });
 
+  // Template da GRADE (p/ o modo "por tamanho/variante"): variantes do Tecido 1 × tamanhos da grade
+  // PLANEJADA (modelo_grades). Chaveado por variante_tecido_id; `planejado` pré-preenche a Enviada.
+  const { data: gradeTpl } = useQuery({
+    queryKey: ["modelo-grade-tpl", modeloId],
+    queryFn: async () => {
+      const { data: mt } = await supabase
+        .from("modelo_tecidos")
+        .select("numero, modelo_tecido_variantes(ordem, variante_tecido_id, variantes_tecido:variante_tecido_id(nome_variante, codigo_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))")
+        .eq("modelo_id", modeloId).eq("numero", 1).limit(1);
+      const rawVars = ((mt?.[0] as any)?.modelo_tecido_variantes ?? []) as any[];
+      const variantes = rawVars
+        .filter((v) => v.variante_tecido_id)
+        .sort((a, b) => (Number(a.ordem) || 0) - (Number(b.ordem) || 0))
+        .map((v, i) => ({
+          id: v.variante_tecido_id as string,
+          ordem: Number(v.ordem) || (i + 1),
+          label: (v.variantes_tecido?.cor?.nome || v.variantes_tecido?.apelido?.nome)
+            ? corApelidoLabelServico(v.variantes_tecido?.cor?.nome, v.variantes_tecido?.apelido?.nome)
+            : v.variantes_tecido?.nome_variante || v.variantes_tecido?.codigo_variante || `Variante ${v.ordem ?? i + 1}`,
+        }));
+      const { data: mg } = await supabase.from("modelo_grades").select("variante_numero, grades").eq("modelo_id", modeloId);
+      const byNum = new Map<number, Record<string, number>>();
+      for (const g of (mg ?? []) as any[]) byNum.set(Number(g.variante_numero), (g.grades ?? {}) as Record<string, number>);
+      // tamanhos = união das chaves de grade, ordenadas pelo prefixo numérico ("38|P")
+      const tamSet = new Set<string>();
+      for (const g of byNum.values()) for (const t in g) tamSet.add(t);
+      const tamanhos = [...tamSet].sort((a, b) => (parseInt(a) || 0) - (parseInt(b) || 0));
+      const planejado: Record<string, Record<string, number>> = {};
+      for (const v of variantes) planejado[v.id] = byNum.get(v.ordem) ?? {};
+      return { variantes: variantes.map((v) => ({ id: v.id, label: v.label })), tamanhos, planejado };
+    },
+  });
+  const tamLabel = (t: string) => (t.includes("|") ? t.split("|")[1] || t : t);
+
   const { data: existing = [], refetch, isFetched: existingFetched, isFetching: existingFetching } = useQuery({
     queryKey: ["producao-terc", cad?.id],
     enabled: !!cad?.id,
@@ -356,14 +404,27 @@ export function TerceirizadosDetail({
           ? (colaboradores.find((c) => c.id === b.colaborador_id)?.nome ?? "—")
           : empresaLabel(b.empresa_id, b.representante_id),
         interno: b.interno,
-        quantidade: Number(b.quantidade_enviada ?? 0),
+        quantidade: b.detalhado ? somaGrade(b.grade_detalhe, "enviada") : Number(b.quantidade_enviada ?? 0),
+        detalhado: b.detalhado,
+        // Grade ENVIADA p/ o print (a OS acompanha as peças ENVIADAS). Só variantes com envio > 0.
+        grade: b.detalhado && gradeTpl
+          ? {
+              tamanhos: gradeTpl.tamanhos.map((t) => tamLabel(t)),
+              linhas: gradeTpl.variantes
+                .map((v) => {
+                  const valores = gradeTpl.tamanhos.map((t) => Number(b.grade_detalhe[v.id]?.[t]?.enviada) || 0);
+                  return { label: v.label, valores, total: valores.reduce((s, n) => s + n, 0) };
+                })
+                .filter((l) => l.total > 0),
+            }
+          : null,
         dataEnviado: b.data_enviado,
         dataPrevista: b.data_prevista,
         observacao: b.observacao ?? "",
         aviamentos: (b.aviamentos_enviados ?? []).map(aviLabel).filter(Boolean) as string[],
         tecidos: (b.tecidos_enviados ?? []).map(tecLabel).filter(Boolean) as string[],
       }));
-  }, [blocos, categorias, colaboradores, empresasServico, aviamentosModelo, tecidosModelo]);
+  }, [blocos, categorias, colaboradores, empresasServico, aviamentosModelo, tecidosModelo, gradeTpl]);
   const [hydrated, setHydrated] = useState(false);
   // Trava por segurança quando o serviço está Finalizado: só edita ao clicar
   // "Editar", e o Salvar volta a travar. UM único modo de edição p/ AMBAS as abas
@@ -467,6 +528,8 @@ export function TerceirizadosDetail({
         observacao: r.observacao ?? "",
         aviamentos_enviados: Array.isArray(r.aviamentos_enviados) ? r.aviamentos_enviados : [],
         tecidos_enviados: Array.isArray((r as any).tecidos_enviados) ? (r as any).tecidos_enviados : [],
+        detalhado: Boolean((r as any).detalhado),
+        grade_detalhe: ((r as any).grade_detalhe && typeof (r as any).grade_detalhe === "object" ? (r as any).grade_detalhe : {}) as GradeDetalhe,
       })),
     );
     setHydrated(true);
@@ -505,6 +568,8 @@ export function TerceirizadosDetail({
         observacao: "",
         aviamentos_enviados: [],
         tecidos_enviados: [],
+        detalhado: false,
+        grade_detalhe: {},
       },
     ]);
   };
@@ -565,9 +630,12 @@ export function TerceirizadosDetail({
         colaborador_id: b.interno ? b.colaborador_id : null,
         ativo: true,
         preco_metro_unidade: b.interno ? 0 : b.preco_metro_unidade,
-        quantidade_enviada: b.quantidade_enviada,
-        quantidade_recebida: b.quantidade_recebida,
-        quantidade_defeito: b.quantidade_defeito,
+        // Detalhado por tamanho/variante → os totais são a SOMA da grade (fonte única p/ financeiro/CQ).
+        quantidade_enviada: b.detalhado ? somaGrade(b.grade_detalhe, "enviada") : b.quantidade_enviada,
+        quantidade_recebida: b.detalhado ? somaGrade(b.grade_detalhe, "recebida") : b.quantidade_recebida,
+        quantidade_defeito: b.detalhado ? somaGrade(b.grade_detalhe, "defeito") : b.quantidade_defeito,
+        detalhado: b.detalhado,
+        grade_detalhe: b.detalhado ? b.grade_detalhe : {},
         desconto_total: b.interno ? 0 : (Number(b.desconto_total) || 0),
         multa_total: b.interno ? 0 : (Number(b.multa_total) || 0),
         numero_parcelas: Math.max(1, Number(b.numero_parcelas) || 1),
@@ -892,6 +960,23 @@ export function TerceirizadosDetail({
             </div>
 
             <div className="grid gap-4 md:grid-cols-3">
+              {/* Toggle: destrinchar as quantidades por tamanho × variante. Ligar pré-preenche a
+                  Enviada com a grade PLANEJADA do modelo (uma vez). Ligado, os 3 totais viram Σ. */}
+              <label className="col-span-full flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={b.detalhado}
+                  onChange={(e) => {
+                    const on = e.target.checked;
+                    if (on && gradeTpl && somaGrade(b.grade_detalhe, "enviada") === 0 && Object.keys(b.grade_detalhe ?? {}).length === 0) {
+                      const g: GradeDetalhe = {};
+                      for (const v of gradeTpl.variantes) { g[v.id] = {}; for (const t of gradeTpl.tamanhos) g[v.id][t] = { enviada: Number(gradeTpl.planejado[v.id]?.[t]) || 0, recebida: 0, defeito: 0 }; }
+                      updateBloco(idx, { detalhado: true, grade_detalhe: g });
+                    } else updateBloco(idx, { detalhado: on });
+                  }}
+                />
+                <span>Quantidade por tamanho e variante (destrinchar a grade)</span>
+              </label>
               {b.interno ? (
                 <div>
                   <Label className="text-xs">Responsável</Label>
@@ -968,11 +1053,12 @@ export function TerceirizadosDetail({
                 </div>
               )}
               <div>
-                <Label className="text-xs">Qtd Enviada</Label>
+                <Label className="text-xs">Qtd Enviada{b.detalhado ? " (Σ grade)" : ""}</Label>
                 <NumberInput
                   type="number"
                   placeholder="0,00"
-                  value={b.quantidade_enviada || ""}
+                  disabled={b.detalhado}
+                  value={b.detalhado ? somaGrade(b.grade_detalhe, "enviada") : (b.quantidade_enviada || "")}
                   onChange={(e) => updateBloco(idx, { quantidade_enviada: Number(e.target.value) })}
                 />
               </div>
@@ -1000,23 +1086,31 @@ export function TerceirizadosDetail({
               </div>
 
               <div>
-                <Label className="text-xs">Qtd Recebida</Label>
+                <Label className="text-xs">Qtd Recebida{b.detalhado ? " (Σ grade)" : ""}</Label>
                 <NumberInput
                   type="number"
                   placeholder="0,00"
-                  value={b.quantidade_recebida || ""}
+                  disabled={b.detalhado}
+                  value={b.detalhado ? somaGrade(b.grade_detalhe, "recebida") : (b.quantidade_recebida || "")}
                   onChange={(e) => updateBloco(idx, { quantidade_recebida: Number(e.target.value) })}
                 />
               </div>
               <div>
-                <Label className="text-xs">Qtd Defeito</Label>
+                <Label className="text-xs">Qtd Defeito{b.detalhado ? " (Σ grade)" : ""}</Label>
                 <NumberInput
                   type="number"
                   placeholder="0,00"
-                  value={b.quantidade_defeito || ""}
+                  disabled={b.detalhado}
+                  value={b.detalhado ? somaGrade(b.grade_detalhe, "defeito") : (b.quantidade_defeito || "")}
                   onChange={(e) => updateBloco(idx, { quantidade_defeito: Number(e.target.value) })}
                 />
               </div>
+              {b.detalhado && (
+                <div className="col-span-full rounded-md border bg-muted/20 p-3">
+                  <div className="mb-2 text-xs text-muted-foreground">Grade por <b>tamanho × variante</b> — a <b>Enviada</b> vem pré-preenchida da grade planejada; ajuste conforme o envio/recebimento.</div>
+                  <GradeEditor tpl={gradeTpl ?? { variantes: [], tamanhos: [] }} grade={b.grade_detalhe} onChange={(g) => updateBloco(idx, { grade_detalhe: g })} />
+                </div>
+              )}
               {!b.interno && (
                 <div>
                   <Label className="text-xs">Desconto total</Label>
@@ -1225,6 +1319,73 @@ export function TerceirizadosDetail({
           {actionButtons}
         </PageActionBar>
       )}
+    </div>
+  );
+}
+
+// Editor da grade por tamanho × variante — 3 tabelas (Enviada / Recebida / Defeito). Chaveado por
+// variante_tecido_id; tamanho no formato "38|P" (exibe o rótulo). Total por linha à direita.
+const CAMPOS_GRADE: { k: keyof CelulaGrade; label: string }[] = [
+  { k: "enviada", label: "Enviada" },
+  { k: "recebida", label: "Recebida" },
+  { k: "defeito", label: "Defeito" },
+];
+function GradeEditor({
+  tpl, grade, onChange, disabled,
+}: {
+  tpl: { variantes: { id: string; label: string }[]; tamanhos: string[] };
+  grade: GradeDetalhe;
+  onChange: (g: GradeDetalhe) => void;
+  disabled?: boolean;
+}) {
+  const tamLabel = (t: string) => (t.includes("|") ? t.split("|")[1] || t : t);
+  const cel = (vid: string, t: string): CelulaGrade => grade[vid]?.[t] ?? CELULA_ZERO;
+  const set = (vid: string, t: string, campo: keyof CelulaGrade, val: number) => {
+    const g: GradeDetalhe = { ...grade, [vid]: { ...(grade[vid] ?? {}) } };
+    g[vid][t] = { ...CELULA_ZERO, ...(g[vid][t] ?? {}), [campo]: val };
+    onChange(g);
+  };
+  if (!tpl.variantes.length || !tpl.tamanhos.length)
+    return <p className="text-xs text-muted-foreground">Sem grade planejada para destrinchar — defina a grade (tamanhos/variantes) do modelo primeiro.</p>;
+  return (
+    <div className="space-y-3">
+      {CAMPOS_GRADE.map(({ k, label }) => (
+        <div key={k}>
+          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
+          <div className="overflow-x-auto">
+            <table className="text-xs tabular-nums">
+              <thead className="text-muted-foreground">
+                <tr>
+                  <th className="p-1 text-left font-medium">Variante</th>
+                  {tpl.tamanhos.map((t) => <th key={t} className="p-1 text-center font-medium">{tamLabel(t)}</th>)}
+                  <th className="p-1 text-center font-medium">Σ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tpl.variantes.map((v) => {
+                  const total = tpl.tamanhos.reduce((s, t) => s + (Number(cel(v.id, t)[k]) || 0), 0);
+                  return (
+                    <tr key={v.id} className="border-t">
+                      <td className="whitespace-nowrap p-1">{v.label}</td>
+                      {tpl.tamanhos.map((t) => (
+                        <td key={t} className="p-0.5">
+                          <input
+                            type="number" min={0} disabled={disabled}
+                            className="h-7 w-14 rounded border bg-background px-1 text-right disabled:opacity-60"
+                            value={cel(v.id, t)[k] || ""}
+                            onChange={(e) => set(v.id, t, k, Number(e.target.value) || 0)}
+                          />
+                        </td>
+                      ))}
+                      <td className="p-1 text-center font-medium">{total}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
