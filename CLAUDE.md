@@ -157,7 +157,17 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   Tecido**, anexos/identidade/Ajustes fora. Exceção: **obs bloco grava na hora** (substitui, idempotente) por o
   `ModeloObservacoes` ser auto-save. `src/components/desenvolvimento/importar/` (`construirCopia` pura + testes).
 - **entrada-saida**: oc-tecido, oc-aviamento, rolos, estoque
-- **producao**: cad, terceirizados=**Serviços** (abas pré/pós-costura por `categorias_terceirizado.etapa`),
+- ⚠️ **O nível `producao` (PCP) foi DIVIDIDO em 2 níveis (jul/2026, ver [[project_pcp_expedicao]]):**
+  **PCP** (`/pcp` = o próprio **Serviços**, nível de página única como o OTB; rotas `pcp.servicos.*`,
+  `pcp.cad.*`, `pcp.oficina.*`) + **Expedição & Logística** (`/expedicao`, hub com **CQ + Direcionamento
+  + Lançamentos**; rotas `expedicao.cq.*`, `expedicao.direcionamento.*`, `expedicao.lancamentos.tsx`).
+  Os DOIS níveis compartilham a MESMA flag de contratação `producao` (novo campo `ModuleDef.gate` em
+  `permissions-catalog`; keys de PÁGINA seguem `producao_*`; RPCs seguem gate `tenant_module_enabled('producao')`
+  — zero mudança no banco). As URLs `/producao/*` NÃO existem mais. `MODULE_META`/`PAGE_URLS`/ícones em
+  `src/lib/nav.ts` (SSOT). Serviços (`producao_terceirizados`) NÃO entra em `PAGE_URLS` (nível = página única).
+- **pcp / expedicao** (ex-`producao`): cad, terceirizados=**Serviços** (abas pré/pós-costura por `categorias_terceirizado.etapa`;
+  **quantidade por tamanho×variante** opt-in — flag `producao_terceirizados.detalhado` + `grade_detalhe` jsonb,
+  ver [[project_terceirizados_grade_detalhe]]),
   oficina, cq (abas **Pré/Pós** dentro do item — ver invariante 6), direcionamento, lancamentos.
   (A tela **"Consumo por OC" foi REMOVIDA** jul/2026 na Fase C do Plan. Tecido — ver [[project_plan_tecido]];
   os **alertas de CQ de tecido** seguem vivos em `entrada-saida.alertas-tecido`, não eram parte dessa tela.
