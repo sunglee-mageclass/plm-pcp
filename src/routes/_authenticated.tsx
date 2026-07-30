@@ -1,4 +1,5 @@
 import { createFileRoute, Outlet, Navigate, useRouterState } from "@tanstack/react-router";
+import { useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
@@ -32,6 +33,10 @@ function useCurrentModule() {
 }
 
 function AuthenticatedLayout() {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  // CONGELA o primeiro pathname do mount: durante a transição pro /auth o layout re-renderiza
+  // com o pathname já trocado e o <Navigate replace> regravava redirect="/auth" (QA ao vivo).
+  const destinoOriginal = useRef(pathname).current;
   const { user, loading, signOut } = useAuth();
   const identity = useApplySystemIdentity();
   const { label: moduleLabel } = useCurrentModule();
@@ -56,7 +61,8 @@ function AuthenticatedLayout() {
   }
 
   if (!user) {
-    return <Navigate to="/auth" replace />;
+    // Preserva o destino (deep-link/sessão expirada): o login volta pra cá via ?redirect=.
+    return <Navigate to="/auth" search={{ redirect: destinoOriginal }} replace />;
   }
 
   if (tenantAtivo === false) {

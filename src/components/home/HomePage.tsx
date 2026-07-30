@@ -16,7 +16,7 @@ export function HomePage() {
   useApplySystemIdentity();
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-background">
+    <div className="relative min-h-dvh overflow-hidden bg-background dark:[--color-foreground:oklch(0.93_0.012_248)] dark:[--color-primary:oklch(0.72_0.1_248)]">
       {/* Tecelagem de fundo */}
       <TecelagemAnimacao className="absolute inset-0 h-full w-full" opacity={1} />
       {/* Véu para legibilidade (centro mais limpo, bordas com o tecido aparecendo) */}
@@ -28,7 +28,7 @@ export function HomePage() {
         }}
       />
 
-      <main className="relative z-10 flex min-h-screen flex-col items-center justify-center px-6 text-center">
+      <main className="relative z-10 flex min-h-dvh flex-col items-center justify-center px-6 text-center">
         <div className={cn(
           "mb-6 flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl shadow-lg",
           identity.logoSignedUrl ? "border bg-background p-1.5" : "bg-primary text-primary-foreground",
