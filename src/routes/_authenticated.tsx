@@ -1,4 +1,4 @@
-import { createFileRoute, Outlet, Navigate, useRouterState } from "@tanstack/react-router";
+import { createFileRoute, Outlet, Navigate, useRouterState, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
@@ -6,6 +6,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { StoreClock } from "@/components/shared/StoreClock";
 import { useAuth } from "@/hooks/useAuth";
 import { useApplySystemIdentity } from "@/hooks/useSystemIdentity";
+import { useTenantModules } from "@/hooks/useTenantModules";
 import { PAGES_CATALOG } from "@/lib/permissions-catalog";
 
 export const Route = createFileRoute("/_authenticated")({
@@ -13,19 +14,27 @@ export const Route = createFileRoute("/_authenticated")({
   component: AuthenticatedLayout,
 });
 
-function useModuleLabel() {
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
-  if (pathname.startsWith("/admin")) return "Admin";
+// Módulo dono do path atual (por basePath). null = rota não gateada por módulo (home, /admin, perfil).
+// Casa basePath exato ou com "/" depois, pra "/cadastro" não pegar "/cadastroX".
+function moduleForPath(pathname: string): { module: string; label: string } | null {
   for (const mod of PAGES_CATALOG) {
-    if (pathname.startsWith(mod.basePath)) return mod.label;
+    if (pathname === mod.basePath || pathname.startsWith(mod.basePath + "/")) return { module: mod.module, label: mod.label };
   }
-  return "sisTrama";
+  return null;
+}
+
+function useCurrentModule() {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  if (pathname.startsWith("/admin")) return { module: null as string | null, label: "Admin" };
+  const m = moduleForPath(pathname);
+  return { module: m?.module ?? null, label: m?.label ?? "sisTrama" };
 }
 
 function AuthenticatedLayout() {
   const { user, loading, signOut } = useAuth();
   const identity = useApplySystemIdentity();
-  const moduleLabel = useModuleLabel();
+  const { module: currentModule, label: moduleLabel } = useCurrentModule();
+  const { isModuleEnabled } = useTenantModules();
   // Loja inativa = suspensão real: a RLS já bloqueia os dados (get_user_tenant_id
   // retorna o UUID sentinela nil '0000…', NUNCA NULL — invariante 13); aqui só
   // mostramos a mensagem em vez de telas vazias.
@@ -85,7 +94,19 @@ function AuthenticatedLayout() {
             <StoreClock className="ml-auto shrink-0" />
           </header>
           <main className="flex-1 p-4 sm:p-6 overflow-x-hidden overflow-y-auto">
-            <Outlet />
+            {/* Gate de MÓDULO por rota: se a loja não contratou o módulo do path atual, não renderiza a
+                página (defesa/UX — a fronteira real é o DB via RLS + tenant_module_enabled nas RPCs).
+                Vale p/ TODOS os papéis, igual à sidebar (módulo desligado = desligado pra loja toda).
+                Mantém sidebar/header p/ navegar pra fora. */}
+            {currentModule && !isModuleEnabled(currentModule) ? (
+              <div className="mx-auto max-w-md space-y-3 py-16 text-center">
+                <h1 className="text-xl font-semibold">Módulo não habilitado</h1>
+                <p className="text-sm text-muted-foreground">O módulo <b>{moduleLabel}</b> não está habilitado para a sua loja.</p>
+                <Link to="/" className="inline-block text-sm underline text-muted-foreground hover:text-foreground">Voltar ao início</Link>
+              </div>
+            ) : (
+              <Outlet />
+            )}
           </main>
         </div>
       </div>
