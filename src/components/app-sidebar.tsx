@@ -41,12 +41,12 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { useAuth } from "@/hooks/useAuth";
+import { useSidebarBadges } from "@/hooks/useSidebarBadges";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { useTabLabels } from "@/hooks/useTabLabels";
 import { Button } from "@/components/ui/button";
 import { PAGES_CATALOG, pageInProfile } from "@/lib/permissions-catalog";
 import { PAGE_URLS, MODULE_META } from "@/lib/nav";
-import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useSystemIdentity } from "@/hooks/useSystemIdentity";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -107,18 +107,8 @@ export function AppSidebar() {
     return fallback;
   };
 
-  // Contadores de atenção da sidebar (uma RPC leve, tenant-scoped). refetch on focus +
-  // rede de segurança a cada 60s; o "Lançar"/alertas/OC invalidam ["sidebar-badges"].
-  const { data: badges } = useQuery({
-    queryKey: ["sidebar-badges"],
-    queryFn: async () => {
-      const { data, error } = await supabase.rpc("sidebar_badges" as any);
-      if (error) throw error;
-      return (data ?? {}) as Record<string, number>;
-    },
-    staleTime: 30_000,
-    refetchInterval: 60_000,
-  });
+  // Contadores de atenção (fonte única compartilhada com a Home — useSidebarBadges).
+  const { data: badges } = useSidebarBadges();
   const countFor: Record<string, number> = {
     criacao_planejamento: Number(badges?.prontos_lancar ?? 0),
     entrada_alertas_tecido: Number(badges?.alertas_tecido ?? 0),

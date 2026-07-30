@@ -44,6 +44,11 @@ import {
 
 import { RequirePermission } from "@/components/RequirePermission";
 export const Route = createFileRoute("/_authenticated/entrada-saida/oc-tecido")({
+  // Aba endereçável: a Home aponta "OCs atrasadas" direto p/ ?tab=encomendado — sem isso o
+  // clique pousava na aba "Recebidos", onde a OC atrasada é invisível (laudo do time, jul/2026).
+  validateSearch: (s: Record<string, unknown>): { tab?: OcTecidoTab } => ({
+    tab: s.tab === "encomendado" || s.tab === "recebido" || s.tab === "estoque" ? (s.tab as OcTecidoTab) : undefined,
+  }),
   component: () => (
     <RequirePermission page="entrada_oc_tecido">
       <OcTecidoPage />
@@ -53,10 +58,11 @@ export const Route = createFileRoute("/_authenticated/entrada-saida/oc-tecido")(
 
 function OcTecidoPage() {
   const qc = useQueryClient();
+  const search = Route.useSearch();
   const [view, setView] = useState<"ocs" | "rolos">("ocs");
   const [openRolo, setOpenRolo] = useState(false);
   const [openRemover, setOpenRemover] = useState(false);
-  const [tab, setTab] = useState<OcTecidoTab>("recebido");
+  const [tab, setTab] = useState<OcTecidoTab>(search.tab ?? "recebido");
   // Estado da aba Estoque (consulta + filtros) — controles vão p/ o header (contextual).
   const estoque = useEstoqueTecidos(view === "ocs" && tab === "estoque");
   const [filterEmpresa, setFilterEmpresa] = useState<string>("all");

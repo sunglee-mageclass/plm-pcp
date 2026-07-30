@@ -1,23 +1,26 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { format, addDays } from "date-fns";
+import { format, addDays, parseISO } from "date-fns";
 import {
-  AlertTriangle, Wallet, Clock, CalendarX,
+  AlertTriangle, Wallet, Clock, CalendarX, Rocket, CheckCircle2,
   BarChart3, ClipboardList, Package, Palette, Factory, DollarSign, Target, Truck,
 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
+import { useSidebarBadges } from "@/hooks/useSidebarBadges";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { useTenantBranding } from "@/hooks/useTenantBranding";
 import { useStoreTimezone } from "@/hooks/useStoreTimezone";
+import { todayISOInStoreTZ } from "@/lib/timezone";
 import { Card } from "@/components/ui/card";
 import { TecelagemAnimacao } from "./TecelagemAnimacao";
 
 const fmtMoney = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-// Atalhos dos módulos (ordem amigável p/ landing). Filtrados pelos módulos da loja.
+// Atalhos de MÓDULO — só no MOBILE (sidebar recolhida = navegação primária). No desktop os
+// tiles de módulo duplicavam 1:1 a sidebar visível ao lado (laudo do time, jul/2026).
 const MODULOS: { key: string; label: string; path: string; icon: typeof BarChart3 }[] = [
   { key: "dashboard", label: "Dashboard", path: "/dashboard", icon: BarChart3 },
   { key: "cadastro", label: "Cadastro", path: "/cadastro", icon: ClipboardList },
@@ -30,19 +33,43 @@ const MODULOS: { key: string; label: string; path: string; icon: typeof BarChart
   { key: "financeiro", label: "Financeiro", path: "/financeiro", icon: DollarSign },
 ];
 
+// Atalhos de PÁGINA (caminho quente) — DESKTOP. Gate: módulo da loja + permissão da página
+// (mesma regra da sidebar). `key: null` = só gate de módulo (dashboard tem permissão por aba).
+const PAGINAS: { key: string | null; mod: string; label: string; path: string; search?: Record<string, string>; icon: typeof BarChart3 }[] = [
+  { key: "criacao_planejamento", mod: "criacao", label: "Plan. Produto", path: "/criacao/planejamento", icon: Palette },
+  { key: "criacao_desenvolvimento", mod: "criacao", label: "Desenvolvimento", path: "/criacao/desenvolvimento", icon: ClipboardList },
+  { key: "entrada_oc_tecido", mod: "entrada_saida", label: "OC Tecido", path: "/entrada-saida/oc-tecido", icon: Package },
+  { key: "producao_terceirizados", mod: "producao", label: "Serviços", path: "/pcp", icon: Factory },
+  { key: "producao_cq", mod: "producao", label: "Controle de Qualidade", path: "/expedicao/cq", icon: CheckCircle2 },
+  { key: "producao_lancamentos", mod: "producao", label: "Lançamentos", path: "/expedicao/lancamentos", icon: Rocket },
+  { key: "financeiro_parcelas", mod: "financeiro", label: "Financeiro · vencidas", path: "/financeiro", search: { tab: "lista", status: "vencido" }, icon: DollarSign },
+  { key: null, mod: "dashboard", label: "Dashboard", path: "/dashboard", icon: BarChart3 },
+];
+
+type Tone = "red" | "amber" | "blue";
+type CardAtencao = {
+  key: string; to: string; search?: Record<string, string>; icon: typeof BarChart3; tone: Tone;
+  valor: number; label: string; sub?: string; loading: boolean; error: boolean;
+};
+
 /**
- * Home logado (/home): centro de boas-vindas + "precisa da sua atenção" + atalhos.
- * Mostra só o que a loja tem (módulos) e usa a marca da loja. A tecelagem entra como
- * assinatura sutil no cabeçalho (não tela cheia — é tela de trabalho).
+ * Home logado (/home): boas-vindas + "precisa da sua atenção" + fila de produção + atalhos.
+ * Laudo do time de lentes (jul/2026): contagem CANÔNICA via sidebar_badges (OCs = tecido +
+ * aviamento + insumo), clique pousa no estado da promessa (abas endereçáveis), gate por
+ * PERMISSÃO (não só módulo), datas no fuso da LOJA e erro de query nunca vira "0".
  */
 export function HomeLogado() {
-  const { user } = useAuth();
+  const { user, canView, isAdmin, isSuperAdmin, isTenantAdmin } = useAuth();
   const { modules } = useTenantModules();
   const branding = useTenantBranding();
   const tz = useStoreTimezone();
+  // Mesma regra de visibilidade da sidebar (admins furam; senão canView da página).
+  const podeVer = (k: string) => isAdmin || isSuperAdmin || isTenantAdmin || canView(k);
 
-  const hoje = format(new Date(), "yyyy-MM-dd");
-  const em7 = format(addDays(new Date(), 7), "yyyy-MM-dd");
+  // Datas no FUSO DA LOJA (padrão do sistema — financeiro.tsx e sidebar_badges fazem igual);
+  // no fuso do device os números da Home divergiam dos destinos perto da virada do dia.
+  const hoje = todayISOInStoreTZ(tz);
+  const em7 = format(addDays(parseISO(hoje), 7), "yyyy-MM-dd");
   const hora = Number(
     new Intl.DateTimeFormat("pt-BR", { hour: "numeric", hour12: false, timeZone: tz }).format(new Date()),
   );
@@ -54,44 +81,31 @@ export function HomeLogado() {
     weekday: "long", day: "numeric", month: "long", timeZone: tz,
   }).format(new Date());
 
-  // ── Contadores de atenção (cada um aterrado numa query real, gated por módulo) ──
-  const cq = useQuery({
-    queryKey: ["home", "cq-pendentes"],
-    enabled: !!modules.entrada_saida,
-    queryFn: async () => {
-      const { count } = await supabase
-        .from("ocs_tecido_itens")
-        .select("*", { count: "exact", head: true })
-        .in("cq_alerta_status", ["alertado", "troca_pendente"]);
-      return count ?? 0;
-    },
-  });
+  // ── Contadores canônicos (mesma RPC/fonte das bolinhas da sidebar) ──
+  const badges = useSidebarBadges();
+  const b = (k: string) => Number(badges.data?.[k] ?? 0);
+  const ocTec = b("oc_tecido_atrasada");
+  const ocAvi = b("oc_aviamento_atrasada");
+  const ocIns = b("oc_etiqueta_atrasada");
+  const errCq = b("erro_cq");
+  const errDir = b("erro_direcionamento");
+  const errTer = b("erro_terceirizados");
 
-  const ocAtrasada = useQuery({
-    queryKey: ["home", "oc-atrasada", hoje],
-    enabled: !!modules.entrada_saida,
-    queryFn: async () => {
-      const { count } = await supabase
-        .from("ocs_tecido")
-        .select("*", { count: "exact", head: true })
-        .eq("status", "encomendado")
-        .eq("is_rolo" as never, false as never)
-        .lt("data_prevista_entrega", hoje);
-      return count ?? 0;
-    },
-  });
+  // Permissão de ver os cards financeiros = mesma das páginas de destino.
+  const podeVerFin = modules.financeiro && (podeVer("financeiro_parcelas") || podeVer("financeiro_calendario"));
 
   // A pagar nos PRÓXIMOS 7 dias (sem incluir as já vencidas — essas têm card próprio).
   const pagar = useQuery({
     queryKey: ["home", "pagar7", hoje, em7],
-    enabled: !!modules.financeiro,
+    enabled: !!podeVerFin,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("parcelas")
         .select("valor")
         .is("data_pagamento", null)
         .gte("data_vencimento", hoje)
         .lte("data_vencimento", em7);
+      if (error) throw error;
       const rows = (data ?? []) as { valor: number | null }[];
       return { n: rows.length, total: rows.reduce((s, r) => s + Number(r.valor ?? 0), 0) };
     },
@@ -100,25 +114,26 @@ export function HomeLogado() {
   // Contas a pagar ATRASADAS (vencidas e não pagas).
   const atrasadas = useQuery({
     queryKey: ["home", "atrasadas", hoje],
-    enabled: !!modules.financeiro,
+    enabled: !!podeVerFin,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("parcelas")
         .select("valor")
         .is("data_pagamento", null)
         .lt("data_vencimento", hoje);
+      if (error) throw error;
       const rows = (data ?? []) as { valor: number | null }[];
       return { n: rows.length, total: rows.reduce((s, r) => s + Number(r.valor ?? 0), 0) };
     },
   });
 
-  // Serviços (terceirizados) também são contas a pagar — entram nos MESMOS cards
-  // ("Contas atrasadas" e "A pagar 7 dias"). Antes só as parcelas de OC eram contadas.
+  // Serviços (terceirizados) também são contas a pagar — entram nos MESMOS cards.
   const servicos = useQuery({
     queryKey: ["home", "servicos-fin", hoje, em7],
-    enabled: !!modules.financeiro,
+    enabled: !!podeVerFin,
     queryFn: async () => {
-      const { data } = await supabase.rpc("servicos_financeiro" as any);
+      const { data, error } = await supabase.rpc("servicos_financeiro" as any);
+      if (error) throw error;
       const abertos = ((data ?? []) as any[]).filter(
         (r) => !r.data_pagamento && r.status !== "pago" && r.data_vencimento,
       );
@@ -133,42 +148,140 @@ export function HomeLogado() {
     },
   });
 
+  // Mão de obra pendente de aprovação (modelos em Dev/produção, não lançados, flag null).
+  const maoObra = useQuery({
+    queryKey: ["home", "mao-obra-pendente"],
+    enabled: !!modules.producao && podeVer("producao_servico_aprovacao"),
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from("modelos")
+        .select("*", { count: "exact", head: true })
+        .eq("ordem_criacao_enviada", true)
+        .is("custo_terceirizados_aprovado", null)
+        .or("lancado.is.null,lancado.eq.false");
+      if (error) throw error;
+      return count ?? 0;
+    },
+  });
+
   // Parcelas de OC + parcelas de serviço somadas (count e valor) p/ os cards financeiros.
   const atrasadasN = (atrasadas.data?.n ?? 0) + (servicos.data?.atrasadasN ?? 0);
   const atrasadasTotal = (atrasadas.data?.total ?? 0) + (servicos.data?.atrasadasTotal ?? 0);
   const pagar7N = (pagar.data?.n ?? 0) + (servicos.data?.pagar7N ?? 0);
   const pagar7Total = (pagar.data?.total ?? 0) + (servicos.data?.pagar7Total ?? 0);
 
+  // Sub do card de OCs: só DADO (breakdown por tipo), nunca texto de enchimento.
+  const ocPartes = [
+    ocTec > 0 && `${ocTec} tecido`,
+    ocAvi > 0 && `${ocAvi} aviamento`,
+    ocIns > 0 && `${ocIns} insumo`,
+  ].filter(Boolean).join(" · ");
+
   // Ordem por urgência: vermelhos (crítico) antes dos âmbar (atenção) — varredura mais rápida.
   const atencao = [
-    modules.financeiro && {
-      key: "atrasadas", to: "/financeiro", icon: CalendarX, tone: "red" as const,
+    podeVerFin && {
+      key: "atrasadas", to: "/financeiro", search: { tab: "lista", status: "vencido" },
+      icon: CalendarX, tone: "red" as Tone,
       valor: atrasadasN, label: "Contas atrasadas",
-      sub: (atrasadas.data || servicos.data) ? fmtMoney(atrasadasTotal) : "—",
+      sub: (atrasadas.data || servicos.data) ? fmtMoney(atrasadasTotal) : undefined,
       loading: atrasadas.isLoading || servicos.isLoading,
+      error: atrasadas.isError && servicos.isError,
     },
-    modules.entrada_saida && {
-      key: "oc", to: "/entrada-saida/oc-tecido", icon: Clock, tone: "red" as const,
-      valor: ocAtrasada.data ?? 0, label: "OCs atrasadas", sub: "em aberto",
-      loading: ocAtrasada.isLoading,
+    modules.entrada_saida && podeVer("entrada_oc_tecido") && {
+      key: "oc", to: "/entrada-saida/oc-tecido", search: { tab: "encomendado" },
+      icon: Clock, tone: "red" as Tone,
+      valor: ocTec + ocAvi + ocIns, label: "OCs atrasadas",
+      sub: ocPartes || undefined,
+      loading: badges.isLoading, error: badges.isError,
     },
-    modules.financeiro && {
-      key: "pagar", to: "/financeiro", icon: Wallet, tone: "amber" as const,
+    podeVerFin && {
+      key: "pagar", to: "/financeiro", icon: Wallet, tone: "amber" as Tone,
       valor: pagar7N, label: "A pagar em 7 dias",
-      sub: (pagar.data || servicos.data) ? fmtMoney(pagar7Total) : "—",
+      sub: (pagar.data || servicos.data) ? fmtMoney(pagar7Total) : undefined,
       loading: pagar.isLoading || servicos.isLoading,
+      error: pagar.isError && servicos.isError,
     },
-    modules.entrada_saida && {
-      key: "cq", to: "/entrada-saida/alertas-tecido", icon: AlertTriangle, tone: "amber" as const,
-      valor: cq.data ?? 0, label: "Alertas de CQ (tecido)", sub: "pendentes",
-      loading: cq.isLoading,
+    modules.entrada_saida && podeVer("entrada_alertas_tecido") && {
+      key: "cq", to: "/entrada-saida/alertas-tecido", icon: AlertTriangle, tone: "amber" as Tone,
+      valor: b("alertas_tecido"), label: "Alertas de CQ (tecido)",
+      loading: badges.isLoading, error: badges.isError,
     },
-  ].filter(Boolean) as { key: string; to: string; icon: typeof BarChart3; tone: "red" | "amber"; valor: number; label: string; sub: string; loading: boolean }[];
+  ].filter(Boolean) as CardAtencao[];
 
-  const atalhos = MODULOS.filter((m) => (modules as Record<string, boolean>)[m.key]);
+  // ── Fila de produção: a landing mostra a fila de trabalho, não só alarme financeiro ──
+  const podeVerErros = podeVer("producao_cq") || podeVer("producao_direcionamento") || podeVer("producao_terceirizados");
+  const erroPartes = [errCq > 0 && "CQ", errDir > 0 && "direcionamento", errTer > 0 && "serviços"]
+    .filter(Boolean).join(" · ");
+  const fila = [
+    modules.criacao && podeVer("criacao_planejamento") && {
+      key: "prontos", to: "/criacao/planejamento", icon: Rocket, tone: "blue" as Tone,
+      valor: b("prontos_lancar"), label: "Prontos p/ lançar",
+      sub: b("prontos_lancar") > 0 ? "CQ + custo aprovados" : undefined,
+      loading: badges.isLoading, error: badges.isError,
+    },
+    modules.producao && podeVerErros && {
+      key: "erros",
+      // pousa onde o erro está (CQ > Direcionamento > Serviços).
+      to: errCq > 0 ? "/expedicao/cq" : errDir > 0 ? "/expedicao/direcionamento" : "/pcp",
+      icon: AlertTriangle, tone: "red" as Tone,
+      valor: errCq + errDir + errTer, label: "Erros de produção",
+      sub: erroPartes || undefined,
+      loading: badges.isLoading, error: badges.isError,
+    },
+    modules.producao && podeVer("producao_servico_aprovacao") && {
+      key: "mao-obra", to: "/criacao/planejamento", icon: ClipboardList, tone: "amber" as Tone,
+      valor: maoObra.data ?? 0, label: "Mão de obra a aprovar",
+      sub: (maoObra.data ?? 0) > 0 ? "modelos aguardando" : undefined,
+      loading: maoObra.isLoading, error: maoObra.isError,
+    },
+  ].filter(Boolean) as CardAtencao[];
+
+  const atalhosMobile = MODULOS.filter((m) => (modules as Record<string, boolean>)[m.key]);
+  const atalhosDesktop = PAGINAS.filter(
+    (p) => (modules as Record<string, boolean>)[p.mod] && (p.key === null || podeVer(p.key)),
+  );
+
+  const CardKpi = ({ a }: { a: CardAtencao }) => (
+    <Link key={a.key} to={a.to as any} search={(a.search ?? {}) as any} className="block h-full">
+      <Card className={cn(
+        "flex h-full min-h-[110px] flex-col gap-3 p-4 transition-all hover:-translate-y-px hover:shadow-md sm:flex-row sm:items-start",
+        !a.error && a.valor > 0 && (
+          a.tone === "red" ? "border-red-500/50" : a.tone === "amber" ? "border-amber-500/50" : "border-blue-500/50"
+        ),
+      )}>
+        <div className={cn(
+          "grid h-10 w-10 shrink-0 place-items-center rounded-[10px]",
+          a.error || a.valor === 0
+            ? "bg-muted text-muted-foreground"
+            : a.tone === "red" ? "bg-red-500/15 text-red-600"
+            : a.tone === "amber" ? "bg-amber-500/15 text-amber-700 dark:text-amber-600"
+            : "bg-blue-500/15 text-blue-600",
+        )}>
+          <a.icon className="h-5 w-5" />
+        </div>
+        <div className="min-w-0">
+          {a.loading ? (
+            <div className="h-6 w-12 animate-pulse rounded bg-muted" aria-hidden />
+          ) : (
+            <div className={cn("font-display text-2xl font-semibold leading-none tabular-nums", a.error && "text-muted-foreground")}>
+              {a.error ? "—" : a.valor}
+            </div>
+          )}
+          <div className="mt-1.5 text-[13px] font-medium leading-snug">{a.label}</div>
+          {/* Erro NUNCA vira "0": mostra que não carregou (o pior modo de falha de uma
+              tela de status é o falso "tudo em dia"). */}
+          {a.error ? (
+            <div className="mt-0.5 text-xs text-muted-foreground">não carregou · tentar de novo</div>
+          ) : a.sub ? (
+            <div className="mt-0.5 text-xs tabular-nums text-muted-foreground">{a.sub}</div>
+          ) : null}
+        </div>
+      </Card>
+    </Link>
+  );
 
   return (
-    <div className="container mx-auto space-y-6 p-3 sm:p-6 max-sm:pb-24">
+    <div className="container mx-auto space-y-6 p-3 sm:p-6">
       {/* Cabeçalho Navy (A0): gradiente sidebar→primary com a trama por cima, texto claro.
           Tokens locais --color-foreground/--color-primary sobrescritos p/ a TecelagemAnimacao
           sondar FIOS CLAROS (ela lê text-foreground/text-primary computados no pai). */}
@@ -211,51 +324,43 @@ export function HomeLogado() {
         </div>
       </header>
 
-      {/* Precisa da sua atenção (A0): chip tintado à esquerda no desktop, número em
-          Outfit tabular, hover de elevação. Empilha (chip em cima) no mobile. */}
+      {/* Precisa da sua atenção */}
       {atencao.length > 0 && (
         <section className="space-y-2">
           <h2 className="font-display text-[13px] font-semibold text-foreground">Precisa da sua atenção</h2>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {atencao.map((a) => (
-              <Link key={a.key} to={a.to as any} className="block h-full">
-                <Card className={cn(
-                  "flex h-full min-h-[110px] flex-col gap-3 p-4 transition-all hover:-translate-y-px hover:shadow-md sm:flex-row sm:items-start",
-                  a.valor > 0 && (a.tone === "red" ? "border-red-500/50" : "border-amber-500/50"),
-                )}>
-                  <div className={cn(
-                    "grid h-10 w-10 shrink-0 place-items-center rounded-[10px]",
-                    a.valor > 0
-                      ? (a.tone === "red" ? "bg-red-500/15 text-red-600" : "bg-amber-500/15 text-amber-600")
-                      : "bg-muted text-muted-foreground",
-                  )}>
-                    <a.icon className="h-5 w-5" />
-                  </div>
-                  <div className="min-w-0">
-                    {a.loading ? (
-                      <div className="h-6 w-12 animate-pulse rounded bg-muted" aria-hidden />
-                    ) : (
-                      <div className="font-display text-2xl font-semibold leading-none tabular-nums">{a.valor}</div>
-                    )}
-                    <div className="mt-1.5 text-[13px] font-medium leading-snug">{a.label}</div>
-                    <div className="mt-0.5 text-xs tabular-nums text-muted-foreground">{a.sub}</div>
-                  </div>
-                </Card>
-              </Link>
-            ))}
+            {atencao.map((a) => <CardKpi key={a.key} a={a} />)}
           </div>
         </section>
       )}
 
-      {/* Atalhos dos módulos (A0): tile alinhado à esquerda, ícone primary, hover de elevação. */}
+      {/* Fila de produção */}
+      {fila.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="font-display text-[13px] font-semibold text-foreground">Fila de produção</h2>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {fila.map((a) => <CardKpi key={a.key} a={a} />)}
+          </div>
+        </section>
+      )}
+
+      {/* Atalhos: PÁGINA no desktop (caminho quente), MÓDULO no mobile (sidebar recolhida). */}
       <section className="space-y-2">
         <h2 className="font-display text-[13px] font-semibold text-foreground">Atalhos</h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {/* key = path (único): PCP e Expedição compartilham a key de módulo "producao" —
-              key duplicada fazia o React duplicar o tile de PCP. */}
-          {atalhos.map((m) => (
-            <Link key={m.path} to={m.path as any} className="block">
-              <Card className="flex min-h-[44px] flex-col items-start gap-2 p-4 transition-all hover:-translate-y-px hover:shadow-md">
+        <div className="hidden gap-3 sm:grid sm:grid-cols-3 lg:grid-cols-4">
+          {atalhosDesktop.map((m) => (
+            <Link key={m.path + m.label} to={m.path as any} search={(m.search ?? {}) as any} className="block h-full">
+              <Card className="flex h-full min-h-[44px] flex-col items-start gap-2 p-4 transition-all hover:-translate-y-px hover:shadow-md">
+                <m.icon className="h-5 w-5 text-primary" />
+                <span className="text-[13px] font-semibold">{m.label}</span>
+              </Card>
+            </Link>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-3 sm:hidden">
+          {atalhosMobile.map((m) => (
+            <Link key={m.path} to={m.path as any} className="block h-full">
+              <Card className="flex h-full min-h-[44px] flex-col items-start gap-2 p-4 transition-all hover:-translate-y-px hover:shadow-md">
                 <m.icon className="h-5 w-5 text-primary" />
                 <span className="text-[13px] font-semibold">{m.label}</span>
               </Card>
