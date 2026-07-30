@@ -46,7 +46,8 @@ import { useTenantModules } from "@/hooks/useTenantModules";
 import { useTabLabels } from "@/hooks/useTabLabels";
 import { Button } from "@/components/ui/button";
 import { PAGES_CATALOG, pageInProfile } from "@/lib/permissions-catalog";
-import { PAGE_URLS, MODULE_META } from "@/lib/nav";
+import { PAGE_URLS, MODULE_META, BADGE_CLS, pageBadgeCounts } from "@/lib/nav";
+import { NavBadge } from "@/components/shared/NavBadge";
 import { supabase } from "@/integrations/supabase/client";
 import { useSystemIdentity } from "@/hooks/useSystemIdentity";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -62,33 +63,7 @@ import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 
 // Bolinhas de atenção ao lado de itens do menu (contadores vindos da RPC sidebar_badges).
 // A cor comunica urgência: atraso = vermelho, alerta = âmbar, pronto p/ lançar = azul.
-// AA sobre o navy: âmbar/azul com TEXTO ESCURO (branco/âmbar dava 2,1:1); vermelho um
-// passo mais escuro (branco/red-600 ≈ 4,5:1). Laudo do time de lentes, jul/2026.
-const BADGE_CLS: Record<string, string> = {
-  criacao_planejamento: "bg-sky-300 text-sky-950",
-  entrada_alertas_tecido: "bg-amber-400 text-amber-950",
-  entrada_oc_tecido: "bg-red-600 text-white",
-  entrada_oc_aviamento: "bg-red-600 text-white",
-  entrada_oc_insumo: "bg-red-600 text-white",
-  otb_divergencia: "bg-red-600 text-white",
-  producao_terceirizados: "bg-red-600 text-white",
-  producao_cq: "bg-red-600 text-white",
-  producao_direcionamento: "bg-red-600 text-white",
-};
 
-function NavBadge({ n, className }: { n: number; className?: string }) {
-  if (!n || n <= 0) return null;
-  return (
-    <span
-      className={cn(
-        "inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none tabular-nums",
-        className,
-      )}
-    >
-      {n > 99 ? "99+" : n}
-    </span>
-  );
-}
 
 export function AppSidebar() {
   const { state, setOpenMobile } = useSidebar();
@@ -109,24 +84,16 @@ export function AppSidebar() {
   // (o nome por extenso segue no catálogo/permissões e no título da tela).
   const labelFor = (key: string, fallback: string) => {
     if (tabLabels[key]) return tabLabels[key];
-    if (key === "criacao_plan_tecido") return "Plan. Tecido";
-    if (key === "criacao_planejamento") return "Plan. Produto";
+    for (const m of PAGES_CATALOG) {
+      const pg = m.pages.find((x) => x.key === key);
+      if (pg?.shortLabel) return pg.shortLabel;
+    }
     return fallback;
   };
 
   // Contadores de atenção (fonte única compartilhada com a Home — useSidebarBadges).
   const { data: badges } = useSidebarBadges();
-  const countFor: Record<string, number> = {
-    criacao_planejamento: Number(badges?.prontos_lancar ?? 0),
-    entrada_alertas_tecido: Number(badges?.alertas_tecido ?? 0),
-    entrada_oc_tecido: Number(badges?.oc_tecido_atrasada ?? 0),
-    entrada_oc_aviamento: Number(badges?.oc_aviamento_atrasada ?? 0),
-    entrada_oc_insumo: Number(badges?.oc_etiqueta_atrasada ?? 0),
-    otb_divergencia: Number(badges?.otb_divergencia ?? 0),
-    producao_terceirizados: Number(badges?.erro_terceirizados ?? 0),
-    producao_cq: Number(badges?.erro_cq ?? 0),
-    producao_direcionamento: Number(badges?.erro_direcionamento ?? 0),
-  };
+  const countFor: Record<string, number> = pageBadgeCounts(badges);
   // Agregado por módulo (quando o grupo está recolhido/ícone): soma + cor da MAIOR urgência
   // entre os subs presentes, derivada do BADGE_CLS de cada um (vermelho > âmbar > azul).
   // Assim os #Erro de produção (producao_cq/terceirizados/direcionamento = bg-red) pintam o
@@ -136,7 +103,7 @@ export function AppSidebar() {
     const total = present.reduce((a, s) => a + (countFor[s.key] ?? 0), 0);
     const hasRed = present.some((s) => (BADGE_CLS[s.key] ?? "").includes("bg-red"));
     const hasAmber = present.some((s) => (BADGE_CLS[s.key] ?? "").includes("bg-amber"));
-    const cls = hasRed ? "bg-red-500 text-white" : hasAmber ? "bg-amber-500 text-white" : "bg-sky-500 text-white";
+    const cls = hasRed ? "bg-red-600 text-white" : hasAmber ? "bg-amber-400 text-amber-950" : "bg-sky-300 text-sky-950";
     return { total, cls };
   };
 
@@ -146,7 +113,9 @@ export function AppSidebar() {
     .filter((m) =>
       isAdmin || isSuperAdmin || isTenantAdmin
         ? true
-        : m.pages.some((p) => canView(p.key)),
+        // Espelha o filtro dos BLOCOS do hub: página real (não-soEdicao) no perfil da loja —
+        // senão o link pousa num hub vazio (ex.: usuário só com "Aprovar mão de obra").
+        : m.pages.some((p) => !p.soEdicao && pageInProfile(p, profile) && canView(p.key)),
     )
     .map((m) => {
       const subs = m.pages

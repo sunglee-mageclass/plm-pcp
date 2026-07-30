@@ -36,7 +36,7 @@ function AdminPage() {
       <header className="flex items-start gap-3">
         <Shield className="h-7 w-7 text-primary mt-0.5 shrink-0" />
         <div>
-          <h1 className="text-2xl font-bold">Admin</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Admin</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Gestão de usuários, lojas e configurações do sistema.
           </p>
@@ -46,9 +46,11 @@ function AdminPage() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {links.map((l) => (
           <Link key={l.to} to={l.to} className="block">
-            <Card className="h-full hover:border-primary/60 hover:shadow-sm transition-all">
+            <Card className="h-full transition-all hover:-translate-y-px hover:shadow-md">
               <CardHeader className="flex flex-row items-start gap-3 space-y-0">
-                <l.icon className="h-5 w-5 text-primary mt-0.5 shrink-0" />
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-primary/15 text-primary">
+                  <l.icon className="h-5 w-5" />
+                </span>
                 <div className="space-y-1">
                   <CardTitle className="text-base">{l.title}</CardTitle>
                   <CardDescription className="text-xs">{l.description}</CardDescription>

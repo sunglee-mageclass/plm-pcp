@@ -8,7 +8,9 @@ export type StoreProfile = "full" | "stock";
 export type SectionDef = { key: PageKey; label: string };
 // `soEdicao`: permissão-só (sem tela/menu) em que apenas "Editar" tem efeito — o modal
 // esconde o "Leitor" e mostra um toggle único (ex.: aprovar/reprovar mão de obra).
-export type PageDef = { key: PageKey; label: string; modes?: StoreProfile[]; sections?: SectionDef[]; soEdicao?: boolean };
+// `shortLabel`: forma curta p/ superfícies apertadas (sidebar); `description`: 1 linha de
+// CRITÉRIO DE DECISÃO exibida nos hubs de setor (SSOT — antes duplicada por rota, driftava).
+export type PageDef = { key: PageKey; label: string; shortLabel?: string; description?: string; modes?: StoreProfile[]; sections?: SectionDef[]; soEdicao?: boolean };
 // `gate`: chave de CONTRATAÇÃO (tenant_config.modules) usada p/ habilitar o nível. Ausente = usa o
 // próprio `module`. Permite 2 níveis de navegação (ex.: PCP e Expedição) compartilharem a MESMA flag
 // de contratação (`producao`) sem virar 2 módulos separados no banco.
@@ -25,13 +27,13 @@ export const PAGES_CATALOG: ModuleDef[] = [
     label: "Cadastro",
     basePath: "/cadastro",
     pages: [
-      { key: "cadastro_atributos", label: "Atributos" },
-      { key: "cadastro_colaboradores", label: "Colaboradores" },
-      { key: "cadastro_servico", label: "Fornecedores" },
-      { key: "cadastro_tecidos", label: "Tecidos" },
-      { key: "cadastro_aviamentos", label: "Aviamentos" },
-      { key: "cadastro_etiquetas", label: "Insumos", modes: ["full"] },
-      { key: "cadastro_destinos", label: "Destinos", modes: ["stock"] },
+      { key: "cadastro_atributos", label: "Atributos", description: "Cores, anos, meses, categorias e demais listas." },
+      { key: "cadastro_colaboradores", label: "Colaboradores", description: "Pessoas envolvidas no processo." },
+      { key: "cadastro_servico", label: "Fornecedores", description: "Empresas fornecedoras e representantes." },
+      { key: "cadastro_tecidos", label: "Tecidos", description: "Catálogo de tecidos e variantes." },
+      { key: "cadastro_aviamentos", label: "Aviamentos", description: "Catálogo de aviamentos." },
+      { key: "cadastro_etiquetas", label: "Insumos", description: "Insumos (etiquetas, embalagens, etc.).", modes: ["full"] },
+      { key: "cadastro_destinos", label: "Destinos", description: "Destinos de saída (modo só-estoque).", modes: ["stock"] },
     ],
   },
   {
@@ -41,13 +43,13 @@ export const PAGES_CATALOG: ModuleDef[] = [
     pages: [
       // Explosão (baixa de estoque/corte) — realocada de Estilo & Engenharia; 1ª da lista.
       // `modes: ["full"]` preserva o comportamento de ficar oculta no modo só-estoque.
-      { key: "producao_explosao", label: "Explosão", modes: ["full"] },
-      { key: "entrada_oc_tecido", label: "OC Tecido" },
-      { key: "entrada_alertas_tecido", label: "Alertas de Tecido", modes: ["full"] },
-      { key: "entrada_oc_aviamento", label: "OC Aviamento" },
-      { key: "entrada_oc_insumo", label: "OC Insumo", modes: ["full"] },
-      { key: "entrada_os_tecido", label: "OS Tecido", modes: ["stock"] },
-      { key: "entrada_os_aviamento", label: "OS Aviamento", modes: ["stock"] },
+      { key: "producao_explosao", label: "Explosão", description: "Baixa de estoque / envio ao corte.", modes: ["full"] },
+      { key: "entrada_oc_tecido", label: "OC Tecido", description: "Ordens de compra de tecidos e recebimento." },
+      { key: "entrada_alertas_tecido", label: "Alertas de Tecido", description: "CQ de tecido reprovado: trocar ou cancelar.", modes: ["full"] },
+      { key: "entrada_oc_aviamento", label: "OC Aviamento", description: "Ordens de compra de aviamentos." },
+      { key: "entrada_oc_insumo", label: "OC Insumo", description: "Ordens de compra de insumos.", modes: ["full"] },
+      { key: "entrada_os_tecido", label: "OS Tecido", description: "Ordens de saída / baixa de tecidos.", modes: ["stock"] },
+      { key: "entrada_os_aviamento", label: "OS Aviamento", description: "Ordens de saída / baixa de aviamentos.", modes: ["stock"] },
     ],
   },
   {
@@ -63,14 +65,14 @@ export const PAGES_CATALOG: ModuleDef[] = [
     label: "Estilo & Engenharia",
     basePath: "/criacao",
     pages: [
-      { key: "criacao_plan_tecido", label: "Planejamento de Tecido" },
-      { key: "criacao_planejamento", label: "Planejamento de Produto",
+      { key: "criacao_plan_tecido", label: "Planejamento de Tecido", shortLabel: "Plan. Tecido", description: "Necessidade de tecido × estoque × OCs por coleção — antes de comprar." },
+      { key: "criacao_planejamento", label: "Planejamento de Produto", shortLabel: "Plan. Produto", description: "Cards em planejamento; lança quando CQ e custo estão aprovados.",
         sections: [{ key: "criacao_planejamento:custos", label: "Custos / Preço" }] },
       // Permissão-só (sem tela): "Editar" = pode aprovar/reprovar o custo de mão de obra no
       // card do Planejamento (e Plan. Tecido). Chave legada `producao_servico_aprovacao`
       // MANTIDA (trigger no banco + atribuições já feitas); só o rótulo/lugar mudaram.
       { key: "producao_servico_aprovacao", label: "Aprovar/reprovar mão de obra", soEdicao: true },
-      { key: "criacao_desenvolvimento", label: "Desenvolvimento",
+      { key: "criacao_desenvolvimento", label: "Desenvolvimento", description: "Modelos aprovados: ficha técnica, BOM e kanban.",
         sections: [{ key: "criacao_desenvolvimento:custos", label: "Custos / Preço" }] },
     ],
   },
@@ -95,9 +97,9 @@ export const PAGES_CATALOG: ModuleDef[] = [
     basePath: "/expedicao",
     gate: "producao",
     pages: [
-      { key: "producao_cq", label: "Controle de Qualidade" },
-      { key: "producao_direcionamento", label: "Direcionamento" },
-      { key: "producao_lancamentos", label: "Lançamentos" },
+      { key: "producao_cq", label: "Controle de Qualidade", description: "Recebimento, conserto, lavagem, defeito." },
+      { key: "producao_direcionamento", label: "Direcionamento", description: "E-commerce vs Loja Física." },
+      { key: "producao_lancamentos", label: "Lançamentos", description: "Produtos finalizados." },
     ],
   },
   {

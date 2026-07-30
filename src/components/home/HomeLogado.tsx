@@ -14,6 +14,7 @@ import { useTenantModules } from "@/hooks/useTenantModules";
 import { useTenantBranding } from "@/hooks/useTenantBranding";
 import { useStoreTimezone } from "@/hooks/useStoreTimezone";
 import { todayISOInStoreTZ } from "@/lib/timezone";
+import { PAGES_CATALOG } from "@/lib/permissions-catalog";
 import { Card } from "@/components/ui/card";
 import { TecelagemAnimacao } from "./TecelagemAnimacao";
 
@@ -236,7 +237,12 @@ export function HomeLogado() {
     },
   ].filter(Boolean) as CardAtencao[];
 
-  const atalhosMobile = MODULOS.filter((m) => (modules as Record<string, boolean>)[m.key]);
+  // Tile de módulo só se o usuário PODE VER alguma página real dele (mesmo filtro do hub —
+  // senão o toque pousa em "Nenhuma tela disponível…"; laudo do hub, jul/2026).
+  const atalhosMobile = MODULOS.filter((m) => (modules as Record<string, boolean>)[m.key]).filter((m) => {
+    const mod = PAGES_CATALOG.find((x) => x.basePath === m.path);
+    return !mod || mod.pages.some((p) => !p.soEdicao && podeVer(p.key));
+  });
   const atalhosDesktop = PAGINAS.filter(
     (p) => (modules as Record<string, boolean>)[p.mod] && (p.key === null || podeVer(p.key)),
   );

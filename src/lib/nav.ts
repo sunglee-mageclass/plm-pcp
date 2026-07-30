@@ -69,3 +69,50 @@ export const PAGE_ICONS: Record<string, LucideIcon> = {
   producao_direcionamento: Split,
   producao_lancamentos: Rocket,
 };
+
+// ── Badges de pendência por PÁGINA (RPC sidebar_badges) — SSOT sidebar + hubs de setor ──
+// Cores AA sobre navy E card claro: âmbar/azul com TEXTO ESCURO; vermelho red-600.
+export const BADGE_CLS: Record<string, string> = {
+  criacao_planejamento: "bg-sky-300 text-sky-950",
+  entrada_alertas_tecido: "bg-amber-400 text-amber-950",
+  entrada_oc_tecido: "bg-red-600 text-white",
+  entrada_oc_aviamento: "bg-red-600 text-white",
+  entrada_oc_insumo: "bg-red-600 text-white",
+  otb_divergencia: "bg-red-600 text-white",
+  producao_terceirizados: "bg-red-600 text-white",
+  producao_cq: "bg-red-600 text-white",
+  producao_direcionamento: "bg-red-600 text-white",
+};
+
+/** Contadores da RPC sidebar_badges mapeados por KEY de página (mesma fonte p/ sidebar e hubs). */
+export function pageBadgeCounts(b?: Record<string, number>): Record<string, number> {
+  const n = (k: string) => Number(b?.[k] ?? 0);
+  return {
+    criacao_planejamento: n("prontos_lancar"),
+    entrada_alertas_tecido: n("alertas_tecido"),
+    entrada_oc_tecido: n("oc_tecido_atrasada"),
+    entrada_oc_aviamento: n("oc_aviamento_atrasada"),
+    entrada_oc_insumo: n("oc_etiqueta_atrasada"),
+    otb_divergencia: n("otb_divergencia"),
+    producao_terceirizados: n("erro_terceirizados"),
+    producao_cq: n("erro_cq"),
+    producao_direcionamento: n("erro_direcionamento"),
+  };
+}
+
+/** Frase da "linha viva" nos cards dos hubs (laudo do time: hub deixa de ser mudo de estado). */
+export function badgeViva(key: string, n: number): string | null {
+  if (n <= 0) return null;
+  const um = n === 1;
+  switch (key) {
+    case "criacao_planejamento": return `${n} pronto${um ? "" : "s"} p/ lançar`;
+    case "entrada_alertas_tecido": return `${n} alerta${um ? "" : "s"} pendente${um ? "" : "s"}`;
+    case "entrada_oc_tecido":
+    case "entrada_oc_aviamento":
+    case "entrada_oc_insumo": return `${n} OC${um ? "" : "s"} atrasada${um ? "" : "s"}`;
+    case "producao_cq": return `${n} erro${um ? "" : "s"} de CQ`;
+    case "producao_direcionamento": return `${n} erro${um ? "" : "s"} de direcionamento`;
+    case "producao_terceirizados": return `${n} erro${um ? "" : "s"} em serviços`;
+    default: return null;
+  }
+}
