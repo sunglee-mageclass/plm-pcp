@@ -15,6 +15,7 @@ import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AtrasadasBadge } from "@/components/shared/AtrasadasBadge";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -245,7 +246,7 @@ function OcAviamentoPage() {
       <Tabs value={tab} onValueChange={(v) => setTab(v as OCStatus | "estoque")}>
         <TabsList>
           <TabsTrigger value="recebido">Recebidos</TabsTrigger>
-          <TabsTrigger value="encomendado">Encomendados</TabsTrigger>
+          <TabsTrigger value="encomendado" className="relative">Encomendados<AtrasadasBadge chave="oc_aviamento_atrasada" /></TabsTrigger>
           <TabsTrigger value="estoque">Estoque</TabsTrigger>
         </TabsList>
 

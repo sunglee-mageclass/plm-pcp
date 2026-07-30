@@ -27,6 +27,7 @@ import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { AtrasadasBadge } from "@/components/shared/AtrasadasBadge";
 import { useEstoqueInsumos, EstoqueInsumosTable } from "@/components/oc-insumo/EstoqueInsumosTab";
 import { printWithImages } from "@/lib/print";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -182,7 +183,7 @@ function OcInsumoPage() {
       <Tabs value={tab} onValueChange={(v) => setTab(v as OCStatus | "estoque")}>
         <TabsList>
           <TabsTrigger value="recebido">Recebidos</TabsTrigger>
-          <TabsTrigger value="encomendado">Encomendados</TabsTrigger>
+          <TabsTrigger value="encomendado" className="relative">Encomendados<AtrasadasBadge chave="oc_etiqueta_atrasada" /></TabsTrigger>
           <TabsTrigger value="estoque">Estoque</TabsTrigger>
         </TabsList>
 
