@@ -1,9 +1,9 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { RequirePermission } from "@/components/RequirePermission";
 
-export const Route = createFileRoute("/_authenticated/producao/oficina")({
+export const Route = createFileRoute("/_authenticated/expedicao/direcionamento")({
   component: () => (
-    <RequirePermission page="producao_oficina">
+    <RequirePermission page="producao_direcionamento">
       <Outlet />
     </RequirePermission>
   ),

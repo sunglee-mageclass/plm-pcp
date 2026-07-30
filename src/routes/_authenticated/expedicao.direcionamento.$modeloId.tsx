@@ -23,7 +23,7 @@ import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/Unsave
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 
-export const Route = createFileRoute("/_authenticated/producao/direcionamento/$modeloId")({
+export const Route = createFileRoute("/_authenticated/expedicao/direcionamento/$modeloId")({
   component: DirDetailPage,
 });
 
@@ -195,7 +195,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
   // depois de hidratar e enquanto editável (locked/readOnly não altera nada).
   const editavel = !readOnly && !(status === "separado" && !editing);
   const dirty = hydrated && editavel && changed;
-  // Full-page (rota /producao/direcionamento/$modeloId): bloqueia navegação. Modal (Sheet
+  // Full-page (rota /expedicao/direcionamento/$modeloId): bloqueia navegação. Modal (Sheet
   // no index): o guarda vive no pai, que recebe `dirty` via onDirtyChange — aqui fica inerte.
   const { confirm } = useUnsavedGuard({ dirty: onClose ? false : dirty, blockNav: !onClose });
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
@@ -278,7 +278,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
     </Button>
   ) : (
     <Button asChild variant="outline" aria-label="Voltar">
-      <Link to="/producao/direcionamento"><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Link>
+      <Link to="/expedicao/direcionamento"><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Link>
     </Button>
   );
   const actionButtons = (
@@ -329,7 +329,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
       <div className="flex items-start gap-3">
         <Breadcrumb
           items={[
-            { label: "PCP" },
+            { label: "Expedição & Logística" },
             { label: "Direcionamento" },
             { label: modelo?.ref ?? "…" },
           ]}

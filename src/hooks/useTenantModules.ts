@@ -30,7 +30,7 @@ const MODULE_BASE_PATH: Record<ModuleKey, string> = {
   cadastro: "/cadastro",
   entrada_saida: "/entrada-saida",
   criacao: "/criacao",
-  producao: "/producao",
+  producao: "/pcp",
   financeiro: "/financeiro",
   dashboard: "/dashboard",
   otb: "/otb",

@@ -4,7 +4,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Compass, Search } from "lucide-react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { DirecionamentoDetail } from "@/routes/_authenticated/producao.direcionamento.$modeloId";
+import { DirecionamentoDetail } from "@/routes/_authenticated/expedicao.direcionamento.$modeloId";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { supabase } from "@/integrations/supabase/client";
 import { cqLiberado } from "@/lib/cq-status";
@@ -18,7 +18,7 @@ import { FilterButton } from "@/components/shared/filters";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useSort, SortTh } from "@/components/shared/sort";
 
-export const Route = createFileRoute("/_authenticated/producao/direcionamento/")({
+export const Route = createFileRoute("/_authenticated/expedicao/direcionamento/")({
   component: DirListPage,
 });
 

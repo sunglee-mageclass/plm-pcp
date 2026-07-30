@@ -4,7 +4,7 @@
 import {
   BarChart3, ClipboardList, Package, Palette, Factory, DollarSign, Target,
   Tags, Users, Building2, Layers, Scissors, Boxes, ShoppingCart, AlertTriangle, Tag, MapPin,
-  Hammer, CheckCircle2, Split, Rocket, FileText, type LucideIcon,
+  Hammer, CheckCircle2, Split, Rocket, FileText, Truck, type LucideIcon,
 } from "lucide-react";
 
 export const MODULE_META: Record<string, { title: string; icon: LucideIcon }> = {
@@ -12,7 +12,8 @@ export const MODULE_META: Record<string, { title: string; icon: LucideIcon }> = 
   cadastro: { title: "Cadastro", icon: ClipboardList },
   entrada_saida: { title: "Entrada e Saída", icon: Package },
   criacao: { title: "Estilo & Engenharia", icon: Palette },
-  producao: { title: "PCP", icon: Factory },
+  pcp: { title: "PCP", icon: Factory },
+  expedicao: { title: "Expedição & Logística", icon: Truck },
   financeiro: { title: "Financeiro", icon: DollarSign },
   otb: { title: "OTB", icon: Target },
 };
@@ -36,11 +37,12 @@ export const PAGE_URLS: Record<string, string> = {
   criacao_planejamento: "/criacao/planejamento",
   criacao_desenvolvimento: "/criacao/desenvolvimento",
   producao_explosao: "/entrada-saida/explosao",
-  producao_terceirizados: "/producao/terceirizados",
-  // Oficina é acessada dentro de Serviços; não aparece como item próprio na navegação lateral.
-  producao_cq: "/producao/cq",
-  producao_direcionamento: "/producao/direcionamento",
-  producao_lancamentos: "/producao/lancamentos",
+  // PCP é o próprio Serviços (nível de página única): a tela fica NO basePath /pcp, então
+  // producao_terceirizados NÃO entra em PAGE_URLS (senão viraria sub-item/hub em vez de link direto).
+  // Oficina e CAD são acessados dentro de outras telas — também sem item próprio na navegação.
+  producao_cq: "/expedicao/cq",
+  producao_direcionamento: "/expedicao/direcionamento",
+  producao_lancamentos: "/expedicao/lancamentos",
 };
 
 // Ícone por página (bloquinhos do hub). Sem entrada = usa o ícone do módulo (fallback no SectionHub).

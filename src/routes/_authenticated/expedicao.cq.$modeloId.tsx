@@ -38,7 +38,7 @@ import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/Unsave
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 
-export const Route = createFileRoute("/_authenticated/producao/cq/$modeloId")({
+export const Route = createFileRoute("/_authenticated/expedicao/cq/$modeloId")({
   component: CqDetailPage,
 });
 
@@ -247,7 +247,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   const { dirty: changed, markClean, reset: resetBaseline } = useDirtySnapshot({ form, grades, fotografado });
   // Só marca sujo depois de hidratar e enquanto editável (readOnly não altera nada).
   const dirty = hydrated && !readOnly && changed;
-  // Full-page (rota /producao/cq/$modeloId): bloqueia navegação. Modal (Sheet no index):
+  // Full-page (rota /expedicao/cq/$modeloId): bloqueia navegação. Modal (Sheet no index):
   // o guarda vive no pai, que recebe `dirty` via onDirtyChange — aqui fica inerte.
   const { confirm } = useUnsavedGuard({ dirty: onClose ? false : dirty, blockNav: !onClose });
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
@@ -544,7 +544,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     </Button>
   ) : (
     <Button asChild variant="outline" aria-label="Voltar">
-      <Link to="/producao/cq"><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Link>
+      <Link to="/expedicao/cq"><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Link>
     </Button>
   );
   const actionButtons = (
@@ -627,7 +627,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       {/* Cabeçalho: só breadcrumb/título. Voltar e Oficina foram p/ a barra de ações do rodapé. */}
       <header className="space-y-2">
         <div className="flex items-center gap-2">
-          <Breadcrumb items={[{ label: "PCP" }, { label: "Controle de Qualidade", to: "/producao/cq" }, { label: modelo?.ref ?? "…" }]} />
+          <Breadcrumb items={[{ label: "Expedição & Logística" }, { label: "Controle de Qualidade", to: "/expedicao/cq" }, { label: modelo?.ref ?? "…" }]} />
           <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
         </div>
         <div className="flex items-start gap-3">

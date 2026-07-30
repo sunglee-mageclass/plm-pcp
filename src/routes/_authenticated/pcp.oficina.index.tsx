@@ -14,7 +14,7 @@ import { FilterButton, SearchToggle } from "@/components/shared/filters";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useSort, SortTh } from "@/components/shared/sort";
 
-export const Route = createFileRoute("/_authenticated/producao/oficina/")({
+export const Route = createFileRoute("/_authenticated/pcp/oficina/")({
   component: OficinaListPage,
 });
 
@@ -117,14 +117,14 @@ function OficinaListPage() {
             {s.sorted.map((r: any) => (
               <tr key={r.modelo_id} className="border-t hover:bg-muted/30">
                 <td className="px-4 py-2">
-                  <Link to="/producao/oficina/$modeloId" params={{ modeloId: r.modelo_id }} className="font-mono text-primary hover:underline">
+                  <Link to="/pcp/oficina/$modeloId" params={{ modeloId: r.modelo_id }} className="font-mono text-primary hover:underline">
                     {r.ref ?? "—"}
                   </Link>
                   <VersaoBadge versao={r.versao} className="ml-2 text-[10px]" />
                   <span className="ml-2"><RevisaoErroBadge revisao={r.revisao_pendente} etapa="oficina" /></span>
                 </td>
                 <td className="px-4 py-2" data-label="Nome">
-                  <Link to="/producao/oficina/$modeloId" params={{ modeloId: r.modelo_id }} className="hover:underline">
+                  <Link to="/pcp/oficina/$modeloId" params={{ modeloId: r.modelo_id }} className="hover:underline">
                     {r.nome ?? "—"}
                   </Link>
                 </td>

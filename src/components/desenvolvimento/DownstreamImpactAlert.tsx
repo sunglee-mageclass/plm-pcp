@@ -35,11 +35,11 @@ type StageDef = {
 const STAGES: StageDef[] = [
   { key: "cad", label: "Explosão", desc: "Metragem planejada, consumos e custo previsto.", href: () => "/entrada-saida/explosao" },
   { key: "corte", label: "Corte", desc: (e) => `Já enviado ao corte — ${fmtNum(Number(e.baixa_total ?? 0))}m baixados; a baixa não se desfaz sozinha.` },
-  { key: "terceirizados", label: "Serviços", desc: "Quantidades e custos dos serviços.", href: (id) => `/producao/terceirizados/${id}` },
-  { key: "oficina", label: "Oficina", desc: "Quantidades e custos da oficina.", href: (id) => `/producao/oficina/${id}` },
-  { key: "cq", label: "CQ", desc: "Grade e peças conferidas.", href: (id) => `/producao/cq/${id}` },
-  { key: "direcionamento", label: "Direcionamento", desc: "Direcionamento das peças.", href: (id) => `/producao/direcionamento/${id}` },
-  { key: "lancamentos", label: "Lançamentos", desc: "Lançamentos de produção.", href: () => `/producao/lancamentos` },
+  { key: "terceirizados", label: "Serviços", desc: "Quantidades e custos dos serviços.", href: (id) => `/pcp/servicos/${id}` },
+  { key: "oficina", label: "Oficina", desc: "Quantidades e custos da oficina.", href: (id) => `/pcp/oficina/${id}` },
+  { key: "cq", label: "CQ", desc: "Grade e peças conferidas.", href: (id) => `/expedicao/cq/${id}` },
+  { key: "direcionamento", label: "Direcionamento", desc: "Direcionamento das peças.", href: (id) => `/expedicao/direcionamento/${id}` },
+  { key: "lancamentos", label: "Lançamentos", desc: "Lançamentos de produção.", href: () => `/expedicao/lancamentos` },
 ];
 
 // Impacto por CAMPO editado: o que muda e quais etapas isso atinge.
@@ -174,8 +174,8 @@ const UNMARK_STAGES: UnmarkStage[] = [
   { key: "lancamentos", label: "Lançamentos", effect: () => "lançado → não lançado", perm: "producao_lancamentos", action: "lancamentos" },
   { key: "direcionamento", label: "Direcionamento", effect: () => "separado → pendente", perm: "producao_direcionamento", action: "direcionamento" },
   { key: "cq", label: "CQ", effect: () => "estorna a grade conferida (Pré e Pós)", perm: "producao_cq", action: "cq", destructive: true },
-  { key: "oficina", label: "Oficina", effect: () => "revise as quantidades na tela", perm: "producao_oficina", href: (id) => `/producao/oficina/${id}` },
-  { key: "terceirizados", label: "Serviços", effect: () => "revise as quantidades na tela", perm: "producao_terceirizados", href: (id) => `/producao/terceirizados/${id}` },
+  { key: "oficina", label: "Oficina", effect: () => "revise as quantidades na tela", perm: "producao_oficina", href: (id) => `/pcp/oficina/${id}` },
+  { key: "terceirizados", label: "Serviços", effect: () => "revise as quantidades na tela", perm: "producao_terceirizados", href: (id) => `/pcp/servicos/${id}` },
   { key: "corte", label: "Corte", effect: (e) => `estorna a baixa de ${fmtNum(Number(e.baixa_total ?? 0))} m de tecido`, perm: "producao_cad", action: "corte", destructive: true },
 ];
 

@@ -9,7 +9,10 @@ export type SectionDef = { key: PageKey; label: string };
 // `soEdicao`: permissão-só (sem tela/menu) em que apenas "Editar" tem efeito — o modal
 // esconde o "Leitor" e mostra um toggle único (ex.: aprovar/reprovar mão de obra).
 export type PageDef = { key: PageKey; label: string; modes?: StoreProfile[]; sections?: SectionDef[]; soEdicao?: boolean };
-export type ModuleDef = { module: string; label: string; basePath: string; pages: PageDef[] };
+// `gate`: chave de CONTRATAÇÃO (tenant_config.modules) usada p/ habilitar o nível. Ausente = usa o
+// próprio `module`. Permite 2 níveis de navegação (ex.: PCP e Expedição) compartilharem a MESMA flag
+// de contratação (`producao`) sem virar 2 módulos separados no banco.
+export type ModuleDef = { module: string; label: string; basePath: string; pages: PageDef[]; gate?: string };
 
 /** Página visível no perfil atual da loja (full vs só-estoque)? */
 export function pageInProfile(p: PageDef, profile: StoreProfile): boolean {
@@ -72,14 +75,26 @@ export const PAGES_CATALOG: ModuleDef[] = [
     ],
   },
   {
-    module: "producao",
+    // PCP = o próprio Serviços (nível de página única, como o OTB). CAD e Oficina são permissões
+    // sem tela na sidebar (CAD integrado à Explosão; Oficina acessada dentro de Serviços) — ficam aqui.
+    module: "pcp",
     label: "PCP",
-    basePath: "/producao",
+    basePath: "/pcp",
+    gate: "producao",
     pages: [
-      { key: "producao_cad", label: "CAD" },
       { key: "producao_terceirizados", label: "Serviços",
         sections: [{ key: "producao_terceirizados:precos", label: "Preços" }] },
+      { key: "producao_cad", label: "CAD" },
       { key: "producao_oficina", label: "Oficina" },
+    ],
+  },
+  {
+    // Expedição & Logística = nível novo que agrupa CQ + Direcionamento + Lançamentos.
+    module: "expedicao",
+    label: "Expedição & Logística",
+    basePath: "/expedicao",
+    gate: "producao",
+    pages: [
       { key: "producao_cq", label: "Controle de Qualidade" },
       { key: "producao_direcionamento", label: "Direcionamento" },
       { key: "producao_lancamentos", label: "Lançamentos" },

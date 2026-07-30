@@ -23,7 +23,7 @@ export function SectionHub({ module, subtitle, descriptions }: { module: string;
 
   // Módulo desligado pra loja: não montar o hub (mesma gate da sidebar) — evita mostrar blocos de um
   // setor não contratado quando alguém abre o basePath direto.
-  const moduleOff = !!module && !isModuleEnabled(module);
+  const moduleOff = !!mod && !isModuleEnabled(mod.gate ?? mod.module);
 
   const blocks = moduleOff ? [] : (mod?.pages ?? [])
     .filter((p) => !p.soEdicao && PAGE_URLS[p.key])                        // páginas com tela de verdade

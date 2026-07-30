@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { format, addDays } from "date-fns";
 import {
   AlertTriangle, Wallet, Clock, CalendarX, ArrowRight,
-  BarChart3, ClipboardList, Package, Palette, Factory, DollarSign, Target,
+  BarChart3, ClipboardList, Package, Palette, Factory, DollarSign, Target, Truck,
 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
@@ -24,7 +24,9 @@ const MODULOS: { key: string; label: string; path: string; icon: typeof BarChart
   { key: "entrada_saida", label: "Entrada e Saída", path: "/entrada-saida", icon: Package },
   { key: "otb", label: "OTB", path: "/otb", icon: Target },
   { key: "criacao", label: "Estilo & Engenharia", path: "/criacao", icon: Palette },
-  { key: "producao", label: "PCP", path: "/producao", icon: Factory },
+  // PCP e Expedição são 2 níveis mas compartilham a MESMA flag de contratação (producao).
+  { key: "producao", label: "PCP", path: "/pcp", icon: Factory },
+  { key: "producao", label: "Expedição & Logística", path: "/expedicao", icon: Truck },
   { key: "financeiro", label: "Financeiro", path: "/financeiro", icon: DollarSign },
 ];
 

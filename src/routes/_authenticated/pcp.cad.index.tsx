@@ -15,9 +15,9 @@ import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useSort, SortTh } from "@/components/shared/sort";
-import { CadEditor } from "@/routes/_authenticated/producao.cad.$modeloId";
+import { CadEditor } from "@/routes/_authenticated/pcp.cad.$modeloId";
 
-export const Route = createFileRoute("/_authenticated/producao/cad/")({
+export const Route = createFileRoute("/_authenticated/pcp/cad/")({
   component: CadListPage,
 });
 

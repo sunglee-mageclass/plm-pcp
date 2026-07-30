@@ -23,7 +23,7 @@ import { printWithImages } from "@/lib/print";
 import { PrintArea } from "@/components/shared/PrintArea";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 
-export const Route = createFileRoute("/_authenticated/producao/oficina/$modeloId")({
+export const Route = createFileRoute("/_authenticated/pcp/oficina/$modeloId")({
   component: OficinaDetailPage,
 });
 
@@ -228,12 +228,12 @@ function OficinaDetailPage() {
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
       <VerificarRevisao modeloId={modeloId} etapa="oficina" />
       <div className="no-print flex items-center justify-between">
-        <Link to="/producao/oficina" className="max-sm:hidden text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+        <Link to="/pcp/oficina" className="max-sm:hidden text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
           <ArrowLeft className="h-4 w-4" /> Voltar
         </Link>
         <div className="flex gap-2 max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:z-40 max-sm:justify-end max-sm:border-t max-sm:bg-background max-sm:p-3 max-sm:shadow-lg">
           <Button asChild variant="outline" size="icon" className="sm:hidden mr-auto" aria-label="Voltar">
-            <Link to="/producao/oficina"><ArrowLeft className="h-4 w-4" /></Link>
+            <Link to="/pcp/oficina"><ArrowLeft className="h-4 w-4" /></Link>
           </Button>
           <Button variant="outline" className="hidden md:inline-flex" onClick={handlePrint}>
             <Printer className="h-4 w-4 mr-2" /> Imprimir Ficha de Oficina

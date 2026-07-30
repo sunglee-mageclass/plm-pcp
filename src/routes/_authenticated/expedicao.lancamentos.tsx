@@ -28,7 +28,7 @@ import { RevisaoErroBadge, VerificarRevisao } from "@/components/producao/Revisa
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { ImagePreview } from "@/components/shared/ImagePreview";
-export const Route = createFileRoute("/_authenticated/producao/lancamentos")({
+export const Route = createFileRoute("/_authenticated/expedicao/lancamentos")({
   component: () => (
     <RequirePermission page="producao_lancamentos">
       <LancamentosPage />

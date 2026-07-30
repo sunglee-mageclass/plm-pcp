@@ -145,7 +145,7 @@ export function AppSidebar() {
 
   const visibleMainItems = PAGES_CATALOG
     // Gate de módulo (a loja contratou?): vale para todos os papéis, inclusive admin.
-    .filter((m) => isModuleEnabled(m.module))
+    .filter((m) => isModuleEnabled(m.gate ?? m.module))
     .filter((m) =>
       isAdmin || isSuperAdmin || isTenantAdmin
         ? true

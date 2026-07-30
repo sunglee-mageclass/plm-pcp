@@ -44,7 +44,7 @@ import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { printWithImages } from "@/lib/print";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 
-export const Route = createFileRoute("/_authenticated/producao/cad/$modeloId")({
+export const Route = createFileRoute("/_authenticated/pcp/cad/$modeloId")({
   component: CadDetailPage,
 });
 

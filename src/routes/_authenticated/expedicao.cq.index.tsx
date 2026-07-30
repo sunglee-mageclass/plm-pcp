@@ -4,7 +4,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { ClipboardCheck, Search } from "lucide-react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { CqDetail } from "@/routes/_authenticated/producao.cq.$modeloId";
+import { CqDetail } from "@/routes/_authenticated/expedicao.cq.$modeloId";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { supabase } from "@/integrations/supabase/client";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
@@ -17,7 +17,7 @@ import { FilterButton } from "@/components/shared/filters";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useSort, SortTh } from "@/components/shared/sort";
 
-export const Route = createFileRoute("/_authenticated/producao/cq/")({
+export const Route = createFileRoute("/_authenticated/expedicao/cq/")({
   component: CqListPage,
 });
 

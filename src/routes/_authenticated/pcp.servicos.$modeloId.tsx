@@ -46,7 +46,7 @@ import { printWithImages } from "@/lib/print";
 import { FichaTecnica } from "@/components/producao/FichaTecnica";
 import { OrdemServicoTerceirizados, type OSItem } from "@/components/producao/OrdemServicoTerceirizados";
 
-export const Route = createFileRoute("/_authenticated/producao/terceirizados/$modeloId")({
+export const Route = createFileRoute("/_authenticated/pcp/servicos/$modeloId")({
   component: TercDetailPage,
 });
 
@@ -393,7 +393,7 @@ export function TerceirizadosDetail({
   // (readOnly = permissão; inputs ficam disabled, então nada muda). O lock por-aba NÃO zera o
   // dirty — a outra aba pode estar editável e o Salvar persiste as duas.
   const dirty = hydrated && moldeHydrated && !readOnly && changed;
-  // Full-page (rota /producao/terceirizados/$modeloId): bloqueia navegação de rota. Modal
+  // Full-page (rota /pcp/servicos/$modeloId): bloqueia navegação de rota. Modal
   // (Sheet no index): o guarda vive no pai, que recebe `dirty` via onDirtyChange — aqui inerte.
   const { confirm } = useUnsavedGuard({ dirty: onClose ? false : dirty, blockNav: !onClose });
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
@@ -654,7 +654,7 @@ export function TerceirizadosDetail({
     </Button>
   ) : (
     <Button asChild variant="outline" aria-label="Voltar">
-      <Link to="/producao/terceirizados"><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Link>
+      <Link to="/pcp/servicos"><ArrowLeft className="h-4 w-4 mr-1" />Voltar</Link>
     </Button>
   );
   // "Voltar uma etapa" (secundário) vive na barra de ações do rodapé, logo à ESQUERDA
@@ -685,7 +685,7 @@ export function TerceirizadosDetail({
       {/* Cabeçalho: breadcrumb + botões SECUNDÁRIOS de impressão. "Voltar uma etapa" e as
           ações primárias (Voltar / Salvar) ficam no rodapé sticky. */}
       <div className="flex items-center justify-between gap-2">
-        <Breadcrumb items={[{ label: "PCP" }, { label: "Serviços", to: "/producao/terceirizados" }, { label: modelo?.ref ?? "…" }]} />
+        <Breadcrumb items={[{ label: "PCP" }, { label: "Serviços", to: "/pcp/servicos" }, { label: modelo?.ref ?? "…" }]} />
         <div className="flex items-center gap-2">
           <UnsavedIndicator show={dirty} className="shrink-0" />
           <Button variant="outline" className="hidden md:inline-flex" onClick={() => { setPrintTarget("ficha"); printWithImages(); }} disabled={!cad?.id}>

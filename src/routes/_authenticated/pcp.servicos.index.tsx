@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Users, Search, Printer } from "lucide-react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
-import { TerceirizadosDetail } from "@/routes/_authenticated/producao.terceirizados.$modeloId";
+import { TerceirizadosDetail } from "@/routes/_authenticated/pcp.servicos.$modeloId";
 import { supabase } from "@/integrations/supabase/client";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { RevisaoErroBadge } from "@/components/producao/RevisaoErro";
@@ -19,7 +19,7 @@ import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useSort, SortTh } from "@/components/shared/sort";
 
-export const Route = createFileRoute("/_authenticated/producao/terceirizados/")({
+export const Route = createFileRoute("/_authenticated/pcp/servicos/")({
   component: TercListPage,
 });
 
