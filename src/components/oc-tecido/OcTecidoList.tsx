@@ -1,4 +1,6 @@
 import { Trash2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -68,11 +70,34 @@ export function OcTecidoList({
     },
   });
 
+  // Bolinha de "pedidos atrasados" na aba Encomendados — MESMA fonte da sidebar (sidebar_badges),
+  // mesma queryKey (cache compartilhado) → o número bate exatamente com o da sidebar.
+  const { data: badges } = useQuery({
+    queryKey: ["sidebar-badges"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("sidebar_badges" as any);
+      if (error) throw error;
+      return (data ?? {}) as Record<string, number>;
+    },
+    staleTime: 30_000,
+  });
+  const atrasadas = Number(badges?.oc_tecido_atrasada ?? 0);
+
   return (
     <Tabs value={tab} onValueChange={(v) => setTab(v as OcTecidoTab)}>
       <TabsList>
         <TabsTrigger value="recebido">Recebidos</TabsTrigger>
-        <TabsTrigger value="encomendado">Encomendados</TabsTrigger>
+        <TabsTrigger value="encomendado" className="relative">
+          Encomendados
+          {atrasadas > 0 && (
+            <span
+              className="absolute -right-1 -top-1 inline-flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold leading-none text-white tabular-nums"
+              title={`${atrasadas} pedido(s) atrasado(s)`}
+            >
+              {atrasadas > 99 ? "99+" : atrasadas}
+            </span>
+          )}
+        </TabsTrigger>
         <TabsTrigger value="estoque">Estoque</TabsTrigger>
       </TabsList>
 
