@@ -428,12 +428,11 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
                 <MoneyInput inputMode="decimal" value={meta || ""} onChange={(e) => setMeta(Number(e.target.value) || 0)} /></label>
               <label className="space-y-1"><span className="text-xs font-medium text-muted-foreground">Perda markup</span>
                 <div className="flex items-center gap-1"><Input inputMode="decimal" value={perda} onChange={(e) => setPerda(num(e.target.value))} /><span className="text-muted-foreground">%</span></div></label>
-            </div>
-            <div className="mt-3 space-y-2">
               {meta > 0 && (
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Poder de venda planejado</span>
-                    <span className="tabular-nums font-medium">{brl(d.poder)} <span className="text-muted-foreground">de {brl(meta)}</span></span></div>
+                /* Barra do planejado na MESMA linha da meta (mockup aprovado) — ocupa o resto da linha no lg. */
+                <div className="col-span-2 space-y-1 self-end sm:col-span-3 lg:col-span-3">
+                  <div className="flex items-center justify-between gap-2 text-sm"><span className="text-muted-foreground">Poder de venda planejado</span>
+                    <span className="font-display font-semibold tabular-nums">{brl(d.poder)} <span className="font-sans text-xs font-normal text-muted-foreground">de {brl(meta)}</span></span></div>
                   {/* Meta é PISO (≥100% = bom): barra verde ao bater, TICK marca o alvo quando passa; >115% âmbar (bem acima ⇒ custo acima do intencionado). */}
                   <div className="relative h-2 w-full rounded-full bg-muted">
                     <div className={`h-full rounded-full transition-all ${d.atingido >= 100 ? "bg-emerald-600" : "bg-primary"}`} style={{ width: `${Math.min(100, d.atingido)}%` }} />
@@ -444,6 +443,8 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
                   </div>
                 </div>
               )}
+            </div>
+            <div className="mt-3 space-y-2">
               <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                 <span className="inline-flex items-baseline gap-1.5 rounded-lg bg-muted px-2.5 py-1.5"><b className="font-display text-foreground tabular-nums">{int(d.modelos)}</b> modelos</span>
                 <span className="inline-flex items-baseline gap-1.5 rounded-lg bg-muted px-2.5 py-1.5">Orçamento (custo) <b className="font-display text-foreground tabular-nums">{brl(d.custo)}</b></span>
@@ -455,7 +456,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
           </Card>
 
           {/* Mix por linha + Subcoleções lado a lado (mockup aprovado) — cada um no seu card. */}
-          <div className="grid items-start gap-3 lg:grid-cols-2">
+          <div className="grid items-start gap-3 lg:grid-cols-[1.2fr_1fr]">
             {mixLinha.rows.length > 0 && (
               <Card className="p-4">
                 <div className="mb-1 text-xs font-medium text-muted-foreground">Mix por linha — % real vs meta do padrão</div>
@@ -492,7 +493,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
                 const poderSub = s.linhas.reduce((acc, l) => acc + totLinha(l, s.semanas) * l.profCor * l.cores * ((l.min + l.max) / 2), 0);
                 return (
                   <Card key={s.id} className="overflow-hidden">
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b bg-muted/30 px-3 py-2">
                       <button className="p-2 -m-2" onClick={() => setAberta((a) => ({ ...a, [s.id]: !open }))}><ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} /></button>
                       <Input className="h-8 w-48 max-sm:w-full font-medium" value={s.nome} onChange={(e) => patchSub(s.id, { nome: e.target.value })} />
                       <span className="text-xs tabular-nums"><span className="text-muted-foreground">Poder:</span> {brl(poderSub)}</span>
@@ -504,24 +505,23 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
                       <div className="border-t bg-muted/10 px-3 py-2 space-y-2">
                         {/* Lançamentos SEQUENCIAIS: cada um é um ordinal contíguo (1..N) com sua
                             data livre. Sem mapear semana do calendário. */}
-                        <div className="space-y-1.5">
-                          <span className="text-xs font-medium text-muted-foreground">Lançamentos <span className="font-normal">— um por data</span></span>
-                          {s.semanas.length === 0 && <p className="text-xs text-muted-foreground">Nenhum ainda — clique em "+ Lançamento".</p>}
+                        {/* Lançamentos INLINE (mockup aprovado): rótulo + datas + "+ Lançamento" numa linha, com wrap. */}
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                          <span className="text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Lançamentos — um por data</span>
+                          {s.semanas.length === 0 && <span className="text-xs text-muted-foreground">Nenhum ainda — clique em "+ Lançamento".</span>}
                           {s.semanas.map((w) => (
-                            <div key={w} className="flex flex-wrap items-center gap-2">
-                              <span className="w-28 text-sm font-medium">Lançamento {w}</span>
+                            <span key={w} className="inline-flex items-center gap-1.5 text-sm">
+                              <span className="font-medium">Lançamento {w}</span>
                               <span className="w-32 inline-block"><DateField value={dataSemana(s, w)} defaultMonth={colMesIso} onChange={(e) => setDataSemana(s.id, w, e.target.value)} /></span>
                               <Button variant="ghost" size="iconSm" onClick={() => removerSemana(s.id, w)}><Trash2 className="h-4 w-4 text-muted-foreground" /></Button>
-                            </div>
+                            </span>
                           ))}
-                          <div className="flex items-center gap-3">
-                            <Button variant="outline" size="sm" onClick={() => addSemana(s.id)} disabled={s.semanas.length >= 5}><Plus className="h-4 w-4 mr-1" /> Lançamento</Button>
-                          </div>
+                          <Button variant="outline" size="sm" className="max-md:h-9" onClick={() => addSemana(s.id)} disabled={s.semanas.length >= 5}><Plus className="h-4 w-4 mr-1" /> Lançamento</Button>
                         </div>
                         <div className="overflow-x-auto">
                           <table className="w-full text-sm card-table">
                             <thead className="text-xs text-muted-foreground">
-                              <tr className="[&>th]:px-2 [&>th]:py-1 [&>th]:font-medium [&>th]:text-left">
+                              <tr className="[&>th]:px-2 [&>th]:py-1 [&>th]:text-left [&>th]:text-[10px] [&>th]:font-semibold [&>th]:uppercase [&>th]:tracking-[0.06em]">
                                 <th className="min-w-[9rem]">Linha</th><th>à parte</th><th>prof/cor</th><th>cores</th><th>Mín</th><th>Máx</th>
                                 {s.semanas.map((w) => <th key={w}>Lan {w}</th>)}<th>Total</th><th>Poder</th><th />
                               </tr>

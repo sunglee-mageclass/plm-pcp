@@ -44,7 +44,7 @@ export function useOrcamento() {
 
 export function OrcamentoTag({ total, realizado, className = "" }: { total: number; realizado: number; className?: string }) {
   const over = realizado > total;
-  return <span className={`tabular-nums ${over ? "text-amber-600 font-semibold" : "text-muted-foreground"} ${className}`}>{realizado}/{total}</span>;
+  return <span className={`tabular-nums ${over ? "text-red-700 dark:text-red-400 font-semibold" : "text-muted-foreground"} ${className}`}>{realizado}/{total}</span>;
 }
 
 /**
@@ -77,14 +77,14 @@ export function SubcolecaoResumo({
             <div key={s.subcolecao} className="text-[11px]">
               <div className="flex items-center gap-2">
                 <span className="truncate min-w-0">{s.subcolecao}</span>
-                <span className={`tabular-nums shrink-0 ${sover ? "text-amber-600 font-semibold" : "text-muted-foreground"}`}>{s.realizado}/{s.total}</span>
+                <span className={`tabular-nums shrink-0 ${sover ? "text-red-700 dark:text-red-400 font-semibold" : "text-muted-foreground"}`}>{s.realizado}/{s.total}</span>
               </div>
               {n3.map((n) => {
                 const nover = n.realizado > n.total;
                 return (
                   <div key={`${n.tipo3}-${n.ref_id}`} className="flex items-center gap-2 pl-3 text-muted-foreground/80">
                     <span className="truncate min-w-0">{n.label ?? "—"}</span>
-                    <span className={`tabular-nums shrink-0 ${nover ? "text-amber-600 font-semibold" : ""}`}>{n.realizado}/{n.total}</span>
+                    <span className={`tabular-nums shrink-0 ${nover ? "text-red-700 dark:text-red-400 font-semibold" : ""}`}>{n.realizado}/{n.total}</span>
                   </div>
                 );
               })}
