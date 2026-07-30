@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { format, addDays } from "date-fns";
 import {
-  AlertTriangle, Wallet, Clock, CalendarX, ArrowRight,
+  AlertTriangle, Wallet, Clock, CalendarX,
   BarChart3, ClipboardList, Package, Palette, Factory, DollarSign, Target, Truck,
 } from "lucide-react";
 
@@ -49,6 +49,10 @@ export function HomeLogado() {
   const saud = hora < 12 ? "Bom dia" : hora < 18 ? "Boa tarde" : "Boa noite";
   // Só usa o nome real (full_name); sem ele, saúda sem nome (não usa o prefixo do e-mail).
   const nome = (((user?.user_metadata as any)?.full_name as string) || "").trim().split(" ")[0];
+  // "quinta-feira, 30 de julho" — no fuso da loja (mesma fonte do `hora`).
+  const dataLonga = new Intl.DateTimeFormat("pt-BR", {
+    weekday: "long", day: "numeric", month: "long", timeZone: tz,
+  }).format(new Date());
 
   // ── Contadores de atenção (cada um aterrado numa query real, gated por módulo) ──
   const cq = useQuery({
@@ -165,19 +169,29 @@ export function HomeLogado() {
 
   return (
     <div className="container mx-auto space-y-6 p-3 sm:p-6 max-sm:pb-24">
-      {/* Cabeçalho: marca da loja + saudação, com tecelagem sutil de fundo. */}
-      <header className="relative overflow-hidden rounded-2xl border bg-card">
-        <TecelagemAnimacao className="absolute inset-0 h-full w-full" opacity={0.32} />
+      {/* Cabeçalho Navy (A0): gradiente sidebar→primary com a trama por cima, texto claro.
+          Tokens locais --color-foreground/--color-primary sobrescritos p/ a TecelagemAnimacao
+          sondar FIOS CLAROS (ela lê text-foreground/text-primary computados no pai). */}
+      <header
+        className="relative overflow-hidden rounded-2xl border text-sidebar-foreground"
+        style={{
+          background:
+            "linear-gradient(115deg, var(--sidebar) 0%, color-mix(in oklab, var(--sidebar) 45%, var(--primary)) 55%, color-mix(in oklab, var(--sidebar) 15%, var(--primary)) 100%)",
+          borderColor: "var(--sidebar-accent)",
+          ["--color-foreground" as string]: "var(--sidebar-foreground)",
+          ["--color-primary" as string]: "color-mix(in oklab, var(--sidebar-foreground) 70%, var(--primary))",
+        } as React.CSSProperties}
+      >
+        <TecelagemAnimacao className="absolute inset-0 h-full w-full" opacity={0.16} />
         <div
           className="pointer-events-none absolute inset-0"
-          style={{ background: "linear-gradient(90deg, var(--card) 30%, color-mix(in oklab, var(--card) 55%, transparent) 100%)" }}
+          style={{ background: "radial-gradient(90% 130% at 18% 0%, transparent 30%, color-mix(in oklab, var(--sidebar) 72%, transparent))" }}
         />
         <div className="relative z-10 flex items-center gap-4 p-5 sm:p-7">
-          {/* Logo da loja: só usa o fundo azul (primary) no fallback de iniciais.
-              Com logo enviada, fundo neutro p/ não estragar logo de fundo transparente. */}
+          {/* Logo da loja: com logo enviada, caixa clara neutra; fallback = iniciais em vidro claro. */}
           <div className={cn(
             "flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl shadow",
-            branding.logoUrl ? "border bg-background p-1" : "bg-primary text-primary-foreground",
+            branding.logoUrl ? "border bg-background p-1" : "border border-white/25 bg-white/15",
           )}>
             {branding.logoUrl ? (
               <img src={branding.logoUrl} alt={branding.nome ?? "Loja"} className="h-full w-full object-contain" />
@@ -186,44 +200,45 @@ export function HomeLogado() {
             )}
           </div>
           <div className="min-w-0">
-            {branding.nome && <p className="truncate text-sm text-muted-foreground">{branding.nome}</p>}
+            {branding.nome && (
+              <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] opacity-70">{branding.nome}</p>
+            )}
             <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">
               {saud}{nome ? `, ${nome}` : ""} <span aria-hidden>👋</span>
             </h1>
+            <p className="mt-0.5 text-xs opacity-75">{dataLonga}</p>
           </div>
         </div>
       </header>
 
-      {/* Precisa da sua atenção */}
+      {/* Precisa da sua atenção (A0): chip tintado à esquerda no desktop, número em
+          Outfit tabular, hover de elevação. Empilha (chip em cima) no mobile. */}
       {atencao.length > 0 && (
         <section className="space-y-2">
-          <h2 className="text-sm font-semibold text-foreground">Precisa da sua atenção</h2>
+          <h2 className="font-display text-[13px] font-semibold text-foreground">Precisa da sua atenção</h2>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             {atencao.map((a) => (
               <Link key={a.key} to={a.to as any} className="block h-full">
                 <Card className={cn(
-                  "flex h-full min-h-[120px] flex-col gap-3 p-4 transition-colors hover:bg-accent",
+                  "flex h-full min-h-[110px] flex-col gap-3 p-4 transition-all hover:-translate-y-px hover:shadow-md sm:flex-row sm:items-start",
                   a.valor > 0 && (a.tone === "red" ? "border-red-500/50" : "border-amber-500/50"),
                 )}>
-                  <div className="flex items-start justify-between">
-                    <div className={cn(
-                      "rounded-lg p-2",
-                      a.valor > 0
-                        ? (a.tone === "red" ? "bg-red-500/15 text-red-600" : "bg-amber-500/15 text-amber-600")
-                        : "bg-muted text-muted-foreground",
-                    )}>
-                      <a.icon className="h-5 w-5" />
-                    </div>
-                    <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <div className={cn(
+                    "grid h-10 w-10 shrink-0 place-items-center rounded-[10px]",
+                    a.valor > 0
+                      ? (a.tone === "red" ? "bg-red-500/15 text-red-600" : "bg-amber-500/15 text-amber-600")
+                      : "bg-muted text-muted-foreground",
+                  )}>
+                    <a.icon className="h-5 w-5" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     {a.loading ? (
-                      <div className="h-[30px] w-12 animate-pulse rounded bg-muted" aria-hidden />
+                      <div className="h-6 w-12 animate-pulse rounded bg-muted" aria-hidden />
                     ) : (
-                      <div className="text-3xl font-semibold leading-none">{a.valor}</div>
+                      <div className="font-display text-2xl font-semibold leading-none tabular-nums">{a.valor}</div>
                     )}
-                    <div className="mt-2 text-sm font-medium leading-snug">{a.label}</div>
-                    <div className="mt-0.5 text-xs text-muted-foreground">{a.sub}</div>
+                    <div className="mt-1.5 text-[13px] font-medium leading-snug">{a.label}</div>
+                    <div className="mt-0.5 text-xs tabular-nums text-muted-foreground">{a.sub}</div>
                   </div>
                 </Card>
               </Link>
@@ -232,15 +247,17 @@ export function HomeLogado() {
         </section>
       )}
 
-      {/* Atalhos dos módulos */}
+      {/* Atalhos dos módulos (A0): tile alinhado à esquerda, ícone primary, hover de elevação. */}
       <section className="space-y-2">
-        <h2 className="text-sm font-semibold text-foreground">Atalhos</h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <h2 className="font-display text-[13px] font-semibold text-foreground">Atalhos</h2>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          {/* key = path (único): PCP e Expedição compartilham a key de módulo "producao" —
+              key duplicada fazia o React duplicar o tile de PCP. */}
           {atalhos.map((m) => (
-            <Link key={m.key} to={m.path as any} className="block">
-              <Card className="flex flex-col items-center gap-2 p-4 text-center transition-colors hover:bg-accent">
-                <m.icon className="h-6 w-6 text-primary" />
-                <span className="text-sm font-medium">{m.label}</span>
+            <Link key={m.path} to={m.path as any} className="block">
+              <Card className="flex min-h-[44px] flex-col items-start gap-2 p-4 transition-all hover:-translate-y-px hover:shadow-md">
+                <m.icon className="h-5 w-5 text-primary" />
+                <span className="text-[13px] font-semibold">{m.label}</span>
               </Card>
             </Link>
           ))}

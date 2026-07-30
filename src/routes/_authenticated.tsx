@@ -24,9 +24,11 @@ function moduleForPath(pathname: string): { module: string; label: string } | nu
 
 function useCurrentModule() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  if (pathname.startsWith("/admin")) return { module: null as string | null, label: "Admin" };
+  if (pathname.startsWith("/admin")) return { module: null as string | null, label: "Admin" as string | null };
   const m = moduleForPath(pathname);
-  return { module: m?.module ?? null, label: m?.label ?? "sisTrama" };
+  // label null = rota sem módulo (ex.: /home) → o header cai pro NOME DO SISTEMA configurado
+  // (identidade, ex.: "WISH360"), nunca um nome fixo.
+  return { module: m?.module ?? null, label: m?.label ?? null };
 }
 
 function AuthenticatedLayout() {
@@ -84,7 +86,7 @@ function AuthenticatedLayout() {
           <header className="sticky top-0 z-30 h-14 flex items-center gap-2 border-b px-4 bg-card">
             <SidebarTrigger />
             <div className="ml-2 text-sm font-medium text-muted-foreground">
-              {moduleLabel}
+              {moduleLabel ?? identity.nome_sistema}
             </div>
             {/* Slot p/ ações da PÁGINA no header sticky (ex.: seleção do Planejamento) —
                 preenchido via <HeaderActions> (portal). Fica ao lado do nome do módulo. */}
