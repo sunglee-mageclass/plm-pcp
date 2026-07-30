@@ -253,6 +253,7 @@ function PlanejamentoPage() {
   const [groupByLinha, setGroupByLinha] = useState(false);
   const [groupBySub1, setGroupBySub1] = useState(false);
   const [groupByRep, setGroupByRep] = useState(false);
+  const [groupByCatTecido, setGroupByCatTecido] = useState(false);
   // Default: agrupa por Tecido (nível 1) > Categoria (nível 2).
   const [groupByTecido, setGroupByTecido] = useState(true);
   // Grupos recolhidos (por caminho único pai/filho). Vazio = todos expandidos.
@@ -302,10 +303,10 @@ function PlanejamentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("artigos")
-        .select("id, nome, unidade_medida, preco_por_metro")
+        .select("id, nome, unidade_medida, preco_por_metro, categoria_tecido_id, categorias_tecido(nome)")
         .order("nome");
       if (error) throw error;
-      return (data ?? []) as { id: string; nome: string; unidade_medida: string | null; preco_por_metro: number | null }[];
+      return (data ?? []) as { id: string; nome: string; unidade_medida: string | null; preco_por_metro: number | null; categoria_tecido_id: string | null; categorias_tecido: { nome: string | null } | null }[];
     },
   });
 
@@ -445,6 +446,11 @@ function PlanejamentoPage() {
   const sub1Map = Object.fromEntries(sub1Opts.map((s) => [s.id, s.nome]));
   const linhaMap = Object.fromEntries(linhas.map((l) => [l.id, l.nome]));
   const artigoMap = Object.fromEntries(artigos.map((a) => [a.id, a.nome]));
+  // artigo → categoria de tecido (id + nome), p/ o agrupamento "Categoria de tecido".
+  const artigoCatTecMap = Object.fromEntries(artigos.map((a) => [a.id, (a as any).categoria_tecido_id ?? null]));
+  const catTecNomeMap = Object.fromEntries(
+    artigos.filter((a) => (a as any).categoria_tecido_id).map((a) => [(a as any).categoria_tecido_id, (a as any).categorias_tecido?.nome ?? "—"]),
+  );
   const linhaMarkupMap = Object.fromEntries(linhas.map((l) => [l.id, l.markup]));
   // Preço/markup efetivos de um modelo (custo × markup da linha → sugerido → venda).
   const piFor = (m: Modelo) =>
@@ -590,6 +596,19 @@ function PlanejamentoPage() {
     if (unis.length) out.push({ key: "uni", nome: "Únicos", items: unis });
     return out;
   };
+  // Categoria de tecido: MULTI-PERTENCIMENTO (deriva da categoria dos tecidos_planejados do modelo).
+  // Um modelo com tecidos de categorias diferentes aparece em cada categoria.
+  const byCatTecido = (items: Modelo[]): Split[] => {
+    const map = new Map<string, Modelo[]>();
+    items.forEach((m) => {
+      const cats = [...new Set((m.tecidos_planejados ?? []).filter(Boolean).map((a) => artigoCatTecMap[a]).filter(Boolean))] as string[];
+      const keys = cats.length ? cats : ["__none__"];
+      keys.forEach((k) => { const arr = map.get(k); if (arr) arr.push(m); else map.set(k, [m]); });
+    });
+    return Array.from(map.entries())
+      .map(([key, its]) => ({ key, nome: key === "__none__" ? "Sem categoria de tecido" : catTecNomeMap[key] ?? "Sem categoria de tecido", items: its }))
+      .sort(sortSplits);
+  };
   // Tecido é MULTI-PERTENCIMENTO: um modelo com vários tecidos_planejados aparece em cada
   // grupo de tecido (por isso o poder de venda do grupo pode "somar mais" que o total).
   const byTecido = (items: Modelo[]): Split[] => {
@@ -609,6 +628,7 @@ function PlanejamentoPage() {
   // Ordem de aninhamento fixa (amplo→fino); os toggles só escolhem quais níveis entram.
   // Ordem = hierarquia de aninhamento. Tecido primeiro (nível 1), depois Categoria.
   const splitters: ((items: Modelo[]) => Split[])[] = [
+    groupByCatTecido ? byCatTecido : null, // categoria de tecido é mais ampla que o tecido → nível acima
     groupByTecido ? byTecido : null,
     groupByLinha ? byLinha : null,
     groupByCat ? byCat : null,
@@ -691,6 +711,7 @@ function PlanejamentoPage() {
               { label: "Linha", active: groupByLinha, onToggle: () => setGroupByLinha((v) => !v) },
               { label: "Categoria", active: groupByCat, onToggle: () => setGroupByCat((v) => !v) },
               { label: "Subcategoria", active: groupBySub1, onToggle: () => setGroupBySub1((v) => !v) },
+              { label: "Categoria de tecido", active: groupByCatTecido, onToggle: () => setGroupByCatTecido((v) => !v) },
               { label: "Tecido", active: groupByTecido, onToggle: () => setGroupByTecido((v) => !v) },
               { label: "Repetição", active: groupByRep, onToggle: () => setGroupByRep((v) => !v) },
             ]}
