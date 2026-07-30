@@ -1,47 +1,20 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { ClipboardList, Tags, Users, Wrench, Layers, Boxes } from "lucide-react";
-import { Card } from "@/components/ui/card";
+import { createFileRoute } from "@tanstack/react-router";
+import { SectionHub } from "@/components/SectionHub";
 
 export const Route = createFileRoute("/_authenticated/cadastro/")({
   component: CadastroIndex,
 });
 
-const sections = [
-  { to: "/cadastro/atributos", title: "Atributos", desc: "Cores, anos, meses, categorias e demais listas.", icon: Tags },
-  { to: "/cadastro/colaboradores", title: "Colaboradores", desc: "Pessoas envolvidas no processo.", icon: Users },
-  { to: "/cadastro/servico", title: "Serviços", desc: "Tipos de serviço prestados.", icon: Wrench },
-  { to: "/cadastro/tecidos", title: "Tecidos", desc: "Catálogo de tecidos e variantes.", icon: Layers },
-  { to: "/cadastro/aviamentos", title: "Aviamentos", desc: "Catálogo de aviamentos.", icon: Boxes },
-];
+const DESCS: Record<string, string> = {
+  cadastro_atributos: "Cores, anos, meses, categorias e demais listas.",
+  cadastro_colaboradores: "Pessoas envolvidas no processo.",
+  cadastro_servico: "Empresas fornecedoras e representantes.",
+  cadastro_tecidos: "Catálogo de tecidos e variantes.",
+  cadastro_aviamentos: "Catálogo de aviamentos.",
+  cadastro_etiquetas: "Insumos (etiquetas, embalagens, etc.).",
+  cadastro_destinos: "Destinos de saída (modo só-estoque).",
+};
 
 function CadastroIndex() {
-  return (
-    <div className="container mx-auto p-3 sm:p-6 space-y-6">
-      <header className="flex items-start gap-3">
-        <ClipboardList className="h-7 w-7 text-primary mt-0.5 shrink-0" />
-        <div>
-          <h1 className="text-2xl font-bold">Cadastro</h1>
-          <p className="text-sm text-muted-foreground">
-            Cadastros base do sistema.
-          </p>
-        </div>
-      </header>
-
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {sections.map((s) => (
-          <Link key={s.to} to={s.to}>
-            <Card className="p-5 hover:shadow-md transition-shadow h-full">
-              <div className="flex items-start gap-3">
-                <s.icon className="h-5 w-5 text-primary mt-0.5" />
-                <div>
-                  <h3 className="font-semibold">{s.title}</h3>
-                  <p className="text-sm text-muted-foreground">{s.desc}</p>
-                </div>
-              </div>
-            </Card>
-          </Link>
-        ))}
-      </div>
-    </div>
-  );
+  return <SectionHub module="cadastro" subtitle="Cadastros base do sistema." descriptions={DESCS} />;
 }

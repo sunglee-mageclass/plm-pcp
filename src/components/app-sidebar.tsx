@@ -51,6 +51,7 @@ import { useTenantModules } from "@/hooks/useTenantModules";
 import { useTabLabels } from "@/hooks/useTabLabels";
 import { Button } from "@/components/ui/button";
 import { PAGES_CATALOG, pageInProfile } from "@/lib/permissions-catalog";
+import { PAGE_URLS, MODULE_META } from "@/lib/nav";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useSystemIdentity } from "@/hooks/useSystemIdentity";
@@ -62,41 +63,8 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 
-const MODULE_META: Record<string, { title: string; icon: typeof BarChart3 }> = {
-  dashboard: { title: "Dashboard", icon: BarChart3 },
-  cadastro: { title: "Cadastro", icon: ClipboardList },
-  entrada_saida: { title: "Entrada e Saída", icon: Package },
-  criacao: { title: "Estilo & Engenharia", icon: Palette },
-  producao: { title: "PCP", icon: Factory },
-  financeiro: { title: "Financeiro", icon: DollarSign },
-  otb: { title: "OTB", icon: Target },
-};
-
-// Map of page key -> URL for sidebar subitems. Modules without an entry render as a single direct link.
-const PAGE_URLS: Record<string, string> = {
-  cadastro_atributos: "/cadastro/atributos",
-  cadastro_colaboradores: "/cadastro/colaboradores",
-  cadastro_servico: "/cadastro/servico",
-  cadastro_tecidos: "/cadastro/tecidos",
-  cadastro_aviamentos: "/cadastro/aviamentos",
-  cadastro_etiquetas: "/cadastro/etiquetas",
-  cadastro_destinos: "/cadastro/destinos",
-  entrada_oc_tecido: "/entrada-saida/oc-tecido",
-  entrada_alertas_tecido: "/entrada-saida/alertas-tecido",
-  entrada_oc_aviamento: "/entrada-saida/oc-aviamento",
-  entrada_oc_insumo: "/entrada-saida/oc-insumo",
-  entrada_os_tecido: "/entrada-saida/os-tecido",
-  entrada_os_aviamento: "/entrada-saida/os-aviamento",
-  criacao_plan_tecido: "/criacao/plan-tecido",
-  criacao_planejamento: "/criacao/planejamento",
-  criacao_desenvolvimento: "/criacao/desenvolvimento",
-  producao_explosao: "/entrada-saida/explosao",
-  producao_terceirizados: "/producao/terceirizados",
-  // Oficina é acessada dentro de Serviços; não aparece como item próprio na navegação lateral.
-  producao_cq: "/producao/cq",
-  producao_direcionamento: "/producao/direcionamento",
-  producao_lancamentos: "/producao/lancamentos",
-};
+// MODULE_META (título/ícone por módulo) e PAGE_URLS (key→URL) agora vivem em @/lib/nav (SSOT),
+// compartilhados com os HUBs de setor (SectionHub) pra os bloquinhos não desatualizarem.
 
 // Bolinhas de atenção ao lado de itens do menu (contadores vindos da RPC sidebar_badges).
 // A cor comunica urgência: atraso = vermelho, alerta = âmbar, pronto p/ lançar = azul.
@@ -242,11 +210,10 @@ export function AppSidebar() {
       <Collapsible key={item.url} defaultOpen={active} className="group/collapsible">
         <SidebarMenuItem>
           {collapsed ? (
-            // Sidebar recolhida: o ícone do módulo NAVEGA pra 1ª sub-página REAL do setor (a mesma
-            // lista gated/atual do submenu), em vez do hub estático em basePath — que ficava
-            // desatualizado (blocos hardcoded não acompanhavam as páginas do setor).
+            // Sidebar recolhida: o ícone do módulo abre o HUB do setor (basePath) com os bloquinhos.
+            // O hub agora DERIVA os blocos do catálogo (SectionHub) — não fica mais desatualizado.
             <SidebarMenuButton asChild isActive={active} tooltip={item.title}>
-              <Link to={item.subs[0]?.url ?? item.url} className="relative">
+              <Link to={item.url} className="relative">
                 <item.icon className="h-4 w-4" />
                 <span>{item.title}</span>
                 {/* Ícone-only (sidebar recolhida): dot no canto sinaliza pendências. */}
