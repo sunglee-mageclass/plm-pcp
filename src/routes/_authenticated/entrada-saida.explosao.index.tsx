@@ -73,7 +73,7 @@ function ExplosaoListPage() {
           mes_id: m.mes_id,
           ano_id: m.ano_id,
           categoria_nome: (m.categorias_produto as any)?.nome ?? null,
-          // Enviado para Serviços (já cortado) → fica na lista com bolinha verde, editável.
+          // Enviado para PCP (já cortado) → fica na lista com bolinha verde, editável.
           enviado_corte: m.cad?.[0]?.enviado_corte === true,
         }));
     },
@@ -168,8 +168,8 @@ function ExplosaoListPage() {
                   <span className="inline-flex items-center gap-2">
                     <span
                       className={`h-2 w-2 rounded-full shrink-0 ${r.enviado_corte ? "bg-green-500" : "bg-transparent"}`}
-                      title={r.enviado_corte ? "Enviado para Serviços — clique para editar" : undefined}
-                      aria-label={r.enviado_corte ? "Enviado para Serviços" : undefined}
+                      title={r.enviado_corte ? "Enviado para PCP — clique para editar" : undefined}
+                      aria-label={r.enviado_corte ? "Enviado para PCP" : undefined}
                     />
                     <span className="font-mono text-primary">{r.ref ?? "—"}</span>
                     <VersaoBadge versao={r.versao} className="text-[10px]" />

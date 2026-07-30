@@ -56,7 +56,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
   const tenantId = useActiveTenantId();
   const [confirmZeroOpen, setConfirmZeroOpen] = useState(false);
   const [voltarOpen, setVoltarOpen] = useState(false);
-  // Edição da metragem travada por padrão quando já enviado ao Serviços; o lápis destrava,
+  // Edição da metragem travada por padrão quando já enviado ao PCP; o lápis destrava,
   // e Salvar re-trava. Definido no seed a partir de `enviado_corte`.
   const [editing, setEditing] = useState(false);
 
@@ -310,7 +310,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
   });
 
-  // --- enviar para Serviços (corte) ---
+  // --- enviar para PCP (corte) ---
   // Salva a metragem (RPC estreita) e depois baixa o estoque.
   const enviarCorte = useMutation({
     mutationFn: async () => {
@@ -322,7 +322,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
       });
       if (errSave) throw errSave;
 
-      // Depois executa a baixa de estoque (o corte que envia para Serviços).
+      // Depois executa a baixa de estoque (o corte que envia para PCP).
       const { data, error } = await supabase.rpc("baixar_estoque_tecido_corte" as any, {
         _cad_id: cadRow.id,
       });
@@ -335,9 +335,9 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
         const linhas = def
           .map((d) => `${d.variante}: faltaram ${Number(d.deficit).toLocaleString("pt-BR", { maximumFractionDigits: 2 })} m`)
           .join("; ");
-        toast.warning(`Enviado para Serviços, mas faltou estoque — ${linhas}`, { duration: 12000 });
+        toast.warning(`Enviado para PCP, mas faltou estoque — ${linhas}`, { duration: 12000 });
       } else {
-        toast.success("Enviado para Serviços");
+        toast.success("Enviado para PCP");
       }
       qc.invalidateQueries({ queryKey: ["producao-explosao-list"] });
       qc.invalidateQueries({ queryKey: ["producao-cad-list"] });
@@ -348,7 +348,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
       qc.invalidateQueries({ queryKey: ["consumo-por-oc"] });
       onEnviado();
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao enviar para Serviços")),
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao enviar para PCP")),
   });
 
   // --- voltar ao desenvolvimento ---
@@ -408,17 +408,17 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
             </div>
           </div>
           <h2 className="text-lg font-semibold flex items-center gap-2 mt-2">
-            Explosão — Envio para Serviços
+            Explosão — Envio para PCP
             {(cadRow as any)?.enviado_corte && (
               <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 border border-green-600/40 rounded-full px-2 py-0.5">
-                <span className="h-2 w-2 rounded-full bg-green-500" /> Enviado para Serviços
+                <span className="h-2 w-2 rounded-full bg-green-500" /> Enviado para PCP
               </span>
             )}
           </h2>
           <p className="text-xs text-muted-foreground">
             {(cadRow as any)?.enviado_corte
-              ? 'Já enviado. Edite a metragem se precisar e clique em "Reenviar para Serviços" (refaz a baixa com a metragem atual).'
-              : 'Preencha "Metr. a Separar/Enviar" e clique em Enviar para Serviços.'}
+              ? 'Já enviado. Edite a metragem se precisar e clique em "Reenviar para PCP" (refaz a baixa com a metragem atual).'
+              : 'Preencha "Metr. a Separar/Enviar" e clique em Enviar para PCP.'}
           </p>
         </div>
 
@@ -518,7 +518,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
           disabled={enviarCorte.isPending || salvarMut.isPending || !cadRow?.id}
         >
           <Send className="h-4 w-4 mr-1.5" />
-          {enviarCorte.isPending ? "Enviando…" : (cadRow as any)?.enviado_corte ? "Reenviar para Serviços" : "Enviar para Serviços"}
+          {enviarCorte.isPending ? "Enviando…" : (cadRow as any)?.enviado_corte ? "Reenviar para PCP" : "Enviar para PCP"}
         </Button>
       </div>
 

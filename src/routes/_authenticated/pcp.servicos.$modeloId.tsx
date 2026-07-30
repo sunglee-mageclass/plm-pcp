@@ -685,7 +685,7 @@ export function TerceirizadosDetail({
       {/* Cabeçalho: breadcrumb + botões SECUNDÁRIOS de impressão. "Voltar uma etapa" e as
           ações primárias (Voltar / Salvar) ficam no rodapé sticky. */}
       <div className="flex items-center justify-between gap-2">
-        <Breadcrumb items={[{ label: "PCP" }, { label: "Serviços", to: "/pcp/servicos" }, { label: modelo?.ref ?? "…" }]} />
+        <Breadcrumb items={[{ label: "PCP", to: "/pcp/servicos" }, { label: modelo?.ref ?? "…" }]} />
         <div className="flex items-center gap-2">
           <UnsavedIndicator show={dirty} className="shrink-0" />
           <Button variant="outline" className="hidden md:inline-flex" onClick={() => { setPrintTarget("ficha"); printWithImages(); }} disabled={!cad?.id}>
