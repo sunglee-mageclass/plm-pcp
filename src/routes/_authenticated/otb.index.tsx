@@ -10,7 +10,8 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/shared/StatusBadge";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { FilterButton } from "@/components/shared/filters";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
@@ -18,7 +19,7 @@ import { Target, Plus } from "lucide-react";
 import { ColecaoSheet } from "@/components/otb/ColecaoSheet";
 import { computeColecaoResumo } from "@/components/otb/otb-resumo";
 import { useOrcamento } from "@/components/otb/orcamento";
-import { brl } from "@/lib/format";
+import { brl, mesLimpo } from "@/lib/format";
 import { RequirePermission } from "@/components/RequirePermission";
 
 export const Route = createFileRoute("/_authenticated/otb/")({
@@ -28,6 +29,19 @@ export const Route = createFileRoute("/_authenticated/otb/")({
     </RequirePermission>
   ),
 });
+
+// Rótulo de GRUPO dentro do card (laudo do time: agrupar por assunto resolve a leitura).
+function GrpT({ children }: { children: React.ReactNode }) {
+  return <span className="text-[9.5px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">{children}</span>;
+}
+function KV({ k, v }: { k: React.ReactNode; v: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2 text-sm">
+      <span className="text-muted-foreground">{k}</span>
+      <span className="font-display font-semibold tabular-nums">{v}</span>
+    </div>
+  );
+}
 
 function useOpts(table: string, key = "nome") {
   return useQuery({ queryKey: ["opt", table], queryFn: async () => {
@@ -140,6 +154,9 @@ function OtbPage() {
     return out;
   }, [modelosLink, colecoes, custoMap, gradeMap, linhaMarkupMap]);
 
+  const [confirmImportar, setConfirmImportar] = useState(false);
+  // Coleções PV que TÊM itens no mix — sem itens o card vira hint "montar o mix" (laudo).
+  const pvComItens = useMemo(() => new Set((pvItens as any[]).map((it: any) => it.colecao_id as string)), [pvItens]);
   const qc = useQueryClient();
   const orcHook = useOrcamento();
   const importar = useMutation({
@@ -175,7 +192,7 @@ function OtbPage() {
             { label: "Mês", value: fMes, onChange: setFMes, options: [{ id: "all", nome: "Todos" }, ...meses] },
           ]} />
           <Button variant="outline" size="sm" onClick={() => setPadraoOpen(true)}>Padrão do mix</Button>
-          <Button variant="outline" className="max-sm:hidden" onClick={() => importar.mutate()} disabled={importar.isPending}>Importar coleções existentes</Button>
+          <Button variant="outline" className="max-sm:hidden" onClick={() => setConfirmImportar(true)} disabled={importar.isPending}>Importar coleções existentes</Button>
           <Button className="max-sm:hidden" onClick={() => setTipoOpen(true)}><Plus className="h-4 w-4 mr-1" /> Nova coleção</Button>
         </div>
       </header>
@@ -184,74 +201,111 @@ function OtbPage() {
           ? <EmptyState icon={Target} title="Nenhuma coleção" description="Crie a primeira coleção do OTB." />
           : <EmptyState icon={Target} title="Nenhuma coleção no filtro" description="Ajuste o filtro de ano/mês." />
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid items-start gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {colecoesFiltradas.map((c) => {
             const anoNome = c.ano_id ? (anos.find((a) => a.id === c.ano_id)?.nome ?? null) : null;
-            const mesNome = c.mes_id ? (meses.find((m) => m.id === c.mes_id)?.nome ?? null) : null;
+            const mesNome = c.mes_id ? mesLimpo(meses.find((m) => m.id === c.mes_id)?.nome) : null;
             const periodoLabel = [mesNome, anoNome].filter(Boolean).join(" / ");
             const st = statsByColecao[c.id] ?? { previsto: 0, real: 0, poder: 0 };
-            const orc = c.tipo === "poder_venda" ? (custoPVMap[c.id] || null) : (c.orcamento != null ? Number(c.orcamento) : null);
+            const isPV = c.tipo === "poder_venda";
+            // Sem permissão de custos o wrapper devolve {} → NUNCA imprimir "R$ 0,00" falso (laudo UX#6).
+            const custoOculto = modeloIds.length > 0 && Object.keys(custoMap).length === 0;
+            const orc = isPV ? (custoPVMap[c.id] || null) : (c.orcamento != null ? Number(c.orcamento) : null);
             const temOrc = orc != null && orc > 0;
-            const fora = temOrc && st.real > (orc as number);
+            const fora = temOrc && !custoOculto && st.real > (orc as number);
             const pctUso = temOrc ? Math.round((st.real / (orc as number)) * 100) : null;
-            // Orçamento vira a BORDA esquerda do card: verde=dentro · vermelho=estourou ·
-            // amarelo=sem orçamento. O % (texto) fica como canal não-cromático + title.
-            // Borda = STATUS: verde confirmada / laranja rascunho (o orçamento aparece no % e na barra).
-            const borderCor = c.status === "confirmada" ? "border-l-emerald-500" : "border-l-amber-500";
-            const orcTitle = !temOrc ? "Sem orçamento" : `${fora ? "Acima do" : "Dentro do"} orçamento — ${pctUso}% usado`;
+            const sobra = temOrc ? (orc as number) - st.real : null;
+            const pvMeta = Number(c.poder_venda_meta) || 0;
+            const pvPoder = poderPVMap[c.id] || 0;
+            const pvPct = pvMeta > 0 ? (pvPoder / pvMeta) * 100 : 0;
+            const pvVazio = isPV && !pvComItens.has(c.id);
+            // Borda esquerda = SAÚDE do orçamento (status já tem badge próprio):
+            // verde = dentro · vermelho = estourou · âmbar = sem orçamento/plano.
+            const borderCor = fora ? "border-l-red-600" : temOrc ? "border-l-emerald-600" : "border-l-amber-500";
+            const ob = orcHook.colecao(c.id); // só confirmadas retornam bucket
+            const over = !!ob && ob.realizado > ob.total;
+            const faltam = ob && !over ? ob.total - ob.realizado : 0;
+            const money = (v: number) => (custoOculto ? "—" : brl(v));
             return (
               <div key={c.id} role="button" tabIndex={0} onClick={() => abrirColecao(c)}
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); abrirColecao(c); } }}
-                title={orcTitle} className={`relative text-left rounded-lg border border-l-4 ${borderCor} p-3 hover:bg-muted cursor-pointer`}>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-semibold truncate">{c.nome}</span>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <span className="text-xs text-muted-foreground tabular-nums" title={orcTitle} aria-label={orcTitle}>{temOrc ? `${pctUso}%` : "—"}</span>
-                    <Badge variant="outline" className="text-[10px]" title={c.tipo === "poder_venda" ? "Poder de Venda" : "Orçamento"}>{c.tipo === "poder_venda" ? "PV" : "Orç."}</Badge>
-                    <Badge className={c.status === "confirmada" ? "bg-emerald-600 text-white hover:bg-emerald-600" : "bg-amber-500 text-white hover:bg-amber-500"}>{c.status === "confirmada" ? "Confirmada" : "Rascunho"}</Badge>
-                  </div>
+                className={`flex flex-col gap-2 rounded-lg border border-l-4 ${borderCor} bg-card p-4 text-left shadow-sm transition-all hover:-translate-y-px hover:shadow-md cursor-pointer`}>
+                <div className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate font-display font-semibold">{c.nome}</span>
+                  <StatusBadge tone="info">{isPV ? "PV" : "Orç."}</StatusBadge>
+                  <StatusBadge tone={c.status === "confirmada" ? "success" : "warning"}>{c.status === "confirmada" ? "Confirmada" : "Rascunho"}</StatusBadge>
                 </div>
-                {periodoLabel && <div className="text-xs text-muted-foreground mt-0.5">{periodoLabel}</div>}
-                {c.tipo === "poder_venda" ? (() => {
-                  const pvMeta = Number(c.poder_venda_meta) || 0;
-                  const pvPoder = poderPVMap[c.id] || 0;
-                  const pvPct = pvMeta > 0 ? (pvPoder / pvMeta) * 100 : 0;
-                  return (
-                    <div className="mt-1 space-y-1">
-                      <div className="text-sm text-muted-foreground">Orçamento: {orc != null ? brl(orc) : "—"}</div>
-                      <div className="text-sm text-muted-foreground">Custo comprometido: {brl(st.real)}</div>
-                      <div className="text-sm mt-1"><span className="text-muted-foreground">Poder de venda (plano):</span> {brl(pvPoder)} <span className="text-muted-foreground">de {pvMeta > 0 ? brl(pvMeta) : "—"}</span></div>
-                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted"><div className={`h-full ${pvPct >= 100 ? "bg-emerald-500" : "bg-primary"}`} style={{ width: `${Math.min(100, pvPct)}%` }} /></div>
-                      {pvMeta > 0 && <div className="text-right text-xs font-semibold text-primary">{Math.round(pvPct)}% da meta</div>}
-                      <div className="text-sm"><span className="text-muted-foreground">Poder de venda (real):</span> <b className="tabular-nums">{brl(st.poder)}</b></div>
-                    </div>
-                  );
-                })() : (
-                  <div className="mt-1 space-y-1">
-                    <div className="text-sm text-muted-foreground">Orçamento: {c.orcamento != null ? brl(Number(c.orcamento)) : "—"}</div>
-                    <div className="text-sm text-muted-foreground">Custo comprometido: {brl(st.real)}</div>
-                    {temOrc && (
-                      <>
-                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted"><div className={`h-full ${fora ? "bg-red-500" : "bg-emerald-500"}`} style={{ width: `${Math.min(100, pctUso ?? 0)}%` }} /></div>
-                        <div className={`text-right text-xs font-semibold ${fora ? "text-red-600" : "text-emerald-600"}`}>{pctUso}% do orçamento</div>
-                      </>
-                    )}
-                    <div className="text-sm font-medium">Poder de venda: {brl(st.poder)}</div>
+                {(periodoLabel || (pvVazio && pvMeta > 0)) && (
+                  <div className="-mt-1 text-xs text-muted-foreground">
+                    {periodoLabel}{pvVazio && pvMeta > 0 ? `${periodoLabel ? " · " : ""}meta ${brl(pvMeta)}` : ""}
                   </div>
                 )}
-                {(() => {
-                  const ob = orcHook.colecao(c.id); // só confirmadas retornam bucket
-                  if (!ob) return null;
-                  const over = ob.realizado > ob.total;
-                  return (
-                    <div className="mt-1">
-                      <span className={`text-xs tabular-nums ${over ? "text-red-600 font-semibold" : "text-muted-foreground"}`}
-                        title="Cards criados no Planejamento / total do plano">
-                        {ob.realizado}/{ob.total} modelos{over ? " · divergência" : ""}
-                      </span>
+                {pvVazio ? (
+                  /* Coleção confirmada sem mix = hint ACIONÁVEL, não casca de zeros (laudo UX#2). */
+                  <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+                    <b className="block text-[12.5px] font-semibold text-foreground">Plano sem itens</b>
+                    <span>O mix ainda não foi montado — os números aparecem quando houver linhas no plano.</span>
+                    <span className="mt-1 block font-semibold text-primary">Abrir e montar o mix →</span>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex flex-col gap-1 border-b pb-2">
+                      <GrpT>Orçamento · custo</GrpT>
+                      <KV k={isPV ? "Estimado" : "Orçamento"} v={custoOculto && isPV ? "—" : temOrc ? brl(orc as number) : "—"} />
+                      <KV k="Comprometido" v={money(st.real)} />
+                      {temOrc && !custoOculto && (
+                        <>
+                          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                            <div className={`h-full ${fora ? "bg-red-600" : "bg-primary"}`} style={{ width: `${Math.min(100, pctUso ?? 0)}%` }} />
+                          </div>
+                          <div className="flex justify-between gap-2 text-xs tabular-nums">
+                            <span className={fora ? "font-semibold text-red-700 dark:text-red-400" : "text-muted-foreground"}>{pctUso}% {fora ? "— estourou" : "usado"}</span>
+                            <span className="text-muted-foreground">{fora ? `excede ${brl(Math.abs(sobra as number))}` : `sobra ${brl(sobra as number)}`}</span>
+                          </div>
+                        </>
+                      )}
+                      {!temOrc && !custoOculto && (
+                        <span className="text-xs text-muted-foreground">{isPV ? "defina o markup das linhas para estimar o orçamento" : "defina o orçamento para acompanhar a saúde"}</span>
+                      )}
                     </div>
-                  );
-                })()}
+                    <div className="flex flex-col gap-1 border-b pb-2">
+                      <GrpT>Poder de venda</GrpT>
+                      {isPV ? (
+                        <>
+                          <KV k="Plano" v={<>{brl(pvPoder)}{pvMeta > 0 && <span className="ml-1 text-[11px] font-normal text-muted-foreground">de {brl(pvMeta)}</span>}</>} />
+                          {pvMeta > 0 && (
+                            <>
+                              {/* Meta é PISO: barra verde ao bater, com TICK marcando o alvo quando passa (≠ teto do orçamento). */}
+                              <div className="relative h-1.5 w-full rounded-full bg-muted">
+                                <div className={`h-full rounded-full ${pvPct >= 100 ? "bg-emerald-600" : "bg-primary"}`} style={{ width: `${Math.min(100, pvPct)}%` }} />
+                                {pvPct > 100 && <div className="absolute inset-y-[-2px] w-0.5 rounded bg-foreground/60" style={{ left: `${(100 / pvPct) * 100}%` }} />}
+                              </div>
+                              <span className={`text-xs font-semibold tabular-nums ${pvPct > 115 ? "text-amber-700 dark:text-amber-500" : pvPct >= 100 ? "text-emerald-700 dark:text-emerald-500" : "text-primary"}`}>
+                                {Math.round(pvPct)}% da meta{pvPct > 115 ? " — bem acima da meta" : pvPct >= 100 ? " ✓" : ""}
+                              </span>
+                            </>
+                          )}
+                          <KV k="Real" v={brl(st.poder)} />
+                        </>
+                      ) : (
+                        <KV k="Total" v={brl(st.poder)} />
+                      )}
+                    </div>
+                    {ob && (
+                      <div className="flex flex-col gap-1">
+                        <GrpT>Modelos</GrpT>
+                        <div className="flex items-baseline justify-between gap-2 text-xs tabular-nums">
+                          <span><b className="font-display text-sm">{ob.realizado}/{ob.total}</b> <span className="text-muted-foreground">criados</span></span>
+                          {over
+                            ? <span className="font-semibold text-red-700 dark:text-red-400">divergência — {ob.realizado - ob.total} acima do plano</span>
+                            : faltam > 0
+                              ? <span className="text-muted-foreground">faltam {faltam} · open-to-buy</span>
+                              : ob.total > 0 ? <span className="text-muted-foreground">plano completo ✓</span> : null}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             );
           })}
@@ -268,9 +322,25 @@ function OtbPage() {
       )}
       {padraoOpen && <PadraoMixSheet onClose={() => setPadraoOpen(false)} />}
       <MobileActionBar>
-        <Button variant="outline" aria-label="Importar coleções existentes" onClick={() => importar.mutate()} disabled={importar.isPending}>Importar</Button>
+        <Button variant="outline" aria-label="Importar coleções existentes" onClick={() => setConfirmImportar(true)} disabled={importar.isPending}>Importar coleções</Button>
         <Button className="ml-auto" onClick={() => setTipoOpen(true)}><Plus className="h-4 w-4 mr-1" /> Nova coleção</Button>
       </MobileActionBar>
+
+      <AlertDialog open={confirmImportar} onOpenChange={setConfirmImportar}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Importar coleções existentes?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Cria no OTB as coleções que já existem no Planejamento e vincula os modelos delas.
+              Coleções que já estão aqui não são alteradas.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => importar.mutate()}>Importar</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={tipoOpen} onOpenChange={setTipoOpen}>
         <DialogContent>
@@ -280,19 +350,19 @@ function OtbPage() {
           </DialogHeader>
           <div className="grid gap-3 sm:grid-cols-2">
             <button
-              className="flex flex-col items-start gap-1 rounded-lg border p-4 text-left hover:bg-muted"
+              className="flex flex-col items-start gap-2 rounded-lg border p-4 text-left transition-all hover:-translate-y-px hover:shadow-md hover:ring-2 hover:ring-primary"
               onClick={() => { setTipoOpen(false); setOpenNew(true); }}
             >
-              <Wallet className="h-6 w-6 text-primary" />
-              <span className="font-semibold">Por Orçamento</span>
+              <span className="grid h-9 w-9 place-items-center rounded-[10px] bg-primary/10 text-primary"><Wallet className="h-5 w-5" /></span>
+              <span className="font-display font-semibold">Por Orçamento</span>
               <span className="text-xs text-muted-foreground">Subcoleções, semanas e categorias, mirando o orçamento de custo.</span>
             </button>
             <button
-              className="flex flex-col items-start gap-1 rounded-lg border p-4 text-left hover:bg-muted"
+              className="flex flex-col items-start gap-2 rounded-lg border p-4 text-left transition-all hover:-translate-y-px hover:shadow-md hover:ring-2 hover:ring-primary"
               onClick={() => { setTipoOpen(false); setPvOpen({ id: null }); }}
             >
-              <TargetIcon className="h-6 w-6 text-primary" />
-              <span className="font-semibold">Por Poder de Venda</span>
+              <span className="grid h-9 w-9 place-items-center rounded-[10px] bg-primary/10 text-primary"><TargetIcon className="h-5 w-5" /></span>
+              <span className="font-display font-semibold">Por Poder de Venda</span>
               <span className="text-xs text-muted-foreground">Herda um Padrão do mix e mira a meta de poder de venda.</span>
             </button>
           </div>

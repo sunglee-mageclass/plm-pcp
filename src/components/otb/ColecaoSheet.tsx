@@ -8,6 +8,7 @@ import { useUnsavedGuard, UnsavedChangesGuard } from "@/components/shared/Unsave
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Trash2, ArrowLeft, Check, Save, Plus, Tags } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -429,7 +430,6 @@ export function ColecaoSheet({
   const orc = orcamento === "" ? null : Number(orcamento);
   const saldo = orc != null ? orc - resumo.previsto : null;
   const pct = orc && orc > 0 ? resumo.previsto / orc : 0;
-  const statusCor = orc == null ? "text-muted-foreground" : pct > 1 ? "text-destructive" : pct >= 0.9 ? "text-amber-600" : "text-emerald-600";
   const statusTxt = orc == null ? "Sem orçamento" : pct > 1 ? "Estourou" : pct >= 0.9 ? "Perto do teto" : "Dentro";
 
   // Helper compartilhado: persiste a coleção + semanas, devolve o id.
@@ -567,7 +567,7 @@ export function ColecaoSheet({
           <Breadcrumb items={[{ label: "OTB" }, { label: nome || "Coleção" }]} />
           <SheetTitle className="flex items-center gap-2">
             {colecaoId ? "Editar coleção" : "Nova coleção"}
-            {colecaoId && data && <Badge variant={isConfirmada ? "secondary" : "outline"}>{isConfirmada ? "Confirmada" : "Rascunho"}</Badge>}
+            {colecaoId && data && <StatusBadge tone={isConfirmada ? "success" : "warning"}>{isConfirmada ? "Confirmada" : "Rascunho"}</StatusBadge>}
             <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
           </SheetTitle>
         </SheetHeader>
@@ -628,7 +628,8 @@ export function ColecaoSheet({
               onAssign={onAssign}
             />
           )}
-          <div className="rounded-lg border p-3 space-y-1 text-sm">
+          <div className="rounded-lg border bg-card p-3 space-y-1 text-sm shadow-sm">
+            <div className="pb-1 font-display text-[13px] font-semibold">Resumo</div>
             {colecaoId && (
               <div className="flex justify-between border-b pb-1 mb-1">
                 <span className="text-muted-foreground">No Planejamento</span>
@@ -642,7 +643,7 @@ export function ColecaoSheet({
             <div className="flex justify-between"><span className="text-muted-foreground">Custo real</span><span className="tabular-nums">{brl(resumo.real)}</span></div>
             <div className="flex justify-between"><span className="text-muted-foreground">Poder de venda</span><span className="tabular-nums">{brl(resumo.poder)}</span></div>
             <div className="flex justify-between border-t pt-1"><span className="text-muted-foreground">Saldo (orç. − previsto)</span><span className="tabular-nums">{saldo != null ? brl(saldo) : "—"}</span></div>
-            <div className={`flex justify-between font-medium ${statusCor}`}><span>Status</span><span>{statusTxt}</span></div>
+            <div className="flex items-center justify-between font-medium"><span className="text-muted-foreground">Status</span><StatusBadge tone={orc == null ? "neutral" : pct > 1 ? "danger" : pct >= 0.9 ? "warning" : "success"}>{statusTxt}</StatusBadge></div>
             <div className="text-xs text-muted-foreground pt-1">{resumo.qtdModelos} modelo(s) · {resumo.qtdPecas} peça(s)</div>
             <SubcolecaoResumo colecaoId={colecaoId} className="border-t pt-1 mt-1" />
           </div>
@@ -664,7 +665,7 @@ export function ColecaoSheet({
               <span className="max-sm:sr-only">{confirmar.isPending ? "Confirmando…" : "Confirmar"}</span>
             </Button>
           ) : (
-            <Button variant="destructive" onClick={() => desconfirmar.mutate()} disabled={desconfirmar.isPending || save.isPending} aria-label="Desconfirmar" className="ml-auto shrink-0 max-sm:aspect-square max-sm:px-0">
+            <Button variant="outline" onClick={() => desconfirmar.mutate()} disabled={desconfirmar.isPending || save.isPending} aria-label="Desconfirmar" className="ml-auto shrink-0 text-red-700 hover:text-red-700 dark:text-red-400 dark:hover:text-red-400 max-sm:aspect-square max-sm:px-0">
               <Check className="h-4 w-4 sm:hidden" />
               <span className="max-sm:sr-only">{desconfirmar.isPending ? "Desconfirmando…" : "Desconfirmar"}</span>
             </Button>

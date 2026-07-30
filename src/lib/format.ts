@@ -39,3 +39,7 @@ export function fmtNumEdit(n: number | string | null | undefined): string {
   if (Number.isNaN(v)) return "";
   return v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 }
+
+// Prefixo "NN|" de ordenação que vazava no NOME do mês (seed antigo; a migração
+// 20260730120000 limpa o dado) — strip defensivo para loja que renomear com prefixo.
+export const mesLimpo = (n?: string | null) => (n ?? "").replace(/^\d+\|\s*/, "");

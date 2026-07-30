@@ -17,10 +17,11 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { DateField } from "@/components/shared/DateField";
 import { MoneyInput } from "@/components/shared/MoneyInput";
-import { brl } from "@/lib/format";
+import { brl, mesLimpo } from "@/lib/format";
 import { SubcolecaoResumo } from "./orcamento";
 import { Plus, Trash2, ChevronRight, Save, Check, ArrowLeft } from "lucide-react";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 
 /**
@@ -405,7 +406,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
           <Breadcrumb items={[{ label: "OTB" }, { label: nome || "Coleção" }]} />
           <div className="flex flex-wrap items-center gap-2">
             <SheetTitle className="text-base sm:text-lg">{colecaoId ? "Editar coleção" : "Nova coleção"} · Poder de venda</SheetTitle>
-            <Badge className={confirmada ? "bg-emerald-600 text-white hover:bg-emerald-600" : "bg-amber-500 text-white hover:bg-amber-500"}>{confirmada ? "Confirmada" : "Rascunho"}</Badge>
+            <StatusBadge tone={confirmada ? "success" : "warning"}>{confirmada ? "Confirmada" : "Rascunho"}</StatusBadge>
             <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
           </div>
         </SheetHeader>
@@ -420,7 +421,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
                   {(padroes as any[]).map((p) => <SelectItem key={p.id} value={p.id}>{p.nome}</SelectItem>)}
                 </Sel></label>
               <label className="space-y-1"><span className="text-xs font-medium text-muted-foreground">Mês</span>
-                <Sel value={mesId} onChange={setMesId} placeholder="—" className="w-full">{(meses as any[]).map((m) => <SelectItem key={m.id} value={m.id}>{m.mes}</SelectItem>)}</Sel></label>
+                <Sel value={mesId} onChange={setMesId} placeholder="—" className="w-full">{(meses as any[]).map((m) => <SelectItem key={m.id} value={m.id}>{mesLimpo(m.mes)}</SelectItem>)}</Sel></label>
               <label className="space-y-1"><span className="text-xs font-medium text-muted-foreground">Ano</span>
                 <Sel value={anoId} onChange={setAnoId} placeholder="—" className="w-full">{(anos as any[]).map((a) => <SelectItem key={a.id} value={a.id}>{a.ano}</SelectItem>)}</Sel></label>
               <label className="space-y-1 col-span-2"><span className="text-xs font-medium text-muted-foreground">Poder de venda meta</span>
@@ -433,44 +434,54 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
                 <div className="space-y-1">
                   <div className="flex items-center justify-between text-sm"><span className="text-muted-foreground">Poder de venda planejado</span>
                     <span className="tabular-nums font-medium">{brl(d.poder)} <span className="text-muted-foreground">de {brl(meta)}</span></span></div>
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-muted"><div className="h-full bg-primary transition-all" style={{ width: `${Math.min(100, d.atingido)}%` }} /></div>
-                  <div className="text-right text-xs font-semibold text-primary">{pct1(d.atingido)} da meta</div>
-                </div>
-              )}
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                <span>{int(d.modelos)} modelos</span>
-                <span>Orçamento (custo): <b className="text-foreground tabular-nums">{brl(d.custo)}</b></span>
-                <span>Poder de venda: <b className="text-foreground tabular-nums">{brl(d.poder)}</b></span>
-                <span>Desconto: <span className="tabular-nums">{brl(d.desconto)}</span></span>
-                <span>PV final: <b className="text-foreground tabular-nums">{brl(d.pvFinal)}</b></span>
-              </div>
-              {mixLinha.rows.length > 0 && (
-                <div className="border-t pt-2">
-                  <div className="mb-1 text-xs font-medium text-muted-foreground">Mix por linha — % real vs meta do padrão</div>
-                  <div className="grid gap-x-4 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
-                    {mixLinha.rows.map((r) => {
-                      const off = r.meta != null && Math.abs(r.real - r.meta) > 3;
-                      return (
-                        <div key={r.linhaId} className="flex items-center gap-2 text-sm">
-                          <span className="truncate min-w-0">
-                            {r.linhaId ? nomeLinha(r.linhaId) : "— sem linha —"}
-                            {r.aParte && <span className="ml-1 text-xs text-muted-foreground">(à parte)</span>}
-                            <span className="text-xs text-muted-foreground"> · {int(r.modelos)} mod</span>
-                          </span>
-                          <span className={`tabular-nums shrink-0 ${off ? "text-amber-600" : "text-foreground"}`}>{pct1(r.real)}{r.meta != null && <span className="text-muted-foreground"> / meta {pct1(r.meta)}</span>}</span>
-                        </div>
-                      );
-                    })}
-                    <div className="flex items-center justify-between border-t pt-1 text-sm font-semibold sm:col-span-2 lg:col-span-3">
-                      <span>Mix (sem à parte) <span className="text-xs font-normal text-muted-foreground">· {int(mixLinha.totalPool)} mod</span></span>
-                      <span className="tabular-nums">{pct1(mixLinha.sumReal)}</span>
-                    </div>
+                  {/* Meta é PISO (≥100% = bom): barra verde ao bater, TICK marca o alvo quando passa; >115% âmbar (bem acima ⇒ custo acima do intencionado). */}
+                  <div className="relative h-2 w-full rounded-full bg-muted">
+                    <div className={`h-full rounded-full transition-all ${d.atingido >= 100 ? "bg-emerald-600" : "bg-primary"}`} style={{ width: `${Math.min(100, d.atingido)}%` }} />
+                    {d.atingido > 100 && <div className="absolute inset-y-[-2px] w-0.5 rounded bg-foreground/60" style={{ left: `${(100 / d.atingido) * 100}%` }} />}
+                  </div>
+                  <div className={`text-right text-xs font-semibold tabular-nums ${d.atingido > 115 ? "text-amber-700 dark:text-amber-500" : d.atingido >= 100 ? "text-emerald-700 dark:text-emerald-500" : "text-primary"}`}>
+                    {pct1(d.atingido)} da meta{d.atingido > 115 ? " — bem acima da meta" : d.atingido >= 100 ? " ✓" : ""}
                   </div>
                 </div>
               )}
-              <SubcolecaoResumo colecaoId={savedId} className="border-t pt-2" />
+              <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                <span className="inline-flex items-baseline gap-1.5 rounded-lg bg-muted px-2.5 py-1.5"><b className="font-display text-foreground tabular-nums">{int(d.modelos)}</b> modelos</span>
+                <span className="inline-flex items-baseline gap-1.5 rounded-lg bg-muted px-2.5 py-1.5">Orçamento (custo) <b className="font-display text-foreground tabular-nums">{brl(d.custo)}</b></span>
+                <span className="inline-flex items-baseline gap-1.5 rounded-lg bg-muted px-2.5 py-1.5">Poder de venda <b className="font-display text-foreground tabular-nums">{brl(d.poder)}</b></span>
+                <span className="inline-flex items-baseline gap-1.5 rounded-lg bg-muted px-2.5 py-1.5">Desconto <b className="font-display text-foreground tabular-nums">{brl(d.desconto)}</b></span>
+                <span className="inline-flex items-baseline gap-1.5 rounded-lg bg-muted px-2.5 py-1.5">PV final <b className="font-display text-foreground tabular-nums">{brl(d.pvFinal)}</b></span>
+              </div>
             </div>
           </Card>
+
+          {/* Mix por linha + Subcoleções lado a lado (mockup aprovado) — cada um no seu card. */}
+          <div className="grid items-start gap-3 lg:grid-cols-2">
+            {mixLinha.rows.length > 0 && (
+              <Card className="p-4">
+                <div className="mb-1 text-xs font-medium text-muted-foreground">Mix por linha — % real vs meta do padrão</div>
+                <div className="grid gap-x-4 gap-y-1 sm:grid-cols-2">
+                  {mixLinha.rows.map((r) => {
+                    const off = r.meta != null && Math.abs(r.real - r.meta) > 3;
+                    return (
+                      <div key={r.linhaId} className="flex items-center gap-2 text-sm">
+                        <span className="truncate min-w-0">
+                          {r.linhaId ? nomeLinha(r.linhaId) : "— sem linha —"}
+                          {r.aParte && <span className="ml-1 text-xs text-muted-foreground">(à parte)</span>}
+                          <span className="text-xs text-muted-foreground"> · {int(r.modelos)} mod</span>
+                        </span>
+                        <span className={`tabular-nums shrink-0 ${off ? "text-amber-700 dark:text-amber-500" : "text-foreground"}`}>{pct1(r.real)}{r.meta != null && <span className="text-muted-foreground"> / meta {pct1(r.meta)}</span>}</span>
+                      </div>
+                    );
+                  })}
+                  <div className="flex items-center justify-between border-t pt-1 text-sm font-semibold sm:col-span-2">
+                    <span>Mix (sem à parte) <span className="text-xs font-normal text-muted-foreground">· {int(mixLinha.totalPool)} mod</span></span>
+                    <span className="tabular-nums">{pct1(mixLinha.sumReal)}</span>
+                  </div>
+                </div>
+              </Card>
+            )}
+            <SubcolecaoResumo colecaoId={savedId} className="rounded-lg border bg-card p-4 shadow-sm" />
+          </div>
 
           {!temPadrao ? (
             <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">Escolha um Padrão do mix acima pra começar.</div>
@@ -573,17 +584,25 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
               <Trash2 className="h-4 w-4 mr-1" />Excluir
             </Button>
           )}
-          <Button variant="secondary" onClick={() => salvar.mutate()} disabled={!nome.trim() || salvar.isPending} className="ml-auto shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Salvar">
-            <Save className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">{salvar.isPending ? "Salvando…" : "Salvar"}</span>
-          </Button>
           {confirmada ? (
-            <Button variant="destructive" onClick={() => desconfirmar.mutate()} disabled={desconfirmar.isPending} className="shrink-0">
-              <Check className="h-4 w-4 mr-1" /> {desconfirmar.isPending ? "Desconfirmando…" : "Desconfirmar"}
-            </Button>
+            <>
+              <Button variant="outline" onClick={() => desconfirmar.mutate()} disabled={desconfirmar.isPending}
+                className="ml-auto shrink-0 text-red-700 hover:text-red-700 dark:text-red-400 dark:hover:text-red-400">
+                {desconfirmar.isPending ? "Desconfirmando…" : "Desconfirmar"}
+              </Button>
+              <Button onClick={() => salvar.mutate()} disabled={!nome.trim() || salvar.isPending} className="shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Salvar">
+                <Save className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">{salvar.isPending ? "Salvando…" : "Salvar"}</span>
+              </Button>
+            </>
           ) : (
-            <Button onClick={() => confirmar.mutate()} disabled={!nome.trim() || confirmar.isPending || salvar.isPending} className="shrink-0">
-              <Check className="h-4 w-4 mr-1" /> Confirmar
-            </Button>
+            <>
+              <Button variant="secondary" onClick={() => salvar.mutate()} disabled={!nome.trim() || salvar.isPending} className="ml-auto shrink-0 max-sm:aspect-square max-sm:px-0" aria-label="Salvar">
+                <Save className="h-4 w-4 sm:mr-1" /><span className="max-sm:sr-only">{salvar.isPending ? "Salvando…" : "Salvar"}</span>
+              </Button>
+              <Button onClick={() => confirmar.mutate()} disabled={!nome.trim() || confirmar.isPending || salvar.isPending} className="shrink-0">
+                <Check className="h-4 w-4 mr-1" /> Confirmar
+              </Button>
+            </>
           )}
         </div>
         <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas nesta coleção por Poder de Venda." />
