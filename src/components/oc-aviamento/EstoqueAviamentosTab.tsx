@@ -2,8 +2,10 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import { RelatorioPrint } from "@/components/shared/RelatorioPrint";
 import { fmtNum } from "@/lib/format";
 import { SortTh } from "@/components/shared/sort";
@@ -78,10 +80,25 @@ export function useEstoqueAviamentos(enabled: boolean) {
 /** Tabela (desktop) + cards (mobile) + área de impressão. Recebe o estado do hook. */
 export function EstoqueAviamentosTable({ state }: { state: ReturnType<typeof useEstoqueAviamentos> }) {
   const { filtered, sorted, sortState, sortKey, toggle, isLoading, error } = state;
+  // Expandir/recolher todos: aqui a lista é PLANA e cada linha abre o detalhe por OC. `expanded` =
+  // ids abertos (as linhas nascem fechadas). O detalhe de cada linha só busca quando aberto.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const setRowOpen = (id: string, open: boolean) =>
+    setExpanded((prev) => { const n = new Set(prev); if (open) n.add(id); else n.delete(id); return n; });
+  const allExpanded = sorted.length > 0 && sorted.every((r: any) => expanded.has(r.id));
+  const toggleAll = () => setExpanded(allExpanded ? new Set() : new Set(sorted.map((r: any) => r.id as string)));
   return (
     <div className="space-y-4">
       {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
       {error && <p className="text-sm text-destructive">Erro ao carregar estoque: {(error as Error).message}</p>}
+
+      {sorted.length > 1 && (
+        <div className="flex justify-end">
+          <Button size="sm" variant="outline" onClick={toggleAll}>
+            {allExpanded ? <><ChevronsDownUp className="h-4 w-4 mr-1" /> Recolher todos</> : <><ChevronsUpDown className="h-4 w-4 mr-1" /> Expandir todos</>}
+          </Button>
+        </div>
+      )}
 
       <Card className="p-4">
         <div className="hidden md:block overflow-x-auto">
@@ -112,7 +129,7 @@ export function EstoqueAviamentosTable({ state }: { state: ReturnType<typeof use
             </thead>
             <tbody>
               {sorted.map((r: any) => (
-                <AviamentoRow key={r.id} row={r} />
+                <AviamentoRow key={r.id} row={r} open={expanded.has(r.id)} onToggle={() => setRowOpen(r.id, !expanded.has(r.id))} />
               ))}
               {!isLoading && sorted.length === 0 && (
                 <tr><td colSpan={9} className="py-4 text-center text-muted-foreground">Nenhum aviamento encontrado.</td></tr>
@@ -139,7 +156,7 @@ export function EstoqueAviamentosTable({ state }: { state: ReturnType<typeof use
             </Select>
           </div>
           {sorted.map((r: any) => (
-            <AviamentoCard key={r.id} row={r} />
+            <AviamentoCard key={r.id} row={r} open={expanded.has(r.id)} onToggle={() => setRowOpen(r.id, !expanded.has(r.id))} />
           ))}
           {!isLoading && sorted.length === 0 && (
             <p className="py-4 text-center text-sm text-muted-foreground">Nenhum aviamento encontrado.</p>
@@ -204,12 +221,11 @@ function useEstoqueAviamentoDetalhe(aviamentoId: string, open: boolean) {
   return { pendentes, recebidas, loadingPend, loadingRec };
 }
 
-function AviamentoRow({ row }: { row: any }) {
-  const [open, setOpen] = useState(false);
+function AviamentoRow({ row, open, onToggle }: { row: any; open: boolean; onToggle: () => void }) {
   const { pendentes, recebidas, loadingPend, loadingRec } = useEstoqueAviamentoDetalhe(row.id, open);
   return (
     <>
-      <tr className="border-b last:border-0 cursor-pointer" onClick={() => setOpen((o) => !o)}>
+      <tr className="border-b last:border-0 cursor-pointer" onClick={onToggle}>
         <td className="py-2 pr-3 text-muted-foreground">{open ? "▾" : "▸"}</td>
         <td className="py-2 pr-3">{row.nome}</td>
         <td className="py-2 pr-3">{row.fornecedor}</td>
@@ -290,12 +306,11 @@ function AviamentoRow({ row }: { row: any }) {
   );
 }
 
-function AviamentoCard({ row }: { row: any }) {
-  const [open, setOpen] = useState(false);
+function AviamentoCard({ row, open, onToggle }: { row: any; open: boolean; onToggle: () => void }) {
   const { pendentes, recebidas, loadingPend, loadingRec } = useEstoqueAviamentoDetalhe(row.id, open);
   return (
     <div className="rounded-lg border p-3">
-      <button type="button" className="w-full text-left" onClick={() => setOpen((o) => !o)}>
+      <button type="button" className="w-full text-left" onClick={onToggle}>
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
             <div className="font-medium truncate">{row.nome}</div>

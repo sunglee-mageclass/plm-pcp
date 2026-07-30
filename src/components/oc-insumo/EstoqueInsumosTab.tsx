@@ -2,7 +2,9 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
-import { Boxes } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Boxes, ChevronRight, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import { RelatorioPrint } from "@/components/shared/RelatorioPrint";
 import { fmtNum } from "@/lib/format";
 
@@ -72,6 +74,13 @@ export function useEstoqueInsumos(enabled: boolean) {
 /** Tabela agrupada (insumo → cor → tamanho) + área de impressão. Recebe o estado do hook. */
 export function EstoqueInsumosTable({ state }: { state: ReturnType<typeof useEstoqueInsumos> }) {
   const { grouped, isLoading } = state;
+  // Expandir/recolher todos os insumos. `collapsed` = ids recolhidos (vazio = todos abertos); insumo
+  // novo pós-filtro nasce aberto. Cada card vira um Collapsible CONTROLADO.
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const setGroupOpen = (id: string, open: boolean) =>
+    setCollapsed((prev) => { const n = new Set(prev); if (open) n.delete(id); else n.add(id); return n; });
+  const allCollapsed = grouped.length > 0 && grouped.every((g) => collapsed.has(g.id));
+  const toggleAll = () => setCollapsed(allCollapsed ? new Set() : new Set(grouped.map((g) => g.id)));
   return (
     <div className="space-y-4">
       {isLoading ? (
@@ -82,9 +91,22 @@ export function EstoqueInsumosTable({ state }: { state: ReturnType<typeof useEst
           Sem insumos em estoque. Compras (OC Insumo) e consumos (CAD) aparecem aqui.
         </div>
       ) : (
-        grouped.map((g) => (
+        <>
+        {grouped.length > 1 && (
+          <div className="flex justify-end">
+            <Button size="sm" variant="outline" onClick={toggleAll}>
+              {allCollapsed ? <><ChevronsUpDown className="h-4 w-4 mr-1" /> Expandir todos</> : <><ChevronsDownUp className="h-4 w-4 mr-1" /> Recolher todos</>}
+            </Button>
+          </div>
+        )}
+        {grouped.map((g) => (
           <Card key={g.id} className="p-4">
-            <h3 className="font-semibold mb-3">{g.nome}</h3>
+            <Collapsible open={!collapsed.has(g.id)} onOpenChange={(o) => setGroupOpen(g.id, o)}>
+              <CollapsibleTrigger className="flex w-full items-center gap-2 text-left font-semibold [&[data-state=open]>svg]:rotate-90">
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform" />
+                <span className="min-w-0 truncate">{g.nome}</span>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-3">
             <div className="space-y-3">
               {g.cores.map((c, ci) => (
                 <div key={ci}>
@@ -116,8 +138,11 @@ export function EstoqueInsumosTable({ state }: { state: ReturnType<typeof useEst
                 </div>
               ))}
             </div>
+              </CollapsibleContent>
+            </Collapsible>
           </Card>
-        ))
+        ))}
+        </>
       )}
 
       <RelatorioPrint

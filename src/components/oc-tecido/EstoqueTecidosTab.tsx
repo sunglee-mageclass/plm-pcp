@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ChevronRight, MapPin, Plus, Trash2 } from "lucide-react";
+import { ChevronRight, ChevronsDownUp, ChevronsUpDown, MapPin, Plus, Trash2 } from "lucide-react";
 import { RelatorioPrint } from "@/components/shared/RelatorioPrint";
 import { useReadOnly } from "@/components/RequirePermission";
 import { cn } from "@/lib/utils";
@@ -155,6 +155,14 @@ export function EstoqueTecidosTable({ state }: { state: ReturnType<typeof useEst
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [dialogOpen, setDialogOpen] = useState(false);
 
+  // Expandir/recolher todos os tecidos. `collapsed` = ids recolhidos (vazio = todos abertos, igual ao
+  // defaultOpen antigo); tecido novo pós-filtro nasce aberto. O Collapsible passa a ser CONTROLADO.
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const setGroupOpen = (id: string, open: boolean) =>
+    setCollapsed((prev) => { const n = new Set(prev); if (open) n.delete(id); else n.add(id); return n; });
+  const allCollapsed = grouped.length > 0 && grouped.every((g) => collapsed.has(g.artigoId));
+  const toggleAll = () => setCollapsed(allCollapsed ? new Set() : new Set(grouped.map((g) => g.artigoId)));
+
   const visibleIds = useMemo(() => grouped.flatMap((g) => g.rows.map((r: any) => r.varId as string)), [grouped]);
   const selectedVisible = useMemo(() => visibleIds.filter((id) => selected.has(id)), [visibleIds, selected]);
   // varId -> { tecido, variante } — p/ o diálogo mostrar a que tecido cada endereço pertence.
@@ -212,12 +220,20 @@ export function EstoqueTecidosTable({ state }: { state: ReturnType<typeof useEst
         </Select>
       </div>
 
+      {grouped.length > 1 && (
+        <div className="flex justify-end">
+          <Button size="sm" variant="outline" onClick={toggleAll}>
+            {allCollapsed ? <><ChevronsUpDown className="h-4 w-4 mr-1" /> Expandir todos</> : <><ChevronsDownUp className="h-4 w-4 mr-1" /> Recolher todos</>}
+          </Button>
+        </div>
+      )}
+
       {grouped.map((g) => (
-        // Cada tecido é colapsável (abre por padrão). Checkbox à esquerda seleciona TODAS as
-        // variantes do tecido; o cabeçalho (nome) é o gatilho de colapso. A impressão
-        // (RelatorioPrint) é independente e sempre lista tudo.
+        // Cada tecido é colapsável (CONTROLADO por `collapsed` p/ o expandir/recolher todos).
+        // Checkbox à esquerda seleciona TODAS as variantes do tecido; o cabeçalho (nome) é o gatilho
+        // de colapso. A impressão (RelatorioPrint) é independente e sempre lista tudo.
         <Card key={g.artigoId} className="p-4">
-          <Collapsible defaultOpen>
+          <Collapsible open={!collapsed.has(g.artigoId)} onOpenChange={(o) => setGroupOpen(g.artigoId, o)}>
             <div className="flex items-center gap-2">
               {!readOnly && (
                 <Checkbox
