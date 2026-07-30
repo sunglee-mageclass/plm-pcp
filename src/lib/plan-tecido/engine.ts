@@ -173,22 +173,28 @@ const lnKeyOf = (l: { linha_id: string | null; categoria_id: string | null }) =>
 // Um slot salvo só tem "dados do usuário" se estiver ligado a um modelo, tiver material,
 // OU tiver uma categoria de tecido atribuída (lane). Slot salvo VAZIO (plano antigo
 // pré-semeadura) NÃO deve sobrescrever o modelo semeado.
-const savedTemDados = (s?: PtSlot): boolean =>
+const savedTemDados = (s?: PtSlot): s is PtSlot =>
   !!s && (!!s.modelo_id || (s.materiais?.length ?? 0) > 0 || !!s.categoria_tecido_id);
 
 export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
   if (!salvo) return seed;
   // BOM VIVO por modelo_id: cada slot de modelo do seed carrega o BOM atual do Desenvolvimento.
-  // O merge é POSICIONAL (por índice de linha), então um slot SALVO de modelo pode desalinhar e
-  // cair sobre um slot do seed sem modelo (vazio) — nesse caso a decisão de materiais baseada no
-  // `slot.modelo_id` (do seed) usaria o snapshot SALVO (stale) em vez do BOM vivo. Indexar o BOM
-  // vivo por modelo_id garante fidelidade INDEPENDENTE da posição na grade (bug real: card com
-  // tecido do Dev = Angelim aparecia no plano como Renda Delicate, um snapshot antigo salvo).
+  // Indexar o BOM vivo por modelo_id garante fidelidade INDEPENDENTE da posição na grade (bug
+  // real: card com tecido do Dev = Angelim aparecia no plano como Renda Delicate, um snapshot
+  // antigo salvo).
   const liveByModelo = new Map<string, PtSlot>();
   for (const sub of seed.subcolecoes)
     for (const ln of sub.linhas)
       for (const slot of ln.slots)
         if (slot.modelo_id) liveByModelo.set(slot.modelo_id, slot);
+  // Slot SALVO por modelo_id: o dado salvo SEGUE o modelo quando ele muda de subcoleção/bucket.
+  // (Bug Ave Rara: Plan. Produto/OTB movem `modelos.subcolecao` — o merge posicional antigo
+  // pregava o modelo na subcoleção do plano salvo E o duplicava na subcoleção nova.)
+  const savedByModelo = new Map<string, PtSlot>();
+  for (const sub of salvo.subcolecoes)
+    for (const ln of sub.linhas)
+      for (const s of ln.slots)
+        if (s.modelo_id) savedByModelo.set(s.modelo_id, s);
   return {
     ...seed,
     plan_id: salvo.plan_id,
@@ -199,11 +205,20 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
       return { ...s, id: ss.id, categorias_tecido: ss.categorias_tecido ?? s.categorias_tecido, linhas: s.linhas.map((l) => {
         const sl = ss.linhas.find((x) => lnKeyOf(x) === lnKeyOf(l));
         if (!sl) return l;
-        return { ...l, id: sl.id, slots: l.slots.map((slot, i) => {
-          const saved = sl.slots[i];
+        // Pareamento em 2 trilhas:
+        //  • slot do seed COM modelo casa pelo MODELO_ID (onde quer que o salvo estivesse — a
+        //    colocação VIVA vence; o dado de plano salvo segue o modelo);
+        //  • slot do seed VAZIO casa POSICIONALMENTE entre os salvos "restantes" — excluindo os
+        //    de modelo VIVO (esses pertencem ao bucket atual do modelo, não a este). Slot salvo
+        //    de modelo EXCLUÍDO continua entrando (comportamento antigo: o Sheet limpa via validIds).
+        const restantes = sl.slots.filter((x) => !(x.modelo_id && liveByModelo.has(x.modelo_id)));
+        let k = 0;
+        return { ...l, id: sl.id, slots: l.slots.map((slot) => {
+          const saved = slot.modelo_id ? savedByModelo.get(slot.modelo_id) : restantes[k++];
           if (!savedTemDados(saved)) return slot; // não deixa slot salvo vazio apagar o modelo semeado
-          // modelo_id EFETIVO do slot resultante (salvo tem prioridade; senão o do seed posicional)
-          const effModeloId = saved.modelo_id ?? slot.modelo_id;
+          // modelo_id EFETIVO: o do seed (colocação viva); num vazio posicional, o do salvo
+          // (modelo excluído — limpo depois pelo Sheet).
+          const effModeloId = slot.modelo_id ?? saved.modelo_id;
           // BOM vivo do modelo efetivo (por id, não por posição) — pode não existir se o modelo
           // foi excluído do Desenvolvimento; aí cai no snapshot salvo.
           const live = effModeloId ? liveByModelo.get(effModeloId) : undefined;

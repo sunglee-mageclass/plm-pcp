@@ -203,6 +203,11 @@ function PlanejamentoPage() {
   const toggleSel = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const selectAllFiltered = () => setSelected(new Set(sorted.map((m) => m.id)));
   const clearSel = () => setSelected(new Set());
+  // Cards do Planejamento alimentam o Plan. Tecido (subcoleção/semana/BOM/exclusão) → refresca o
+  // cache dele junto (espelha o `invalidarDownstream` do OTB; sem isso a Plan. Tecido aberta na
+  // sessão fica presa no cache até remontar).
+  const invalidarPlanTecido = () =>
+    qc.invalidateQueries({ predicate: (q) => typeof q.queryKey?.[0] === "string" && (q.queryKey[0] as string).startsWith("plan-tecido") });
   const [confirmBulkDel, setConfirmBulkDel] = useState(false);
   const bulkDel = useMutation({
     mutationFn: async () => {
@@ -217,6 +222,7 @@ function PlanejamentoPage() {
       clearSel(); setConfirmBulkDel(false);
       qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
       qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
+      invalidarPlanTecido();
     },
     onError: (e: any) => { setConfirmBulkDel(false); toast.error(mensagemErro(e, "Erro ao excluir os cards")); },
   });
@@ -808,7 +814,7 @@ function PlanejamentoPage() {
           categorias={categorias}
           artigos={artigos}
           onClose={() => { setOpenNew(false); setOpenId(null); }}
-          onSaved={() => qc.invalidateQueries({ queryKey: ["modelos-planejamento"] })}
+          onSaved={() => { qc.invalidateQueries({ queryKey: ["modelos-planejamento"] }); invalidarPlanTecido(); }}
         />
       )}
 
@@ -820,7 +826,7 @@ function PlanejamentoPage() {
           categorias={categorias}
           linhas={linhas}
           onClose={() => setOpenBatch(false)}
-          onSaved={() => { qc.invalidateQueries({ queryKey: ["modelos-planejamento"] }); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); }}
+          onSaved={() => { qc.invalidateQueries({ queryKey: ["modelos-planejamento"] }); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); invalidarPlanTecido(); }}
         />
       )}
 
@@ -840,7 +846,7 @@ function PlanejamentoPage() {
           anos={anos}
           statusOpts={STATUS_OPTS.map((s) => ({ id: s.value, nome: s.label }))}
           onClose={() => setOpenBulk(false)}
-          onSaved={() => { qc.invalidateQueries({ queryKey: ["modelos-planejamento"] }); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); clearSel(); }}
+          onSaved={() => { qc.invalidateQueries({ queryKey: ["modelos-planejamento"] }); qc.invalidateQueries({ queryKey: ["otb-orcamento"] }); invalidarPlanTecido(); clearSel(); }}
         />
       )}
 

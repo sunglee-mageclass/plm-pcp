@@ -105,10 +105,65 @@ describe("plan-tecido/engine", () => {
         { modelo_id: "M1", slot_index: 1, ref: "REF1", custos_adicionais: [], materiais: [{ artigo_id: "RENDA", tipo: "tecido" as const, numero: 1, consumo: 2, loss_percent: 0, ordem: 0, variantes: [] }] },
       ] }] }] };
     const merged = mergeArvore(seed as any, salvo as any);
-    const slotM1 = merged.subcolecoes[0].linhas[0].slots[1];
-    expect(slotM1.modelo_id).toBe("M1");
-    // Antes do fix: RENDA (snapshot salvo, pela posição). Depois: ANGELIM (BOM vivo por id).
-    expect(slotM1.materiais[0].artigo_id).toBe("ANGELIM");
+    // O modelo aparece UMA vez (o salvo casa por modelo_id, não pela posição — sem duplicar),
+    // na POSIÇÃO VIVA do seed, com o BOM VIVO (ANGELIM) e os campos de plano do salvo (ref).
+    const slotsM1 = merged.subcolecoes[0].linhas[0].slots.filter((s) => s.modelo_id === "M1");
+    expect(slotsM1).toHaveLength(1);
+    expect(slotsM1[0].materiais[0].artigo_id).toBe("ANGELIM");
+    expect(slotsM1[0].ref).toBe("REF1");
+  });
+
+  it("mergeArvore: modelo MOVIDO de subcoleção (R1→R2) segue a colocação VIVA (bug Ave Rara)", () => {
+    // Vivo: M1 agora está em S2 (R2). Seed reflete isso (S1 ficou com um vazio do bucket).
+    const seed = { colecao_id: "c", subcolecoes: [
+      { subcolecao_id: "S1", ordem: 0, linhas: [{ linha_id: null, categoria_id: "cat", ordem: 0,
+        slots: [{ modelo_id: null, slot_index: 0, custos_adicionais: [], materiais: [] }] }] },
+      { subcolecao_id: "S2", ordem: 1, linhas: [{ linha_id: null, categoria_id: "cat", ordem: 0,
+        slots: [{ modelo_id: "M1", slot_index: 0, ref: "REF1", custos_adicionais: [], materiais: [{ artigo_id: "VIVO", tipo: "tecido" as const, numero: 1, consumo: 1.5, loss_percent: 0, ordem: 0, variantes: [] }] }] }] },
+    ] };
+    // Salvo (antes da mudança): M1 estava em S1, com campos de plano (custo 9).
+    const salvo = { colecao_id: "c", subcolecoes: [
+      { subcolecao_id: "S1", ordem: 0, linhas: [{ linha_id: null, categoria_id: "cat", ordem: 0,
+        slots: [{ modelo_id: "M1", slot_index: 0, custo_terceirizados_previsto: 9, custos_adicionais: [], materiais: [{ artigo_id: "SNAP", tipo: "tecido" as const, numero: 1, consumo: 2, loss_percent: 0, ordem: 0, variantes: [] }] }] }] },
+      { subcolecao_id: "S2", ordem: 1, linhas: [{ linha_id: null, categoria_id: "cat", ordem: 0, slots: [] }] },
+    ] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    const s1 = merged.subcolecoes.find((s) => s.subcolecao_id === "S1")!;
+    const s2 = merged.subcolecoes.find((s) => s.subcolecao_id === "S2")!;
+    // NÃO fica pregado em S1 (era o bug: 11 modelos da Ave Rara presos em R1)…
+    expect(s1.linhas[0].slots.filter((s) => s.modelo_id === "M1")).toHaveLength(0);
+    // …aparece UMA vez em S2 (colocação viva), carregando os campos de plano salvos + BOM vivo.
+    const emS2 = s2.linhas[0].slots.filter((s) => s.modelo_id === "M1");
+    expect(emS2).toHaveLength(1);
+    expect(emS2[0].custo_terceirizados_previsto).toBe(9); // dado do plano SEGUE o modelo
+    expect(emS2[0].materiais[0].artigo_id).toBe("VIVO");  // BOM vivo (regra a.1)
+  });
+
+  it("mergeArvore: rascunho salvo (sem modelo) ainda pareia com vazio mesmo com modelo movido no bucket", () => {
+    // S1 salvo: [M1 (movido p/ fora), rascunho B]. Seed S1: [vazio, vazio] (bucket qtd 2).
+    const seed = { colecao_id: "c", subcolecoes: [
+      { subcolecao_id: "S1", ordem: 0, linhas: [{ linha_id: null, categoria_id: "cat", ordem: 0,
+        slots: [
+          { modelo_id: null, slot_index: 0, custos_adicionais: [], materiais: [] },
+          { modelo_id: null, slot_index: 1, custos_adicionais: [], materiais: [] },
+        ] }] },
+      { subcolecao_id: "S2", ordem: 1, linhas: [{ linha_id: null, categoria_id: "cat", ordem: 0,
+        slots: [{ modelo_id: "M1", slot_index: 0, custos_adicionais: [], materiais: [] }] }] },
+    ] };
+    const salvo = { colecao_id: "c", subcolecoes: [
+      { subcolecao_id: "S1", ordem: 0, linhas: [{ linha_id: null, categoria_id: "cat", ordem: 0,
+        slots: [
+          { modelo_id: "M1", slot_index: 0, custos_adicionais: [], materiais: [] },
+          { modelo_id: null, slot_index: 1, custos_adicionais: [], materiais: [{ artigo_id: "B", tipo: "tecido" as const, numero: 1, consumo: 2, loss_percent: 0, ordem: 0, variantes: [] }] },
+        ] }] },
+    ] };
+    const merged = mergeArvore(seed as any, salvo as any);
+    const s1 = merged.subcolecoes.find((s) => s.subcolecao_id === "S1")!;
+    // O slot salvo do M1 (modelo vivo em OUTRO bucket) não entra no pareamento posicional;
+    // o rascunho B casa com o PRIMEIRO vazio do seed.
+    expect(s1.linhas[0].slots[0].modelo_id).toBeNull();
+    expect(s1.linhas[0].slots[0].materiais[0]?.artigo_id).toBe("B");
+    expect(s1.linhas[0].slots.filter((s) => s.modelo_id === "M1")).toHaveLength(0);
   });
 
   it("semearComModelos: card nasce com categoria_tecido_id do Tecido 1 (auto-categorização)", () => {
