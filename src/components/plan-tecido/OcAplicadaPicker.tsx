@@ -61,6 +61,7 @@ export function OcAplicadaPicker({ colecaoId }: { colecaoId: string }) {
       toast.success("OCs aplicadas atualizadas.");
       setOpen(false);
       qc.invalidateQueries({ queryKey: ["plan-tecido-oc-aplicada", colecaoId] });
+      qc.invalidateQueries({ queryKey: ["plan-tecido-oc-aplicada-lista", colecaoId] }); // pool do SlotOcHint — senão a OC recém-aplicada não aparece no card
       qc.invalidateQueries({ queryKey: ["plan-tecido-situacao-ocs", colecaoId] });
       qc.invalidateQueries({ queryKey: ["plan-tecido-previa", colecaoId] }); // cobertura mudou → "a comprar" muda
       qc.invalidateQueries({ queryKey: ["plan-tecido-cobertura", colecaoId] });

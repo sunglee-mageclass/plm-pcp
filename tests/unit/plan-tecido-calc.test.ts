@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { necessidadeVariante, necessidadePorTecido, metrosParaKg, abaterEstoque, custoMateriaisPrevisto, distribuirGrade, detalheOc } from "@/lib/plan-tecido/calc";
+import { necessidadeVariante, necessidadePorTecido, metrosParaKg, abaterEstoque, custoMateriaisPrevisto, distribuirGrade, detalheOc, contabilizarOc } from "@/lib/plan-tecido/calc";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
 
 describe("plan-tecido/calc", () => {
@@ -163,6 +163,59 @@ describe("distribuirGrade", () => {
     // Contabilidade: reservada exibida = total − usada = 150 − 100 = 50
     const usada = Math.max(d.comprometidoPorOc.get("oc1")!, 0);
     expect(Math.max(0, d.reservPorOc.get("oc1")! - usada)).toBeCloseTo(50, 5);
+  });
+
+  it("contabilizarOc: usado (max comprometido/baixa) sai da reservada; baixaDomina decide a cor", () => {
+    // comprometido domina (500 comp, 100 baixa): usada 500, âmbar, reservada 300, sobra 1000-800=200
+    let r = contabilizarOc(800, 500, 100, 1000);
+    expect(r.usada).toBe(500); expect(r.reservadaLivre).toBe(300); expect(r.baixaDomina).toBe(false); expect(r.sobra).toBe(200);
+    // baixa domina (sobre-corte 300 vs comp 100): usada 300, vermelho, reservada 0, sobra 500-300=200
+    r = contabilizarOc(200, 100, 300, 500);
+    expect(r.usada).toBe(300); expect(r.baixaDomina).toBe(true); expect(r.reservadaLivre).toBe(0); expect(r.sobra).toBe(200);
+    // só baixa (comp 0, baixa 100): vermelho
+    r = contabilizarOc(100, 0, 100, 100);
+    expect(r.baixaDomina).toBe(true); expect(r.usada).toBe(100); expect(r.reservadaLivre).toBe(0); expect(r.sobra).toBe(0);
+    // nada usado: cinza, reservada cheia
+    r = contabilizarOc(100, 0, 0, 120);
+    expect(r.usada).toBe(0); expect(r.baixaDomina).toBe(false); expect(r.reservadaLivre).toBe(100); expect(r.sobra).toBe(20);
+    // comprometido > pedida → sobra negativa
+    r = contabilizarOc(50, 80, 0, 60);
+    expect(r.usada).toBe(80); expect(r.reservadaLivre).toBe(0); expect(r.sobra).toBe(-20);
+  });
+
+  it("detalheOc: variante SEM variante_tecido_id conta no total por-OC mas não no por-variante", () => {
+    const arv: PtArvore = { colecao_id: "c", subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [{ linha_id: null, categoria_id: null, ordem: 0, slots: [
+      { id: "s1", modelo_id: "m1", materiais: [{ artigo_id: "A", artigo_nome: "V", unidade_medida: "metro", rendimento: null, tipo: "tecido", numero: 1, consumo: 1, loss_percent: 0, ordem: 0,
+        variantes: [{ variante_tecido_id: null, cor_id: "cor1", label: "planejada", ordem: 1, multiplicador: 1, grades: {}, grade_total: 10 }] }] } as unknown as PtSlot,
+    ] }] }] };
+    const d = detalheOc(arv, { m1: ["oc1"] }, {}, new Set());
+    expect(d.reservPorOc.get("oc1")).toBeCloseTo(10, 5); // total (slotMetros) inclui a cor planejada
+    expect(d.reservPorOcVar.size).toBe(0);              // por-variante descarta (sem id) — divergência documentada
+  });
+
+  it("detalheOc: mesmo slot em 2 OCs soma o slot inteiro em CADA OC (comportamento documentado)", () => {
+    const arv: PtArvore = { colecao_id: "c", subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [{ linha_id: null, categoria_id: null, ordem: 0, slots: [
+      { id: "s1", modelo_id: "m1", materiais: [{ artigo_id: "A", artigo_nome: "V", unidade_medida: "metro", rendimento: null, tipo: "tecido", numero: 1, consumo: 1, loss_percent: 0, ordem: 0,
+        variantes: [{ variante_tecido_id: "v1", label: "x", ordem: 1, multiplicador: 1, grades: {}, grade_total: 10 }] }] } as unknown as PtSlot,
+    ] }] }] };
+    const d = detalheOc(arv, { m1: ["oc1", "oc2"] }, {}, new Set());
+    expect(d.reservPorOc.get("oc1")).toBe(10);
+    expect(d.reservPorOc.get("oc2")).toBe(10);
+    expect(d.reservPorOcVar.get("oc1|v1")).toBe(10);
+    expect(d.reservPorOcVar.get("oc2|v1")).toBe(10);
+  });
+
+  it("detalheOc: forro entra no total por-OC (slotMetros não filtra papel)", () => {
+    const arv: PtArvore = { colecao_id: "c", subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [{ linha_id: null, categoria_id: null, ordem: 0, slots: [
+      { id: "s1", modelo_id: "m1", materiais: [
+        { artigo_id: "A", artigo_nome: "Tec", unidade_medida: "metro", rendimento: null, tipo: "tecido", numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [{ variante_tecido_id: "v1", label: "x", ordem: 1, multiplicador: 1, grades: {}, grade_total: 10 }] },
+        { artigo_id: "F", artigo_nome: "Forro", unidade_medida: "metro", rendimento: null, tipo: "forro", numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [{ variante_tecido_id: "vf", label: "y", ordem: 1, multiplicador: 1, grades: {}, grade_total: 5 }] },
+      ] } as unknown as PtSlot,
+    ] }] }] };
+    const d = detalheOc(arv, { m1: ["oc1"] }, {}, new Set());
+    expect(d.reservPorOc.get("oc1")).toBeCloseTo(15, 5);        // tecido 10 + forro 5
+    expect(d.reservPorOcVar.get("oc1|v1")).toBeCloseTo(10, 5);
+    expect(d.reservPorOcVar.get("oc1|vf")).toBeCloseTo(5, 5);
   });
 
   it("detalheOc: vínculo do Dev (vinculoOcMap) vence o hint do plano (slotOcMap)", () => {

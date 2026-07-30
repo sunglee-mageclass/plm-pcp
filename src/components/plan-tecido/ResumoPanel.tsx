@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
-import { custoMateriaisPrevisto, slotMetros, detalheOc, fmtMetros } from "@/lib/plan-tecido/calc";
+import { custoMateriaisPrevisto, slotMetros, detalheOc, fmtMetros, contabilizarOc } from "@/lib/plan-tecido/calc";
 import { useSituacaoOcs, agruparPorOc } from "@/lib/plan-tecido/useSituacaoOcs";
 import type { PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
 import { precoInfo } from "@/lib/preco";
@@ -95,6 +95,7 @@ export function ResumoPanel({
     onSuccess: () => {
       toast.success("OC desvinculada.");
       qc.invalidateQueries({ queryKey: ["plan-tecido-oc-aplicada", colecaoId] });
+      qc.invalidateQueries({ queryKey: ["plan-tecido-oc-aplicada-lista", colecaoId] }); // pool do SlotOcHint (senão o card fica defasado)
       qc.invalidateQueries({ queryKey: ["plan-tecido-situacao-ocs", colecaoId] });
       qc.invalidateQueries({ queryKey: ["plan-tecido-previa", colecaoId] }); // cobertura mudou → "a comprar" muda
     },
@@ -282,11 +283,8 @@ export function ResumoPanel({
         {ocs.length ? ocs.map((o) => {
           const reservadaTotal = reservPorOc.get(o.oc_tecido_id) ?? 0;
           const comprometido = comprometidoPorOc.get(o.oc_tecido_id) ?? 0; // enviado à explosão (laranja)
-          // Contabilidade: o que foi USADO (comprometido/cortado) SAI da reservada. usada = max(comprometido,
-          // baixa real); reservada exibida = total − usada; reservada + usada = total; sobra = pedida − total.
-          const usada = Math.max(comprometido, o.usada);
-          const reservada = Math.max(0, reservadaTotal - usada);
-          const sobra = o.pedida - Math.max(reservadaTotal, usada);
+          // Contabilidade via fonte única (mesma fn do Drawer): usado (comprometido OU baixa) sai da reservada.
+          const { reservadaLivre: reservada, usada, sobra, baixaDomina } = contabilizarOc(reservadaTotal, comprometido, o.usada, o.pedida);
           return (
             <div key={o.oc_tecido_id} className="border-b p-2 text-xs last:border-b-0">
               <div className="mb-0.5 flex items-center gap-2">
@@ -298,12 +296,12 @@ export function ResumoPanel({
               <div className="flex justify-between text-muted-foreground"><span>Pedida</span><span>{nMet(o.pedida)} m</span></div>
               <div className="flex justify-between text-muted-foreground"><span>Entregue</span><span>{nMet(o.entregue)} m</span></div>
               <div className="flex justify-between text-muted-foreground"><span>Reservada</span><span>{nMet(reservada)} m</span></div>
-              {/* Usada (saiu da reservada): baixa REAL (vermelho) tem prioridade; senão o comprometido =
-                  enviado à explosão (laranja). Cinza quando 0. */}
+              {/* Usada (saiu da reservada): vermelho quando a BAIXA real domina; senão âmbar (comprometido
+                  = enviado à explosão). Cinza quando 0. Cor/valor pela MESMA regra (contabilizarOc). */}
               <div className="flex justify-between text-muted-foreground">
                 <span>Usada</span>
-                <span className={o.usada > 0 ? "font-medium text-red-600" : comprometido > 0 ? "font-medium text-amber-600" : ""}
-                      title={o.usada > 0 ? "Baixa real (corte enviado)" : comprometido > 0 ? "Comprometido — enviado à explosão" : undefined}>
+                <span className={usada <= 0 ? "" : baixaDomina ? "font-medium text-red-600" : "font-medium text-amber-600"}
+                      title={usada <= 0 ? undefined : baixaDomina ? "Baixa real (corte enviado)" : "Comprometido — enviado à explosão"}>
                   {nMet(usada)} m
                 </span>
               </div>
@@ -313,7 +311,7 @@ export function ResumoPanel({
         }) : (
           <div className="p-2 text-[10px] text-muted-foreground">Sem OC ainda — gere um pedido ou vincule uma OC existente.</div>
         )}
-        <div className="p-2 text-[9px] leading-tight text-muted-foreground">Reservada = demanda dos cards atribuídos à OC (ao vivo). Entregue/Usada vêm da OC. Sobra prevista = Pedida − Reservada (pode ser negativa).</div>
+        <div className="p-2 text-[9px] leading-tight text-muted-foreground">Reservada = demanda ainda NÃO usada (total atribuído − usada). Usada = comprometido (enviado à explosão) ou baixa real, o maior. Sobra prevista = Pedida − máx(reservada total, usada) — pode ser negativa.</div>
       </Secao>
     </div>
   );

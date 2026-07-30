@@ -1,7 +1,7 @@
 import { Fragment } from "react";
 import { X } from "lucide-react";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
-import { necessidadePorTecido, detalheOc, fmtMetros } from "@/lib/plan-tecido/calc";
+import { necessidadePorTecido, detalheOc, fmtMetros, contabilizarOc } from "@/lib/plan-tecido/calc";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import type { SituacaoOcRow } from "@/lib/plan-tecido/useSituacaoOcs";
 
@@ -147,11 +147,8 @@ export function PlanTecidoDrawer({
               <Fragment key={g.artigo_id}>
                 <tr className="border-t bg-muted/40"><td className="p-1.5 font-medium" colSpan={nCols}>{g.artigo}</td></tr>
                 {g.variantes.map((v) => {
-                  // Contabilidade (igual ao Resumo): usado (comprometido/cortado) SAI da reservada.
-                  // usada = max(comprometido, baixa real); reservada exibida = total − usada; sobra = pedida − total.
-                  const usada = Math.max(v.comprometida, v.usada);
-                  const reservadaLivre = Math.max(0, v.reservada - usada);
-                  const sobra = v.pedida - Math.max(v.reservada, usada);
+                  // Contabilidade via fonte única (mesma fn do Resumo): usado sai da reservada.
+                  const { reservadaLivre, usada, sobra, baixaDomina } = contabilizarOc(v.reservada, v.comprometida, v.usada, v.pedida);
                   return (
                     <tr key={v.key} className="border-t">
                       <td className="p-1.5">
@@ -170,10 +167,10 @@ export function PlanTecidoDrawer({
                           <td className="p-1.5 text-right">{nMet(v.pedida)}</td>
                           <td className="p-1.5 text-right">{nMet(v.entregue)}</td>
                           <td className="p-1.5 text-right text-muted-foreground">{nMet(reservadaLivre)}</td>
-                          {/* Usada (saiu da reservada): baixa REAL (vermelho) tem prioridade; senão o
-                              comprometido = enviado à explosão (laranja). Cinza quando 0. */}
-                          <td className={`p-1.5 text-right ${v.usada > 0 ? "font-medium text-red-600" : v.comprometida > 0 ? "font-medium text-amber-600" : "text-muted-foreground"}`}
-                              title={v.usada > 0 ? "Baixa real (corte enviado)" : v.comprometida > 0 ? "Comprometido — enviado à explosão" : undefined}>
+                          {/* Usada (saiu da reservada): vermelho quando a BAIXA real domina; senão âmbar
+                              (comprometido = enviado à explosão). Cinza quando 0. */}
+                          <td className={`p-1.5 text-right ${usada <= 0 ? "text-muted-foreground" : baixaDomina ? "font-medium text-red-600" : "font-medium text-amber-600"}`}
+                              title={usada <= 0 ? undefined : baixaDomina ? "Baixa real (corte enviado)" : "Comprometido — enviado à explosão"}>
                             {nMet(usada)}
                           </td>
                           <td className={`p-1.5 text-right font-medium ${sobraCls(sobra)}`}>{sobra > 0 ? "+" : ""}{nMet(sobra)}</td>

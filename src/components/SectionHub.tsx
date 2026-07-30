@@ -14,14 +14,18 @@ import { PAGE_URLS, PAGE_ICONS, MODULE_META } from "@/lib/nav";
  */
 export function SectionHub({ module, subtitle, descriptions }: { module: string; subtitle?: string; descriptions?: Record<string, string> }) {
   const { isAdmin, isSuperAdmin, isTenantAdmin, canView } = useAuth();
-  const { isStockOnly } = useTenantModules();
+  const { isStockOnly, isModuleEnabled } = useTenantModules();
   const profile = isStockOnly ? "stock" : "full";
   const tabLabels = useTabLabels();
   const mod = PAGES_CATALOG.find((m) => m.module === module);
   const meta = MODULE_META[module];
   const Header = meta?.icon;
 
-  const blocks = (mod?.pages ?? [])
+  // Módulo desligado pra loja: não montar o hub (mesma gate da sidebar) — evita mostrar blocos de um
+  // setor não contratado quando alguém abre o basePath direto.
+  const moduleOff = !!module && !isModuleEnabled(module);
+
+  const blocks = moduleOff ? [] : (mod?.pages ?? [])
     .filter((p) => !p.soEdicao && PAGE_URLS[p.key])                        // páginas com tela de verdade
     .filter((p) => pageInProfile(p, profile))                             // perfil da loja (full/estoque)
     .filter((p) => isAdmin || isSuperAdmin || isTenantAdmin || canView(p.key)) // permissão do usuário
@@ -37,7 +41,7 @@ export function SectionHub({ module, subtitle, descriptions }: { module: string;
         </div>
       </header>
       {blocks.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Nenhuma tela disponível neste setor para o seu acesso.</p>
+        <p className="text-sm text-muted-foreground">{moduleOff ? "Este módulo não está habilitado para a sua loja." : "Nenhuma tela disponível neste setor para o seu acesso."}</p>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {blocks.map((b) => (

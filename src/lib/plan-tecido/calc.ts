@@ -94,11 +94,25 @@ export function necessidadePorTecido(arvore: PtArvore, filtroSlot?: (slot: PtSlo
   return [...byArtigo.values()];
 }
 
+/** Contabilidade de UMA linha de OC (por OC no Resumo, por variante no Drawer) — FONTE ÚNICA da conta
+ *  pra Resumo e Drawer decidirem IGUAL. Regra: o que foi USADO (comprometido enviado à explosão OU
+ *  baixa real, o que for MAIOR) sai da reservada. `baixaDomina` = a baixa real é ≥ o comprometido
+ *  (então a cor é vermelha "baixa real"; senão é âmbar "comprometido"). */
+export type ContabOc = { reservadaLivre: number; usada: number; sobra: number; baixaDomina: boolean };
+export function contabilizarOc(total: number, comprometido: number, baixa: number, pedida: number): ContabOc {
+  const t = Number(total) || 0, c = Number(comprometido) || 0, b = Number(baixa) || 0, p = Number(pedida) || 0;
+  const usada = Math.max(c, b);
+  return { reservadaLivre: Math.max(0, t - usada), usada, sobra: p - Math.max(t, usada), baixaDomina: b > 0 && b >= c };
+}
+
 /** Reservada/comprometida por OC — FONTE ÚNICA consumida pelo Resumo (por OC) e pelo Drawer
- *  (por OC×variante), pra os dois NUNCA divergirem. "Comprometido" = demanda dos cards já
- *  ENVIADOS À EXPLOSÃO (enviado_cad); no modelo de contabilidade, o comprometido SAI da reservada
- *  (reservada exibida = total − comprometido; reservada+usada = total). OC efetiva do slot: o
- *  vínculo real do Dev (vinculoOcMap por modelo) vence o hint do plano (slotOcMap por slot). */
+ *  (por OC×variante). "Comprometido" = demanda dos cards já ENVIADOS À EXPLOSÃO (enviado_cad); o
+ *  comprometido SAI da reservada (ver contabilizarOc). OC efetiva do slot: o vínculo real do Dev
+ *  (vinculoOcMap por modelo) vence o hint do plano (slotOcMap por slot).
+ *  ⚠️ O total por-OC (reservPorOc, via slotMetros) e a soma por-variante (reservPorOcVar) NÃO são
+ *  garantidamente iguais: (a) variante sem variante_tecido_id conta no total mas não no por-variante;
+ *  (b) um slot vinculado a 2+ OCs soma inteiro em cada OC; (c) usar_estoque NÃO é filtrado (igual ao
+ *  Resumo antigo). São casos raros; por isso o Drawer NÃO exibe total por-OC (só itens). */
 export type DetalheOc = {
   reservPorOc: Map<string, number>;
   comprometidoPorOc: Map<string, number>;

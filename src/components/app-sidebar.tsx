@@ -4,11 +4,6 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import {
   Shield,
   Settings,
-  ClipboardList,
-  Package,
-  Palette,
-  Factory,
-  DollarSign,
   BarChart3,
   Home,
   LogOut,
@@ -19,7 +14,6 @@ import {
   Sun,
   Moon,
   KeyRound,
-  Target,
 } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
 import { TenantSwitcher } from "@/components/admin/TenantSwitcher";
