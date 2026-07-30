@@ -62,16 +62,18 @@ import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 
 // Bolinhas de atenção ao lado de itens do menu (contadores vindos da RPC sidebar_badges).
 // A cor comunica urgência: atraso = vermelho, alerta = âmbar, pronto p/ lançar = azul.
+// AA sobre o navy: âmbar/azul com TEXTO ESCURO (branco/âmbar dava 2,1:1); vermelho um
+// passo mais escuro (branco/red-600 ≈ 4,5:1). Laudo do time de lentes, jul/2026.
 const BADGE_CLS: Record<string, string> = {
-  criacao_planejamento: "bg-sky-500 text-white",
-  entrada_alertas_tecido: "bg-amber-500 text-white",
-  entrada_oc_tecido: "bg-red-500 text-white",
-  entrada_oc_aviamento: "bg-red-500 text-white",
-  entrada_oc_insumo: "bg-red-500 text-white",
-  otb_divergencia: "bg-red-500 text-white",
-  producao_terceirizados: "bg-red-500 text-white",
-  producao_cq: "bg-red-500 text-white",
-  producao_direcionamento: "bg-red-500 text-white",
+  criacao_planejamento: "bg-sky-300 text-sky-950",
+  entrada_alertas_tecido: "bg-amber-400 text-amber-950",
+  entrada_oc_tecido: "bg-red-600 text-white",
+  entrada_oc_aviamento: "bg-red-600 text-white",
+  entrada_oc_insumo: "bg-red-600 text-white",
+  otb_divergencia: "bg-red-600 text-white",
+  producao_terceirizados: "bg-red-600 text-white",
+  producao_cq: "bg-red-600 text-white",
+  producao_direcionamento: "bg-red-600 text-white",
 };
 
 function NavBadge({ n, className }: { n: number; className?: string }) {
@@ -95,6 +97,11 @@ export function AppSidebar() {
   // No mobile, ao navegar (clicar num item), esconde a sidebar automaticamente.
   useEffect(() => { setOpenMobile(false); }, [pathname, setOpenMobile]);
   const { isAdmin, isSuperAdmin, isTenantAdmin, canView, user, signOut } = useAuth();
+  // Iniciais p/ o avatar do rodapé: nome real se houver; senão prefixo do e-mail.
+  const fullName = (((user?.user_metadata as any)?.full_name as string) || "").trim();
+  const userInitials = (fullName
+    ? fullName.split(/\s+/).map((w) => w[0]).slice(0, 2).join("")
+    : (user?.email ?? "?").slice(0, 2)).toUpperCase();
   const { isModuleEnabled, isStockOnly } = useTenantModules();
   const profile = isStockOnly ? "stock" : "full";
   const tabLabels = useTabLabels();
@@ -182,7 +189,7 @@ export function AppSidebar() {
               <item.icon className="h-4 w-4" />
               <span>{item.title}</span>
               {otbDiv > 0 && (collapsed
-                ? <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-red-500" title="Coleção(ões) com divergência" />
+                ? <NavBadge n={otbDiv} className={cn("absolute right-0.5 top-0.5 h-3.5 min-w-[0.875rem] px-1 text-[9px]", BADGE_CLS.otb_divergencia)} />
                 : <NavBadge n={otbDiv} className={cn("ml-auto", BADGE_CLS.otb_divergencia)} />
               )}
             </Link>
@@ -200,8 +207,8 @@ export function AppSidebar() {
               <Link to={item.url} className="relative">
                 <item.icon className="h-4 w-4" />
                 <span>{item.title}</span>
-                {/* Ícone-only (sidebar recolhida): dot no canto sinaliza pendências. */}
-                {badgeTotal > 0 && <span className={cn("absolute right-1 top-1 h-2 w-2 rounded-full", badgeCls)} />}
+                {/* Ícone-only (sidebar recolhida): CONTAGEM no canto (era só um dot). */}
+                {badgeTotal > 0 && <NavBadge n={badgeTotal} className={cn("absolute right-0.5 top-0.5 h-3.5 min-w-[0.875rem] px-1 text-[9px]", badgeCls)} />}
               </Link>
             </SidebarMenuButton>
           ) : (
@@ -370,21 +377,27 @@ export function AppSidebar() {
         )}
       </SidebarContent>
 
-      <SidebarFooter className="border-t">
-        {!collapsed && user && (
-          <div className="px-2 py-1 text-xs text-muted-foreground truncate">{user.email}</div>
+      <SidebarFooter className="border-t p-2">
+        {collapsed ? (
+          <div className="flex flex-col items-center gap-1">
+            <TrocarSenhaDialog />
+            <Button variant="ghost" size="icon" onClick={signOut} className="h-8 w-8" aria-label="Sair da conta" title="Sair">
+              <LogOut className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          </div>
+        ) : (
+          /* Cartão de usuário (mockup aprovado): avatar + e-mail + ações em ícone. */
+          <div className="flex items-center gap-2 rounded-[10px] bg-sidebar-accent/50 px-2 py-1.5">
+            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-sidebar-accent font-display text-[10.5px] font-semibold">
+              {userInitials}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">{user?.email}</span>
+            <TrocarSenhaDialog />
+            <Button variant="ghost" size="icon" onClick={signOut} className="h-8 w-8 shrink-0 max-md:h-11 max-md:w-11" aria-label="Sair da conta" title="Sair">
+              <LogOut className="h-4 w-4" aria-hidden="true" />
+            </Button>
+          </div>
         )}
-        <TrocarSenhaDialog collapsed={collapsed} />
-        <Button
-          variant="ghost"
-          size={collapsed ? "icon" : "sm"}
-          onClick={signOut}
-          className="justify-start gap-2"
-          aria-label="Sair da conta"
-        >
-          <LogOut className="h-4 w-4" aria-hidden="true" />
-          {!collapsed && <span>Sair</span>}
-        </Button>
       </SidebarFooter>
     </Sidebar>
   );
@@ -409,7 +422,7 @@ function ThemeToggleButton({ collapsed }: { collapsed: boolean }) {
 
 // Qualquer usuário troca a PRÓPRIA senha (auth.updateUser usa a sessão atual; não
 // precisa de admin). Fica no rodapé da sidebar, ao lado de "Sair".
-function TrocarSenhaDialog({ collapsed }: { collapsed: boolean }) {
+function TrocarSenhaDialog() {
   const [open, setOpen] = useState(false);
   const [senha, setSenha] = useState("");
   const [conf, setConf] = useState("");
@@ -440,9 +453,8 @@ function TrocarSenhaDialog({ collapsed }: { collapsed: boolean }) {
       <UnsavedChangesGuard confirm={confirm} message="A nova senha ainda não foi salva." />
       <Dialog open={open} onOpenChange={(o) => { if (o) setOpen(true); else requestClose(); }}>
         <DialogTrigger asChild>
-          <Button variant="ghost" size={collapsed ? "icon" : "sm"} className="justify-start gap-2" aria-label="Trocar senha">
+          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 max-md:h-11 max-md:w-11" aria-label="Trocar senha" title="Trocar senha">
             <KeyRound className="h-4 w-4" aria-hidden="true" />
-            {!collapsed && <span>Trocar senha</span>}
           </Button>
         </DialogTrigger>
         <DialogContent>
@@ -477,7 +489,7 @@ function SystemBrand({ collapsed }: { collapsed: boolean }) {
   const initials = (identity.nome_sistema || "SI").slice(0, 2).toUpperCase();
   return (
     <>
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold text-sm overflow-hidden aspect-square">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground font-display font-bold text-sm overflow-hidden aspect-square">
         {identity.logoSignedUrl ? (
           <img src={identity.logoSignedUrl} alt={identity.nome_sistema} className="h-full w-full object-contain" />
         ) : (
@@ -486,7 +498,7 @@ function SystemBrand({ collapsed }: { collapsed: boolean }) {
       </div>
       {!collapsed && (
         <div className="flex flex-col flex-1 min-w-0">
-          <span className="text-sm font-semibold leading-none truncate">{identity.nome_sistema}</span>
+          <span className="font-display text-sm font-semibold leading-none truncate">{identity.nome_sistema}</span>
           {identity.subtitulo && (
             <span className="text-xs text-muted-foreground mt-0.5 truncate">{identity.subtitulo}</span>
           )}

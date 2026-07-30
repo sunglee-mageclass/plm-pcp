@@ -77,21 +77,30 @@ export function TenantSwitcher() {
 
   return (
     <div className="px-2 py-2">
-      <div className="flex items-center gap-1.5 mb-1 text-xs text-muted-foreground">
-        <Store className="h-3.5 w-3.5" /> Loja em visualização
-      </div>
       {tenants.length === 0 ? (
-        <p className="text-xs text-muted-foreground italic px-0.5">
-          Nenhuma loja ainda — crie em Admin → Lojas.
-        </p>
+        <>
+          <div className="flex items-center gap-1.5 mb-1 text-xs text-muted-foreground">
+            <Store className="h-3.5 w-3.5" /> Loja em visualização
+          </div>
+          <p className="text-xs text-muted-foreground italic px-0.5">
+            Nenhuma loja ainda — crie em Admin → Lojas.
+          </p>
+        </>
       ) : (
         <Select
           value={current ?? ""}
           onValueChange={(v) => switchMut.mutate(v)}
           disabled={switchMut.isPending}
         >
-          <SelectTrigger className="h-8 text-sm">
-            <SelectValue placeholder="Selecione a loja…" />
+          {/* Cartão compacto (mockup aprovado): eyebrow + nome + chevron num alvo único. */}
+          <SelectTrigger className="h-auto min-h-[44px] rounded-[10px] px-2.5 py-1.5 text-left md:min-h-0">
+            <span className="flex min-w-0 flex-1 items-center gap-2">
+              <Store className="h-4 w-4 shrink-0 opacity-75" />
+              <span className="flex min-w-0 flex-col items-start">
+                <span className="text-[8.5px] font-semibold uppercase leading-none tracking-[0.1em] opacity-60">Loja em visualização</span>
+                <span className="truncate text-[12.5px] font-semibold leading-tight"><SelectValue placeholder="Selecione a loja…" /></span>
+              </span>
+            </span>
           </SelectTrigger>
           <SelectContent>
             {tenants.map((t) => (
