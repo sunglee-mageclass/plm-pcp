@@ -5,8 +5,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { RequirePermission } from "@/components/RequirePermission";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { ArrowDownAZ, ArrowDownZA, CheckCircle2, Layers } from "lucide-react";
+import { StatusBadge } from "@/components/shared/StatusBadge";
+import { ArrowDownAZ, ArrowDownZA, Layers } from "lucide-react";
 import { FilterButton } from "@/components/shared/filters";
 import { useSort } from "@/components/shared/sort";
 import { useOrcamento } from "@/components/otb/orcamento";
@@ -178,18 +178,18 @@ function PlanTecidoListPage() {
             >
               <span className="flex w-full items-center gap-2">
                 <span className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight">{c.nome}</span>
-                {c.tipo && <Badge variant="secondary" className="shrink-0 font-normal">{TIPO_LABEL[c.tipo] ?? c.tipo}</Badge>}
+                {/* StatusBadge (mesmo componente do OTB) — a mesma coleção tinha "cara" diferente
+                    entre OTB e Plan. Tecido (laudo de consistência jul/2026). */}
+                {c.tipo && <StatusBadge tone="info" className="shrink-0">{TIPO_LABEL[c.tipo] ?? c.tipo}</StatusBadge>}
               </span>
               {/* metadados que os FILTROS usam, visíveis no card (laudo: reconhecimento > evocação) */}
               <span className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                 {(nomeDe(meses, c.mes_id) || nomeDe(anos, c.ano_id)) && (
                   <span>{[nomeDe(meses, c.mes_id), nomeDe(anos, c.ano_id)].filter(Boolean).join(" · ")}</span>
                 )}
-                {c.status === "confirmada" ? (
-                  <span className="inline-flex items-center gap-1 font-medium text-emerald-700"><CheckCircle2 className="h-3 w-3" />confirmada</span>
-                ) : (
-                  <span className="font-medium text-amber-700">rascunho</span>
-                )}
+                {c.status === "confirmada"
+                  ? <StatusBadge tone="success">Confirmada</StatusBadge>
+                  : <StatusBadge tone="warning">Rascunho</StatusBadge>}
               </span>
               <span className="flex w-full items-center gap-2 border-t border-dashed pt-2 text-xs text-muted-foreground">
                 {/* 0/0 não é informação — coleção ainda em planejamento diz isso com todas as letras */}

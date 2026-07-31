@@ -185,7 +185,7 @@ function OtbPage() {
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-3"><Target className="h-7 w-7 text-primary mt-0.5 shrink-0" />
-          <div><h1 className="text-2xl font-bold">OTB</h1><p className="text-sm text-muted-foreground">Orçamento de coleção.</p></div></div>
+          <div><h1 className="font-display text-2xl font-semibold tracking-tight">OTB</h1><p className="text-sm text-muted-foreground">Orçamento de coleção.</p></div></div>
         <div className="flex items-center gap-2 max-sm:w-full max-sm:justify-end">
           <FilterButton filters={[
             { label: "Ano", value: fAno, onChange: setFAno, options: [{ id: "all", nome: "Todos" }, ...anos] },
@@ -205,7 +205,7 @@ function OtbPage() {
           {colecoesFiltradas.map((c) => {
             const anoNome = c.ano_id ? (anos.find((a) => a.id === c.ano_id)?.nome ?? null) : null;
             const mesNome = c.mes_id ? mesLimpo(meses.find((m) => m.id === c.mes_id)?.nome) : null;
-            const periodoLabel = [mesNome, anoNome].filter(Boolean).join(" / ");
+            const periodoLabel = [mesNome, anoNome].filter(Boolean).join(" · ");
             const st = statsByColecao[c.id] ?? { previsto: 0, real: 0, poder: 0 };
             const isPV = c.tipo === "poder_venda";
             // Sem permissão de custos o wrapper devolve {} → NUNCA imprimir "R$ 0,00" falso (laudo UX#6).

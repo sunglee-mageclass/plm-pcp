@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, Save, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, AlertTriangle, Rocket, Check, X } from "lucide-react";
+import { ClipboardList, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, Save, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, AlertTriangle, Rocket, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -714,9 +714,9 @@ function PlanejamentoPage() {
       </HeaderActions>
       <header className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-start gap-3">
-          <Palette className="h-7 w-7 shrink-0 text-primary mt-0.5" />
+          <ClipboardList className="h-7 w-7 shrink-0 text-primary mt-0.5" />
           <div className="min-w-0">
-            <h1 className="text-2xl font-bold truncate">Planejamento de Produto</h1>
+            <h1 className="font-display text-2xl font-semibold tracking-tight truncate">Planejamento de Produto</h1>
             <p className="text-sm text-muted-foreground">Cards de modelos em planejamento.</p>
           </div>
         </div>
@@ -816,7 +816,7 @@ function PlanejamentoPage() {
 
       <div ref={gridRef}>
       {filtered.length === 0 ? (
-        <EmptyState icon={Palette} title="Nenhum modelo encontrado" description="Crie um modelo usando o botão Novo Modelo." />
+        <EmptyState icon={ClipboardList} title="Nenhum modelo encontrado" description="Crie um modelo usando o botão Novo Modelo." />
       ) : groups ? (
         <div className="space-y-8">
           {groups.map((g) => renderGroup(g, 0, g.key))}
@@ -1017,7 +1017,7 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
             <span>{modelo.colecao ?? "—"}</span><span>{modelo.subcolecao || "—"}</span>
           </div>
           <p className="text-xs text-muted-foreground truncate">{modelo.semana ? `Lançamento ${modelo.semana}` : "—"}</p>
-          <p className="text-xs text-muted-foreground truncate">{[mesNome, anoNome].filter(Boolean).join(" / ") || "—"}</p>
+          <p className="text-xs text-muted-foreground truncate">{[mesNome, anoNome].filter(Boolean).join(" · ") || "—"}</p>
           {/* Linha | Categoria em 2 colunas (cabe sem cortar); Markup vai p/ a própria linha
               (antes eram 3 colunas num card estreito e o texto cortava). Markup = custo → gated. */}
           <div className="grid grid-cols-2 gap-x-3 [&>span]:truncate text-xs text-muted-foreground">

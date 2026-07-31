@@ -1,7 +1,7 @@
 import { createFileRoute, Link, Navigate } from "@tanstack/react-router";
 import { Shield, Building2, Users, UserCog, Settings, Palette, ScrollText } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardDescription, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/useAuth";
 
 export const Route = createFileRoute("/_authenticated/admin/")({
@@ -36,7 +36,7 @@ function AdminPage() {
       <header className="flex items-start gap-3">
         <Shield className="h-7 w-7 text-primary mt-0.5 shrink-0" />
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Admin</h1>
+          <h1 className="font-display text-2xl font-semibold tracking-tight">Admin</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Gestão de usuários, lojas e configurações do sistema.
           </p>
@@ -46,17 +46,16 @@ function AdminPage() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {links.map((l) => (
           <Link key={l.to} to={l.to} className="block">
-            <Card className="h-full transition-all hover:-translate-y-px hover:shadow-md">
-              <CardHeader className="flex flex-row items-start gap-3 space-y-0">
-                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-primary/15 text-primary">
-                  <l.icon className="h-5 w-5" />
-                </span>
-                <div className="space-y-1">
-                  <CardTitle className="text-base">{l.title}</CardTitle>
-                  <CardDescription className="text-xs">{l.description}</CardDescription>
-                </div>
-              </CardHeader>
-              <CardContent />
+            {/* Mesmo shell do SectionHub (dono, jul/2026): p-4, descrição text-sm line-clamp-2 e SEM
+                CardContent vazio — antes o padding extra deixava os cards mais altos com espaço morto. */}
+            <Card className="flex h-full flex-row items-start gap-3 p-4 transition-all hover:-translate-y-px hover:shadow-md">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-primary/15 text-primary">
+                <l.icon className="h-5 w-5" />
+              </span>
+              <div className="min-w-0 space-y-1">
+                <CardTitle className="text-base">{l.title}</CardTitle>
+                <CardDescription className="text-sm line-clamp-2">{l.description}</CardDescription>
+              </div>
             </Card>
           </Link>
         ))}
