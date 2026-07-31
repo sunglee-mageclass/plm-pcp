@@ -57,15 +57,20 @@ function AComprarChip({ colecaoId }: { colecaoId: string }) {
     staleTime: 5 * 60_000,
     queryFn: async () => ((await supabase.rpc("plan_tecido_previa_pedido" as any, { _colecao_id: colecaoId })).data ?? null) as any,
   });
-  const total = useMemo(() => {
+  const info = useMemo(() => {
     if (!data) return null;
-    let t = 0;
-    for (const f of data.fornecedores ?? []) for (const it of f.itens ?? []) t += Number(it.deficit_m) || 0;
-    return t;
+    let deficit = 0;
+    for (const f of data.fornecedores ?? []) for (const it of f.itens ?? []) deficit += Number(it.deficit_m) || 0;
+    // necessidade total (chave 'cobertura' = TODAS as linhas da conta): déficit 0 SEM necessidade
+    // nenhuma = plano vazio, não "coberto" — 0/0 lia como verde (dono, jul/2026).
+    let nec = 0;
+    for (const c of (data.cobertura ?? []) as { nec_m: number }[]) nec += Number(c.nec_m) || 0;
+    return { deficit, nec };
   }, [data]);
-  if (total == null) return null;
-  return total > 0 ? (
-    <span className="font-medium text-red-700">a comprar {fmtMetros(total)} m</span>
+  if (info == null) return null;
+  if (info.nec <= 0) return <span className="text-muted-foreground">sem plano de tecido</span>;
+  return info.deficit > 0 ? (
+    <span className="font-medium text-red-700">a comprar {fmtMetros(info.deficit)} m</span>
   ) : (
     <span className="font-medium text-emerald-700">tecido coberto</span>
   );
@@ -183,7 +188,10 @@ function PlanTecidoListPage() {
                 )}
               </span>
               <span className="flex w-full items-center gap-2 border-t border-dashed pt-2 text-xs text-muted-foreground">
-                {bucket && <span>{bucket.realizado}/{bucket.total} modelos</span>}
+                {/* 0/0 não é informação — coleção ainda em planejamento diz isso com todas as letras */}
+                {bucket && (bucket.total > 0 || bucket.realizado > 0)
+                  ? <span>{bucket.realizado}/{bucket.total} modelos</span>
+                  : <span>sem modelos ainda</span>}
                 <AComprarChip colecaoId={c.id} />
                 <span className="ml-auto shrink-0 font-medium text-primary">abrir →</span>
               </span>
