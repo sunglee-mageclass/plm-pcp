@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Hammer, ImageIcon, ChevronRight, ChevronDown, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
@@ -134,9 +134,11 @@ function DesenvolvimentoPage() {
   });
   // Colapso por grupo — path = "status/grupo[/subgrupo…]" (sessão, igual Planejamento).
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-  const toggleGroup = (path: string) => setCollapsedGroups((prev) => {
+  // "tocou nos tecidos" = o usuário mexeu num grupo (individual ou pelo botão) → para de auto-recolher.
+  const tecidosTocadoRef = useRef(false);
+  const toggleGroup = (path: string) => { tecidosTocadoRef.current = true; setCollapsedGroups((prev) => {
     const n = new Set(prev); n.has(path) ? n.delete(path) : n.add(path); return n;
-  });
+  }); };
   const toggleCollapse = (key: string) => setCollapsed((prev) => {
     const n = new Set(prev);
     n.has(key) ? n.delete(key) : n.add(key);
@@ -418,6 +420,32 @@ function DesenvolvimentoPage() {
   const toggleAll = () =>
     setCollapsed(allCollapsed ? new Set() : new Set(statusKanban.map((s) => s.key)));
 
+  // TECIDOS (grupos dentro das colunas): recolher/expandir TODOS, e DEFAULT recolhido (dono, jul/2026).
+  // Todos os caminhos de grupo (formato do render: `${status}/${grupo}[/${sub}…]`).
+  const allGroupPaths: string[] = [];
+  if (splitters.length > 0) {
+    const walk = (nodes: Grupo[], path: string) => {
+      for (const g of nodes) { const p = `${path}/${g.key}`; allGroupPaths.push(p); if (g.subgroups) walk(g.subgroups, p); }
+    };
+    for (const st of statusKanban) { const cards = byStatus.get(st.key) ?? []; if (cards.length) walk(buildGroups(cards, 0), st.key); }
+  }
+  const allTecidosRecolhidos = allGroupPaths.length > 0 && allGroupPaths.every((p) => collapsedGroups.has(p));
+  // ⚠️ Ref compartilhado com toggleGroup (declarado no topo): quando o usuário mexe num grupo OU
+  // usa este botão, para de auto-recolher. Aqui só marca + alterna.
+  const toggleTecidos = () => {
+    tecidosTocadoRef.current = true;
+    setCollapsedGroups(allTecidosRecolhidos ? new Set() : new Set(allGroupPaths));
+  };
+  // DEFAULT: todos os tecidos recolhidos. Re-recolhe enquanto os grupos MUDAM (o tecido por modelo
+  // carrega depois — no 1º instante tudo é "Sem tecido"; sem re-semear, os grupos reais nasceriam
+  // abertos) — até o usuário mexer (tecidosTocadoRef). Chaveado pelo conteúdo dos paths.
+  const groupPathsKey = allGroupPaths.join("|");
+  useEffect(() => {
+    if (tecidosTocadoRef.current || splitters.length === 0 || allGroupPaths.length === 0) return;
+    setCollapsedGroups(new Set(allGroupPaths));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupPathsKey, splitters.length]);
+
   return (
     <div className="container mx-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -431,6 +459,20 @@ function DesenvolvimentoPage() {
         <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
           {/* ordem: lupa · recolher (desktop) · ordenar · filtros */}
           <SearchToggle value={search} onChange={setSearch} placeholder="Pesquisar por nome…" />
+          {/* Dois níveis (dono): "Tecidos" = grupos dentro das colunas; "Colunas" = as colunas. */}
+          {splitters.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="hidden md:inline-flex h-9"
+              onClick={toggleTecidos}
+              disabled={allGroupPaths.length === 0}
+              title={allTecidosRecolhidos ? "Expandir todos os tecidos" : "Recolher todos os tecidos"}
+            >
+              {allTecidosRecolhidos ? <ChevronsUpDown className="h-4 w-4 sm:mr-1" /> : <ChevronsDownUp className="h-4 w-4 sm:mr-1" />}
+              <span className="max-lg:sr-only">{allTecidosRecolhidos ? "Expandir tecidos" : "Recolher tecidos"}</span>
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -439,7 +481,7 @@ function DesenvolvimentoPage() {
             title={allCollapsed ? "Expandir todas as colunas" : "Recolher todas as colunas"}
           >
             {allCollapsed ? <ChevronsUpDown className="h-4 w-4 sm:mr-1" /> : <ChevronsDownUp className="h-4 w-4 sm:mr-1" />}
-            <span className="max-lg:sr-only">{allCollapsed ? "Expandir todas" : "Recolher todas"}</span>
+            <span className="max-lg:sr-only">{allCollapsed ? "Expandir colunas" : "Recolher colunas"}</span>
           </Button>
           <AgrupamentoButton
             groups={[
