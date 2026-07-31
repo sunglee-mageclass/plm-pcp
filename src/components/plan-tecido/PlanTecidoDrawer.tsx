@@ -11,6 +11,7 @@ export type DrawerKind = "comprar" | "oc" | "ocnum";
 export type DrawerState = { kind: DrawerKind; arg: string | null };
 
 const nMet = fmtMetros;
+const cmpPt = (a: string, b: string) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }); // ordem alfabética pt-BR (dono)
 const encomenda = (s: PtSlot) => !(s.usar_estoque ?? false);
 const sobraCls = (s: number) => (s < 0 ? "text-red-600" : "text-emerald-700");
 
@@ -106,7 +107,7 @@ export function PlanTecidoDrawer({
     }
     grupos = [...porArt.entries()].map(([artigo_id, g]) => ({
       artigo_id, artigo: g.nome,
-      variantes: g.rows.map((r) => {
+      variantes: [...g.rows].sort((a, b) => cmpPt(a.label ?? "", b.label ?? "")).map((r) => {  // variantes alfabéticas (dono)
         const nec = Number(r.nec_m) || 0, deficit = Number(r.deficit_m) || 0;
         total += deficit;
         return { key: r.variante_tecido_id ?? `${artigo_id}|${r.label}`, label: r.label ?? "", cor_nome: null,
@@ -123,8 +124,9 @@ export function PlanTecidoDrawer({
       cur.pedida += r.pedida_m; cur.entregue += r.entregue_m; cur.usada += r.usada_m; // reservada/comprometida vêm do front (detalheOc), não da RPC
       g.vm.set(r.variante_tecido_id, cur);
     }
-    grupos = [...porArtigo.entries()].map(([artigo_id, g]) => ({ artigo_id, artigo: g.nome, variantes: [...g.vm.values()] }));
+    grupos = [...porArtigo.entries()].map(([artigo_id, g]) => ({ artigo_id, artigo: g.nome, variantes: [...g.vm.values()].sort((a, b) => cmpPt(a.label, b.label)) }));  // variantes alfabéticas (dono)
   }
+  grupos.sort((a, b) => cmpPt(a.artigo, b.artigo)); // tecidos (artigos) em ordem alfabética (dono) — Situação e A comprar
   const nCols = 4;
 
   const titulo =

@@ -67,10 +67,14 @@ export function ResumoPanel({
   const catsSub = [...new Set<string>([
     ...(arvore.subcolecoes[0]?.categorias_tecido ?? []),
     ...arvore.subcolecoes.flatMap((s) => s.linhas.flatMap((l) => l.slots)).map((s) => s.categoria_tecido_id).filter((c): c is string => !!c),
-  ])];
+  ])].sort((a, b) => (catTecidoNome(a) ?? "").localeCompare(catTecidoNome(b) ?? "", "pt-BR", { sensitivity: "base" })); // "A comprar" por categoria em ordem alfabética (dono)
 
   const { data: situacao = [] } = useSituacaoOcs(colecaoId);
-  const ocs = agruparPorOc(situacao);
+  // OCs (vinculadas + Situação) em ordem ALFABÉTICA pelo tecido (dono, jul/2026); os tecidos de
+  // cada OC já vêm ordenados de `agruparPorOc`. Ordena pelo 1º tecido, depois pelo número da OC.
+  const cmpPt = (a: string, b: string) => a.localeCompare(b, "pt-BR", { sensitivity: "base" });
+  const ocs = agruparPorOc(situacao).sort((a, b) =>
+    cmpPt(a.tecidos[0] ?? "￿", b.tecidos[0] ?? "￿") || cmpPt(a.numero ?? "", b.numero ?? ""));
 
   // "A comprar" EXATO = déficit da MESMA conta do "Fazer pedido" (necessidade − cobertura das OCs
   // vinculadas). Lê o plano SALVO no servidor; invalidado no salvar/pedido. (queryKey própria —

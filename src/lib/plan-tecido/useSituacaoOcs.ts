@@ -45,5 +45,8 @@ export function agruparPorOc(rows: SituacaoOcRow[]) {
     g.pedida += r.pedida_m; g.entregue += r.entregue_m; g.usada += r.usada_m; g.comprometida += r.comprometida_m;
     if (r.artigo_nome && !g.tecidos.includes(r.artigo_nome)) g.tecidos.push(r.artigo_nome);
   }
+  // tecidos de cada OC em ordem alfabética (dono, jul/2026) — o rótulo e a ordenação das OCs no
+  // Resumo se apoiam nisto.
+  for (const g of map.values()) g.tecidos.sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
   return [...map.values()];
 }

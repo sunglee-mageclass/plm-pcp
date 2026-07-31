@@ -858,14 +858,16 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
           // Lanes = UNIÃO das categorias declaradas (categorias_tecido, incl. lanes vazias criadas à
           // mão) + as categorias AUTO presentes nos slots (Tecido 1). Sem a união, um card
           // auto-categorizado numa categoria fora de categorias_tecido não renderia em lane nenhuma.
+          // categorias em ordem ALFABÉTICA (dono, jul/2026); "Sem categoria" (null) sempre por último
+          // via laneCats = [...cats, null].
           const cats = [...new Set<string>([
             ...(sub.categorias_tecido ?? []),
             ...flat.map((f) => f.slot.categoria_tecido_id).filter((c): c is string => !!c),
-          ])];
+          ])].sort((a, b) => (catTecidoNome(a) ?? "").localeCompare(catTecidoNome(b) ?? "", "pt-BR", { sensitivity: "base" }));
           const slotsOf = (cid: string | null) => flat.filter((f) => (f.slot.categoria_tecido_id ?? null) === cid);
           const laneCats: (string | null)[] = catFilter === "__sem__" ? [null] : catFilter ? [catFilter] : [...cats, null];
-          // 2º nível de agrupamento: nome do tecido (Tecido 1). `porNome` agrupa mantendo a ordem de
-          // 1ª aparição; usado dentro de cada lane de categoria quando "Nome do tecido" está ligado.
+          // 2º nível de agrupamento: nome do tecido (Tecido 1). `porNome` ordena ALFABÉTICO (dono),
+          // com "Sem tecido" sempre por último; usado no modo por nome e como sub-grupo nas lanes.
           const tecidoNomeDoSlot = (slot: PtSlot): string => {
             const t = slot.materiais.find((m) => m.tipo === "tecido" && m.artigo_id);
             return (t?.artigo_nome ?? (t?.artigo_id ? artigoMap.get(t.artigo_id)?.nome ?? null : null)) ?? "Sem tecido";
@@ -873,8 +875,26 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
           const porNome = (items: typeof flat): [string, typeof flat][] => {
             const m = new Map<string, typeof flat>();
             for (const f of items) { const n = tecidoNomeDoSlot(f.slot); const arr = m.get(n) ?? (m.set(n, []).get(n)!); arr.push(f); }
-            return [...m.entries()];
+            return [...m.entries()].sort(([a], [b]) => {
+              const sa = a === "Sem tecido", sb = b === "Sem tecido";
+              if (sa !== sb) return sa ? 1 : -1;                 // "Sem tecido" por último
+              return a.localeCompare(b, "pt-BR", { sensitivity: "base" });
+            });
           };
+          // Chaves de TODAS as seções visíveis (lanes de categoria + sub-grupos de nome), p/ o
+          // "Recolher/Expandir seções" (2º nível, além do de cards). Formato casa o render.
+          const allSectionKeys: string[] = groupByCategoria
+            ? laneCats.flatMap((cid) => {
+                const laneKey = `${subAtiva}:${cid ?? "__sem__"}`;
+                const nomeKeys = groupByNome ? porNome(slotsOf(cid)).map(([nome]) => `${subAtiva}:${cid ?? "__sem__"}:nome:${nome}`) : [];
+                return [laneKey, ...nomeKeys];
+              })
+            : porNome(flat).map(([nome]) => `${subAtiva}:__all__:nome:${nome}`);
+          const todasSecoesRecolhidas = allSectionKeys.length > 0 && allSectionKeys.every((k) => lanesRecolhidas.has(k));
+          const toggleSecoes = () => setLanesRecolhidas((prev) => {
+            if (todasSecoesRecolhidas) { const n = new Set(prev); allSectionKeys.forEach((k) => n.delete(k)); return n; }
+            return new Set([...prev, ...allSectionKeys]);
+          });
           const allChaves = flat.map((f) => f.chave);
           const todosRecolhidos = allChaves.length > 0 && allChaves.every((c) => recolhidos.has(c));
           const toggleTodos = () => setRecolhidos((prev) => {
@@ -997,7 +1017,9 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                         (modelos + vagas do OTB) — sem o rótulo, "58" virava "93" sem explicação (laudo). */}
                     {(() => { const reais = flat.filter((f) => f.slot.modelo_id).length; const vagas = flat.length - reais;
                       return vagas > 0 ? <span className="hidden text-[11px] text-muted-foreground lg:inline">{flat.length} itens = {reais} modelos + {vagas} vagas</span> : null; })()}
-                    <Button size="sm" variant="ghost" onClick={toggleTodos}>{todosRecolhidos ? "Expandir todos" : "Recolher todos"}</Button>
+                    {/* Dois níveis (dono): "Seções" = grupos de nome/categoria; "Cards" = corpos. */}
+                    <Button size="sm" variant="ghost" onClick={toggleSecoes}>{todasSecoesRecolhidas ? "Expandir seções" : "Recolher seções"}</Button>
+                    <Button size="sm" variant="ghost" onClick={toggleTodos}>{todosRecolhidos ? "Expandir cards" : "Recolher cards"}</Button>
                     <AgrupamentoButton groups={[
                       { label: "Categoria de tecido", active: groupByCategoria, onToggle: () => setGroupByCategoria((v) => !v) },
                       { label: "Nome do tecido", active: groupByNome, onToggle: () => setGroupByNome((v) => !v) },

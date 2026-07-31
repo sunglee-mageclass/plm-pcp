@@ -160,7 +160,9 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }:
         {material.variantes.length === 0 ? (
           <div className="rounded border border-dashed p-2 text-center text-[10px] italic text-muted-foreground">Nenhuma cor. “+ adicionar cor” para escolher as variantes.</div>
         ) : (
-          material.variantes.map((v) => {
+          // Variantes em ordem ALFABÉTICA só na EXIBIÇÃO (dono, jul/2026) — copia p/ ordenar, sem
+          // mexer no material.variantes salvo (não suja o form nem renumera).
+          [...material.variantes].sort((a, b) => nomeVariante(a).localeCompare(nomeVariante(b), "pt-BR", { sensitivity: "base" })).map((v) => {
             const div = divergente(v);
             const planejada = !v.variante_tecido_id;
             return (

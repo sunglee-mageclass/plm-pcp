@@ -256,7 +256,8 @@ export function ModelCard({
             {necTecidos.map((t, ti) => (
               <div key={ti} className="space-y-0.5">
                 <div className="truncate text-[10px] font-semibold uppercase tracking-tight text-muted-foreground">{t.artigo_nome}</div>
-                {t.variantes.map((v, i) => (
+                {/* variantes do preview do card recolhido em ordem alfabética (dono, jul/2026) — exibição só */}
+                {[...t.variantes].sort((a, b) => (a.label ?? "").localeCompare(b.label ?? "", "pt-BR", { sensitivity: "base" })).map((v, i) => (
                   <div key={i} className="flex items-center gap-2 pl-1 text-[11px]">
                     <VarianteSwatch nome={v.cor_nome ?? undefined} />
                     <span className="min-w-0 flex-1 truncate text-muted-foreground">{v.label}</span>
