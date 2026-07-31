@@ -97,12 +97,15 @@ export function necessidadePorTecido(arvore: PtArvore, filtroSlot?: (slot: PtSlo
 /** Contabilidade de UMA linha de OC (por OC no Resumo, por variante no Drawer) — FONTE ÚNICA da conta
  *  pra Resumo e Drawer decidirem IGUAL. Regra: o que foi USADO (comprometido enviado à explosão OU
  *  baixa real, o que for MAIOR) sai da reservada. `baixaDomina` = a baixa real é ≥ o comprometido
- *  (então a cor é vermelha "baixa real"; senão é âmbar "comprometido"). */
+ *  (então a cor é vermelha "baixa real"; senão é âmbar "comprometido").
+ *  SOBRA = ENTREGUE − Demanda (jul/2026, decisão do dono): o físico que sobra do que REALMENTE chegou
+ *  (não da metragem pedida). Fica NEGATIVA quando o entregue ainda não cobre a demanda (déficit físico)
+ *  — comportamento desejado. (Antes era `pedida − Demanda` = "sobra prevista", otimista.) */
 export type ContabOc = { reservadaLivre: number; usada: number; sobra: number; baixaDomina: boolean };
-export function contabilizarOc(total: number, comprometido: number, baixa: number, pedida: number): ContabOc {
-  const t = Number(total) || 0, c = Number(comprometido) || 0, b = Number(baixa) || 0, p = Number(pedida) || 0;
+export function contabilizarOc(total: number, comprometido: number, baixa: number, entregue: number): ContabOc {
+  const t = Number(total) || 0, c = Number(comprometido) || 0, b = Number(baixa) || 0, e = Number(entregue) || 0;
   const usada = Math.max(c, b);
-  return { reservadaLivre: Math.max(0, t - usada), usada, sobra: p - Math.max(t, usada), baixaDomina: b > 0 && b >= c };
+  return { reservadaLivre: Math.max(0, t - usada), usada, sobra: e - Math.max(t, usada), baixaDomina: b > 0 && b >= c };
 }
 
 /** Reservada/comprometida por OC — FONTE ÚNICA consumida pelo Resumo (por OC) e pelo Drawer

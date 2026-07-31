@@ -347,7 +347,7 @@ export function ResumoPanel({
           const reservadaTotal = reservPorOc.get(o.oc_tecido_id) ?? 0;
           const comprometido = comprometidoPorOc.get(o.oc_tecido_id) ?? 0; // enviado à explosão (laranja)
           // Contabilidade via fonte única (mesma fn do Drawer): usado (comprometido OU baixa) sai da reservada.
-          const { reservadaLivre: reservada, usada, sobra, baixaDomina } = contabilizarOc(reservadaTotal, comprometido, o.usada, o.pedida);
+          const { reservadaLivre: reservada, usada, sobra, baixaDomina } = contabilizarOc(reservadaTotal, comprometido, o.usada, o.entregue);
           return (
             <div key={o.oc_tecido_id} className="border-b p-2 text-xs last:border-b-0">
               <div className="mb-0.5 flex items-center gap-2">
@@ -376,13 +376,13 @@ export function ResumoPanel({
                 </span>
               </div>
               <div className="flex justify-between pl-2.5 text-muted-foreground"><span>reservada (livre)</span><span>{nMet(reservada)} m</span></div>
-              <div className={`mt-0.5 flex justify-between border-t pt-0.5 font-display font-semibold ${sobraCls(sobra)}`}><span>Sobra prevista</span><span>{sobra > 0 ? "+" : ""}{nMet(sobra)} m</span></div>
+              <div className={`mt-0.5 flex justify-between border-t pt-0.5 font-display font-semibold ${sobraCls(sobra)}`}><span>Sobra</span><span>{sobra > 0 ? "+" : ""}{nMet(sobra)} m</span></div>
             </div>
           );
         }) : (
           <div className="p-2 text-[10px] text-muted-foreground">Sem OC ainda — gere um pedido ou vincule uma OC existente.</div>
         )}
-        <div className="p-2 text-[10px] leading-snug text-muted-foreground"><b className="font-semibold">Demanda</b> = em produção + reservada (livre). <b className="font-semibold">Sobra prevista</b> = Pedida − Demanda (com a OC entregue por completo) — pode ser negativa.</div>
+        <div className="p-2 text-[10px] leading-snug text-muted-foreground"><b className="font-semibold">Demanda</b> = em produção + reservada (livre). <b className="font-semibold">Sobra</b> = Entregue − Demanda (o físico que sobra do que já chegou) — negativa = ainda não chegou tecido suficiente.</div>
       </Secao>
     </div>
   );

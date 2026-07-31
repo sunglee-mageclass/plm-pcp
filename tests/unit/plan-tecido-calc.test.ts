@@ -256,13 +256,21 @@ describe("plan-tecido/calc — auditoria jul/2026 (Ave Rara)", () => {
     expect(det.reservPorOcVar.get("OC1|VF")).toBe(40);
   });
 
-  it("contabilizarOc: sobra = pedida − reserva total (caso Marrom ANGELIM·Café)", () => {
-    // reserva total 362,56 (livre 76,8 + comprometido 285,76), baixa 0, pedida 1000
+  it("contabilizarOc: sobra = ENTREGUE − demanda (Marrom ANGELIM·Café, OC entregue por completo)", () => {
+    // demanda 362,56 (livre 76,8 + comprometido 285,76), baixa 0, ENTREGUE 1000 (chegou tudo)
     const r = contabilizarOc(362.56, 285.76, 0, 1000);
     expect(r.usada).toBeCloseTo(285.76, 2);
     expect(r.reservadaLivre).toBeCloseTo(76.8, 2);
-    expect(r.sobra).toBeCloseTo(637.44, 2);                   // a conta do dono, confirmada
+    expect(r.sobra).toBeCloseTo(637.44, 2);                   // 1000 − 362,56 (OC toda entregue)
     expect(r.baixaDomina).toBe(false);
+  });
+
+  it("contabilizarOc: entregue PARCIAL < demanda → Sobra NEGATIVA (déficit físico, jul/2026)", () => {
+    // mesma demanda 362,56, mas só 300 entregue (falta chegar) → sobra 300 − 362,56 = −62,56
+    const r = contabilizarOc(362.56, 285.76, 0, 300);
+    expect(r.usada).toBeCloseTo(285.76, 2);
+    expect(r.reservadaLivre).toBeCloseTo(76.8, 2);            // reservada/usada NÃO dependem do entregue
+    expect(r.sobra).toBeCloseTo(-62.56, 2);                   // trava a nova semântica (entregue, não pedida)
   });
 
   it("rateioDeficitSub: nec 0 → 0 (mata o 'nec 0 · a comprar 1.591,68')", () => {

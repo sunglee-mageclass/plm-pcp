@@ -220,9 +220,11 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   const [lanesRecolhidas, setLanesRecolhidas] = useState<Set<string>>(new Set()); // lanes (categorias) colapsáveis
   const toggleLane = (k: string) => setLanesRecolhidas((prev) => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
   // Agrupamento combinável (popover "Agrupar", padrão das outras telas): macro = categoria de tecido
-  // (default ON = lanes com drag), micro = nome do tecido (2º nível, sub-grupos dentro da lane).
-  const [groupByCategoria, setGroupByCategoria] = useState(true);
-  const [groupByNome, setGroupByNome] = useState(false);
+  // (lanes com drag), micro = nome do tecido (2º nível/blocos). DEFAULT = por NOME de tecido, recolhido
+  // (pedido do dono, jul/2026): abre agrupado por nome com os grupos colapsados. Categoria (com drag)
+  // fica a um clique no botão Agrupar.
+  const [groupByCategoria, setGroupByCategoria] = useState(false);
+  const [groupByNome, setGroupByNome] = useState(true);
   const openDrawer = (kind: DrawerKind, arg?: string) =>
     setDrawer((prev) => (prev && prev.kind === kind && (prev.arg ?? null) === (arg ?? null) ? null : { kind, arg: arg ?? null }));
   const detalharMobile = (kind: DrawerKind, arg?: string) => {
@@ -724,6 +726,31 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   const slotReady = (slot: PtSlot) => { const f = slotFornec(slot); return f.total > 0 && f.com === f.total; };
 
   const subAtual = arvore ? (arvore.subcolecoes[subAtiva] ?? null) : null;
+
+  // Nome do tecido (Tecido 1) de um slot — SSOT usado no seed de recolhimento E no agrupamento por nome.
+  const tecidoNomeDoSlot = (slot: PtSlot): string => {
+    const t = slot.materiais.find((m) => m.tipo === "tecido" && m.artigo_id);
+    return (t?.artigo_nome ?? (t?.artigo_id ? artigoMap.get(t.artigo_id)?.nome ?? null : null)) ?? "Sem tecido";
+  };
+  // Grupos por NOME nascem RECOLHIDOS (pedido do dono): ao entrar no canvas de uma subcoleção com
+  // agrupamento por nome, semeia os nomeKeys em `lanesRecolhidas` UMA vez por sub (ref guarda as já
+  // semeadas), respeitando expand/recolher manual depois. nomeKey casa o formato usado no render
+  // (`${subAtiva}:__all__:nome:${nome}`, laneId "__all__" no modo sem categoria).
+  const nomeSeedRef = useRef<Set<number>>(new Set());
+  useEffect(() => {
+    if (view !== "canvas" || !groupByNome || !subAtual) return;
+    if (nomeSeedRef.current.has(subAtiva)) return;
+    nomeSeedRef.current.add(subAtiva);
+    const nomes = new Set<string>();
+    for (const ln of subAtual.linhas) for (const s of ln.slots) nomes.add(tecidoNomeDoSlot(s));
+    if (nomes.size === 0) return;
+    setLanesRecolhidas((prev) => {
+      const n = new Set(prev);
+      for (const nome of nomes) n.add(`${subAtiva}:__all__:nome:${nome}`);
+      return n;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, groupByNome, subAtiva, subAtual]);
 
   // Deep-link ?sub=: quando a árvore chega, abre direto o canvas da subcoleção da URL
   // (uma vez só — depois disso a navegação interna manda). "none" = sub sem subcolecao_id.

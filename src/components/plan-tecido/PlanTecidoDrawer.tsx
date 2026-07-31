@@ -161,13 +161,12 @@ export function PlanTecidoDrawer({
                 <th className="whitespace-nowrap p-1.5 text-right font-medium">= A comprar</th>
               </tr>
             ) : (
-              /* A EQUAÇÃO na linha (dono, jul/2026): Pedida − Demanda = Sobra em colunas
-                 ADJACENTES — antes a Sobra dependia de somar Res. livre + Usada de cabeça e
-                 nada na linha "fechava" visualmente. Entregue vira sub-info da Pedida;
+              /* A EQUAÇÃO na linha: Entregue − Demanda = Sobra em colunas ADJACENTES (a Sobra
+                 usa o ENTREGUE, decisão do dono jul/2026). A Pedida vira sub-info do Entregue;
                  o "em produção" vira sub-info da Demanda. */
               <tr>
                 <th className="w-full p-1.5 text-left font-medium">Tecido / variante</th>
-                <th className="whitespace-nowrap p-1.5 text-right font-medium">Pedida</th>
+                <th className="whitespace-nowrap p-1.5 text-right font-medium" title="Metragem que já chegou (recebida)">Entregue</th>
                 <th className="whitespace-nowrap p-1.5 text-right font-medium" title="O que os modelos vinculados planejam usar desta cor (em produção + reservada livre)">− Demanda</th>
                 <th className="whitespace-nowrap p-1.5 text-right font-medium">= Sobra</th>
               </tr>
@@ -183,7 +182,7 @@ export function PlanTecidoDrawer({
                 <tr className="border-t bg-muted/40"><td className="p-1.5 font-medium" colSpan={nCols}>{g.artigo}</td></tr>
                 {g.variantes.map((v) => {
                   // Contabilidade via fonte única (mesma fn do Resumo): usado sai da reservada.
-                  const { reservadaLivre, usada, sobra, baixaDomina } = contabilizarOc(v.reservada, v.comprometida, v.usada, v.pedida);
+                  const { reservadaLivre, usada, sobra, baixaDomina } = contabilizarOc(v.reservada, v.comprometida, v.usada, v.entregue);
                   return (
                     <tr key={v.key} className="border-t">
                       <td className="w-full max-w-0 p-1.5">
@@ -202,17 +201,20 @@ export function PlanTecidoDrawer({
                         </>
                       ) : (
                         <>
-                          {/* Pedida (nº principal) + Entregue como sub-info: ✓ verde = entrega
-                              completa; âmbar = quanto falta chegar. */}
+                          {/* Entregue (nº principal = o operando da equação) + Pedida como sub-info:
+                              ✓ verde = entrega completa; âmbar = quanto falta chegar. */}
                           <td className="whitespace-nowrap p-1.5 text-right align-top">
-                            <div>{nMet(v.pedida)}</div>
-                            {v.pedida > 0 && (v.entregue >= v.pedida ? (
-                              <div className="text-[10px] font-medium text-emerald-700" title="Entrega completa — nada a chegar">{nMet(v.entregue)} ✓</div>
-                            ) : (
-                              <div className="text-[10px] font-medium text-amber-700" title={`Entregue ${nMet(v.entregue)} m`}>{nMet(v.entregue)} · falta {nMet(v.pedida - v.entregue)}</div>
-                            ))}
+                            <div className={v.pedida > 0 && v.entregue >= v.pedida ? "font-medium text-emerald-700" : v.pedida > 0 ? "font-medium text-amber-700" : ""}
+                                 title={v.pedida > 0 && v.entregue >= v.pedida ? "Entrega completa — nada a chegar" : undefined}>
+                              {nMet(v.entregue)}{v.pedida > 0 && v.entregue >= v.pedida ? " ✓" : ""}
+                            </div>
+                            {v.pedida > 0 && (
+                              <div className="text-[10px] text-muted-foreground" title={`Pedida ${nMet(v.pedida)} m`}>
+                                de {nMet(v.pedida)}{v.entregue < v.pedida ? ` · falta ${nMet(v.pedida - v.entregue)}` : ""}
+                              </div>
+                            )}
                           </td>
-                          {/* Demanda = max(reserva total, usada) — garante Pedida − Demanda = Sobra
+                          {/* Demanda = max(reserva total, usada) — garante Entregue − Demanda = Sobra
                               EXATO na linha. Sub-info: parcela já EM PRODUÇÃO (âmbar = enviado à
                               explosão; vermelho = corte baixado). */}
                           <td
@@ -247,8 +249,8 @@ export function PlanTecidoDrawer({
           <p className="border-t px-1.5 py-2 text-[10px] leading-snug text-muted-foreground">
             <b className="font-semibold">Demanda</b> = o que os modelos vinculados planejam usar desta cor
             (em produção + reservada livre — detalhe no hover). <b className="font-semibold">Em produção</b>:
-            âmbar = enviado à explosão; vermelho = corte já baixado. A <b className="font-semibold">Sobra</b> usa
-            a Pedida (sobra prevista com a OC entregue por completo).
+            âmbar = enviado à explosão; vermelho = corte já baixado. A <b className="font-semibold">Sobra</b> =
+            Entregue − Demanda (o físico que sobra do que já chegou) — negativa = falta tecido chegar.
           </p>
         )}
       </div>
