@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { semearArvore, mergeArvore, semearComModelos, type ModeloReal } from "@/lib/plan-tecido/engine";
+import { semearArvore, mergeArvore, semearComModelos, comConsumoDoPlano, type ModeloReal } from "@/lib/plan-tecido/engine";
 
 describe("plan-tecido/engine", () => {
   it("semeia N slots por bucket", () => {
@@ -212,5 +212,38 @@ describe("plan-tecido/engine", () => {
     const slots = merged.subcolecoes[0].linhas[0].slots;
     expect(slots[0].categoria_tecido_id).toBe("MANUAL_X"); // override manual do usuário preservado
     expect(slots[1].categoria_tecido_id).toBe("AUTO_B");   // salvo sem categoria → auto do seed
+  });
+  describe("comConsumoDoPlano (auditoria jul/2026 — Dev vence só se preenchido)", () => {
+    const mat = (over: Record<string, unknown>) =>
+      ({ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 0, loss_percent: 0, ordem: 0, variantes: [], ...over });
+
+    it("consumo 0 no Dev cai no consumo salvo do MESMO artigo+tipo", () => {
+      const out = comConsumoDoPlano([mat({ consumo: 0 })], [mat({ consumo: 3.1 })]);
+      expect(out[0].consumo).toBe(3.1);
+    });
+    it("consumo preenchido no Dev NÃO é sobrescrito pelo salvo", () => {
+      const out = comConsumoDoPlano([mat({ consumo: 2.22 })], [mat({ consumo: 9 })]);
+      expect(out[0].consumo).toBe(2.22);
+    });
+    it("artigo diferente no salvo não vaza (nem tipo forro pro tecido)", () => {
+      expect(comConsumoDoPlano([mat({ consumo: 0 })], [mat({ artigo_id: "B", consumo: 5 })])[0].consumo).toBe(0);
+      expect(comConsumoDoPlano([mat({ consumo: 0 })], [mat({ tipo: "forro" as const, consumo: 5 })])[0].consumo).toBe(0);
+    });
+    it("sem salvo (ou salvo com consumo 0) mantém o vivo", () => {
+      expect(comConsumoDoPlano([mat({ consumo: 0 })], null)[0].consumo).toBe(0);
+      expect(comConsumoDoPlano([mat({ consumo: 0 })], [mat({ consumo: 0 })])[0].consumo).toBe(0);
+    });
+    it("merge de card real com Dev zerado usa o consumo do plano salvo (caso SAMIRA)", () => {
+      const modelo: ModeloReal = { id: "m1", ref: null, nome: "VESTIDO SAMIRA", categoria_tecido_id: null, thumb_path: null,
+        subcolecao: null, subcolecao_id: "s1", linha_id: "l1", categoria_id: null, proporcoes: null,
+        materiais: [{ artigo_id: "ANG", tipo: "tecido", numero: 1, consumo: 0, loss_percent: 0, ordem: 0, variantes: [] }],
+        materiais_custo: 0, grade: null };
+      const seed = semearComModelos({ colecao_id: "c", tipo: "poder_venda",
+        buckets: [{ subcolecao_id: "s1", linha_id: "l1", categoria_id: null, qtd: 1 }], modelos: [modelo] });
+      const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0,
+        slots: [{ modelo_id: "m1", slot_index: 0, materiais: [{ artigo_id: "ANG", tipo: "tecido" as const, numero: 1, consumo: 3.1, loss_percent: 0, ordem: 0, variantes: [] }] }] }] }] };
+      const merged = mergeArvore(seed, salvo as never);
+      expect(merged.subcolecoes[0].linhas[0].slots[0].materiais[0].consumo).toBe(3.1);
+    });
   });
 });

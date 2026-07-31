@@ -176,6 +176,19 @@ const lnKeyOf = (l: { linha_id: string | null; categoria_id: string | null }) =>
 const savedTemDados = (s?: PtSlot): s is PtSlot =>
   !!s && (!!s.modelo_id || (s.materiais?.length ?? 0) > 0 || !!s.categoria_tecido_id);
 
+// Consumo EFETIVO de card real (auditoria jul/2026, decisão do dono): o BOM VIVO do Dev vence,
+// mas consumo VAZIO (0) no Dev cai no consumo digitado no PLANO salvo (mesmo artigo+tipo).
+// Sem isso, modelo com BOM incompleto zerava reserva/comprometido/a comprar em silêncio
+// (Ave Rara: SAMIRA+CALÇA ELARA = −285,6 m/cor no ANGELIM; CALÇA foi à explosão contando 0).
+export function comConsumoDoPlano(vivos: PtMaterial[], salvos?: PtMaterial[] | null): PtMaterial[] {
+  if (!salvos?.length) return vivos;
+  return vivos.map((m) => {
+    if ((Number(m.consumo) || 0) > 0) return m;
+    const s = salvos.find((x) => x.tipo === m.tipo && !!x.artigo_id && x.artigo_id === m.artigo_id && (Number(x.consumo) || 0) > 0);
+    return s ? { ...m, consumo: s.consumo } : m;
+  });
+}
+
 export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
   if (!salvo) return seed;
   // BOM VIVO por modelo_id: cada slot de modelo do seed carrega o BOM atual do Desenvolvimento.
@@ -244,7 +257,7 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
             // pela posição), não o snapshot salvo — assim que o card avança/muda o BOM, o plano
             // reflete. Slot de planejamento (sem modelo) mantém o rascunho salvo.
             materiais: effModeloId
-              ? (live?.materiais?.length ? live.materiais : (saved.materiais ?? []))
+              ? (live?.materiais?.length ? comConsumoDoPlano(live.materiais, saved.materiais) : (saved.materiais ?? []))
               : (saved.materiais?.length ? saved.materiais : slot.materiais),
           };
         }) };

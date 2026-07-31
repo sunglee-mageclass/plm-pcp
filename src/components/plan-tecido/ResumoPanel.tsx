@@ -177,14 +177,20 @@ export function ResumoPanel({
   // FONTE ÚNICA (calc.detalheOc) — o Drawer usa a MESMA fn (por OC×variante), então nunca divergem.
   // COMPROMETIDA (laranja) = reservada dos cards JÁ enviados à explosão (enviado_cad); computada no
   // front (não pela RPC) p/ atualizar na hora ao enviar ao CAD e usar a MESMA OC efetiva da reservada.
-  // OC → artigos dos itens dela (da RPC): a reserva por OC conta SÓ os metros desses artigos.
+  // OC → artigos E variantes dos itens dela (da RPC): a reserva por OC conta SÓ os metros desses
+  // artigos, e parcela com COR definida só se a cor existe na OC (senão o total por OC divergia da
+  // soma por variante do Drawer — 576 vs 567,04 na auditoria).
   const ocArtigos = new Map<string, Set<string>>();
+  const ocVariantes = new Map<string, Set<string>>();
   for (const r of situacao) {
     let s = ocArtigos.get(r.oc_tecido_id);
     if (!s) { s = new Set(); ocArtigos.set(r.oc_tecido_id, s); }
     s.add(r.artigo_id);
+    let v = ocVariantes.get(r.oc_tecido_id);
+    if (!v) { v = new Set(); ocVariantes.set(r.oc_tecido_id, v); }
+    if (r.variante_tecido_id) v.add(r.variante_tecido_id);
   }
-  const { reservPorOc, comprometidoPorOc, nPorOc } = detalheOc(colecaoArvore, vinculoOcMap, slotOcMap, enviadoCadSet, ocArtigos);
+  const { reservPorOc, comprometidoPorOc, nPorOc } = detalheOc(colecaoArvore, vinculoOcMap, slotOcMap, enviadoCadSet, ocArtigos, ocVariantes);
 
   // ---- Pendências (subcoleção) ----
   const semCategoria = slots.filter((s) => !s.categoria_tecido_id).length;

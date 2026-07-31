@@ -278,4 +278,32 @@ describe("plan-tecido/calc — auditoria jul/2026 (Ave Rara)", () => {
     expect(r1 + r2).toBeCloseTo(deficit, 6);
     expect(rateioDeficitSub(2000, 100, 100)).toBe(100);       // nunca acima da nec da sub
   });
+
+  // 1 slot do artigo A: cor VA (100 m) + cor VB (30 m) + parcela SEM cor (20 m); OC1 só tem a cor VA.
+  const arvVar = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "S1", ordem: 0, linhas: [{ linha_id: null, categoria_id: null, ordem: 0,
+    slots: [{ id: "slot1", modelo_id: "M1", slot_index: 0, custos_adicionais: [], materiais: [
+      { artigo_id: "A", tipo: "tecido", numero: 1, consumo: 2, loss_percent: 0, ordem: 0,
+        variantes: [
+          { variante_tecido_id: "VA", ordem: 1, multiplicador: 1, grades: {}, grade_total: 50 },
+          { variante_tecido_id: "VB", ordem: 2, multiplicador: 1, grades: {}, grade_total: 15 },
+          { variante_tecido_id: null, ordem: 3, multiplicador: 1, grades: {}, grade_total: 10 },
+        ] },
+    ] }] }] }] } as any;
+
+  it("detalheOc COM ocVariantes: cor que a OC não tem fica fora do total E do por-variante (576 vs 567,04)", () => {
+    const ocArtigos = new Map([["OC1", new Set(["A"])]]);
+    const ocVariantes = new Map([["OC1", new Set(["VA"])]]);
+    const det = detalheOc(arvVar, { M1: ["OC1"] }, {}, new Set(["M1"]), ocArtigos, ocVariantes);
+    expect(det.reservPorOc.get("OC1")).toBe(120);              // VA 100 + sem-cor 20; VB (30) fora
+    expect(det.comprometidoPorOc.get("OC1")).toBe(120);
+    expect(det.reservPorOcVar.get("OC1|VA")).toBe(100);
+    expect(det.reservPorOcVar.get("OC1|VB")).toBeUndefined();  // a OC não pode servir essa cor
+  });
+
+  it("detalheOc SEM ocVariantes (compat): filtro só por artigo — todas as cores do artigo contam", () => {
+    const ocArtigos = new Map([["OC1", new Set(["A"])]]);
+    const det = detalheOc(arvVar, { M1: ["OC1"] }, {}, new Set(["M1"]), ocArtigos);
+    expect(det.reservPorOc.get("OC1")).toBe(150);              // 100 + 30 + 20
+    expect(det.reservPorOcVar.get("OC1|VB")).toBe(30);
+  });
 });

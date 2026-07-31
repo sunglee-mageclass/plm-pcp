@@ -59,12 +59,16 @@ export function PlanTecidoDrawer({
   // por OC×variante — pra nunca divergir (antes o "detalhar da OC" mostrava 0 enquanto o Resumo mostrava
   // o comprometido). 'oc'/'comprar' seguem colecao-wide (necByVar/comprometidoByVar).
   const ocArtigos = new Map<string, Set<string>>();
+  const ocVariantes = new Map<string, Set<string>>();
   for (const r of situacao) {
     let s = ocArtigos.get(r.oc_tecido_id);
     if (!s) { s = new Set(); ocArtigos.set(r.oc_tecido_id, s); }
     s.add(r.artigo_id);
+    let v = ocVariantes.get(r.oc_tecido_id);
+    if (!v) { v = new Set(); ocVariantes.set(r.oc_tecido_id, v); }
+    if (r.variante_tecido_id) v.add(r.variante_tecido_id);
   }
-  const det = detalheOc(colecaoArvore, vinculoOcMap, slotOcMap, enviadoCadSet, ocArtigos);
+  const det = detalheOc(colecaoArvore, vinculoOcMap, slotOcMap, enviadoCadSet, ocArtigos, ocVariantes);
   const reservaVar = (vid: string): number =>
     kind === "ocnum" && arg ? (det.reservPorOcVar.get(`${arg}|${vid}`) ?? 0) : (necByVar.get(vid) ?? 0);
   const comprometidaVar = (vid: string): number =>
@@ -171,7 +175,14 @@ export function PlanTecidoDrawer({
                       ) : (
                         <>
                           <td className="p-1.5 text-right">{nMet(v.pedida)}</td>
-                          <td className="p-1.5 text-right">{nMet(v.entregue)}</td>
+                          {/* Entrega completa = nada a chegar (✓ verde); parcial = âmbar com o que
+                              falta — sem o estado, Ped. ao lado de Entr. lia como pendência (dono). */}
+                          <td
+                            className={`p-1.5 text-right ${v.pedida > 0 && v.entregue >= v.pedida ? "font-medium text-emerald-600" : v.pedida > 0 && v.entregue < v.pedida ? "font-medium text-amber-600" : ""}`}
+                            title={v.pedida > 0 ? (v.entregue >= v.pedida ? "Entrega completa — nada a chegar" : `Falta chegar ${nMet(v.pedida - v.entregue)} m`) : undefined}
+                          >
+                            {nMet(v.entregue)}{v.pedida > 0 && v.entregue >= v.pedida ? " ✓" : ""}
+                          </td>
                           <td className="p-1.5 text-right text-muted-foreground">{nMet(reservadaLivre)}</td>
                           {/* Usada (saiu da reservada): vermelho quando a BAIXA real domina; senão âmbar
                               (comprometido = enviado à explosão). Cinza quando 0. */}

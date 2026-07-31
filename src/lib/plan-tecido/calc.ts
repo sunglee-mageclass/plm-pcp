@@ -132,6 +132,11 @@ export function detalheOc(
    *  era reservado em cada OC vinculada, inflando a reserva e deflacionando a Sobra (auditoria
    *  jul/2026, decisão do dono). Sem o mapa (compat), comportamento antigo. */
   ocArtigos?: Map<string, Set<string>>,
+  /** OC → set de variante_tecido_id dos ITENS dela. Refina o filtro acima: parcela COM variante só
+   *  conta na OC se a COR existe nos itens dela (a OC não pode servir uma cor que não tem — o total
+   *  por OC dizia 576 e a soma por variante 567,04 na mesma tela). Parcela SEM variante (cor ainda
+   *  não escolhida) segue contando pelo artigo. Sem o mapa (compat), só o filtro por artigo. */
+  ocVariantes?: Map<string, Set<string>>,
 ): DetalheOc {
   const reservPorOc = new Map<string, number>();
   const comprometidoPorOc = new Map<string, number>();
@@ -142,33 +147,40 @@ export function detalheOc(
     const s = ocArtigos?.get(ocId);
     return !s ? true : (!!artigoId && s.has(artigoId));
   };
+  const varPertence = (ocId: string, vid: string): boolean => {
+    const s = ocVariantes?.get(ocId);
+    return !s ? true : s.has(vid);
+  };
   for (const sub of arvore.subcolecoes ?? []) for (const ln of sub.linhas ?? []) for (const slot of ln.slots ?? []) {
     if (!slot.id) continue;
     const devOc = slot.modelo_id ? (vinculoOcMap[slot.modelo_id] ?? []) : [];
     const ocIds = devOc.length ? devOc : (slotOcMap[slot.id] ?? []);
     if (!ocIds.length) continue;
     const enviado = !!slot.modelo_id && !!enviadoCadSet?.has(slot.modelo_id);
-    // metros por MATERIAL (artigo) e por variante — a atribuição por OC filtra pelo artigo da OC
-    const porArtigo = new Map<string, number>();
+    // metros por parcela: COM variante (perVar) e SEM variante (por artigo) — a atribuição por OC
+    // filtra pelo artigo da OC e, quando há o mapa, pela COR da OC (parcela com variante).
+    const semVarPorArtigo = new Map<string, number>();
     const perVar = new Map<string, { artigoId: string | null; metros: number }>();
     for (const mat of slot.materiais ?? []) for (const v of mat.variantes ?? []) {
       const metros = necessidadeVariante(mat.consumo, v.grade_total, v.multiplicador);
       if (metros <= 0) continue;
-      if (mat.artigo_id) porArtigo.set(mat.artigo_id, (porArtigo.get(mat.artigo_id) ?? 0) + metros);
       if (v.variante_tecido_id) {
         const cur = perVar.get(v.variante_tecido_id) ?? { artigoId: mat.artigo_id ?? null, metros: 0 };
         cur.metros += metros;
         perVar.set(v.variante_tecido_id, cur);
+      } else if (mat.artigo_id) {
+        semVarPorArtigo.set(mat.artigo_id, (semVarPorArtigo.get(mat.artigo_id) ?? 0) + metros);
       }
     }
     for (const ocId of ocIds) {
       let mOc = 0;
-      for (const [aid, metros] of porArtigo) if (pertence(ocId, aid)) mOc += metros;
+      for (const [aid, metros] of semVarPorArtigo) if (pertence(ocId, aid)) mOc += metros;
+      for (const [vid, pv] of perVar) if (pv.artigoId && pertence(ocId, pv.artigoId) && varPertence(ocId, vid)) mOc += pv.metros;
       reservPorOc.set(ocId, (reservPorOc.get(ocId) ?? 0) + mOc);
       nPorOc.set(ocId, (nPorOc.get(ocId) ?? 0) + 1);
       if (enviado) comprometidoPorOc.set(ocId, (comprometidoPorOc.get(ocId) ?? 0) + mOc);
       for (const [vid, pv] of perVar) {
-        if (!pertence(ocId, pv.artigoId)) continue;
+        if (!pertence(ocId, pv.artigoId) || !varPertence(ocId, vid)) continue;
         const k = `${ocId}|${vid}`;
         reservPorOcVar.set(k, (reservPorOcVar.get(k) ?? 0) + pv.metros);
         if (enviado) comprometidoPorOcVar.set(k, (comprometidoPorOcVar.get(k) ?? 0) + pv.metros);
