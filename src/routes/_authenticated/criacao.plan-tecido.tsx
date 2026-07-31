@@ -6,7 +6,7 @@ import { useTenantModules } from "@/hooks/useTenantModules";
 import { RequirePermission } from "@/components/RequirePermission";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowDownAZ, ArrowDownZA, CheckCircle2 } from "lucide-react";
+import { ArrowDownAZ, ArrowDownZA, CheckCircle2, Layers } from "lucide-react";
 import { FilterButton } from "@/components/shared/filters";
 import { useSort } from "@/components/shared/sort";
 import { useOrcamento } from "@/components/otb/orcamento";
@@ -116,11 +116,15 @@ function PlanTecidoListPage() {
   return (
     <div className="p-4 sm:p-6">
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          {/* Sem o eyebrow "Estilo & Engenharia": era a ÚNICA tela que repetia a seção no
-              título (dono, jul/2026) — a seção já aparece no header sticky e no hub. */}
-          <h1 className="font-display text-2xl font-semibold tracking-tight">Planejamento de Tecido</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">Escolha uma coleção para planejar os tecidos.</p>
+        {/* Ícone ao lado do título (Layers = mesmo ícone da nav do Plan. Tecido), como nas demais
+            telas (dono, jul/2026). Sem o eyebrow "Estilo & Engenharia": era a ÚNICA tela que
+            repetia a seção no título — a seção já aparece no header sticky e no hub. */}
+        <div className="flex min-w-0 items-start gap-3">
+          <Layers className="mt-0.5 h-7 w-7 shrink-0 text-primary" />
+          <div className="min-w-0">
+            <h1 className="font-display text-2xl font-semibold tracking-tight">Planejamento de Tecido</h1>
+            <p className="mt-0.5 text-sm text-muted-foreground">Escolha uma coleção para planejar os tecidos.</p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Button
