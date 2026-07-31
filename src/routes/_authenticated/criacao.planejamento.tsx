@@ -1057,14 +1057,18 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
             <span className="shrink-0 text-muted-foreground">Lançar em</span>
             <DateField value={dtLanc} onChange={(e) => setDtLanc(e.target.value)}
               className="h-7 w-[6.6rem] shrink-0 [&_input]:h-7 [&_input]:px-1.5 [&_input]:text-xs" />
+            {/* Só o ícone (a linha já diz "Lançar em") — botão de tamanho adequado (não o foguete
+                de 16px do laudo); estado por cor + tooltip: âmbar pronto · verde lançado (clica p/
+                cancelar) · cinza indisponível. */}
             <button type="button" disabled={lancStatus == null}
+              aria-label={lancStatus === "lancado" ? "Cancelar lançamento" : "Lançar"}
               title={lancStatus === "lancado" ? "Cancelar lançamento" : lancStatus === "pronto" ? "Lançar este modelo" : "Disponível só com CQ liberado e mão de obra aprovada"}
               onClick={() => onLancar(dtLanc || null, lancStatus !== "lancado")}
-              className={`ml-auto inline-flex h-7 shrink-0 items-center gap-1 rounded-md border px-2.5 text-xs font-medium max-md:h-11 ${
+              className={`ml-auto inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border max-md:h-11 max-md:w-11 ${
                 lancStatus === "lancado" ? "border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700"
                 : lancStatus === "pronto" ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
                 : "cursor-not-allowed border-input text-muted-foreground/60"}`}>
-              <Rocket className="h-3.5 w-3.5" />{lancStatus === "lancado" ? "Cancelar" : "Lançar"}
+              <Rocket className="h-4 w-4" />
             </button>
           </div>
         </div>
