@@ -123,7 +123,20 @@ export function ModeloInfoSection({
           }}>
             <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
-              {renderList.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+              {renderList.map((s) => {
+                // Status de destino bloqueado (requisitos não batem): mostra O QUE falta e esmaece,
+                // mas segue clicável — o clique dispara o toast explicando (não some sem motivo).
+                const chk = s.value !== currentValue ? podeEntrarStatus?.(s.value) : undefined;
+                const faltando = chk && !chk.ok ? chk.faltando : [];
+                return (
+                  <SelectItem key={s.value} value={s.value} className={faltando.length ? "text-muted-foreground" : ""}>
+                    {s.label}
+                    {faltando.length > 0 && (
+                      <span className="text-xs opacity-70"> · falta {faltando.map((c) => c.label).join(", ")}</span>
+                    )}
+                  </SelectItem>
+                );
+              })}
             </SelectContent>
           </Select>
         </Field>

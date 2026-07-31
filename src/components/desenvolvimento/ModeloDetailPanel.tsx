@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { labelVarianteRow } from "@/lib/variante";
 import { somaCustosAdicionais } from "@/lib/custo";
-import { Loader2, Pencil, Printer, Send, ArrowLeft, Download } from "lucide-react";
+import { Loader2, Pencil, Printer, Send, ArrowLeft, Download, Check, AlertTriangle } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { PrintFicha } from "@/components/producao/PrintFicha";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -90,6 +90,21 @@ export function ModeloDetailPanel({ modeloId, onClose }: {
         <UnsavedChangesGuard confirm={confirm} message="Há alterações não salvas neste modelo." />
       </SheetContent>
     </Sheet>
+  );
+}
+
+// Selo de completude no cabeçalho de cada seção do accordion (laudo das 3 lentes: cada
+// seção mostra de relance se está preenchida). ml-auto encosta na direita, antes do chevron.
+function SecBadge({ tone, children }: { tone: "ok" | "info" | "warn" | "muted"; children: ReactNode }) {
+  const cls =
+    tone === "ok" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+    : tone === "info" ? "bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
+    : tone === "warn" ? "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+    : "bg-muted text-muted-foreground";
+  return (
+    <span className={`ml-auto inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${cls}`}>
+      {children}
+    </span>
   );
 }
 
@@ -421,6 +436,8 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   const [uploading, setUploading] = useState(false);
   const [confirmEnviarCad, setConfirmEnviarCad] = useState(false);
   const [printTecnicaToken, setPrintTecnicaToken] = useState(0);
+  // Seções abertas do accordion (controlado): o link "falta X" do rodapé abre a seção certa.
+  const [accOpen, setAccOpen] = useState<string[]>(["s1"]);
   // Confirmação (AlertDialog) antes de descartar grade preenchida ao trocar/remover
   // o Tecido 1. Guarda a ação adiada até o usuário confirmar.
   const [confirmGrade, setConfirmGrade] = useState<{ msg: string; onConfirm: () => void } | null>(null);
@@ -1040,24 +1057,52 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   // Pilotos 2/3 são considerados "abertos" quando têm piloteiro ou data preenchidos.
   const piloto2Aberto = !!(draft?.piloteiro2_id || (draft?.data_piloto2 ?? "").trim());
   const piloto3Aberto = !!(draft?.piloteiro3_id || (draft?.data_piloto3 ?? "").trim());
-  const cadMissing: string[] = [];
+  // Cada pendência aponta a SEÇÃO do accordion onde se resolve (o rodapé vira link que abre a seção).
+  const cadMissing: { label: string; sec: string }[] = [];
   if (isAprovado) {
-    if ((draft?.ref ?? "").trim() === "") cadMissing.push(fl("ref"));
-    if ((draft?.nome ?? "").trim() === "") cadMissing.push("Nome");
-    if (!(modelo as any)?.estilista_id) cadMissing.push("Estilista");
-    if (!draft?.categoria_principal_id) cadMissing.push("Categoria");
-    if (!hasTecidoComVariante) cadMissing.push("ao menos 1 tecido com variante");
-    else if (!todosBlocosComArtigoTemVariante) cadMissing.push("1 variante em cada tecido/forro/entretela selecionado");
-    if (gradeTotalGeral <= 0) cadMissing.push("grade preenchida");
-    if ((draft?.data_desenho_tecnico ?? "").trim() === "") cadMissing.push("Data Desenho Técnico");
-    if ((draft?.data_piloto1 ?? "").trim() === "") cadMissing.push("Data Piloto 1");
-    if (piloto2Aberto && (draft?.data_piloto2 ?? "").trim() === "") cadMissing.push("Data Piloto 2");
-    if (piloto3Aberto && (draft?.data_piloto3 ?? "").trim() === "") cadMissing.push("Data Piloto 3");
+    if ((draft?.ref ?? "").trim() === "") cadMissing.push({ label: fl("ref"), sec: "s1" });
+    if ((draft?.nome ?? "").trim() === "") cadMissing.push({ label: "Nome", sec: "s1" });
+    if (!(modelo as any)?.estilista_id) cadMissing.push({ label: "Estilista", sec: "s1" });
+    if (!draft?.categoria_principal_id) cadMissing.push({ label: "Categoria", sec: "s1" });
+    if (!hasTecidoComVariante) cadMissing.push({ label: "ao menos 1 tecido com variante", sec: "s2" });
+    else if (!todosBlocosComArtigoTemVariante) cadMissing.push({ label: "1 variante em cada tecido/forro/entretela selecionado", sec: "s2" });
+    if (gradeTotalGeral <= 0) cadMissing.push({ label: "grade preenchida", sec: "s4" });
+    if ((draft?.data_desenho_tecnico ?? "").trim() === "") cadMissing.push({ label: "Data Desenho Técnico", sec: "s1" });
+    if ((draft?.data_piloto1 ?? "").trim() === "") cadMissing.push({ label: "Data Piloto 1", sec: "s1" });
+    if (piloto2Aberto && (draft?.data_piloto2 ?? "").trim() === "") cadMissing.push({ label: "Data Piloto 2", sec: "s1" });
+    if (piloto3Aberto && (draft?.data_piloto3 ?? "").trim() === "") cadMissing.push({ label: "Data Piloto 3", sec: "s1" });
   }
   // Enviar é sempre visível quando aprovado e sem itens faltando (idempotente: reenviar é ok).
   const canEnviarCad = isAprovado && !draft?.enviado_cad && cadMissing.length === 0;
   // Read-only quando já enviado à Explosão e fora do modo edição (lápis "Editar").
   const locked = !!draft?.enviado_cad && !editing;
+
+  // ── Selos de completude por seção + numeração DINÂMICA do accordion ──────────────────
+  const nTecidos = blocks.filter((b) => b.tipo === "tecido" && !!b.artigo_id).length;
+  const nAviamentos = aviamentosState.filter((r) => !!r.aviamento_id).length;
+  const nInsumos = etiquetasState.filter((e) => !!e.etiqueta_id).length;
+  const infoCompleta = !!(draft?.nome && draft?.categoria_principal_id && draft?.linha_id && (modelo as any)?.estilista_id);
+  const temCroqui = !!draft?.croqui_url;
+  const temAnexo = temCroqui || !!draft?.desenho_tecnico_url || !!draft?.ficha_medida_url || ((draft?.fotos_modelo?.length ?? 0) > 0);
+  const custoLbl = totals.peca > 0 ? `R$ ${totals.peca.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "R$ —";
+  // Ordem das seções → nº 1..N pulando as ocultas (Custos some sem permissão, sem deixar buraco).
+  const secOrdem: { key: string; on: boolean }[] = [
+    { key: "s1", on: true }, { key: "prova", on: true }, { key: "s2", on: true },
+    { key: "s-cad", on: true }, { key: "s3", on: true }, { key: "s3e", on: true },
+    { key: "s4", on: true }, { key: "s5", on: podeVerCustos }, { key: "s6", on: true },
+  ];
+  const secNum = (key: string) => {
+    let n = 0;
+    for (const s of secOrdem) { if (!s.on) continue; n++; if (s.key === key) return n; }
+    return n;
+  };
+  // Abre (e rola até) a seção onde uma pendência se resolve — usado pelos links do rodapé.
+  const irParaSecao = (sec: string) => {
+    setAccOpen((prev) => (prev.includes(sec) ? prev : [...prev, sec]));
+    requestAnimationFrame(() =>
+      document.querySelector(`[data-acc="${sec}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" }),
+    );
+  };
 
   // Re-baseline o guarda de alterações quando o estado semeado ASSENTA. A dificuldade: a
   // semeadura acontece em VÁRIOS efeitos (draft, blocks, aviamentos, grades, cadTecidos) e a
@@ -1833,9 +1878,16 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
 
       {/* área rolável (flex-1) — o footer fica fixo embaixo como irmão shrink-0 */}
       <div className="mt-4 flex-1 min-h-0 overflow-y-auto">
-        <Accordion type="multiple" defaultValue={["s1"]}>
-          <AccordionItem value="s1">
-            <AccordionTrigger>1. Informações Básicas</AccordionTrigger>
+        <Accordion type="multiple" value={accOpen} onValueChange={setAccOpen}>
+          <AccordionItem value="s1" data-acc="s1">
+            <AccordionTrigger>
+              <span className="flex flex-1 items-center gap-2 pr-2">
+                <span>{secNum("s1")}. Informações Básicas</span>
+                {infoCompleta
+                  ? <SecBadge tone="ok"><Check className="h-3 w-3" />completa</SecBadge>
+                  : <SecBadge tone="muted">faltam dados</SecBadge>}
+              </span>
+            </AccordionTrigger>
             <AccordionContent>
               <fieldset disabled={locked} className="contents">
               <ModeloInfoSection
@@ -1865,18 +1917,13 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             </AccordionContent>
           </AccordionItem>
 
-          <AccordionItem value="prova">
+          <AccordionItem value="prova" data-acc="prova">
             <AccordionTrigger>
-              <span className="flex items-center gap-2">
-                2. Ajustes na Prova
-                {provaAbertos > 0 && (
-                  <span
-                    className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground"
-                    title={`${provaAbertos} ajuste(s) em aberto`}
-                  >
-                    {provaAbertos}
-                  </span>
-                )}
+              <span className="flex flex-1 items-center gap-2 pr-2">
+                <span>{secNum("prova")}. Ajustes na Prova</span>
+                {provaAbertos > 0
+                  ? <SecBadge tone="info">{provaAbertos} aberto{provaAbertos > 1 ? "s" : ""}</SecBadge>
+                  : <SecBadge tone="muted">sem ajustes</SecBadge>}
               </span>
             </AccordionTrigger>
             <AccordionContent>
@@ -1886,8 +1933,17 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             </AccordionContent>
           </AccordionItem>
 
-          <AccordionItem value="s2">
-            <AccordionTrigger>3. Tecidos / Forros / Entretelas</AccordionTrigger>
+          <AccordionItem value="s2" data-acc="s2">
+            <AccordionTrigger>
+              <span className="flex flex-1 items-center gap-2 pr-2">
+                <span>{secNum("s2")}. Tecidos / Forros / Entretelas</span>
+                {nTecidos === 0
+                  ? <SecBadge tone="muted">vazio</SecBadge>
+                  : !todosBlocosComArtigoTemVariante
+                  ? <SecBadge tone="warn"><AlertTriangle className="h-3 w-3" />falta variante</SecBadge>
+                  : <SecBadge tone="ok"><Check className="h-3 w-3" />{nTecidos} tecido{nTecidos > 1 ? "s" : ""}</SecBadge>}
+              </span>
+            </AccordionTrigger>
             <AccordionContent>
               <fieldset disabled={locked} className="contents">
               <ModeloTecidosSection
@@ -1907,8 +1963,15 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             </AccordionContent>
           </AccordionItem>
 
-          <AccordionItem value="s-cad">
-            <AccordionTrigger>4. CAD</AccordionTrigger>
+          <AccordionItem value="s-cad" data-acc="s-cad">
+            <AccordionTrigger>
+              <span className="flex flex-1 items-center gap-2 pr-2">
+                <span>{secNum("s-cad")}. CAD</span>
+                {cadTecidosState.length === 0
+                  ? <SecBadge tone="muted">vazio</SecBadge>
+                  : <SecBadge tone="ok"><Check className="h-3 w-3" />ok</SecBadge>}
+              </span>
+            </AccordionTrigger>
             <AccordionContent>
               <fieldset disabled={locked} className="contents">
               {cadTecidosState.length === 0 ? (
@@ -1929,8 +1992,15 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             </AccordionContent>
           </AccordionItem>
 
-          <AccordionItem value="s3">
-            <AccordionTrigger>5. Aviamentos</AccordionTrigger>
+          <AccordionItem value="s3" data-acc="s3">
+            <AccordionTrigger>
+              <span className="flex flex-1 items-center gap-2 pr-2">
+                <span>{secNum("s3")}. Aviamentos</span>
+                {nAviamentos > 0
+                  ? <SecBadge tone="ok"><Check className="h-3 w-3" />{nAviamentos}</SecBadge>
+                  : <SecBadge tone="muted">vazio</SecBadge>}
+              </span>
+            </AccordionTrigger>
             <AccordionContent>
               <fieldset disabled={locked} className="contents">
               <ModeloAviamentosSection
@@ -1946,8 +2016,15 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             </AccordionContent>
           </AccordionItem>
 
-          <AccordionItem value="s3e">
-            <AccordionTrigger>6. Insumos</AccordionTrigger>
+          <AccordionItem value="s3e" data-acc="s3e">
+            <AccordionTrigger>
+              <span className="flex flex-1 items-center gap-2 pr-2">
+                <span>{secNum("s3e")}. Insumos</span>
+                {nInsumos > 0
+                  ? <SecBadge tone="ok"><Check className="h-3 w-3" />{nInsumos}</SecBadge>
+                  : <SecBadge tone="muted">vazio</SecBadge>}
+              </span>
+            </AccordionTrigger>
             <AccordionContent>
               <fieldset disabled={locked} className="contents">
               <ModeloEtiquetasSection
@@ -1964,8 +2041,15 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             </AccordionContent>
           </AccordionItem>
 
-          <AccordionItem value="s4">
-            <AccordionTrigger>7. Grade</AccordionTrigger>
+          <AccordionItem value="s4" data-acc="s4">
+            <AccordionTrigger>
+              <span className="flex flex-1 items-center gap-2 pr-2">
+                <span>{secNum("s4")}. Grade</span>
+                {gradeTotalGeral > 0
+                  ? <SecBadge tone="ok"><Check className="h-3 w-3" />preenchida</SecBadge>
+                  : <SecBadge tone="warn"><AlertTriangle className="h-3 w-3" />falta preencher</SecBadge>}
+              </span>
+            </AccordionTrigger>
             <AccordionContent>
               <fieldset disabled={locked} className="contents">
               <ModeloGradeSection
@@ -1986,8 +2070,13 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
           </AccordionItem>
 
           {podeVerCustos && (
-          <AccordionItem value="s5">
-            <AccordionTrigger>8. Custos</AccordionTrigger>
+          <AccordionItem value="s5" data-acc="s5">
+            <AccordionTrigger>
+              <span className="flex flex-1 items-center gap-2 pr-2">
+                <span>{secNum("s5")}. Custos</span>
+                <SecBadge tone="muted">{custoLbl}</SecBadge>
+              </span>
+            </AccordionTrigger>
             <AccordionContent>
               <fieldset disabled={locked} className="contents space-y-3">
               <ModeloCustosSection
@@ -2013,8 +2102,15 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
           </AccordionItem>
           )}
 
-          <AccordionItem value="s6">
-            <AccordionTrigger>9. Anexos</AccordionTrigger>
+          <AccordionItem value="s6" data-acc="s6">
+            <AccordionTrigger>
+              <span className="flex flex-1 items-center gap-2 pr-2">
+                <span>{secNum("s6")}. Anexos</span>
+                {temAnexo
+                  ? <SecBadge tone="ok"><Check className="h-3 w-3" />{temCroqui ? "croqui" : "anexos"}</SecBadge>
+                  : <SecBadge tone="muted">vazio</SecBadge>}
+              </span>
+            </AccordionTrigger>
             <AccordionContent>
               <fieldset disabled={locked} className="contents">
               <ModeloAnexosSection
@@ -2045,6 +2141,20 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             <ModeloObservacoes modeloId={modeloId} />
           </div>
         </fieldset>
+
+        {/* Pendências p/ enviar — VISÍVEL no mobile (no desktop ficam no rodapé). Cada uma
+            é um link que abre a seção onde se resolve. */}
+        {isAprovado && cadMissing.length > 0 && (
+          <p className="sm:hidden mt-4 text-xs text-amber-700 dark:text-amber-300">
+            Para enviar, falta:{" "}
+            {cadMissing.map((m, i) => (
+              <span key={i}>
+                {i > 0 && " · "}
+                <button type="button" className="font-medium underline underline-offset-2" onClick={() => irParaSecao(m.sec)}>{m.label}</button>
+              </span>
+            ))}
+          </p>
+        )}
       </div>
 
       <div className="bg-background border-t pt-3 mt-3 shrink-0 flex flex-wrap gap-2 items-center max-sm:flex-nowrap">
@@ -2056,13 +2166,19 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
         {/* Grupo direito: ml-auto empurra para a direita. */}
         {isAprovado && cadMissing.length > 0 && (
           <span className="text-xs text-muted-foreground ml-auto max-sm:hidden">
-            Para enviar, falta: {cadMissing.join(", ")}
+            Para enviar, falta:{" "}
+            {cadMissing.map((m, i) => (
+              <span key={i}>
+                {i > 0 && ", "}
+                <button type="button" className="underline underline-offset-2 hover:text-foreground" onClick={() => irParaSecao(m.sec)}>{m.label}</button>
+              </span>
+            ))}
           </span>
         )}
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className={!(isAprovado && cadMissing.length > 0) ? "ml-auto" : ""}>
+              <span className={!(isAprovado && cadMissing.length > 0) ? "ml-auto" : "max-sm:ml-auto"}>
                 <Button
                   variant="outline"
                   size="sm"

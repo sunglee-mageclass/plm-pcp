@@ -328,15 +328,34 @@ function DesenvolvimentoPage() {
       onDragEndCard={() => setDraggingId(null)}
     />
   );
-  const renderMobileCard = (m: Modelo) => (
-    <MobileCard
-      key={m.id}
-      modelo={m}
-      estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
-      categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
-      onOpen={() => setOpenId(m.id)}
-    />
-  );
+  const renderMobileCard = (m: Modelo) => {
+    // "Mover para…" no mobile = o equivalente ao arraste do desktop. Já anota o que falta
+    // em cada destino bloqueado (mesma regra) e o onMove reusa o gate + toast do handleDrop.
+    // Coluna EFETIVA = mesma lógica do byStatus (status inválido/null cai na 1ª coluna) — assim
+    // a coluna onde o card aparece nunca entra no "Mover para…".
+    const effStatus = m.status_desenvolvimento && statusKeySet.has(m.status_desenvolvimento) ? m.status_desenvolvimento : firstStatusKey;
+    const moverOpts = editable
+      ? statusKanban
+          .filter((s) => s.key !== effStatus)
+          .map((s) => { const { ok, faltando } = podeEntrar(m.id, s.key); return { key: s.key, label: s.label, faltando: ok ? [] : faltando.map((c) => c.label) }; })
+      : undefined;
+    return (
+      <MobileCard
+        key={m.id}
+        modelo={m}
+        estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
+        categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
+        onOpen={() => setOpenId(m.id)}
+        moverOpts={moverOpts}
+        onMove={(statusKey) => {
+          if (statusKey === effStatus) return;
+          const { ok, faltando } = podeEntrar(m.id, statusKey);
+          if (!ok) { toast.error(`Não pode entrar aqui. Faltam: ${faltando.map((c) => c.label).join(", ")}`); return; }
+          updateStatus.mutate({ id: m.id, status: statusKey });
+        }}
+      />
+    );
+  };
   // Render recursivo dos grupos COLAPSÁVEIS dentro de uma coluna (renderCard difere desktop/mobile).
   const renderGroups = (nodes: Grupo[], path: string, renderCard: (m: Modelo) => React.ReactNode): React.ReactNode =>
     nodes.map((g) => {
@@ -519,47 +538,71 @@ function DesenvolvimentoPage() {
         </div>
       </header>
 
-      {/* Desktop: Kanban — título em barra vertical à esquerda de cada coluna, colapsável.
-          items-stretch = todas as colunas (e suas barras de título) na altura da mais alta. */}
+      {/* Desktop: Kanban — coluna EXPANDIDA tem título HORIZONTAL no topo (era vertical, ~2× mais
+          lento de ler — laudo das 3 lentes); coluna RECOLHIDA vira trilho estreito com título
+          vertical (só cabe vertical). items-stretch = colunas na altura da mais alta. */}
       <div className="hidden md:flex gap-4 overflow-x-auto pb-4 items-stretch">
         {statusKanban.map((s) => {
           const cards = byStatus.get(s.key) ?? [];
           const isOver = dragOver === s.key;
           const isCollapsed = collapsed.has(s.key);
-          // Arrastando: esmaece colunas onde o card NÃO pode entrar (regras não batem).
+          // Arrastando: bloqueia colunas onde o card NÃO pode entrar (regras não batem) e mostra
+          // O QUE falta (antes só esmaecia, sem o porquê — laudo).
           const dragModel = draggingId ? modelos.find((m) => m.id === draggingId) : null;
-          const esmaecido = !!draggingId && dragModel?.status_desenvolvimento !== s.key && !podeEntrar(draggingId!, s.key).ok;
+          const bloqueio = !!draggingId && dragModel?.status_desenvolvimento !== s.key ? podeEntrar(draggingId!, s.key).faltando : [];
+          const esmaecido = !!draggingId && dragModel?.status_desenvolvimento !== s.key && bloqueio.length > 0;
           return (
             <div
               key={s.key}
-              className={`shrink-0 rounded-lg border bg-muted/30 flex max-h-[calc(100vh-260px)] transition-opacity ${isCollapsed ? "" : "w-80"} ${isOver ? "ring-2 ring-primary" : ""} ${esmaecido ? "opacity-40 grayscale pointer-events-none" : ""}`}
+              className={`shrink-0 rounded-lg border bg-muted/30 flex flex-col max-h-[calc(100vh-260px)] transition-colors ${isCollapsed ? "" : "w-80"} ${isOver ? "ring-2 ring-primary" : ""} ${esmaecido ? "border-dashed border-destructive/50 pointer-events-none" : ""}`}
               onDragOver={(e) => { e.preventDefault(); setDragOver(s.key); }}
               onDragLeave={() => setDragOver((cur) => (cur === s.key ? null : cur))}
               onDrop={(e) => handleDrop(s.key, e)}
             >
-              {/* Barra de título vertical à esquerda (clica p/ recolher) */}
-              <button
-                type="button"
-                onClick={() => toggleCollapse(s.key)}
-                title={s.label}
-                className={`shrink-0 w-9 flex flex-col items-center gap-2 py-3 hover:bg-muted/50 ${isCollapsed ? "" : "border-r"}`}
-              >
-                <ChevronRight className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${isCollapsed ? "" : "rotate-90"}`} />
-                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: s.color ?? "#64748b" }} />
-                <span className="text-sm font-semibold whitespace-nowrap [writing-mode:vertical-rl] rotate-180">{s.label}</span>
-                <span className="text-xs text-muted-foreground">{cards.length}</span>
-              </button>
-              {/* Cards empilhados à direita */}
-              {!isCollapsed && (
-                <div className="flex-1 min-w-0 p-2 space-y-2 overflow-y-auto">
-                  {cards.length === 0 ? (
-                    <p className="text-xs text-muted-foreground text-center py-6">Sem cards</p>
-                  ) : splitters.length === 0 ? (
-                    cards.map(renderDesktopCard)
-                  ) : (
-                    renderGroups(buildGroups(cards, 0), s.key, renderDesktopCard)
+              {isCollapsed ? (
+                /* Recolhida: trilho vertical estreito (clica p/ expandir) */
+                <button
+                  type="button"
+                  onClick={() => toggleCollapse(s.key)}
+                  title={s.label}
+                  className="flex-1 w-9 flex flex-col items-center gap-2 py-3 hover:bg-muted/50"
+                >
+                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: s.color ?? "#64748b" }} />
+                  <span className="text-sm font-semibold whitespace-nowrap [writing-mode:vertical-rl] rotate-180">{s.label}</span>
+                  <span className="text-xs text-muted-foreground">{cards.length}</span>
+                </button>
+              ) : (
+                <>
+                  {/* Título horizontal no topo (clica p/ recolher) */}
+                  <button
+                    type="button"
+                    onClick={() => toggleCollapse(s.key)}
+                    title="Recolher coluna"
+                    className="flex items-center gap-2 px-3 py-2.5 border-b hover:bg-muted/50 text-left"
+                  >
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: s.color ?? "#64748b" }} />
+                    <span className="text-sm font-semibold truncate">{s.label}</span>
+                    <span className="ml-auto text-xs text-muted-foreground tabular-nums">{cards.length}</span>
+                    <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60 rotate-90" />
+                  </button>
+                  {/* Bloqueio no arraste: diz O QUE falta (não fica só apagado) */}
+                  {esmaecido && (
+                    <div className="px-3 py-1.5 border-b border-dashed border-destructive/40 text-[11px] leading-snug text-destructive">
+                      <span className="font-semibold">Não pode entrar aqui.</span> Faltam: {bloqueio.map((c) => c.label).join(" · ")}
+                    </div>
                   )}
-                </div>
+                  {/* Cards empilhados */}
+                  <div className={`flex-1 min-w-0 p-2 space-y-2 overflow-y-auto transition-opacity ${esmaecido ? "opacity-40" : ""}`}>
+                    {cards.length === 0 ? (
+                      <p className="text-xs text-muted-foreground text-center py-6">Sem cards</p>
+                    ) : splitters.length === 0 ? (
+                      cards.map(renderDesktopCard)
+                    ) : (
+                      renderGroups(buildGroups(cards, 0), s.key, renderDesktopCard)
+                    )}
+                  </div>
+                </>
               )}
             </div>
           );
@@ -616,11 +659,13 @@ function CardCover({ url, isPdf, nome }: { url: string | null; isPdf: boolean; n
   );
 }
 
-function MobileCard({ modelo, estilistaNome, categoriaNome, onOpen }: {
+function MobileCard({ modelo, estilistaNome, categoriaNome, onOpen, moverOpts, onMove }: {
   modelo: Modelo;
   estilistaNome: string | null;
   categoriaNome: string | null;
   onOpen: () => void;
+  moverOpts?: { key: string; label: string; faltando: string[] }[];
+  onMove?: (statusKey: string) => void;
 }) {
   const fl = useFieldLabels();
   // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
@@ -630,7 +675,7 @@ function MobileCard({ modelo, estilistaNome, categoriaNome, onOpen }: {
   const naExplosao = !!modelo.enviado_cad && !modelo.cad?.[0]?.enviado_corte;
   const aprovado = modelo.custo_terceirizados_aprovado;
   return (
-    <div className="relative bg-card border rounded-md p-2">
+    <div className="relative bg-card border rounded-md p-2 space-y-2">
       {naExplosao && (
         <span className="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full bg-sky-600 ring-2 ring-card" aria-label="Enviado à Explosão" />
       )}
@@ -656,6 +701,22 @@ function MobileCard({ modelo, estilistaNome, categoriaNome, onOpen }: {
           )}
         </div>
       </div>
+      {/* "Mover para…" = arraste do desktop, no toque. key por status reseta o placeholder ao mover. */}
+      {moverOpts && moverOpts.length > 0 && onMove && (
+        <Select key={modelo.status_desenvolvimento} onValueChange={onMove}>
+          <SelectTrigger className="h-9 text-xs" onClick={(e) => e.stopPropagation()}>
+            <SelectValue placeholder="Mover para…" />
+          </SelectTrigger>
+          <SelectContent>
+            {moverOpts.map((o) => (
+              <SelectItem key={o.key} value={o.key} className={o.faltando.length ? "text-muted-foreground" : ""}>
+                {o.label}
+                {o.faltando.length > 0 && <span className="text-xs opacity-70"> · falta {o.faltando.join(", ")}</span>}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
     </div>
   );
 }
