@@ -132,7 +132,7 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }:
       <div className="bg-muted/60 p-2">
         <div className="flex items-center gap-2">
           <span className="shrink-0 rounded bg-primary px-1.5 py-0.5 text-[10px] font-bold text-primary-foreground">{material.tipo === "tecido" ? "TEC" : "FOR"} {material.numero}</span>
-          <select className="min-w-0 flex-1 rounded border bg-background px-2 py-1 text-xs" value={material.artigo_id ?? ""} onChange={(e) => escolherArtigo(e.target.value)}>
+          <select className="min-w-0 flex-1 rounded border bg-background px-2 py-1 text-xs max-md:h-11 max-md:text-base" value={material.artigo_id ?? ""} onChange={(e) => escolherArtigo(e.target.value)}>
             <option value="">{`Escolher ${rotulo}…`}</option>
             {artigosVisiveis.map((a) => { const f = fornecedorDe(a.id); return (<option key={a.id} value={a.id}>{a.nome}{f ? ` · ${f}` : ""}{a.unidade_medida === "kg" ? " [kg]" : ""}</option>); })}
           </select>
@@ -144,10 +144,15 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }:
           )}
           <div className="ml-auto flex items-center gap-1 text-xs">
             <span className="text-muted-foreground">consumo</span>
-            <NumberInput blankZero placeholder="0" className="h-7 w-16 text-right" value={material.consumo} onChange={(e) => onChange({ ...material, consumo: Number(e.target.value) || 0 })} />
+            <NumberInput blankZero placeholder="0" className="h-7 w-16 text-right max-md:h-11 max-md:text-base" value={material.consumo} onChange={(e) => onChange({ ...material, consumo: Number(e.target.value) || 0 })} />
             <span className="text-muted-foreground">m/pç</span>
           </div>
         </div>
+        {/* consumo 0 zera reserva/comprometido/a comprar em silêncio (auditoria jul/2026:
+            um card foi à explosão contando 0) — aviso honesto no lugar do silêncio. */}
+        {(Number(material.consumo) || 0) <= 0 && material.artigo_id && (
+          <p className="mt-1 text-[10px] font-medium text-amber-700">consumo não preenchido — este {material.tipo === "forro" ? "forro" : "tecido"} conta 0 m nas contas</p>
+        )}
       </div>
 
       <div className="p-2">

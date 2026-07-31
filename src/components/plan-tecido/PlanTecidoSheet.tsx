@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -31,7 +31,7 @@ import { tecidosDaArvore, slotMetros, fmtMetros } from "@/lib/plan-tecido/calc";
 import { FazerPedidoWizard, type PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
 import { PlanTecidoDrawer, type DrawerState, type DrawerKind } from "@/components/plan-tecido/PlanTecidoDrawer";
 import { useSituacaoOcs } from "@/lib/plan-tecido/useSituacaoOcs";
-import { DndContext, DragOverlay, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { DndContext, DragOverlay, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { DroppableLane, DraggableCard, type DragHandle } from "@/components/plan-tecido/dnd";
 
 type Nome = { id: string; nome: string };
@@ -123,7 +123,9 @@ function FormAplicarTecido({
           <label className="text-xs font-medium">{tipo === "forro" ? "Forro" : "Tecido"}</label>
           {opcoes.length === 0 ? (
             <div className="rounded border border-dashed p-2 text-xs text-muted-foreground">
-              Nenhum {rotulo} em "Insumos da coleção". Adicione primeiro.
+              {/* a "paleta" do aplicar em massa = tecidos já usados em algum card do plano
+                  ("Insumos da coleção" não é mais uma tela — mensagem fantasma corrigida, laudo) */}
+              Nenhum {rotulo} no plano ainda — escolha o {rotulo} em um card primeiro; ele passa a aparecer aqui.
             </div>
           ) : (
           <select
@@ -184,11 +186,25 @@ function FormAplicarTecido({
   );
 }
 
-export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onClose: () => void }) {
+export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onClose }: {
+  colecaoId: string;
+  /** subcolecao_id vindo da URL (?sub=; "none" = sub sem id) — deep-link direto no canvas. */
+  subInicial?: string | null;
+  /** Reflete a subcoleção aberta na URL (replace) — F5/Back seguros; null = voltou p/ etapa 2. */
+  onSubChange?: (subId: string | null) => void;
+  onClose: () => void;
+}) {
   const qc = useQueryClient();
   const [arvore, setArvore] = useState<PtArvore | null>(null);
   const [dirty, setDirty] = useState(false);
-  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
+  // Back/rota com plano sujo confirma ("Descartar?"); trocar ?sub= dentro da MESMA coleção
+  // passa livre (o Sheet não desmonta — nada se perde). Laudo das 3 lentes, jul/2026.
+  const navPermitida = useCallback(
+    (next: { pathname?: string; search?: Record<string, unknown> }) =>
+      String(next?.pathname ?? "").includes("/criacao/plan-tecido") && next?.search?.colecao === colecaoId,
+    [colecaoId],
+  );
+  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose, blockNav: true, navPermitida });
   const [view, setView] = useState<"subcolecoes" | "canvas">("subcolecoes");
   const [subAtiva, setSubAtiva] = useState(0);
   const [catFilter, setCatFilter] = useState<string | null>(null); // null=todos · id de categoria · "__sem__"
@@ -197,6 +213,9 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
   const [selecao, setSelecao] = useState<Set<string>>(new Set());
   const [recolhidos, setRecolhidos] = useState<Set<string>>(new Set()); // chaves de cards recolhidos
   const [resumoAberto, setResumoAberto] = useState(true); // resumo colapsável (trilho)
+  // MOBILE (<md): Resumo/A comprar/OCs viram ABAS full-width — antes os asides eram
+  // hidden md:/lg: e a camada analítica + vincular/desvincular OC não existiam no celular.
+  const [mobileTab, setMobileTab] = useState<"canvas" | "resumo" | "comprar" | "oc">("canvas");
   const [drawer, setDrawer] = useState<DrawerState | null>(null); // subsheet "detalhar" (extensão)
   const [lanesRecolhidas, setLanesRecolhidas] = useState<Set<string>>(new Set()); // lanes (categorias) colapsáveis
   const toggleLane = (k: string) => setLanesRecolhidas((prev) => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
@@ -206,10 +225,14 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
   const [groupByNome, setGroupByNome] = useState(false);
   const openDrawer = (kind: DrawerKind, arg?: string) =>
     setDrawer((prev) => (prev && prev.kind === kind && (prev.arg ?? null) === (arg ?? null) ? null : { kind, arg: arg ?? null }));
+  const detalharMobile = (kind: DrawerKind, arg?: string) => {
+    setDrawer({ kind, arg: arg ?? null });
+    setMobileTab(kind === "comprar" ? "comprar" : "oc");
+  };
   const { data: situacaoRows = [] } = useSituacaoOcs(colecaoId);
   const ocNumeroDe = (id: string) => situacaoRows.find((r) => r.oc_tecido_id === id)?.numero ?? null;
   // arrastar card entre lanes (grip inicia; distância p/ não confundir com clique)
-  const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }), useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }));
   const [dragId, setDragId] = useState<string | null>(null);
   const nomeDoChave = (chave: string): string | null => {
     if (!arvore) return null;
@@ -701,6 +724,20 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
   const slotReady = (slot: PtSlot) => { const f = slotFornec(slot); return f.total > 0 && f.com === f.total; };
 
   const subAtual = arvore ? (arvore.subcolecoes[subAtiva] ?? null) : null;
+
+  // Deep-link ?sub=: quando a árvore chega, abre direto o canvas da subcoleção da URL
+  // (uma vez só — depois disso a navegação interna manda). "none" = sub sem subcolecao_id.
+  const subInicialAplicada = useRef(false);
+  useEffect(() => {
+    if (subInicialAplicada.current || !arvore || !subInicial) return;
+    subInicialAplicada.current = true;
+    const si = arvore.subcolecoes.findIndex((s) => (s.subcolecao_id ?? "none") === subInicial);
+    if (si >= 0) { setSubAtiva(si); setView("canvas"); }
+    else onSubChange?.(null); // sub não existe (excluída?) → limpa a URL
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arvore, subInicial]);
+
+  const irParaSubcolecoes = () => { setView("subcolecoes"); onSubChange?.(null); };
   const chipCls = (active: boolean) =>
     `rounded-full border px-3 py-1 text-xs font-medium transition-colors ${active ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background text-muted-foreground hover:border-primary"}`;
 
@@ -711,7 +748,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
           <Breadcrumb items={[
             { label: "Estilo & Engenharia" },
             { label: "Plan. Tecido", onClick: requestClose },
-            { label: colecao?.nome ?? "…", onClick: view === "canvas" ? () => setView("subcolecoes") : undefined },
+            { label: colecao?.nome ?? "…", onClick: view === "canvas" ? irParaSubcolecoes : undefined },
             ...(view === "canvas" && subAtual ? [{ label: nameOf(subNomes, subAtual.subcolecao_id) ?? "Sem subcoleção" }] : []),
           ]} />
           <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
@@ -767,18 +804,20 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                 return (
                   <button key={sub.id ?? si} type="button"
                     className="flex flex-col gap-2 rounded-lg border bg-background p-4 text-left shadow-sm transition-shadow hover:border-primary hover:shadow-md"
-                    onClick={() => { setSubAtiva(si); setCatFilter(null); setSelecao(new Set()); setRecolhidos(new Set()); setView("canvas"); }}>
+                    onClick={() => { setSubAtiva(si); setCatFilter(null); setSelecao(new Set()); setRecolhidos(new Set()); setView("canvas"); onSubChange?.(sub.subcolecao_id ?? "none"); }}>
                     <div className="flex items-center justify-between gap-2">
                       <div className="font-medium">{nameOf(subNomes, sub.subcolecao_id) ?? "Sem subcoleção"}</div>
                       {status && <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${status.green ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>{status.txt}</span>}
                     </div>
                     <div className="flex flex-wrap gap-1">
+                      {/* "nenhuma categoria criada" (lanes da sub) ≠ "N modelos sem categoria" (cards) —
+                          os dois rótulos quase iguais lado a lado confundiam (laudo Gestalt). */}
                       {cats.length ? cats.map((cid) => (
                         <span key={cid} className="rounded bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">{catTecidoNome(cid) ?? "?"}</span>
-                      )) : <span className="text-[11px] text-muted-foreground">sem categorias</span>}
-                      {semCat > 0 && <span className="rounded bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{semCat} sem categoria</span>}
+                      )) : <span className="text-[11px] text-muted-foreground">nenhuma categoria criada</span>}
+                      {semCat > 0 && <span className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">{semCat} modelos sem categoria</span>}
                     </div>
-                    <div className="mt-auto text-xs text-muted-foreground"><b className="text-foreground">{realizado}</b>{planejado > 0 ? <> / {planejado}</> : null} modelo(s){realizado > planejado && planejado > 0 ? <span className="ml-1 text-amber-600">(+{realizado - planejado})</span> : null}</div>
+                    <div className="mt-auto text-xs text-muted-foreground"><b className="text-foreground">{realizado}</b>{planejado > 0 ? <> / {planejado}</> : null} modelo(s){realizado > planejado && planejado > 0 ? <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700" title={`${realizado - planejado} modelos acima do planejado no OTB`}>+{realizado - planejado} acima do OTB</span> : null}</div>
                   </button>
                 );
               })}
@@ -837,7 +876,7 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
           const renderCards = (items: typeof flat, draggable: boolean) =>
             items.map(({ slot, li, sli, chave }) => draggable
               ? <DraggableCard key={slot.id ?? `${li}-${sli}`} id={chave}>{(handle) => cardOf(slot, li, sli, chave, handle)}</DraggableCard>
-              : <div key={slot.id ?? `${li}-${sli}`} className="w-[360px] shrink-0">{cardOf(slot, li, sli, chave)}</div>);
+              : <div key={slot.id ?? `${li}-${sli}`} className="w-[360px] max-md:w-[85vw] shrink-0">{cardOf(slot, li, sli, chave)}</div>);
           // Corpo de uma lane: vazio → placeholder; 2º nível ligado → sub-grupos por nome do tecido
           // (cada um uma linha horizontal, COLAPSÁVEL como as lanes); senão → cartões direto.
           const laneBody = (slots: typeof flat, draggable: boolean, laneId: string) =>
@@ -863,6 +902,16 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                   })
                 : renderCards(slots, draggable);
           return (
+            <div className="flex min-h-0 flex-1 flex-col">
+              {/* mobile: abas Canvas · Resumo · A comprar · OCs (nada fica desktop-only) */}
+              <div className="flex shrink-0 border-b md:hidden">
+                {([["canvas", "Canvas"], ["resumo", "Resumo"], ["comprar", "A comprar"], ["oc", "OCs"]] as const).map(([k, lbl]) => (
+                  <button key={k} type="button" onClick={() => setMobileTab(k)}
+                    className={`h-11 flex-1 text-[13px] font-medium ${mobileTab === k ? "border-b-2 border-primary text-primary" : "text-muted-foreground"}`}>
+                    {lbl}
+                  </button>
+                ))}
+              </div>
             <div className="flex flex-1 overflow-hidden">
               {/* Trilho fixo — Resumo · A comprar · OC (abrem como extensão que empurra) */}
               <div className="hidden w-[46px] shrink-0 flex-col items-center gap-1.5 border-r pt-3 md:flex">
@@ -886,13 +935,26 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                   </div>
                 </aside>
               )}
-              {/* Drawer/subsheet (420px) — abre por "detalhar" / trilho */}
+              {/* Drawer/subsheet (420px) — abre por "detalhar" / trilho. `md:flex` (era lg):
+                  em tablet os botões do trilho acendiam e NADA abria — ação sem feedback (laudo). */}
               {drawer && (
-                <aside className="hidden w-[420px] shrink-0 overflow-hidden border-r lg:flex">
+                <aside className="hidden w-[420px] shrink-0 overflow-hidden border-r md:flex">
                   <PlanTecidoDrawer state={drawer} subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} enviadoCadSet={enviadoCadSet} ocNumeroDe={ocNumeroDe} onClose={() => setDrawer(null)} />
                 </aside>
               )}
-              <main className="flex-1 overflow-y-auto p-3">
+              {/* mobile: painéis full-width das abas (reusam os MESMOS componentes do desktop) */}
+              <div className={`flex-1 overflow-y-auto p-3 md:hidden ${mobileTab === "resumo" ? "" : "hidden"}`}>
+                <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={detalharMobile} />
+              </div>
+              {(mobileTab === "comprar" || mobileTab === "oc") && (
+                <div className="flex-1 overflow-hidden md:hidden">
+                  <PlanTecidoDrawer
+                    state={drawer && (mobileTab === "comprar" ? drawer.kind === "comprar" : drawer.kind !== "comprar") ? drawer : { kind: mobileTab === "comprar" ? "comprar" : "oc", arg: null }}
+                    subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} enviadoCadSet={enviadoCadSet} ocNumeroDe={ocNumeroDe}
+                    onClose={() => setMobileTab("canvas")} />
+                </div>
+              )}
+              <main className={`flex-1 overflow-y-auto p-3 ${mobileTab !== "canvas" ? "max-md:hidden" : ""}`}>
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                   {groupByCategoria && <>
                     <button type="button" className={chipCls(!catFilter)} onClick={() => setCatFilter(null)}>Todos ({flat.length})</button>
@@ -904,6 +966,10 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                     )}
                   </>}
                   <div className="ml-auto flex items-center gap-2">
+                    {/* dupla régua explicada: a etapa 2 conta MODELOS reais; o canvas conta ITENS
+                        (modelos + vagas do OTB) — sem o rótulo, "58" virava "93" sem explicação (laudo). */}
+                    {(() => { const reais = flat.filter((f) => f.slot.modelo_id).length; const vagas = flat.length - reais;
+                      return vagas > 0 ? <span className="hidden text-[11px] text-muted-foreground lg:inline">{flat.length} itens = {reais} modelos + {vagas} vagas</span> : null; })()}
                     <Button size="sm" variant="ghost" onClick={toggleTodos}>{todosRecolhidos ? "Expandir todos" : "Recolher todos"}</Button>
                     <AgrupamentoButton groups={[
                       { label: "Categoria de tecido", active: groupByCategoria, onToggle: () => setGroupByCategoria((v) => !v) },
@@ -956,11 +1022,12 @@ export function PlanTecidoSheet({ colecaoId, onClose }: { colecaoId: string; onC
                 </DndContext>
               </main>
             </div>
+            </div>
           );
         })() : null}
 
         <div className="shrink-0 border-t bg-background p-3 flex items-center gap-2">
-          <Button variant="outline" size="sm" className="max-sm:h-11" onClick={() => (view === "canvas" ? setView("subcolecoes") : requestClose())}>
+          <Button variant="outline" size="sm" className="max-sm:h-11" onClick={() => (view === "canvas" ? irParaSubcolecoes() : requestClose())}>
             <ArrowLeft className="mr-1 h-4 w-4" />
             {view === "canvas" ? "Subcoleções" : "Voltar"}
           </Button>

@@ -11,10 +11,14 @@ import { precoInfo } from "@/lib/preco";
 import { brl } from "@/lib/format";
 import { Lock, ChevronDown, ChevronRight, ShoppingCart, X } from "lucide-react";
 import { OcAplicadaPicker } from "@/components/plan-tecido/OcAplicadaPicker";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const nMet = fmtMetros;
 const dot = (st: "g" | "a" | "n") => (st === "g" ? "bg-emerald-500" : st === "a" ? "bg-amber-500" : "bg-red-400");
-const sobraCls = (s: number) => (s < 0 ? "text-red-600" : "text-emerald-600");
+const sobraCls = (s: number) => (s < 0 ? "text-red-600" : "text-emerald-700");
 
 function Detalhar({ onClick }: { onClick: () => void }) {
   return (
@@ -93,6 +97,9 @@ export function ResumoPanel({
     queryKey: ["plan-tecido-ocs-geradas", colecaoId],
     queryFn: async () => (((await supabase.from("plan_tecido_ocs" as any).select("oc_tecido_id").eq("colecao_id", colecaoId)).data ?? []) as unknown as { oc_tecido_id: string }[]).map((r) => r.oc_tecido_id),
   });
+  // Desvincular mexe no "a comprar" da coleção inteira → AlertDialog curto (padrão do sistema
+  // p/ ação sensível; laudo jul/2026 — reversível, mas confirmação evita o clique acidental).
+  const [desvincularAlvo, setDesvincularAlvo] = useState<{ id: string; numero: string | null } | null>(null);
   const desvincularAplicada = useMutation({
     mutationFn: async (ocId: string) => {
       const restantes = aplicadas.filter((id) => id !== ocId);
@@ -243,10 +250,10 @@ export function ResumoPanel({
               const nec = catTecMetros(cid); const comprar = aComprarCat(cid);
               return (
                 <div key={cid} className="border-b px-2 py-1 text-xs">
-                  <div className="flex items-center gap-2"><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot(catStatus(cid))}`} /><span className="truncate">{catTecidoNome(cid) ?? "?"}</span></div>
+                  <div className="flex items-center gap-2"><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot(catStatus(cid))}`} title={catStatus(cid) === "g" ? "Todos os tecidos com fornecedor" : catStatus(cid) === "a" ? "Parte dos tecidos sem fornecedor" : "Nenhum tecido com fornecedor"} /><span className="truncate">{catTecidoNome(cid) ?? "?"}</span></div>
                   <div className="mt-0.5 flex gap-4 pl-3.5 text-[11px] tabular-nums">
                     <span className="text-muted-foreground">nec. <b className="text-foreground">{nMet(nec)}</b> m</span>
-                    <span className={!previaCarregada ? "text-muted-foreground" : comprar > 0 ? "font-medium text-red-600" : "text-emerald-600"}>a comprar <b>{previaCarregada ? nMet(comprar) : "…"}</b> m</span>
+                    <span className={!previaCarregada ? "text-muted-foreground" : comprar > 0 ? "font-medium text-red-600" : "font-medium text-emerald-700"}>a comprar <b>{previaCarregada ? nMet(comprar) : "…"}</b> m</span>
                   </div>
                 </div>
               );
@@ -264,10 +271,10 @@ export function ResumoPanel({
               <div>Total</div>
               <div className="mt-0.5 flex gap-4 pl-0 text-[11px] tabular-nums font-normal">
                 <span className="text-muted-foreground">nec. <b className="text-foreground">{nMet(totTec + totForro)}</b> m</span>
-                <span className={!previaCarregada ? "text-muted-foreground" : totComprar > 0 ? "font-medium text-red-600" : "text-emerald-600"}>a comprar <b>{previaCarregada ? nMet(totComprar) : "…"}</b> m</span>
+                <span className={!previaCarregada ? "text-muted-foreground" : totComprar > 0 ? "font-medium text-red-600" : "font-medium text-emerald-700"}>a comprar <b>{previaCarregada ? nMet(totComprar) : "…"}</b> m</span>
               </div>
             </div>
-            <div className="px-2 pb-1 text-[9px] leading-tight text-muted-foreground">"a comprar" = parte DESTA subcoleção do déficit da coleção (necessidade − OCs vinculadas; plano salvo). O Fazer pedido usa a coleção inteira.</div>
+            <div className="px-2 pb-1 text-[10px] leading-snug text-muted-foreground"><b className="font-semibold">a comprar</b> = parte DESTA subcoleção do déficit da coleção (necessidade − OCs vinculadas; plano salvo). O <b className="font-semibold">Fazer pedido</b> usa a coleção inteira.</div>
           </>
         )}
       </Secao>
@@ -299,7 +306,7 @@ export function ResumoPanel({
               </button>
               {aplicada ? (
                 <button type="button" title="Desvincular esta OC do plano" disabled={desvincularAplicada.isPending}
-                  onClick={() => desvincularAplicada.mutate(o.oc_tecido_id)}
+                  onClick={() => setDesvincularAlvo({ id: o.oc_tecido_id, numero: o.numero })}
                   className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -314,6 +321,24 @@ export function ResumoPanel({
           <div className="px-2 py-1.5 text-[10px] text-muted-foreground">Nenhuma OC vinculada.</div>
         )}
         <OcAplicadaPicker colecaoId={colecaoId} />
+        {desvincularAlvo && (
+          <AlertDialog open onOpenChange={(o) => { if (!o) setDesvincularAlvo(null); }}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Desvincular {desvincularAlvo.numero ?? "a OC"}?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  A cobertura dela sai do "a comprar" da coleção inteira. Dá pra vincular de novo depois.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction onClick={() => { desvincularAplicada.mutate(desvincularAlvo.id); setDesvincularAlvo(null); }}>
+                  Desvincular
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
       </Secao>
 
       {/* Situação da OC — por OC */}
@@ -331,25 +356,33 @@ export function ResumoPanel({
                 <Detalhar onClick={() => onDetalhar("ocnum", o.oc_tecido_id)} />
               </div>
               {o.tecidos.length > 0 && <div className="mb-1 truncate text-[10px] text-muted-foreground" title={o.tecidos.join(" · ")}>{o.tecidos.join(" · ")}</div>}
+              {/* Vocabulário ÚNICO com o drawer aprovado (laudo jul/2026): Demanda (total) com
+                  "em produção" + "reservada (livre)" como sub-linhas — nada de "Usada" ambígua.
+                  Cores em -700 (âmbar/verde-600 dava 3,2:1 em texto pequeno — reprovava AA). */}
               <div className="flex justify-between text-muted-foreground"><span>Pedida</span><span>{nMet(o.pedida)} m</span></div>
-              <div className="flex justify-between text-muted-foreground" title="Entrega parcial: parte da Pedida (não soma com ela)"><span>Entregue</span><span>{nMet(o.entregue)} de {nMet(o.pedida)} m</span></div>
-              <div className="flex justify-between text-muted-foreground" title="Reserva LIVRE (ainda não usada). Reserva total = livre + Usada"><span>Reservada (livre)</span><span>{nMet(reservada)} m</span></div>
-              {/* Usada (saiu da reservada): vermelho quando a BAIXA real domina; senão âmbar (comprometido
-                  = enviado à explosão). Cinza quando 0. Cor/valor pela MESMA regra (contabilizarOc). */}
-              <div className="flex justify-between text-muted-foreground">
-                <span>Usada</span>
-                <span className={usada <= 0 ? "" : baixaDomina ? "font-medium text-red-600" : "font-medium text-amber-600"}
+              <div className="flex justify-between text-muted-foreground"><span>Entregue</span>
+                {o.pedida > 0 && o.entregue >= o.pedida ? (
+                  <span className="font-medium text-emerald-700" title="Entrega completa — nada a chegar">{nMet(o.entregue)} ✓</span>
+                ) : (
+                  <span className="font-medium text-amber-700" title={`Falta chegar ${nMet(Math.max(0, o.pedida - o.entregue))} m`}>{nMet(o.entregue)} de {nMet(o.pedida)} m</span>
+                )}
+              </div>
+              <div className="flex justify-between text-muted-foreground" title="O que os modelos vinculados planejam usar desta OC"><span>Demanda</span><span className="font-medium text-foreground">{nMet(Math.max(reservadaTotal, usada))} m</span></div>
+              <div className="flex justify-between pl-2.5 text-muted-foreground">
+                <span>em produção</span>
+                <span className={usada <= 0 ? "" : baixaDomina ? "font-medium text-red-700" : "font-medium text-amber-700"}
                       title={usada <= 0 ? undefined : baixaDomina ? "Baixa real (corte enviado)" : "Comprometido — enviado à explosão"}>
                   {nMet(usada)} m
                 </span>
               </div>
+              <div className="flex justify-between pl-2.5 text-muted-foreground"><span>reservada (livre)</span><span>{nMet(reservada)} m</span></div>
               <div className={`mt-0.5 flex justify-between border-t pt-0.5 font-display font-semibold ${sobraCls(sobra)}`}><span>Sobra prevista</span><span>{sobra > 0 ? "+" : ""}{nMet(sobra)} m</span></div>
             </div>
           );
         }) : (
           <div className="p-2 text-[10px] text-muted-foreground">Sem OC ainda — gere um pedido ou vincule uma OC existente.</div>
         )}
-        <div className="p-2 text-[9px] leading-tight text-muted-foreground">Reservada = demanda ainda NÃO usada (total atribuído − usada). Usada = comprometido (enviado à explosão) ou baixa real, o maior. Sobra prevista = Pedida − máx(reservada total, usada) — pode ser negativa.</div>
+        <div className="p-2 text-[10px] leading-snug text-muted-foreground"><b className="font-semibold">Demanda</b> = em produção + reservada (livre). <b className="font-semibold">Sobra prevista</b> = Pedida − Demanda (com a OC entregue por completo) — pode ser negativa.</div>
       </Secao>
     </div>
   );

@@ -31,6 +31,7 @@ type Pagina = { fornecedor: PreviaFornecedorRpc; itens: PreviaItemRpc[] };
 type Resposta = {
   dataPedido: string; data: string; prazo: string; qtd: Record<string, number>;
   responsavel: string; responsavelId: string | null; obs: string; qtdReceb: number; // qtd de parcelas de recebimento (datas vêm no recebimento)
+  incluida: boolean; // desmarcar PULA a OC inteira (antes era zerar item por item — laudo jul/2026)
 };
 
 const keyItem = (it: PreviaItemRpc) => `${it.artigo_id}|${it.variante_tecido_id}`;
@@ -57,7 +58,7 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
     const hoje = new Date().toISOString().slice(0, 10); // data do pedido = hoje por padrão
     const r: Record<number, Resposta> = {};
     paginas.forEach((pg, i) => {
-      r[i] = { dataPedido: hoje, data: "", prazo: "", responsavel: "", responsavelId: null, obs: "", qtdReceb: 1, qtd: Object.fromEntries(pg.itens.map((it) => [keyItem(it), it.qtd])) };
+      r[i] = { dataPedido: hoje, data: "", prazo: "", responsavel: "", responsavelId: null, obs: "", qtdReceb: 1, incluida: true, qtd: Object.fromEntries(pg.itens.map((it) => [keyItem(it), it.qtd])) };
     });
     return r;
   });
@@ -68,10 +69,44 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
   const setResp = (patch: Partial<Resposta>) => setRespostas((prev) => ({ ...prev, [passo]: { ...prev[passo], ...patch } }));
   const setQtd = (k: string, v: number) => setResp({ qtd: { ...resp.qtd, [k]: v } });
 
+  // Cabeçalho (datas/prazo/responsável/obs) repetido 8× era carga pura (laudo, uso expert):
+  // "Próxima" HERDA nos campos ainda vazios da página seguinte; "aplicar a todas" copia já.
+  const CAMPOS_HERDA = ["data", "prazo", "responsavel", "responsavelId", "obs"] as const;
+  const proxima = () => {
+    setRespostas((prev) => {
+      const cur = prev[passo]; const nx = { ...prev[passo + 1] };
+      for (const k of CAMPOS_HERDA) if (!nx[k]) (nx as any)[k] = cur[k];
+      if (nx.qtdReceb === 1 && cur.qtdReceb !== 1) nx.qtdReceb = cur.qtdReceb;
+      return { ...prev, [passo + 1]: nx };
+    });
+    setPasso((p) => p + 1);
+  };
+  const aplicarATodas = () => {
+    setRespostas((prev) => {
+      const cur = prev[passo]; const out = { ...prev };
+      paginas.forEach((_, i) => { if (i !== passo) out[i] = { ...out[i], data: cur.data, prazo: cur.prazo, responsavel: cur.responsavel, responsavelId: cur.responsavelId, obs: cur.obs, qtdReceb: cur.qtdReceb, dataPedido: cur.dataPedido }; });
+      return out;
+    });
+    toast.success("Cabeçalho aplicado a todas as OCs.");
+  };
+
+  // Σ por página e geral (compromisso financeiro visível antes do Gerar — laudo Miller)
+  const somaPagina = (i: number) => {
+    const rr = respostas[i]; const p = paginas[i];
+    let qtdT = 0, rs = 0;
+    for (const it of p.itens) { const q = rr?.qtd[keyItem(it)] ?? 0; qtdT += q; rs += q * (Number(it.preco) || 0); }
+    return { qtdT, rs };
+  };
+  const somaGeral = paginas.reduce((a, _, i) => {
+    if (!respostas[i]?.incluida) return a;
+    const { qtdT, rs } = somaPagina(i); return { qtdT: a.qtdT + qtdT, rs: a.rs + rs };
+  }, { qtdT: 0, rs: 0 });
+
   const gerar = useMutation({
     mutationFn: async () => {
       const _pedidos = paginas.map((p, i) => {
         const rr = respostas[i];
+        if (!rr.incluida) return { itens: [] } as any; // página desmarcada = pulada inteira
         return {
           empresa_id: p.fornecedor.empresa_id,
           representante_id: p.fornecedor.representante_id,
@@ -109,7 +144,7 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
   });
 
   // nº de OCs que serão de fato geradas (páginas com alguma qtd > 0)
-  const nOcs = paginas.filter((p, i) => p.itens.some((it) => (respostas[i]?.qtd[keyItem(it)] ?? 0) > 0)).length;
+  const nOcs = paginas.filter((p, i) => respostas[i]?.incluida && p.itens.some((it) => (respostas[i]?.qtd[keyItem(it)] ?? 0) > 0)).length;
   const ultima = passo >= total - 1;
 
   return (
@@ -129,7 +164,19 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
         </DialogHeader>
 
         {total > 0 && pg && (
-          <div className="space-y-3">
+          <div className={`space-y-3 ${resp.incluida ? "" : "opacity-50"}`}>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="inline-flex items-center gap-2 text-sm font-medium">
+                <input type="checkbox" className="h-4 w-4 accent-primary" checked={resp.incluida}
+                  onChange={(e) => setResp({ incluida: e.target.checked })} />
+                incluir esta OC no pedido
+              </label>
+              <button type="button" onClick={aplicarATodas}
+                className="ml-auto text-xs font-medium text-primary hover:underline"
+                title="Copia datas, prazo, responsável, obs e parcelas desta página para todas as OCs">
+                aplicar este cabeçalho a todas
+              </button>
+            </div>
             {/* campos a preencher desta OC */}
             <div className="grid grid-cols-2 gap-2">
               <div>
@@ -142,7 +189,7 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
               </div>
               <div>
                 <div className="text-[10px] text-muted-foreground">Prazo de pagamento (ex.: 30/60/90)</div>
-                <input className="h-9 w-full rounded border bg-background px-2 text-sm" value={resp.prazo}
+                <input className="h-9 w-full rounded border bg-background px-2 text-sm max-md:h-11 max-md:text-base" value={resp.prazo}
                   onChange={(e) => setResp({ prazo: e.target.value })} placeholder="30/60/90" />
                 <div className="mt-0.5 text-[10px] text-muted-foreground">{nParcelas(resp.prazo)} parcela(s) de pagamento</div>
               </div>
@@ -164,7 +211,7 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
 
             <div>
               <div className="text-[10px] text-muted-foreground">Observações de entrega</div>
-              <textarea className="min-h-[48px] w-full rounded border bg-background px-2 py-1 text-sm" value={resp.obs}
+              <textarea className="min-h-[48px] w-full rounded border bg-background px-2 py-1 text-sm max-md:text-base" value={resp.obs}
                 onChange={(e) => setResp({ obs: e.target.value })} placeholder="Ex.: entregar na portaria, horário, etc." />
             </div>
 
@@ -199,8 +246,9 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
                       <td className="p-1.5 text-right whitespace-nowrap">{mkg(it.estoque_m)}</td>
                       <td className="p-1.5 text-right whitespace-nowrap text-red-600">{mkg(it.deficit_m)}</td>
                       <td className="p-1.5 text-right">
-                        <NumberInput blankZero placeholder="0" className="h-7 w-20 text-right" value={resp.qtd[keyItem(it)] ?? 0}
-                          onChange={(e) => setQtd(keyItem(it), Number(e.target.value) || 0)} />
+                        <NumberInput blankZero placeholder="0" className="h-7 w-20 text-right max-md:h-11 max-md:text-base" value={resp.qtd[keyItem(it)] ?? 0}
+                          onChange={(e) => setQtd(keyItem(it), Number(e.target.value) || 0)}
+                          title={emKg ? "Déficit arredondado p/ cima em lotes de 5 kg" : "Déficit arredondado p/ cima em lotes de 10 m"} />
                       </td>
                       <td className="p-1.5">{it.unidade}</td>
                       <td className="p-1.5 text-right">{it.preco > 0 ? it.preco.toFixed(2) : "—"}</td>
@@ -209,34 +257,40 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
                   })}
                 </tbody>
               </table>
+              {(() => { const { qtdT, rs } = somaPagina(passo); return (
+                <div className="flex items-center gap-2 border-t bg-muted/30 px-2 py-1.5 text-xs">
+                  <span className="text-muted-foreground">Total desta OC</span>
+                  <b className="ml-auto tabular-nums">{qtdT.toLocaleString("pt-BR")} {pg.itens[0]?.unidade ?? "m"}{rs > 0 ? ` · R$ ${rs.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : ""}</b>
+                </div>
+              ); })()}
             </div>
           </div>
         )}
 
-        {/* avisos (na 1ª página) */}
-        {passo === 0 && previa.sem_fornecedor.length > 0 && (
+        {/* avisos em TODAS as páginas — quem está na 5ª também precisa saber o que fica de fora */}
+        {previa.sem_fornecedor.length > 0 && (
           <div className="rounded border border-red-200 bg-red-50 p-2 text-[11px] text-red-700">
             Sem fornecedor (não geram OC): {previa.sem_fornecedor.map((s) => s.artigo_nome).join(", ")}.
           </div>
         )}
-        {passo === 0 && previa.bloqueios.length > 0 && (
+        {previa.bloqueios.length > 0 && (
           <div className="rounded border border-red-200 bg-red-50 p-2 text-[11px] text-red-700">
             Bloqueios: {previa.bloqueios.map((b) => `${b.artigo_nome} (${b.motivo})`).join("; ")}.
           </div>
         )}
 
-        <DialogFooter className="flex-row items-center justify-between gap-2 sm:justify-between sticky bottom-0 z-10 -mx-4 -mb-4 mt-2 border-t bg-background px-4 py-3 sm:-mx-6 sm:-mb-6 sm:px-6">
+        <DialogFooter className="flex-row flex-wrap items-center gap-2 sm:justify-between sticky bottom-0 z-10 -mx-4 -mb-4 mt-2 border-t bg-background px-4 py-3 sm:-mx-6 sm:-mb-6 sm:px-6">
           <Button variant="ghost" disabled={passo === 0 || gerar.isPending} onClick={() => setPasso((p) => p - 1)}>
             Anterior
           </Button>
-          <span className="text-[10px] text-muted-foreground">{total > 0 ? `${passo + 1}/${total}` : ""}</span>
-          {ultima ? (
-            <Button disabled={nOcs === 0 || gerar.isPending} onClick={() => gerar.mutate()}>
-              {gerar.isPending ? "Gerando…" : `Gerar ${nOcs} OC(s)`}
-            </Button>
-          ) : (
-            <Button disabled={gerar.isPending} onClick={() => setPasso((p) => p + 1)}>Próxima</Button>
-          )}
+          {!ultima && <Button variant="outline" disabled={gerar.isPending} onClick={proxima}>Próxima</Button>}
+          <span className="ml-auto text-[10px] tabular-nums text-muted-foreground" title="Só as OCs incluídas (checkbox) e com quantidade entram">
+            {total > 0 ? `${passo + 1}/${total} · ${nOcs} incluída(s)${somaGeral.rs > 0 ? ` · Σ R$ ${somaGeral.rs.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}` : ""}` : ""}
+          </span>
+          {/* Gerar disponível de QUALQUER página (antes só na última: 7 cliques até poder gerar — laudo) */}
+          <Button disabled={nOcs === 0 || gerar.isPending} onClick={() => gerar.mutate()}>
+            {gerar.isPending ? "Gerando…" : `Gerar ${nOcs} OC(s)`}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

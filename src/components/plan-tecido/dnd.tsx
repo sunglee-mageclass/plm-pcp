@@ -26,7 +26,7 @@ export function DraggableCard({ id, children }: { id: string; children: (handle:
   const { setNodeRef, attributes, listeners, transform, isDragging } = useDraggable({ id });
   const style = transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 50 } : undefined;
   return (
-    <div ref={setNodeRef} style={style} className={`w-[360px] shrink-0 ${isDragging ? "opacity-40" : ""}`}>
+    <div ref={setNodeRef} style={style} className={`w-[360px] max-md:w-[85vw] shrink-0 ${isDragging ? "opacity-40" : ""}`}>
       {children({ attributes, listeners })}
     </div>
   );

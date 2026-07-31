@@ -107,7 +107,7 @@ export function OcAplicadaPicker({ colecaoId }: { colecaoId: string }) {
                   <Checkbox checked={sel.has(oc.id)} onCheckedChange={() => toggle(oc.id)} className="mt-0.5 h-4 w-4" />
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-2">
-                      <span className="flex-1 truncate">{oc.numero_pedido || oc.id.slice(0, 8)}</span>
+                      <span className="flex-1 truncate">{oc.numero_pedido || "OC s/ nº"}</span>
                       <span className="shrink-0 text-[10px] text-muted-foreground">{statusLabel(oc.status)}</span>
                     </span>
                     {tecidosDaOc(oc).length > 0 && (

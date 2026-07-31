@@ -29,6 +29,12 @@ interface UseUnsavedGuardOpts {
    * Em modais (Sheet/Dialog), deixe `false` — o guarda age no fechar.
    */
   blockNav?: boolean;
+  /**
+   * Com `blockNav`: navegações para as quais retorna `true` passam SEM confirmação
+   * (ex.: Plan. Tecido troca ?sub= na URL sem desmontar o form — nada se perde).
+   * Recebe a location de destino do useBlocker. Memoize (useCallback) no chamador.
+   */
+  navPermitida?: (next: { pathname?: string; search?: Record<string, unknown> }) => boolean;
 }
 
 /**
@@ -40,7 +46,7 @@ interface UseUnsavedGuardOpts {
  * Em telas full-page passe `blockNav: true`: qualquer navegação de rota
  * enquanto `dirty` mostra a mesma confirmação (via useBlocker do router).
  */
-export function useUnsavedGuard({ dirty, onClose, blockNav }: UseUnsavedGuardOpts) {
+export function useUnsavedGuard({ dirty, onClose, blockNav, navPermitida }: UseUnsavedGuardOpts) {
   const [open, setOpen] = useState(false);
 
   // Full-page: intercepta navegação de rota. shouldBlockFn é gated por blockNav, então em
@@ -48,10 +54,19 @@ export function useUnsavedGuard({ dirty, onClose, blockNav }: UseUnsavedGuardOpt
   // router é `true` e NÃO consulta o shouldBlockFn — sem isto, o prompt nativo "Sair do site?"
   // dispararia em TODA tela com guarda, mesmo limpa. useCallback estabiliza (evita re-registrar
   // o blocker a cada render).
-  const shouldBlock = useCallback(() => !!blockNav && dirty, [blockNav, dirty]);
+  const shouldBlock = useCallback(
+    (args?: { next?: { pathname?: string; search?: Record<string, unknown> } }) => {
+      if (!blockNav || !dirty) return false;
+      if (navPermitida && args?.next && navPermitida(args.next)) return false;
+      return true;
+    },
+    [blockNav, dirty, navPermitida],
+  );
+  // beforeunload não tem "next" — bloqueia sempre que sujo (F5/fechar aba perde tudo).
+  const shouldBeforeUnload = useCallback(() => !!blockNav && dirty, [blockNav, dirty]);
   const blocker = useBlocker({
     shouldBlockFn: shouldBlock,
-    enableBeforeUnload: shouldBlock,
+    enableBeforeUnload: shouldBeforeUnload,
     withResolver: true,
   });
   const navBlocked = blocker.status === "blocked";

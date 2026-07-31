@@ -40,7 +40,7 @@ export function SlotOcHint({
     onError: (e) => toast.error(mensagemErro(e, "Não foi possível salvar a OC do card.")),
   });
 
-  const label = (oc: OcLite) => `${oc.numero_pedido || oc.id.slice(0, 8)}${oc.tecidos.length ? " — " + oc.tecidos.join(" · ") : ""}`;
+  const label = (oc: OcLite) => `${oc.numero_pedido || "OC s/ nº"}${oc.tecidos.length ? " — " + oc.tecidos.join(" · ") : ""}`;
   const byId = (id: string) => ocsAplicadas.find((o) => o.id === id);
   const add = (id: string) => { if (id && !selected.includes(id)) salvar.mutate([...selected, id]); };
   const remove = (id: string) => salvar.mutate(selected.filter((x) => x !== id));
@@ -65,7 +65,7 @@ export function SlotOcHint({
       {!slotId ? (
         <div className="text-[10px] text-muted-foreground">Salve o plano para atribuir OC a este card.</div>
       ) : ocsAplicadas.length === 0 ? (
-        <div className="text-[10px] text-muted-foreground">Aplique OCs em "Insumos da coleção" para poder escolher aqui.</div>
+        <div className="text-[10px] text-muted-foreground">Nenhuma OC vinculada à coleção — use "vincular OC existente" no Resumo (ou gere pelo Fazer pedido).</div>
       ) : (
         <div className="space-y-1">
           {selected.length > 0 && (
@@ -74,7 +74,7 @@ export function SlotOcHint({
                 const oc = byId(id);
                 return (
                   <span key={id} className="inline-flex items-center gap-1 rounded-full border border-primary bg-primary/10 px-2 py-0.5 text-[10px]" title={oc ? label(oc) : id}>
-                    <span className="max-w-[12rem] truncate">{oc ? label(oc) : id.slice(0, 8)}</span>
+                    <span className="max-w-[12rem] truncate">{oc ? label(oc) : "OC s/ nº"}</span>
                     <button className="text-muted-foreground hover:text-foreground" disabled={salvar.isPending} onClick={() => remove(id)} title="Remover"><X className="h-3 w-3" /></button>
                   </span>
                 );

@@ -1,5 +1,7 @@
 import { Fragment } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
 import { necessidadePorTecido, detalheOc, fmtMetros, contabilizarOc } from "@/lib/plan-tecido/calc";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
@@ -10,7 +12,7 @@ export type DrawerState = { kind: DrawerKind; arg: string | null };
 
 const nMet = fmtMetros;
 const encomenda = (s: PtSlot) => !(s.usar_estoque ?? false);
-const sobraCls = (s: number) => (s < 0 ? "text-red-600" : "text-emerald-600");
+const sobraCls = (s: number) => (s < 0 ? "text-red-600" : "text-emerald-700");
 
 type Linha = { key: string; label: string; cor_nome: string | null; reservada: number; pedida: number; entregue: number; usada: number; comprometida: number };
 type Grupo = { artigo_id: string; artigo: string; variantes: Linha[] };
@@ -77,20 +79,38 @@ export function PlanTecidoDrawer({
 
   const situRows = kind === "ocnum" && arg ? situacao.filter((r) => r.oc_tecido_id === arg) : situacao;
 
-  // 'comprar' = dirigido pela NECESSIDADE (o que planejei comprar) + pedido/recebido por variante.
+  // 'comprar' = a MESMA conta do Fazer pedido, por variante, com a equação nas colunas:
+  // Nec − Coberto (OC) = A comprar (padrão aprovado do drawer Situação). A cobertura vem
+  // da prévia do servidor (chave 'cobertura', TODAS as linhas — inclusive déficit 0, que é
+  // a parte satisfatória de ver). Escopo = COLEÇÃO (igual ao pedido); a nota explica.
+  const { data: previaDrawer } = useQuery({
+    queryKey: ["plan-tecido-previa", colecaoArvore.colecao_id],
+    enabled: kind === "comprar",
+    queryFn: async () => ((await supabase.rpc("plan_tecido_previa_pedido" as any, { _colecao_id: colecaoArvore.colecao_id })).data ?? null) as any,
+  });
+  type CobRow = { artigo_id: string; artigo_nome: string; variante_tecido_id: string | null; label: string | null; nec_m: number; estoque_m: number; deficit_m: number };
+  const cobertura = ((previaDrawer as any)?.cobertura ?? []) as CobRow[];
+
   // 'oc'/'ocnum' = dirigido pelos ITENS DA OC (mostra o pedido mesmo sem card atribuído) + reservada.
   let grupos: Grupo[];
   let total = 0;
   if (kind === "comprar") {
-    const situ = new Map<string, { pedida: number; entregue: number }>();
-    for (const r of situRows) { const c = situ.get(r.variante_tecido_id) ?? { pedida: 0, entregue: 0 }; c.pedida += r.pedida_m; c.entregue += r.entregue_m; situ.set(r.variante_tecido_id, c); }
-    grupos = nec.map((t) => ({
-      artigo_id: t.artigo_id,
-      artigo: t.artigo_nome,
-      variantes: t.variantes.map((v) => {
-        const s = (v.variante_tecido_id ? situ.get(v.variante_tecido_id) : undefined) ?? { pedida: 0, entregue: 0 };
-        total += v.metros;
-        return { key: v.key, label: v.label, cor_nome: v.cor_nome, reservada: v.metros, pedida: s.pedida, entregue: s.entregue, usada: 0, comprometida: 0 };
+    // Mapeamento dos campos da Linha p/ a equação: reservada=Nec · pedida=Coberto(OC) ·
+    // entregue=estoque (só title) · usada=A comprar (déficit).
+    const porArt = new Map<string, { nome: string; rows: CobRow[] }>();
+    for (const r of cobertura) {
+      if ((Number(r.nec_m) || 0) <= 0 && (Number(r.deficit_m) || 0) <= 0) continue; // linha 0−0=0 é ruído
+      let g = porArt.get(r.artigo_id);
+      if (!g) { g = { nome: r.artigo_nome, rows: [] }; porArt.set(r.artigo_id, g); }
+      g.rows.push(r);
+    }
+    grupos = [...porArt.entries()].map(([artigo_id, g]) => ({
+      artigo_id, artigo: g.nome,
+      variantes: g.rows.map((r) => {
+        const nec = Number(r.nec_m) || 0, deficit = Number(r.deficit_m) || 0;
+        total += deficit;
+        return { key: r.variante_tecido_id ?? `${artigo_id}|${r.label}`, label: r.label ?? "", cor_nome: null,
+          reservada: nec, pedida: Math.max(0, nec - deficit), entregue: Number(r.estoque_m) || 0, usada: deficit, comprometida: 0 };
       }),
     }));
   } else {
@@ -112,7 +132,7 @@ export function PlanTecidoDrawer({
       : kind === "ocnum" ? `${(arg && ocNumeroDe(arg)) || "OC"} — por tecido e variante`
         : "Situação da OC — por tecido e variante";
   const sub =
-    kind === "comprar" ? `total ${nMet(total)} m`
+    kind === "comprar" ? `coleção · mesma conta do Fazer pedido — a comprar ${nMet(total)} m`
       : kind === "ocnum" ? `${grupos.reduce((a, g) => a + g.variantes.length, 0)} item(ns) da OC`
         : "coleção · valores das OCs (m)";
 
@@ -136,9 +156,9 @@ export function PlanTecidoDrawer({
             {kind === "comprar" ? (
               <tr>
                 <th className="w-full p-1.5 text-left font-medium">Tecido / variante</th>
-                <th className="whitespace-nowrap p-1.5 text-right font-medium">Nec.</th>
-                <th className="whitespace-nowrap p-1.5 text-right font-medium">Pedido</th>
-                <th className="whitespace-nowrap p-1.5 text-right font-medium">Receb.</th>
+                <th className="whitespace-nowrap p-1.5 text-right font-medium" title="Necessidade da coleção (consumo × grade, plano salvo)">Nec.</th>
+                <th className="whitespace-nowrap p-1.5 text-right font-medium" title="Sobra das OCs vinculadas que cobre esta cor">− Coberto</th>
+                <th className="whitespace-nowrap p-1.5 text-right font-medium">= A comprar</th>
               </tr>
             ) : (
               /* A EQUAÇÃO na linha (dono, jul/2026): Pedida − Demanda = Sobra em colunas
@@ -156,7 +176,7 @@ export function PlanTecidoDrawer({
           <tbody>
             {grupos.length === 0 ? (
               <tr><td colSpan={nCols} className="p-3 text-center text-muted-foreground">
-                {kind === "ocnum" ? "Esta OC não tem itens." : kind === "oc" ? "Nenhuma OC com itens nesta coleção." : "Nenhum tecido planejado."}
+                {kind === "ocnum" ? "Esta OC não tem itens." : kind === "oc" ? "Nenhuma OC com itens nesta coleção." : previaDrawer === undefined ? "Carregando a conta…" : "Nenhum tecido planejado."}
               </td></tr>
             ) : grupos.map((g) => (
               <Fragment key={g.artigo_id}>
@@ -174,8 +194,11 @@ export function PlanTecidoDrawer({
                       {kind === "comprar" ? (
                         <>
                           <td className="whitespace-nowrap p-1.5 text-right">{nMet(v.reservada)}</td>
-                          <td className={`whitespace-nowrap p-1.5 text-right ${v.pedida > 0 ? "font-medium text-emerald-600" : "text-muted-foreground"}`}>{nMet(v.pedida)}</td>
-                          <td className="whitespace-nowrap p-1.5 text-right text-muted-foreground">{nMet(v.entregue)}</td>
+                          <td className={`whitespace-nowrap p-1.5 text-right ${v.pedida > 0 ? "font-medium text-emerald-700" : "text-muted-foreground"}`}
+                              title={v.entregue > 0 ? `Estoque previsto: ${nMet(v.entregue)} m (não abate o déficit)` : undefined}>
+                            {nMet(v.pedida)}
+                          </td>
+                          <td className={`whitespace-nowrap p-1.5 text-right font-medium ${v.usada > 0 ? "text-red-700" : "text-emerald-700"}`}>{nMet(v.usada)}</td>
                         </>
                       ) : (
                         <>
@@ -184,9 +207,9 @@ export function PlanTecidoDrawer({
                           <td className="whitespace-nowrap p-1.5 text-right align-top">
                             <div>{nMet(v.pedida)}</div>
                             {v.pedida > 0 && (v.entregue >= v.pedida ? (
-                              <div className="text-[10px] font-medium text-emerald-600" title="Entrega completa — nada a chegar">{nMet(v.entregue)} ✓</div>
+                              <div className="text-[10px] font-medium text-emerald-700" title="Entrega completa — nada a chegar">{nMet(v.entregue)} ✓</div>
                             ) : (
-                              <div className="text-[10px] font-medium text-amber-600" title={`Entregue ${nMet(v.entregue)} m`}>{nMet(v.entregue)} · falta {nMet(v.pedida - v.entregue)}</div>
+                              <div className="text-[10px] font-medium text-amber-700" title={`Entregue ${nMet(v.entregue)} m`}>{nMet(v.entregue)} · falta {nMet(v.pedida - v.entregue)}</div>
                             ))}
                           </td>
                           {/* Demanda = max(reserva total, usada) — garante Pedida − Demanda = Sobra
@@ -198,7 +221,7 @@ export function PlanTecidoDrawer({
                           >
                             <div>{nMet(Math.max(v.reservada, usada))}</div>
                             {usada > 0 && (
-                              <div className={`text-[10px] font-medium ${baixaDomina ? "text-red-600" : "text-amber-600"}`}>
+                              <div className={`text-[10px] font-medium ${baixaDomina ? "text-red-700" : "text-amber-700"}`}>
                                 {nMet(usada)} em produção
                               </div>
                             )}
@@ -213,6 +236,13 @@ export function PlanTecidoDrawer({
             ))}
           </tbody>
         </table>
+        {kind === "comprar" && grupos.length > 0 && (
+          <p className="border-t px-1.5 py-2 text-[10px] leading-snug text-muted-foreground">
+            <b className="font-semibold">Coberto</b> = sobra das OCs vinculadas que serve esta cor.
+            <b className="font-semibold"> A comprar</b> = o que o Fazer pedido vai pedir (nunca negativo).
+            Escopo = coleção inteira; o painel ao lado mostra a parte desta subcoleção (rateio).
+          </p>
+        )}
         {kind !== "comprar" && grupos.length > 0 && (
           <p className="border-t px-1.5 py-2 text-[10px] leading-snug text-muted-foreground">
             <b className="font-semibold">Demanda</b> = o que os modelos vinculados planejam usar desta cor

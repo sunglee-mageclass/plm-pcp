@@ -31,12 +31,12 @@ export function GradeSection({ slot, onChange, tamanhos }: { slot: PtSlot; onCha
     <div className="px-2 pb-1">
       <div className="flex flex-wrap gap-1">
         {keys.map((t) => (
-          <div key={t} className="flex w-[30px] flex-col items-center overflow-hidden rounded border bg-background">
+          <div key={t} className="flex w-[30px] max-md:w-11 flex-col items-center overflow-hidden rounded border bg-background">
             <NumberInput
               integer
               blankZero
               placeholder="0"
-              className="h-6 w-full rounded-none border-0 bg-transparent px-0 text-center text-xs shadow-none focus-visible:ring-0"
+              className="h-6 w-full rounded-none border-0 bg-transparent px-0 text-center text-xs shadow-none focus-visible:ring-0 max-md:h-9 max-md:text-base"
               value={valorDe(t)}
               onChange={(e) => setProp(t, Number(e.target.value) || 0)}
             />

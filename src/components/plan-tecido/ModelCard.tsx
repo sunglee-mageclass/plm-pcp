@@ -218,13 +218,13 @@ export function ModelCard({
             <Checkbox
               checked={selected ?? false}
               onCheckedChange={onToggleSelect}
-              className="h-4 w-4"
+              className="h-4 w-4 max-md:h-6 max-md:w-6"
               onClick={(e) => e.stopPropagation()}
             />
           </div>
         )}
         <button
-          className={`flex w-full items-center gap-2 p-2 text-left ${dragHandle ? "cursor-grab active:cursor-grabbing" : ""}`}
+          className={`flex w-full items-center gap-2 p-2 text-left ${dragHandle ? "cursor-grab active:cursor-grabbing [touch-action:manipulation]" : ""}`}
           onClick={toggleOpen}
           {...(dragHandle?.attributes ?? {})}
           {...(dragHandle?.listeners ?? {})}
@@ -240,7 +240,7 @@ export function ModelCard({
               {slot.ref && <span className="tabular-nums">{slot.ref}</span>}
               <span className="tabular-nums">{pieces} pç</span>
               <span className="tabular-nums">{total ? `${total.toFixed(0)} m` : "0 m"}</span>
-              {usarEstoque && <span className="text-amber-600">estoque</span>}
+              {usarEstoque && <span className="font-medium text-amber-700">estoque</span>}
             </div>
           </div>
           {fornecTotal ? (
@@ -278,7 +278,7 @@ export function ModelCard({
             <div className="border-t px-2 py-1 flex items-center gap-2">
               <span className="text-[10px] text-muted-foreground shrink-0">Categoria</span>
               <select
-                className="flex-1 rounded border bg-background px-2 py-1 text-xs h-8 max-md:h-11"
+                className="flex-1 rounded border bg-background px-2 py-1 text-xs h-8 max-md:h-11 max-md:text-base"
                 value={slot.categoria_id ?? ""}
                 onChange={(e) => onChange({ ...slot, categoria_id: e.target.value || null })}
               >
@@ -320,7 +320,7 @@ export function ModelCard({
                   </Button>
                 ) : null}
                 {slot.modelo_id && (lancado || travado) && (
-                  <p className="mt-1 flex items-start gap-1 text-[11px] text-amber-600">
+                  <p className="mt-1 flex items-start gap-1 text-[11px] text-amber-700">
                     <Lock className="mt-0.5 h-3 w-3 shrink-0" />
                     <span>{lancado ? "Modelo lançado — aplicar não altera o BOM." : "Modelo enviado ao CAD (travado). Destrave no Desenvolvimento para alterar; aplicar aqui não terá efeito."}</span>
                   </p>
@@ -351,7 +351,7 @@ export function ModelCard({
                             <span key={v.oc_id} className="inline-flex items-center gap-1 rounded-full border bg-muted px-2 py-0.5 text-[10px] text-muted-foreground"
                               title={`Vínculo do Desenvolvimento — congela o custo${v.tecidos ? ` · ${v.tecidos}` : ""}`}>
                               <Lock className="h-2.5 w-2.5" />
-                              {v.numero_pedido || v.oc_id.slice(0, 8)}{v.tecidos ? ` — ${v.tecidos}` : ""}
+                              {v.numero_pedido || "OC s/ nº"}{v.tecidos ? ` — ${v.tecidos}` : ""}
                             </span>
                           ))}
                         </div>
