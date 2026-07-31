@@ -973,10 +973,12 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
       {...handlers}
     >
       <div className="relative aspect-[3/4] bg-muted flex items-center justify-center overflow-hidden">
-        <span
-          className={`absolute top-1.5 right-1.5 z-10 h-3 w-3 rounded-full ring-2 ring-white shadow ${maoObraAprovado === true ? "bg-emerald-500" : maoObraAprovado === false ? "bg-red-500" : "bg-amber-400"}`}
-          title={moTxt}
-        />
+        {/* STATUS como badge TEXTUAL (não só a cor da borda — acessibilidade/daltônicos, laudo
+            jul/2026). A mão de obra saiu daqui (era uma bolinha da MESMA paleta do status, que
+            confundia os dois eixos) e virou um badge PRÓPRIO no corpo. */}
+        <span className={`absolute top-1.5 right-1.5 z-10 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold shadow-sm ${meta.color}`} title={meta.label}>
+          {meta.label}
+        </span>
         {!url ? (
           <ImageIcon className="h-10 w-10 text-muted-foreground" />
         ) : coverIsPdf ? (
@@ -986,11 +988,20 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
         )}
       </div>
       {compact ? (
-        // Compacto (mobile e desktop c/ muitas colunas): nome + preço. O STATUS é a
-        // borda esquerda do card (não gasta linha). Antes o corpo sumia por completo.
-        <div className="p-2 space-y-0.5">
+        // Compacto (mobile e desktop c/ muitas colunas): nome + STATUS textual + categoria + preço +
+        // situação da MO (laudo: o compacto só mostrava nome/preço → status ficava só na cor da borda,
+        // barreira p/ daltônicos, e sem contexto do modelo). Status por texto, não só cor.
+        <div className="p-2 space-y-1">
           <h3 className="font-medium text-xs leading-tight truncate">{modelo.nome || "Sem nome"}</h3>
-          <p className="text-[11px] font-medium truncate">{preco != null ? brl(preco) : "—"}</p>
+          <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${meta.color}`}>{meta.label}</span>
+          <div className="flex items-center gap-1">
+            {categoriaNome && <span className="truncate text-[10px] text-muted-foreground">{categoriaNome}</span>}
+            <span className={`ml-auto shrink-0 rounded-full px-1 py-0.5 text-[8px] font-semibold ${
+              maoObraAprovado === true ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
+              : maoObraAprovado === false ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200"
+              : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200"}`} title={moTxt}>MO</span>
+          </div>
+          {podeVerCustos && <p className="text-[11px] font-medium truncate">{preco != null ? brl(preco) : "—"}</p>}
         </div>
       ) : (
         // Corpo cheio: status = borda do card (sem badge, poupa a linha). Uma info por
@@ -1016,31 +1027,44 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
           {podeVerCustos && <p className="text-xs text-muted-foreground truncate">Markup: {markup != null ? Number(markup).toLocaleString("pt-BR",{maximumFractionDigits:2}) : "—"}</p>}
           {podeVerCustos && <p className="text-xs text-muted-foreground truncate">{custoReal ? "Custo" : "Custo prev."}: {custoMat != null ? brl(custoMat) : "—"}</p>}
           {(podeVerCustos || podeAprovarMaoObra) && (
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              {podeVerCustos && <span className="truncate">MO{custoReal ? "" : " prev."}: {maoObra != null ? brl(maoObra) : "—"}</span>}
+            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 border-t border-dashed pt-1.5 text-xs">
+              {/* Mão de obra em CANAL PRÓPRIO (badge ícone, não a bolinha do status). Cores -700 (AA). */}
+              <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                maoObraAprovado === true ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
+                : maoObraAprovado === false ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200"
+                : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200"}`}>
+                {maoObraAprovado === true ? <Check className="h-3 w-3" /> : maoObraAprovado === false ? <X className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+                MO {maoObraAprovado === true ? "aprovada" : maoObraAprovado === false ? "reprovada" : "pendente"}
+              </span>
+              {podeVerCustos && <span className="truncate text-muted-foreground">{maoObra != null ? brl(maoObra) : "—"}</span>}
               {podeAprovarMaoObra && (
-                <>
-                  <button type="button" aria-label="Aprovar mão de obra" onClick={(e) => { e.stopPropagation(); onAprovar(); }}
-                    className={`inline-flex h-7 w-7 shrink-0 items-center justify-center max-md:h-11 max-md:w-11 ${maoObraAprovado === true ? "text-emerald-600" : "text-muted-foreground/40 hover:text-emerald-600"}`}><Check className="h-3.5 w-3.5" /></button>
-                  <button type="button" aria-label="Reprovar mão de obra" onClick={(e) => { e.stopPropagation(); onReprovar(); }}
-                    className={`inline-flex h-7 w-7 shrink-0 items-center justify-center max-md:h-11 max-md:w-11 ${maoObraAprovado === false ? "text-red-600" : "text-muted-foreground/40 hover:text-red-600"}`}><X className="h-3.5 w-3.5" /></button>
-                </>
+                <span className="ml-auto flex shrink-0 gap-1" onClick={(e) => e.stopPropagation()}>
+                  {/* Botões VISÍVEIS (antes text-muted/40 = ~1,8:1, invisíveis — laudo). */}
+                  <button type="button" aria-label="Aprovar mão de obra" title="Aprovar mão de obra" onClick={onAprovar}
+                    className={`inline-flex h-7 w-7 items-center justify-center rounded-md border max-md:h-11 max-md:w-11 ${maoObraAprovado === true ? "border-emerald-600 bg-emerald-50 text-emerald-700 dark:bg-emerald-950" : "border-input text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950"}`}><Check className="h-4 w-4" /></button>
+                  <button type="button" aria-label="Reprovar mão de obra" title="Reprovar mão de obra" onClick={onReprovar}
+                    className={`inline-flex h-7 w-7 items-center justify-center rounded-md border max-md:h-11 max-md:w-11 ${maoObraAprovado === false ? "border-red-600 bg-red-50 text-red-700 dark:bg-red-950" : "border-input text-red-700 hover:bg-red-50 dark:hover:bg-red-950"}`}><X className="h-4 w-4" /></button>
+                </span>
               )}
             </div>
           )}
           {podeVerCustos && (preco != null ? <p className="text-xs font-medium truncate">{brl(preco)}</p> : <p className="text-xs text-muted-foreground truncate">Preço: —</p>)}
-          {/* Lançamento: escolhe a data + botão foguete = Lançar/Cancelar (mesma RPC do detalhe).
-              Foguete âmbar=pronto (clicável), verde=lançado (clica p/ cancelar), cinza=indisponível. */}
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground" onClick={(e) => e.stopPropagation()}>
-            <span className="shrink-0">Lançamento:</span>
+          {/* "Lançar" = AÇÃO clara (verbo), alvo grande — antes era um foguete de 16px que lançava
+              sem confirmação, colado na data (laudo Fitts). "Lançamento N" (a onda) é OUTRA coisa,
+              acima nos chips. Botão: âmbar=pronto p/ lançar · verde=lançado (clica p/ cancelar) ·
+              cinza=indisponível (falta CQ/MO). */}
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 border-t border-dashed pt-1.5 text-xs" onClick={(e) => e.stopPropagation()}>
+            <span className="shrink-0 text-muted-foreground">Lançar em</span>
             <DateField value={dtLanc} onChange={(e) => setDtLanc(e.target.value)}
-              className="h-5 w-[6.4rem] shrink-0 [&_input]:h-5 [&_input]:border-0 [&_input]:bg-transparent [&_input]:shadow-none [&_input]:px-0 [&_input]:pr-5 [&_input]:text-xs [&_input]:text-muted-foreground [&_input]:focus-visible:ring-0 [&>button]:w-5 [&>button]:place-items-center" />
+              className="h-7 w-[6.6rem] shrink-0 [&_input]:h-7 [&_input]:px-1.5 [&_input]:text-xs" />
             <button type="button" disabled={lancStatus == null}
-              aria-label={lancStatus === "lancado" ? "Cancelar lançamento" : "Lançar"}
-              title={lancStatus === "lancado" ? "Cancelar lançamento" : lancStatus === "pronto" ? "Lançar" : "Pronto só com CQ liberado e mão de obra aprovada"}
-              onClick={(e) => { e.stopPropagation(); onLancar(dtLanc || null, lancStatus !== "lancado"); }}
-              className={`shrink-0 ${lancStatus === "lancado" ? "text-emerald-600 hover:text-emerald-700" : lancStatus === "pronto" ? "text-amber-500 hover:text-amber-600" : "text-muted-foreground/30 cursor-not-allowed"}`}>
-              <Rocket className="h-4 w-4" />
+              title={lancStatus === "lancado" ? "Cancelar lançamento" : lancStatus === "pronto" ? "Lançar este modelo" : "Disponível só com CQ liberado e mão de obra aprovada"}
+              onClick={() => onLancar(dtLanc || null, lancStatus !== "lancado")}
+              className={`ml-auto inline-flex h-7 shrink-0 items-center gap-1 rounded-md border px-2.5 text-xs font-medium max-md:h-11 ${
+                lancStatus === "lancado" ? "border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700"
+                : lancStatus === "pronto" ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
+                : "cursor-not-allowed border-input text-muted-foreground/60"}`}>
+              <Rocket className="h-3.5 w-3.5" />{lancStatus === "lancado" ? "Cancelar" : "Lançar"}
             </button>
           </div>
         </div>
@@ -1176,8 +1200,9 @@ function ModeloDialog({
   const isEdit = !!modeloId;
   const qc = useQueryClient();
   const fl = useFieldLabels();
-  const { canView } = useAuth();
+  const { canView, canEdit } = useAuth();
   const podeVerCustos = canView("criacao_planejamento:custos");
+  const podeAprovarMaoObra = canEdit("producao_servico_aprovacao");
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const { dirty, markClean, reset: resetDraftBaseline } = useDirtySnapshot(draft);
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
@@ -1336,6 +1361,27 @@ function ModeloDialog({
     },
   });
   const maoObraPendente = maoObraAprov !== true;
+  // Aprovar/Reprovar a mão de obra AQUI no detalhe (laudo jul/2026): antes só no card do Planejamento
+  // — inacessível no mobile (card compacto sem os botões) e ao revisar o custo no Sheet. Mutation
+  // auto-contida (mesmo update do flag por modelo). Reprovar exige motivo (AlertDialog local).
+  const [reproMotivo, setReproMotivo] = useState("");
+  const [reproOpen, setReproOpen] = useState(false);
+  const setMaoObraDetalhe = useMutation({
+    mutationFn: async ({ aprovado, motivo }: { aprovado: boolean; motivo?: string | null }) => {
+      const { error } = await (supabase.from("modelos") as any).update({
+        custo_terceirizados_aprovado: aprovado,
+        motivo_reprovacao_mao_obra: aprovado ? null : (motivo ?? null),
+      }).eq("id", modeloId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Mão de obra atualizada.");
+      qc.invalidateQueries({ queryKey: ["plan-mao-obra-aprov", modeloId] });
+      qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+      setReproOpen(false); setReproMotivo("");
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Não foi possível atualizar a mão de obra.")),
+  });
 
   useQuery({
     queryKey: ["modelo", modeloId],
@@ -1653,15 +1699,8 @@ function ModeloDialog({
               </div>
               <FieldSelect label="Mês de Planejamento" value={draft.mes_id} onChange={(v) => setDraft((d) => ({ ...d, mes_id: v }))} options={meses} />
               <FieldSelect label="Ano" value={draft.ano_id} onChange={(v) => setDraft((d) => ({ ...d, ano_id: v }))} options={anos} />
-              {/* Data de Lançamento: vem do OTB (por subcoleção) e é editável aqui — sempre
-                  visível (a ação "Lançar" fica no setor Lançamento, liberada após o CQ). */}
-              <div className="grid gap-1">
-                <Label>Data de Lançamento</Label>
-                <DateField
-                  value={draft.data_lancamento ?? ""}
-                  onChange={(e) => setDraft((d) => ({ ...d, data_lancamento: e.target.value || null }))}
-                />
-              </div>
+              {/* Data de Lançamento vive APENAS na seção Lançamento (junto do botão Lançar) — antes
+                  aparecia duas vezes no mesmo Sheet, editando o mesmo campo (laudo jul/2026). */}
             </div>
           </Secao>
 
@@ -1743,16 +1782,57 @@ function ModeloDialog({
             )}
           </Secao>
 
-          {/* Observação sobre mão de obra — entre Simulação de custo e Anexos; gated pelos
-              custos (paridade com Desenvolvimento > "8. Custos"). */}
-          {podeVerCustos && (
-            <Secao titulo="Obs. Mão de Obra">
-              <ObsMaoObraField
-                value={draft.observacoes_mao_obra}
-                onChange={(v) => setDraft({ ...draft, observacoes_mao_obra: v })}
-              />
+          {/* Mão de obra — aprovar/reprovar AQUI (destrava mobile + revisão no Sheet) + observação.
+              Gated: ver custos (obs) OU aprovar (botões). */}
+          {(podeVerCustos || (isEdit && podeAprovarMaoObra)) && (
+            <Secao titulo="Mão de obra">
+              {isEdit && podeAprovarMaoObra && (
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                    maoObraAprov === true ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
+                    : maoObraAprov === false ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200"
+                    : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200"}`}>
+                    {maoObraAprov === true ? <Check className="h-3.5 w-3.5" /> : maoObraAprov === false ? <X className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+                    {maoObraAprov === true ? "Aprovada" : maoObraAprov === false ? "Reprovada" : "Pendente"}
+                  </span>
+                  <div className="ml-auto flex gap-2">
+                    <Button variant="outline" size="sm" className="text-emerald-700" disabled={setMaoObraDetalhe.isPending || maoObraAprov === true}
+                      onClick={() => setMaoObraDetalhe.mutate({ aprovado: true })}>
+                      <Check className="h-4 w-4 mr-1" />Aprovar
+                    </Button>
+                    <Button variant="outline" size="sm" className="text-red-700" disabled={setMaoObraDetalhe.isPending}
+                      onClick={() => { setReproMotivo(""); setReproOpen(true); }}>
+                      <X className="h-4 w-4 mr-1" />Reprovar…
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {podeVerCustos && (
+                <ObsMaoObraField
+                  value={draft.observacoes_mao_obra}
+                  onChange={(v) => setDraft({ ...draft, observacoes_mao_obra: v })}
+                />
+              )}
             </Secao>
           )}
+          {/* Reprovar mão de obra: motivo obrigatório (mesma regra do card). */}
+          <AlertDialog open={reproOpen} onOpenChange={setReproOpen}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Reprovar mão de obra</AlertDialogTitle>
+                <AlertDialogDescription>Diga o motivo — ele aparece no card e no detalhe.</AlertDialogDescription>
+              </AlertDialogHeader>
+              <textarea className="min-h-[80px] w-full rounded border bg-background px-2 py-1.5 text-sm max-md:text-base"
+                value={reproMotivo} onChange={(e) => setReproMotivo(e.target.value)} placeholder="Ex.: valor acima do previsto; refazer a cotação." />
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction disabled={!reproMotivo.trim() || setMaoObraDetalhe.isPending}
+                  onClick={(e) => { e.preventDefault(); if (reproMotivo.trim()) setMaoObraDetalhe.mutate({ aprovado: false, motivo: reproMotivo.trim() }); }}>
+                  Reprovar
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
           {/* SETOR 5 — Anexos */}
           <Secao titulo="Anexos">
@@ -2201,6 +2281,12 @@ function BatchCardsDialog({
             Total: <span className="font-medium text-foreground">{total}</span>{" "}
             {total === 1 ? "card" : "cards"} serão criados.
           </p>
+          {/* Por que "Total 0" com Qtd 1? A linha só conta com categoria escolhida (laudo jul/2026). */}
+          {total === 0 && (
+            <p className="flex items-center gap-1.5 text-xs font-medium text-amber-700">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />Escolha a categoria em cada linha para os cards serem contados.
+            </p>
+          )}
           {otbOn && colecaoId && (() => {
             const cb = orc.colecao(colecaoId);
             if (!cb) return null;

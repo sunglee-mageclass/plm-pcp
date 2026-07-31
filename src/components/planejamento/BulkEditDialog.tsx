@@ -4,6 +4,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -102,25 +106,39 @@ export function BulkEditDialog({
     onError: (e: unknown) => toast.error(mensagemErro(e, "Erro ao atualizar cards")),
   });
 
-  const field = (label: string, value: string, set: (v: string) => void, opts: Opt[]) => (
-    <div className="grid gap-1">
-      <Label className="text-xs">{label}</Label>
-      <Select value={value} onValueChange={set}>
-        <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value={NONE}>Não alterar</SelectItem>
-          {opts.map((o) => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
-        </SelectContent>
-      </Select>
-    </div>
-  );
+  // Campo destacado quando SAI de "Não alterar" (laudo jul/2026): 13 dropdowns idênticos não davam
+  // pista do que muda. `persiste=false` (Grupo) = só filtra, não grava.
+  const field = (label: string, value: string, set: (v: string) => void, opts: Opt[], persiste = true) => {
+    const changed = persiste && value !== NONE;
+    return (
+      <div className="grid gap-1">
+        <Label className={`text-xs ${changed ? "font-semibold text-primary" : ""}`}>{label}{changed ? " ✦" : ""}</Label>
+        <Select value={value} onValueChange={set}>
+          <SelectTrigger className={`h-8 text-sm ${changed ? "border-primary/50 bg-primary/5 font-medium text-primary" : ""}`}><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NONE}>Não alterar</SelectItem>
+            {opts.map((o) => <SelectItem key={o.id} value={o.id}>{o.nome}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+    );
+  };
+  // Campos que GRAVAM (Grupo não entra — só filtra). Rótulo em pt-BR p/ o resumo da confirmação.
+  const alterados: string[] = [
+    otbOn && colecaoId !== NONE ? "Coleção" : "",
+    otbOn && subcolecao !== NONE ? "Subcoleção" : "",
+    categoria !== NONE ? "Categoria" : "", s1 !== NONE ? "Subcategoria 1" : "", s2 !== NONE ? "Subcategoria 2" : "",
+    estilista !== NONE ? "Estilista" : "", linha !== NONE ? "Linha" : "", origem !== NONE ? "Origem" : "",
+    semana !== NONE ? "Lançamento" : "", mes !== NONE ? "Mês" : "", ano !== NONE ? "Ano" : "", status !== NONE ? "Status" : "",
+  ].filter(Boolean);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto max-sm:[&>button]:hidden max-sm:!inset-0 max-sm:!h-[100dvh] max-sm:!max-h-[100dvh] max-sm:!w-full max-sm:!max-w-none max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none max-sm:!border-0 max-sm:!grid-rows-[auto_minmax(0,1fr)_auto] max-sm:!overflow-hidden">
         <DialogHeader className="max-sm:shrink-0"><DialogTitle>Definir em massa · {ids.length} card(s)</DialogTitle></DialogHeader>
         <div className="space-y-3 max-sm:min-h-0 max-sm:overflow-y-auto">
-          <p className="text-xs text-muted-foreground">Só os campos que você mudar de "Não alterar" são aplicados.</p>
+          <p className="text-xs text-muted-foreground">Só os campos que você mudar de "Não alterar" são aplicados.{alterados.length > 0 && <> <b className="text-primary">{alterados.length} alterado{alterados.length > 1 ? "s" : ""}</b>.</>}</p>
           <div className="grid sm:grid-cols-2 gap-3">
             {otbOn && field("Coleção", colecaoId, (v) => { setColecaoId(v); setSubcolecao(NONE); }, colecoes)}
             {otbOn && (
@@ -145,7 +163,7 @@ export function BulkEditDialog({
                 </Select>
               </div>
             )}
-            {field("Grupo (filtra categoria)", grupo, (v) => { setGrupo(v); setCategoria(NONE); setS1(NONE); setS2(NONE); }, grupos)}
+            {field("Grupo (só filtra categoria)", grupo, (v) => { setGrupo(v); setCategoria(NONE); setS1(NONE); setS2(NONE); }, grupos, false)}
             {field("Categoria", categoria, (v) => { setCategoria(v); setS1(NONE); setS2(NONE); }, catOpts)}
             {field("Subcategoria 1", s1, setS1, s1Opts)}
             {field("Subcategoria 2", s2, setS2, s2Opts)}
@@ -159,12 +177,30 @@ export function BulkEditDialog({
           </div>
         </div>
         <DialogFooter className="max-sm:shrink-0 max-sm:border-t max-sm:bg-background max-sm:-mx-6 max-sm:-mb-6 max-sm:px-6 max-sm:py-3">
+          <span className="mr-auto self-center text-xs text-muted-foreground max-sm:hidden">
+            {alterados.length === 0 ? "Nada a aplicar" : `Vai gravar ${alterados.join(", ")} em ${ids.length} card(s)`}
+          </span>
           <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-          <Button onClick={() => apply.mutate()} disabled={apply.isPending}>
-            {apply.isPending ? "Aplicando…" : "Aplicar"}
+          {/* Confirma antes de gravar em N cards — simétrico com o Excluir em massa (laudo). */}
+          <Button onClick={() => setConfirmOpen(true)} disabled={apply.isPending || alterados.length === 0}>
+            {apply.isPending ? "Aplicando…" : "Aplicar…"}
           </Button>
         </DialogFooter>
       </DialogContent>
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Aplicar em {ids.length} card(s)?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Vai gravar <b>{alterados.join(", ")}</b> em <b>{ids.length}</b> card(s). Os demais campos não mudam.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={(e) => { e.preventDefault(); apply.mutate(); }}>Aplicar</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
