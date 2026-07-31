@@ -130,21 +130,24 @@ export function PlanTecidoDrawer({
       <div className="flex-1 overflow-auto p-2">
         <table className="w-full text-xs tabular-nums">
           <thead className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            {/* Rótulo = coluna flexível (w-full + truncate); números NUNCA quebram (nowrap) —
+                senão o layout auto da tabela dava a largura pro rótulo e o "1.023,5 ✓"
+                virava duas linhas no painel estreito (dono). */}
             {kind === "comprar" ? (
               <tr>
-                <th className="p-1.5 text-left font-medium">Tecido / variante</th>
-                <th className="p-1.5 text-right font-medium">Nec.</th>
-                <th className="p-1.5 text-right font-medium">Pedido</th>
-                <th className="p-1.5 text-right font-medium">Receb.</th>
+                <th className="w-full p-1.5 text-left font-medium">Tecido / variante</th>
+                <th className="whitespace-nowrap p-1.5 text-right font-medium">Nec.</th>
+                <th className="whitespace-nowrap p-1.5 text-right font-medium">Pedido</th>
+                <th className="whitespace-nowrap p-1.5 text-right font-medium">Receb.</th>
               </tr>
             ) : (
               <tr>
-                <th className="p-1.5 text-left font-medium">Tecido / variante</th>
-                <th className="p-1.5 text-right font-medium">Ped.</th>
-                <th className="p-1.5 text-right font-medium">Entr.</th>
+                <th className="w-full p-1.5 text-left font-medium">Tecido / variante</th>
+                <th className="whitespace-nowrap p-1.5 text-right font-medium">Ped.</th>
+                <th className="whitespace-nowrap p-1.5 text-right font-medium">Entr.</th>
                 <th className="p-1.5 text-right font-medium" title="Reserva LIVRE (ainda não usada); reserva total = livre + Usada">Res. livre</th>
-                <th className="p-1.5 text-right font-medium">Usada</th>
-                <th className="p-1.5 text-right font-medium">Sobra</th>
+                <th className="whitespace-nowrap p-1.5 text-right font-medium">Usada</th>
+                <th className="whitespace-nowrap p-1.5 text-right font-medium">Sobra</th>
               </tr>
             )}
           </thead>
@@ -161,36 +164,36 @@ export function PlanTecidoDrawer({
                   const { reservadaLivre, usada, sobra, baixaDomina } = contabilizarOc(v.reservada, v.comprometida, v.usada, v.pedida);
                   return (
                     <tr key={v.key} className="border-t">
-                      <td className="p-1.5">
+                      <td className="w-full max-w-0 p-1.5">
                         <span className="flex min-w-0 items-center gap-1">
                           <VarianteSwatch nome={v.cor_nome ?? v.label} /><span className="truncate">{v.label || v.cor_nome || "—"}</span>
                         </span>
                       </td>
                       {kind === "comprar" ? (
                         <>
-                          <td className="p-1.5 text-right">{nMet(v.reservada)}</td>
-                          <td className={`p-1.5 text-right ${v.pedida > 0 ? "font-medium text-emerald-600" : "text-muted-foreground"}`}>{nMet(v.pedida)}</td>
-                          <td className="p-1.5 text-right text-muted-foreground">{nMet(v.entregue)}</td>
+                          <td className="whitespace-nowrap p-1.5 text-right">{nMet(v.reservada)}</td>
+                          <td className={`whitespace-nowrap p-1.5 text-right ${v.pedida > 0 ? "font-medium text-emerald-600" : "text-muted-foreground"}`}>{nMet(v.pedida)}</td>
+                          <td className="whitespace-nowrap p-1.5 text-right text-muted-foreground">{nMet(v.entregue)}</td>
                         </>
                       ) : (
                         <>
-                          <td className="p-1.5 text-right">{nMet(v.pedida)}</td>
+                          <td className="whitespace-nowrap p-1.5 text-right">{nMet(v.pedida)}</td>
                           {/* Entrega completa = nada a chegar (✓ verde); parcial = âmbar com o que
                               falta — sem o estado, Ped. ao lado de Entr. lia como pendência (dono). */}
                           <td
-                            className={`p-1.5 text-right ${v.pedida > 0 && v.entregue >= v.pedida ? "font-medium text-emerald-600" : v.pedida > 0 && v.entregue < v.pedida ? "font-medium text-amber-600" : ""}`}
+                            className={`whitespace-nowrap p-1.5 text-right ${v.pedida > 0 && v.entregue >= v.pedida ? "font-medium text-emerald-600" : v.pedida > 0 && v.entregue < v.pedida ? "font-medium text-amber-600" : ""}`}
                             title={v.pedida > 0 ? (v.entregue >= v.pedida ? "Entrega completa — nada a chegar" : `Falta chegar ${nMet(v.pedida - v.entregue)} m`) : undefined}
                           >
-                            {nMet(v.entregue)}{v.pedida > 0 && v.entregue >= v.pedida ? " ✓" : ""}
+                            {nMet(v.entregue)}{v.pedida > 0 && v.entregue >= v.pedida ? " ✓" : ""}
                           </td>
-                          <td className="p-1.5 text-right text-muted-foreground">{nMet(reservadaLivre)}</td>
+                          <td className="whitespace-nowrap p-1.5 text-right text-muted-foreground">{nMet(reservadaLivre)}</td>
                           {/* Usada (saiu da reservada): vermelho quando a BAIXA real domina; senão âmbar
                               (comprometido = enviado à explosão). Cinza quando 0. */}
-                          <td className={`p-1.5 text-right ${usada <= 0 ? "text-muted-foreground" : baixaDomina ? "font-medium text-red-600" : "font-medium text-amber-600"}`}
+                          <td className={`whitespace-nowrap p-1.5 text-right ${usada <= 0 ? "text-muted-foreground" : baixaDomina ? "font-medium text-red-600" : "font-medium text-amber-600"}`}
                               title={usada <= 0 ? undefined : baixaDomina ? "Baixa real (corte enviado)" : "Comprometido — enviado à explosão"}>
                             {nMet(usada)}
                           </td>
-                          <td className={`p-1.5 text-right font-medium ${sobraCls(sobra)}`}>{sobra > 0 ? "+" : ""}{nMet(sobra)}</td>
+                          <td className={`whitespace-nowrap p-1.5 text-right font-medium ${sobraCls(sobra)}`}>{sobra > 0 ? "+" : ""}{nMet(sobra)}</td>
                         </>
                       )}
                     </tr>
