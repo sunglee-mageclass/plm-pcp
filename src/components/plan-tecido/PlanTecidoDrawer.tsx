@@ -105,7 +105,7 @@ export function PlanTecidoDrawer({
     }
     grupos = [...porArtigo.entries()].map(([artigo_id, g]) => ({ artigo_id, artigo: g.nome, variantes: [...g.vm.values()] }));
   }
-  const nCols = kind === "comprar" ? 4 : 6;
+  const nCols = 4;
 
   const titulo =
     kind === "comprar" ? "A comprar — por tecido e variante"
@@ -141,13 +141,15 @@ export function PlanTecidoDrawer({
                 <th className="whitespace-nowrap p-1.5 text-right font-medium">Receb.</th>
               </tr>
             ) : (
+              /* A EQUAÇÃO na linha (dono, jul/2026): Pedida − Demanda = Sobra em colunas
+                 ADJACENTES — antes a Sobra dependia de somar Res. livre + Usada de cabeça e
+                 nada na linha "fechava" visualmente. Entregue vira sub-info da Pedida;
+                 o "em produção" vira sub-info da Demanda. */
               <tr>
                 <th className="w-full p-1.5 text-left font-medium">Tecido / variante</th>
-                <th className="whitespace-nowrap p-1.5 text-right font-medium">Ped.</th>
-                <th className="whitespace-nowrap p-1.5 text-right font-medium">Entr.</th>
-                <th className="p-1.5 text-right font-medium" title="Reserva LIVRE (ainda não usada); reserva total = livre + Usada">Res. livre</th>
-                <th className="whitespace-nowrap p-1.5 text-right font-medium">Usada</th>
-                <th className="whitespace-nowrap p-1.5 text-right font-medium">Sobra</th>
+                <th className="whitespace-nowrap p-1.5 text-right font-medium">Pedida</th>
+                <th className="whitespace-nowrap p-1.5 text-right font-medium" title="O que os modelos vinculados planejam usar desta cor (em produção + reservada livre)">− Demanda</th>
+                <th className="whitespace-nowrap p-1.5 text-right font-medium">= Sobra</th>
               </tr>
             )}
           </thead>
@@ -177,23 +179,31 @@ export function PlanTecidoDrawer({
                         </>
                       ) : (
                         <>
-                          <td className="whitespace-nowrap p-1.5 text-right">{nMet(v.pedida)}</td>
-                          {/* Entrega completa = nada a chegar (✓ verde); parcial = âmbar com o que
-                              falta — sem o estado, Ped. ao lado de Entr. lia como pendência (dono). */}
+                          {/* Pedida (nº principal) + Entregue como sub-info: ✓ verde = entrega
+                              completa; âmbar = quanto falta chegar. */}
+                          <td className="whitespace-nowrap p-1.5 text-right align-top">
+                            <div>{nMet(v.pedida)}</div>
+                            {v.pedida > 0 && (v.entregue >= v.pedida ? (
+                              <div className="text-[10px] font-medium text-emerald-600" title="Entrega completa — nada a chegar">{nMet(v.entregue)} ✓</div>
+                            ) : (
+                              <div className="text-[10px] font-medium text-amber-600" title={`Entregue ${nMet(v.entregue)} m`}>{nMet(v.entregue)} · falta {nMet(v.pedida - v.entregue)}</div>
+                            ))}
+                          </td>
+                          {/* Demanda = max(reserva total, usada) — garante Pedida − Demanda = Sobra
+                              EXATO na linha. Sub-info: parcela já EM PRODUÇÃO (âmbar = enviado à
+                              explosão; vermelho = corte baixado). */}
                           <td
-                            className={`whitespace-nowrap p-1.5 text-right ${v.pedida > 0 && v.entregue >= v.pedida ? "font-medium text-emerald-600" : v.pedida > 0 && v.entregue < v.pedida ? "font-medium text-amber-600" : ""}`}
-                            title={v.pedida > 0 ? (v.entregue >= v.pedida ? "Entrega completa — nada a chegar" : `Falta chegar ${nMet(v.pedida - v.entregue)} m`) : undefined}
+                            className="whitespace-nowrap p-1.5 text-right align-top"
+                            title={`Demanda dos modelos vinculados: ${nMet(usada)} em produção + ${nMet(reservadaLivre)} reservada (livre)`}
                           >
-                            {nMet(v.entregue)}{v.pedida > 0 && v.entregue >= v.pedida ? " ✓" : ""}
+                            <div>{nMet(Math.max(v.reservada, usada))}</div>
+                            {usada > 0 && (
+                              <div className={`text-[10px] font-medium ${baixaDomina ? "text-red-600" : "text-amber-600"}`}>
+                                {nMet(usada)} em produção
+                              </div>
+                            )}
                           </td>
-                          <td className="whitespace-nowrap p-1.5 text-right text-muted-foreground">{nMet(reservadaLivre)}</td>
-                          {/* Usada (saiu da reservada): vermelho quando a BAIXA real domina; senão âmbar
-                              (comprometido = enviado à explosão). Cinza quando 0. */}
-                          <td className={`whitespace-nowrap p-1.5 text-right ${usada <= 0 ? "text-muted-foreground" : baixaDomina ? "font-medium text-red-600" : "font-medium text-amber-600"}`}
-                              title={usada <= 0 ? undefined : baixaDomina ? "Baixa real (corte enviado)" : "Comprometido — enviado à explosão"}>
-                            {nMet(usada)}
-                          </td>
-                          <td className={`whitespace-nowrap p-1.5 text-right font-medium ${sobraCls(sobra)}`}>{sobra > 0 ? "+" : ""}{nMet(sobra)}</td>
+                          <td className={`whitespace-nowrap p-1.5 text-right align-top font-medium ${sobraCls(sobra)}`}>{sobra > 0 ? "+" : ""}{nMet(sobra)}</td>
                         </>
                       )}
                     </tr>
@@ -203,6 +213,14 @@ export function PlanTecidoDrawer({
             ))}
           </tbody>
         </table>
+        {kind !== "comprar" && grupos.length > 0 && (
+          <p className="border-t px-1.5 py-2 text-[10px] leading-snug text-muted-foreground">
+            <b className="font-semibold">Demanda</b> = o que os modelos vinculados planejam usar desta cor
+            (em produção + reservada livre — detalhe no hover). <b className="font-semibold">Em produção</b>:
+            âmbar = enviado à explosão; vermelho = corte já baixado. A <b className="font-semibold">Sobra</b> usa
+            a Pedida (sobra prevista com a OC entregue por completo).
+          </p>
+        )}
       </div>
     </div>
   );
