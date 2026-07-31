@@ -86,6 +86,13 @@ export function ResumoPanel({
     queryKey: ["plan-tecido-oc-aplicada", colecaoId],
     queryFn: async () => (((await supabase.from("plan_tecido_oc_aplicada" as any).select("oc_tecido_id").eq("colecao_id", colecaoId)).data ?? []) as unknown as { oc_tecido_id: string }[]).map((r) => r.oc_tecido_id),
   });
+  // OCs GERADAS pelo "Fazer pedido" (plan_tecido_ocs). Com a união das 3 fontes na situação
+  // (auditoria jul/2026), a lista também traz OCs de vínculo do Dev/atalho do card — o rótulo
+  // "gerada" no else-branch mentia pra elas. Distinção honesta: gerada | aplicada | vínculo.
+  const { data: geradas = [] } = useQuery<string[]>({
+    queryKey: ["plan-tecido-ocs-geradas", colecaoId],
+    queryFn: async () => (((await supabase.from("plan_tecido_ocs" as any).select("oc_tecido_id").eq("colecao_id", colecaoId)).data ?? []) as unknown as { oc_tecido_id: string }[]).map((r) => r.oc_tecido_id),
+  });
   const desvincularAplicada = useMutation({
     mutationFn: async (ocId: string) => {
       const restantes = aplicadas.filter((id) => id !== ocId);
@@ -290,8 +297,10 @@ export function ResumoPanel({
                   className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50">
                   <X className="h-3.5 w-3.5" />
                 </button>
-              ) : (
+              ) : geradas.includes(o.oc_tecido_id) ? (
                 <span className="shrink-0 rounded bg-muted px-1 text-[9px] text-muted-foreground" title="OC gerada pelo pedido — remova em 'Desfazer pedido'">gerada</span>
+              ) : (
+                <span className="shrink-0 rounded bg-muted px-1 text-[9px] text-muted-foreground" title="OC vinculada via Desenvolvimento (tecido do modelo) ou atalho do card — remova lá">vínculo</span>
               )}
             </div>
           );
