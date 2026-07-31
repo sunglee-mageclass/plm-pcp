@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, Save, ChevronDown, ChevronRight, AlertTriangle, Rocket, Check, X } from "lucide-react";
+import { Palette, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, Save, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, AlertTriangle, Rocket, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -650,6 +650,17 @@ function PlanejamentoPage() {
       return node;
     });
   const groups: Grupo[] | null = splitters.length ? buildGroups(sorted, 0) : null;
+  // Recolher/Expandir TODOS os grupos (dono, jul/2026). Paths iguais ao render: raiz = g.key,
+  // aninhado = `${path}/${sub.key}`. Percorre todos os níveis (Tecido → Linha → Categoria…).
+  const allGroupPaths: string[] = [];
+  if (groups) {
+    const walk = (nodes: Grupo[], path: string) => {
+      for (const g of nodes) { const p = path ? `${path}/${g.key}` : g.key; allGroupPaths.push(p); if (g.subgroups) walk(g.subgroups, p); }
+    };
+    walk(groups, "");
+  }
+  const allGruposRecolhidos = allGroupPaths.length > 0 && allGroupPaths.every((p) => collapsedGroups.has(p));
+  const toggleGrupos = () => setCollapsedGroups(allGruposRecolhidos ? new Set() : new Set(allGroupPaths));
 
   // Render recursivo dos grupos (profundidade arbitrária). Título encolhe com a
   // profundidade; nós internos ganham barra/indentação à esquerda.
@@ -712,6 +723,18 @@ function PlanejamentoPage() {
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto max-sm:justify-end">
 
           <SearchToggle value={search} onChange={setSearch} placeholder="Pesquisar por nome…" />
+          {groups && allGroupPaths.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="hidden md:inline-flex h-9"
+              onClick={toggleGrupos}
+              title={allGruposRecolhidos ? "Expandir todos os grupos" : "Recolher todos os grupos"}
+            >
+              {allGruposRecolhidos ? <ChevronsUpDown className="h-4 w-4 sm:mr-1" /> : <ChevronsDownUp className="h-4 w-4 sm:mr-1" />}
+              <span className="max-lg:sr-only">{allGruposRecolhidos ? "Expandir todos" : "Recolher todos"}</span>
+            </Button>
+          )}
           <AgrupamentoButton
             groups={[
               { label: "Linha", active: groupByLinha, onToggle: () => setGroupByLinha((v) => !v) },
