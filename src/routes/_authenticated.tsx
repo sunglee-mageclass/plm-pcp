@@ -1,6 +1,7 @@
 import { createFileRoute, Outlet, Navigate, useRouterState } from "@tanstack/react-router";
 import { useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { ChevronRight } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -8,6 +9,7 @@ import { StoreClock } from "@/components/shared/StoreClock";
 import { useAuth } from "@/hooks/useAuth";
 import { useApplySystemIdentity } from "@/hooks/useSystemIdentity";
 import { PAGES_CATALOG } from "@/lib/permissions-catalog";
+import { PAGE_URLS } from "@/lib/nav";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -32,6 +34,25 @@ function useCurrentModule() {
   return { module: m?.module ?? null, label: m?.label ?? null };
 }
 
+// Breadcrumb do header sticky: SEÇÃO › PÁGINA (dono, jul/2026 — o mockup Navy Trust v2 usa o
+// breadcrumb organizado; antes o header mostrava só a seção). A página vem do catálogo casando o
+// pathname com PAGE_URLS (prefixo mais longo). Sem página específica (hub no basePath, /home) →
+// só a seção.
+function useBreadcrumb(): { section: string | null; page: string | null } {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const section = pathname.startsWith("/admin") ? "Admin" : (moduleForPath(pathname)?.label ?? null);
+  const mod = PAGES_CATALOG.find((m) => pathname === m.basePath || pathname.startsWith(m.basePath + "/"));
+  let page: string | null = null;
+  if (mod) {
+    let best = "";
+    for (const p of mod.pages) {
+      const url = PAGE_URLS[p.key];
+      if (url && (pathname === url || pathname.startsWith(url + "/")) && url.length > best.length) { best = url; page = p.label; }
+    }
+  }
+  return { section, page };
+}
+
 function AuthenticatedLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   // CONGELA o primeiro pathname do mount: durante a transição pro /auth o layout re-renderiza
@@ -39,7 +60,7 @@ function AuthenticatedLayout() {
   const destinoOriginal = useRef(pathname).current;
   const { user, loading, signOut } = useAuth();
   const identity = useApplySystemIdentity();
-  const { label: moduleLabel } = useCurrentModule();
+  const { section, page } = useBreadcrumb();
   // Loja inativa = suspensão real: a RLS já bloqueia os dados (get_user_tenant_id
   // retorna o UUID sentinela nil '0000…', NUNCA NULL — invariante 13); aqui só
   // mostramos a mensagem em vez de telas vazias.
@@ -87,16 +108,23 @@ function AuthenticatedLayout() {
       <div className="flex min-h-screen w-full bg-background">
         <AppSidebar />
         <div className="flex-1 min-w-0 flex flex-col">
-          {/* sticky: o header (botão do sidebar + contexto + relógio) acompanha a rolagem,
-              pra recolher/abrir o menu sem subir a página toda. z abaixo de overlays (z-50). */}
-          <header className="sticky top-0 z-30 h-14 flex items-center gap-2 border-b px-4 bg-card">
-            <SidebarTrigger />
-            <div className="ml-2 text-sm font-medium text-muted-foreground">
-              {moduleLabel ?? identity.nome_sistema}
+          {/* sticky: o header (botão do sidebar + breadcrumb + relógio) acompanha a rolagem.
+              NAVY no MOBILE (Navy Trust v2 — como o mockup); claro no desktop. z abaixo de overlays. */}
+          <header className="sticky top-0 z-30 h-14 flex items-center gap-2 border-b px-4 bg-card max-md:border-transparent max-md:bg-sidebar max-md:text-sidebar-foreground">
+            <SidebarTrigger className="max-md:text-sidebar-foreground max-md:hover:bg-white/10 max-md:hover:text-sidebar-foreground" />
+            {/* Breadcrumb SEÇÃO › Página (dono, jul/2026). Sem página → só a seção / nome do sistema. */}
+            <div className="ml-2 flex min-w-0 items-center gap-1.5 text-sm font-medium">
+              <span className="truncate text-muted-foreground max-md:text-sidebar-foreground/70">{section ?? identity.nome_sistema}</span>
+              {page && (
+                <>
+                  <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50 max-md:text-sidebar-foreground/50" />
+                  <span className="truncate text-foreground max-md:text-sidebar-foreground">{page}</span>
+                </>
+              )}
             </div>
-            {/* Slot p/ ações da PÁGINA no header sticky (ex.: seleção do Planejamento) —
-                preenchido via <HeaderActions> (portal). Fica ao lado do nome do módulo. */}
-            <div id="sticky-header-actions" className="flex min-w-0 items-center gap-1.5 overflow-x-auto" />
+            {/* Slot p/ ações da PÁGINA no header (portal <HeaderActions>). No mobile navy ganha uma
+                BANDEJA clara só quando tem conteúdo (`:not(:empty)`), senão os botões sumiriam no navy. */}
+            <div id="sticky-header-actions" className="flex min-w-0 items-center gap-1.5 overflow-x-auto max-md:[&:not(:empty)]:rounded-lg max-md:[&:not(:empty)]:bg-card max-md:[&:not(:empty)]:px-1 max-md:[&:not(:empty)]:py-0.5 max-md:[&:not(:empty)]:text-foreground" />
             <StoreClock className="ml-auto shrink-0" />
           </header>
           <main className="flex-1 p-4 sm:p-6 overflow-x-hidden overflow-y-auto">

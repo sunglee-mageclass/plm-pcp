@@ -31,12 +31,13 @@ export function StoreClock({ className }: { className?: string }) {
 
   return (
     <div
-      className={cn("flex items-center gap-2 text-sm text-muted-foreground tabular-nums", className)}
+      // Cores claras no MOBILE (header navy do layout — Navy Trust v2); StoreClock só é usado ali.
+      className={cn("flex items-center gap-2 text-sm text-muted-foreground tabular-nums max-md:text-sidebar-foreground/80", className)}
       title={`Fuso da loja: ${tz}`}
     >
       <Clock className="h-4 w-4" />
       <span className="hidden sm:inline">{data}</span>
-      <span className="font-medium text-foreground">{hora}</span>
+      <span className="font-medium text-foreground max-md:text-sidebar-foreground">{hora}</span>
     </div>
   );
 }
