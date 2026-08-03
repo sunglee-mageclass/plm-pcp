@@ -19,6 +19,7 @@ const POR_CODIGO: Record<string, string> = {
   "22003": "Número fora do intervalo permitido.",
   "40001": "Conflito de acesso simultâneo. Tente novamente.",
   "42501": "Você não tem permissão para esta ação.",
+  P0409: "Outra pessoa salvou este registro agora há pouco. A tela foi atualizada — confira suas alterações e salve de novo.",
   P0001: "", // RAISE das nossas funções: já vem em PT, usa a própria mensagem.
   PGRST301: "Sua sessão expirou. Entre novamente.",
   PGRST116: "Registro não encontrado.",
