@@ -230,7 +230,7 @@ export function ModelCard({
           {...(dragHandle?.listeners ?? {})}
           title={dragHandle ? "Arraste para outra categoria (ou clique para recolher)" : undefined}
         >
-          <ModeloThumb path={slot.thumb_path} />
+          <ModeloThumb path={slot.thumb_path} className="h-16 w-16" />
           <div className={`min-w-0 flex-1 ${onToggleSelect ? "ml-3" : ""}`}>
             <div className="flex items-center gap-1.5">
               <span className="truncate text-[13px] font-semibold leading-tight">{slot.nome ?? "Modelo"}</span>
