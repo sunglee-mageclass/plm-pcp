@@ -49,7 +49,11 @@ type ComentProps = {
 function Coment({ c, isReply, resolved, user, fmt, replyTo, setReplyTo, replyTexto, setReplyTexto, comentarMut, resolverMut, excluirMut }: ComentProps) {
   return (
     <div className={(isReply ? "ml-6 border-l pl-3 " : "") + (resolved ? "opacity-60 " : "") + "py-1.5"}>
-      <div className="flex items-baseline gap-2 text-xs text-muted-foreground">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        {/* Avatar-inicial do autor (mockup): pista de identidade sem foto. */}
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-foreground">
+          {((c.user_id ? c.autor?.nome : "Importado") ?? "?").trim().charAt(0).toUpperCase() || "?"}
+        </span>
         <span className="font-medium text-foreground">{c.user_id ? c.autor?.nome ?? "—" : "Importado"}</span>
         <span>{fmt(c.created_at)}</span>
       </div>

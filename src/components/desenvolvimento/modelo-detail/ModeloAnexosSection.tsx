@@ -48,21 +48,25 @@ export function ModeloAnexosSection({
 }) {
   return (
     <div className="space-y-4">
-      <SingleFileField label="Foto do Croqui" path={croquiUrl ?? ""} uploading={uploading} onUpload={onUploadCroqui} onRemove={onRemoveCroqui} />
-      <SingleFileField label="Desenho Técnico" path={desenhoTecnicoUrl ?? ""} uploading={uploading} onUpload={onUploadDesenho} onRemove={onRemoveDesenho} />
-      <PhotoList
-        label="Foto do Modelo"
-        paths={fotosModelo}
-        prefix="fotos_modelo"
-        onChange={onChangeFotosModelo}
-      />
-      <PhotoList
-        label="Foto de Referência"
-        paths={fotosReferencia}
-        prefix="fotos_referencia"
-        onChange={onChangeFotosReferencia}
-      />
-      <SingleFileField label="Ficha de Medida" path={fichaMedidaUrl ?? ""} uploading={uploading} onUpload={onUploadFicha} onRemove={onRemoveFicha} />
+      {/* Grid 2-col no desktop (menos rolagem num Sheet largo), empilha no mobile — a lente
+          mobile alertou que o 4-col do mockup apertaria em 390px. */}
+      <div className="grid gap-4 sm:grid-cols-2">
+        <SingleFileField label="Foto do Croqui" path={croquiUrl ?? ""} uploading={uploading} onUpload={onUploadCroqui} onRemove={onRemoveCroqui} />
+        <SingleFileField label="Desenho Técnico" path={desenhoTecnicoUrl ?? ""} uploading={uploading} onUpload={onUploadDesenho} onRemove={onRemoveDesenho} />
+        <PhotoList
+          label="Foto do Modelo"
+          paths={fotosModelo}
+          prefix="fotos_modelo"
+          onChange={onChangeFotosModelo}
+        />
+        <PhotoList
+          label="Foto de Referência"
+          paths={fotosReferencia}
+          prefix="fotos_referencia"
+          onChange={onChangeFotosReferencia}
+        />
+        <SingleFileField label="Ficha de Medida" path={fichaMedidaUrl ?? ""} uploading={uploading} onUpload={onUploadFicha} onRemove={onRemoveFicha} />
+      </div>
       <Field label="Observações Gerais" full>
         <Textarea rows={4} value={observacoesGerais} onChange={(e) => onChangeObservacoes(e.target.value)} />
       </Field>

@@ -31,6 +31,13 @@ export function ModeloEtiquetasSection({
 }) {
   return (
     <div className="space-y-2">
+      {rows.length === 0 && (
+        // Empty-state acionável (mockup).
+        <div className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
+          Nenhum insumo.{" "}
+          <button type="button" onClick={onAdd} className="font-medium text-primary hover:underline">+ Adicionar insumo</button>
+        </div>
+      )}
       {rows.map((r, i) => {
         const etq = r.etiqueta_id ? etiquetaMap[r.etiqueta_id] : undefined;
         const cores = coresDaEtiqueta(etq);
@@ -39,7 +46,7 @@ export function ModeloEtiquetasSection({
           <Card key={i} className={`p-3 space-y-2 ${classeCopiado(camposCopiados, "etiquetas")}`}>
             <div className="flex items-center justify-between">
               <span className="text-xs text-muted-foreground">Etiqueta {i + 1}</span>
-              <Button variant="ghost" size="sm" onClick={() => { onRemove(i); onCampoEditado?.("etiquetas"); }}>
+              <Button variant="ghost" size="sm" onClick={() => { onRemove(i); onCampoEditado?.("etiquetas"); }} aria-label="Remover insumo">
                 <X className="h-4 w-4" />
               </Button>
             </div>
@@ -63,7 +70,7 @@ export function ModeloEtiquetasSection({
                 <NumberInput type="number" step="0.01" placeholder="0,00" value={r.loss_percent || ""} onChange={(e) => { onChangeRow(i, { loss_percent: Number(e.target.value) || 0 }); onCampoEditado?.("etiquetas"); }} />
               </Field>
               <Field label="Custo Previsto">
-                <Input readOnly placeholder="0,00" value={r.custo_previsto ? fmtNum(r.custo_previsto) : ""} />
+                <Input readOnly className="bg-muted/50 text-right tabular-nums cursor-default" placeholder="R$ —" value={r.custo_previsto ? `R$ ${fmtNum(r.custo_previsto)}` : ""} />
               </Field>
             </div>
             <p className="text-[11px] text-muted-foreground">
@@ -74,7 +81,7 @@ export function ModeloEtiquetasSection({
           </Card>
         );
       })}
-      {rows.length < 20 && (
+      {rows.length > 0 && rows.length < 20 && (
         <Button variant="outline" size="sm" onClick={onAdd}>
           <Plus className="h-4 w-4 mr-1" /> Adicionar Etiqueta
         </Button>

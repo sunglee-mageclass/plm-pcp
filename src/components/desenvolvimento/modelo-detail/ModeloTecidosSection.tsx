@@ -236,7 +236,8 @@ function TecidoBlockEditor({
           </Button>
         </div>
       )}
-      <div className="grid sm:grid-cols-2 gap-2">
+      {/* Ordem do mockup: material → consumo → loss → CUSTO (calculado, à direita). */}
+      <div className="grid grid-cols-1 sm:grid-cols-[2fr_1fr_1fr_1fr] gap-2">
         <div className={classeCopiado(camposCopiados, keyArtigo)}>
           <FieldSelectOpt
             label={`${TIPO_LABEL[block.tipo]} ${block.numero}`}
@@ -245,14 +246,14 @@ function TecidoBlockEditor({
             options={artigos.map((a) => ({ id: a.id, nome: artigoLabel(a) }))}
           />
         </div>
-        <Field label="Custo Previsto">
-          <Input readOnly placeholder="0,00" value={block.custo_previsto ? fmtNum(block.custo_previsto) : ""} />
-        </Field>
         <Field label="Consumo">
           <NumberInput type="number" step="0.001" placeholder="0,000" className={classeCopiado(camposCopiados, keyConsumo)} value={block.consumo || ""} onChange={(e) => { onChangeBlock({ consumo: Number(e.target.value) || 0 }); onCampoEditado?.(keyConsumo); }} />
         </Field>
         <Field label="% Loss">
           <NumberInput type="number" step="0.01" placeholder="0,00" value={block.loss_percent || ""} onChange={(e) => onChangeBlock({ loss_percent: Number(e.target.value) || 0 })} />
+        </Field>
+        <Field label="Custo Previsto">
+          <Input readOnly className="bg-muted/50 text-right tabular-nums cursor-default" placeholder="R$ —" value={block.custo_previsto ? `R$ ${fmtNum(block.custo_previsto)}` : ""} />
         </Field>
       </div>
 

@@ -186,7 +186,10 @@ export function ModeloInfoSection({
         )}
         <FieldSelectOpt label={fl("linha")} value={draft.linha_id} onChange={(v) => setDraft({ ...draft, linha_id: v })} options={linhas} />
       </div>
-      <div className="grid sm:grid-cols-2 gap-3">
+      {/* Cronograma & pilotos — cluster agrupado (mockup) p/ separar de identidade/classificação. */}
+      <div className="rounded-md border border-dashed p-3">
+        <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Cronograma &amp; pilotos</div>
+        <div className="grid sm:grid-cols-2 gap-3">
         <div className="sm:col-span-2 grid sm:grid-cols-2 gap-3">
           <FieldSelectOpt label={`${fl("piloteiro")} 1`} value={draft.piloteiro1_id} onChange={(v) => setDraft({ ...draft, piloteiro1_id: v })} options={piloteiros} />
           <Field label="Data Piloto 1">
@@ -245,6 +248,7 @@ export function ModeloInfoSection({
         <Field label="Data Aprovação">
           <DateField value={draft.data_aprovacao ?? ""} onChange={(e) => setDraft({ ...draft, data_aprovacao: e.target.value })} />
         </Field>
+        </div>
       </div>
       <Field label="Observações Técnicas" full>
         <Textarea

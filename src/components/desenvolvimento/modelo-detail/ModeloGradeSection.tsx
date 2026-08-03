@@ -58,17 +58,20 @@ export function ModeloGradeSection({
         </div>
         <div
           className="grid gap-2 overflow-x-auto pb-1"
-          style={{ gridTemplateColumns: `repeat(${tamanhos.length}, minmax(64px, 1fr))` }}
+          style={{ gridTemplateColumns: `repeat(${tamanhos.length}, minmax(48px, 1fr))` }}
         >
           {tamanhos.map((t) => (
-            <Field key={t} label={t}>
+            // Matriz numérica: rótulo + valor CENTRADOS sob o cabeçalho (leem melhor alinhados).
+            <div key={t} className="grid gap-1 text-center">
+              <Label className="text-xs">{t}</Label>
               <NumberInput
                 integer
+                className="text-center tabular-nums"
                 placeholder="0"
                 value={proporcoes?.[t] || ""}
                 onChange={(e) => onChangeProporcao(t, Math.max(0, Number(e.target.value) || 0))}
               />
-            </Field>
+            </div>
           ))}
         </div>
       </div>
@@ -110,17 +113,19 @@ export function ModeloGradeSection({
                 </div>
                 <div
                   className="grid gap-2 overflow-x-auto pb-1"
-                  style={{ gridTemplateColumns: `repeat(${tamanhos.length}, minmax(64px, 1fr))` }}
+                  style={{ gridTemplateColumns: `repeat(${tamanhos.length}, minmax(48px, 1fr))` }}
                 >
                   {tamanhos.map((t) => (
-                    <Field key={t} label={t}>
+                    <div key={t} className="grid gap-1 text-center">
+                      <Label className="text-xs">{t}</Label>
                       <NumberInput
                         integer
+                        className="text-center tabular-nums"
                         placeholder="0"
                         value={g.grades[t] || ""}
                         onChange={(e) => { onChangeGradeCell(n, t, Math.max(0, Number(e.target.value) || 0)); onCampoEditado?.("grade"); }}
                       />
-                    </Field>
+                    </div>
                   ))}
                 </div>
               </Card>

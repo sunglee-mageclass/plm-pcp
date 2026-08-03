@@ -29,34 +29,43 @@ export function ModeloAviamentosSection({
 }) {
   return (
     <div className="space-y-2">
-      {rows.map((r, i) => (
-        <Card key={i} className={`p-3 space-y-2 ${classeCopiado(camposCopiados, "aviamentos")}`}>
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">Aviamento {i + 1}</span>
-            <Button variant="ghost" size="sm" onClick={() => { onRemove(i); onCampoEditado?.("aviamentos"); }}>
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-          <div className="grid sm:grid-cols-2 gap-2">
-            <FieldSelectOpt
-              label="Aviamento"
-              value={r.aviamento_id}
-              onChange={(v) => { onChangeRow(i, { aviamento_id: v }); onCampoEditado?.("aviamentos"); }}
-              options={aviamentos.map((a) => ({ id: a.id, nome: a.codigo_nome }))}
-            />
-            <Field label="Custo Previsto">
-              <Input readOnly placeholder="0,00" value={r.custo_previsto ? fmtNum(r.custo_previsto) : ""} />
-            </Field>
-            <Field label="Consumo">
-              <NumberInput type="number" step="0.001" placeholder="0,000" value={r.consumo || ""} onChange={(e) => { onChangeRow(i, { consumo: Number(e.target.value) || 0 }); onCampoEditado?.("aviamentos"); }} />
-            </Field>
-            <Field label="% Loss">
-              <NumberInput type="number" step="0.01" placeholder="0,00" value={r.loss_percent || ""} onChange={(e) => { onChangeRow(i, { loss_percent: Number(e.target.value) || 0 }); onCampoEditado?.("aviamentos"); }} />
-            </Field>
-          </div>
-        </Card>
-      ))}
-      {rows.length < 20 && (
+      {rows.length === 0 ? (
+        // Empty-state acionável (mockup): a dica + a ação, em vez do botão solto.
+        <div className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
+          Nenhum aviamento.{" "}
+          <button type="button" onClick={onAdd} className="font-medium text-primary hover:underline">+ Adicionar aviamento</button>
+        </div>
+      ) : (
+        rows.map((r, i) => (
+          <Card key={i} className={`p-3 space-y-2 ${classeCopiado(camposCopiados, "aviamentos")}`}>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">Aviamento {i + 1}</span>
+              <Button variant="ghost" size="sm" onClick={() => { onRemove(i); onCampoEditado?.("aviamentos"); }} aria-label="Remover aviamento">
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            {/* Ordem do mockup: material → consumo → loss → CUSTO (calculado, à direita). */}
+            <div className="grid grid-cols-1 sm:grid-cols-[2fr_1fr_1fr_1fr] gap-2">
+              <FieldSelectOpt
+                label="Aviamento"
+                value={r.aviamento_id}
+                onChange={(v) => { onChangeRow(i, { aviamento_id: v }); onCampoEditado?.("aviamentos"); }}
+                options={aviamentos.map((a) => ({ id: a.id, nome: a.codigo_nome }))}
+              />
+              <Field label="Consumo">
+                <NumberInput type="number" step="0.001" placeholder="0,000" value={r.consumo || ""} onChange={(e) => { onChangeRow(i, { consumo: Number(e.target.value) || 0 }); onCampoEditado?.("aviamentos"); }} />
+              </Field>
+              <Field label="% Loss">
+                <NumberInput type="number" step="0.01" placeholder="0,00" value={r.loss_percent || ""} onChange={(e) => { onChangeRow(i, { loss_percent: Number(e.target.value) || 0 }); onCampoEditado?.("aviamentos"); }} />
+              </Field>
+              <Field label="Custo Previsto">
+                <Input readOnly className="bg-muted/50 text-right tabular-nums cursor-default" placeholder="R$ —" value={r.custo_previsto ? `R$ ${fmtNum(r.custo_previsto)}` : ""} />
+              </Field>
+            </div>
+          </Card>
+        ))
+      )}
+      {rows.length > 0 && rows.length < 20 && (
         <Button variant="outline" size="sm" onClick={onAdd}>
           <Plus className="h-4 w-4 mr-1" /> Adicionar Aviamento
         </Button>
