@@ -427,6 +427,10 @@ function OcDialog({
   const baseRef = useRef<{ draft: Draft; items: ItemDraft[] } | null>(null);
   const revRef = useRef<number | null>(null);
   const retryRef = useRef(false);
+  // Guarda anti-duplo-clique do save: o ref é SÍNCRONO (isPending/disabled só atualizam no
+  // re-render, então num clique-duplo rápido os dois passariam — e no INSERT criariam 2 OCs).
+  // Declarado aqui (antes do `saveMutation`) porque o `onError` do retry P0409 também o usa.
+  const savingRef = useRef(false);
   const [ultimoMerge, setUltimoMerge] = useState<{ atualizados: number; conflitos: Conflito[] } | null>(null);
   const [conflitos, setConflitos] = useState<Conflito[]>([]);
   // Espelho síncrono de `conflitos` p/ o retry do save (Step 5): ler `conflitos` (state)
@@ -472,7 +476,13 @@ function OcDialog({
       setDraft((d) => ({ ...d, [c.path]: c.dele }));
       touchedRef.current.delete(c.path);
     }
-    setConflitos((prev) => prev.filter((x) => x.path !== c.path));
+    // `conflitosRef` é a fonte usada pelo retry do save (fora do ciclo de render) — precisa
+    // ficar em sincronia com `conflitos` (state) em TODA atualização, não só na do merge.
+    setConflitos((prev) => {
+      const next = prev.filter((x) => x.path !== c.path);
+      conflitosRef.current = next;
+      return next;
+    });
   };
 
   const { presentes } = useColabRegistro({
@@ -938,17 +948,47 @@ function OcDialog({
     },
     onError: async (e: any, markReceived) => {
       // Colab (spec 2026-08-03): conflito de versão — outra pessoa salvou entre a
-      // última carga e agora. Busca o estado novo (roda o merge) e, se não sobrou
-      // nenhum conflito de verdade (só campos que EU não toquei), tenta salvar de novo
-      // UMA vez com o rev atualizado. Se sobrou conflito, para e deixa o usuário resolver
+      // última carga e agora. Busca o estado novo e roda o merge AQUI MESMO (síncrono,
+      // não delega pro useEffect — ver comentário abaixo) e, se não sobrou nenhum
+      // conflito de verdade (só campos que EU não toquei), tenta salvar de novo UMA
+      // vez com o rev atualizado. Se sobrou conflito, para e deixa o usuário resolver
       // nos campos destacados.
+      //
+      // IMPORTANTE: por que o merge não pode esperar o useEffect. `await
+      // invalidateQueries(...)` resolve quando o FETCH termina (microtask) — mas o
+      // re-render que entrega o novo `ocQueryData` pro componente, e o useEffect que
+      // lê `[ocQueryData]` e atualiza `revRef`/`conflitosRef`, só rodam depois (o efeito
+      // é agendado como passive effect, macrotask). Se a gente confiasse nisso, o retry
+      // abaixo leria `revRef.current` VELHO, reenviaria o MESMO `_rev_base` rejeitado e
+      // cairia em P0409 de novo (com `retryRef` já true → toast genérico, sem nunca
+      // corrigir nada). Por isso lemos o cache DIRETO (`getQueryData`, síncrono, já
+      // populado pelo `refetchQueries` que acabou de resolver) e fazemos o merge aqui.
       if (e?.code === "P0409" && !retryRef.current) {
         retryRef.current = true;
         savingRef.current = true;
-        await qc.invalidateQueries({ queryKey: ["oc-tecido", ocId] });
-        if (conflitosRef.current.length === 0) {
-          saveMutation.mutate(markReceived, { onSettled: () => { savingRef.current = false; retryRef.current = false; } });
-          return;
+        await qc.refetchQueries({ queryKey: ["oc-tecido", ocId] });
+        const fresh = qc.getQueryData<typeof ocQueryData>(["oc-tecido", ocId]);
+        if (fresh?.oc) {
+          const freshDraft = draftFromOc(fresh.oc);
+          const freshItems = fresh.items;
+          const base = baseRef.current ?? { draft: freshDraft, items: freshItems };
+          const md = mergeDraft({ base: base.draft, draft, fresh: freshDraft, touched: touchedRef.current });
+          const ml = mergeLinhas({ base: base.items, draft: items, fresh: freshItems, touchedIds: touchedItemIdsRef.current });
+          if (md.atualizados.length > 0 || md.conflitos.length > 0) setDraft(md.valor);
+          if (ml.atualizadas.length > 0 || ml.conflitos.length > 0) setItems(ml.linhas);
+          const todosConflitos = [...md.conflitos, ...ml.conflitos];
+          conflitosRef.current = todosConflitos;
+          setConflitos(todosConflitos);
+          setUltimoMerge({ atualizados: md.atualizados.length + ml.atualizadas.length, conflitos: todosConflitos });
+          // Avança base/rev AQUI — quando o useEffect rodar em seguida (o refetch acima
+          // também atualiza `ocQueryData`), ele vai ver base===fresh (mesmo dado) e o
+          // merge dele vira no-op: nada é reaplicado em dobro.
+          baseRef.current = { draft: freshDraft, items: freshItems };
+          revRef.current = (fresh.oc as any).rev ?? null;
+          if (todosConflitos.length === 0) {
+            saveMutation.mutate(markReceived, { onSettled: () => { savingRef.current = false; retryRef.current = false; } });
+            return;
+          }
         }
         savingRef.current = false;
         retryRef.current = false;
@@ -1099,9 +1139,6 @@ function OcDialog({
     return missing;
   };
 
-  // Guarda anti-duplo-clique: o ref é SÍNCRONO (isPending/disabled só atualizam no
-  // re-render, então num clique-duplo rápido os dois passariam — e no INSERT criariam 2 OCs).
-  const savingRef = useRef(false);
   const handleSave = () => {
     if (savingRef.current || saveMutation.isPending) return;
     savingRef.current = true;
