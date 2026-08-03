@@ -4,7 +4,7 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { X } from "lucide-react";
 
-type OcLite = { id: string; numero_pedido: string | null; tecidos: string[]; categorias?: string[]; artigos?: string[] };
+type OcLite = { id: string; numero_pedido: string | null; is_rolo?: boolean; tecidos: string[]; categorias?: string[]; artigos?: string[] };
 
 /**
  * OC (planejamento) por card, chaveado por SLOT: dropdown p/ escolher a(s) OC(s) — mostra o nº da OC
@@ -40,7 +40,7 @@ export function SlotOcHint({
     onError: (e) => toast.error(mensagemErro(e, "Não foi possível salvar a OC do card.")),
   });
 
-  const label = (oc: OcLite) => `${oc.numero_pedido || "OC s/ nº"}${oc.tecidos.length ? " — " + oc.tecidos.join(" · ") : ""}`;
+  const label = (oc: OcLite) => `${oc.is_rolo ? "Rolo " : ""}${oc.numero_pedido || (oc.is_rolo ? "s/ nº" : "OC s/ nº")}${oc.tecidos.length ? " — " + oc.tecidos.join(" · ") : ""}`;
   const byId = (id: string) => ocsAplicadas.find((o) => o.id === id);
   const add = (id: string) => { if (id && !selected.includes(id)) salvar.mutate([...selected, id]); };
   const remove = (id: string) => salvar.mutate(selected.filter((x) => x !== id));
@@ -65,7 +65,7 @@ export function SlotOcHint({
       {!slotId ? (
         <div className="text-[10px] text-muted-foreground">Salve o plano para atribuir OC a este card.</div>
       ) : ocsAplicadas.length === 0 ? (
-        <div className="text-[10px] text-muted-foreground">Nenhuma OC vinculada à coleção — use "vincular OC existente" no Resumo (ou gere pelo Fazer pedido).</div>
+        <div className="text-[10px] text-muted-foreground">Nenhuma OC/rolo vinculado à coleção — use "vincular OC / rolo" no Resumo (ou gere pelo Fazer pedido).</div>
       ) : (
         <div className="space-y-1">
           {selected.length > 0 && (
@@ -87,7 +87,7 @@ export function SlotOcHint({
             disabled={salvar.isPending || disponiveis.length === 0}
             onChange={(e) => { add(e.target.value); e.currentTarget.value = ""; }}
           >
-            <option value="">{disponiveis.length ? "Adicionar OC…" : vazioMsg}</option>
+            <option value="">{disponiveis.length ? "Adicionar OC / Rolo…" : vazioMsg}</option>
             {disponiveis.map((oc) => (<option key={oc.id} value={oc.id}>{label(oc)}</option>))}
           </select>
         </div>

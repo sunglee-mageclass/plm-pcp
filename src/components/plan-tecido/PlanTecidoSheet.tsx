@@ -358,10 +358,10 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
         supabase.from("plan_tecido_ocs" as any).select("oc_tecido_id").eq("colecao_id", colecaoId),
       ]);
       const ids = [...new Set([...(apl.data ?? []), ...(ger.data ?? [])].map((r: any) => r.oc_tecido_id as string))];
-      if (!ids.length) return [] as { id: string; numero_pedido: string | null; tecidos: string[]; categorias: string[]; artigos: string[] }[];
+      if (!ids.length) return [] as { id: string; numero_pedido: string | null; is_rolo: boolean; tecidos: string[]; categorias: string[]; artigos: string[] }[];
       const rows = (((await supabase.from("ocs_tecido" as any)
-        .select("id, numero_pedido, itens:ocs_tecido_itens(cancelado, artigo:artigo_id(id, nome, categoria_tecido_id, cats:artigo_categorias_tecido(categoria_tecido_id)), variante:variante_tecido_id(artigo:artigo_id(id, nome, categoria_tecido_id, cats:artigo_categorias_tecido(categoria_tecido_id))))")
-        .in("id", ids)).data ?? []) as unknown as { id: string; numero_pedido: string | null; itens: Item[] | null }[]);
+        .select("id, numero_pedido, is_rolo, itens:ocs_tecido_itens(cancelado, artigo:artigo_id(id, nome, categoria_tecido_id, cats:artigo_categorias_tecido(categoria_tecido_id)), variante:variante_tecido_id(artigo:artigo_id(id, nome, categoria_tecido_id, cats:artigo_categorias_tecido(categoria_tecido_id))))")
+        .in("id", ids)).data ?? []) as unknown as { id: string; numero_pedido: string | null; is_rolo: boolean | null; itens: Item[] | null }[]);
       return rows.map((oc) => {
         // ARTIGO REAL da variante vence o artigo do ITEM (que pode estar mislabeled pelo cross-artigo
         // legado) — senão a OC de Malha Tessa era catalogada como Fiore e não casava o card certo.
@@ -377,7 +377,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
           if (a.categoria_tecido_id) categorias.add(a.categoria_tecido_id);
           for (const c of a.cats ?? []) categorias.add(c.categoria_tecido_id);
         }
-        return { id: oc.id, numero_pedido: oc.numero_pedido ?? null, tecidos: [...nomes], categorias: [...categorias], artigos: [...artigos] };
+        return { id: oc.id, numero_pedido: oc.numero_pedido ?? null, is_rolo: oc.is_rolo ?? false, tecidos: [...nomes], categorias: [...categorias], artigos: [...artigos] };
       });
     },
   });
