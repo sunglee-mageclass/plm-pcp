@@ -495,6 +495,15 @@ function OcDialog({
       conflitosRef.current = next;
       return next;
     });
+    // Cosmético (QA Task 7): o banner (`ultimoMerge`) mostrava a contagem de conflitos de
+    // quando o merge rodou, sem refletir a resolução manual — o usuário resolvia um
+    // conflito e o banner continuava dizendo "N em conflito" com N desatualizado.
+    setUltimoMerge((prev) => {
+      if (!prev) return prev;
+      const conflitosRestantes = prev.conflitos.filter((x) => x.path !== c.path);
+      if (conflitosRestantes.length === 0 && prev.atualizados === 0) return null;
+      return { ...prev, conflitos: conflitosRestantes };
+    });
   };
 
   const { presentes } = useColabRegistro({
@@ -627,6 +636,20 @@ function OcDialog({
     // à toa quando o merge não alterou nada visível.
     const md = mergeDraft({ base: baseRef.current.draft, draft, fresh: freshDraft, touched: touchedRef.current });
     const ml = mergeLinhas({ base: baseRef.current.items, draft: items, fresh: freshItems, touchedIds: touchedItemIdsRef.current });
+    const semResultado =
+      md.atualizados.length === 0 && md.conflitos.length === 0 &&
+      ml.atualizadas.length === 0 && ml.conflitos.length === 0;
+    if (semResultado) {
+      // Merge NO-OP (inclui o refetch que o onError do save P0409 já processou na mão,
+      // logo abaixo — `baseRef` já bate com `fresh`): NÃO tocar em NENHUM state
+      // (draft/items/conflitos/ultimoMerge). Conflitos já sinalizados na tela só podem
+      // sumir por: resolução manual, um merge com resultado de verdade, o seed (1ª carga)
+      // ou um save OK — nunca por um refetch que não achou nada de novo. Sem esse guard,
+      // este efeito rodando LOGO APÓS o onError apagava em silêncio o conflito que o
+      // onError acabou de detectar (achado do QA da Task 7).
+      baseRef.current = { draft: freshDraft, items: freshItems };
+      return;
+    }
     if (md.atualizados.length > 0 || md.conflitos.length > 0) setDraft(md.valor);
     if (ml.atualizadas.length > 0 || ml.conflitos.length > 0) setItems(ml.linhas);
     const todosConflitos = [...md.conflitos, ...ml.conflitos];
@@ -800,6 +823,15 @@ function OcDialog({
 
   const saveMutation = useMutation({
     mutationFn: async (markReceived: boolean) => {
+      // Colab (spec 2026-08-03, achado QA Task 7): com conflitos pendentes na tela, o save
+      // NÃO pode passar — mesmo que `_rev_base` já esteja atualizado (o `onError` do P0409
+      // avança `revRef` pra qualquer resultado de merge, inclusive quando sobra conflito, pra
+      // manter `_rev_base` sempre correto no PRÓXIMO save). Sem este guard, um 2º clique em
+      // "Salvar" com o conflito ainda destacado passaria a trava otimista (rev já bate) e
+      // sobrescreveria a versão da outra pessoa em silêncio — o usuário tem que resolver
+      // ("manter meu"/"usar o novo") em cada campo destacado antes de salvar de novo.
+      if (conflitosRef.current.length > 0)
+        throw new Error("Resolva os campos em conflito (destacados em âmbar) antes de salvar.");
       if (!draft.data_prevista_entrega) throw new Error("Informe a Data Prevista de Entrega.");
       if (!draft.prazo_pagamento?.trim()) throw new Error("Informe o Prazo de Pagamento.");
       const selecionados = items.filter((i) => i.variante_tecido_id && i.artigo_id);
