@@ -44,4 +44,34 @@ describe.skipIf(!hasDb)("colab — trava otimista (P0409)", () => {
       ).rejects.toMatchObject({ code: "P0409" });
     });
   });
+
+  // Fix round da revisão (item 1, IMPORTANT): o insert/upsert em plan_tecido (topo do
+  // _salvar_plan_tecido_core) já dispara trg_colab_bump (Task 1) → 1 bump em plan_rev.
+  // A linha extra de bump manual que a Task 2 tinha adicionado no fim da função somava um
+  // 2º bump (1→3 em vez de 1→2 por chamada) — removida na migração de ajuste.
+  it("salvar_plan_tecido: plan_rev incrementa em EXATAMENTE +1 por chamada (sem bump duplo)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const col = await um<{ id: string; plan_rev: number }>(
+        c, `insert into colecoes (tenant_id, nome) values ($1,'TRAVA DELTA') returning id, plan_rev`, [TENANT_TESTE]);
+      await um(c, `select salvar_plan_tecido($1,'{}'::jsonb)`, [col.id]);
+      const r = await um<{ plan_rev: number }>(c, `select plan_rev from colecoes where id=$1`, [col.id]);
+      expect(r.plan_rev).toBe(col.plan_rev + 1);
+    });
+  });
+
+  // Fix round da revisão (item 2, Minor de segurança): a trava não pode vazar sinal de
+  // existência de registro que o usuário não pode ver (outro tenant OU inexistente) — os
+  // dois casos devem se comportar IGUAL: v_rev fica NULL → P0409 uniforme quando _rev_base
+  // não é nulo. Aqui cobrimos o caso "inexistente" (uuid aleatório, não pertence a ninguém).
+  it("salvar_oc_tecido: uuid inexistente + _rev_base não-nulo → P0409 (trava uniforme, sem sinal de existência)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await c.query("SAVEPOINT sp1");
+      await expect(
+        um(c, `select salvar_oc_tecido(gen_random_uuid(), '{}'::jsonb, '[]'::jsonb, $1)`, [1]),
+      ).rejects.toMatchObject({ code: "P0409" });
+      await c.query("ROLLBACK TO SAVEPOINT sp1");
+    });
+  });
 });
