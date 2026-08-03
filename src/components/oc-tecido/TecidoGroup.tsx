@@ -5,11 +5,14 @@ import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 import { artigoLabel, unidadeSufixo } from "@/lib/artigo-label";
 import { labelVariante, type Artigo, type ItemDraft, type Variante } from "./shared";
+import type { Conflito } from "@/lib/colab/merge";
 
 export function TecidoGroup({
   n, artigos, artigoId, onArtigoChange, variantes, items, toggleVariante, setQtd, setPreco, setPrecoAll, setRendimento, varianteMap,
+  conflitoLinha, onResolverConflito,
 }: {
   n: 1 | 2;
   artigos: Artigo[];
@@ -23,6 +26,11 @@ export function TecidoGroup({
   setPrecoAll: (v: number | null) => void;
   setRendimento: (v: number | null) => void;
   varianteMap: Record<string, Variante>;
+  // Colab (spec 2026-08-03): realce da linha quando o item foi editado por outra
+  // pessoa em paralelo (conflito de merge 3-vias, path `linha:{id}`). Opcional —
+  // itens sem `id` (ainda não salvos) nunca entram em conflito.
+  conflitoLinha?: (id: string | undefined) => Conflito | undefined;
+  onResolverConflito?: (c: Conflito, useDele: boolean) => void;
 }) {
   const selectedIds = new Set(items.map((i) => i.variante_tecido_id));
   const artigoAtual = artigos.find((a) => a.id === artigoId) ?? null;
@@ -111,28 +119,39 @@ export function TecidoGroup({
               </div>
               {items.map((i) => {
                 const v = varianteMap[i.variante_tecido_id];
+                const conflito = conflitoLinha?.(i.id);
                 return (
-                  <div key={i.tempId} className="flex items-center gap-3">
-                    <span className="text-sm flex-1">
-                      {labelVariante(v)}
-                    </span>
-                    <div className="relative w-32">
-                      <NumberInput type="number" step="0.01" placeholder="0" className={sufixo ? "pr-10" : ""}
-                        value={i.quantidade_pedida || undefined}
-                        onChange={(e) => setQtd(i.tempId, "quantidade_pedida", Number(e.target.value))} />
-                      {sufixo && (
-                        <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-                          {sufixo}
-                        </span>
-                      )}
+                  <div key={i.tempId} className={cn("space-y-1 rounded-md", conflito && "ring-1 ring-amber-500 p-1.5")}>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm flex-1">
+                        {labelVariante(v)}
+                      </span>
+                      <div className="relative w-32">
+                        <NumberInput type="number" step="0.01" placeholder="0" className={sufixo ? "pr-10" : ""}
+                          value={i.quantidade_pedida || undefined}
+                          onChange={(e) => setQtd(i.tempId, "quantidade_pedida", Number(e.target.value))} />
+                        {sufixo && (
+                          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                            {sufixo}
+                          </span>
+                        )}
+                      </div>
+                      {/* Fase A: preço desta compra (default = preço atual da variante; editável). */}
+                      <div className="relative w-28">
+                        <NumberInput type="number" step="0.01" placeholder="0,00" className="pl-7"
+                          value={i.preco ?? undefined}
+                          onChange={(e) => setPreco(i.tempId, e.target.value === "" ? null : Number(e.target.value))} />
+                        <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">R$</span>
+                      </div>
                     </div>
-                    {/* Fase A: preço desta compra (default = preço atual da variante; editável). */}
-                    <div className="relative w-28">
-                      <NumberInput type="number" step="0.01" placeholder="0,00" className="pl-7"
-                        value={i.preco ?? undefined}
-                        onChange={(e) => setPreco(i.tempId, e.target.value === "" ? null : Number(e.target.value))} />
-                      <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">R$</span>
-                    </div>
+                    {conflito && (
+                      <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
+                        <span>Esta variante foi editada por outra pessoa.</span>
+                        <button type="button" className="underline underline-offset-2" onClick={() => onResolverConflito?.(conflito, false)}>manter meu</button>
+                        <span aria-hidden>·</span>
+                        <button type="button" className="underline underline-offset-2" onClick={() => onResolverConflito?.(conflito, true)}>usar o novo</button>
+                      </div>
+                    )}
                   </div>
                 );
               })}

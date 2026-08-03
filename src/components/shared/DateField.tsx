@@ -27,6 +27,11 @@ export type DateFieldProps = {
   required?: boolean;
   className?: string;
   "aria-label"?: string;
+  // Colab (spec 2026-08-03): presença/conflito por campo lê `dataset.colabPath` de
+  // `e.target` no foco — precisa estar no <input> real (foco não pousa no wrapper).
+  "data-colab-path"?: string;
+  title?: string;
+  inputClassName?: string;
 };
 
 const isoToDate = (iso: string): Date | undefined => {
@@ -68,6 +73,9 @@ export function DateField({
   required,
   className,
   "aria-label": ariaLabel,
+  "data-colab-path": dataColabPath,
+  title,
+  inputClassName,
 }: DateFieldProps) {
   const [text, setText] = useState(() => isoToBr(value));
   const [open, setOpen] = useState(false);
@@ -111,9 +119,11 @@ export function DateField({
         readOnly={readOnly}
         required={required}
         aria-label={ariaLabel}
+        data-colab-path={dataColabPath}
+        title={title}
         onChange={(e) => onText(e.target.value)}
         onBlur={onBlurInternal}
-        className="h-full w-full pr-9"
+        className={cn("h-full w-full pr-9", inputClassName)}
       />
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>

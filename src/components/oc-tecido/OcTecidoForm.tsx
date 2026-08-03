@@ -6,11 +6,35 @@ import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import { FileField } from "./FileField";
 import { TecidoGroup } from "./TecidoGroup";
 import { FornecedorSelect } from "@/components/shared/FornecedorSelect";
 import { ResponsavelSelect } from "@/components/shared/ResponsavelSelect";
 import type { Artigo, Draft, Empresa, ItemDraft, ParcelaRecebimento, Variante } from "./shared";
+import type { Conflito } from "@/lib/colab/merge";
+
+// Colab (spec 2026-08-03) — piloto na OC de Tecido: presença/conflito por campo do
+// CABEÇALHO (numero_pedido/datas/prazo) + realce da LINHA de item em conflito.
+export type ColabHeaderProps = {
+  emConflito: (path: string) => boolean;
+  conflitoDe: (path: string) => Conflito | undefined;
+  focadoPor: (path: string) => string | undefined;
+  onResolverConflito: (c: Conflito, useDele: boolean) => void;
+  conflitoLinha: (id: string | undefined) => Conflito | undefined;
+};
+
+/** Pequeno aviso inline "editado por outra pessoa" com as 2 ações de resolução. */
+function ConflitoAviso({ conflito, onResolver }: { conflito: Conflito; onResolver: (useDele: boolean) => void }) {
+  return (
+    <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
+      <span>Editado por outra pessoa.</span>
+      <button type="button" className="underline underline-offset-2" onClick={() => onResolver(false)}>manter meu</button>
+      <span aria-hidden>·</span>
+      <button type="button" className="underline underline-offset-2" onClick={() => onResolver(true)}>usar o novo</button>
+    </div>
+  );
+}
 
 export function OcTecidoForm({
   draft, setDraft,
@@ -19,6 +43,7 @@ export function OcTecidoForm({
   itemsBy, artigoIdFor, setArtigo, toggleVariante, setQtd, setPreco, setPrecoAll, setRendimento,
   tecido2Aberto, setTecido2Aberto, removeTecido2,
   handleSingleUpload,
+  colab,
 }: {
   draft: Draft;
   setDraft: React.Dispatch<React.SetStateAction<Draft>>;
@@ -38,13 +63,38 @@ export function OcTecidoForm({
   setTecido2Aberto: (v: boolean) => void;
   removeTecido2: () => void;
   handleSingleUpload: (file: File, key: keyof Draft) => void;
+  colab: ColabHeaderProps;
 }) {
+  // Um por campo instrumentado: ring âmbar (conflito) OU sky (alguém focado ali agora).
+  const campo = (path: string) => {
+    const conflito = colab.emConflito(path) ? colab.conflitoDe(path) : undefined;
+    const nome = colab.focadoPor(path);
+    return {
+      "data-colab-path": path,
+      title: nome ? `${nome} está neste campo` : undefined,
+      className: cn(conflito ? "ring-1 ring-amber-500" : nome ? "ring-1 ring-sky-400" : undefined),
+      conflito,
+    };
+  };
+  const cNumero = campo("numero_pedido");
+  const cPrazo = campo("prazo_pagamento");
+  const cDataPedido = campo("data_pedido");
+  const cDataEntrega = campo("data_prevista_entrega");
   return (
     <>
       <div className="grid sm:grid-cols-2 gap-4">
         <div className="grid gap-1">
           <Label>Número do Pedido</Label>
-          <Input value={draft.numero_pedido} onChange={(e) => setDraft((d) => ({ ...d, numero_pedido: e.target.value }))} />
+          <Input
+            value={draft.numero_pedido}
+            onChange={(e) => setDraft((d) => ({ ...d, numero_pedido: e.target.value }))}
+            data-colab-path={cNumero["data-colab-path"]}
+            title={cNumero.title}
+            className={cNumero.className}
+          />
+          {cNumero.conflito && (
+            <ConflitoAviso conflito={cNumero.conflito} onResolver={(useDele) => colab.onResolverConflito(cNumero.conflito!, useDele)} />
+          )}
         </div>
         <div className="grid gap-1">
           <Label>Fornecedor</Label>
@@ -73,16 +123,41 @@ export function OcTecidoForm({
             const parts = v.split(/[\/,-\s]+/).filter((p) => p.trim() !== "" && !isNaN(Number(p)));
             const qtd = parts.length > 0 ? Math.max(1, Math.min(6, parts.length)) : 1;
             setDraft((d) => ({ ...d, prazo_pagamento: v, quantidade_prazos: qtd }));
-          }} placeholder="Ex: 30/60/90" />
+          }} placeholder="Ex: 30/60/90"
+            data-colab-path={cPrazo["data-colab-path"]}
+            title={cPrazo.title}
+            className={cPrazo.className}
+          />
+          {cPrazo.conflito && (
+            <ConflitoAviso conflito={cPrazo.conflito} onResolver={(useDele) => colab.onResolverConflito(cPrazo.conflito!, useDele)} />
+          )}
         </div>
 
         <div className="grid gap-1">
           <Label>Data do Pedido</Label>
-          <DateField value={draft.data_pedido} onChange={(e) => setDraft((d) => ({ ...d, data_pedido: e.target.value }))} />
+          <DateField
+            value={draft.data_pedido}
+            onChange={(e) => setDraft((d) => ({ ...d, data_pedido: e.target.value }))}
+            data-colab-path={cDataPedido["data-colab-path"]}
+            title={cDataPedido.title}
+            inputClassName={cDataPedido.className}
+          />
+          {cDataPedido.conflito && (
+            <ConflitoAviso conflito={cDataPedido.conflito} onResolver={(useDele) => colab.onResolverConflito(cDataPedido.conflito!, useDele)} />
+          )}
         </div>
         <div className="grid gap-1">
           <Label>Data Prevista de Entrega *</Label>
-          <DateField value={draft.data_prevista_entrega} onChange={(e) => setDraft((d) => ({ ...d, data_prevista_entrega: e.target.value }))} />
+          <DateField
+            value={draft.data_prevista_entrega}
+            onChange={(e) => setDraft((d) => ({ ...d, data_prevista_entrega: e.target.value }))}
+            data-colab-path={cDataEntrega["data-colab-path"]}
+            title={cDataEntrega.title}
+            inputClassName={cDataEntrega.className}
+          />
+          {cDataEntrega.conflito && (
+            <ConflitoAviso conflito={cDataEntrega.conflito} onResolver={(useDele) => colab.onResolverConflito(cDataEntrega.conflito!, useDele)} />
+          )}
         </div>
 
         <div className="grid gap-1">
@@ -131,6 +206,8 @@ export function OcTecidoForm({
             setPrecoAll={(v) => setPrecoAll(1, v)}
             setRendimento={(v) => setRendimento(1, v)}
             varianteMap={varianteMap}
+            conflitoLinha={colab.conflitoLinha}
+            onResolverConflito={colab.onResolverConflito}
           />
 
           {!tecido2Aberto ? (
@@ -152,6 +229,8 @@ export function OcTecidoForm({
                 setPrecoAll={(v) => setPrecoAll(2, v)}
                 setRendimento={(v) => setRendimento(2, v)}
                 varianteMap={varianteMap}
+                conflitoLinha={colab.conflitoLinha}
+                onResolverConflito={colab.onResolverConflito}
               />
               <Button variant="ghost" size="sm" onClick={removeTecido2}>
                 <Trash2 className="h-4 w-4 mr-1" /> Remover Tecido 2
