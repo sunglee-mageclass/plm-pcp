@@ -438,6 +438,18 @@ function OcDialog({
   const conflitosRef = useRef<Conflito[]>([]);
   const [campoFocado, setCampoFocado] = useState<string | null>(null);
 
+  // Espelhos SEMPRE atualizados (toda render) de `draft`/`items` — o merge dentro do
+  // `onError` do save (P0409, abaixo) roda depois de um `await` (janela de ~100-500ms em
+  // que os campos NÃO ficam disabled). Se o merge lesse `draft`/`items` da closure do
+  // clique em Salvar, uma tecla digitada durante essa janela entraria no state React mas
+  // seria descartada em silêncio pelo `setDraft(md.valor)` estático — exatamente o que o
+  // merge 3-vias deveria impedir. Ler o ref IMEDIATAMENTE antes do merge (bloco síncrono,
+  // sem `await` no meio) garante que nenhuma tecla se perde.
+  const draftLiveRef = useRef(draft);
+  draftLiveRef.current = draft;
+  const itemsLiveRef = useRef(items);
+  itemsLiveRef.current = items;
+
   // Wrappers que DIFEREM prev→next e marcam o que mudou — os filhos continuam recebendo
   // a mesma assinatura (`typeof setDraft`/`typeof setItems`), zero mudança neles.
   const setDraftTracked: typeof setDraft = (upd) =>
@@ -963,6 +975,13 @@ function OcDialog({
       // cairia em P0409 de novo (com `retryRef` já true → toast genérico, sem nunca
       // corrigir nada). Por isso lemos o cache DIRETO (`getQueryData`, síncrono, já
       // populado pelo `refetchQueries` que acabou de resolver) e fazemos o merge aqui.
+      //
+      // IMPORTANTE #2: `draft`/`items` (o `draft`/`items` da closure, capturados na render
+      // do clique em Salvar) NÃO servem de entrada pro merge — o `await` acima abre uma
+      // janela em que o usuário pode continuar digitando (campos não ficam disabled); essa
+      // tecla entra no state React mas não na closure velha. Por isso lemos
+      // `draftLiveRef.current`/`itemsLiveRef.current` (espelhos atualizados TODA render, ver
+      // acima) bem aqui, no bloco síncrono logo após o `await` — nenhuma tecla se perde.
       if (e?.code === "P0409" && !retryRef.current) {
         retryRef.current = true;
         savingRef.current = true;
@@ -971,9 +990,11 @@ function OcDialog({
         if (fresh?.oc) {
           const freshDraft = draftFromOc(fresh.oc);
           const freshItems = fresh.items;
+          const liveDraft = draftLiveRef.current;
+          const liveItems = itemsLiveRef.current;
           const base = baseRef.current ?? { draft: freshDraft, items: freshItems };
-          const md = mergeDraft({ base: base.draft, draft, fresh: freshDraft, touched: touchedRef.current });
-          const ml = mergeLinhas({ base: base.items, draft: items, fresh: freshItems, touchedIds: touchedItemIdsRef.current });
+          const md = mergeDraft({ base: base.draft, draft: liveDraft, fresh: freshDraft, touched: touchedRef.current });
+          const ml = mergeLinhas({ base: base.items, draft: liveItems, fresh: freshItems, touchedIds: touchedItemIdsRef.current });
           if (md.atualizados.length > 0 || md.conflitos.length > 0) setDraft(md.valor);
           if (ml.atualizadas.length > 0 || ml.conflitos.length > 0) setItems(ml.linhas);
           const todosConflitos = [...md.conflitos, ...ml.conflitos];
