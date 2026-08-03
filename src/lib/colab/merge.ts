@@ -55,36 +55,19 @@ export function mergeLinhas<R extends LinhaId>(o: {
 }
 
 function igual(a: unknown, b: unknown): boolean {
-  // Deep-equal recursivo, insensível à ordem de chaves de objetos.
-  // null e undefined são EQUIVALENTES (semântica do stringify original).
-  // NaN ≈ NaN, +0 ≈ -0 (Object.is semântica negada — invertendo ¬Object.is).
-
-  const normaliza = (x: unknown): unknown => x ?? null; // undefined → null
-  a = normaliza(a);
-  b = normaliza(b);
-
-  // Primitivos: Number, Boolean, String, null
-  if (typeof a === 'number' && typeof b === 'number') {
-    // NaN ≈ NaN; +0 ≈ -0 (usar ! de Object.is)
-    return (isNaN(a) && isNaN(b)) || !Object.is(a, b) === false;
+  // null e undefined são EQUIVALENTES entre si (semântica anterior preservada)
+  if (a == null || b == null) return a == null && b == null;
+  if (a === b) return true; // inclui +0 === -0
+  if (typeof a === "number" && typeof b === "number") return Number.isNaN(a) && Number.isNaN(b);
+  if (typeof a !== "object" || typeof b !== "object") return false;
+  const aArr = Array.isArray(a), bArr = Array.isArray(b);
+  if (aArr !== bArr) return false; // array vs objeto = DIFERENTE
+  if (aArr) {
+    const A = a as unknown[], B = b as unknown[];
+    return A.length === B.length && A.every((v, i) => igual(v, B[i]));
   }
-  if (typeof a !== typeof b) return false;
-  if (a === b) return true; // Boolean, String, null (Object.is behavior)
-
-  // Arrays: mesmo length, cada índice igual recursivamente
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) return false;
-    return a.every((av, i) => igual(av, b[i]));
-  }
-
-  // Objetos: mesmo conjunto de chaves, valores iguais recursivamente
-  if (typeof a === 'object' && typeof b === 'object') {
-    const keysA = Object.keys(a as Record<string, unknown>).sort();
-    const keysB = Object.keys(b as Record<string, unknown>).sort();
-    if (keysA.length !== keysB.length) return false;
-    if (!keysA.every((k, i) => k === keysB[i])) return false;
-    return keysA.every((k) => igual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
-  }
-
-  return false;
+  // objetos: UNIÃO de chaves (chave ausente ≈ undefined ≈ null), ordem irrelevante
+  const keys = new Set([...Object.keys(a as object), ...Object.keys(b as object)]);
+  for (const k of keys) if (!igual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k])) return false;
+  return true;
 }

@@ -48,6 +48,47 @@ describe("mergeDraft (escalar)", () => {
     expect(r.valor.a).toBe(42);
     expect(r.atualizados).toEqual(["a"]);
   });
+  it("campo não tocado null→array no fresh NÃO lança e atualiza", () => {
+    const r = mergeDraft({
+      base: { a: null, b: "x", c: null },
+      draft: { a: null, b: "x", c: null },
+      fresh: { a: [1, 2, 3], b: "x", c: null },
+      touched: new Set()
+    });
+    expect(r.valor.a).toEqual([1, 2, 3]);
+    expect(r.atualizados).toEqual(["a"]);
+    expect(r.conflitos).toEqual([]);
+  });
+  it("0 vs -0 em campo tocado → sem conflito", () => {
+    const r = mergeDraft({
+      base: { a: 0, b: "x", c: null },
+      draft: { a: -0, b: "x", c: null },
+      fresh: { a: 0, b: "x", c: null },
+      touched: new Set(["a"])
+    });
+    expect(r.valor.a).toBe(-0);
+    expect(r.conflitos).toEqual([]);
+  });
+  it("{a:undefined} vs {} em campo jsonb tocado → sem conflito", () => {
+    const r = mergeDraft({
+      base: { obj: { a: undefined }, b: "x", c: null },
+      draft: { obj: { a: undefined }, b: "x", c: null },
+      fresh: { obj: {}, b: "x", c: null },
+      touched: new Set(["obj"])
+    });
+    expect(r.conflitos).toEqual([]);
+    expect(r.valor.obj).toEqual({ a: undefined }); // mantém o meu
+  });
+  it("objeto vs array em campo não tocado → ATUALIZA (são diferentes)", () => {
+    const r = mergeDraft({
+      base: { data: { 0: 1, 1: 2 }, b: "x", c: null },
+      draft: { data: { 0: 1, 1: 2 }, b: "x", c: null },
+      fresh: { data: [1, 2], b: "x", c: null },
+      touched: new Set()
+    });
+    expect(r.valor.data).toEqual([1, 2]); // fresh venceu, são diferentes
+    expect(r.atualizados).toEqual(["data"]);
+  });
 });
 
 describe("mergeLinhas (coleções por id)", () => {
@@ -87,5 +128,16 @@ describe("mergeLinhas (coleções por id)", () => {
     expect(r.linhas[0]).toEqual(L("1", 5)); // primeira ocorrência
     expect(r.conflitos).toHaveLength(1);
     expect(r.conflitos[0].path).toBe("linha:1");
+  });
+  it("linha em draft+fresh AUSENTE do base (tocada) NÃO lança e conflita", () => {
+    const r = mergeLinhas({
+      base: [],
+      draft: [L("1", 5)],
+      fresh: [L("1", 9)],
+      touchedIds: new Set(["1"])
+    });
+    expect(r.linhas).toEqual([L("1", 5)]); // mantém minha
+    expect(r.conflitos).toHaveLength(1); // há conflito (servidor mandou diferente)
+    expect(r.conflitos[0]).toMatchObject({ path: "linha:1" });
   });
 });
