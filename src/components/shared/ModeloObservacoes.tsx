@@ -1,3 +1,4 @@
+import { useEffect, useRef, type ComponentProps } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -8,7 +9,25 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { corApelidoLabel } from "@/lib/variante";
+
+// Textarea que CRESCE para caber todo o texto (sem rolagem interna) — pedido do dono p/ desktop.
+// Fonte 16px no telefone (evita o zoom do iOS ao focar) e 13px a partir de sm (desktop).
+function AutoTextarea({ className, onInput, ...props }: ComponentProps<typeof Textarea>) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const fit = (el: HTMLTextAreaElement | null) => { if (el) { el.style.height = "auto"; el.style.height = `${el.scrollHeight}px`; } };
+  useEffect(() => { fit(ref.current); }, []);
+  return (
+    <Textarea
+      ref={ref}
+      rows={2}
+      className={cn("resize-none overflow-hidden text-base sm:text-[13px] leading-snug", className)}
+      onInput={(e) => { fit(e.currentTarget); onInput?.(e); }}
+      {...props}
+    />
+  );
+}
 
 type Obs = { id: string; ordem: number | null; descricao: string | null; observacao: string | null };
 type BlocoComp = { label: string; composicao: string; variantes: string[] };
@@ -105,7 +124,7 @@ export function ModeloObservacoes({ modeloId, readOnly = false }: { modeloId: st
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-2">
-        <CardTitle className="text-base">Observações</CardTitle>
+        <CardTitle className="text-base max-sm:text-sm">Observações</CardTitle>
         {!readOnly && (
           <Button size="sm" variant="outline" onClick={() => addMut.mutate()} disabled={addMut.isPending}>
             <Plus className="h-4 w-4 mr-1" /> Adicionar
@@ -130,7 +149,7 @@ export function ModeloObservacoes({ modeloId, readOnly = false }: { modeloId: st
                     {b.composicao ? ` ${b.composicao}` : ""}
                   </div>
                   {b.variantes.map((v, j) => (
-                    <div key={j} className="text-xs text-muted-foreground pl-2">{v}</div>
+                    <div key={j} className="text-[11px] text-muted-foreground pl-2">{v}</div>
                   ))}
                 </div>
               ))
@@ -142,25 +161,36 @@ export function ModeloObservacoes({ modeloId, readOnly = false }: { modeloId: st
           <div className="text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin inline mr-2" /> Carregando…</div>
         ) : (
           obs.map((o) => (
-            <div key={o.id} className="grid gap-2 sm:grid-cols-[200px_1fr_auto] items-start">
-              <Input
-                defaultValue={o.descricao ?? ""}
-                placeholder="Descrição"
-                readOnly={readOnly}
-                onBlur={(e) => { if (e.target.value !== (o.descricao ?? "")) updMut.mutate({ id: o.id, patch: { descricao: e.target.value } }); }}
-              />
-              <Textarea
-                defaultValue={o.observacao ?? ""}
-                placeholder="Observação"
-                rows={2}
-                readOnly={readOnly}
-                onBlur={(e) => { if (e.target.value !== (o.observacao ?? "")) updMut.mutate({ id: o.id, patch: { observacao: e.target.value } }); }}
-              />
-              {!readOnly && (
-                <Button size="icon" variant="ghost" onClick={() => delMut.mutate(o.id)} aria-label="Remover observação">
-                  <Trash2 className="h-4 w-4 text-destructive" />
-                </Button>
-              )}
+            // Cada observação num card: separa visualmente (leitura no mobile) + rótulos p/ o
+            // campo empilhado não ficar ambíguo quando preenchido. Descrição 200px no desktop.
+            <div key={o.id} className="rounded-md border bg-muted/20 p-2.5">
+              <div className="grid gap-2 sm:grid-cols-[200px_1fr] sm:items-start">
+                <div className="min-w-0">
+                  <span className="mb-1 block text-[11px] text-muted-foreground">Descrição</span>
+                  <Input
+                    defaultValue={o.descricao ?? ""}
+                    placeholder="Descrição"
+                    readOnly={readOnly}
+                    onBlur={(e) => { if (e.target.value !== (o.descricao ?? "")) updMut.mutate({ id: o.id, patch: { descricao: e.target.value } }); }}
+                  />
+                </div>
+                <div className="min-w-0">
+                  <div className="mb-1 flex items-center gap-2">
+                    <span className="text-[11px] text-muted-foreground">Observação</span>
+                    {!readOnly && (
+                      <Button size="icon" variant="ghost" className="ml-auto h-7 w-7 shrink-0" onClick={() => delMut.mutate(o.id)} aria-label="Remover observação">
+                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                      </Button>
+                    )}
+                  </div>
+                  <AutoTextarea
+                    defaultValue={o.observacao ?? ""}
+                    placeholder="Observação"
+                    readOnly={readOnly}
+                    onBlur={(e) => { if (e.target.value !== (o.observacao ?? "")) updMut.mutate({ id: o.id, patch: { observacao: e.target.value } }); }}
+                  />
+                </div>
+              </div>
             </div>
           ))
         )}

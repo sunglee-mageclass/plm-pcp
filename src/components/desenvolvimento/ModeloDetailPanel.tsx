@@ -22,6 +22,8 @@ import {
 
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { STATUS_DESENV_OPTS } from "./modelo-detail/types";
 import { Button } from "@/components/ui/button";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
@@ -1104,6 +1106,12 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     );
   };
 
+  // Status no fluxo — barra persistente acima do accordion (mockup): é o controle que porteia o
+  // kanban; sempre visível, não enterrado numa seção colapsável. Move o Select que ficava na §1.
+  const statusList = statusOptions.length > 0 ? statusOptions : STATUS_DESENV_OPTS;
+  const statusCur = draft?.status_desenvolvimento ?? "";
+  const statusRenderList = statusList.some((s) => s.value === statusCur) || !statusCur ? statusList : [...statusList, { value: statusCur, label: statusCur }];
+
   // Re-baseline o guarda de alterações quando o estado semeado ASSENTA. A dificuldade: a
   // semeadura acontece em VÁRIOS efeitos (draft, blocks, aviamentos, grades, cadTecidos) e a
   // sincronização de rótulos (blockVariantesInfo → cadTecidosState) só normaliza o estado
@@ -1878,6 +1886,36 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
 
       {/* área rolável (flex-1) — o footer fica fixo embaixo como irmão shrink-0 */}
       <div className="mt-4 flex-1 min-h-0 overflow-y-auto">
+        {/* Status no fluxo — barra persistente acima do accordion (mockup); porteia o kanban. */}
+        <fieldset disabled={locked} className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border bg-muted/30 px-3 py-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Status no fluxo</span>
+          <Select
+            value={statusCur}
+            onValueChange={(v) => {
+              // Motor de regras: só muda de status se os requisitos (estado SALVO) batem.
+              if (v !== statusCur) {
+                const chk = podeEntrarStatus(v);
+                if (!chk.ok) { toast.error(`Salve as pendências primeiro. Faltam: ${chk.faltando.map((c) => c.label).join(", ")}`); return; }
+              }
+              setDraft({ ...draft, status_desenvolvimento: v });
+            }}
+          >
+            <SelectTrigger className="h-9 w-full max-w-[240px] bg-card"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {statusRenderList.map((s) => {
+                // Destino bloqueado: mostra o que falta e esmaece, mas segue clicável (toast explica).
+                const chk = s.value !== statusCur ? podeEntrarStatus(s.value) : undefined;
+                const faltando = chk && !chk.ok ? chk.faltando : [];
+                return (
+                  <SelectItem key={s.value} value={s.value} className={faltando.length ? "text-muted-foreground" : ""}>
+                    {s.label}
+                    {faltando.length > 0 && <span className="text-xs opacity-70"> · falta {faltando.map((c) => c.label).join(", ")}</span>}
+                  </SelectItem>
+                );
+              })}
+            </SelectContent>
+          </Select>
+        </fieldset>
         <Accordion type="multiple" value={accOpen} onValueChange={setAccOpen}>
           <AccordionItem value="s1" data-acc="s1">
             <AccordionTrigger>

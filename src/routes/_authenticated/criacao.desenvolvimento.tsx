@@ -324,6 +324,7 @@ function DesenvolvimentoPage() {
       categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
       onOpen={() => setOpenId(m.id)}
       draggable={editable}
+      dragging={draggingId === m.id}
       onDragStartCard={() => setDraggingId(m.id)}
       onDragEndCard={() => setDraggingId(null)}
     />
@@ -546,15 +547,23 @@ function DesenvolvimentoPage() {
           const cards = byStatus.get(s.key) ?? [];
           const isOver = dragOver === s.key;
           const isCollapsed = collapsed.has(s.key);
-          // Arrastando: bloqueia colunas onde o card NÃO pode entrar (regras não batem) e mostra
-          // O QUE falta (antes só esmaecia, sem o porquê — laudo).
+          // Feedback de arraste (laudo das 3 lentes): ao arrastar, TODO destino válido acende
+          // (não só quando há regra bloqueando); a coluna de ORIGEM fica neutra; o destino
+          // bloqueado esmaece + diz o que falta. Usa o status EFETIVO (status null cai na 1ª coluna).
           const dragModel = draggingId ? modelos.find((m) => m.id === draggingId) : null;
-          const bloqueio = !!draggingId && dragModel?.status_desenvolvimento !== s.key ? podeEntrar(draggingId!, s.key).faltando : [];
-          const esmaecido = !!draggingId && dragModel?.status_desenvolvimento !== s.key && bloqueio.length > 0;
+          const dragEff = dragModel ? (dragModel.status_desenvolvimento && statusKeySet.has(dragModel.status_desenvolvimento) ? dragModel.status_desenvolvimento : firstStatusKey) : null;
+          const isSelf = !!draggingId && dragEff === s.key;
+          const bloqueio = !!draggingId && !isSelf ? podeEntrar(draggingId!, s.key).faltando : [];
+          const blocked = bloqueio.length > 0;
+          const canDrop = !!draggingId && !isSelf && !blocked;
           return (
             <div
               key={s.key}
-              className={`shrink-0 rounded-lg border bg-muted/30 flex flex-col max-h-[calc(100vh-260px)] transition-colors ${isCollapsed ? "" : "w-80"} ${isOver ? "ring-2 ring-primary" : ""} ${esmaecido ? "border-dashed border-destructive/50 pointer-events-none" : ""}`}
+              className={`shrink-0 rounded-lg flex flex-col max-h-[calc(100vh-260px)] transition-colors ${isCollapsed ? "" : "w-80"} ${
+                blocked ? "border border-dashed border-destructive/50 bg-destructive/5 pointer-events-none"
+                : canDrop ? "border-2 border-dashed border-primary/60 bg-primary/10"
+                : "border bg-muted/30"
+              } ${isOver && !isSelf ? "ring-2 ring-primary" : ""}`}
               onDragOver={(e) => { e.preventDefault(); setDragOver(s.key); }}
               onDragLeave={() => setDragOver((cur) => (cur === s.key ? null : cur))}
               onDrop={(e) => handleDrop(s.key, e)}
@@ -587,13 +596,19 @@ function DesenvolvimentoPage() {
                     <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60 rotate-90" />
                   </button>
                   {/* Bloqueio no arraste: diz O QUE falta (não fica só apagado) */}
-                  {esmaecido && (
+                  {blocked && (
                     <div className="px-3 py-1.5 border-b border-dashed border-destructive/40 text-[11px] leading-snug text-destructive">
                       <span className="font-semibold">Não pode entrar aqui.</span> Faltam: {bloqueio.map((c) => c.label).join(" · ")}
                     </div>
                   )}
+                  {/* Destino válido em foco: convite positivo (espelho da faixa de bloqueio). */}
+                  {canDrop && isOver && (
+                    <div className="px-3 py-1.5 border-b border-dashed border-primary/40 text-[11px] leading-snug text-primary">
+                      Solte aqui para mover
+                    </div>
+                  )}
                   {/* Cards empilhados */}
-                  <div className={`flex-1 min-w-0 p-2 space-y-2 overflow-y-auto transition-opacity ${esmaecido ? "opacity-40" : ""}`}>
+                  <div className={`flex-1 min-w-0 p-2 space-y-2 overflow-y-auto transition-opacity ${blocked ? "opacity-40" : ""}`}>
                     {cards.length === 0 ? (
                       <p className="text-xs text-muted-foreground text-center py-6">Sem cards</p>
                     ) : splitters.length === 0 ? (
@@ -722,9 +737,9 @@ function MobileCard({ modelo, estilistaNome, categoriaNome, onOpen, moverOpts, o
 }
 
 
-function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: isDraggable, onDragStartCard, onDragEndCard }: {
+function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: isDraggable, dragging, onDragStartCard, onDragEndCard }: {
   modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; onOpen: () => void; draggable: boolean;
-  onDragStartCard?: () => void; onDragEndCard?: () => void;
+  dragging?: boolean; onDragStartCard?: () => void; onDragEndCard?: () => void;
 }) {
   const fl = useFieldLabels();
   // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
@@ -744,7 +759,7 @@ function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: i
         onDragStartCard?.();
       }}
       onDragEnd={() => onDragEndCard?.()}
-      className={`relative bg-card border rounded-md p-2 hover:shadow-md transition-shadow ${isDraggable ? "cursor-grab active:cursor-grabbing" : ""}`}
+      className={`relative bg-card border rounded-md p-2 hover:shadow-md transition-shadow ${isDraggable ? "cursor-grab active:cursor-grabbing" : ""} ${dragging ? "opacity-50 ring-2 ring-primary" : ""}`}
       onClick={onOpen}
       {...handlers}
     >

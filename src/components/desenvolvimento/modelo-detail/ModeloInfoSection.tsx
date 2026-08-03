@@ -97,49 +97,13 @@ export function ModeloInfoSection({
     });
   };
 
-  const statusList = statusOptions && statusOptions.length > 0 ? statusOptions : STATUS_DESENV_OPTS;
-  const currentValue = draft.status_desenvolvimento ?? "";
-  const hasCurrent = statusList.some((s) => s.value === currentValue);
-  const renderList = hasCurrent || !currentValue
-    ? statusList
-    : [...statusList, { value: currentValue, label: currentValue }];
   return (
     <div className="space-y-3">
       <div className="grid sm:grid-cols-2 gap-3">
         <Field label="Nome">
           <Input value={draft.nome} onChange={(e) => setDraft({ ...draft, nome: e.target.value })} />
         </Field>
-        <Field label="Status">
-          <Select value={currentValue} onValueChange={(v) => {
-            // Motor de regras: só muda de status se os requisitos (estado SALVO) batem.
-            if (v !== currentValue) {
-              const chk = podeEntrarStatus?.(v);
-              if (chk && !chk.ok) {
-                toast.error(`Salve as pendências primeiro. Faltam: ${chk.faltando.map((c) => c.label).join(", ")}`);
-                return;
-              }
-            }
-            setDraft({ ...draft, status_desenvolvimento: v });
-          }}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {renderList.map((s) => {
-                // Status de destino bloqueado (requisitos não batem): mostra O QUE falta e esmaece,
-                // mas segue clicável — o clique dispara o toast explicando (não some sem motivo).
-                const chk = s.value !== currentValue ? podeEntrarStatus?.(s.value) : undefined;
-                const faltando = chk && !chk.ok ? chk.faltando : [];
-                return (
-                  <SelectItem key={s.value} value={s.value} className={faltando.length ? "text-muted-foreground" : ""}>
-                    {s.label}
-                    {faltando.length > 0 && (
-                      <span className="text-xs opacity-70"> · falta {faltando.map((c) => c.label).join(", ")}</span>
-                    )}
-                  </SelectItem>
-                );
-              })}
-            </SelectContent>
-          </Select>
-        </Field>
+        {/* Status foi promovido a uma barra persistente ACIMA do accordion (ModeloDetailPanel). */}
         {isAprovado && (
           <Field label={fl("ref")}>
             <Input value={draft.ref} onChange={(e) => setDraft({ ...draft, ref: e.target.value })} />
