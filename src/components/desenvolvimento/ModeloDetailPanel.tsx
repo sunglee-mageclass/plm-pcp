@@ -1084,8 +1084,13 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   const nAviamentos = aviamentosState.filter((r) => !!r.aviamento_id).length;
   const nInsumos = etiquetasState.filter((e) => !!e.etiqueta_id).length;
   const infoCompleta = !!(draft?.nome && draft?.categoria_principal_id && draft?.linha_id && (modelo as any)?.estilista_id);
-  const temCroqui = !!draft?.croqui_url;
-  const temAnexo = temCroqui || !!draft?.desenho_tecnico_url || !!draft?.ficha_medida_url || ((draft?.fotos_modelo?.length ?? 0) > 0);
+  // Selo de Anexos: rótulo pela HIERARQUIA Foto do Modelo › Desenho Técnico › Croqui (mostra o
+  // mais alto preenchido, igual à capa do card); "anexos ok" só quando os TRÊS estão preenchidos.
+  const anexoFotoModelo = (draft?.fotos_modelo?.length ?? 0) > 0;
+  const anexoDesenho = !!draft?.desenho_tecnico_url;
+  const anexoCroqui = !!draft?.croqui_url;
+  const anexosOk = anexoFotoModelo && anexoDesenho && anexoCroqui;
+  const anexoLabel = anexoFotoModelo ? "foto do modelo" : anexoDesenho ? "desenho técnico" : anexoCroqui ? "croqui" : null;
   const custoLbl = totals.peca > 0 ? `R$ ${totals.peca.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "R$ —";
   // Ordem das seções → nº 1..N pulando as ocultas (Custos some sem permissão, sem deixar buraco).
   const secOrdem: { key: string; on: boolean }[] = [
@@ -2144,8 +2149,10 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             <AccordionTrigger>
               <span className="flex flex-1 items-center gap-2 pr-2">
                 <span>{secNum("s6")}. Anexos</span>
-                {temAnexo
-                  ? <SecBadge tone="ok"><Check className="h-3 w-3" />{temCroqui ? "croqui" : "anexos"}</SecBadge>
+                {anexosOk
+                  ? <SecBadge tone="ok"><Check className="h-3 w-3" />anexos ok</SecBadge>
+                  : anexoLabel
+                  ? <SecBadge tone="info">{anexoLabel}</SecBadge>
                   : <SecBadge tone="muted">vazio</SecBadge>}
               </span>
             </AccordionTrigger>
