@@ -33,7 +33,7 @@ import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { normalizeKanbanStatuses, APROVADO_KEY } from "@/lib/kanban-status";
-import { requisitosOk } from "@/lib/kanban-condicoes";
+import { requisitosOk, CONDICOES_POR_SECAO } from "@/lib/kanban-condicoes";
 
 import {
   BUCKET,
@@ -97,14 +97,14 @@ export function ModeloDetailPanel({ modeloId, onClose }: {
 
 // Selo de completude no cabeçalho de cada seção do accordion (laudo das 3 lentes: cada
 // seção mostra de relance se está preenchida). ml-auto encosta na direita, antes do chevron.
-function SecBadge({ tone, children }: { tone: "ok" | "info" | "warn" | "muted"; children: ReactNode }) {
+function SecBadge({ tone, title, children }: { tone: "ok" | "info" | "warn" | "muted"; title?: string; children: ReactNode }) {
   const cls =
     tone === "ok" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
     : tone === "info" ? "bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
     : tone === "warn" ? "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
     : "bg-muted text-muted-foreground";
   return (
-    <span className={`ml-auto inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${cls}`}>
+    <span title={title} className={`ml-auto inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${cls}`}>
       {children}
     </span>
   );
@@ -1117,6 +1117,30 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   const statusCur = draft?.status_desenvolvimento ?? "";
   const statusRenderList = statusList.some((s) => s.value === statusCur) || !statusCur ? statusList : [...statusList, { value: statusCur, label: statusCur }];
 
+  // Selos por REQUISITO (dono): se a loja configurou requisitos (kanban_requisitos — a UNIÃO de
+  // todos os status) que caem numa seção, o selo dela passa a refletir isso: verde "ok" quando
+  // todos batem, âmbar "falta X" quando não. Seção sem requisito configurado → null (cai no selo
+  // neutro/informativo). Reaproveita o condicoesModelo que o painel já calcula.
+  const requiredUnion = (() => {
+    const req = ((tenantCfg as any)?.kanban_requisitos ?? {}) as Record<string, string[]>;
+    const s = new Set<string>();
+    for (const arr of Object.values(req)) for (const k of arr ?? []) s.add(k);
+    return s;
+  })();
+  const reqBadge = (sec: string): ReactNode | null => {
+    const conds = (CONDICOES_POR_SECAO[sec] ?? []).filter((c) => requiredUnion.has(c.key));
+    if (conds.length === 0) return null;
+    const faltam = conds.filter((c) => !(condicoesModelo as Record<string, boolean>)[c.key]);
+    if (faltam.length === 0) return <SecBadge tone="ok"><Check className="h-3 w-3" />ok</SecBadge>;
+    const labels = faltam.map((c) => c.label.replace(/^Anexo: /, ""));
+    return (
+      <SecBadge tone="warn" title={`Falta: ${labels.join(", ")}`}>
+        <AlertTriangle className="h-3 w-3" />
+        {faltam.length === 1 ? `falta ${labels[0].toLowerCase()}` : `faltam ${faltam.length}`}
+      </SecBadge>
+    );
+  };
+
   // Re-baseline o guarda de alterações quando o estado semeado ASSENTA. A dificuldade: a
   // semeadura acontece em VÁRIOS efeitos (draft, blocks, aviamentos, grades, cadTecidos) e a
   // sincronização de rótulos (blockVariantesInfo → cadTecidosState) só normaliza o estado
@@ -1926,9 +1950,9 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             <AccordionTrigger>
               <span className="flex flex-1 items-center gap-2 pr-2">
                 <span>{secNum("s1")}. Informações Básicas</span>
-                {infoCompleta
+                {reqBadge("s1") ?? (infoCompleta
                   ? <SecBadge tone="ok"><Check className="h-3 w-3" />completa</SecBadge>
-                  : <SecBadge tone="muted">faltam dados</SecBadge>}
+                  : <SecBadge tone="muted">faltam dados</SecBadge>)}
               </span>
             </AccordionTrigger>
             <AccordionContent>
@@ -1980,11 +2004,11 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             <AccordionTrigger>
               <span className="flex flex-1 items-center gap-2 pr-2">
                 <span>{secNum("s2")}. Tecidos / Forros / Entretelas</span>
-                {nTecidos === 0
+                {reqBadge("s2") ?? (nTecidos === 0
                   ? <SecBadge tone="muted">vazio</SecBadge>
                   : !todosBlocosComArtigoTemVariante
                   ? <SecBadge tone="warn"><AlertTriangle className="h-3 w-3" />falta variante</SecBadge>
-                  : <SecBadge tone="ok"><Check className="h-3 w-3" />{nTecidos} tecido{nTecidos > 1 ? "s" : ""}</SecBadge>}
+                  : <SecBadge tone="ok"><Check className="h-3 w-3" />{nTecidos} tecido{nTecidos > 1 ? "s" : ""}</SecBadge>)}
               </span>
             </AccordionTrigger>
             <AccordionContent>
@@ -2039,9 +2063,9 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             <AccordionTrigger>
               <span className="flex flex-1 items-center gap-2 pr-2">
                 <span>{secNum("s3")}. Aviamentos</span>
-                {nAviamentos > 0
+                {reqBadge("s3") ?? (nAviamentos > 0
                   ? <SecBadge tone="ok"><Check className="h-3 w-3" />{nAviamentos}</SecBadge>
-                  : <SecBadge tone="muted">vazio</SecBadge>}
+                  : <SecBadge tone="muted">vazio</SecBadge>)}
               </span>
             </AccordionTrigger>
             <AccordionContent>
@@ -2088,9 +2112,9 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             <AccordionTrigger>
               <span className="flex flex-1 items-center gap-2 pr-2">
                 <span>{secNum("s4")}. Grade</span>
-                {gradeTotalGeral > 0
+                {reqBadge("s4") ?? (gradeTotalGeral > 0
                   ? <SecBadge tone="ok"><Check className="h-3 w-3" />preenchida</SecBadge>
-                  : <SecBadge tone="warn"><AlertTriangle className="h-3 w-3" />falta preencher</SecBadge>}
+                  : <SecBadge tone="warn"><AlertTriangle className="h-3 w-3" />falta preencher</SecBadge>)}
               </span>
             </AccordionTrigger>
             <AccordionContent>
@@ -2117,7 +2141,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             <AccordionTrigger>
               <span className="flex flex-1 items-center gap-2 pr-2">
                 <span>{secNum("s5")}. Custos</span>
-                <SecBadge tone="muted">{custoLbl}</SecBadge>
+                {reqBadge("s5") ?? <SecBadge tone="muted">{custoLbl}</SecBadge>}
               </span>
             </AccordionTrigger>
             <AccordionContent>
@@ -2149,11 +2173,11 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             <AccordionTrigger>
               <span className="flex flex-1 items-center gap-2 pr-2">
                 <span>{secNum("s6")}. Anexos</span>
-                {anexosOk
+                {reqBadge("s6") ?? (anexosOk
                   ? <SecBadge tone="ok"><Check className="h-3 w-3" />anexos ok</SecBadge>
                   : anexoLabel
                   ? <SecBadge tone="info">{anexoLabel}</SecBadge>
-                  : <SecBadge tone="muted">vazio</SecBadge>}
+                  : <SecBadge tone="muted">vazio</SecBadge>)}
               </span>
             </AccordionTrigger>
             <AccordionContent>
