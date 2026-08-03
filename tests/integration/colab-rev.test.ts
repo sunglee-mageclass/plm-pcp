@@ -33,4 +33,29 @@ describe.skipIf(!hasDb)("colab — rev bump (raiz + filhas)", () => {
       expect(Number(rows.n)).toBe(3);
     });
   });
+
+  it("audit ignora rev no diff — bump não gera entrada fantasma", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const art = await um<{ id: string }>(
+        c, `insert into artigos (tenant_id, nome) values ($1, 'AUDIT TEST') returning id`, [TENANT_TESTE]);
+      const oc = await um<{ id: string }>(
+        c, `insert into ocs_tecido (tenant_id, numero_pedido) values ($1, 'AUDIT-REV') returning id`, [TENANT_TESTE]);
+
+      // Conta linhas do audit_log após a criação da OC (a criação em si cria uma entrada)
+      const auditAntes = await um<{ n: number }>(
+        c, `select count(*)::int as n from audit_log where tenant_id = $1`, [TENANT_TESTE]);
+
+      // Insere item — dispara bump na OC (UPDATE no-op que incrementa rev)
+      await um(c, `insert into ocs_tecido_itens (oc_tecido_id, artigo_id, quantidade_pedida) values ($1,$2,10) returning id`, [oc.id, art.id]);
+
+      // Confere audit_log: nenhuma entrada NOVA de "Editou OC de Tecido" vinda só do rev
+      // (o diff vazio por rev estar excluído faz fn_audit retornar NULL e não logar)
+      const auditDepois = await um<{ n: number }>(
+        c, `select count(*)::int as n from audit_log where tenant_id = $1`, [TENANT_TESTE]);
+
+      // A única entrada esperada é a INSERT do ocs_tecido no próprio ato; o bump NÃO cria log
+      expect(auditDepois.n).toBe(auditAntes.n);
+    });
+  });
 });
