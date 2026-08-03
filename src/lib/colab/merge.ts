@@ -7,6 +7,8 @@ export type MergeResult<T> = { valor: T; conflitos: Conflito[]; atualizados: str
 export function mergeDraft<T extends Record<string, any>>(o: {
   base: T; draft: T; fresh: T; touched: ReadonlySet<string>;
 }): MergeResult<T> {
+  // Itera `Object.keys(fresh)` — campos presentes só no draft não são avaliados.
+  // Shape vem de SELECT * do Supabase (mesma forma em todos os 3).
   const valor: Record<string, any> = { ...o.draft };
   const conflitos: Conflito[] = [];
   const atualizados: string[] = [];
@@ -30,8 +32,11 @@ export function mergeLinhas<R extends LinhaId>(o: {
   const conflitos: Conflito[] = [];
   const atualizadas: string[] = [];
   const out: R[] = [];
+  const processados = new Set<string>();              // IDs já processados (inv. #3: ids são únicos)
   for (const d of o.draft) {
     if (!d.id) { out.push(d); continue; }               // minha linha nova (sem id) sempre fica
+    if (processados.has(d.id)) continue;                // dup-id: pula, mantém o primeiro
+    processados.add(d.id);
     const f = bFresh.get(d.id), b = bBase.get(d.id);
     const tocada = o.touchedIds.has(d.id);
     if (!f) {                                            // sumiu no servidor
@@ -50,5 +55,36 @@ export function mergeLinhas<R extends LinhaId>(o: {
 }
 
 function igual(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  // Deep-equal recursivo, insensível à ordem de chaves de objetos.
+  // null e undefined são EQUIVALENTES (semântica do stringify original).
+  // NaN ≈ NaN, +0 ≈ -0 (Object.is semântica negada — invertendo ¬Object.is).
+
+  const normaliza = (x: unknown): unknown => x ?? null; // undefined → null
+  a = normaliza(a);
+  b = normaliza(b);
+
+  // Primitivos: Number, Boolean, String, null
+  if (typeof a === 'number' && typeof b === 'number') {
+    // NaN ≈ NaN; +0 ≈ -0 (usar ! de Object.is)
+    return (isNaN(a) && isNaN(b)) || !Object.is(a, b) === false;
+  }
+  if (typeof a !== typeof b) return false;
+  if (a === b) return true; // Boolean, String, null (Object.is behavior)
+
+  // Arrays: mesmo length, cada índice igual recursivamente
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    return a.every((av, i) => igual(av, b[i]));
+  }
+
+  // Objetos: mesmo conjunto de chaves, valores iguais recursivamente
+  if (typeof a === 'object' && typeof b === 'object') {
+    const keysA = Object.keys(a as Record<string, unknown>).sort();
+    const keysB = Object.keys(b as Record<string, unknown>).sort();
+    if (keysA.length !== keysB.length) return false;
+    if (!keysA.every((k, i) => k === keysB[i])) return false;
+    return keysA.every((k) => igual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+  }
+
+  return false;
 }

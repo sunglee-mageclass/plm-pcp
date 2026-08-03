@@ -16,6 +16,38 @@ describe("mergeDraft (escalar)", () => {
     expect(r.valor.b).toBe("meu");
     expect(r.conflitos).toEqual([{ path: "b", meu: "meu", dele: "dele" }]);
   });
+  it("ordem de chaves diferente sem mudança → SEM conflito", () => {
+    const baseObj = { x: 1, y: 2 };
+    const freshObj = { y: 2, x: 1 };
+    const r = mergeDraft({
+      base: { ...base, obj: baseObj },
+      draft: { ...base, obj: baseObj },
+      fresh: { ...base, obj: freshObj },
+      touched: new Set(["obj"])
+    });
+    expect(r.valor.obj).toEqual(baseObj);
+    expect(r.conflitos).toEqual([]);
+  });
+  it("NaN do servidor não é update quando não tocado", () => {
+    const r = mergeDraft({
+      base: { a: NaN, b: "x", c: null },
+      draft: { a: NaN, b: "x", c: null },
+      fresh: { a: NaN, b: "x", c: null },
+      touched: new Set()
+    });
+    expect(r.conflitos).toEqual([]);
+    expect(r.atualizados).toEqual([]);
+  });
+  it("NaN→número do servidor atualiza quando não tocado", () => {
+    const r = mergeDraft({
+      base: { a: NaN, b: "x", c: null },
+      draft: { a: NaN, b: "x", c: null },
+      fresh: { a: 42, b: "x", c: null },
+      touched: new Set()
+    });
+    expect(r.valor.a).toBe(42);
+    expect(r.atualizados).toEqual(["a"]);
+  });
 });
 
 describe("mergeLinhas (coleções por id)", () => {
@@ -43,5 +75,17 @@ describe("mergeLinhas (coleções por id)", () => {
   it("removida no servidor e NÃO tocada → some", () => {
     const r = mergeLinhas({ base: [L("1", 1)], draft: [L("1", 1)], fresh: [], touchedIds: new Set() });
     expect(r.linhas).toEqual([]);
+  });
+  it("dup-id no draft → apenas 1 conflito (mantém primeira ocorrência)", () => {
+    const r = mergeLinhas({
+      base: [L("1", 1)],
+      draft: [L("1", 5), L("1", 7)],
+      fresh: [L("1", 9)],
+      touchedIds: new Set(["1"])
+    });
+    expect(r.linhas).toHaveLength(1);
+    expect(r.linhas[0]).toEqual(L("1", 5)); // primeira ocorrência
+    expect(r.conflitos).toHaveLength(1);
+    expect(r.conflitos[0].path).toBe("linha:1");
   });
 });
