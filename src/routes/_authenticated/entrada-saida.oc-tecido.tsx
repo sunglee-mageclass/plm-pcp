@@ -376,6 +376,33 @@ function draftFromOc(oc: any): Draft {
       : [{ data: "", recebido: false }],
   };
 }
+// Colab round 4 — rótulos PT dos paths do Draft para o banner de resolução genérica de
+// conflito. O merge compara TODAS as chaves do Draft, então qualquer campo pode conflitar
+// (inclusive os SEM UI inline). Path sem rótulo → mostra o próprio path (fallback).
+const ROTULO_CONFLITO: Record<string, string> = {
+  numero_pedido: "Número do Pedido",
+  empresa_id: "Fornecedor",
+  representante_id: "Representante",
+  responsavel_id: "Responsável",
+  responsavel_nome: "Responsável",
+  data_pedido: "Data do Pedido",
+  data_prevista_entrega: "Data Prevista de Entrega",
+  prazo_pagamento: "Prazo de Pagamento",
+  quantidade_prazos: "Qtd. de prazos",
+  observacoes_entrega: "Obs. de entrega",
+  observacoes_defeitos: "Obs. de defeitos",
+  data_entrega: "Data de entrega",
+  anexo_pedido_url: "Anexo do pedido",
+  modelo_sugerido_url: "Modelo sugerido",
+  nf_url: "Nota fiscal",
+  nfs: "Notas fiscais",
+  parcelas_recebimento: "Parcelas de recebimento",
+};
+function rotuloConflito(path: string): string {
+  if (path.startsWith("linha:")) return "Item (variante)";
+  return ROTULO_CONFLITO[path] ?? path;
+}
+
 function itemsFromRows(its: unknown): ItemDraft[] {
   return ((its ?? []) as unknown as OCItem[]).map((i) => ({
     tempId: i.id,
@@ -504,6 +531,14 @@ function OcDialog({
       if (conflitosRestantes.length === 0 && prev.atualizados === 0) return null;
       return { ...prev, conflitos: conflitosRestantes };
     });
+  };
+  // Resolução GENÉRICA a partir do banner (round 4): o banner só conhece o `path`; aqui
+  // achamos o Conflito e delegamos ao mesmo `resolverConflito` da UI inline. Todo conflito
+  // — inclusive em campos SEM UI própria (Fornecedor, Obs., parcelas…) — tem esta saída,
+  // então o guard do save nunca deadlocka.
+  const resolverPorPath = (path: string, escolha: "meu" | "dele") => {
+    const c = conflitos.find((x) => x.path === path);
+    if (c) resolverConflito(c, escolha === "dele");
   };
 
   const { presentes } = useColabRegistro({
@@ -831,7 +866,7 @@ function OcDialog({
       // sobrescreveria a versão da outra pessoa em silêncio — o usuário tem que resolver
       // ("manter meu"/"usar o novo") em cada campo destacado antes de salvar de novo.
       if (conflitosRef.current.length > 0)
-        throw new Error("Resolva os campos em conflito (destacados em âmbar) antes de salvar.");
+        throw new Error("Resolva os conflitos listados no aviso no topo antes de salvar.");
       if (!draft.data_prevista_entrega) throw new Error("Informe a Data Prevista de Entrega.");
       if (!draft.prazo_pagamento?.trim()) throw new Error("Informe o Prazo de Pagamento.");
       const selecionados = items.filter((i) => i.variante_tecido_id && i.artigo_id);
@@ -1225,7 +1260,13 @@ function OcDialog({
               <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
             </div>
           </DialogHeader>
-          <ColabBanner presentes={presentes} ultimoMerge={ultimoMerge} />
+          <ColabBanner
+            presentes={presentes}
+            ultimoMerge={ultimoMerge}
+            conflitos={conflitos}
+            onResolver={resolverPorPath}
+            rotulo={rotuloConflito}
+          />
         </div>
 
         <div
