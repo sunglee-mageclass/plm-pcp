@@ -216,6 +216,16 @@ unit + integração transacional de RPC — ver `tests/README.md`)
     · Excluir (destructive) · Salvar (ml-auto)** — nunca no header; página inteira usa
     `<PageActionBar>` (portal, `pb-24` no container). **Header** com `<Breadcrumb>` "Módulo › Tela ›
     Entidade". Modais persistentes que só existem quando abertos: montar `{open && <Modal/>}` p/ nascer limpo.
+- **Colaboração em tempo real (rev otimista)** — telas com risco de edição simultânea (2+ pessoas
+  no mesmo registro) usam o padrão: coluna `rev` na tabela-raiz (bump a cada UPDATE) + save manda
+  `_rev_base`; a RPC compara e dá `P0409` se alguém salvou no meio (mensagem PT em `erro-mensagem.ts`).
+  `useColabRegistro` (`@/hooks`) abre o canal Realtime (`colab:<tela>:<id>`) p/ presença (quem está
+  na tela/campo) + reagir a UPDATE alheio; `mergeDraft`/`mergeLinhas` (`@/lib/colab/merge`, puros)
+  fazem merge 3-vias (base/draft/fresh) por campo tocado (`touched`), sinalizando conflito só onde
+  EU editei e o servidor também mudou (`<ColabBanner>` + destaque âmbar + "manter meu · usar o novo").
+  Piloto vivo: OC Tecido (`entrada-saida.oc-tecido.tsx`). Spec/plano em `.superpowers/sdd/2026-08-03-
+  concorrencia-multiusuario/`; adotar o mesmo padrão ao levar outras telas quentes (Desenvolvimento,
+  Plan. Produto, Plan. Tecido) para colaboração — não reinventar o merge.
 
 ## Invariantes a preservar (não regredir)
 
