@@ -36,6 +36,10 @@ export function useColabRegistro(o: {
 
   useEffect(() => {
     if (!chave || !meuNome) return;
+    // Re-mount rápido do MESMO registro: o leave do canal anterior é assíncrono e
+    // supabase.channel() reusa instância por topic — remove o remanescente antes de criar.
+    const remanescente = supabase.getChannels().find((c) => c.topic === `realtime:${chave}`);
+    if (remanescente) void supabase.removeChannel(remanescente);
     const ch = supabase.channel(chave, { config: { presence: { key: user!.id } } });
     ch.on("postgres_changes",
       { event: "UPDATE", schema: "public", table: o.tabela, filter: `id=eq.${o.registroId}` },
@@ -53,9 +57,14 @@ export function useColabRegistro(o: {
     });
     return () => { void supabase.removeChannel(ch); setPresentes([]); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Invariante: `o.tabela`/`o.registroId`/`user.id` são capturados por closure — seguros
+    // porque o chamador codifica o registroId dentro do `canal` (ex.: `colab:oc:${ocId}`).
+    // Mudar registroId sem mudar canal quebra silenciosamente — NÃO fazer.
   }, [chave, meuNome]);
 
   // atualiza o campo focado sem recriar o canal
+  // No primeiro render em que chave/meuNome ficam truthy, ambos effects disparam track() com o mesmo payload
+  // (buffered; inofensivo — o Realtime coalesce mensagens idênticas).
   useEffect(() => {
     if (!chave || !meuNome) return;
     const ch = supabase.getChannels().find((c) => c.topic === `realtime:${chave}`);
