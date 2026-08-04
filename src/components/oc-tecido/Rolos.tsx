@@ -36,6 +36,15 @@ type VarLite = { id: string; artigo_id: string; nome_variante: string | null; co
 type RoloOcItem = { oc_tecido_item_id: string; artigo_id: string | null; artigo_nome: string | null; variante_tecido_id: string | null; variante: string; disponivel_m: number };
 type RoloOc = { oc_id: string; numero_pedido: string | null; is_rolo?: boolean; label?: string | null; itens: RoloOcItem[] };
 
+// Tecidos (distintos) que a origem contém — aparecem direto no seletor de OC/Rolo
+// (dono, ago/2026: "deve aparecer OC e o tecido que tem").
+const tecidosDaOrigem = (o: RoloOc) =>
+  [...new Set((o.itens ?? []).map((i) => i.artigo_nome).filter(Boolean))].join(" · ");
+const origemLabel = (o: RoloOc) => {
+  const tec = tecidosDaOrigem(o);
+  return `${o.is_rolo ? "Rolo" : "OC"} ${o.label || o.numero_pedido || "(sem número)"}${tec ? ` — ${tec}` : ""}`;
+};
+
 // Rótulo da variante = "cor base - cor apelido" (fonte única variante.ts); cai p/ nome/código se sem cor.
 const varName = (v?: VarLite | null) => {
   if (!v) return "—";
@@ -235,9 +244,7 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
                   <SelectTrigger><SelectValue placeholder="Selecione a OC ou o rolo" /></SelectTrigger>
                   <SelectContent>
                     {ocsRolo.map((o) => (
-                      <SelectItem key={o.oc_id} value={o.oc_id}>
-                        {o.is_rolo ? "Rolo" : "OC"} {o.label || o.numero_pedido || "(sem número)"}
-                      </SelectItem>
+                      <SelectItem key={o.oc_id} value={o.oc_id}>{origemLabel(o)}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -747,9 +754,7 @@ export function RemoverMetragemDialog({ onClose }: { onClose: () => void }) {
               <SelectTrigger><SelectValue placeholder="Selecione a OC ou o rolo" /></SelectTrigger>
               <SelectContent>
                 {ocsRolo.map((o) => (
-                  <SelectItem key={o.oc_id} value={o.oc_id}>
-                    {o.is_rolo ? "Rolo" : "OC"} {o.label || o.numero_pedido || "(sem número)"}
-                  </SelectItem>
+                  <SelectItem key={o.oc_id} value={o.oc_id}>{origemLabel(o)}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
