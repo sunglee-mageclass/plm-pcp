@@ -19,7 +19,8 @@ import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { AgrupamentoButton } from "@/components/shared/filters";
 import { ColabBanner } from "@/components/shared/ColabBanner";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
-import { mergeLinhas, type Conflito } from "@/lib/colab/merge";
+import type { Conflito } from "@/lib/colab/merge";
+import { mergeArvorePorSlot } from "@/lib/plan-tecido/colab-merge-arvore";
 import { useAuth } from "@/hooks/useAuth";
 import { ArrowLeft, ShoppingCart, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, ChevronRight } from "lucide-react";
 import {
@@ -66,55 +67,6 @@ function computeFreshArvore(seed: SeedInput, modelos: ModeloReal[], salvo: PtArv
   return limparSlotsOrfaos(mergeArvore(semearComModelos({ ...seed, modelos }), salvo), validIds);
 }
 
-// Colab (Task 3, spec 2026-08-04) — Nível A: merge 3-vias POR SLOT. Ids são ESTÁVEIS depois do
-// 1º save (a RPC salvar_plan_tecido preserva slot.id — migração 20260801120000), então dá pra
-// achatar a árvore por slot.id e delegar ao `mergeLinhas` genérico (slot = "linha" da spec:
-// compara o slot INTEIRO, incl. materiais, via `igual()` profundo). A reconstrução acontece EM
-// CIMA da árvore fresca (ela já reflete OTB/BOM vivos e reposicionamento de modelo entre
-// subcoleções/linhas — não duplicamos essa lógica aqui, só substituímos o CONTEÚDO de cada slot
-// pelo resultado do merge, na posição em que a árvore fresca já colocou aquele id).
-function chaveBucket(subId: string | null, ln: { linha_id: string | null; categoria_id: string | null }): string {
-  return `${subId ?? "__none__"}::${ln.linha_id ?? ""}|${ln.categoria_id ?? ""}`;
-}
-function achatarSlots(arv: PtArvore): { bucket: string; slot: PtSlot }[] {
-  const out: { bucket: string; slot: PtSlot }[] = [];
-  for (const sub of arv.subcolecoes)
-    for (const ln of sub.linhas)
-      for (const slot of ln.slots)
-        out.push({ bucket: chaveBucket(sub.subcolecao_id, ln), slot });
-  return out;
-}
-function mergeArvorePorSlot(o: { base: PtArvore; draft: PtArvore; fresh: PtArvore; touchedIds: ReadonlySet<string> }): {
-  arvore: PtArvore; atualizados: number; conflitos: Conflito[];
-} {
-  const baseFlat = achatarSlots(o.base).map((f) => f.slot);
-  const draftFlatFull = achatarSlots(o.draft);
-  const freshFlat = achatarSlots(o.fresh).map((f) => f.slot);
-  const ml = mergeLinhas({ base: baseFlat, draft: draftFlatFull.map((f) => f.slot), fresh: freshFlat, touchedIds: o.touchedIds });
-  const porId = new Map(ml.linhas.filter((s) => s.id).map((s) => [s.id as string, s]));
-  const arvore: PtArvore = {
-    ...o.fresh,
-    subcolecoes: o.fresh.subcolecoes.map((sub) => ({
-      ...sub,
-      linhas: sub.linhas.map((ln) => ({
-        ...ln,
-        slots: ln.slots.map((slot) => (slot.id && porId.has(slot.id) ? (porId.get(slot.id) as PtSlot) : slot)),
-      })),
-    })),
-  };
-  // Slots locais NOVOS (sem id) ficam — na prática quase não ocorre: slots só nascem na
-  // semeadura (semearComModelos), que fica pausada enquanto `dirty` (ver effect principal).
-  // Defensivo mesmo assim: reinsere no bucket de origem, se ele ainda existir na árvore fresca.
-  const origemPorSlot = new Map(draftFlatFull.map((f) => [f.slot, f.bucket]));
-  for (const slot of ml.linhas.filter((s) => !s.id)) {
-    const bucket = origemPorSlot.get(slot);
-    const [subKey, lnKey] = (bucket ?? "").split("::");
-    const sub = arvore.subcolecoes.find((s) => (s.subcolecao_id ?? "__none__") === subKey);
-    const ln = sub?.linhas.find((l) => `${l.linha_id ?? ""}|${l.categoria_id ?? ""}` === lnKey);
-    (ln ?? sub?.linhas[0])?.slots.push(slot);
-  }
-  return { arvore, atualizados: ml.atualizadas.length, conflitos: ml.conflitos };
-}
 function rotuloConflitoSlot(c: Conflito | undefined): string {
   const s = (c?.meu ?? c?.dele) as PtSlot | null | undefined;
   return s ? `Slot ${s.nome ?? s.ref ?? "sem modelo"}` : "Slot";
@@ -277,7 +229,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   const [arvore, setArvore] = useState<PtArvore | null>(null);
   const [dirty, setDirty] = useState(false);
   // Colab (Task 3, spec 2026-08-04) — piloto: mesmo padrão do OC Tecido/Plan. Produto, adaptado
-  // pra árvore aninhada (merge POR SLOT, ver mergeArvorePorSlot acima). `planBaseRef` = última
+  // pra árvore aninhada (merge POR SLOT, ver @/lib/plan-tecido/colab-merge-arvore). `planBaseRef` = última
   // árvore fresca conhecida (base do 3-vias); `touchedSlotIdsRef` = ids de slot que EU editei
   // desde então; `salvoConsumidoRef` evita reprocessar o mesmo `salvo` 2x; `revRef` espelha
   // `colecoes.plan_rev` p/ o `_rev_base` do save; `arvoreLiveRef` é o espelho síncrono usado no
