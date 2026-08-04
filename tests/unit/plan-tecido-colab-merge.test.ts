@@ -92,6 +92,43 @@ describe("plan-tecido/colab-merge-arvore", () => {
     expect(new Set(cats)).toEqual(new Set(["catA", "catB", "catC"]));
   });
 
+  it("subcoleção INTEIRA some do fresco: recriada COM as lanes locais (pré-existentes + nova) e o slot órfão em conflito", () => {
+    // Achado round 2: quando a sub inteira precisa ser recriada (não só a linha), o caminho de
+    // reinserção hardcodeava categorias_tecido:[] — perdendo TODAS as lanes em silêncio.
+    const base: PtArvore = {
+      colecao_id: "c",
+      subcolecoes: [{ subcolecao_id: "subX", ordem: 0, categorias_tecido: ["catA", "catB"], linhas: [
+        { linha_id: null, categoria_id: "catA", ordem: 0, slots: [slot("s4", { categoria_tecido_id: "catA" })] },
+      ] }],
+    };
+    // Local: lanes pré-existentes (catA/catB) + uma nova ainda não salva (catLocal); s4 tocado.
+    const draft: PtArvore = {
+      colecao_id: "c",
+      subcolecoes: [{ subcolecao_id: "subX", ordem: 0, categorias_tecido: ["catA", "catB", "catLocal"], linhas: [
+        { linha_id: null, categoria_id: "catA", ordem: 0, slots: [slot("s4", { categoria_tecido_id: "catLocal" })] },
+      ] }],
+    };
+    // Fresco: a subcoleção "subX" sumiu por inteiro (não só a linha/categoria).
+    const fresh: PtArvore = { colecao_id: "c", subcolecoes: [] };
+
+    const result = mergeArvorePorSlot({ base, draft, fresh, touchedIds: new Set(["s4"]) });
+
+    // Conflito real (slot tocado sumiu do servidor).
+    expect(result.conflitos).toHaveLength(1);
+    expect(result.conflitos[0].path).toBe("linha:s4");
+    expect(result.conflitos[0].dele).toBeNull();
+
+    // Sub recriada com as 3 lanes (não só as pré-existentes — a nova local também).
+    const subRecriada = result.arvore.subcolecoes.find((s) => s.subcolecao_id === "subX");
+    expect(subRecriada).toBeDefined();
+    expect(new Set(subRecriada!.categorias_tecido ?? [])).toEqual(new Set(["catA", "catB", "catLocal"]));
+
+    // Slot órfão presente na árvore reconstruída, com o conteúdo LOCAL.
+    const s4 = achatarSlots(result.arvore).find((f) => f.slot.id === "s4");
+    expect(s4).toBeDefined();
+    expect(s4!.slot.categoria_tecido_id).toBe("catLocal");
+  });
+
   it("slot local SEM id (novo, nunca salvo) é mantido na reconstrução", () => {
     const base = arv("sub1", "catA", [slot("s1")]);
     const fresh = arv("sub1", "catA", [slot("s1")]);

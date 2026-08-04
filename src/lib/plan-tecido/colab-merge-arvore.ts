@@ -78,11 +78,19 @@ export function mergeArvorePorSlot(o: {
   // pausada enquanto `dirty`) caem no MESMO caminho: nunca têm posição na árvore fresca.
   const origemPorSlot = new Map(draftFlatFull.map((f) => [f.slot, f.bucket] as const));
   const reinserir = (slot: PtSlot) => {
+    // Fallback INATINGÍVEL na prática: todo slot que chega aqui vem de `ml.linhas`, e todo
+    // caminho de `mergeLinhas` que produz uma linha sem posição no fresh (draft sem id, ou
+    // draft com id tocado-e-sumido) devolve o objeto `d` original — que é sempre um dos
+    // objetos de `draftFlatFull`, logo sempre tem entrada em `origemPorSlot` (Map por
+    // referência). Mantido só como rede de segurança de tipos (bucket-padrão sub/linha nulos).
     const bucket = origemPorSlot.get(slot) ?? chaveBucket(null, { linha_id: null, categoria_id: null });
     const [subKey, lnKey] = bucket.split("::");
     let sub = arvore.subcolecoes.find((s) => bucketDoSub(s) === subKey);
     if (!sub) {
-      sub = { subcolecao_id: subKey === "__none__" ? null : subKey, ordem: arvore.subcolecoes.length, categorias_tecido: [], linhas: [] } as PtSub;
+      // A subcoleção INTEIRA sumiu do fresh — recria com as lanes LOCAIS (mesma fonte da união
+      // acima; `subKey` já está no formato de `catsLocalPorSub`), senão a recriação perderia em
+      // silêncio TODAS as lanes daquela sub (pré-existentes e a nova) — achado round 2.
+      sub = { subcolecao_id: subKey === "__none__" ? null : subKey, ordem: arvore.subcolecoes.length, categorias_tecido: catsLocalPorSub.get(subKey) ?? [], linhas: [] } as PtSub;
       arvore.subcolecoes.push(sub);
     }
     let ln = sub.linhas.find((l) => `${l.linha_id ?? ""}|${l.categoria_id ?? ""}` === lnKey);
