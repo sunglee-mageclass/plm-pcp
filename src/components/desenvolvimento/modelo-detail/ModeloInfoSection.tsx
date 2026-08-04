@@ -38,6 +38,7 @@ export function ModeloInfoSection({
   subcolecoes,
   camposCopiados = new Set(),
   onCampoEditado,
+  colab,
 }: {
   draft: Draft;
   setDraft: (d: Draft) => void;
@@ -60,8 +61,21 @@ export function ModeloInfoSection({
   subcolecoes?: string[];
   camposCopiados?: Set<string>;
   onCampoEditado?: (k: string) => void;
+  // Colab (spec 2026-08-03, Task 1): presença por campo — SÓ nome/datas nesta 1ª adoção
+  // (escopo pragmático do brief). Conflito é resolvido no ColabBanner (genérico), não aqui.
+  colab?: { focadoPor: (path: string) => string | undefined };
 }) {
   const fl = useFieldLabels();
+  // Ring sky = colega focado no campo agora (presença); sem UI de conflito inline aqui —
+  // o ColabBanner (resolução genérica) já cobre qualquer conflito nestes campos.
+  const colabField = (path: string) => {
+    const nome = colab?.focadoPor(path);
+    return {
+      "data-colab-path": path,
+      title: nome ? `${nome} está neste campo` : undefined,
+      className: nome ? "ring-1 ring-sky-400" : undefined,
+    };
+  };
   // Grupo é um FILTRO da Categoria (não é salvo no modelo) — deriva da categoria atual.
   const [grupoId, setGrupoId] = useState<string | null>(null);
   useEffect(() => {
@@ -101,7 +115,13 @@ export function ModeloInfoSection({
     <div className="space-y-3">
       <div className="grid sm:grid-cols-2 gap-3">
         <Field label="Nome">
-          <Input value={draft.nome} onChange={(e) => setDraft({ ...draft, nome: e.target.value })} />
+          <Input
+            value={draft.nome}
+            onChange={(e) => setDraft({ ...draft, nome: e.target.value })}
+            data-colab-path={colabField("nome")["data-colab-path"]}
+            title={colabField("nome").title}
+            className={colabField("nome").className}
+          />
         </Field>
         {/* Status foi promovido a uma barra persistente ACIMA do accordion (ModeloDetailPanel). */}
         {isAprovado && (
@@ -193,7 +213,13 @@ export function ModeloInfoSection({
         <div className="sm:col-span-2 grid sm:grid-cols-2 gap-3">
           <FieldSelectOpt label={`${fl("piloteiro")} 1`} value={draft.piloteiro1_id} onChange={(v) => setDraft({ ...draft, piloteiro1_id: v })} options={piloteiros} />
           <Field label="Data Piloto 1">
-            <DateField value={draft.data_piloto1 ?? ""} onChange={(e) => setDraft({ ...draft, data_piloto1: e.target.value })} />
+            <DateField
+              value={draft.data_piloto1 ?? ""}
+              onChange={(e) => setDraft({ ...draft, data_piloto1: e.target.value })}
+              data-colab-path={colabField("data_piloto1")["data-colab-path"]}
+              title={colabField("data_piloto1").title}
+              inputClassName={colabField("data_piloto1").className}
+            />
           </Field>
         </div>
         {visiblePilotos.has(2) && (
@@ -207,7 +233,13 @@ export function ModeloInfoSection({
             <div className="sm:col-span-2 grid sm:grid-cols-2 gap-3">
               <FieldSelectOpt label={`${fl("piloteiro")} 2`} value={draft.piloteiro2_id} onChange={(v) => setDraft({ ...draft, piloteiro2_id: v })} options={piloteiros} />
               <Field label="Data Piloto 2">
-                <DateField value={draft.data_piloto2 ?? ""} onChange={(e) => setDraft({ ...draft, data_piloto2: e.target.value })} />
+                <DateField
+                  value={draft.data_piloto2 ?? ""}
+                  onChange={(e) => setDraft({ ...draft, data_piloto2: e.target.value })}
+                  data-colab-path={colabField("data_piloto2")["data-colab-path"]}
+                  title={colabField("data_piloto2").title}
+                  inputClassName={colabField("data_piloto2").className}
+                />
               </Field>
             </div>
           </>
@@ -223,7 +255,13 @@ export function ModeloInfoSection({
             <div className="sm:col-span-2 grid sm:grid-cols-2 gap-3">
               <FieldSelectOpt label={`${fl("piloteiro")} 3`} value={draft.piloteiro3_id} onChange={(v) => setDraft({ ...draft, piloteiro3_id: v })} options={piloteiros} />
               <Field label="Data Piloto 3">
-                <DateField value={draft.data_piloto3 ?? ""} onChange={(e) => setDraft({ ...draft, data_piloto3: e.target.value })} />
+                <DateField
+                  value={draft.data_piloto3 ?? ""}
+                  onChange={(e) => setDraft({ ...draft, data_piloto3: e.target.value })}
+                  data-colab-path={colabField("data_piloto3")["data-colab-path"]}
+                  title={colabField("data_piloto3").title}
+                  inputClassName={colabField("data_piloto3").className}
+                />
               </Field>
             </div>
           </>
@@ -243,10 +281,22 @@ export function ModeloInfoSection({
           </div>
         )}
         <Field label="Data Desenho Técnico">
-          <DateField value={draft.data_desenho_tecnico ?? ""} onChange={(e) => setDraft({ ...draft, data_desenho_tecnico: e.target.value })} />
+          <DateField
+            value={draft.data_desenho_tecnico ?? ""}
+            onChange={(e) => setDraft({ ...draft, data_desenho_tecnico: e.target.value })}
+            data-colab-path={colabField("data_desenho_tecnico")["data-colab-path"]}
+            title={colabField("data_desenho_tecnico").title}
+            inputClassName={colabField("data_desenho_tecnico").className}
+          />
         </Field>
         <Field label="Data Aprovação">
-          <DateField value={draft.data_aprovacao ?? ""} onChange={(e) => setDraft({ ...draft, data_aprovacao: e.target.value })} />
+          <DateField
+            value={draft.data_aprovacao ?? ""}
+            onChange={(e) => setDraft({ ...draft, data_aprovacao: e.target.value })}
+            data-colab-path={colabField("data_aprovacao")["data-colab-path"]}
+            title={colabField("data_aprovacao").title}
+            inputClassName={colabField("data_aprovacao").className}
+          />
         </Field>
         </div>
       </div>

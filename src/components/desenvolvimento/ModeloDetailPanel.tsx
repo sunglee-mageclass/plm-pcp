@@ -27,6 +27,9 @@ import { STATUS_DESENV_OPTS } from "./modelo-detail/types";
 import { Button } from "@/components/ui/button";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
+import { ColabBanner } from "@/components/shared/ColabBanner";
+import { useColabRegistro } from "@/hooks/useColabRegistro";
+import { mergeDraft, type Conflito } from "@/lib/colab/merge";
 import { useAuth } from "@/hooks/useAuth";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
@@ -74,6 +77,75 @@ const snapshotSemIds = (v: unknown): string => {
   try { return JSON.stringify(v ?? null, (k, val) => (k === "id" ? undefined : val)); }
   catch { return String(v); }
 };
+
+// Colab (spec 2026-08-03, Task 1 — Desenvolvimento): mapeamento modelo-cru → Draft,
+// extraído como função PURA (mesmo padrão de `draftFromOc` no piloto OC Tecido) para
+// servir tanto a semeadura (1ª carga) quanto o "fresh" do merge 3-vias (refetch/Realtime).
+// Escopo pragmático (1ª adoção): só os ESCALARES do modelo — as coleções do BOM (tecidos/
+// aviamentos/etiquetas/grade) NÃO entram aqui; ver o guard `colecoesTouchadasRef` mais
+// abaixo (rev-check-only, sem merge por linha).
+function draftFromModelo(modelo: any, statusFallback?: string): any {
+  return {
+    nome: modelo.nome ?? "",
+    ref: modelo.ref ?? "",
+    status_desenvolvimento: modelo.status_desenvolvimento ?? statusFallback ?? "em_modelagem",
+    motivo_cancelamento: modelo.motivo_cancelamento ?? "",
+    linha_id: modelo.linha_id,
+    estilista_id: modelo.estilista_id ?? null,
+    modelista_id: modelo.modelista_id,
+    piloteiro1_id: modelo.piloteiro1_id,
+    piloteiro2_id: modelo.piloteiro2_id,
+    piloteiro3_id: modelo.piloteiro3_id,
+    data_piloto1: modelo.data_piloto1 ?? "",
+    data_piloto2: modelo.data_piloto2 ?? "",
+    data_piloto3: modelo.data_piloto3 ?? "",
+    data_desenho_tecnico: modelo.data_desenho_tecnico ?? "",
+    data_aprovacao: modelo.data_aprovacao ?? "",
+    observacoes_tecnicas: modelo.observacoes_tecnicas ?? "",
+    ajustes_prova: modelo.ajustes_prova ?? "",
+    observacoes_gerais: modelo.observacoes_gerais ?? "",
+    observacoes_mao_obra: modelo.observacoes_mao_obra ?? "",
+    ficha_medida_url: modelo.ficha_medida_url ?? "",
+    desenho_tecnico_url: modelo.desenho_tecnico_url ?? "",
+    croqui_url: modelo.croqui_url ?? "",
+    custo_terceirizados_previsto: Number(modelo.custo_terceirizados_previsto ?? 0),
+    custos_adicionais: (modelo.custos_adicionais ?? []) as { descricao: string; valor: number }[],
+    proporcoes: (modelo.proporcoes ?? {}) as Record<string, number>,
+    enviado_cad: !!modelo.enviado_cad,
+    fotos_modelo: (modelo.fotos_modelo ?? []) as string[],
+    fotos_referencia: (modelo.fotos_referencia ?? []) as string[],
+    categoria_principal_id: modelo.categoria_principal_id ?? null,
+    subcategoria1_id: modelo.subcategoria1_id ?? null,
+    subcategoria2_id: modelo.subcategoria2_id ?? null,
+    colecao_id: modelo.colecao_id ?? null,
+    subcolecao: modelo.subcolecao ?? "",
+    mes_id: modelo.mes_id ?? null,
+    ano_id: modelo.ano_id ?? null,
+    semana: modelo.semana ?? "",
+  };
+}
+// Colab round 4 (padrão do piloto) — rótulos PT dos paths do Draft p/ o banner de
+// resolução genérica. O merge compara TODAS as chaves do Draft; path sem rótulo cai no
+// fallback (o próprio path).
+const ROTULO_CONFLITO_MODELO: Record<string, string> = {
+  nome: "Nome", ref: "REF", status_desenvolvimento: "Status", motivo_cancelamento: "Motivo do cancelamento",
+  linha_id: "Linha", estilista_id: "Estilista", modelista_id: "Modelista",
+  piloteiro1_id: "Piloteiro 1", piloteiro2_id: "Piloteiro 2", piloteiro3_id: "Piloteiro 3",
+  data_piloto1: "Data Piloto 1", data_piloto2: "Data Piloto 2", data_piloto3: "Data Piloto 3",
+  data_desenho_tecnico: "Data Desenho Técnico", data_aprovacao: "Data Aprovação",
+  observacoes_tecnicas: "Observações Técnicas", observacoes_gerais: "Observações Gerais",
+  observacoes_mao_obra: "Obs. Mão de Obra", ficha_medida_url: "Ficha de Medidas",
+  desenho_tecnico_url: "Desenho Técnico", croqui_url: "Croqui",
+  custo_terceirizados_previsto: "Custo de Serviços (previsto)", custos_adicionais: "Custos adicionais",
+  proporcoes: "Proporções da grade", enviado_cad: "Enviado à Explosão",
+  fotos_modelo: "Fotos do modelo", fotos_referencia: "Fotos de referência",
+  categoria_principal_id: "Categoria", subcategoria1_id: "Subcategoria 1", subcategoria2_id: "Subcategoria 2",
+  colecao_id: "Coleção", subcolecao: "Subcoleção", mes_id: "Mês", ano_id: "Ano", semana: "Semana de lançamento",
+};
+function rotuloConflitoModelo(path: string): string {
+  if (path === "secao:bom") return "Tecidos & BOM";
+  return ROTULO_CONFLITO_MODELO[path] ?? path;
+}
 
 export function ModeloDetailPanel({ modeloId, onClose }: {
   modeloId: string | null;
@@ -422,6 +494,44 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   // variante, herança de grade, cadTecidos) muta o rascunho sem marcar dirty. Reseta ao
   // trocar de modelo (efeito do modeloId) e após salvar (setCadSeeded(false) re-semeia).
   const [guardReady, setGuardReady] = useState(false);
+
+  // Colab (spec 2026-08-03, Task 1 — adota o padrão do piloto OC Tecido nesta tela).
+  // touchedRef: campos ESCALARES do draft que EU editei (diff via setDraftTracked).
+  // colecoesTouchadasRef: flag ÚNICA (não por-linha) — o BOM (tecidos/aviamentos/
+  // etiquetas/grade) usa merge REV-CHECK-ONLY nesta 1ª adoção (o salvar_modelo_bom faz
+  // DELETE+re-INSERT com UUIDs novos a cada save; ids instáveis tornam mergeLinhas
+  // enganoso aqui — ver comentário no guard dos 4 efeitos de semeadura abaixo).
+  const touchedRef = useRef<Set<string>>(new Set());
+  const colecoesTouchadasRef = useRef(false);
+  const baseRef = useRef<{ draft: any } | null>(null);
+  const revRef = useRef<number | null>(null);
+  const retryRef = useRef(false);
+  // Guarda anti-duplo-clique do save (ref SÍNCRONO — isPending só atualiza no re-render).
+  const savingRef = useRef(false);
+  const [conflitos, setConflitos] = useState<Conflito[]>([]);
+  // Espelho síncrono de `conflitos` p/ o retry do save (roda fora do ciclo de render).
+  const conflitosRef = useRef<Conflito[]>([]);
+  const [ultimoMerge, setUltimoMerge] = useState<{ atualizados: number; conflitos: Conflito[] } | null>(null);
+  const [campoFocado, setCampoFocado] = useState<string | null>(null);
+  // Conflito de SEÇÃO (coleções do BOM) — granularidade única (não por-linha): "alguém
+  // salvou e eu toquei numa coleção" vira 1 conflito com 2 saídas (manter/descartar).
+  const [conflitoBom, setConflitoBom] = useState(false);
+  const conflitoBomRef = useRef(false);
+  const setConflitoBomBoth = (v: boolean) => { conflitoBomRef.current = v; setConflitoBom(v); };
+  // Espelho SEMPRE atualizado de `draft` p/ o merge síncrono dentro do onError do save
+  // (roda depois de um `await` — ver comentário extenso no onError, mesma razão do piloto).
+  const draftLiveRef = useRef(draft);
+  draftLiveRef.current = draft;
+
+  // Wrapper que DIFERE prev→next e marca o que mudou — os filhos continuam recebendo a
+  // mesma assinatura de `setDraft` (mesma técnica do piloto OC Tecido).
+  const setDraftTracked: typeof setDraft = (upd) =>
+    setDraft((prev: any) => {
+      const next = typeof upd === "function" ? (upd as (p: any) => any)(prev) : upd;
+      for (const k of Object.keys(next ?? {}))
+        if (next[k] !== prev?.[k]) touchedRef.current.add(k);
+      return next;
+    });
   // Subcoleções da coleção escolhida — dropdown de Subcoleção (OTB ligado).
   const { data: subcolecoesOpts = [] } = useQuery({
     queryKey: ["subcolecoes-opts", draft?.colecao_id],
@@ -455,7 +565,19 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   const [importOpen, setImportOpen] = useState(false);
   const [camposCopiados, setCamposCopiados] = useState<Set<string>>(new Set());
   const [confirmSobrescrita, setConfirmSobrescrita] = useState<{ itens: string[]; aplicar: () => void } | null>(null);
-  useEffect(() => { setCadSeeded(false); setCadTecidosState([]); setAutoFolhas(false); setEditing(false); setGuardReady(false); }, [modeloId]);
+  useEffect(() => {
+    setCadSeeded(false); setCadTecidosState([]); setAutoFolhas(false); setEditing(false); setGuardReady(false);
+    // Colab: o painel não remonta ao trocar de modelo (mesma instância, `modeloId` novo) —
+    // sem isto, o merge do próximo modelo compararia contra o base/touched do ANTERIOR.
+    baseRef.current = null;
+    revRef.current = null;
+    touchedRef.current = new Set();
+    colecoesTouchadasRef.current = false;
+    conflitosRef.current = [];
+    setConflitos([]);
+    setUltimoMerge(null);
+    setConflitoBomBoth(false);
+  }, [modeloId]);
 
   // Guarda de "alterações não salvas": snapshot do rascunho + BOM editável. O baseline é
   // re-tirado quando as queries semeiam o estado (efeito abaixo, keyed na ASSINATURA do
@@ -516,55 +638,76 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     },
   });
 
+  // Colab (spec 2026-08-03, Task 1): 1ª carga semeia como sempre; refetch (Realtime/foco de
+  // janela invalidando ["modelo-detail"]) faz MERGE 3-vias em vez de sobrescrever o rascunho
+  // às cegas — mesmo padrão do piloto OC Tecido (draftFromOc/baseRef/mergeDraft).
   useEffect(() => {
-    if (modelo) {
-      setDraft({
-        nome: modelo.nome ?? "",
-        ref: modelo.ref ?? "",
-        status_desenvolvimento: modelo.status_desenvolvimento ?? statusOptions[0]?.value ?? "em_modelagem",
-        motivo_cancelamento: modelo.motivo_cancelamento ?? "",
-        linha_id: modelo.linha_id,
-        estilista_id: (modelo as any).estilista_id ?? null,
-        modelista_id: modelo.modelista_id,
-        piloteiro1_id: modelo.piloteiro1_id,
-        piloteiro2_id: modelo.piloteiro2_id,
-        piloteiro3_id: modelo.piloteiro3_id,
-        data_piloto1: modelo.data_piloto1 ?? "",
-        data_piloto2: modelo.data_piloto2 ?? "",
-        data_piloto3: modelo.data_piloto3 ?? "",
-        data_desenho_tecnico: modelo.data_desenho_tecnico ?? "",
-        data_aprovacao: modelo.data_aprovacao ?? "",
-        observacoes_tecnicas: modelo.observacoes_tecnicas ?? "",
-        ajustes_prova: modelo.ajustes_prova ?? "",
-        observacoes_gerais: modelo.observacoes_gerais ?? "",
-        observacoes_mao_obra: (modelo as any).observacoes_mao_obra ?? "",
-        ficha_medida_url: modelo.ficha_medida_url ?? "",
-        desenho_tecnico_url: (modelo as any).desenho_tecnico_url ?? "",
-        croqui_url: (modelo as any).croqui_url ?? "",
-        custo_terceirizados_previsto: Number(modelo.custo_terceirizados_previsto ?? 0),
-        custos_adicionais: ((modelo as any).custos_adicionais ?? []) as { descricao: string; valor: number }[],
-        proporcoes: (modelo.proporcoes ?? {}) as Record<string, number>,
-        enviado_cad: !!modelo.enviado_cad,
-        fotos_modelo: (modelo.fotos_modelo ?? []) as string[],
-        fotos_referencia: (modelo.fotos_referencia ?? []) as string[],
-        // Categoria (do Planejamento) + Subcategorias 1/2 — editáveis no Desenvolvimento.
-        categoria_principal_id: modelo.categoria_principal_id ?? null,
-        subcategoria1_id: (modelo as any).subcategoria1_id ?? null,
-        subcategoria2_id: (modelo as any).subcategoria2_id ?? null,
-        colecao_id: (modelo as any).colecao_id ?? null,
-        subcolecao: (modelo as any).subcolecao ?? "",
-        // Lançamento (mês/ano/semana) — o SAVE grava os 3; se não carregar aqui, `draft.x || null`
-        // ZERAVA a semana/lançamento a cada save no Desenvolvimento (card saía de "classificado" no
-        // OTB por perder a semana). Carrega do modelo p/ preservar quando não editado.
-        mes_id: (modelo as any).mes_id ?? null,
-        ano_id: (modelo as any).ano_id ?? null,
-        semana: (modelo as any).semana ?? "",
-      });
+    if (!modelo) return;
+    const freshDraft = draftFromModelo(modelo, statusOptions[0]?.value);
+    const freshRev = (modelo as any).rev ?? null;
+
+    if (!baseRef.current) {
+      // 1ª carga: seed normal (mesmo comportamento de antes do piloto).
+      baseRef.current = { draft: freshDraft };
+      revRef.current = freshRev;
+      setDraft(freshDraft);
+      touchedRef.current = new Set();
+      conflitosRef.current = [];
+      setConflitos([]);
+      return;
     }
+
+    // Rev igual ao último que processei = nada aconteceu no agregado desde então (refetch
+    // duplicado/foco de janela sem UPDATE real) — no-op, nem olha o draft.
+    if (freshRev === revRef.current) return;
+
+    // Algo mudou no agregado (o evento postgres_changes não distingue escalar de BOM —
+    // qualquer UPDATE em `modelos`, inclusive o bump de filha via trigger, chega igual).
+    // MERGE do draft por CONTEÚDO (não pelo rev cru): cobre o ECO do MEU PRÓPRIO save sem
+    // precisar sincronizar `revRef` na mão no onSuccess — `baseRef` já foi otimisticamente
+    // avançado lá para os valores que acabei de salvar, então o fresh bate igual (0 diffs).
+    const md = mergeDraft({ base: baseRef.current.draft, draft, fresh: freshDraft, touched: touchedRef.current });
+    const draftMudou = md.atualizados.length > 0 || md.conflitos.length > 0;
+    baseRef.current = { draft: freshDraft };
+    revRef.current = freshRev;
+
+    // Coleções do BOM tocadas: vira 1 conflito de SEÇÃO — INDEPENDENTE do draft ter mudado
+    // nesta passada (um save de outra pessoa pode ter mexido SÓ no BOM, sem tocar nenhum
+    // campo escalar — mergeDraft não veria diferença nenhuma, mas minha edição de coleção
+    // pendente ainda conflita). O guard nos 4 efeitos de semeadura abaixo já mantém as
+    // coleções congeladas; aqui só sinaliza o banner (idempotente — seguro rodar toda vez).
+    if (colecoesTouchadasRef.current) setConflitoBomBoth(true);
+
+    // ⚠️ Um save do OUTRO USUÁRIO dispara VÁRIOS eventos UPDATE em sequência na linha-raiz
+    // (o `modelos.update` direto + 1 bump-trigger por tabela-filha que `salvar_modelo_bom`
+    // toca — tecidos/aviamentos/grade cada um re-executa `fn_colab_bump_modelo`). Cada
+    // evento invalida tudo de novo e roda este efeito de novo; passadas SEGUINTES à que
+    // achou o conflito comparam `base` (já avançado) com o MESMO `fresh` → 0 diffs nessa
+    // passada (`draftMudou=false`) — NÃO sobrescreve `conflitos`/`ultimoMerge` aqui (senão
+    // apagaria em silêncio um conflito real ainda não resolvido pelo usuário; mesmo motivo
+    // do guard `semResultado` do piloto OC Tecido, que retorna ANTES de tocar nesse state).
+    if (!draftMudou) return;
+
+    setDraft(md.valor);
+    conflitosRef.current = md.conflitos;
+    setConflitos(md.conflitos);
+    setUltimoMerge({ atualizados: md.atualizados.length, conflitos: md.conflitos });
+    if (touchedRef.current.size === 0 && !colecoesTouchadasRef.current) {
+      // Nada tocado (nem draft nem coleções) e o draft mudou de verdade: seguro fazer um
+      // re-seed LIMPO — reaproveita o pathway já testado de guardReady/cadSeeded (o mesmo
+      // usado após o MEU PRÓPRIO save) em vez de reconciliar o baseline do guarda de "não
+      // salvo" na mão (evita "abrir sujo" por um campo adotado em silêncio).
+      setGuardReady(false);
+      setCadSeeded(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modelo]);
 
   useEffect(() => {
     if (!tecidosData || !modelo) return;
+    // Colab: enquanto eu tiver tocado alguma coleção do BOM, NÃO sobrescreve (o merge
+    // effect acima já congelou como conflito de seção "Tecidos & BOM" — ver `conflitoBom`).
+    if (colecoesTouchadasRef.current) return;
     const empty = makeEmptyBlocks();
     const planejados: string[] = Array.isArray((modelo as any).tecidos_planejados)
       ? ((modelo as any).tecidos_planejados as string[])
@@ -634,6 +777,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
 
   useEffect(() => {
     if (!aviamentosData) return;
+    if (colecoesTouchadasRef.current) return; // colab: coleção tocada — não sobrescreve
     const rows: AviamentoRow[] = aviamentosData.map((a: any) => ({
       id: a.id, aviamento_id: a.aviamento_id,
       consumo: Number(a.consumo ?? 0), loss_percent: Number(a.loss_percent ?? 0),
@@ -644,6 +788,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
 
   useEffect(() => {
     if (!modeloEtiquetasData) return;
+    if (colecoesTouchadasRef.current) return; // colab: coleção tocada — não sobrescreve
     setEtiquetasState(modeloEtiquetasData.map((e: any) => ({
       id: e.id, etiqueta_id: e.etiqueta_id, cor_id: e.cor_id,
       consumo: Number(e.consumo ?? 0), loss_percent: Number(e.loss_percent ?? 0),
@@ -660,6 +805,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   }, [etiquetaMap]);
 
   useEffect(() => {
+    if (colecoesTouchadasRef.current) return; // colab: coleção tocada — não sobrescreve
     if (!gradesData) { setGrades([]); return; }
     const rows: GradeRow[] = gradesData.map((g: any) => ({
       variante_numero: g.variante_numero,
@@ -806,6 +952,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     });
     // Propagação bidirecional: consumo/loss no CAD → BOM
     if (patch.consumo_cad !== undefined || patch.loss_percent_cad !== undefined) {
+      colecoesTouchadasRef.current = true; // colab: também mexe em `blocks` (BOM) — rev-check-only
       const tec = cadTecidosState[i];
       if (tec) {
         const { tipo, numero } = tec;
@@ -1220,12 +1367,90 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   const dirty = guardReady && !locked && !!draft && changed;
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
 
+  // Colab (spec 2026-08-03, Task 1): canal por modelo — o registroId vai DENTRO do canal
+  // (armadilha documentada: nunca ler old_record). Qualquer UPDATE na linha-raiz `modelos`
+  // (inclusive o bump de filha via trigger) dispara `onMudancaServidor`, que re-busca TODAS
+  // as queries do agregado — não dá p/ saber, só pelo evento, se foi escalar ou BOM.
+  const { presentes } = useColabRegistro({
+    canal: modeloId ? `colab:modelo:${modeloId}` : null,
+    tabela: "modelos",
+    registroId: modeloId,
+    onMudancaServidor: () => {
+      qc.invalidateQueries({ queryKey: ["modelo-detail", modeloId] });
+      qc.invalidateQueries({ queryKey: ["modelo-tecidos", modeloId] });
+      qc.invalidateQueries({ queryKey: ["modelo-tecido-oc-links", modeloId] });
+      qc.invalidateQueries({ queryKey: ["modelo-aviamentos", modeloId] });
+      qc.invalidateQueries({ queryKey: ["modelo-etiquetas", modeloId] });
+      qc.invalidateQueries({ queryKey: ["modelo-grades", modeloId] });
+    },
+    campoFocado,
+  });
+  const focadoPor = (path: string) => presentes.find((p) => p.campoFocado === path)?.nome;
+
+  // Resolve um conflito de campo escalar: "usar o novo" aplica `dele` no rascunho e tira
+  // o campo do `touched` (senão o próximo merge o trataria como editado por mim de novo);
+  // "manter meu" só descarta o aviso — o valor local prevalece e SEGUE touched.
+  const resolverConflito = (c: Conflito, useDele: boolean) => {
+    if (useDele) {
+      setDraft((d: any) => ({ ...d, [c.path]: c.dele }));
+      touchedRef.current.delete(c.path);
+    }
+    setConflitos((prev) => {
+      const next = prev.filter((x) => x.path !== c.path);
+      conflitosRef.current = next;
+      return next;
+    });
+    setUltimoMerge((prev) => {
+      if (!prev) return prev;
+      const conflitosRestantes = prev.conflitos.filter((x) => x.path !== c.path);
+      if (conflitosRestantes.length === 0 && prev.atualizados === 0) return null;
+      return { ...prev, conflitos: conflitosRestantes };
+    });
+  };
+  // Resolução do conflito de SEÇÃO (BOM): "descartar e recarregar" força um refetch das 4
+  // queries de coleção (o guard nos efeitos de semeadura só as ignorava enquanto tocadas —
+  // como o React Query já tinha os dados em cache, só destravar o guard não reaplicaria
+  // nada; o invalidate força um round-trip novo, que os efeitos então aplicam). "Manter meu
+  // rascunho" só fecha o aviso — o próximo Salvar usa o `revRef` já avançado (a trava do
+  // PRIMEIRO write aceita, pois é o rev mais recente que eu conheço) e sobrescreve.
+  const resolverConflitoBom = (manterMeu: boolean) => {
+    setConflitoBomBoth(false);
+    if (manterMeu) return;
+    colecoesTouchadasRef.current = false;
+    setGuardReady(false);
+    setCadSeeded(false);
+    qc.invalidateQueries({ queryKey: ["modelo-tecidos", modeloId] });
+    qc.invalidateQueries({ queryKey: ["modelo-tecido-oc-links", modeloId] });
+    qc.invalidateQueries({ queryKey: ["modelo-aviamentos", modeloId] });
+    qc.invalidateQueries({ queryKey: ["modelo-etiquetas", modeloId] });
+    qc.invalidateQueries({ queryKey: ["modelo-grades", modeloId] });
+  };
+  // Resolução GENÉRICA a partir do ColabBanner (mesmo padrão do piloto): o banner só
+  // conhece o `path`; a seção "Tecidos & BOM" usa `resolverConflitoBom`, os escalares usam
+  // `resolverConflito`. Todo conflito tem saída — sem isso o guard do save deadlockaria.
+  const resolverPorPath = (path: string, escolha: "meu" | "dele") => {
+    if (path === "secao:bom") { resolverConflitoBom(escolha === "meu"); return; }
+    const c = conflitos.find((x) => x.path === path);
+    if (c) resolverConflito(c, escolha === "dele");
+  };
+  // Conflitos combinados p/ o ColabBanner (escalares + o de seção, se houver).
+  const conflitosParaBanner: Conflito[] = conflitoBom
+    ? [...conflitos, { path: "secao:bom", meu: "minhas edições não salvas", dele: "recarregar do servidor" }]
+    : conflitos;
+
   // Persiste o modelo + BOM (tecidos/variantes/grade/aviamentos) via salvar_modelo_bom.
   // Usado pelo Salvar e também ANTES de Enviar ao CAD, garantindo que a cópia ao CAD
   // use exatamente o que está no Desenvolvimento (a validação usa estado local; a
   // cópia ao CAD lê do banco — sem persistir, iria dado incompleto/vazio).
   const persistModelo = async () => {
       if (!draft) return;
+      // Colab (Task 1): com conflitos pendentes na tela (escalares OU a seção "Tecidos &
+      // BOM"), o save NÃO pode passar — mesmo escala rev já bata, o usuário precisa
+      // resolver ("manter meu"/"usar o novo"/"descartar e recarregar") primeiro. Mesmo
+      // guard do piloto OC Tecido (achado QA: sem isto, um 2º clique sobrescreveria a
+      // versão da outra pessoa em silêncio).
+      if (conflitosRef.current.length > 0 || conflitoBomRef.current)
+        throw new Error("Resolva os conflitos listados no aviso no topo antes de salvar.");
       const payload = {
         nome: draft.nome,
         ref: draft.ref || null,
@@ -1282,8 +1507,27 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
           return out;
         })(),
       };
-      const { error: e1 } = await supabase.from("modelos").update(payload as any).eq("id", modeloId);
+      // Colab (Task 1) — DESENHO DA TRAVA p/ save composto: este save faz VÁRIAS chamadas
+      // (modelos.update → salvar_modelo_bom → modelo_etiquetas → salvar_cad_completo) que
+      // não cabem numa única RPC/transação (diferente do piloto OC Tecido, que tem
+      // salvar_oc_tecido). A validação otimista acontece SÓ no PRIMEIRO write: o
+      // `.eq("rev", revRef.current)` só casa a linha se ninguém salvou desde a última carga;
+      // 0 linhas devolvidas = conflito (mesma UX do P0409 do piloto: merge síncrono +
+      // retry 1×). As chamadas SEGUINTES (salvar_modelo_bom) mandam `_rev_base: null` — a
+      // trava já validou aqui, e o UPDATE que acabou de passar bump `modelos.rev` (trigger
+      // `trg_colab_rev`), protegendo a sequência: qualquer conflito NOVO que apareça só
+      // DEPOIS deste ponto seria pego no PRÓXIMO save (aceito — narrow window, documentado).
+      // `.eq("rev", ...)`: types.ts ainda não tem a coluna `rev` (regen pendente, débito
+      // conhecido — ver CLAUDE.md) — `as any` no builder inteiro, mesmo padrão já usado
+      // no arquivo p/ tabelas/colunas fora do types.ts (ex.: "modelo_etiquetas" as any).
+      const { data: updRows, error: e1 } = await (supabase.from("modelos") as any)
+        .update(payload as any).eq("id", modeloId).eq("rev", revRef.current).select("id");
       if (e1) throw e1;
+      if (!updRows || updRows.length === 0) {
+        const conflito: any = new Error("conflito_versao: o registro foi salvo por outra pessoa");
+        conflito.code = "P0409";
+        throw conflito;
+      }
 
       // Persistência atômica do BOM via RPC (substitui delete+insert não-transacional)
       const tecidosPayload = blocks
@@ -1336,6 +1580,9 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
         _tecidos: tecidosPayload as any,
         _aviamentos: aviamentosPayload as any,
         _grades: gradesPayload as any,
+        // _rev_base: null (default) — a trava já validou no PRIMEIRO write acima; ver
+        // comentário "DESENHO DA TRAVA p/ save composto".
+        _rev_base: null,
       });
       if (eBom) throw eBom;
 
@@ -1426,6 +1673,17 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     mutationFn: persistModelo,
     onSuccess: async () => {
       markClean(); // limpa o indicador de "alterações não salvas" já no sucesso
+      // Colab: o que acabei de salvar já É o "base" atual — evita que o eco do Realtime
+      // (meu próprio UPDATE) apareça como "alguém atualizou N campos" no banner. O rev
+      // real (bumpado no servidor) chega no próximo refetch de ["modelo-detail"] — o
+      // merge effect processa em silêncio (base≈fresh, sem conflitos) e avança `revRef`.
+      baseRef.current = { draft };
+      touchedRef.current = new Set();
+      colecoesTouchadasRef.current = false;
+      conflitosRef.current = [];
+      setConflitos([]);
+      setUltimoMerge(null);
+      setConflitoBomBoth(false);
       // Marca revisão (#Erro) nas etapas afetadas — o SERVIDOR retorna EXATAMENTE quais
       // etapas existem downstream e foram marcadas. A mensagem usa esse retorno (não o
       // hasDownstream cacheado, que fica stale depois de reverter uma etapa e faria o toast
@@ -1486,14 +1744,60 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
       qc.invalidateQueries({ queryKey: ["producao-explosao-list"] });
       setEditing(false); // Salvar re-trava quando já foi enviado à Explosão.
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
+    onError: async (e: any) => {
+      // Colab (Task 1, armadilha #1 do review do piloto): ler o cache DIRETO
+      // (getQueryData) + refs-espelho DENTRO do onError — NUNCA delegar ao useEffect (o
+      // efeito de merge só roda no PRÓXIMO passive-effect commit; se confiássemos nele, o
+      // retry abaixo leria `revRef.current` VELHO e cairia em P0409 de novo). `draftLiveRef`
+      // (não o `draft` da closure) garante que nenhuma tecla digitada durante o `await`
+      // (campos não ficam disabled) se perca — mesma técnica do piloto OC Tecido.
+      if (e?.code === "P0409" && !retryRef.current) {
+        retryRef.current = true;
+        savingRef.current = true;
+        await qc.refetchQueries({ queryKey: ["modelo-detail", modeloId] });
+        const fresh = qc.getQueryData<any>(["modelo-detail", modeloId]);
+        if (fresh) {
+          const freshDraft = draftFromModelo(fresh, statusOptions[0]?.value);
+          const liveDraft = draftLiveRef.current;
+          const base = baseRef.current ?? { draft: freshDraft };
+          const md = mergeDraft({ base: base.draft, draft: liveDraft, fresh: freshDraft, touched: touchedRef.current });
+          if (md.atualizados.length > 0 || md.conflitos.length > 0) setDraft(md.valor);
+          conflitosRef.current = md.conflitos;
+          setConflitos(md.conflitos);
+          setUltimoMerge({ atualizados: md.atualizados.length, conflitos: md.conflitos });
+          // Avança base/rev AQUI — o merge effect (dispara em seguida pelo mesmo refetch)
+          // vai ver base===fresh e virar no-op: nada é reaplicado em dobro.
+          baseRef.current = { draft: freshDraft };
+          revRef.current = (fresh as any).rev ?? null;
+          const bomConflito = colecoesTouchadasRef.current;
+          if (bomConflito) setConflitoBomBoth(true);
+          if (md.conflitos.length === 0 && !bomConflito) {
+            save.mutate(undefined, { onSettled: () => { savingRef.current = false; retryRef.current = false; } });
+            return;
+          }
+        }
+        savingRef.current = false;
+        retryRef.current = false;
+        toast.error(mensagemErro(e, "Erro ao salvar"));
+        return;
+      }
+      toast.error(mensagemErro(e, "Erro ao salvar"));
+    },
   });
+
+  const handleSave = () => {
+    if (savingRef.current || save.isPending) return;
+    savingRef.current = true;
+    save.mutate(undefined, { onSettled: () => { savingRef.current = false; } });
+  };
 
   // Aplica um patch de importação nos estados locais (NÃO grava no banco — o Salvar existente comita).
   const aplicarPatch = (patch: PatchCopia, campos: Set<string>) => {
-    if (patch.observacoes_tecnicas !== undefined) setDraft((d: any) => ({ ...d, observacoes_tecnicas: patch.observacoes_tecnicas }));
-    if (patch.custos_adicionais !== undefined) setDraft((d: any) => ({ ...d, custos_adicionais: patch.custos_adicionais }));
-    if (patch.proporcoes !== undefined) setDraft((d: any) => ({ ...d, proporcoes: patch.proporcoes }));
+    if (patch.observacoes_tecnicas !== undefined) setDraftTracked((d: any) => ({ ...d, observacoes_tecnicas: patch.observacoes_tecnicas }));
+    if (patch.custos_adicionais !== undefined) setDraftTracked((d: any) => ({ ...d, custos_adicionais: patch.custos_adicionais }));
+    if (patch.proporcoes !== undefined) setDraftTracked((d: any) => ({ ...d, proporcoes: patch.proporcoes }));
+    // Colab: importar dados também mexe nas coleções do BOM (rev-check-only).
+    if (patch.blocks || patch.aviamentos || patch.etiquetas || patch.grades) colecoesTouchadasRef.current = true;
     if (patch.blocks !== undefined) setBlocks(patch.blocks.map((b) => recomputeBlock(b, artigoMap, varianteArtigoMap, frozenPrecos as Record<string, number>)));
     if (patch.aviamentos !== undefined) setAviamentosState(patch.aviamentos);
     if (patch.etiquetas !== undefined) setEtiquetasState(patch.etiquetas);
@@ -1571,7 +1875,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     },
     onSuccess: () => {
       toast.success("Enviado para a Explosão");
-      setDraft((d: any) => ({ ...d, enviado_cad: true }));
+      setDraftTracked((d: any) => ({ ...d, enviado_cad: true }));
       qc.invalidateQueries({ queryKey: ["modelo-detail", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-condicoes-kanban", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-cad-calc", modeloId] });
@@ -1588,6 +1892,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   });
 
   const updateBlock = (idx: number, patch: Partial<TecidoBlock>) => {
+    colecoesTouchadasRef.current = true; // colab: coleção do BOM tocada (rev-check-only)
     // Só marca "consumo alterado" (que vira #Erro nas etapas downstream) quando
     // consumo/%loss REALMENTE mudam — trocar artigo/substituto não altera a metragem,
     // então não deve disparar revisão pendente nas etapas.
@@ -1645,6 +1950,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     applyPatch();
   };
   const updateBlockVariante = (idx: number, vIdx: number, value: string | null) => {
+    colecoesTouchadasRef.current = true; // colab: coleção do BOM tocada (rev-check-only)
     setConsumoAlterado(true);
     const target = blocks[idx];
     const isTecido1 = target?.tipo === "tecido" && target?.numero === 1;
@@ -1695,6 +2001,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     applyChange();
   };
   const updateBlockOcLinks = (idx: number, vIdx: number, allocs: OcAlloc[]) => {
+    colecoesTouchadasRef.current = true; // colab: coleção do BOM tocada (rev-check-only)
     setBlocks((bs) => bs.map((b, i) => {
       if (i !== idx) return b;
       const oc_links = (b.oc_links ?? []).map((a) => [...(a ?? [])]);
@@ -1705,26 +2012,31 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   };
 
   const updateAviamento = (idx: number, patch: Partial<AviamentoRow>) => {
+    colecoesTouchadasRef.current = true; // colab: coleção do BOM tocada (rev-check-only)
     setAviamentoAlterado(true);
     setAviamentosState((rows) => rows.map((r, i) => i === idx ? recomputeAviamento({ ...r, ...patch }, aviamentoMap) : r));
   };
   const addAviamento = () => {
+    colecoesTouchadasRef.current = true;
     setAviamentoAlterado(true);
     if (aviamentosState.length >= 20) return;
     setAviamentosState((rows) => [...rows, { aviamento_id: null, consumo: 0, loss_percent: 0, custo_previsto: 0 }]);
   };
-  const removeAviamento = (idx: number) => { setAviamentoAlterado(true); setAviamentosState((rows) => rows.filter((_, i) => i !== idx)); };
+  const removeAviamento = (idx: number) => { colecoesTouchadasRef.current = true; setAviamentoAlterado(true); setAviamentosState((rows) => rows.filter((_, i) => i !== idx)); };
 
   const updateEtiqueta = (idx: number, patch: Partial<ModeloEtiquetaRow>) => {
+    colecoesTouchadasRef.current = true; // colab: coleção do BOM tocada (rev-check-only)
     setEtiquetasState((rows) => rows.map((r, i) => i === idx ? recomputeEtiqueta({ ...r, ...patch }, etiquetaMap) : r));
   };
   const addEtiqueta = () => {
+    colecoesTouchadasRef.current = true;
     if (etiquetasState.length >= 20) return;
     setEtiquetasState((rows) => [...rows, { etiqueta_id: null, cor_id: null, consumo: 0, loss_percent: 0, custo_previsto: 0 }]);
   };
-  const removeEtiqueta = (idx: number) => setEtiquetasState((rows) => rows.filter((_, i) => i !== idx));
+  const removeEtiqueta = (idx: number) => { colecoesTouchadasRef.current = true; setEtiquetasState((rows) => rows.filter((_, i) => i !== idx)); };
 
   const updateGradeTotal = (n: number, total: number) => {
+    colecoesTouchadasRef.current = true; // colab: coleção do BOM tocada (rev-check-only)
     setGradeAlterada(true);
     setGrades((gs) => {
       const cur = gs.find((g) => g.variante_numero === n) ?? { variante_numero: n, grades: {}, grade_total: 0 };
@@ -1755,6 +2067,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     });
   };
   const updateGradeCell = (n: number, tam: string, qty: number) => {
+    colecoesTouchadasRef.current = true; // colab: coleção do BOM tocada (rev-check-only)
     setGradeAlterada(true);
     setGrades((gs) => {
       const cur = gs.find((g) => g.variante_numero === n) ?? { variante_numero: n, grades: {}, grade_total: 0 };
@@ -1781,10 +2094,12 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     setGradeAlterada(true);
     const oldProp = (draft?.proporcoes ?? {}) as Record<string, number>;
     const newProp = { ...oldProp, [tam]: Math.max(0, val) };
-    setDraft((d: any) => ({ ...d, proporcoes: newProp }));
+    setDraftTracked((d: any) => ({ ...d, proporcoes: newProp }));
     // Com cálculo automático ativo, mudar a proporção redistribui a grade
-    // mantendo a escala (unidade = total ÷ soma das proporções anterior).
+    // mantendo a escala (unidade = total ÷ soma das proporções anterior); também mexe
+    // na coleção `grades` (colab: rev-check-only).
     if (gradeAuto) {
+      colecoesTouchadasRef.current = true;
       const oldSum = tamanhos.reduce((s, t) => s + (Number(oldProp[t]) || 0), 0);
       if (oldSum > 0) {
         setGrades((gs) => gs.map((g) => {
@@ -1834,7 +2149,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
       const path = `${tenant}/fichas/${modeloId}/${crypto.randomUUID()}-${sanitizeStorageName(file.name)}`;
       const { error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false });
       if (error) throw error;
-      setDraft((d: any) => ({ ...d, ficha_medida_url: path }));
+      setDraftTracked((d: any) => ({ ...d, ficha_medida_url: path }));
       toast.success("Ficha enviada");
     } catch (e: any) {
       toast.error(mensagemErro(e));
@@ -1851,7 +2166,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
       const path = `${tenant}/desenhos/${modeloId}/${crypto.randomUUID()}-${sanitizeStorageName(file.name)}`;
       const { error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false });
       if (error) throw error;
-      setDraft((d: any) => ({ ...d, desenho_tecnico_url: path }));
+      setDraftTracked((d: any) => ({ ...d, desenho_tecnico_url: path }));
       toast.success("Desenho técnico enviado");
     } catch (e: any) {
       toast.error(mensagemErro(e));
@@ -1868,7 +2183,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
       const path = `${tenant}/croqui/${modeloId}/${crypto.randomUUID()}-${sanitizeStorageName(file.name)}`;
       const { error } = await supabase.storage.from(BUCKET).upload(path, file, { upsert: false });
       if (error) throw error;
-      setDraft((d: any) => ({ ...d, croqui_url: path }));
+      setDraftTracked((d: any) => ({ ...d, croqui_url: path }));
       toast.success("Croqui enviado");
     } catch (e: any) {
       toast.error(mensagemErro(e));
@@ -1911,10 +2226,21 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             )}
           </div>
         </div>
+        <ColabBanner
+          presentes={presentes}
+          ultimoMerge={ultimoMerge}
+          conflitos={conflitosParaBanner}
+          onResolver={resolverPorPath}
+          rotulo={rotuloConflitoModelo}
+        />
       </SheetHeader>
 
       {/* área rolável (flex-1) — o footer fica fixo embaixo como irmão shrink-0 */}
-      <div className="mt-4 flex-1 min-h-0 overflow-y-auto">
+      <div
+        className="mt-4 flex-1 min-h-0 overflow-y-auto"
+        onFocusCapture={(e) => setCampoFocado((e.target as HTMLElement).dataset?.colabPath ?? null)}
+        onBlurCapture={() => setCampoFocado(null)}
+      >
         {/* Status no fluxo — barra persistente acima do accordion (mockup); porteia o kanban. */}
         <fieldset disabled={locked} className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border bg-muted/30 px-3 py-2">
           <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Status no fluxo</span>
@@ -1926,7 +2252,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
                 const chk = podeEntrarStatus(v);
                 if (!chk.ok) { toast.error(`Salve as pendências primeiro. Faltam: ${chk.faltando.map((c) => c.label).join(", ")}`); return; }
               }
-              setDraft({ ...draft, status_desenvolvimento: v });
+              setDraftTracked({ ...draft, status_desenvolvimento: v });
             }}
           >
             <SelectTrigger className="h-9 w-full max-w-[240px] bg-card"><SelectValue /></SelectTrigger>
@@ -1959,7 +2285,8 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
               <fieldset disabled={locked} className="contents">
               <ModeloInfoSection
                 draft={draft}
-                setDraft={setDraft}
+                setDraft={setDraftTracked}
+                colab={{ focadoPor }}
                 linhas={linhas.data ?? []}
                 estilistas={estilistas.data ?? []}
                 modelistas={modelistas.data ?? []}
@@ -2149,10 +2476,10 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
               <ModeloCustosSection
                 totals={totals}
                 custoTerceirizados={draft.custo_terceirizados_previsto}
-                onChangeTerceirizados={(v) => setDraft({ ...draft, custo_terceirizados_previsto: v })}
+                onChangeTerceirizados={(v) => setDraftTracked({ ...draft, custo_terceirizados_previsto: v })}
                 maoObraAprovado={(modelo as any)?.custo_terceirizados_aprovado ?? null}
                 custosAdicionais={draft.custos_adicionais ?? []}
-                onChangeCustos={(v) => setDraft({ ...draft, custos_adicionais: v })}
+                onChangeCustos={(v) => setDraftTracked({ ...draft, custos_adicionais: v })}
                 camposCopiados={camposCopiados}
                 onCampoEditado={onCampoEditado}
               />
@@ -2161,7 +2488,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
                 <ObsMaoObraField
                   label="Obs. Mão de Obra"
                   value={draft.observacoes_mao_obra ?? ""}
-                  onChange={(v) => setDraft({ ...draft, observacoes_mao_obra: v })}
+                  onChange={(v) => setDraftTracked({ ...draft, observacoes_mao_obra: v })}
                 />
               </Card>
               </fieldset>
@@ -2190,15 +2517,15 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
                 onUploadFicha={uploadFicha}
                 onUploadDesenho={uploadDesenho}
                 onUploadCroqui={uploadCroqui}
-                onRemoveFicha={() => setDraft({ ...draft, ficha_medida_url: "" })}
-                onRemoveDesenho={() => setDraft({ ...draft, desenho_tecnico_url: "" })}
-                onRemoveCroqui={() => setDraft({ ...draft, croqui_url: "" })}
+                onRemoveFicha={() => setDraftTracked({ ...draft, ficha_medida_url: "" })}
+                onRemoveDesenho={() => setDraftTracked({ ...draft, desenho_tecnico_url: "" })}
+                onRemoveCroqui={() => setDraftTracked({ ...draft, croqui_url: "" })}
                 observacoesGerais={draft.observacoes_gerais}
-                onChangeObservacoes={(v) => setDraft({ ...draft, observacoes_gerais: v })}
+                onChangeObservacoes={(v) => setDraftTracked({ ...draft, observacoes_gerais: v })}
                 fotosModelo={draft.fotos_modelo ?? []}
                 fotosReferencia={draft.fotos_referencia ?? []}
-                onChangeFotosModelo={(p) => setDraft({ ...draft, fotos_modelo: p })}
-                onChangeFotosReferencia={(p) => setDraft({ ...draft, fotos_referencia: p })}
+                onChangeFotosModelo={(p) => setDraftTracked({ ...draft, fotos_modelo: p })}
+                onChangeFotosReferencia={(p) => setDraftTracked({ ...draft, fotos_referencia: p })}
               />
               </fieldset>
             </AccordionContent>
@@ -2276,7 +2603,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             <Pencil className="h-4 w-4" />
           </Button>
         ) : (
-          <Button onClick={() => save.mutate()} disabled={save.isPending}>
+          <Button onClick={handleSave} disabled={save.isPending}>
             {save.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Salvar
           </Button>
         )}
