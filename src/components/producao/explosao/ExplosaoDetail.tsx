@@ -13,16 +13,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
-import { ArrowLeft, ImageIcon, Pencil, Printer, RotateCcw, Save, Send } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ImageIcon, Pencil, Printer, RotateCcw, Save, Send } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { varianteLabel } from "@/lib/variante";
+import { fmtNum } from "@/lib/format";
+import { situacaoExplosao } from "@/lib/explosao";
+import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
-import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ModeloPhoto } from "@/components/producao/cad/shared";
-import { CadTecidosSection } from "@/components/producao/cad/CadTecidosSection";
+import { ExplosaoMetragemSection } from "@/components/producao/explosao/ExplosaoMetragemSection";
+import { SituacaoChip } from "@/components/producao/explosao/SituacaoChip";
 import { CadFichaCorte } from "@/components/producao/cad/CadFichaCorte";
 import { VersaoBadge } from "@/components/shared/VersaoBadge";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
@@ -54,8 +57,12 @@ type Props = {
 export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: Props) {
   const qc = useQueryClient();
   const tenantId = useActiveTenantId();
-  const [confirmZeroOpen, setConfirmZeroOpen] = useState(false);
+  // Confirmação ANTES da baixa — mostrada em TODO envio/reenvio (não só quando há zeradas):
+  // resumo do que vai baixar, com "zerado" marcado por tecido; total zero BLOQUEIA o envio.
+  const [confirmEnviarOpen, setConfirmEnviarOpen] = useState(false);
   const [voltarOpen, setVoltarOpen] = useState(false);
+  // Disclosure da identidade comprimida: "Coleção · Categoria · Linha · Estilista — mais detalhes".
+  const [maisDetalhes, setMaisDetalhes] = useState(false);
   // Edição da metragem travada por padrão quando já enviado ao PCP; o lápis destrava,
   // e Salvar re-trava. Definido no seed a partir de `enviado_corte`.
   const [editing, setEditing] = useState(false);
@@ -221,7 +228,7 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     setSeeded(true);
   }, [cadRow, cadTecidos, cadGrades, cadTecidosFetched, cadGradesFetched, seeded]);
 
-  // Só metragem_enviada é editável. As demais funções são noop (readOnly=true oculta inputs).
+  // Só metragem_enviada é editável — a ÚNICA função de update que o hero (ExplosaoMetragemSection) usa.
   const updateVar = (i: number, j: number, patch: Partial<VarianteRow>) => {
     setTecidos((prev) => {
       const next = [...prev];
@@ -231,8 +238,6 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
       return next;
     });
   };
-  // updateTec não é chamado em readOnly, mas é necessário na assinatura do componente
-  const updateTec = (_i: number, _patch: Partial<TecidoRow>) => { /* readOnly — nunca chamado */ };
 
   const tamanhosConfig = useMemo<string[]>(() => {
     const raw = (tenantCfg as any)?.tamanhos_grade;
@@ -275,6 +280,35 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     }
     return n;
   }, [tecidos]);
+
+  // Total "a baixar" por tecido — alimenta o resumo pré-envio, a confirmação (com "zerado"
+  // por tecido) e o rótulo "Enviar para PCP · X m" do botão primário. NÃO é o que vai no
+  // payload (isso é buildVariantesPayload, por variante) — é só a soma p/ exibição.
+  const porTecido = useMemo(
+    () =>
+      tecidos.map((t, i) => ({
+        key: `${t.tipo}-${t.numero}-${i}`,
+        label: t.artigo_nome ?? `${t.tipo} ${t.numero}`,
+        total: t.variantes.reduce((a, v) => a + Number(v.metragem_enviada || 0), 0),
+      })),
+    [tecidos],
+  );
+  const totalGeral = useMemo(() => porTecido.reduce((a, t) => a + t.total, 0), [porTecido]);
+
+  const situacao = situacaoExplosao((cadRow as any)?.enviado_corte === true, (cadRow as any)?.deficit_corte);
+
+  // "Usar planejada" — copia metragem_planejada → metragem_enviada. Por tecido (botão da
+  // linha) ou em tudo (botão do header do hero); só chamável em modo de edição.
+  const usarPlanejadaTecido = (i: number) => {
+    setTecidos((prev) => {
+      const next = [...prev];
+      next[i] = { ...next[i], variantes: next[i].variantes.map((v) => ({ ...v, metragem_enviada: v.metragem_planejada })) };
+      return next;
+    });
+  };
+  const usarPlanejadaTudo = () => {
+    setTecidos((prev) => prev.map((t) => ({ ...t, variantes: t.variantes.map((v) => ({ ...v, metragem_enviada: v.metragem_planejada })) })));
+  };
 
   // A Explosão só edita metragem por variante — usa a RPC ESTREITA salvar_explosao_metragem,
   // que atualiza APENAS cad_tecido_variantes.metragem_enviada/quantidade_folhas. NÃO chamar
@@ -342,6 +376,13 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
       qc.invalidateQueries({ queryKey: ["producao-explosao-list"] });
       qc.invalidateQueries({ queryKey: ["producao-cad-list"] });
       qc.invalidateQueries({ queryKey: ["explosao-cad-row", modeloId] });
+      // Faltava invalidar a metragem em si — reabrir o MESMO Sheet (sem reload de página)
+      // mostrava a metragem/resumo/rótulo do botão DEFASADOS (0 m, pré-envio) mesmo após
+      // um envio bem-sucedido com metragem real. Antes disso passava despercebido (a UI
+      // antiga não exibia total nenhum); a nova ("Enviar para PCP · X m" + resumo pré-envio)
+      // torna o dado velho visível — achado ao vivo na QA desta tela.
+      qc.invalidateQueries({ queryKey: ["explosao-cad-tecidos", cadRow?.id] });
+      qc.invalidateQueries({ queryKey: ["explosao-cad-grades", cadRow?.id] });
       qc.invalidateQueries({ queryKey: ["cad-row", modeloId] });
       qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
       qc.invalidateQueries({ queryKey: ["dash-estoque"] });
@@ -373,19 +414,16 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao voltar ao Desenvolvimento")),
   });
 
-  const handleEnviar = () => {
-    if (variantesZeradas > 0) {
-      setConfirmZeroOpen(true);
-      return;
-    }
-    enviarCorte.mutate();
-  };
+  // Confirmação ANTES da baixa — sempre (Enviar E Reenviar), com o resumo do que vai baixar.
+  // Total zero é bloqueado no próprio dialog (sem botão de confirmar).
+  const handleEnviar = () => setConfirmEnviarOpen(true);
 
   const firstPhoto = (modelo?.fotos_modelo as string[] | null)?.[0] ?? null;
+  const jaEnviado = (cadRow as any)?.enviado_corte === true;
 
   return (
     <div className="flex h-full flex-col min-h-0">
-      <div className="flex-1 overflow-y-auto w-full p-3 sm:p-6 space-y-6 no-print">
+      <div className="flex-1 overflow-y-auto w-full p-3 sm:p-6 space-y-5 no-print">
         {/* Cabeçalho (breadcrumb + título/status). Imprimir "Ficha de Corte" fica no
             topo-direita p/ o indicador global de "não salvo" cair logo abaixo dele. */}
         <div className="border-b pb-4">
@@ -407,119 +445,188 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
               </Button>
             </div>
           </div>
-          <h2 className="text-lg font-semibold flex items-center gap-2 mt-2">
-            Explosão — Envio para PCP
-            {(cadRow as any)?.enviado_corte && (
-              <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600 border border-green-600/40 rounded-full px-2 py-0.5">
-                <span className="h-2 w-2 rounded-full bg-green-500" /> Enviado para PCP
-              </span>
-            )}
-          </h2>
-          <p className="text-xs text-muted-foreground">
-            {(cadRow as any)?.enviado_corte
-              ? 'Já enviado. Edite a metragem se precisar e clique em "Reenviar para PCP" (refaz a baixa com a metragem atual).'
-              : 'Preencha "Metr. a Separar/Enviar" e clique em Enviar para PCP.'}
-          </p>
-        </div>
 
-        {/* Info do modelo */}
-        <Card className="p-5 max-md:p-3 flex gap-5 max-md:flex-col max-md:gap-3">
-          <div className="h-32 w-32 max-md:h-28 max-md:w-28 rounded-md bg-muted overflow-hidden flex items-center justify-center shrink-0">
-            {firstPhoto ? (
-              <ModeloPhoto path={firstPhoto} expandable />
-            ) : (
-              <ImageIcon className="h-8 w-8 text-muted-foreground" />
-            )}
-          </div>
-          <div className="flex-1 min-w-0 space-y-1">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <h1 className="text-xl max-md:text-lg font-bold">{modelo?.nome ?? "—"}</h1>
-              <Badge variant="outline" className="font-mono">{modelo?.ref ?? "sem REF"}</Badge>
-              <VersaoBadge versao={modelo?.versao} />
-            </div>
-            <div className="text-sm text-muted-foreground space-y-1 mt-2">
-              <div>Estilista: {modelo?.estilista?.nome ?? "—"}</div>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-1 [&>span]:truncate">
-                <span>Coleção: {modelo?.colecao ?? "—"}</span>
-                <span>{modelo?.subcolecao ? `Subcoleção: ${modelo.subcolecao}` : ""}</span>
-                <span>Linha: {modelo?.linha?.nome ?? "—"}</span>
-              </div>
-              {(modelo?.semana || modelo?.mes?.mes || modelo?.ano?.ano) && (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-1 [&>span]:truncate">
-                  <span>{modelo?.semana ? `Lançamento: ${modelo.semana}` : ""}</span>
-                  <span>{modelo?.mes?.mes ? `Mês: ${modelo.mes.mes}` : ""}</span>
-                  <span>{modelo?.ano?.ano ? `Ano: ${modelo.ano.ano}` : ""}</span>
-                </div>
+          {/* Identidade COMPRIMIDA: linha densa (thumb + nome + chips) + 1 linha muted com
+              disclosure — substitui o card alto de foto 128px + 11 metadados (empurrava o
+              hero de metragem, o trabalho de verdade da tela, pra baixo). */}
+          <div className="flex items-center gap-3 flex-wrap mt-3">
+            <div className="h-14 w-11 rounded-md bg-muted border overflow-hidden flex items-center justify-center shrink-0">
+              {firstPhoto ? (
+                <ModeloPhoto path={firstPhoto} expandable />
+              ) : (
+                <ImageIcon className="h-5 w-5 text-muted-foreground" />
               )}
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <b className="font-display text-[17px]">{modelo?.nome ?? "—"}</b>
+                <Badge variant="outline" className="font-mono">{modelo?.ref ?? "sem REF"}</Badge>
+                <VersaoBadge versao={modelo?.versao} />
+                <SituacaoChip situacao={situacao} />
+              </div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                {[modelo?.colecao, modelo?.cat_p?.nome, modelo?.linha?.nome, modelo?.estilista?.nome].filter(Boolean).join(" · ")}
+                {" — "}
+                <button type="button" className="text-primary hover:underline" onClick={() => setMaisDetalhes((v) => !v)}>
+                  {maisDetalhes ? "menos detalhes" : "mais detalhes"}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {maisDetalhes && (
+            <div className="text-sm text-muted-foreground space-y-1 mt-3 pt-3 border-t">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-1 [&>span]:truncate">
+                <span>{modelo?.subcolecao ? `Subcoleção: ${modelo.subcolecao}` : ""}</span>
+                <span>{modelo?.semana ? `Lançamento: ${modelo.semana}` : ""}</span>
+                <span>{modelo?.mes?.mes ? `Mês: ${modelo.mes.mes}` : ""}</span>
+                <span>{modelo?.ano?.ano ? `Ano: ${modelo.ano.ano}` : ""}</span>
+              </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-1 [&>span]:truncate">
                 <span>{modelo?.cat_p?.grupo?.nome ? `Grupo: ${modelo.cat_p.grupo.nome}` : ""}</span>
-                <span>Categoria: {modelo?.cat_p?.nome ?? "—"}</span>
                 <span>{modelo?.sub1?.nome ? `Subcategoria 1: ${modelo.sub1.nome}` : ""}</span>
                 <span>{modelo?.sub2?.nome ? `Subcategoria 2: ${modelo.sub2.nome}` : ""}</span>
               </div>
             </div>
-          </div>
-        </Card>
+          )}
+        </div>
 
-        {/* Tecidos (readOnly — só metragem_enviada editável) */}
-        <CadTecidosSection
+        {/* Hero — "Quanto separar / enviar" (componente próprio da Explosão). */}
+        <ExplosaoMetragemSection
           tecidos={tecidos}
-          updateTec={updateTec}
           updateVar={updateVar}
-          readOnly={true}
-          separarReadOnly={!editing}
+          editing={editing}
+          onUsarPlanejadaTecido={usarPlanejadaTecido}
+          onUsarPlanejadaTudo={usarPlanejadaTudo}
         />
+
+        {/* Resumo pré-envio — a consequência da baixa, à vista, antes de clicar Enviar. */}
+        <div className="flex items-center gap-3.5 flex-wrap border rounded-md px-3.5 py-2.5 bg-muted/25 text-sm">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">A baixar do estoque</span>
+          <span>
+            <b className="text-[15px] tabular-nums">{fmtNum(totalGeral)} m</b> em{" "}
+            <b>{tecidos.length} tecido{tecidos.length === 1 ? "" : "s"}</b>
+          </span>
+          {variantesZeradas > 0 && (
+            <span className="text-xs text-warning inline-flex items-center gap-1">
+              <AlertTriangle className="h-3.5 w-3.5" /> {variantesZeradas} variante{variantesZeradas > 1 ? "s" : ""} zerada{variantesZeradas > 1 ? "s" : ""}
+            </span>
+          )}
+        </div>
       </div>
 
-      {/* Rodapé sticky de ações — colado embaixo enquanto o corpo rola (desktop e mobile). */}
-      <div className="shrink-0 border-t bg-background p-3 flex flex-wrap items-center gap-2 no-print">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onClose ?? onEnviado}
-        >
-          <ArrowLeft className="h-4 w-4 mr-1" />
-          Voltar
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="ml-auto"
-          onClick={() => setVoltarOpen(true)}
-          disabled={voltarMut.isPending}
-        >
-          <RotateCcw className="h-4 w-4 mr-1.5" />
-          Voltar ao Desenvolvimento
-        </Button>
-        {editing ? (
+      {/* Rodapé sticky de ações — colado embaixo enquanto o corpo rola.
+          Desktop: Voltar + Devolver (âmbar) à esquerda, LONGE do primário · Salvar
+          rascunho/Editar + Enviar (com metragem) à direita.
+          Mobile (<sm): barra única icon-only (pedido do dono) — mesma ordem/ações. */}
+      <div className="shrink-0 border-t bg-background p-3 no-print">
+        {/* Desktop */}
+        <div className="hidden sm:flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" onClick={onClose ?? onEnviado}>
+            <ArrowLeft className="h-4 w-4 mr-1" />
+            Voltar
+          </Button>
           <Button
             variant="outline"
             size="sm"
-            onClick={() => salvarMut.mutate()}
-            disabled={salvarMut.isPending || enviarCorte.isPending || !cadRow?.id}
+            className="text-warning border-warning/40 hover:bg-warning/10 hover:text-warning"
+            onClick={() => setVoltarOpen(true)}
+            disabled={voltarMut.isPending}
           >
-            <Save className="h-4 w-4 mr-1.5" />
-            {salvarMut.isPending ? "Salvando…" : "Salvar"}
+            <RotateCcw className="h-4 w-4 mr-1.5" />
+            Devolver ao Desenvolvimento
           </Button>
-        ) : (
+          <div className="ml-auto flex items-center gap-2">
+            {editing ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => salvarMut.mutate()}
+                disabled={salvarMut.isPending || enviarCorte.isPending || !cadRow?.id}
+              >
+                <Save className="h-4 w-4 mr-1.5" />
+                {salvarMut.isPending ? "Salvando…" : "Salvar rascunho"}
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setEditing(true)}
+                disabled={enviarCorte.isPending || !cadRow?.id}
+              >
+                <Pencil className="h-4 w-4 mr-1.5" />
+                Editar
+              </Button>
+            )}
+            <Button
+              onClick={handleEnviar}
+              disabled={enviarCorte.isPending || salvarMut.isPending || !cadRow?.id}
+            >
+              <Send className="h-4 w-4 mr-1.5" />
+              {enviarCorte.isPending ? "Enviando…" : `${jaEnviado ? "Reenviar" : "Enviar"} para PCP · ${fmtNum(totalGeral)} m`}
+            </Button>
+          </div>
+        </div>
+
+        {/* Mobile — barra única, icon-only (aria-label + title). */}
+        <div className="flex sm:hidden items-center gap-2">
           <Button
             variant="outline"
-            size="sm"
-            onClick={() => setEditing(true)}
-            disabled={enviarCorte.isPending || !cadRow?.id}
+            size="icon"
+            className="h-11 w-11 shrink-0"
+            title="Voltar"
+            aria-label="Voltar"
+            onClick={onClose ?? onEnviado}
           >
-            <Pencil className="h-4 w-4 mr-1.5" />
-            Editar
+            <ArrowLeft className="h-4 w-4" />
           </Button>
-        )}
-        <Button
-          size="sm"
-          onClick={handleEnviar}
-          disabled={enviarCorte.isPending || salvarMut.isPending || !cadRow?.id}
-        >
-          <Send className="h-4 w-4 mr-1.5" />
-          {enviarCorte.isPending ? "Enviando…" : (cadRow as any)?.enviado_corte ? "Reenviar para PCP" : "Enviar para PCP"}
-        </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-11 w-11 shrink-0 text-warning border-warning/40"
+            title="Devolver ao Desenvolvimento"
+            aria-label="Devolver ao Desenvolvimento"
+            onClick={() => setVoltarOpen(true)}
+            disabled={voltarMut.isPending}
+          >
+            <RotateCcw className="h-4 w-4" />
+          </Button>
+          {editing ? (
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-11 w-11 shrink-0 ml-auto"
+              title="Salvar rascunho"
+              aria-label="Salvar rascunho"
+              onClick={() => salvarMut.mutate()}
+              disabled={salvarMut.isPending || enviarCorte.isPending || !cadRow?.id}
+            >
+              <Save className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-11 w-11 shrink-0 ml-auto"
+              title="Editar"
+              aria-label="Editar"
+              onClick={() => setEditing(true)}
+              disabled={enviarCorte.isPending || !cadRow?.id}
+            >
+              <Pencil className="h-4 w-4" />
+            </Button>
+          )}
+          <Button
+            size="icon"
+            className="h-11 w-14 shrink-0"
+            title={jaEnviado ? "Reenviar para PCP" : "Enviar para PCP"}
+            aria-label={jaEnviado ? "Reenviar para PCP" : "Enviar para PCP"}
+            onClick={handleEnviar}
+            disabled={enviarCorte.isPending || salvarMut.isPending || !cadRow?.id}
+          >
+            <Send className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Ficha de Corte — sempre montada (oculta fora da impressão) */}
@@ -537,25 +644,72 @@ export function ExplosaoDetail({ modeloId, onEnviado, onClose, onDirtyChange }: 
         ocLinksByKey={ocLinksByKey}
       />
 
-      <AlertDialog open={confirmZeroOpen} onOpenChange={setConfirmZeroOpen}>
+      {/* Confirmação ANTES da baixa (Enviar E Reenviar) — resumo do que vai baixar, com
+          "zerado" marcado por tecido; reenviar REFAZ a baixa (não soma). Total zero
+          BLOQUEIA o envio: sem botão de confirmar, só Cancelar + aviso. */}
+      <AlertDialog open={confirmEnviarOpen} onOpenChange={setConfirmEnviarOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Variantes sem metragem enviada</AlertDialogTitle>
+            <AlertDialogTitle>{jaEnviado ? "Reenviar" : "Enviar"} para PCP — dar baixa de estoque?</AlertDialogTitle>
             <AlertDialogDescription>
-              {variantesZeradas} variante(s) com metragem planejada estão com metragem enviada = 0.
-              A baixa de estoque ficará zerada para elas. Enviar mesmo assim?
+              Vai baixar do estoque a metragem abaixo. A baixa é registrada no PCP; você pode reenviar
+              depois (refaz a baixa, não soma).
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-muted-foreground text-xs">
+                  <th className="py-1 font-normal">Tecido</th>
+                  <th className="py-1 font-normal text-right">m a baixar</th>
+                </tr>
+              </thead>
+              <tbody>
+                {porTecido.map((t) => (
+                  <tr key={t.key} className="border-t">
+                    <td className="py-1.5">
+                      {t.label}
+                      {t.total === 0 && (
+                        <Badge variant="outline" className="ml-2 text-[10px] text-warning border-warning/40 py-0">zerado</Badge>
+                      )}
+                    </td>
+                    <td className={cn("py-1.5 text-right tabular-nums", t.total === 0 && "text-muted-foreground")}>
+                      {fmtNum(t.total)}
+                    </td>
+                  </tr>
+                ))}
+                <tr className="border-t font-semibold">
+                  <td className="py-1.5">Total</td>
+                  <td className="py-1.5 text-right tabular-nums">{fmtNum(totalGeral)} m</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          {totalGeral === 0 ? (
+            <p className="text-xs text-warning flex items-start gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              Metragem total <b>zero</b> — não há o que separar. Preencha "Metr. a Separar/Enviar" (ou use
+              "Usar planejada") antes de enviar.
+            </p>
+          ) : variantesZeradas > 0 ? (
+            <p className="text-xs text-muted-foreground flex items-start gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5 text-warning" />
+              {variantesZeradas} variante(s) zerada(s) não serão separadas. O restante segue normalmente.
+            </p>
+          ) : null}
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setConfirmZeroOpen(false);
-                enviarCorte.mutate();
-              }}
-            >
-              Enviar mesmo assim
-            </AlertDialogAction>
+            {totalGeral > 0 && (
+              <AlertDialogAction
+                onClick={() => {
+                  setConfirmEnviarOpen(false);
+                  enviarCorte.mutate();
+                }}
+              >
+                <Send className="h-4 w-4 mr-1.5" />
+                {jaEnviado ? "Reenviar" : "Enviar"} para PCP
+              </AlertDialogAction>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

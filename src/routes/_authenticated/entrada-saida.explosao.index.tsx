@@ -13,7 +13,10 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { useSort, SortTh } from "@/components/shared/sort";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
 import { ExplosaoDetail } from "@/components/producao/explosao/ExplosaoDetail";
+import { SituacaoChip } from "@/components/producao/explosao/SituacaoChip";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { cn } from "@/lib/utils";
+import { situacaoExplosao, type ExplosaoSituacao } from "@/lib/explosao";
 
 export const Route = createFileRoute("/_authenticated/entrada-saida/explosao/")({
   component: ExplosaoListPage,
@@ -29,6 +32,7 @@ type Row = {
   ano_id: string | null;
   categoria_nome: string | null;
   enviado_corte: boolean;
+  situacao: ExplosaoSituacao;
 };
 
 function ExplosaoListPage() {
@@ -49,6 +53,8 @@ function ExplosaoListPage() {
   const [fColecao, setFColecao] = useState("all");
   const [fMes, setFMes] = useState("all");
   const [fAno, setFAno] = useState("all");
+  // Segmento Situação — Todos é o default (não esconde nada ao abrir a tela).
+  const [fSituacao, setFSituacao] = useState<"todos" | "aguardando" | "enviados">("todos");
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["producao-explosao-list"],
@@ -57,25 +63,30 @@ function ExplosaoListPage() {
       const { data, error } = await supabase
         .from("modelos")
         .select(
-          "id, ref, nome, versao, colecao, mes_id, ano_id, categoria_principal_id, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte)",
+          "id, ref, nome, versao, colecao, mes_id, ano_id, categoria_principal_id, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, deficit_corte)",
         )
         .eq("enviado_cad", true)
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? [])
         .filter((m: any) => !!m.cad?.[0]) // qualquer modelo cujo CAD exista (cortado ou não)
-        .map((m: any) => ({
-          modelo_id: m.id,
-          ref: m.ref,
-          nome: m.nome,
-          versao: m.versao,
-          colecao: m.colecao,
-          mes_id: m.mes_id,
-          ano_id: m.ano_id,
-          categoria_nome: (m.categorias_produto as any)?.nome ?? null,
-          // Enviado para PCP (já cortado) → fica na lista com bolinha verde, editável.
-          enviado_corte: m.cad?.[0]?.enviado_corte === true,
-        }));
+        .map((m: any) => {
+          const enviado_corte = m.cad?.[0]?.enviado_corte === true;
+          const deficit_corte = m.cad?.[0]?.deficit_corte ?? null;
+          return {
+            modelo_id: m.id,
+            ref: m.ref,
+            nome: m.nome,
+            versao: m.versao,
+            colecao: m.colecao,
+            mes_id: m.mes_id,
+            ano_id: m.ano_id,
+            categoria_nome: (m.categorias_produto as any)?.nome ?? null,
+            // Enviado para PCP (já cortado) → fica na lista, editável (lápis).
+            enviado_corte,
+            situacao: situacaoExplosao(enviado_corte, deficit_corte),
+          };
+        });
     },
   });
 
@@ -98,16 +109,39 @@ function ExplosaoListPage() {
     [rows],
   );
 
-  const filtered = (rows as Row[]).filter((r) => {
+  // Contagens do segmento — sobre TODAS as linhas (após busca/filtros de coleção/mês/ano,
+  // pra não ficar sempre travado no total geral quando a busca já reduziu a fila).
+  const buscaEFiltros = (rows as Row[]).filter((r) => {
     if (q && !`${r.ref ?? ""} ${r.nome ?? ""}`.toLowerCase().includes(q.toLowerCase())) return false;
     if (fColecao !== "all" && r.colecao !== fColecao) return false;
     if (fMes !== "all" && r.mes_id !== fMes) return false;
     if (fAno !== "all" && r.ano_id !== fAno) return false;
     return true;
   });
+  const counts = useMemo(() => {
+    let aguardando = 0;
+    let enviados = 0;
+    for (const r of buscaEFiltros) {
+      if (r.situacao === "aguardando") aguardando += 1;
+      else enviados += 1;
+    }
+    return { aguardando, enviados, todos: buscaEFiltros.length };
+  }, [buscaEFiltros]);
+
+  const filtered = buscaEFiltros.filter((r) => {
+    if (fSituacao === "aguardando") return r.situacao === "aguardando";
+    if (fSituacao === "enviados") return r.situacao !== "aguardando";
+    return true;
+  });
 
   const s = useSort(filtered, { key: "ref" });
   const { sorted } = s;
+
+  const SEGMENTOS: { key: "aguardando" | "enviados" | "todos"; label: string; n: number }[] = [
+    { key: "aguardando", label: "Aguardando", n: counts.aguardando },
+    { key: "enviados", label: "Enviados", n: counts.enviados },
+    { key: "todos", label: "Todos", n: counts.todos },
+  ];
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6">
@@ -134,6 +168,30 @@ function ExplosaoListPage() {
         </div>
       </header>
 
+      {/* Segmento Situação + contador — realça o que FALTA cortar (Todos é o default). */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="inline-flex border rounded-md overflow-hidden text-sm w-full sm:w-auto">
+          {SEGMENTOS.map((seg) => (
+            <button
+              key={seg.key}
+              type="button"
+              onClick={() => setFSituacao(seg.key)}
+              className={cn(
+                "px-3.5 py-1.5 flex-1 sm:flex-none transition-colors border-l first:border-l-0",
+                fSituacao === seg.key
+                  ? "bg-primary text-primary-foreground font-semibold"
+                  : "text-muted-foreground hover:bg-muted/60",
+              )}
+            >
+              {seg.label} <b>{seg.n}</b>
+            </button>
+          ))}
+        </div>
+        <span className="text-xs text-muted-foreground sm:ml-auto">
+          <b className="text-foreground">{counts.aguardando} aguardando</b> baixa · o acionável em destaque, enviados esmaecidos
+        </span>
+      </div>
+
       <Card className="overflow-x-auto">
         <table className="w-full text-sm card-table">
           <thead className="bg-muted/50 text-left">
@@ -142,13 +200,14 @@ function ExplosaoListPage() {
               <SortTh label="Nome" sortKey="nome" sortState={s} className="px-4 py-2" />
               <SortTh label="Categoria" sortKey="categoria_nome" sortState={s} className="px-4 py-2" />
               <SortTh label="Coleção" sortKey="colecao" sortState={s} className="px-4 py-2 hidden md:table-cell" />
+              <th className="px-4 py-2">Situação</th>
             </tr>
           </thead>
           <tbody>
-            {isLoading && <SkeletonTableRow cols={4} />}
+            {isLoading && <SkeletonTableRow cols={5} />}
             {!isLoading && sorted.length === 0 && (
               <tr>
-                <td colSpan={4} className="p-0">
+                <td colSpan={5} className="p-0">
                   <EmptyState
                     icon={Layers}
                     title="Nenhum modelo aguardando baixa"
@@ -161,23 +220,24 @@ function ExplosaoListPage() {
             {sorted.map((r: any) => (
               <tr
                 key={r.modelo_id}
-                className="border-t hover:bg-muted/30 cursor-pointer"
+                className={cn(
+                  "border-t hover:bg-muted/30 cursor-pointer",
+                  r.situacao === "enviado" && "opacity-50",
+                )}
                 onClick={() => setSheetId(r.modelo_id)}
               >
                 <td className="px-4 py-2">
                   <span className="inline-flex items-center gap-2">
-                    <span
-                      className={`h-2 w-2 rounded-full shrink-0 ${r.enviado_corte ? "bg-green-500" : "bg-transparent"}`}
-                      title={r.enviado_corte ? "Enviado para PCP — clique para editar" : undefined}
-                      aria-label={r.enviado_corte ? "Enviado para PCP" : undefined}
-                    />
-                    <span className="font-mono text-primary">{r.ref ?? "—"}</span>
+                    <span className="font-mono text-primary font-semibold">{r.ref ?? "—"}</span>
                     <VersaoBadge versao={r.versao} className="text-[10px]" />
                   </span>
                 </td>
                 <td className="px-4 py-2" data-label="Nome">{r.nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground" data-label="Categoria">{r.categoria_nome ?? "—"}</td>
                 <td className="px-4 py-2 text-muted-foreground hidden md:table-cell" data-label="Coleção">{r.colecao ?? "—"}</td>
+                <td className="px-4 py-2" data-label="Situação">
+                  <SituacaoChip situacao={r.situacao} />
+                </td>
               </tr>
             ))}
           </tbody>
