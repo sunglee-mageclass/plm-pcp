@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { hasDb, withTx, comoUsuario, um, TENANT_TESTE } from "./db";
+import { hasDb, withTx, comoUsuario, um, TENANT_TESTE, USER_TESTE } from "./db";
 
 describe.skipIf(!hasDb)("colab — trava otimista (P0409)", () => {
   it("salvar_oc_tecido: _rev_base errado recusa com P0409; null passa da checagem", async () => {
@@ -71,6 +71,33 @@ describe.skipIf(!hasDb)("colab — trava otimista (P0409)", () => {
       await expect(
         um(c, `select salvar_oc_tecido(gen_random_uuid(), '{}'::jsonb, '[]'::jsonb, $1)`, [1]),
       ).rejects.toMatchObject({ code: "P0409" });
+      await c.query("ROLLBACK TO SAVEPOINT sp1");
+    });
+  });
+
+  // Onda final de review (item 1, IMPORTANT — IDOR pré-existente): a checagem de tenant de
+  // _colecao_id só existia DENTRO do bloco da trava otimista (_rev_base not null). Com
+  // _rev_base null, _salvar_plan_tecido_core nunca validava o tenant — qualquer autenticado
+  // (com o módulo `criacao` ligado na PRÓPRIA loja) podia sobrescrever a árvore do Plan.
+  // Tecido de OUTRA loja informando o id da coleção alheia. Fix: guarda incondicional no
+  // topo da função (migração 20260803210000).
+  it("salvar_plan_tecido: coleção de OUTRO tenant → rejeita (não P0409); não é 'super' que bypassa", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      // super_admin faz o filtro `tenant_id = get_user_tenant_id() OR is_super_admin()` sempre
+      // passar (bypass intencional) — removê-lo do USUÁRIO QUE AGE para o teste exercitar a
+      // checagem de tenant de verdade (mesmo idiom usado em otb-simulador.test.ts).
+      await c.query(`delete from user_roles where user_id=$1 and role='super_admin'`, [USER_TESTE]);
+      await c.query("SAVEPOINT sp1");
+      const outra = await um<{ id: string }>(
+        c,
+        `insert into colecoes (tenant_id, nome)
+         values ((select id from tenants where nome='French' limit 1), 'IDOR T')
+         returning id`,
+      );
+      await expect(
+        um(c, `select salvar_plan_tecido($1, '{}'::jsonb)`, [outra.id]),
+      ).rejects.toMatchObject({ code: "P0001", message: expect.stringContaining("sem permissão") });
       await c.query("ROLLBACK TO SAVEPOINT sp1");
     });
   });

@@ -40,6 +40,11 @@ export function useColabRegistro(o: {
     // supabase.channel() reusa instância por topic — remove o remanescente antes de criar.
     const remanescente = supabase.getChannels().find((c) => c.topic === `realtime:${chave}`);
     if (remanescente) void supabase.removeChannel(remanescente);
+    // Presença/broadcast NÃO passam por RLS (só o postgres_changes acima passa) — o canal em
+    // si não é privado por tenant. Inofensivo hoje: o payload trackado é só {nome, campoFocado}
+    // e o UUID do registro (dentro de `chave`) é a capability — quem não o conhece não assina.
+    // Se um dia precisar de presença tenant-privada de verdade, usar Realtime Authorization
+    // (private channels), não confiar em RLS aqui.
     const ch = supabase.channel(chave, { config: { presence: { key: user!.id } } });
     ch.on("postgres_changes",
       { event: "UPDATE", schema: "public", table: o.tabela, filter: `id=eq.${o.registroId}` },
