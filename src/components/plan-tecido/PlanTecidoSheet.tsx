@@ -17,6 +17,9 @@ import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { AgrupamentoButton } from "@/components/shared/filters";
+import { ColabBanner } from "@/components/shared/ColabBanner";
+import { useColabRegistro } from "@/hooks/useColabRegistro";
+import { mergeLinhas, type Conflito } from "@/lib/colab/merge";
 import { useAuth } from "@/hooks/useAuth";
 import { ArrowLeft, ShoppingCart, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, ChevronRight } from "lucide-react";
 import {
@@ -39,6 +42,82 @@ type Nome = { id: string; nome: string };
 // Chave estável por slot (prefere o id do banco, senão usa índices)
 function chaveSlot(slotId: string | undefined, si: number, li: number, sli: number): string {
   return slotId ?? `${si}-${li}-${sli}`;
+}
+
+// limpa modelo_id ÓRFÃO (modelo excluído no Plan. Produto) — extraído do effect de seed p/
+// ser reutilizável também pelo merge colab (mesma regra, 3 chamadores).
+function limparSlotsOrfaos(arv: PtArvore, validIds: Set<string>): PtArvore {
+  return {
+    ...arv,
+    subcolecoes: arv.subcolecoes.map((s) => ({
+      ...s,
+      linhas: s.linhas.map((l) => ({
+        ...l,
+        slots: l.slots.map((sl) => (sl.modelo_id && !validIds.has(sl.modelo_id) ? { ...sl, modelo_id: null, ref: null, nome: null, thumb_path: null } : sl)),
+      })),
+    })),
+  };
+}
+
+// Árvore "fresca" = a semeadura (OTB/BOM vivos) mesclada com o que está salvo no servidor —
+// MESMO pipeline usado pelo carregamento normal (engine intocado, só consumido).
+function computeFreshArvore(seed: SeedInput, modelos: ModeloReal[], salvo: PtArvore | null, modelosDb: any[]): PtArvore {
+  const validIds = new Set(modelosDb.map((m) => m.id as string));
+  return limparSlotsOrfaos(mergeArvore(semearComModelos({ ...seed, modelos }), salvo), validIds);
+}
+
+// Colab (Task 3, spec 2026-08-04) — Nível A: merge 3-vias POR SLOT. Ids são ESTÁVEIS depois do
+// 1º save (a RPC salvar_plan_tecido preserva slot.id — migração 20260801120000), então dá pra
+// achatar a árvore por slot.id e delegar ao `mergeLinhas` genérico (slot = "linha" da spec:
+// compara o slot INTEIRO, incl. materiais, via `igual()` profundo). A reconstrução acontece EM
+// CIMA da árvore fresca (ela já reflete OTB/BOM vivos e reposicionamento de modelo entre
+// subcoleções/linhas — não duplicamos essa lógica aqui, só substituímos o CONTEÚDO de cada slot
+// pelo resultado do merge, na posição em que a árvore fresca já colocou aquele id).
+function chaveBucket(subId: string | null, ln: { linha_id: string | null; categoria_id: string | null }): string {
+  return `${subId ?? "__none__"}::${ln.linha_id ?? ""}|${ln.categoria_id ?? ""}`;
+}
+function achatarSlots(arv: PtArvore): { bucket: string; slot: PtSlot }[] {
+  const out: { bucket: string; slot: PtSlot }[] = [];
+  for (const sub of arv.subcolecoes)
+    for (const ln of sub.linhas)
+      for (const slot of ln.slots)
+        out.push({ bucket: chaveBucket(sub.subcolecao_id, ln), slot });
+  return out;
+}
+function mergeArvorePorSlot(o: { base: PtArvore; draft: PtArvore; fresh: PtArvore; touchedIds: ReadonlySet<string> }): {
+  arvore: PtArvore; atualizados: number; conflitos: Conflito[];
+} {
+  const baseFlat = achatarSlots(o.base).map((f) => f.slot);
+  const draftFlatFull = achatarSlots(o.draft);
+  const freshFlat = achatarSlots(o.fresh).map((f) => f.slot);
+  const ml = mergeLinhas({ base: baseFlat, draft: draftFlatFull.map((f) => f.slot), fresh: freshFlat, touchedIds: o.touchedIds });
+  const porId = new Map(ml.linhas.filter((s) => s.id).map((s) => [s.id as string, s]));
+  const arvore: PtArvore = {
+    ...o.fresh,
+    subcolecoes: o.fresh.subcolecoes.map((sub) => ({
+      ...sub,
+      linhas: sub.linhas.map((ln) => ({
+        ...ln,
+        slots: ln.slots.map((slot) => (slot.id && porId.has(slot.id) ? (porId.get(slot.id) as PtSlot) : slot)),
+      })),
+    })),
+  };
+  // Slots locais NOVOS (sem id) ficam — na prática quase não ocorre: slots só nascem na
+  // semeadura (semearComModelos), que fica pausada enquanto `dirty` (ver effect principal).
+  // Defensivo mesmo assim: reinsere no bucket de origem, se ele ainda existir na árvore fresca.
+  const origemPorSlot = new Map(draftFlatFull.map((f) => [f.slot, f.bucket]));
+  for (const slot of ml.linhas.filter((s) => !s.id)) {
+    const bucket = origemPorSlot.get(slot);
+    const [subKey, lnKey] = (bucket ?? "").split("::");
+    const sub = arvore.subcolecoes.find((s) => (s.subcolecao_id ?? "__none__") === subKey);
+    const ln = sub?.linhas.find((l) => `${l.linha_id ?? ""}|${l.categoria_id ?? ""}` === lnKey);
+    (ln ?? sub?.linhas[0])?.slots.push(slot);
+  }
+  return { arvore, atualizados: ml.atualizadas.length, conflitos: ml.conflitos };
+}
+function rotuloConflitoSlot(c: Conflito | undefined): string {
+  const s = (c?.meu ?? c?.dele) as PtSlot | null | undefined;
+  return s ? `Slot ${s.nome ?? s.ref ?? "sem modelo"}` : "Slot";
 }
 
 type VarSimples = { id: string; nome_variante: string | null; cor: { nome: string | null } | null; apelido: { nome: string | null } | null };
@@ -197,6 +276,22 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   const qc = useQueryClient();
   const [arvore, setArvore] = useState<PtArvore | null>(null);
   const [dirty, setDirty] = useState(false);
+  // Colab (Task 3, spec 2026-08-04) — piloto: mesmo padrão do OC Tecido/Plan. Produto, adaptado
+  // pra árvore aninhada (merge POR SLOT, ver mergeArvorePorSlot acima). `planBaseRef` = última
+  // árvore fresca conhecida (base do 3-vias); `touchedSlotIdsRef` = ids de slot que EU editei
+  // desde então; `salvoConsumidoRef` evita reprocessar o mesmo `salvo` 2x; `revRef` espelha
+  // `colecoes.plan_rev` p/ o `_rev_base` do save; `arvoreLiveRef` é o espelho síncrono usado no
+  // retry do onError (a janela do `await` pode ter mudanças que a closure do clique não vê).
+  const planBaseRef = useRef<PtArvore | null>(null);
+  const touchedSlotIdsRef = useRef<Set<string>>(new Set());
+  const salvoConsumidoRef = useRef<PtArvore | null | undefined>(undefined);
+  const revRef = useRef<number | null>(null);
+  const retryRef = useRef(false);
+  const arvoreLiveRef = useRef<PtArvore | null>(null);
+  arvoreLiveRef.current = arvore;
+  const [conflitosSlot, setConflitosSlot] = useState<Conflito[]>([]);
+  const conflitosSlotRef = useRef<Conflito[]>([]);
+  const [ultimoMergeSlot, setUltimoMergeSlot] = useState<{ atualizados: number; conflitos: Conflito[] } | null>(null);
   // Back/rota com plano sujo confirma ("Descartar?"); trocar ?sub= dentro da MESMA coleção
   // passa livre (o Sheet não desmonta — nada se perde). Laudo das 3 lentes, jul/2026.
   const navPermitida = useCallback(
@@ -257,7 +352,8 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   const { data: colecao } = useQuery({
     queryKey: ["plan-tecido-colecao", colecaoId],
     queryFn: async () =>
-      (await supabase.from("colecoes").select("id, nome, tipo").eq("id", colecaoId).maybeSingle()).data as any,
+      // plan_rev (Colab Task 3): trava otimista do salvar_plan_tecido — ver useColabRegistro abaixo.
+      (await supabase.from("colecoes").select("id, nome, tipo, plan_rev").eq("id", colecaoId).maybeSingle()).data as any,
   });
 
   const { data: seed } = useQuery({
@@ -564,35 +660,156 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   // auto-upgrade de cor re-sujaria = loop de "alterações não salvas"; item 12).
   const srcRef = useRef<{ seed: unknown; models: unknown } | null>(null);
 
+  // Colab: `colecoes.plan_rev` espelhado num ref (lido de forma síncrona no save/retry).
+  useEffect(() => { if (colecao) revRef.current = (colecao as any).plan_rev ?? null; }, [colecao]);
+
   useEffect(() => {
     if (!seed || salvo === undefined || modelosDb === undefined) return;
-    if (dirty) return; // não sobrescreve edições não salvas do usuário
     const fonteMudou = !srcRef.current || srcRef.current.seed !== seed || srcRef.current.models !== modelosReais;
-    if (arvore !== null && !fonteMudou) return; // só o `salvo` mudou (acabei de salvar) → não re-mergeia
-    srcRef.current = { seed, models: modelosReais };
-    const validIds = new Set((modelosDb as any[]).map((m) => m.id as string));
-    const merged = mergeArvore(semearComModelos({ ...seed, modelos: modelosReais }), salvo);
-    // limpa modelo_id ÓRFÃO (modelo excluído no Plan. Produto) → volta a permitir "Criar card"
-    merged.subcolecoes = merged.subcolecoes.map((s) => ({ ...s, linhas: s.linhas.map((l) => ({ ...l,
-      slots: l.slots.map((sl) => (sl.modelo_id && !validIds.has(sl.modelo_id) ? { ...sl, modelo_id: null, ref: null, nome: null, thumb_path: null } : sl)),
-    })) }));
-    setArvore(merged);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seed, salvo, modelosReais, dirty, arvore]);
+    const salvoNovo = salvo !== salvoConsumidoRef.current;
 
+    if (dirty) {
+      // Não sobrescreve a edição em andamento. OTB/BOM mudando enquanto edito segue FORA do
+      // escopo do colab (como antes — a reseed correspondente fica pausada até `dirty` cair).
+      if (fonteMudou) return;
+      if (!salvoNovo) return;
+      salvoConsumidoRef.current = salvo;
+      // `salvo` mudou por um SAVE ALHEIO (plan_rev bumpou) → merge 3-vias POR SLOT em vez de
+      // simplesmente ignorar (era o comportamento pré-colab: qualquer refetch com dirty=true
+      // era descartado em silêncio).
+      if (!planBaseRef.current || !arvore) return; // segurança: não deveria ficar dirty sem base
+      const fresh = computeFreshArvore(seed, modelosReais, salvo, modelosDb as any[]);
+      const result = mergeArvorePorSlot({ base: planBaseRef.current, draft: arvore, fresh, touchedIds: touchedSlotIdsRef.current });
+      planBaseRef.current = fresh;
+      if (result.atualizados > 0 || result.conflitos.length > 0) setArvore(result.arvore);
+      conflitosSlotRef.current = result.conflitos;
+      setConflitosSlot(result.conflitos);
+      setUltimoMergeSlot({ atualizados: result.atualizados, conflitos: result.conflitos });
+      return;
+    }
+
+    // Não-dirty: recarrega sempre que a fonte (OTB/BOM) OU o `salvo` mudou — inclui agora o
+    // salvo-só-mudou (alguém salvou enquanto eu olhava sem editar; antes do colab isso era
+    // ignorado). Reprocessar o eco do MEU PRÓPRIO save aqui é seguro/idempotente (dirty já caiu
+    // antes do refetch resolver) e mantém `planBaseRef`/conflitos em dia.
+    if (arvore !== null && !fonteMudou && !salvoNovo) return;
+    salvoConsumidoRef.current = salvo;
+    srcRef.current = { seed, models: modelosReais };
+    const merged = computeFreshArvore(seed, modelosReais, salvo, modelosDb as any[]);
+    planBaseRef.current = merged;
+    touchedSlotIdsRef.current = new Set();
+    conflitosSlotRef.current = [];
+    setConflitosSlot([]);
+    setUltimoMergeSlot(null);
+    setArvore(merged);
+  }, [seed, salvo, modelosReais, modelosDb, dirty, arvore]);
+
+  // Presença + reage ao UPDATE em `colecoes` (QUALQUER save da árvore bumpa plan_rev — Task 1).
+  // campoFocado OMITIDO de propósito: a árvore é grande demais (subcoleção→linha→slot→material)
+  // p/ presença por campo valer a pena nesta adoção; os chips do banner bastam ("Fulano está aqui").
+  const { presentes } = useColabRegistro({
+    canal: colecaoId ? `colab:plan:${colecaoId}` : null,
+    tabela: "colecoes",
+    registroId: colecaoId,
+    onMudancaServidor: () => {
+      qc.invalidateQueries({ queryKey: ["plan-tecido-arvore", colecaoId] });
+      qc.invalidateQueries({ queryKey: ["plan-tecido-colecao", colecaoId] });
+    },
+  });
+
+  // Resolve um conflito de SLOT: "usar o novo" aplica a versão do servidor (ou remove o slot, se
+  // ele sumiu de lá) e tira o id do `touched` (senão o próximo merge o trataria como editado por
+  // mim de novo); "manter meu" só descarta o aviso — o valor local prevalece e SEGUE touched.
+  const resolverConflitoSlot = (c: Conflito, useDele: boolean) => {
+    const id = c.path.slice("linha:".length);
+    if (useDele) {
+      setArvore((prev) => {
+        if (!prev) return prev;
+        const next = structuredClone(prev) as PtArvore;
+        for (const sub of next.subcolecoes) for (const ln of sub.linhas) {
+          const i = ln.slots.findIndex((s) => s.id === id);
+          if (i < 0) continue;
+          if (c.dele) ln.slots[i] = c.dele as PtSlot; else ln.slots.splice(i, 1);
+        }
+        return next;
+      });
+      touchedSlotIdsRef.current.delete(id);
+    }
+    setConflitosSlot((prev) => { const next = prev.filter((x) => x.path !== c.path); conflitosSlotRef.current = next; return next; });
+    setUltimoMergeSlot((prev) => {
+      if (!prev) return prev;
+      const restantes = prev.conflitos.filter((x) => x.path !== c.path);
+      if (restantes.length === 0 && prev.atualizados === 0) return null;
+      return { ...prev, conflitos: restantes };
+    });
+  };
+  const resolverSlotPorPath = (path: string, escolha: "meu" | "dele") => {
+    const c = conflitosSlot.find((x) => x.path === path);
+    if (c) resolverConflitoSlot(c, escolha === "dele");
+  };
+  const rotuloDoConflitoSlot = (path: string): string => rotuloConflitoSlot(conflitosSlot.find((x) => x.path === path));
 
   const salvarMut = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.rpc("salvar_plan_tecido" as any, { _colecao_id: colecaoId, _arvore: arvore });
+      // Colab: com conflitos de slot pendentes na tela, o save NÃO pode passar — mesmo que
+      // `_rev_base` já bata (o retry do P0409, abaixo, avança `revRef` p/ QUALQUER resultado de
+      // merge, inclusive quando sobra conflito). O usuário resolve ("manter meu"/"usar o novo")
+      // em cada slot destacado no banner antes de salvar de novo (mesmo padrão do OC Tecido).
+      if (conflitosSlotRef.current.length > 0)
+        throw new Error("Resolva os conflitos de slot listados no aviso no topo antes de salvar.");
+      const { error } = await supabase.rpc("salvar_plan_tecido" as any, {
+        _colecao_id: colecaoId, _arvore: arvore, _rev_base: revRef.current,
+      });
       if (error) throw error;
     },
     onSuccess: () => {
       setDirty(false);
+      // O que acabei de salvar já É a base "servidor" — evita que o eco do Realtime (meu próprio
+      // UPDATE) apareça como conflito ou "alguém atualizou N slots" no banner.
+      planBaseRef.current = arvore;
+      touchedSlotIdsRef.current = new Set();
+      conflitosSlotRef.current = [];
+      setConflitosSlot([]);
+      setUltimoMergeSlot(null);
       toast.success("Planejamento de tecido salvo.");
       qc.invalidateQueries({ queryKey: ["plan-tecido-arvore", colecaoId] });
+      qc.invalidateQueries({ queryKey: ["plan-tecido-colecao", colecaoId] }); // plan_rev novo p/ o próximo save
       qc.invalidateQueries({ queryKey: ["plan-tecido-previa", colecaoId] }); // "a comprar" exato do Resumo
     },
-    onError: (e) => toast.error(mensagemErro(e, "Não foi possível salvar.")),
+    onError: async (e: any) => {
+      // Colab: conflito de versão (P0409) — outra pessoa salvou entre a última carga e agora.
+      // Busca o estado novo, faz o merge 3-vias por slot AQUI MESMO (síncrono, ver precedente do
+      // piloto OC Tecido) e, se não sobrou conflito de verdade, retenta salvar 1 vez com o rev
+      // atualizado. Se sobrou, para e deixa o usuário resolver no banner.
+      if (e?.code === "P0409" && !retryRef.current && seed && modelosDb) {
+        retryRef.current = true;
+        await qc.refetchQueries({ queryKey: ["plan-tecido-arvore", colecaoId] });
+        await qc.refetchQueries({ queryKey: ["plan-tecido-colecao", colecaoId] });
+        const freshSalvo = qc.getQueryData<PtArvore | null>(["plan-tecido-arvore", colecaoId]);
+        const freshColecao = qc.getQueryData<any>(["plan-tecido-colecao", colecaoId]);
+        const draft = arvoreLiveRef.current; // espelho síncrono: nada editado durante o await se perde
+        if (freshSalvo !== undefined && draft) {
+          const fresh = computeFreshArvore(seed, modelosReais, freshSalvo ?? null, modelosDb as any[]);
+          const base = planBaseRef.current ?? fresh;
+          const result = mergeArvorePorSlot({ base, draft, fresh, touchedIds: touchedSlotIdsRef.current });
+          planBaseRef.current = fresh;
+          salvoConsumidoRef.current = freshSalvo; // o effect não reprocessa o mesmo salvo em dobro
+          revRef.current = (freshColecao as any)?.plan_rev ?? revRef.current;
+          if (result.atualizados > 0 || result.conflitos.length > 0) setArvore(result.arvore);
+          conflitosSlotRef.current = result.conflitos;
+          setConflitosSlot(result.conflitos);
+          setUltimoMergeSlot({ atualizados: result.atualizados, conflitos: result.conflitos });
+          if (result.conflitos.length === 0) {
+            salvarMut.mutate(undefined, { onSettled: () => { retryRef.current = false; } });
+            return;
+          }
+        }
+        retryRef.current = false;
+        toast.error(mensagemErro(e, "Não foi possível salvar."));
+        return;
+      }
+      toast.error(mensagemErro(e, "Não foi possível salvar."));
+    },
   });
 
   // garante o plano salvo antes de uma ação de servidor (auto-salva se houver mudança pendente)
@@ -603,7 +820,23 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   };
 
 
-  const patch = (next: PtArvore) => { setArvore(next); setDirty(true); };
+  // Colab: rastreia os slots que EU editei (diff por id, mesmo padrão do setItemsTracked do OC
+  // Tecido) — `patch` é o ÚNICO funil de escrita local (drag, aplicar em massa, categoria,
+  // onChange do card), então instrumentar aqui cobre toda edição sem mudar a assinatura recebida
+  // pelos filhos.
+  const patch = (next: PtArvore) => {
+    if (arvore) {
+      const prevById = new Map<string, PtSlot>();
+      for (const sub of arvore.subcolecoes) for (const ln of sub.linhas) for (const s of ln.slots) if (s.id) prevById.set(s.id, s);
+      for (const sub of next.subcolecoes) for (const ln of sub.linhas) for (const s of ln.slots) {
+        if (!s.id) continue;
+        const p = prevById.get(s.id);
+        if (!p || JSON.stringify(p) !== JSON.stringify(s)) touchedSlotIdsRef.current.add(s.id);
+      }
+    }
+    setArvore(next);
+    setDirty(true);
+  };
 
   // solta o card numa lane → muda a categoria de tecido do modelo (id do drag = chave do slot)
   const handleDragEnd = (e: DragEndEvent) => {
@@ -771,14 +1004,23 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   return (
     <Sheet open onOpenChange={(o) => { if (!o) requestClose(); }}>
       <SheetContent side="right" className="w-screen max-w-none sm:max-w-none flex flex-col p-0 max-sm:[&>button]:hidden">
-        <div className="sticky top-0 z-10 flex items-center gap-2 border-b bg-background p-3">
-          <Breadcrumb items={[
-            { label: "Estilo & Engenharia" },
-            { label: "Plan. Tecido", onClick: requestClose },
-            { label: colecao?.nome ?? "…", onClick: view === "canvas" ? irParaSubcolecoes : undefined },
-            ...(view === "canvas" && subAtual ? [{ label: nameOf(subNomes, subAtual.subcolecao_id) ?? "Sem subcoleção" }] : []),
-          ]} />
-          <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+        <div className="sticky top-0 z-10 flex flex-col gap-1.5 border-b bg-background p-3">
+          <div className="flex items-center gap-2">
+            <Breadcrumb items={[
+              { label: "Estilo & Engenharia" },
+              { label: "Plan. Tecido", onClick: requestClose },
+              { label: colecao?.nome ?? "…", onClick: view === "canvas" ? irParaSubcolecoes : undefined },
+              ...(view === "canvas" && subAtual ? [{ label: nameOf(subNomes, subAtual.subcolecao_id) ?? "Sem subcoleção" }] : []),
+            ]} />
+            <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+          </div>
+          <ColabBanner
+            presentes={presentes}
+            ultimoMerge={ultimoMergeSlot}
+            conflitos={conflitosSlot}
+            onResolver={resolverSlotPorPath}
+            rotulo={rotuloDoConflitoSlot}
+          />
         </div>
 
 
