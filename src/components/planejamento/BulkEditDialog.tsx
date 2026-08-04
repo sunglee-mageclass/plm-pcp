@@ -70,6 +70,12 @@ export function BulkEditDialog({
   const subcolAutoWeek = useMemo(() => Object.fromEntries(subcolOpts.map((s) => [s.nome, s.autoWeek])), [subcolOpts]);
 
   const apply = useMutation({
+    // Colab (spec 2026-08-03, Task 2 — adoção Plan. Produto): edição em MASSA fica FORA do
+    // escopo do padrão colaborativo (rev-check/merge/banner). É uma ação explícita do usuário
+    // sobre N cards escolhidos deliberadamente — não há "meu rascunho" por card para mesclar,
+    // e travar por `rev` individual exigiria buscar o rev de cada um antes (custo desproporcional
+    // p/ uma ação em lote que o próprio usuário disparou de olhos abertos). Último-a-escrever-
+    // vence aqui é aceitável (classe c do brief da Task 2).
     mutationFn: async () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const patch: any = {};
