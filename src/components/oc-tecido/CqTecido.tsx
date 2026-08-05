@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -240,7 +241,11 @@ function CqItemCard({ item, showOc = true }: { item: CqItem; showOc?: boolean })
           Alertar estilo
         </label>
         {alertado && (
-          <span className="text-xs text-muted-foreground">Resolução (Estilo OK / troca / cancelar) na página Alertas.</span>
+          // Link vivo no lugar da dica-morta: a resolução (Estilo OK / troca /
+          // cancelar) acontece na página Alertas de Tecido.
+          <Link to="/entrada-saida/alertas-tecido" className="text-xs text-primary hover:underline">
+            Resolver nos Alertas de Tecido →
+          </Link>
         )}
       </div>
     </Card>
@@ -267,7 +272,14 @@ export function OcCqSection({ ocId }: { ocId: string }) {
   if (items.length === 0) return null;
   return (
     <div className="space-y-2">
-      <h3 className="text-sm font-semibold">CQ de Tecido</h3>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-base font-bold tracking-tight">
+          <span className="text-primary">5 ·</span> CQ de Tecido
+        </h3>
+        <Link to="/entrada-saida/alertas-tecido" className="text-sm text-primary hover:underline">
+          ver Alertas de Tecido →
+        </Link>
+      </div>
       {items.map((it) => (
         <CqItemCard key={it.id} item={it} showOc={false} />
       ))}

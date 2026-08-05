@@ -4,15 +4,27 @@ import { Input } from "@/components/ui/input";
 import { DateField } from "@/components/shared/DateField";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { fmtNum } from "@/lib/format";
 import { FileField } from "./FileField";
 import { TecidoGroup } from "./TecidoGroup";
 import { FornecedorSelect } from "@/components/shared/FornecedorSelect";
 import { ResponsavelSelect } from "@/components/shared/ResponsavelSelect";
-import type { Artigo, Draft, Empresa, ItemDraft, ParcelaRecebimento, Variante } from "./shared";
+import { fmtMoney, type Artigo, type Draft, type Empresa, type ItemDraft, type ParcelaRecebimento, type Variante } from "./shared";
 import type { Conflito } from "@/lib/colab/merge";
+
+// Título numerado das seções do form da OC (redesign ago/2026 — âncoras 1..5).
+export function OcSecTitle({ n, children, right }: { n: number; children: React.ReactNode; right?: React.ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <h3 className="text-base font-bold tracking-tight">
+        <span className="text-primary">{n} ·</span> {children}
+      </h3>
+      {right}
+    </div>
+  );
+}
 
 // Colab (spec 2026-08-03) — piloto na OC de Tecido: presença/conflito por campo do
 // CABEÇALHO (numero_pedido/datas/prazo) + realce da LINHA de item em conflito.
@@ -44,6 +56,10 @@ export function OcTecidoForm({
   tecido2Aberto, setTecido2Aberto, removeTecido2,
   handleSingleUpload,
   colab,
+  criacao = false,
+  totalPrevisto,
+  metragemPrevista,
+  numVariantes,
 }: {
   draft: Draft;
   setDraft: React.Dispatch<React.SetStateAction<Draft>>;
@@ -64,6 +80,13 @@ export function OcTecidoForm({
   removeTecido2: () => void;
   handleSingleUpload: (file: File, key: keyof Draft) => void;
   colab: ColabHeaderProps;
+  // Nova OC (ocId == null): as entregas parceladas ficam editáveis JÁ na seção 1
+  // (mesma peça de estado draft.parcelas_recebimento da seção 4 — nunca 2 estados).
+  criacao?: boolean;
+  // Box "TOTAL PREVISTO" vivo — Σ quantidade_pedida × preço (conta única em shared).
+  totalPrevisto: number;
+  metragemPrevista: number;
+  numVariantes: number;
 }) {
   // Um por campo instrumentado: ring âmbar (conflito) OU sky (alguém focado ali agora).
   const campo = (path: string) => {
@@ -82,7 +105,10 @@ export function OcTecidoForm({
   const cDataEntrega = campo("data_prevista_entrega");
   return (
     <>
-      <div className="grid sm:grid-cols-2 gap-4">
+      {/* ── 1 · Pedido ─────────────────────────────────────────────── */}
+      <section id="oc-sec-pedido" className="scroll-mt-2 space-y-4">
+        <OcSecTitle n={1}>Pedido</OcSecTitle>
+        <div className="grid sm:grid-cols-2 gap-4">
         <div className="grid gap-1">
           <Label>Número do Pedido</Label>
           <Input
@@ -117,23 +143,6 @@ export function OcTecidoForm({
         </div>
 
         <div className="grid gap-1">
-          <Label>Prazo de Pagamento *</Label>
-          <Input value={draft.prazo_pagamento} onChange={(e) => {
-            const v = e.target.value;
-            const parts = v.split(/[\/,-\s]+/).filter((p) => p.trim() !== "" && !isNaN(Number(p)));
-            const qtd = parts.length > 0 ? Math.max(1, Math.min(6, parts.length)) : 1;
-            setDraft((d) => ({ ...d, prazo_pagamento: v, quantidade_prazos: qtd }));
-          }} placeholder="Ex: 30/60/90"
-            data-colab-path={cPrazo["data-colab-path"]}
-            title={cPrazo.title}
-            className={cPrazo.className}
-          />
-          {cPrazo.conflito && (
-            <ConflitoAviso conflito={cPrazo.conflito} onResolver={(useDele) => colab.onResolverConflito(cPrazo.conflito!, useDele)} />
-          )}
-        </div>
-
-        <div className="grid gap-1">
           <Label>Data do Pedido</Label>
           <DateField
             value={draft.data_pedido}
@@ -160,33 +169,80 @@ export function OcTecidoForm({
           )}
         </div>
 
-        <div className="grid gap-1">
-          <Label>Qtd. Parcelas de Recebimento</Label>
-          <NumberInput
-            type="number"
-            min={1}
-            max={24}
-            value={draft.parcelas_recebimento?.length || 1}
-            onChange={(e) => {
-              const n = Math.max(1, Math.min(24, Number(e.target.value) || 1));
-              setDraft((d) => {
-                const prev = d.parcelas_recebimento ?? [];
-                const next = Array.from({ length: n }, (_, i) =>
-                  prev[i] ?? { data: "", recebido: false },
-                );
-                return { ...d, parcelas_recebimento: next };
-              });
-            }}
-          />
+        {/* Par pagamento ao fornecedor: prazo digitado → nº de parcelas DERIVADO. */}
+        <div className="sm:col-span-2 grid sm:grid-cols-2 gap-4 rounded-md border border-dashed p-3">
+          <div className="grid gap-1">
+            <Label>Prazo de Pagamento *</Label>
+            <Input value={draft.prazo_pagamento} onChange={(e) => {
+              const v = e.target.value;
+              const parts = v.split(/[\/,-\s]+/).filter((p) => p.trim() !== "" && !isNaN(Number(p)));
+              const qtd = parts.length > 0 ? Math.max(1, Math.min(6, parts.length)) : 1;
+              setDraft((d) => ({ ...d, prazo_pagamento: v, quantidade_prazos: qtd }));
+            }} placeholder="Ex: 30/60/90"
+              data-colab-path={cPrazo["data-colab-path"]}
+              title={cPrazo.title}
+              className={cPrazo.className}
+            />
+            {cPrazo.conflito && (
+              <ConflitoAviso conflito={cPrazo.conflito} onResolver={(useDele) => colab.onResolverConflito(cPrazo.conflito!, useDele)} />
+            )}
+          </div>
+          <div className="grid gap-1">
+            <Label>Parcelas a pagar (derivado)</Label>
+            <NumberInput type="number" value={draft.quantidade_prazos} readOnly disabled />
+          </div>
         </div>
 
-        <div className="grid gap-1">
-          <Label>Qtd de Parcelas (Pagamento)</Label>
-          <NumberInput type="number" value={draft.quantidade_prazos} readOnly disabled />
-        </div>
-      </div>
+        {/* Nova OC: entregas parceladas (recebimento) editáveis já na criação —
+            MESMO estado da seção 4 (draft.parcelas_recebimento), nunca duplicado. */}
+        {criacao && (
+          <>
+            <div className="grid gap-1">
+              <Label>Entregas parceladas (qtd)</Label>
+              <NumberInput
+                type="number"
+                min={1}
+                max={24}
+                value={draft.parcelas_recebimento?.length || 1}
+                onChange={(e) => {
+                  const n = Math.max(1, Math.min(24, Number(e.target.value) || 1));
+                  setDraft((d) => {
+                    const prev: ParcelaRecebimento[] = d.parcelas_recebimento ?? [];
+                    const next: ParcelaRecebimento[] = Array.from({ length: n }, (_, i) =>
+                      prev[i] ?? { data: "", recebido: false },
+                    );
+                    return { ...d, parcelas_recebimento: next };
+                  });
+                }}
+              />
+            </div>
+            <div className="grid gap-1">
+              <Label>Parcela #1 — data prevista</Label>
+              <DateField
+                value={draft.parcelas_recebimento?.[0]?.data ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setDraft((d) => {
+                    const arr = [...(d.parcelas_recebimento ?? [{ data: "", recebido: false }])];
+                    arr[0] = { ...arr[0], data: v };
+                    return { ...d, parcelas_recebimento: arr };
+                  });
+                }}
+              />
+            </div>
+          </>
+        )}
 
-      <Separator />
+        <div className="sm:col-span-2 grid gap-1">
+          <Label>Observações de Entrega</Label>
+          <Textarea value={draft.observacoes_entrega} onChange={(e) => setDraft((d) => ({ ...d, observacoes_entrega: e.target.value }))} />
+        </div>
+        </div>
+      </section>
+
+      {/* ── 2 · Tecidos ────────────────────────────────────────────── */}
+      <section id="oc-sec-tecidos" className="scroll-mt-2 space-y-4">
+        <OcSecTitle n={2}>Tecidos</OcSecTitle>
       {!draft.empresa_id ? (
         <p className="text-sm text-muted-foreground">
           Selecione o <strong>fornecedor</strong> acima para escolher os tecidos.
@@ -240,20 +296,28 @@ export function OcTecidoForm({
         </>
       )}
 
-      <Separator />
-      <div className="grid sm:grid-cols-2 gap-4">
-        <FileField label="Anexo do Pedido" path={draft.anexo_pedido_url}
-          onChange={(f) => handleSingleUpload(f, "anexo_pedido_url")}
-          onClear={() => setDraft((d) => ({ ...d, anexo_pedido_url: null }))} />
-        <FileField label="Modelo Sugerido" path={draft.modelo_sugerido_url}
-          onChange={(f) => handleSingleUpload(f, "modelo_sugerido_url")}
-          onClear={() => setDraft((d) => ({ ...d, modelo_sugerido_url: null }))} />
-      </div>
+        {/* TOTAL PREVISTO vivo — atualiza a cada tecla, visível também na criação. */}
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-md border bg-muted/40 px-4 py-3">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Total previsto</span>
+          <span className="text-lg font-bold tabular-nums">{fmtMoney(totalPrevisto)}</span>
+          <span className="text-sm text-muted-foreground tabular-nums">
+            {fmtNum(metragemPrevista)} m · {numVariantes} variante{numVariantes === 1 ? "" : "s"}
+          </span>
+        </div>
+      </section>
 
-      <div className="grid gap-1">
-        <Label>Observações sobre Entrega</Label>
-        <Textarea value={draft.observacoes_entrega} onChange={(e) => setDraft((d) => ({ ...d, observacoes_entrega: e.target.value }))} />
-      </div>
+      {/* ── 3 · Anexos ─────────────────────────────────────────────── */}
+      <section id="oc-sec-anexos" className="scroll-mt-2 space-y-4">
+        <OcSecTitle n={3}>Anexos</OcSecTitle>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <FileField label="Anexo do Pedido" path={draft.anexo_pedido_url}
+            onChange={(f) => handleSingleUpload(f, "anexo_pedido_url")}
+            onClear={() => setDraft((d) => ({ ...d, anexo_pedido_url: null }))} />
+          <FileField label="Modelo Sugerido" path={draft.modelo_sugerido_url}
+            onChange={(f) => handleSingleUpload(f, "modelo_sugerido_url")}
+            onClear={() => setDraft((d) => ({ ...d, modelo_sugerido_url: null }))} />
+        </div>
+      </section>
     </>
   );
 }

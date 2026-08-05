@@ -351,7 +351,6 @@ const roloVariantes = (r: RoloRow) =>
     .filter(Boolean)
     .join(", ");
 const roloEndereco = (r: RoloRow) => [r.rolo_rua, r.rolo_prateleira].filter(Boolean).join(" · ");
-const roloOrigem = (r: RoloRow) => (r.rolo_origem_item_id ? "Separado de OC" : "Avulso");
 
 function EtiquetaRolo({ rolo, logo }: { rolo: RoloRow; logo: string | null }) {
   const itens = rolo.ocs_tecido_itens ?? [];
@@ -414,6 +413,34 @@ export function RolosList() {
     },
   });
 
+  // "OC de origem" (redesign ago/2026): era "Separado de OC" sem dizer QUAL. O FK de
+  // rolo_origem_item_id foi dropado de propósito (informativo), então resolve por query:
+  // item de origem → OC/rolo pai → rótulo "OC {nº}" | "Rolo {código}".
+  const origemIds = useMemo(
+    () => Array.from(new Set(rolos.map((r) => r.rolo_origem_item_id).filter(Boolean))) as string[],
+    [rolos],
+  );
+  const { data: origemByItem = {} } = useQuery({
+    queryKey: ["rolos", "origem", origemIds],
+    enabled: origemIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("ocs_tecido_itens")
+        .select("id, ocs_tecido!oc_tecido_id(numero_pedido, is_rolo, rolo_codigo)")
+        .in("id", origemIds);
+      if (error) throw error;
+      const m: Record<string, string> = {};
+      for (const it of (data ?? []) as any[]) {
+        const oc = it.ocs_tecido;
+        if (!oc) continue;
+        m[it.id] = oc.is_rolo ? `Rolo ${oc.rolo_codigo || "(sem código)"}` : `OC ${oc.numero_pedido || "(sem número)"}`;
+      }
+      return m;
+    },
+  });
+  const origemDoRolo = (r: RoloRow) =>
+    r.rolo_origem_item_id ? origemByItem[r.rolo_origem_item_id] ?? "Separado de OC" : "Avulso";
+
   const excluir = useMutation({
     mutationFn: async (id: string) => {
       // Via RPC com guarda (_rolo_em_uso): o `.delete()` cru cascateava e apagava o ledger
@@ -424,6 +451,7 @@ export function RolosList() {
     onSuccess: () => {
       toast.success("Rolo excluído");
       qc.invalidateQueries({ queryKey: ["rolos"] });
+      qc.invalidateQueries({ queryKey: ["ocs_tecido"] }); // contagem da aba Rolos
       qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
       qc.invalidateQueries({ queryKey: ["dash-estoque"] });
       qc.invalidateQueries({ queryKey: ["consumo-por-oc"] });
@@ -439,7 +467,7 @@ export function RolosList() {
       variantes: roloVariantes,
       metragem: roloMetragem,
       endereco: roloEndereco,
-      origem: roloOrigem,
+      origem: origemDoRolo,
     },
   });
   const sorted = s.sorted;
@@ -487,7 +515,7 @@ export function RolosList() {
                 <SortHead label="Variantes" sortKey="variantes" sortState={s} />
                 <SortHead label="Metragem (m)" sortKey="metragem" sortState={s} align="right" className="text-right" />
                 <SortHead label="Endereço" sortKey="endereco" sortState={s} />
-                <SortHead label="Origem" sortKey="origem" sortState={s} />
+                <SortHead label="OC de origem" sortKey="origem" sortState={s} />
                 <TableHead className="w-20" />
               </TableRow>
             </TableHeader>
@@ -507,8 +535,8 @@ export function RolosList() {
                     <TableCell data-label="Endereço" className="text-muted-foreground">
                       {endereco || "—"}
                     </TableCell>
-                    <TableCell data-label="Origem" className="text-muted-foreground">
-                      {r.rolo_origem_item_id ? "Separado de OC" : "Avulso"}
+                    <TableCell data-label="OC de origem" className="text-muted-foreground">
+                      {origemDoRolo(r)}
                     </TableCell>
                     <TableCell data-label="Ações" className="sm:py-0">
                       <div className="flex">
@@ -553,7 +581,7 @@ export function RolosList() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => deleting && excluir.mutate(deleting.id)}>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => deleting && excluir.mutate(deleting.id)}>
               Excluir
             </AlertDialogAction>
           </AlertDialogFooter>

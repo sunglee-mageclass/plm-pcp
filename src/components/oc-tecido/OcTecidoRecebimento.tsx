@@ -1,15 +1,20 @@
-import { Input } from "@/components/ui/input";
+import { AlertTriangle, Check } from "lucide-react";
 import { DateField } from "@/components/shared/DateField";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { cn } from "@/lib/utils";
 import { NfList } from "./NfList";
 import { uploadFile } from "./shared";
+import { OcSecTitle } from "./OcTecidoForm";
 import { OcTecidoCalculos } from "./OcTecidoCalculos";
 import { EtiquetaLavagemArtigoEditor } from "@/components/shared/EtiquetaLavagemArtigo";
 import type { Artigo, Draft, ItemDraft, ParcelaRecebimento, RoloEntry, Variante } from "./shared";
+
+// Um requisito do "marcar recebido" — derivado da MESMA fonte que valida o botão
+// (requisitosRecebimento no OcDialog); aqui só vira badge verde ✓ / âmbar ⚠.
+export type RequisitoRecebimento = { key: string; ok: boolean; rotulo: string; faltas: string[] };
 
 export function OcTecidoRecebimento({
   draft, setDraft,
@@ -18,6 +23,7 @@ export function OcTecidoRecebimento({
   toggleCancelado, canCancel,
   modoRolo = false, rolos = {}, setRolos, onRoloCq, onRoloCancelar, onRoloAjuste,
   semEtiquetaPorArtigo = {}, setSemEtiquetaPorArtigo, onSemEtiqueta, etiquetasByArtigo = {},
+  requisitos = [],
 }: {
   draft: Draft;
   setDraft: React.Dispatch<React.SetStateAction<Draft>>;
@@ -45,16 +51,19 @@ export function OcTecidoRecebimento({
   setSemEtiquetaPorArtigo?: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   onSemEtiqueta?: (artigoId: string, value: boolean) => void;
   etiquetasByArtigo?: Record<string, string[]>;
+  // Checklist SEMPRE visível dos requisitos do "marcar recebido" (fonte única no OcDialog).
+  requisitos?: RequisitoRecebimento[];
 }) {
   return (
-    <>
-      <Separator />
+    <section id="oc-sec-recebimento" className="scroll-mt-2">
       <div className="space-y-4">
-        <h3 className="text-lg font-semibold">Recebimento</h3>
+        <OcSecTitle n={4}>Recebimento</OcSecTitle>
 
         <div className="grid sm:grid-cols-2 gap-4">
           <div className="grid gap-1">
-            <Label>Qtd. Parcelas de Recebimento</Label>
+            {/* ÚNICO controle de entregas parceladas na edição (a duplicata que
+                morava na seção Pedido foi removida no redesign ago/2026). */}
+            <Label>Entregas parceladas (qtd)</Label>
             <NumberInput
               type="number"
               min={1}
@@ -83,7 +92,7 @@ export function OcTecidoRecebimento({
         />
 
         <div className="rounded-md border p-3 space-y-2">
-          <Label className="text-sm">Parcelas de Recebimento</Label>
+          <Label className="text-sm">Parcelas de entrega</Label>
           {(draft.parcelas_recebimento?.length ?? 0) === 0 ? (
             <p className="text-xs text-muted-foreground">
               Defina a quantidade de parcelas acima.
@@ -180,6 +189,28 @@ export function OcTecidoRecebimento({
           />
         </div>
 
+        {/* Checklist dos requisitos do "marcar recebido" — sempre visível; derivado da
+            MESMA fonte da validação do botão (não re-implementa nenhuma regra). */}
+        {requisitos.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {requisitos.map((r) => (
+              <span
+                key={r.key}
+                title={r.ok ? undefined : r.faltas.join(" ")}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide",
+                  r.ok
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-400"
+                    : "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-400",
+                )}
+              >
+                {r.ok ? <Check className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+                {r.rotulo}
+              </span>
+            ))}
+          </div>
+        )}
+
         <OcTecidoCalculos
           items={items}
           artigoMap={artigoMap}
@@ -201,6 +232,6 @@ export function OcTecidoRecebimento({
           onRoloAjuste={onRoloAjuste}
         />
       </div>
-    </>
+    </section>
   );
 }

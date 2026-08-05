@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { artigoLabel, unidadeSufixo } from "@/lib/artigo-label";
-import { labelVariante, type Artigo, type ItemDraft, type Variante } from "./shared";
+import { fmtMoney, labelVariante, type Artigo, type ItemDraft, type Variante } from "./shared";
 import type { Conflito } from "@/lib/colab/merge";
 
 export function TecidoGroup({
@@ -112,36 +112,50 @@ export function TecidoGroup({
 
           {items.length > 0 && (
             <div className="space-y-2">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 max-sm:hidden">
                 <Label className="flex-1">Quantidade e preço</Label>
                 <span className="w-32 text-xs text-muted-foreground">Qtd</span>
                 <span className="w-28 text-xs text-muted-foreground">Preço (un.)</span>
               </div>
+              <Label className="sm:hidden">Quantidade e preço</Label>
               {items.map((i) => {
                 const v = varianteMap[i.variante_tecido_id];
                 const conflito = conflitoLinha?.(i.id);
+                // Subtotal (mobile): mesma conta preço × qtd pedida do restante da OC.
+                const subtotal = (i.preco ?? artigoAtual?.preco ?? 0) * (i.quantidade_pedida || 0);
                 return (
                   <div key={i.tempId} className={cn("space-y-1 rounded-md", conflito && "ring-1 ring-amber-500 p-1.5")}>
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm flex-1">
+                    {/* Mobile (max-sm): a variante vira CARD — nome em cima, Qtd e Preço
+                        lado a lado (altura ≥44px) e subtotal embaixo. Desktop: linha. */}
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 max-sm:rounded-md max-sm:border max-sm:p-3">
+                      <span className="text-sm w-full font-medium sm:w-auto sm:flex-1 sm:font-normal">
                         {labelVariante(v)}
                       </span>
-                      <div className="relative w-32">
-                        <NumberInput type="number" step="0.01" placeholder="0" className={sufixo ? "pr-10" : ""}
-                          value={i.quantidade_pedida || undefined}
-                          onChange={(e) => setQtd(i.tempId, "quantidade_pedida", Number(e.target.value))} />
-                        {sufixo && (
-                          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-                            {sufixo}
-                          </span>
-                        )}
+                      <div className="flex-1 sm:flex-none sm:w-32">
+                        <span className="mb-0.5 block text-[11px] text-muted-foreground sm:hidden">Qtd{sufixo ? ` (${sufixo})` : ""}</span>
+                        <div className="relative">
+                          <NumberInput type="number" step="0.01" placeholder="0" className={cn("max-sm:h-11", sufixo && "pr-10")}
+                            value={i.quantidade_pedida || undefined}
+                            onChange={(e) => setQtd(i.tempId, "quantidade_pedida", Number(e.target.value))} />
+                          {sufixo && (
+                            <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                              {sufixo}
+                            </span>
+                          )}
+                        </div>
                       </div>
                       {/* Fase A: preço desta compra (default = preço atual da variante; editável). */}
-                      <div className="relative w-28">
-                        <NumberInput type="number" step="0.01" placeholder="0,00" className="pl-7"
-                          value={i.preco ?? undefined}
-                          onChange={(e) => setPreco(i.tempId, e.target.value === "" ? null : Number(e.target.value))} />
-                        <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">R$</span>
+                      <div className="flex-1 sm:flex-none sm:w-28">
+                        <span className="mb-0.5 block text-[11px] text-muted-foreground sm:hidden">Preço (un.)</span>
+                        <div className="relative">
+                          <NumberInput type="number" step="0.01" placeholder="0,00" className="pl-7 max-sm:h-11"
+                            value={i.preco ?? undefined}
+                            onChange={(e) => setPreco(i.tempId, e.target.value === "" ? null : Number(e.target.value))} />
+                          <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">R$</span>
+                        </div>
+                      </div>
+                      <div className="w-full text-xs text-muted-foreground sm:hidden">
+                        Subtotal: <b className="tabular-nums text-foreground">{fmtMoney(subtotal)}</b>
                       </div>
                     </div>
                     {conflito && (

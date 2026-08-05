@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
 import { EnderecoPopover, RoloEnderecoPopover } from "@/components/tecido/EnderecoEditor";
 import { useReadOnly } from "@/components/RequirePermission";
-import { fmtMoney, labelVariante, type Artigo, type ItemDraft, type RoloEntry, type Variante } from "./shared";
+import { fmtMoney, labelVariante, metragemPedidaItem, precoItem, type Artigo, type ItemDraft, type RoloEntry, type Variante } from "./shared";
 
 // Quantidade EDITÁVEL de um rolo já criado: controlado (mostra o valor salvo) e só
 // dispara o ajuste (RPC) no blur se mudou.
@@ -85,18 +85,16 @@ export function OcTecidoCalculos({
   };
   // Rendimento da OC (item) tem prioridade sobre o do cadastro do artigo.
   const rendimentoDe = (it: ItemDraft, a: Artigo) => Number(it.rendimento ?? a.rendimento ?? 0);
-  const metragemPedida = (it: ItemDraft) => {
-    const a = it.artigo_id ? artigoMap[it.artigo_id] : null;
-    if (!a) return 0;
-    return a.unidade_medida === "kg" ? it.quantidade_pedida * rendimentoDe(it, a) : it.quantidade_pedida;
-  };
+  // Metragem pedida: conta única em shared (mesma do box "TOTAL PREVISTO").
+  const metragemPedida = (it: ItemDraft) => metragemPedidaItem(it, artigoMap);
   const metragemRecebida = (it: ItemDraft) => {
     const a = it.artigo_id ? artigoMap[it.artigo_id] : null;
     if (!a || it.quantidade_recebida == null) return 0;
     return a.unidade_medida === "kg" ? it.quantidade_recebida * rendimentoDe(it, a) : it.quantidade_recebida;
   };
-  // Valor por linha usa o preço do ITEM desta compra (fallback p/ o preço do artigo do cadastro).
-  const precoDe = (it: ItemDraft) => it.preco ?? (it.artigo_id ? artigoMap[it.artigo_id]?.preco : null) ?? 0;
+  // Valor por linha usa o preço do ITEM desta compra (fallback p/ o preço do artigo do
+  // cadastro) — conta única em shared.
+  const precoDe = (it: ItemDraft) => precoItem(it, artigoMap);
   const valorPrev = (it: ItemDraft) => precoDe(it) * it.quantidade_pedida;
   const valorReal = (it: ItemDraft) => precoDe(it) * (it.quantidade_recebida ?? 0);
   const hasKg = items.some((it) => {
@@ -114,8 +112,8 @@ export function OcTecidoCalculos({
             {hasKg && <TableHead>Metr. Pedida</TableHead>}
             <TableHead>Qtd Recebida</TableHead>
             {hasKg && <TableHead>Metr. Recebida</TableHead>}
-            <TableHead>Valor Prev.</TableHead>
-            <TableHead>Valor Real</TableHead>
+            <TableHead className="sm:text-right">Valor Prev.</TableHead>
+            <TableHead className="sm:text-right">Valor Real</TableHead>
             {canCancel && <TableHead className="w-24">Cancelar</TableHead>}
           </TableRow>
         </TableHeader>
@@ -139,7 +137,7 @@ export function OcTecidoCalculos({
                   <div className={cn("text-sm", i.cancelado && "line-through")}>{artigoLabel(a)}</div>
                   <div className={cn("text-xs text-muted-foreground", i.cancelado && "line-through")}>{labelVariante(v)}</div>
                 </TableCell>
-                <TableCell data-label="Qtd Pedida" className={cn(i.cancelado && "line-through")}>{i.quantidade_pedida}{sufixo ? ` ${sufixo}` : ""}</TableCell>
+                <TableCell data-label="Qtd Pedida" className={cn("text-muted-foreground", i.cancelado && "line-through")}>{i.quantidade_pedida}{sufixo ? ` ${sufixo}` : ""}</TableCell>
                 {hasKg && <TableCell data-label="Metr. Pedida" className={cn(i.cancelado && "line-through")}>{fmtNum(metragemPedida(i))} m</TableCell>}
                 <TableCell data-label="Qtd Recebida">
                   {i.cancelado ? (
@@ -219,7 +217,8 @@ export function OcTecidoCalculos({
                     </div>
                   ) : (
                     <div className="relative w-24">
-                      <NumberInput type="number" step="0.01" className={sufixo ? "pr-10" : ""}
+                      {/* Input DESTACADO: é o campo de trabalho do recebimento. */}
+                      <NumberInput type="number" step="0.01" className={cn("border-primary/60 font-semibold", sufixo && "pr-10")}
                         value={i.quantidade_recebida ?? ""}
                         onChange={(e) => {
                           const raw = e.target.value.replace(",", ".");
@@ -243,8 +242,8 @@ export function OcTecidoCalculos({
                   )}
                 </TableCell>
                 {hasKg && <TableCell data-label="Metr. Recebida" className={cn(i.cancelado && "line-through")}>{fmtNum(metragemRecebida(i))} m</TableCell>}
-                <TableCell data-label="Valor Prev." className={cn(i.cancelado && "line-through")}>{fmtMoney(valorPrev(i))}</TableCell>
-                <TableCell data-label="Valor Real" className={cn(i.cancelado && "line-through")}>{fmtMoney(valorReal(i))}</TableCell>
+                <TableCell data-label="Valor Prev." className={cn("tabular-nums whitespace-nowrap sm:text-right", i.cancelado && "line-through")}>{fmtMoney(valorPrev(i))}</TableCell>
+                <TableCell data-label="Valor Real" className={cn("tabular-nums whitespace-nowrap sm:text-right", i.cancelado && "line-through")}>{fmtMoney(valorReal(i))}</TableCell>
                 {canCancel && (
                   <TableCell data-label="Cancelar">
                     <label className="inline-flex items-center gap-2 text-sm">
@@ -263,8 +262,8 @@ export function OcTecidoCalculos({
         </TableBody>
       </Table>
       <div className="flex flex-wrap gap-x-6 gap-y-2 justify-end mt-3 text-sm">
-        <div>Total Previsto: <b>{fmtMoney(totalPrevisto)}</b></div>
-        <div>Total Real: <b>{fmtMoney(totalReal)}</b></div>
+        <div>Total Previsto: <b className="tabular-nums whitespace-nowrap">{fmtMoney(totalPrevisto)}</b></div>
+        <div>Total Real: <b className="tabular-nums whitespace-nowrap">{fmtMoney(totalReal)}</b></div>
         <OcPrazoBadge dataPrevista={dataPrevista} dataEntrega={dataEntrega} status={status} />
       </div>
     </Card>

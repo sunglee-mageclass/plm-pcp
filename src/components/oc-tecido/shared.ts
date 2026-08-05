@@ -10,7 +10,7 @@ export const labelVariante = labelVarianteRow;
 
 export type OCStatus = "encomendado" | "recebido";
 // Abas da tela OC Tecido: os status de OC + a aba "Estoque" (3ª aba = posição de estoque).
-export type OcTecidoTab = OCStatus | "estoque";
+export type OcTecidoTab = OCStatus | "estoque" | "rolos";
 
 export type Empresa = {
   id: string;
@@ -141,6 +141,20 @@ export function emptyDraft(): Draft {
     nfs: [],
     parcelas_recebimento: [{ data: "", recebido: false }],
   };
+}
+
+// ── Conta ÚNICA do valor/metragem por item (redesign ago/2026) ──
+// Usada pelo total da tabela de recebimento (OcTecidoCalculos), pelos totais da
+// OC (OcDialog) e pelo box "TOTAL PREVISTO" vivo da seção Tecidos — não duplicar.
+export function precoItem(it: Pick<ItemDraft, "preco" | "artigo_id">, artigoMap: Record<string, Artigo>): number {
+  return it.preco ?? (it.artigo_id ? artigoMap[it.artigo_id]?.preco : null) ?? 0;
+}
+/** Metragem pedida do item (kg → metros via rendimento do item, fallback cadastro). */
+export function metragemPedidaItem(it: ItemDraft, artigoMap: Record<string, Artigo>): number {
+  const a = it.artigo_id ? artigoMap[it.artigo_id] : null;
+  if (!a) return 0;
+  const rend = Number(it.rendimento ?? a.rendimento ?? 0);
+  return a.unidade_medida === "kg" ? it.quantidade_pedida * rend : it.quantidade_pedida;
 }
 
 export function fmtMoney(v: number | null | undefined) {

@@ -2,8 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { fmtNum } from "@/lib/format";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Scissors, Plus, Minus, ArrowLeft, Trash2, Printer } from "lucide-react";
+import { Scissors, Plus, Minus, ArrowLeft, Trash2, Printer, Lock, Check, AlertTriangle } from "lucide-react";
+import { addDays, format as formatDate, parseISO } from "date-fns";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { empresaTemCategoria, FABRIC_TOKENS } from "@/lib/fornecedor-categoria";
 
@@ -40,7 +42,7 @@ import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { useModoOcRolo } from "@/hooks/useModoOcRolo";
 import {
-  emptyDraft, uploadFile,
+  emptyDraft, uploadFile, fmtDate, fmtMoney, labelVariante, metragemPedidaItem, precoItem,
   type Artigo, type Colab, type Draft, type Empresa, type ItemDraft,
   type OC, type OCItem, type OCStatus, type OcTecidoTab, type RoloEntry, type Variante,
 } from "@/components/oc-tecido/shared";
@@ -50,7 +52,7 @@ export const Route = createFileRoute("/_authenticated/entrada-saida/oc-tecido")(
   // Aba endereçável: a Home aponta "OCs atrasadas" direto p/ ?tab=encomendado — sem isso o
   // clique pousava na aba "Recebidos", onde a OC atrasada é invisível (laudo do time, jul/2026).
   validateSearch: (s: Record<string, unknown>): { tab?: OcTecidoTab } => ({
-    tab: s.tab === "encomendado" || s.tab === "recebido" || s.tab === "estoque" ? (s.tab as OcTecidoTab) : undefined,
+    tab: s.tab === "encomendado" || s.tab === "recebido" || s.tab === "estoque" || s.tab === "rolos" ? (s.tab as OcTecidoTab) : undefined,
   }),
   component: () => (
     <RequirePermission page="entrada_oc_tecido">
@@ -62,12 +64,14 @@ export const Route = createFileRoute("/_authenticated/entrada-saida/oc-tecido")(
 function OcTecidoPage() {
   const qc = useQueryClient();
   const search = Route.useSearch();
-  const [view, setView] = useState<"ocs" | "rolos">("ocs");
+  // Navegação de 1 NÍVEL (redesign ago/2026): Rolos virou ABA (o toggle OCs/Rolos + abas
+  // formava "2 estoques" — laudo das 3 lentes). ?tab=rolos é endereçável.
   const [openRolo, setOpenRolo] = useState(false);
   const [openRemover, setOpenRemover] = useState(false);
   const [tab, setTab] = useState<OcTecidoTab>(search.tab ?? "recebido");
+  const [busca, setBusca] = useState("");
   // Estado da aba Estoque (consulta + filtros) — controles vão p/ o header (contextual).
-  const estoque = useEstoqueTecidos(view === "ocs" && tab === "estoque");
+  const estoque = useEstoqueTecidos(tab === "estoque");
   const [filterEmpresa, setFilterEmpresa] = useState<string>("all");
   const respF = useResponsavelFilter();
   const [filterAlerta, setFilterAlerta] = useState<string>("all");
@@ -77,7 +81,7 @@ function OcTecidoPage() {
 
   const { data: ocs = [] } = useQuery({
     queryKey: ["ocs_tecido", tab, filterEmpresa, respF.tipo, respF.pessoaId, filterAlerta],
-    enabled: tab !== "estoque", // a aba Estoque não lista OCs (mostra a posição de estoque)
+    enabled: tab !== "estoque" && tab !== "rolos", // essas abas não listam OCs
     queryFn: async () => {
       // Recebidos trazem o status de alerta dos itens (p/ badge na lista + filtro).
       const sel = tab === "recebido" ? "*, ocs_tecido_itens!oc_tecido_id(cq_alerta_status)" : "*";
@@ -198,6 +202,29 @@ function OcTecidoPage() {
     },
   });
 
+  // Contagem das abas (Encomendadas/Recebidas/Rolos) — head:true não baixa linhas.
+  const { data: tabCounts } = useQuery({
+    queryKey: ["ocs_tecido", "tab-counts"],
+    queryFn: async () => {
+      const [enc, rec, rol] = await Promise.all([
+        supabase.from("ocs_tecido").select("id", { count: "exact", head: true }).eq("status", "encomendado").eq("is_rolo" as never, false as never),
+        supabase.from("ocs_tecido").select("id", { count: "exact", head: true }).eq("status", "recebido").eq("is_rolo" as never, false as never),
+        supabase.from("ocs_tecido").select("id", { count: "exact", head: true }).eq("is_rolo" as never, true as never),
+      ]);
+      return { encomendado: enc.count ?? 0, recebido: rec.count ?? 0, rolos: rol.count ?? 0 };
+    },
+  });
+
+  // Busca por nº, fornecedor ou tecido (não existia — laudo). Client-side, sem acento.
+  const semAcento = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const ocsFiltradas = useMemo(() => {
+    const q = semAcento(busca.trim());
+    if (!q) return ocs;
+    return ocs.filter((o) =>
+      semAcento(`${o.numero_pedido ?? ""} ${o.empresa_id ? empresaMap[o.empresa_id] ?? "" : ""} ${tecidosByOc?.[o.id] ?? ""}`).includes(q),
+    );
+  }, [ocs, busca, empresaMap, tecidosByOc]);
+
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
       <header className="flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4">
@@ -207,87 +234,82 @@ function OcTecidoPage() {
             <h1 className="text-2xl font-bold truncate">OC de Tecido</h1>
             {/* Subtítulo contextual: explica p/ que serve cada aba (um usuário não entendeu Rolos). */}
             <p className="text-sm text-muted-foreground mt-1">
-              {view === "rolos"
+              {tab === "rolos"
                 ? "Estoque físico de rolos de tecido: cadastre rolos para ajustar seu inventário ou separe um rolo de uma OC."
                 : "Ordens de compra de tecidos."}
             </p>
           </div>
         </div>
+        {/* Ações CONTEXTUAIS por aba (redesign): abas de OC = busca + filtros + Nova OC;
+            aba Rolos = − Metragem + Novo Rolo. O toggle OCs/Rolos foi absorvido pelas abas. */}
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-
-          <div className="flex rounded-md border p-0.5">
-            <Button size="sm" variant={view === "ocs" ? "secondary" : "ghost"} onClick={() => setView("ocs")}>OCs</Button>
-            <Button size="sm" variant={view === "rolos" ? "secondary" : "ghost"} onClick={() => setView("rolos")}>Rolos</Button>
-          </div>
-          {view === "ocs" && (
+          {tab === "estoque" && (
             <>
-              {tab === "estoque" ? (
-                <>
-                  <SearchToggle value={estoque.search} onChange={estoque.setSearch} placeholder="Tecido ou variante" />
-                  <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}>
-                    <Printer className="h-4 w-4 mr-1" /> Imprimir
-                  </Button>
-                  <FilterButton filters={estoque.filtros} />
-                </>
-              ) : (
-                <FilterButton
-                  filters={[
-                    { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
-                    ...(tab === "encomendado" ? respF.filters : []),
-                    ...(tab === "recebido"
-                      ? [{ label: "Alerta", value: filterAlerta, onChange: setFilterAlerta, options: [
-                          { id: "all", nome: "Todos" },
-                          { id: "alertado", nome: "Alerta estilo" },
-                          { id: "troca_pendente", nome: "Troca pendente" },
-                          { id: "trocado", nome: "Trocado" },
-                          { id: "estilo_ok", nome: "Estilo OK" },
-                          { id: "cancelado", nome: "Cancelado" },
-                        ] }]
-                      : []),
-                  ]}
-                />
-              )}
-              <Button className="max-sm:hidden" onClick={() => { setEditingId(null); setOpenNew(true); }}>
-                <Plus className="h-4 w-4 mr-1" /> Nova OC
+              <SearchToggle value={estoque.search} onChange={estoque.setSearch} placeholder="Tecido ou variante" />
+              <Button variant="outline" size="sm" className="hidden md:inline-flex" onClick={() => printWithImages()}>
+                <Printer className="h-4 w-4 mr-1" /> Imprimir
               </Button>
+              <FilterButton filters={estoque.filtros} />
             </>
           )}
-          {view === "rolos" && (
+          {(tab === "encomendado" || tab === "recebido") && (
+            <>
+              <SearchToggle value={busca} onChange={setBusca} placeholder="Nº, fornecedor ou tecido" />
+              <FilterButton
+                filters={[
+                  { label: "Fornecedor", value: filterEmpresa, onChange: setFilterEmpresa, options: [{ id: "all", nome: "Todos" }, ...empresas.map((e) => ({ id: e.id, nome: e.nome_fantasia }))] },
+                  ...(tab === "encomendado" ? respF.filters : []),
+                  ...(tab === "recebido"
+                    ? [{ label: "Alerta", value: filterAlerta, onChange: setFilterAlerta, options: [
+                        { id: "all", nome: "Todos" },
+                        { id: "alertado", nome: "Alerta estilo" },
+                        { id: "troca_pendente", nome: "Troca pendente" },
+                        { id: "trocado", nome: "Trocado" },
+                        { id: "estilo_ok", nome: "Estilo OK" },
+                        { id: "cancelado", nome: "Cancelado" },
+                      ] }]
+                    : []),
+                ]}
+              />
+            </>
+          )}
+          {tab !== "rolos" && (
+            <Button className="max-sm:hidden" onClick={() => { setEditingId(null); setOpenNew(true); }}>
+              <Plus className="h-4 w-4 mr-1" /> Nova OC
+            </Button>
+          )}
+          {tab === "rolos" && (
             <>
               <Button className="max-sm:hidden" variant="outline" onClick={() => setOpenRemover(true)}>
-                <Minus className="h-4 w-4 mr-1" />
-                <span className="sm:hidden">Metr.</span>
-                <span className="hidden sm:inline">Metragem</span>
+                <Minus className="h-4 w-4 mr-1" /> Metragem
               </Button>
               <Button className="max-sm:hidden" onClick={() => setOpenRolo(true)}>
-                <Plus className="h-4 w-4 mr-1" />
-                <span className="sm:hidden">Rolo</span>
-                <span className="hidden sm:inline">Novo Rolo</span>
+                <Plus className="h-4 w-4 mr-1" /> Novo Rolo
               </Button>
             </>
           )}
         </div>
       </header>
 
-      {view === "ocs" ? (
-        <OcTecidoList
-          tab={tab}
-          setTab={setTab}
-          ocs={ocs}
-          empresaMap={empresaMap}
-          onRowClick={(id) => { setEditingId(id); setOpenNew(true); }}
-          onDelete={(oc) => setDeleting(oc)}
-          qtdRecebidaByOc={qtdRecebidaByOc}
-          tecidosByOc={tecidosByOc}
-          alertaBadgeByOc={alertaBadgeByOc}
-          estoque={estoque}
-        />
-      ) : (
-        <div className="space-y-6">
-          <RolosList />
-          <AjustesList />
-        </div>
-      )}
+      <OcTecidoList
+        tab={tab}
+        setTab={setTab}
+        ocs={ocsFiltradas}
+        tabCounts={tabCounts}
+        empresaMap={empresaMap}
+        onRowClick={(id) => { setEditingId(id); setOpenNew(true); }}
+        onDelete={(oc) => setDeleting(oc)}
+        qtdRecebidaByOc={qtdRecebidaByOc}
+        tecidosByOc={tecidosByOc}
+        alertaBadgeByOc={alertaBadgeByOc}
+        estoque={estoque}
+        rolosSlot={
+          <div className="space-y-6">
+            <RolosList />
+            <AjustesList />
+          </div>
+        }
+      />
 
       {openRolo && (
         <RoloDialog onClose={() => setOpenRolo(false)} onSaved={() => {}} />
@@ -320,7 +342,7 @@ function OcTecidoPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction onClick={() => deleting && deleteMut.mutate(deleting)}>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => deleting && deleteMut.mutate(deleting)}>
               Excluir
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -328,17 +350,15 @@ function OcTecidoPage() {
       </AlertDialog>
 
       <MobileActionBar>
-        {view === "ocs" && (
+        {tab !== "rolos" && (
           <Button className="ml-auto" onClick={() => { setEditingId(null); setOpenNew(true); }}>
             <Plus className="h-4 w-4 mr-1" /> Nova OC
           </Button>
         )}
-        {view === "rolos" && (
+        {tab === "rolos" && (
           <>
             <Button variant="outline" onClick={() => setOpenRemover(true)}>
-              <Minus className="h-4 w-4 mr-1" />
-              <span className="sm:hidden">Metr.</span>
-              <span className="hidden sm:inline">Metragem</span>
+              <Minus className="h-4 w-4 mr-1" /> Metragem
             </Button>
             <Button className="ml-auto" onClick={() => setOpenRolo(true)}>
               <Plus className="h-4 w-4 mr-1" /> Novo Rolo
@@ -418,6 +438,185 @@ function itemsFromRows(its: unknown): ItemDraft[] {
   }));
 }
 
+// Data-base do recebimento: a ÚLTIMA data das parcelas de entrega (fallback
+// data_entrega do draft) — regra ÚNICA usada pelo save E pelo preview de parcelas.
+function ultimaDataEntrega(draft: Draft): string {
+  const parcelas = draft.parcelas_recebimento ?? [];
+  return parcelas.length > 0
+    ? [...parcelas].map((p) => p.data).filter(Boolean).sort().slice(-1)[0] ?? draft.data_entrega
+    : draft.data_entrega;
+}
+
+type ParcelaPrevistaRow = { numero: number; vencimento: string; valor: number; paga: boolean };
+// Preview das parcelas a pagar geradas ao marcar recebido — ESPELHO da regra do servidor
+// (gerar_parcelas_oc_tecido / recalcular_parcelas, migração 20260619440000):
+// dias = todos os números do prazo_pagamento; n = len(dias) (cap 24) ou quantidade_prazos;
+// vencimento_i = base + dias[i] (fallback base + i*30), base = data de entrega (senão hoje);
+// cota = round2(restante ÷ nº livres) e a ÚLTIMA a inserir absorve o resto do arredondamento;
+// parcelas PAGAS são preservadas e o restante = total − Σ pagas só preenche os números livres.
+function previewParcelas({
+  prazoPagamento, quantidadePrazos, baseDataISO, totalReal, pagas,
+}: {
+  prazoPagamento: string;
+  quantidadePrazos: number;
+  baseDataISO: string;
+  totalReal: number;
+  pagas: { numero_parcela: number | null; valor: number | null; data_vencimento: string | null }[];
+}): { rows: ParcelaPrevistaRow[]; geraNovas: boolean; pagoTotal: number } {
+  const round2 = (v: number) => Math.round((v + Number.EPSILON) * 100) / 100;
+  const dias = (prazoPagamento ?? "").split(/[^0-9]+/).filter((t) => /^[0-9]+$/.test(t)).map(Number);
+  const nParcelas = dias.length >= 1 ? Math.min(dias.length, 24) : Math.max(quantidadePrazos || 1, 1);
+  const pagoTotal = round2(pagas.reduce((s, p) => s + Number(p.valor ?? 0), 0));
+  const pagasByNumero = new Map(pagas.filter((p) => p.numero_parcela != null).map((p) => [p.numero_parcela as number, p]));
+  const base = baseDataISO ? parseISO(baseDataISO) : new Date();
+  const livres: number[] = [];
+  for (let i = 1; i <= nParcelas; i++) if (!pagasByNumero.has(i)) livres.push(i);
+  const restante = round2(totalReal - pagoTotal);
+  const geraNovas = totalReal > 0 && restante > 0 && livres.length > 0;
+  const cota = geraNovas ? round2(restante / livres.length) : 0;
+  const rows: ParcelaPrevistaRow[] = [];
+  let idx = 0;
+  for (let i = 1; i <= nParcelas; i++) {
+    const paga = pagasByNumero.get(i);
+    if (paga) {
+      rows.push({ numero: i, vencimento: paga.data_vencimento ?? "", valor: Number(paga.valor ?? 0), paga: true });
+      continue;
+    }
+    if (!geraNovas) continue;
+    idx += 1;
+    const venc = addDays(base, dias[i - 1] ?? i * 30);
+    const valor = idx === livres.length ? round2(restante - cota * (livres.length - 1)) : cota;
+    rows.push({ numero: i, vencimento: formatDate(venc, "yyyy-MM-dd"), valor, paga: false });
+  }
+  // Pagas com número acima de n (prazo encurtou depois) continuam existindo — mostra também.
+  for (const p of pagas) {
+    const n = p.numero_parcela ?? 0;
+    if (n > nParcelas) rows.push({ numero: n, vencimento: p.data_vencimento ?? "", valor: Number(p.valor ?? 0), paga: true });
+  }
+  rows.sort((a, b) => a.numero - b.numero);
+  return { rows, geraNovas, pagoTotal };
+}
+
+// Confirmação "Marcar como recebido?" com PREVIEW das parcelas a pagar (antes de
+// gerar o financeiro). Só o Confirmar dispara o fluxo real de marcar recebido.
+function ConfirmarRecebimentoDialog({
+  ocId, prazoPagamento, quantidadePrazos, baseDataISO, totalReal, pending, onCancel, onConfirm,
+}: {
+  ocId: string | null;
+  prazoPagamento: string;
+  quantidadePrazos: number;
+  baseDataISO: string;
+  totalReal: number;
+  pending: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  // Parcelas JÁ PAGAS da OC (sobrevivem ao desmarcar-recebido): o servidor as
+  // preserva e redistribui só o restante — o preview espelha isso.
+  const { data: pagas = [] } = useQuery({
+    queryKey: ["oc-tecido-parcelas-pagas", ocId],
+    enabled: !!ocId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("parcelas")
+        .select("numero_parcela, valor, data_vencimento")
+        .eq("oc_tecido_id", ocId!)
+        .or("status.eq.pago,data_pagamento.not.is.null")
+        .order("numero_parcela");
+      if (error) throw error;
+      return (data ?? []) as { numero_parcela: number | null; valor: number | null; data_vencimento: string | null }[];
+    },
+  });
+  const { rows, pagoTotal } = previewParcelas({ prazoPagamento, quantidadePrazos, baseDataISO, totalReal, pagas });
+  const total = rows.reduce((s, r) => s + r.valor, 0);
+  return (
+    <AlertDialog open onOpenChange={(o) => !o && onCancel()}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Marcar como recebido?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Isto registra a entrada e gera as contas a pagar no Financeiro conforme o prazo{" "}
+            <b>{prazoPagamento || "—"}</b>.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {rows.length > 0 ? (
+          <div className="max-h-64 overflow-y-auto rounded-md border">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                  <th className="px-3 py-2 font-medium">Parcela</th>
+                  <th className="px-3 py-2 font-medium">Vencimento</th>
+                  <th className="px-3 py-2 text-right font-medium">Valor</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.numero} className="border-b last:border-0">
+                    <td className="px-3 py-1.5 tabular-nums">{r.numero}/{rows.length}{r.paga ? " · paga" : ""}</td>
+                    <td className="px-3 py-1.5 tabular-nums">{fmtDate(r.vencimento)}</td>
+                    <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{fmtMoney(r.valor)}</td>
+                  </tr>
+                ))}
+                <tr className="bg-muted/40 font-semibold">
+                  <td className="px-3 py-2" colSpan={2}>Total real</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums">{fmtMoney(total)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">Nenhuma parcela será gerada (OC sem valor real a pagar).</p>
+        )}
+        {pagoTotal > 0 && (
+          <p className="text-xs text-muted-foreground">
+            Parcelas já pagas ({fmtMoney(pagoTotal)}) são preservadas; o restante é redistribuído.
+          </p>
+        )}
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+          <AlertDialogAction onClick={onConfirm} disabled={pending}>
+            Confirmar recebimento
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+// Trilho de âncoras do form (só sm:+): 5 seções numeradas; itens travados (criação)
+// mostram cadeado e não clicam.
+type SecaoOc = { id: string; n: number; label: string; locked?: boolean };
+function OcAnchorRail({ secoes, ativa, onIr }: { secoes: SecaoOc[]; ativa: string; onIr: (id: string) => void }) {
+  return (
+    <nav aria-label="Seções da OC" className="hidden w-40 shrink-0 flex-col gap-1 self-start sm:flex">
+      {secoes.map((s) =>
+        s.locked ? (
+          <span
+            key={s.id}
+            title="Disponível após salvar"
+            className="flex cursor-not-allowed select-none items-center gap-1.5 rounded-md px-3 py-2 text-sm text-muted-foreground/60"
+          >
+            <span className="tabular-nums">{s.n} ·</span> {s.label}
+            <Lock className="ml-auto h-3.5 w-3.5" />
+          </span>
+        ) : (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => onIr(s.id)}
+            className={cn(
+              "flex items-center gap-1.5 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-muted",
+              ativa === s.id ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground",
+            )}
+          >
+            <span className="tabular-nums">{s.n} ·</span> {s.label}
+          </button>
+        ),
+      )}
+    </nav>
+  );
+}
+
 function OcDialog({
   ocId, empresas, onClose, onSaved, onDelete,
 }: {
@@ -438,6 +637,12 @@ function OcDialog({
   const [rolosPorItem, setRolosPorItem] = useState<Record<string, RoloEntry[]>>({});
   const [tecido2Aberto, setTecido2Aberto] = useState(false);
   const [confirmUnmark, setConfirmUnmark] = useState(false);
+  // Confirmação c/ preview de parcelas antes de marcar recebido (redesign ago/2026).
+  const [confirmReceber, setConfirmReceber] = useState(false);
+  // Confirmação da CASCATA de desmarcar variante (remove também as seguintes).
+  const [confirmDesmarcar, setConfirmDesmarcar] = useState<{ n: 1 | 2; varId: string; afetadas: string[] } | null>(null);
+  // Trilho de âncoras: seção ativa (scroll-spy simples no container de scroll).
+  const [secAtiva, setSecAtiva] = useState("oc-sec-pedido");
   // Dispensa a etiqueta de lavagem POR TECIDO (keyed por artigo_id) no recebimento —
   // cada artigo da OC pode ter, ou não, etiqueta de lavagem.
   const [semEtiquetaPorArtigo, setSemEtiquetaPorArtigo] = useState<Record<string, boolean>>({});
@@ -820,6 +1025,26 @@ function OcDialog({
     });
   };
 
+  // Desmarcar variante tem CASCATA (o toggle remove também as SEGUINTES do mesmo
+  // tecido — a ordem das variantes é significativa). Antes era silenciosa; agora
+  // pede confirmação QUANDO afeta outras variantes. Marcar segue direto.
+  const requestToggleVariante = (n: 1 | 2, varId: string, checked: boolean) => {
+    if (!checked) {
+      const selected = itemsBy(n).filter((i) => i.variante_tecido_id);
+      const idx = selected.findIndex((i) => i.variante_tecido_id === varId);
+      const afetadas = idx >= 0 ? selected.slice(idx + 1) : [];
+      if (afetadas.length > 0) {
+        setConfirmDesmarcar({
+          n,
+          varId,
+          afetadas: afetadas.map((i) => labelVariante(varianteMap[i.variante_tecido_id])),
+        });
+        return;
+      }
+    }
+    toggleVariante(n, varId, checked);
+  };
+
   const setQtd = (tempId: string, field: "quantidade_pedida" | "quantidade_recebida", v: number | null) => {
     setItemsTracked((prev) => prev.map((i) => i.tempId === tempId ? { ...i, [field]: v } : i));
   };
@@ -839,14 +1064,18 @@ function OcDialog({
   };
 
   // Valor da OC = preço do ITEM desta compra × qtd (fallback p/ o preço do cadastro do artigo
-  // quando o item não tem preço). Reflete o preço por variante informado na OC.
-  const precoDe = (it: ItemDraft) => it.preco ?? (it.artigo_id ? artigoMap[it.artigo_id]?.preco : null) ?? 0;
+  // quando o item não tem preço) — conta única em shared (precoItem).
+  const precoDe = (it: ItemDraft) => precoItem(it, artigoMap);
   const valorPrev = (it: ItemDraft) => precoDe(it) * it.quantidade_pedida;
   const valorReal = (it: ItemDraft) => precoDe(it) * (it.quantidade_recebida ?? 0);
   // Itens cancelados não entram nos totais (nem no valor_real_total persistido,
   // que alimenta as parcelas).
   const totalPrevisto = items.filter((i) => !i.cancelado).reduce((s, i) => s + valorPrev(i), 0);
   const totalReal = items.filter((i) => !i.cancelado).reduce((s, i) => s + valorReal(i), 0);
+  // Box "TOTAL PREVISTO" vivo da seção Tecidos: metragem (kg→m via rendimento) + nº de variantes.
+  const itensAtivos = items.filter((i) => !i.cancelado && i.variante_tecido_id);
+  const metragemPrevista = itensAtivos.reduce((s, i) => s + metragemPedidaItem(i, artigoMap), 0);
+  const numVariantes = itensAtivos.length;
 
   const handleSingleUpload = async (file: File, key: keyof Draft) => {
     try {
@@ -873,9 +1102,8 @@ function OcDialog({
       if (selecionados.some((i) => !(Number(i.quantidade_pedida) > 0)))
         throw new Error("Informe a quantidade (maior que zero) de cada variante selecionada.");
       const parcelas = draft.parcelas_recebimento ?? [];
-      const lastDate = parcelas.length > 0
-        ? [...parcelas].map((p) => p.data).filter(Boolean).sort().slice(-1)[0] ?? draft.data_entrega
-        : draft.data_entrega;
+      // Regra única (também usada pelo preview de parcelas do confirmar-recebimento).
+      const lastDate = ultimaDataEntrega(draft);
       const payload: any = {
         numero_pedido: draft.numero_pedido || null,
         responsavel_id: draft.responsavel_id,
@@ -1205,27 +1433,46 @@ function OcDialog({
     ? Object.values(rolosPorItem).some((arr) => arr.some((e) => Number(String(e.qtd).replace(",", ".")) > 0))
     : items.some((i) => (i.quantidade_recebida ?? 0) > 0);
 
-  const canMarkReceived =
-    isEdit &&
-    status === "encomendado" &&
-    algumaQtdRecebida &&
-    todasParcelasOk &&
-    todasEtiquetasOk &&
-    draft.nfs.length > 0;
+  // Requisitos do "marcar recebido" — FONTE ÚNICA: alimenta o gate do botão, as
+  // mensagens de falta (toast) E o checklist de badges da seção 4 (não duplicar regra).
+  const requisitosRecebimento: { key: string; ok: boolean; rotulo: string; faltas: string[] }[] = [
+    {
+      key: "qtd",
+      ok: algumaQtdRecebida,
+      rotulo: algumaQtdRecebida ? "Qtd recebida" : "Falta qtd recebida",
+      faltas: algumaQtdRecebida ? [] : ["Preencha a quantidade recebida de pelo menos uma variante."],
+    },
+    {
+      key: "parcelas",
+      ok: todasParcelasOk,
+      rotulo: todasParcelasOk ? "Parcelas de entrega OK" : "Parcelas de entrega pendentes",
+      faltas: todasParcelasOk
+        ? []
+        : parcelas.length === 0
+          ? ["Defina a quantidade de parcelas de recebimento."]
+          : [
+              ...(!parcelas.every((p) => !!p.data) ? ["Preencha as datas de todas as parcelas de recebimento."] : []),
+              ...(!parcelas.every((p) => p.recebido === true) ? ["Marque todas as parcelas como recebidas."] : []),
+            ],
+    },
+    {
+      key: "nf",
+      ok: draft.nfs.length > 0,
+      rotulo: draft.nfs.length > 0 ? "NF anexada" : "Falta NF",
+      faltas: draft.nfs.length > 0 ? [] : ["Anexe ao menos uma nota fiscal (NF)."],
+    },
+    {
+      key: "etiquetas",
+      ok: todasEtiquetasOk,
+      rotulo: todasEtiquetasOk ? "Etiquetas OK" : "Faltam etiquetas",
+      faltas: todasEtiquetasOk ? [] : ["Anexe a etiqueta de lavagem de todos os tecidos."],
+    },
+  ];
 
-  const getMissingRequirements = (): string[] => {
-    const missing: string[] = [];
-    if (!algumaQtdRecebida) missing.push("Preencha a quantidade recebida de pelo menos uma variante.");
-    if (parcelas.length === 0) {
-      missing.push("Defina a quantidade de parcelas de recebimento.");
-    } else {
-      if (!parcelas.every((p) => !!p.data)) missing.push("Preencha as datas de todas as parcelas de recebimento.");
-      if (!parcelas.every((p) => p.recebido === true)) missing.push("Marque todas as parcelas como recebidas.");
-    }
-    if (!todasEtiquetasOk) missing.push("Anexe a etiqueta de lavagem de todos os tecidos.");
-    if (draft.nfs.length === 0) missing.push("Anexe ao menos uma nota fiscal (NF).");
-    return missing;
-  };
+  const canMarkReceived =
+    isEdit && status === "encomendado" && requisitosRecebimento.every((r) => r.ok);
+
+  const getMissingRequirements = (): string[] => requisitosRecebimento.flatMap((r) => r.faltas);
 
   const handleSave = () => {
     if (savingRef.current || saveMutation.isPending) return;
@@ -1242,8 +1489,48 @@ function OcDialog({
       });
       return;
     }
+    // Requisitos ok → confirmação com PREVIEW das parcelas antes de gerar o financeiro.
+    setConfirmReceber(true);
+  };
+  // Só AQUI roda o fluxo real de marcar recebido (a ordem itens-antes-de-status
+  // segue intacta dentro do saveMutation — comentário CRITICAL).
+  const confirmarRecebimento = () => {
+    if (savingRef.current || saveMutation.isPending) return;
     savingRef.current = true;
-    saveMutation.mutate(true, { onSettled: () => { savingRef.current = false; } });
+    saveMutation.mutate(true, { onSettled: () => { savingRef.current = false; setConfirmReceber(false); } });
+  };
+
+  // Trilho de âncoras (redesign ago/2026): seções numeradas 1..5. Na CRIAÇÃO, 4/5
+  // aparecem com cadeado (disponíveis após salvar). No modo Só Rolo a seção 5 não
+  // existe (o CQ é por rolo, dentro da 4) — some do trilho também.
+  const secoes: SecaoOc[] = [
+    { id: "oc-sec-pedido", n: 1, label: "Pedido" },
+    { id: "oc-sec-tecidos", n: 2, label: "Tecidos" },
+    { id: "oc-sec-anexos", n: 3, label: "Anexos" },
+    ...(isEdit
+      ? [
+          ...(canShowRecebimento ? [{ id: "oc-sec-recebimento", n: 4, label: "Recebimento" }] : []),
+          ...(ocId && modoOcRolo === "oc" ? [{ id: "oc-sec-cq", n: 5, label: "CQ" }] : []),
+        ]
+      : [
+          { id: "oc-sec-recebimento", n: 4, label: "Recebimento", locked: true },
+          { id: "oc-sec-cq", n: 5, label: "CQ", locked: true },
+        ]),
+  ];
+  const irParaSecao = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setSecAtiva(id);
+  };
+  // Scroll-spy simples: ativa = ÚLTIMA seção cujo topo já passou do topo do container.
+  const onBodyScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const topo = e.currentTarget.getBoundingClientRect().top;
+    let atual = secoes[0]?.id ?? "oc-sec-pedido";
+    for (const s of secoes) {
+      if (s.locked) continue;
+      const el = document.getElementById(s.id);
+      if (el && el.getBoundingClientRect().top - topo <= 40) atual = s.id;
+    }
+    if (atual !== secAtiva) setSecAtiva(atual);
   };
 
   // O OcDialog só monta quando aberto, logo `changed` já basta (sem gate por `open`).
@@ -1253,7 +1540,7 @@ function OcDialog({
     <>
     <OcModalShell isEdit={isEdit} onClose={onClose} dirty={dirty} discardMessage="Há alterações não salvas nesta OC de tecido.">
         <div className="shrink-0 space-y-1">
-          <Breadcrumb items={[{ label: "Entrada & Saída" }, { label: "OC Tecido" }, { label: draft.numero_pedido || "OC" }]} />
+          <Breadcrumb items={[{ label: "Entrada e Saída" }, { label: "OC Tecido" }, { label: draft.numero_pedido || "OC" }]} />
           <DialogHeader>
             <div className="flex items-center gap-2">
               <DialogTitle>{isEdit ? `OC ${draft.numero_pedido || ""}` : "Nova OC de Tecido"}</DialogTitle>
@@ -1269,11 +1556,14 @@ function OcDialog({
           />
         </div>
 
-        <div
-          className="space-y-6 min-h-0 overflow-y-auto"
-          onFocusCapture={(e) => setCampoFocado((e.target as HTMLElement).dataset?.colabPath ?? null)}
-          onBlurCapture={() => setCampoFocado(null)}
-        >
+        <div className="flex min-h-0 gap-4">
+          <OcAnchorRail secoes={secoes} ativa={secAtiva} onIr={irParaSecao} />
+          <div
+            className="min-w-0 flex-1 space-y-6 overflow-y-auto"
+            onScroll={onBodyScroll}
+            onFocusCapture={(e) => setCampoFocado((e.target as HTMLElement).dataset?.colabPath ?? null)}
+            onBlurCapture={() => setCampoFocado(null)}
+          >
           <OcTecidoForm
             draft={draft}
             setDraft={setDraftTracked}
@@ -1284,7 +1574,7 @@ function OcDialog({
             itemsBy={itemsBy}
             artigoIdFor={artigoIdFor}
             setArtigo={setArtigo}
-            toggleVariante={toggleVariante}
+            toggleVariante={requestToggleVariante}
             setQtd={setQtd}
             setPreco={setPreco}
             setPrecoAll={setPrecoAll}
@@ -1297,7 +1587,21 @@ function OcDialog({
             }}
             handleSingleUpload={handleSingleUpload}
             colab={{ emConflito, conflitoDe, focadoPor, onResolverConflito: resolverConflito, conflitoLinha }}
+            criacao={!isEdit}
+            totalPrevisto={totalPrevisto}
+            metragemPrevista={metragemPrevista}
+            numVariantes={numVariantes}
           />
+
+          {/* Criação: Recebimento/CQ só existem depois de salvar — aviso explícito. */}
+          {!isEdit && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                O <b>Recebimento</b> fica disponível depois de salvar a OC (salvou → reabra e registre a chegada).
+              </span>
+            </div>
+          )}
 
           {canShowRecebimento && (
             <OcTecidoRecebimento
@@ -1327,12 +1631,18 @@ function OcDialog({
               setSemEtiquetaPorArtigo={setSemEtiquetaPorArtigo}
               onSemEtiqueta={onSemEtiqueta}
               etiquetasByArtigo={etiquetasByArtigo}
+              requisitos={requisitosRecebimento}
             />
           )}
 
           {/* No modo Só Rolo o CQ é feito POR ROLO no destrinchamento acima — a seção
               de CQ por item da OC fica redundante. */}
-          {isEdit && ocId && modoOcRolo === "oc" && <OcCqSection ocId={ocId} />}
+          {isEdit && ocId && modoOcRolo === "oc" && (
+            <section id="oc-sec-cq" className="scroll-mt-2">
+              <OcCqSection ocId={ocId} />
+            </section>
+          )}
+          </div>
         </div>
 
         <div className="flex items-center gap-2 shrink-0 border-t bg-background -mx-6 -mb-6 px-6 py-3 max-md:-mx-4 max-md:-mb-4 max-md:px-4 max-md:shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">
@@ -1354,12 +1664,13 @@ function OcDialog({
                   Desmarcar Recebido
                 </Button>
               ) : (
-                <Button variant="secondary" onClick={handleMarkReceived} disabled={saveMutation.isPending}>
+                <Button variant="outline" onClick={handleMarkReceived} disabled={saveMutation.isPending}>
                   Marcar Recebido
                 </Button>
               )
             )}
             <Button onClick={handleSave} disabled={saveMutation.isPending}>
+              <Check className="h-4 w-4 mr-1" />
               Salvar
             </Button>
           </div>
@@ -1384,6 +1695,47 @@ function OcDialog({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Confirmação da CASCATA de desmarcar variante (a ordem das variantes é
+          significativa: desmarcar uma remove também as seguintes do mesmo tecido). */}
+      <AlertDialog open={!!confirmDesmarcar} onOpenChange={(o) => !o && setConfirmDesmarcar(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Desmarcar variante?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Pela ordem das variantes do tecido, desmarcar esta também remove as seguintes:{" "}
+              <b>{confirmDesmarcar?.afetadas.join(", ")}</b>. As quantidades e preços digitados
+              nessas variantes serão descartados.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (confirmDesmarcar) toggleVariante(confirmDesmarcar.n, confirmDesmarcar.varId, false);
+                setConfirmDesmarcar(null);
+              }}
+            >
+              Desmarcar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Confirmar recebimento com PREVIEW das parcelas (gera o financeiro só no Confirmar). */}
+      {confirmReceber && (
+        <ConfirmarRecebimentoDialog
+          ocId={ocId}
+          prazoPagamento={draft.prazo_pagamento}
+          quantidadePrazos={draft.quantidade_prazos}
+          baseDataISO={ultimaDataEntrega(draft)}
+          totalReal={totalReal}
+          pending={saveMutation.isPending}
+          onCancel={() => setConfirmReceber(false)}
+          onConfirm={confirmarRecebimento}
+        />
+      )}
     </>
   );
 }
