@@ -270,10 +270,11 @@ function PlanejamentoPage() {
   const [groupByCatTecido, setGroupByCatTecido] = useState(false);
   // Default: agrupa por Tecido (nível 1) > Categoria (nível 2).
   const [groupByTecido, setGroupByTecido] = useState(true);
-  // Grupos recolhidos (por caminho único pai/filho). Vazio = todos expandidos.
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  // Grupos EXPANDIDOS (por caminho único pai/filho). Vazio = todos RECOLHIDOS —
+  // default pedido pelo dono (ago/2026): a lista abre com os grupos fechados.
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const toggleGroup = (path: string) =>
-    setCollapsedGroups((prev) => {
+    setExpandedGroups((prev) => {
       const n = new Set(prev);
       if (n.has(path)) n.delete(path); else n.add(path);
       return n;
@@ -667,14 +668,14 @@ function PlanejamentoPage() {
     };
     walk(groups, "");
   }
-  const allGruposRecolhidos = allGroupPaths.length > 0 && allGroupPaths.every((p) => collapsedGroups.has(p));
-  const toggleGrupos = () => setCollapsedGroups(allGruposRecolhidos ? new Set() : new Set(allGroupPaths));
+  const allGruposRecolhidos = allGroupPaths.length > 0 && allGroupPaths.every((p) => !expandedGroups.has(p));
+  const toggleGrupos = () => setExpandedGroups(allGruposRecolhidos ? new Set(allGroupPaths) : new Set());
 
   // Render recursivo dos grupos (profundidade arbitrária). Título encolhe com a
   // profundidade; nós internos ganham barra/indentação à esquerda.
   const HEADER_CLS = ["text-lg font-semibold", "text-base font-semibold", "text-sm font-semibold text-muted-foreground"];
   const renderGroup = (g: Grupo, depth: number, path: string) => {
-    const collapsed = collapsedGroups.has(path);
+    const collapsed = !expandedGroups.has(path);
     return (
       <section key={g.key}>
         <div
@@ -1225,11 +1226,11 @@ function limparCustoSim(s: CustoSimInput | null | undefined): CustoSimInput | nu
   return Object.values(out).some((v) => v != null) ? out : null;
 }
 
-// Seção colapsável do detalhe do card — COLAPSADA por default (dono, ago/2026);
-// estado local por seção (não persiste). Colapsar só esconde os filhos; o draft
-// vive no diálogo, nada se perde.
+// Seção colapsável do detalhe do card — expandida por default; estado local por seção
+// (não persiste). Colapsar só esconde os filhos; o draft vive no diálogo, nada se perde.
+// (O que abre COLAPSADO por default são os GRUPOS da lista — pedido do dono, ago/2026.)
 function Secao({ titulo, children }: { titulo: string; children: React.ReactNode }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   return (
     <section className="space-y-3">
       <button
