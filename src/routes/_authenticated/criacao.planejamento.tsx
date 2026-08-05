@@ -1225,10 +1225,11 @@ function limparCustoSim(s: CustoSimInput | null | undefined): CustoSimInput | nu
   return Object.values(out).some((v) => v != null) ? out : null;
 }
 
-// Seção colapsável do detalhe do card — expandida por default; estado local por seção
-// (não persiste). Colapsar só esconde os filhos; o draft vive no diálogo, nada se perde.
+// Seção colapsável do detalhe do card — COLAPSADA por default (dono, ago/2026);
+// estado local por seção (não persiste). Colapsar só esconde os filhos; o draft
+// vive no diálogo, nada se perde.
 function Secao({ titulo, children }: { titulo: string; children: React.ReactNode }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   return (
     <section className="space-y-3">
       <button
