@@ -34,6 +34,7 @@ export const PAGES_CATALOG: ModuleDef[] = [
       { key: "cadastro_aviamentos", label: "Aviamentos", description: "Catálogo de aviamentos." },
       { key: "cadastro_etiquetas", label: "Insumos", description: "Insumos (etiquetas, embalagens, etc.).", modes: ["full"] },
       { key: "cadastro_destinos", label: "Destinos", description: "Destinos de saída (modo só-estoque).", modes: ["stock"] },
+      { key: "cadastro_lojas", label: "Lojas", description: "Lojas do Direcionamento (E-commerce, Loja Física, …).", modes: ["full"] },
     ],
   },
   {

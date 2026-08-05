@@ -4,7 +4,7 @@
 import {
   BarChart3, ClipboardList, Package, Palette, Factory, DollarSign, Target,
   Tags, Users, Building2, Layers, Scissors, Boxes, ShoppingCart, AlertTriangle, Tag, MapPin,
-  Hammer, CheckCircle2, Split, Rocket, FileText, Truck, type LucideIcon,
+  Hammer, CheckCircle2, Split, Rocket, FileText, Truck, Store, type LucideIcon,
 } from "lucide-react";
 
 export const MODULE_META: Record<string, { title: string; icon: LucideIcon }> = {
@@ -27,6 +27,7 @@ export const PAGE_URLS: Record<string, string> = {
   cadastro_aviamentos: "/cadastro/aviamentos",
   cadastro_etiquetas: "/cadastro/etiquetas",
   cadastro_destinos: "/cadastro/destinos",
+  cadastro_lojas: "/cadastro/lojas",
   entrada_oc_tecido: "/entrada-saida/oc-tecido",
   entrada_alertas_tecido: "/entrada-saida/alertas-tecido",
   entrada_oc_aviamento: "/entrada-saida/oc-aviamento",
@@ -54,6 +55,7 @@ export const PAGE_ICONS: Record<string, LucideIcon> = {
   cadastro_aviamentos: Boxes,
   cadastro_etiquetas: Tag,
   cadastro_destinos: MapPin,
+  cadastro_lojas: Store,
   producao_explosao: Scissors,
   entrada_oc_tecido: ShoppingCart,
   entrada_alertas_tecido: AlertTriangle,
