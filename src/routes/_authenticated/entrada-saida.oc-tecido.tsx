@@ -394,6 +394,8 @@ function draftFromOc(oc: any): Draft {
     parcelas_recebimento: (Array.isArray((oc as any).parcelas_recebimento) && (oc as any).parcelas_recebimento.length > 0)
       ? ((oc as any).parcelas_recebimento as { data: string; recebido: boolean }[])
       : [{ data: "", recebido: false }],
+    recebimento_responsavel_id: (oc as any).recebimento_responsavel_id ?? null,
+    recebimento_responsavel_nome: (oc as any).recebimento_responsavel_nome ?? "",
   };
 }
 // Colab round 4 — rótulos PT dos paths do Draft para o banner de resolução genérica de
@@ -417,6 +419,8 @@ const ROTULO_CONFLITO: Record<string, string> = {
   nf_url: "Nota fiscal",
   nfs: "Notas fiscais",
   parcelas_recebimento: "Parcelas de recebimento",
+  recebimento_responsavel_id: "Responsável pelo recebimento",
+  recebimento_responsavel_nome: "Responsável pelo recebimento",
 };
 function rotuloConflito(path: string): string {
   if (path.startsWith("linha:")) return "Item (variante)";
@@ -1183,10 +1187,15 @@ function OcDialog({
       if (saveErr) throw saveErr;
       ocIdLocal = savedOcId as string;
 
-      // NFs (lista) — persistidas fora da RPC crítica de parcelas (NF não é invariante
-      // financeiro). nf_url já foi salvo pela RPC como a primeira da lista.
+      // NFs (lista) + Responsável pelo recebimento — persistidos fora da RPC crítica de
+      // parcelas (nenhum é invariante financeiro). nf_url já foi salvo pela RPC como a
+      // primeira da lista.
       if (ocIdLocal) {
-        const { error: nfErr } = await supabase.from("ocs_tecido").update({ nfs: draft.nfs } as any).eq("id", ocIdLocal);
+        const { error: nfErr } = await supabase.from("ocs_tecido").update({
+          nfs: draft.nfs,
+          recebimento_responsavel_id: draft.recebimento_responsavel_id,
+          recebimento_responsavel_nome: draft.recebimento_responsavel_nome || null,
+        } as any).eq("id", ocIdLocal);
         if (nfErr) throw nfErr;
       }
 

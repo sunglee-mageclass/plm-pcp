@@ -65,6 +65,9 @@ export type OC = {
   status: string | null;
   valor_previsto_total: number | null;
   valor_real_total: number | null;
+  // Responsável pelo recebimento (seção 4) — espelha o par responsavel_id/nome do pedido.
+  recebimento_responsavel_id: string | null;
+  recebimento_responsavel_nome: string | null;
 };
 
 export type ParcelaRecebimento = { data: string; recebido: boolean };
@@ -87,6 +90,9 @@ export type Draft = {
   nf_url: string | null;
   nfs: { url: string; data?: string }[]; // várias Notas Fiscais (nf_url = a primeira)
   parcelas_recebimento: ParcelaRecebimento[];
+  // Responsável pelo recebimento (opcional) — mesmo padrão do Responsável do pedido.
+  recebimento_responsavel_id: string | null;
+  recebimento_responsavel_nome: string;
 };
 
 export type ItemDraft = {
@@ -140,6 +146,8 @@ export function emptyDraft(): Draft {
     nf_url: null,
     nfs: [],
     parcelas_recebimento: [{ data: "", recebido: false }],
+    recebimento_responsavel_id: null,
+    recebimento_responsavel_nome: "",
   };
 }
 

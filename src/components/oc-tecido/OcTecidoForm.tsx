@@ -189,7 +189,8 @@ export function OcTecidoForm({
           </div>
           <div className="grid gap-1">
             <Label>Parcelas a pagar (derivado)</Label>
-            <NumberInput type="number" value={draft.quantidade_prazos} readOnly disabled />
+            {/* Contagem de parcelas — inteiro ("4"), nunca decimal ("4,00"). */}
+            <NumberInput type="number" integer value={draft.quantidade_prazos} readOnly disabled />
           </div>
         </div>
 
@@ -201,11 +202,12 @@ export function OcTecidoForm({
               <Label>Entregas parceladas (qtd)</Label>
               <NumberInput
                 type="number"
+                integer
                 min={1}
                 max={24}
                 value={draft.parcelas_recebimento?.length || 1}
                 onChange={(e) => {
-                  const n = Math.max(1, Math.min(24, Number(e.target.value) || 1));
+                  const n = Math.max(1, Math.min(24, Math.trunc(Number(e.target.value)) || 1));
                   setDraft((d) => {
                     const prev: ParcelaRecebimento[] = d.parcelas_recebimento ?? [];
                     const next: ParcelaRecebimento[] = Array.from({ length: n }, (_, i) =>

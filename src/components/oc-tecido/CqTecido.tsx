@@ -4,10 +4,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { varianteLabel } from "@/lib/variante";
-import { AlertTriangle, Check, Ban, RotateCcw, Repeat } from "lucide-react";
+import { AlertTriangle, Check, Ban, ChevronRight, RotateCcw, Repeat } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -207,47 +208,59 @@ function CqItemCard({ item, showOc = true }: { item: CqItem; showOc?: boolean })
     }
   };
 
+  // Resumo do estado no cabeçalho colapsado: alerta (badge de status) > "CQ ok" > pendente.
+  const resumo = badge ?? (item.cq_ok ? { label: "CQ ok", cls: "bg-emerald-500 hover:bg-emerald-500" } : null);
+
+  // Casca COLAPSÁVEL (default fechado) — estado local, não persiste. Nenhuma lógica de
+  // CQ muda aqui: toggles/obs seguem idênticos, só movidos para dentro do conteúdo.
   return (
-    <Card className="p-3 space-y-3">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="min-w-0">
-          <span className="font-medium">{item.artigo}</span>
-          <span className="text-muted-foreground"> · {item.variante}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          {badge && <Badge className={badge.cls}>{badge.label}</Badge>}
-          {showOc && <Badge variant="outline">OC {item.oc_numero ?? "—"}</Badge>}
-        </div>
-      </div>
+    <Card className="p-3">
+      <Collapsible defaultOpen={false}>
+        <CollapsibleTrigger className="flex w-full items-center gap-2 text-left [&[data-state=open]>svg]:rotate-90">
+          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform" />
+          <div className="min-w-0 flex-1">
+            <span className="font-medium">{item.artigo}</span>
+            <span className="text-muted-foreground"> · {item.variante}</span>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            {resumo
+              ? <Badge className={resumo.cls}>{resumo.label}</Badge>
+              : <Badge variant="outline" className="text-muted-foreground">Pendente</Badge>}
+            {showOc && <Badge variant="outline">OC {item.oc_numero ?? "—"}</Badge>}
+          </div>
+        </CollapsibleTrigger>
 
-      <Textarea
-        value={obs}
-        onChange={(e) => setObs(e.target.value)}
-        onBlur={saveObs}
-        placeholder="Observação do CQ (defeitos, encolhimento, tonalidade…)"
-        className="min-h-[60px] text-sm"
-      />
-
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-        <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <Switch checked={item.cq_ok} onCheckedChange={(v) => update.mutate({ id: item.id, patch: { cq_ok: v } })} />
-          CQ ok
-        </label>
-        <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <Switch
-            checked={alertado}
-            onCheckedChange={(v) => update.mutate({ id: item.id, patch: { cq_alerta_status: v ? "alertado" : "sem_alerta" } })}
+        <CollapsibleContent className="space-y-3 pt-3">
+          <Textarea
+            value={obs}
+            onChange={(e) => setObs(e.target.value)}
+            onBlur={saveObs}
+            placeholder="Observação do CQ (defeitos, encolhimento, tonalidade…)"
+            className="min-h-[60px] text-sm"
           />
-          Alertar estilo
-        </label>
-        {alertado && (
-          // Link vivo no lugar da dica-morta: a resolução (Estilo OK / troca /
-          // cancelar) acontece na página Alertas de Tecido.
-          <Link to="/entrada-saida/alertas-tecido" className="text-xs text-primary hover:underline">
-            Resolver nos Alertas de Tecido →
-          </Link>
-        )}
-      </div>
+
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <Switch checked={item.cq_ok} onCheckedChange={(v) => update.mutate({ id: item.id, patch: { cq_ok: v } })} />
+              CQ ok
+            </label>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <Switch
+                checked={alertado}
+                onCheckedChange={(v) => update.mutate({ id: item.id, patch: { cq_alerta_status: v ? "alertado" : "sem_alerta" } })}
+              />
+              Alertar estilo
+            </label>
+            {alertado && (
+              // Link vivo no lugar da dica-morta: a resolução (Estilo OK / troca /
+              // cancelar) acontece na página Alertas de Tecido.
+              <Link to="/entrada-saida/alertas-tecido" className="text-xs text-primary hover:underline">
+                Resolver nos Alertas de Tecido →
+              </Link>
+            )}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
     </Card>
   );
 }

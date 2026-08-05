@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { NfList } from "./NfList";
+import { ResponsavelSelect } from "@/components/shared/ResponsavelSelect";
 import { uploadFile } from "./shared";
 import { OcSecTitle } from "./OcTecidoForm";
 import { OcTecidoCalculos } from "./OcTecidoCalculos";
@@ -66,11 +67,12 @@ export function OcTecidoRecebimento({
             <Label>Entregas parceladas (qtd)</Label>
             <NumberInput
               type="number"
+              integer
               min={1}
               max={24}
               value={draft.parcelas_recebimento?.length || 1}
               onChange={(e) => {
-                const n = Math.max(1, Math.min(24, Number(e.target.value) || 1));
+                const n = Math.max(1, Math.min(24, Math.trunc(Number(e.target.value)) || 1));
                 setDraft((d) => {
                   const prev: ParcelaRecebimento[] = d.parcelas_recebimento ?? [];
                   const next: ParcelaRecebimento[] = Array.from({ length: n }, (_, i) =>
@@ -79,6 +81,19 @@ export function OcTecidoRecebimento({
                   return { ...d, parcelas_recebimento: next };
                 });
               }}
+              disabled={readOnly}
+            />
+          </div>
+          <div className="grid gap-1">
+            {/* Espelha o Responsável do pedido (seção 1): mesmo componente, grava id+nome.
+                Escritas SEMPRE via o setter que o dialog passa (setDraftTracked). Opcional. */}
+            <Label>Responsável pelo recebimento</Label>
+            <ResponsavelSelect
+              nome={draft.recebimento_responsavel_nome}
+              id={draft.recebimento_responsavel_id}
+              onChange={(n, cid) =>
+                setDraft((d) => ({ ...d, recebimento_responsavel_nome: n ?? "", recebimento_responsavel_id: cid }))
+              }
               disabled={readOnly}
             />
           </div>
