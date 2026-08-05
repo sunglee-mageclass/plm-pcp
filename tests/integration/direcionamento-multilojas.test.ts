@@ -388,3 +388,60 @@ describe.skipIf(!hasDb)("Multi-lojas fase 3 — RPC core v2", () => {
     });
   });
 });
+
+// Fase 4 (achado da verificação final da Task 7, corrigido na migração 20260805170000): o gate
+// downstream (#Erro/DownstreamImpactAlert) usava EXISTS SÓ na tabela LEGADA `direcionamento`.
+// Desde a Task 3 (core v2) nenhum save novo escreve mais nela — um cad cujo Direcionamento
+// nasceu inteiramente em `direcionamento_lojas` ficava INVISÍVEL pro alerta preventivo e pro
+// badge #Erro reativo, mesmo tendo linhas de direcionamento de verdade. Fix: mesmo padrão do
+// trigger `fn_rebaixa_direcionamento_grade` (Task 2) — EXISTS(direcionamento) OR
+// EXISTS(direcionamento_lojas).
+describe.skipIf(!hasDb)("Multi-lojas fase 4 — gate downstream (modelo_etapas_afetadas / marcar_revisao_por_mudanca)", () => {
+  // Fixture comum: modelo+cad novos (sem NENHUMA linha legada) com 1 linha em direcionamento_lojas.
+  async function fixtureSoModeloNovo(c: any, nome: string) {
+    const modelo = await um<{ id: string }>(c, `insert into modelos (nome) values ($1) returning id`, [nome]);
+    const cad = await um<{ id: string }>(
+      c, `insert into cad (tenant_id, modelo_id) values ($1, $2) returning id`,
+      [TENANT_TESTE, modelo.id],
+    );
+    const loja = await um<{ id: string }>(
+      c, `select id from lojas_direcionamento where tenant_id = $1 and is_default limit 1`, [TENANT_TESTE],
+    );
+    await c.query(
+      `insert into direcionamento_lojas (tenant_id, cad_id, loja_id, variante_numero, grades)
+       values ($1, $2, $3, 1, '{}'::jsonb)`,
+      [TENANT_TESTE, cad.id, loja.id],
+    );
+    // Sanidade: nenhuma linha legada para este cad — prova que é o gate NOVO
+    // (EXISTS direcionamento_lojas) que dispara, não o legado.
+    const legado = await um<{ n: string }>(c, `select count(*) as n from direcionamento where cad_id = $1`, [cad.id]);
+    expect(Number(legado.n)).toBe(0);
+    return { modeloId: modelo.id, cadId: cad.id };
+  }
+
+  it("modelo_etapas_afetadas: cad com direcionamento SÓ no modelo novo acende hasDownstream.direcionamento", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const f = await fixtureSoModeloNovo(c, "GATE ETAPAS AFETADAS TESTE");
+      const r = await um<{ etapas: { direcionamento: boolean } }>(
+        c, `select modelo_etapas_afetadas($1) as etapas`, [f.modeloId],
+      );
+      expect(r.etapas.direcionamento).toBe(true);
+    });
+  });
+
+  it("marcar_revisao_por_mudanca: grade muda em cad com direcionamento SÓ no modelo novo acende #Erro ('revisao_pendente.direcionamento')", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const f = await fixtureSoModeloNovo(c, "GATE REVISAO PENDENTE TESTE");
+      const r = await um<{ etapas: { direcionamento?: boolean } }>(
+        c, `select marcar_revisao_por_mudanca($1, true, false, false) as etapas`, [f.modeloId],
+      );
+      expect(r.etapas.direcionamento).toBe(true);
+      const m = await um<{ revisao_pendente: { direcionamento?: boolean } }>(
+        c, `select revisao_pendente from modelos where id = $1`, [f.modeloId],
+      );
+      expect(m.revisao_pendente.direcionamento).toBe(true);
+    });
+  });
+});
