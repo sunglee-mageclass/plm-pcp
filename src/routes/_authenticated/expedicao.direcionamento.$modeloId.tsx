@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Compass, Save, CheckCircle2, RotateCcw, Pencil, AlertTriangle, Printer } from "lucide-react";
+import { ArrowLeft, Compass, Save, CheckCircle2, RotateCcw, Pencil, Printer } from "lucide-react";
 import { printWithImages } from "@/lib/print";
 import { RomaneioDirecionamento } from "@/components/producao/RomaneioDirecionamento";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { varianteLabel } from "@/lib/variante";
+import { diffPorTamanho, motivoNaoConfere } from "@/lib/direcionamento-diff";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,10 +28,12 @@ export const Route = createFileRoute("/_authenticated/expedicao/direcionamento/$
   component: DirDetailPage,
 });
 
+type Loja = { id: string; nome: string; ativo: boolean; is_default: boolean; ordem: number | null };
 type VarState = {
   variante_numero: number;
   real: Record<string, number>;
-  ecommerce: Record<string, number>;
+  // loja_id -> { tamanho: qtd } — uma linha digitável por loja
+  linhas: Record<string, Record<string, number>>;
 };
 
 function DirDetailPage() {
@@ -64,6 +67,22 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
     queryKey: ["tenant_config", "tamanhos", tenantId],
     enabled: !!tenantId,
     queryFn: async () => (await supabase.from("tenant_config").select("tamanhos_grade").eq("tenant_id", tenantId).maybeSingle()).data,
+  });
+
+  // Lojas do tenant (ativas E desativadas — as desativadas só aparecem quando têm linha
+  // histórica). E-commerce (default) primeiro, depois ordem.
+  const { data: lojas = [] } = useQuery({
+    queryKey: ["dir-lojas", tenantId],
+    enabled: !!tenantId,
+    queryFn: async () => {
+      const { data, error } = await (supabase.from("lojas_direcionamento" as any) as any)
+        .select("id, nome, ativo, is_default, ordem")
+        .order("is_default", { ascending: false })
+        .order("ordem", { ascending: true, nullsFirst: false })
+        .order("nome");
+      if (error) throw error;
+      return ((data ?? []) as unknown) as Loja[];
+    },
   });
 
   const { data: cadGrades = [], isFetched: gradesFetched, isFetching: gradesFetching } = useQuery({
@@ -123,26 +142,23 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
   }, [tenantCfg, cadGrades]);
 
   const { data: existing = [], refetch, isFetched: existingFetched, isFetching: existingFetching } = useQuery({
-    queryKey: ["direcionamento", cad?.id],
+    queryKey: ["direcionamento-lojas", cad?.id],
     enabled: !!cad?.id,
     queryFn: async () => {
-      const { data } = await supabase.from("direcionamento").select("*").eq("cad_id", cad!.id);
-      return data ?? [];
+      const { data, error } = await (supabase.from("direcionamento_lojas" as any) as any)
+        .select("loja_id, variante_numero, grades")
+        .eq("cad_id", cad!.id);
+      if (error) throw error;
+      return ((data ?? []) as unknown) as { loja_id: string; variante_numero: number; grades: Record<string, number> }[];
     },
   });
 
-  // Divergência: a grade real salva no Direcionamento ≠ a grade real atual do CAD
-  // (CQ reconfirmado depois) → o split loja física/e-commerce ficou defasado.
-  const realDivergente = useMemo(() => {
-    if (!(existing as any[]).length) return false;
-    const realByNum = new Map((cadGrades as any[]).map((g) => [g.variante_numero, g.grades_reais ?? {}]));
-    return (existing as any[]).some((d) => {
-      const cur: any = realByNum.get(d.variante_numero) ?? {};
-      const saved: any = d.real ?? {};
-      const keys = new Set([...Object.keys(cur), ...Object.keys(saved)]);
-      return [...keys].some((k) => Number(cur[k] ?? 0) !== Number(saved[k] ?? 0));
-    });
-  }, [existing, cadGrades]);
+  // Lojas visíveis na grade: ativas sempre; desativadas só se têm linha salva (esmaecidas).
+  const lojasComLinha = useMemo(() => new Set((existing as any[]).map((d) => d.loja_id)), [existing]);
+  const lojasVisiveis = useMemo(
+    () => (lojas as Loja[]).filter((l) => l.ativo || lojasComLinha.has(l.id)),
+    [lojas, lojasComLinha],
+  );
 
   const [state, setState] = useState<Record<number, VarState>>({});
   const [hydrated, setHydrated] = useState(false);
@@ -159,14 +175,14 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
       obj[g.variante_numero] = {
         variante_numero: g.variante_numero,
         real: g.grades_reais ?? {},
-        ecommerce: {},
+        linhas: {},
       };
     });
     (existing as any[]).forEach((d) => {
       if (!obj[d.variante_numero]) {
-        obj[d.variante_numero] = { variante_numero: d.variante_numero, real: {}, ecommerce: {} };
+        obj[d.variante_numero] = { variante_numero: d.variante_numero, real: {}, linhas: {} };
       }
-      obj[d.variante_numero].ecommerce = d.ecommerce ?? {};
+      obj[d.variante_numero].linhas[d.loja_id] = d.grades ?? {};
     });
     setState(obj);
     // Re-baseline o guarda de alterações a partir do estado semeado (passa o valor
@@ -175,18 +191,30 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
     setHydrated(true);
   }, [cadGrades, existing, cad?.id, hydrated, dataSettled]);
 
-  const setEcommerce = (num: number, tam: string, qtd: number) => {
-    setState((s) => ({
-      ...s,
-      [num]: { ...(s[num] ?? { variante_numero: num, real: {}, ecommerce: {} }),
-        ecommerce: { ...(s[num]?.ecommerce ?? {}), [tam]: qtd } },
-    }));
+  const setQtd = (num: number, lojaId: string, tam: string, qtd: number) => {
+    setState((s) => {
+      const v = s[num] ?? { variante_numero: num, real: {}, linhas: {} };
+      return {
+        ...s,
+        [num]: { ...v, linhas: { ...v.linhas, [lojaId]: { ...(v.linhas[lojaId] ?? {}), [tam]: qtd } } },
+      };
+    });
   };
 
-  // O servidor deriva loja_fisica/totais da Grade Real (cad_grades) e trava ec≤real;
-  // o front só manda variante + ecommerce (o resto é ignorado/recomputado no banco).
-  const buildRows = () =>
-    Object.values(state).map((v) => ({ variante_numero: v.variante_numero, ecommerce: v.ecommerce }));
+  // Payload v2 = estado COMPLETO: uma linha por loja×variante tocada; o servidor sanitiza
+  // pelos tamanhos da grade real e faz o diff (linhas fora do payload são apagadas).
+  const buildRows = () => {
+    const rows: { loja_id: string; variante_numero: number; grades: Record<string, number> }[] = [];
+    Object.values(state).forEach((v) => {
+      lojasVisiveis.forEach((l) => {
+        const grades = v.linhas[l.id];
+        if (grades && Object.keys(grades).length > 0) {
+          rows.push({ loja_id: l.id, variante_numero: v.variante_numero, grades });
+        }
+      });
+    });
+    return rows;
+  };
 
   // Guarda de "alterações não salvas": snapshot do estado editável (o split ec/loja por
   // variante). status/confirmação seguem por mutations próprias, fora do snapshot.
@@ -213,7 +241,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
       markClean(); // limpa o indicador de "alterações não salvas" já no sucesso
       // Busca os dados frescos ANTES de liberar a hidratação (senão re-hidrata do
       // cache antigo e zera os números).
-      await qc.invalidateQueries({ queryKey: ["direcionamento", cad?.id] });
+      await qc.invalidateQueries({ queryKey: ["direcionamento-lojas", cad?.id] });
       await refetch();
       setHydrated(false);
     },
@@ -233,7 +261,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
       setStatus("separado");
       setEditing(false);
       markClean(); // limpa o indicador de "alterações não salvas" já no sucesso
-      await qc.invalidateQueries({ queryKey: ["direcionamento", cad?.id] });
+      await qc.invalidateQueries({ queryKey: ["direcionamento-lojas", cad?.id] });
       await qc.invalidateQueries({ queryKey: ["dir-cad", modeloId] });
       await qc.invalidateQueries({ queryKey: ["dir-list"] });
       await refetch();
@@ -266,9 +294,15 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
   const confirmado = status === "separado";
   const locked = confirmado && !editing;
   const variantes = Object.values(state).sort((a, b) => a.variante_numero - b.variante_numero);
-  // Algum tamanho com e-commerce acima da Grade Real? O servidor trava no Confirmar
-  // (RAISE); aqui desabilita o botão p/ dar o feedback antes de tentar.
-  const hasOver = variantes.some((v) => tamanhos.some((t) => Number(v.ecommerce?.[t] ?? 0) > Number(v.real?.[t] ?? 0)));
+  // Motivo de bloqueio do Confirmar: primeiro tamanho com falta/sobra (o servidor RAISE
+  // igual — aqui é o feedback antes de tentar). null = tudo bate.
+  const motivo = useMemo(() => {
+    for (const v of variantes) {
+      const m = motivoNaoConfere(diffPorTamanho(v.real, Object.values(v.linhas), tamanhos));
+      if (m) return `${labelByNumero[v.variante_numero] ?? `Variante ${v.variante_numero}`}: ${m}`;
+    }
+    return null;
+  }, [variantes, tamanhos, labelByNumero]);
 
   // Botões de ação renderizados na barra STICKY do rodapé (todos os tamanhos): rodapé
   // do Sheet no modo modal, PageActionBar (portal no body) no modo página inteira.
@@ -283,12 +317,21 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
   );
   const actionButtons = (
     <div className="ml-auto flex items-center gap-2">
+      {!confirmado && motivo && (
+        <span className="hidden sm:inline text-xs text-amber-600 dark:text-amber-400 max-w-[46ch] truncate" title={motivo}>
+          {motivo}
+        </span>
+      )}
       {!confirmado ? (
         <>
           <Button variant="outline" onClick={() => saveMut.mutate()} disabled={saveMut.isPending || readOnly}>
             <Save className="h-4 w-4 mr-2" /> Salvar
           </Button>
-          <Button onClick={() => confirmMut.mutate()} disabled={confirmMut.isPending || saveMut.isPending || readOnly || !cad?.id || hasOver}>
+          <Button
+            title={motivo ?? undefined}
+            onClick={() => confirmMut.mutate()}
+            disabled={confirmMut.isPending || saveMut.isPending || readOnly || !cad?.id || !!motivo}
+          >
             <CheckCircle2 className="h-4 w-4 mr-2" /> Confirmar Direcionamento
           </Button>
         </>
@@ -318,12 +361,6 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
     <div className={onClose ? "flex h-full flex-col min-h-0" : ""}>
       <div className={`${onClose ? "flex-1 overflow-y-auto w-full " : "container mx-auto "}p-3 sm:p-6 space-y-6 ${onClose ? "" : "pb-24"}`}>
       <VerificarRevisao modeloId={modeloId} etapa="direcionamento" />
-      {realDivergente && (
-        <div className="no-print flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-          <span>A grade real mudou desde o último direcionamento salvo. Confira o split e salve novamente.</span>
-        </div>
-      )}
       {/* Cabeçalho: breadcrumb + Imprimir (topo-direita, p/ o indicador global de "não
           salvo" cair logo abaixo). Voltar vai só no rodapé; ações primárias idem. */}
       <div className="flex items-start gap-3">
@@ -371,20 +408,15 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
       )}
 
       {variantes.map((v) => {
-        const realTotal = tamanhos.reduce((s, t) => s + Number(v.real?.[t] ?? 0), 0);
-        const ecTotal = tamanhos.reduce((s, t) => s + Number(v.ecommerce?.[t] ?? 0), 0);
-        const overSizes = tamanhos.filter((t) => Number(v.ecommerce?.[t] ?? 0) > Number(v.real?.[t] ?? 0));
+        const diffs = diffPorTamanho(v.real, Object.values(v.linhas), tamanhos);
+        const realTotal = diffs.reduce((s, d) => s + d.real, 0);
+        const dirTotal = diffs.reduce((s, d) => s + d.direcionado, 0);
         return (
           <Card key={v.variante_numero} className="p-5 space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold">{labelByNumero[v.variante_numero] ?? `Variante ${v.variante_numero}`}</h3>
               <div className="text-xs text-muted-foreground">Grade Real Total: <strong>{realTotal}</strong></div>
             </div>
-            {overSizes.length > 0 && (
-              <div className="rounded-md border border-destructive/40 bg-destructive/10 text-destructive text-sm px-3 py-2">
-                E-commerce excede a Grade Real nos tamanhos: <strong>{overSizes.join(", ")}</strong>.
-              </div>
-            )}
 
             <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm border-collapse">
@@ -403,65 +435,78 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
                     ))}
                     <td className="border px-2 py-1 text-center font-semibold">{realTotal}</td>
                   </tr>
-                  <tr className="bg-amber-100/70 dark:bg-amber-900/30">
-                    <td className="border px-2 py-1 font-medium">E-commerce</td>
-                    {tamanhos.map((t) => {
-                      const real = Number(v.real?.[t] ?? 0);
-                      const ec = Number(v.ecommerce?.[t] ?? 0);
-                      const over = ec > real;
-                      return (
-                        <td key={t} className="border p-0">
-                          <NumberInput
-                            integer min={0} max={real}
-                            className={`h-8 max-md:h-11 border-0 bg-transparent text-center ${over ? "text-destructive" : ""}`}
-                            value={v.ecommerce?.[t] ?? ""}
-                            onChange={(e) => setEcommerce(v.variante_numero, t, Math.max(0, Number(e.target.value) || 0))}
-                          />
+                  {lojasVisiveis.map((l) => {
+                    const grades = v.linhas[l.id] ?? {};
+                    const lojaTotal = tamanhos.reduce((s, t) => s + Number(grades[t] ?? 0), 0);
+                    return (
+                      <tr key={l.id} className={l.ativo ? "" : "opacity-60"}>
+                        <td className="border px-2 py-1 font-medium">
+                          {l.nome}
+                          {!l.ativo && <Badge variant="secondary" className="ml-2 text-[10px]">Desativada</Badge>}
                         </td>
-                      );
-                    })}
-                    <td className="border px-2 py-1 text-center font-semibold">{ecTotal}</td>
-                  </tr>
-                  <tr>
-                    <td className="border px-2 py-1 font-medium">Loja Física</td>
-                    {tamanhos.map((t) => {
-                      const real = Number(v.real?.[t] ?? 0);
-                      const ec = Number(v.ecommerce?.[t] ?? 0);
-                      const lf = Math.max(0, real - ec);
-                      return <td key={t} className="border px-2 py-1 text-center bg-muted/20">{lf}</td>;
-                    })}
-                    <td className="border px-2 py-1 text-center font-semibold">{Math.max(0, realTotal - ecTotal)}</td>
+                        {tamanhos.map((t) => (
+                          <td key={t} className="border p-0">
+                            <NumberInput
+                              integer min={0}
+                              className="h-8 max-md:h-11 border-0 bg-transparent text-center"
+                              value={grades[t] ?? ""}
+                              onChange={(e) => setQtd(v.variante_numero, l.id, t, Math.max(0, Number(e.target.value) || 0))}
+                            />
+                          </td>
+                        ))}
+                        <td className="border px-2 py-1 text-center font-semibold">{lojaTotal}</td>
+                      </tr>
+                    );
+                  })}
+                  {/* Rodapé vivo: Σ direcionado vs grade real por tamanho (verde = bate). */}
+                  <tr className="bg-muted/40">
+                    <td className="border px-2 py-1 font-medium">Σ Direcionado</td>
+                    {diffs.map((d) => (
+                      <td
+                        key={d.tamanho}
+                        className={`border px-2 py-1 text-center font-semibold ${d.delta === 0 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}
+                      >
+                        {d.direcionado}
+                        {d.delta !== 0 && (
+                          <span className="block text-[10px] font-normal">({d.delta > 0 ? `+${d.delta}` : d.delta})</span>
+                        )}
+                      </td>
+                    ))}
+                    <td className={`border px-2 py-1 text-center font-semibold ${dirTotal === realTotal ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
+                      {dirTotal} / {realTotal}
+                    </td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
-            {/* Mobile: empilhado por tamanho (some o scroll horizontal ilegível) */}
+            {/* Mobile: empilhado por tamanho — real, uma entrada por loja e o Σ vivo. */}
             <div className="md:hidden grid grid-cols-2 gap-2">
-              {tamanhos.map((t) => {
-                const real = Number(v.real?.[t] ?? 0);
-                const ec = Number(v.ecommerce?.[t] ?? 0);
-                const over = ec > real;
-                const lf = Math.max(0, real - ec);
+              {diffs.map((d) => {
+                const t = d.tamanho;
                 return (
-                  <div key={t} className={`rounded-lg border p-2 ${over ? "border-destructive/50" : ""}`}>
+                  <div key={t} className={`rounded-lg border p-2 ${d.delta !== 0 ? "border-amber-400/60" : ""}`}>
                     <div className="mb-1 border-b pb-1 text-center text-xs font-semibold">{t}</div>
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-muted-foreground">Grade Real</span>
-                      <span className="font-medium">{real}</span>
+                      <span className="font-medium">{d.real}</span>
                     </div>
-                    <div className="mt-1">
-                      <span className="text-xs text-muted-foreground">E-commerce</span>
-                      <NumberInput
-                        integer min={0} max={real}
-                        className={`h-9 max-md:h-11 text-center ${over ? "border-destructive text-destructive" : ""}`}
-                        value={v.ecommerce?.[t] ?? ""}
-                        onChange={(e) => setEcommerce(v.variante_numero, t, Math.max(0, Number(e.target.value) || 0))}
-                      />
-                    </div>
+                    {lojasVisiveis.map((l) => (
+                      <div key={l.id} className={`mt-1 ${l.ativo ? "" : "opacity-60"}`}>
+                        <span className="text-xs text-muted-foreground">{l.nome}</span>
+                        <NumberInput
+                          integer min={0}
+                          className="h-9 max-md:h-11 text-center"
+                          value={v.linhas[l.id]?.[t] ?? ""}
+                          onChange={(e) => setQtd(v.variante_numero, l.id, t, Math.max(0, Number(e.target.value) || 0))}
+                        />
+                      </div>
+                    ))}
                     <div className="mt-1 flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">Loja Física</span>
-                      <span className="font-medium">{lf}</span>
+                      <span className="text-muted-foreground">Σ Direcionado</span>
+                      <span className={`font-medium ${d.delta === 0 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
+                        {d.direcionado}{d.delta !== 0 ? ` (${d.delta > 0 ? "+" : ""}${d.delta})` : ""}
+                      </span>
                     </div>
                   </div>
                 );
@@ -469,8 +514,9 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
             </div>
             <div className="md:hidden flex justify-between border-t pt-2 text-xs text-muted-foreground">
               <span>Real: <b className="text-foreground">{realTotal}</b></span>
-              <span>E-com: <b className="text-foreground">{ecTotal}</b></span>
-              <span>Loja: <b className="text-foreground">{Math.max(0, realTotal - ecTotal)}</b></span>
+              <span className={dirTotal === realTotal ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}>
+                Direcionado: <b>{dirTotal}</b>
+              </span>
             </div>
           </Card>
         );
@@ -481,6 +527,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
         modelo={modelo}
         tamanhos={tamanhos}
         variantes={variantes}
+        lojas={lojasVisiveis}
         confirmado={confirmado}
         // Romaneio confirmado carimba a data da SEPARAÇÃO (direcionamento_confirmado_at),
         // não o momento da impressão — senão reimprimir amanhã mostra data errada.

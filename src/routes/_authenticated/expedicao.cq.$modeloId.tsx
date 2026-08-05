@@ -452,7 +452,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       qc.invalidateQueries({ queryKey: ["cad-grades", cad?.id] }),
       // O trigger de rebaixa re-deriva o snapshot do Direcionamento quando a grade real muda;
       // invalida a query do detalhe p/ refletir os números novos na hora.
-      qc.invalidateQueries({ queryKey: ["direcionamento", cad?.id] }),
+      qc.invalidateQueries({ queryKey: ["direcionamento-lojas", cad?.id] }),
       qc.invalidateQueries({ queryKey: ["plan-cq"] }),
       // A visão CQ Pós usa key própria (cqpos-*) — desmarcar o Pré rebaixa o Pós; refresca.
       qc.invalidateQueries({ queryKey: ["cqpos-cadgrades", cad?.id] }),
