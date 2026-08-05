@@ -42,4 +42,16 @@ describe.skipIf(!hasDb)("Multi-lojas fase 1 — cadastro lojas_direcionamento", 
       ).rejects.toThrow(/duplicate key|lojas_direcionamento_tenant_nome/);
     });
   });
+
+  it("índice único parcial barra um 2º default no mesmo tenant", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await expect(
+        c.query(
+          `insert into lojas_direcionamento (tenant_id, nome, is_default) values ($1, 'Outra Loja', true)`,
+          [TENANT_TESTE],
+        ),
+      ).rejects.toThrow(/duplicate key|lojas_direcionamento_um_default/);
+    });
+  });
 });
