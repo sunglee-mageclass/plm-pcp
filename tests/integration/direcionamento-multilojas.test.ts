@@ -55,3 +55,96 @@ describe.skipIf(!hasDb)("Multi-lojas fase 1 — cadastro lojas_direcionamento", 
     });
   });
 });
+
+describe.skipIf(!hasDb)("Multi-lojas fase 2 — direcionamento_lojas + backfill + excluir", () => {
+  it("backfill: linha E-commerce migrada é idêntica ao jsonb legado (e Loja Física idem)", async () => {
+    await withTx(async (c) => {
+      const leg = await um<{ cad_id: string; variante_numero: number; ecommerce: any; loja_fisica: any } | undefined>(
+        c,
+        `select cad_id, variante_numero, coalesce(ecommerce, '{}'::jsonb) as ecommerce,
+                coalesce(loja_fisica, '{}'::jsonb) as loja_fisica
+           from direcionamento limit 1`,
+      );
+      if (!leg) return; // sem legado → nada a migrar
+      const ec = await um<{ grades: any }>(
+        c,
+        `select dl.grades from direcionamento_lojas dl
+           join lojas_direcionamento l on l.id = dl.loja_id
+          where dl.cad_id = $1 and dl.variante_numero = $2 and l.is_default`,
+        [leg.cad_id, leg.variante_numero],
+      );
+      expect(ec.grades).toEqual(leg.ecommerce);
+      const lf = await um<{ grades: any }>(
+        c,
+        `select dl.grades from direcionamento_lojas dl
+           join lojas_direcionamento l on l.id = dl.loja_id
+          where dl.cad_id = $1 and dl.variante_numero = $2 and l.nome = 'Loja Física'`,
+        [leg.cad_id, leg.variante_numero],
+      );
+      expect(lf.grades).toEqual(leg.loja_fisica);
+    });
+  });
+
+  it("trigger de rebaixe passou a olhar também direcionamento_lojas", async () => {
+    await withTx(async (c) => {
+      const r = await um<{ tem: boolean }>(
+        c,
+        `select position('direcionamento_lojas' in pg_get_functiondef('public.fn_rebaixa_direcionamento_grade()'::regprocedure)) > 0 as tem`,
+      );
+      expect(r.tem).toBe(true);
+    });
+  });
+
+  it("excluir_loja_direcionamento: loja padrão dá RAISE", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const padrao = await um<{ id: string }>(
+        c,
+        `select id from lojas_direcionamento where tenant_id = $1 and is_default limit 1`,
+        [TENANT_TESTE],
+      );
+      await expect(
+        c.query(`select excluir_loja_direcionamento($1)`, [padrao.id]),
+      ).rejects.toThrow(/padrão/);
+    });
+  });
+
+  it("excluir_loja_direcionamento: loja com linhas de direcionamento dá RAISE", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const cad = await um<{ id: string } | undefined>(
+        c, `select id from cad where tenant_id = $1 limit 1`, [TENANT_TESTE],
+      );
+      if (!cad) return;
+      const loja = await um<{ id: string }>(
+        c,
+        `insert into lojas_direcionamento (tenant_id, nome, ordem) values ($1, 'Atacado Teste', 9) returning id`,
+        [TENANT_TESTE],
+      );
+      await c.query(
+        `insert into direcionamento_lojas (tenant_id, cad_id, loja_id, variante_numero, grades)
+         values ($1, $2, $3, 1, '{}'::jsonb)`,
+        [TENANT_TESTE, cad.id, loja.id],
+      );
+      await expect(
+        c.query(`select excluir_loja_direcionamento($1)`, [loja.id]),
+      ).rejects.toThrow(/linha\(s\) de direcionamento/);
+    });
+  });
+
+  it("excluir_loja_direcionamento: loja livre (sem uso, não-default) é excluída", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const loja = await um<{ id: string }>(
+        c,
+        `insert into lojas_direcionamento (tenant_id, nome, ordem) values ($1, 'Outlet Teste', 8) returning id`,
+        [TENANT_TESTE],
+      );
+      await c.query(`select excluir_loja_direcionamento($1)`, [loja.id]);
+      const n = await um<{ n: string }>(
+        c, `select count(*) as n from lojas_direcionamento where id = $1`, [loja.id],
+      );
+      expect(Number(n.n)).toBe(0);
+    });
+  });
+});
