@@ -1521,6 +1521,16 @@ function OcDialog({
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
     setSecAtiva(id);
   };
+  // OC ENCOMENDADA abre direto na seção 4 (dono, ago/2026): abrir o card dela é,
+  // no fluxo real, registrar a chegada. 1× por abertura, após a seção montar.
+  const pulouRecebimentoRef = useRef(false);
+  useEffect(() => {
+    if (pulouRecebimentoRef.current || !isEdit || status !== "encomendado" || !canShowRecebimento) return;
+    const el = document.getElementById("oc-sec-recebimento");
+    if (!el) return;
+    pulouRecebimentoRef.current = true;
+    requestAnimationFrame(() => irParaSecao("oc-sec-recebimento"));
+  });
   // Scroll-spy simples: ativa = ÚLTIMA seção cujo topo já passou do topo do container.
   const onBodyScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const topo = e.currentTarget.getBoundingClientRect().top;
