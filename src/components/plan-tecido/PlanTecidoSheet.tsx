@@ -1214,11 +1214,13 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                     {/* Dois níveis (dono): "Seções" = grupos de nome/categoria; "Cards" = corpos. */}
                     <Button size="sm" variant="ghost" onClick={toggleSecoes}>{todasSecoesRecolhidas ? "Expandir seções" : "Recolher seções"}</Button>
                     <Button size="sm" variant="ghost" onClick={toggleTodos}>{todosRecolhidos ? "Expandir cards" : "Recolher cards"}</Button>
+                    {/* "Família" = categoria de tecido (só rótulo de UI, dono ago/2026 — keys/colunas ficam). */}
                     <AgrupamentoButton groups={[
-                      { label: "Categoria de tecido", active: groupByCategoria, onToggle: () => setGroupByCategoria((v) => !v) },
+                      { label: "Família", active: groupByCategoria, onToggle: () => setGroupByCategoria((v) => !v) },
                       { label: "Nome do tecido", active: groupByNome, onToggle: () => setGroupByNome((v) => !v) },
                     ]} />
-                    <Button size="sm" variant="outline" className="gap-1" onClick={() => setAddCatOpen(true)}><Plus className="h-3.5 w-3.5" /> categoria</Button>
+                    {/* + Família também LIGA o agrupamento por família (a lane nova aparece na hora). */}
+                    <Button size="sm" variant="outline" className="gap-1" onClick={() => { setGroupByCategoria(true); setAddCatOpen(true); }}><Plus className="h-3.5 w-3.5" /> Família</Button>
                   </div>
                 </div>
                 <DndContext sensors={dndSensors} onDragStart={(e) => setDragId(String(e.active.id))} onDragCancel={() => setDragId(null)} onDragEnd={handleDragEnd}>
@@ -1299,7 +1301,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
         {/* Dialog: adicionar categoria (lane) à subcoleção ativa */}
         <Dialog open={addCatOpen} onOpenChange={setAddCatOpen}>
           <DialogContent className="max-w-sm">
-            <DialogHeader><DialogTitle>Adicionar categoria de tecido</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>Adicionar família</DialogTitle></DialogHeader>
             <div className="grid grid-cols-2 gap-2">
               {catTecidoNomes.filter((c) => !(subAtual?.categorias_tecido ?? []).includes(c.id)).map((c) => (
                 <Button key={c.id} variant="outline" size="sm" className="justify-start" onClick={() => addCategoria(c.id)}>{c.nome}</Button>
