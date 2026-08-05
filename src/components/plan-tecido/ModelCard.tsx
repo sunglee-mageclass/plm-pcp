@@ -368,7 +368,11 @@ export function ModelCard({
               <AccordionItem value="mat">
                 <AccordionTrigger className="py-2 text-xs">1. Tecidos &amp; Forros</AccordionTrigger>
                 <AccordionContent>
-                  {slot.materiais.map((m, i) => (
+                  {/* Exibição: TECIDO antes de FORRO (dono, ago/2026) — sort estável só na
+                      renderização; o array (e os índices dos callbacks) não muda. */}
+                  {[...slot.materiais.entries()]
+                    .sort(([, a], [, b]) => (a.tipo === b.tipo ? 0 : a.tipo === "tecido" ? -1 : 1))
+                    .map(([i, m]) => (
                     <MaterialBlock
                       key={m.id ?? i}
                       material={m}
