@@ -262,37 +262,74 @@ describe.skipIf(!hasDb)("Multi-lojas fase 3 — RPC core v2", () => {
     });
   });
 
-  it("confirmar com FALTA num tamanho dá RAISE em PT com o tamanho e a diferença", async () => {
+  it("confirmar com FALTA num tamanho dá RAISE em PT com o tamanho e a diferença, código P0001 (não 23514 — senão erro-mensagem.ts engole o detalhe pela mensagem genérica)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
       const f = await fixture(c);
       if (!f) return;
+      // Só UM mismatch no payload inteiro (senão a ordem de iteração não-determinística do
+      // core, entre variantes/tamanhos, poderia disparar o RAISE num tamanho diferente do
+      // que o teste registrou).
+      let tamFalta = "";
+      let alterado = false;
       const rows = f.grades.map((r) => {
         const g = { ...r.g };
-        const tam = Object.keys(g).find((t) => Number(g[t]) > 0);
-        if (tam) g[tam] = Number(g[tam]) - 1; // 1 peça a menos num tamanho com real > 0
+        if (!alterado) {
+          const tam = Object.keys(g).find((t) => Number(g[t]) > 0);
+          if (tam) {
+            g[tam] = Number(g[tam]) - 1; // 1 peça a menos num tamanho com real > 0
+            tamFalta = tam;
+            alterado = true;
+          }
+        }
         return { loja_id: f.lojaId, variante_numero: r.variante_numero, grades: g };
       });
-      await expect(
-        c.query(`select _salvar_direcionamento_core($1, $2::jsonb, true, false)`, [f.cadId, JSON.stringify(rows)]),
-      ).rejects.toThrow(/Falta direcionar/);
+      if (!tamFalta) return;
+      let erro: any;
+      try {
+        await c.query(`select _salvar_direcionamento_core($1, $2::jsonb, true, false)`, [f.cadId, JSON.stringify(rows)]);
+      } catch (e) {
+        erro = e;
+      }
+      expect(erro).toBeDefined();
+      expect(erro.code).toBe("P0001");
+      expect(erro.message).toMatch(/Falta direcionar 1 peça\(s\)/);
+      expect(erro.message).toContain(`no tamanho ${tamFalta}`);
     });
   });
 
-  it("confirmar com SOBRA num tamanho dá RAISE", async () => {
+  it("confirmar com SOBRA num tamanho dá RAISE em PT com o tamanho e a diferença, código P0001", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
       const f = await fixture(c);
       if (!f) return;
+      // Idem: só UM mismatch no payload inteiro, pro tamanho registrado ser o mesmo que o
+      // core reporta (a ordem entre variantes/tamanhos no core não é garantida).
+      let tamSobra = "";
+      let alterado = false;
       const rows = f.grades.map((r) => {
         const g = { ...r.g };
-        const tam = Object.keys(g)[0];
-        if (tam) g[tam] = Number(g[tam] ?? 0) + 1; // 1 peça a mais
+        if (!alterado) {
+          const tam = Object.keys(g)[0];
+          if (tam) {
+            g[tam] = Number(g[tam] ?? 0) + 1; // 1 peça a mais
+            tamSobra = tam;
+            alterado = true;
+          }
+        }
         return { loja_id: f.lojaId, variante_numero: r.variante_numero, grades: g };
       });
-      await expect(
-        c.query(`select _salvar_direcionamento_core($1, $2::jsonb, true, false)`, [f.cadId, JSON.stringify(rows)]),
-      ).rejects.toThrow(/a mais/);
+      if (!tamSobra) return;
+      let erro: any;
+      try {
+        await c.query(`select _salvar_direcionamento_core($1, $2::jsonb, true, false)`, [f.cadId, JSON.stringify(rows)]);
+      } catch (e) {
+        erro = e;
+      }
+      expect(erro).toBeDefined();
+      expect(erro.code).toBe("P0001");
+      expect(erro.message).toMatch(/a mais/);
+      expect(erro.message).toContain(`no tamanho ${tamSobra}`);
     });
   });
 
