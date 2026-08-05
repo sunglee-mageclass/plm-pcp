@@ -159,6 +159,13 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
     () => (lojas as Loja[]).filter((l) => l.ativo || lojasComLinha.has(l.id)),
     [lojas, lojasComLinha],
   );
+  // Pares loja×variante com linha HISTÓRICA salva (mesmo zerada) — uma loja desativada só é
+  // editável nas variantes onde já tinha linha; nas outras, o core rejeita linha NOVA de loja
+  // inativa (RAISE), então a célula fica desabilitada em vez de aceitar digitação e falhar o save.
+  const paresHistoricos = useMemo(
+    () => new Set((existing as any[]).map((d) => `${d.loja_id}:${d.variante_numero}`)),
+    [existing],
+  );
 
   const [state, setState] = useState<Record<number, VarState>>({});
   const [hydrated, setHydrated] = useState(false);
@@ -208,9 +215,11 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
     Object.values(state).forEach((v) => {
       lojasVisiveis.forEach((l) => {
         const grades = v.linhas[l.id];
-        if (grades && Object.keys(grades).length > 0) {
-          rows.push({ loja_id: l.id, variante_numero: v.variante_numero, grades });
-        }
+        if (!grades || Object.keys(grades).length === 0) return;
+        // Guarda extra (a célula já fica disabled): nunca manda linha NOVA de loja
+        // desativada — o core rejeita (RAISE) e derrubaria o save inteiro.
+        if (!l.ativo && !paresHistoricos.has(`${l.id}:${v.variante_numero}`)) return;
+        rows.push({ loja_id: l.id, variante_numero: v.variante_numero, grades });
       });
     });
     return rows;
@@ -438,6 +447,9 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
                   {lojasVisiveis.map((l) => {
                     const grades = v.linhas[l.id] ?? {};
                     const lojaTotal = tamanhos.reduce((s, t) => s + Number(grades[t] ?? 0), 0);
+                    // Desativada + sem linha histórica NESTA variante: célula fica desabilitada
+                    // (evita que uma linha nova de loja inativa derrube o Salvar/Confirmar).
+                    const editavelLinha = l.ativo || paresHistoricos.has(`${l.id}:${v.variante_numero}`);
                     return (
                       <tr key={l.id} className={l.ativo ? "" : "opacity-60"}>
                         <td className="border px-2 py-1 font-medium">
@@ -450,6 +462,8 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
                               integer min={0}
                               className="h-8 max-md:h-11 border-0 bg-transparent text-center"
                               value={grades[t] ?? ""}
+                              disabled={!editavelLinha}
+                              title={editavelLinha ? undefined : "Loja desativada — reative no Cadastro de Lojas para direcionar aqui."}
                               onChange={(e) => setQtd(v.variante_numero, l.id, t, Math.max(0, Number(e.target.value) || 0))}
                             />
                           </td>
@@ -491,17 +505,22 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
                       <span className="text-muted-foreground">Grade Real</span>
                       <span className="font-medium">{d.real}</span>
                     </div>
-                    {lojasVisiveis.map((l) => (
-                      <div key={l.id} className={`mt-1 ${l.ativo ? "" : "opacity-60"}`}>
-                        <span className="text-xs text-muted-foreground">{l.nome}</span>
-                        <NumberInput
-                          integer min={0}
-                          className="h-9 max-md:h-11 text-center"
-                          value={v.linhas[l.id]?.[t] ?? ""}
-                          onChange={(e) => setQtd(v.variante_numero, l.id, t, Math.max(0, Number(e.target.value) || 0))}
-                        />
-                      </div>
-                    ))}
+                    {lojasVisiveis.map((l) => {
+                      const editavelLinha = l.ativo || paresHistoricos.has(`${l.id}:${v.variante_numero}`);
+                      return (
+                        <div key={l.id} className={`mt-1 ${l.ativo ? "" : "opacity-60"}`}>
+                          <span className="text-xs text-muted-foreground">{l.nome}</span>
+                          <NumberInput
+                            integer min={0}
+                            className="h-9 max-md:h-11 text-center"
+                            value={v.linhas[l.id]?.[t] ?? ""}
+                            disabled={!editavelLinha}
+                            title={editavelLinha ? undefined : "Loja desativada — reative no Cadastro de Lojas para direcionar aqui."}
+                            onChange={(e) => setQtd(v.variante_numero, l.id, t, Math.max(0, Number(e.target.value) || 0))}
+                          />
+                        </div>
+                      );
+                    })}
                     <div className="mt-1 flex items-center justify-between text-xs">
                       <span className="text-muted-foreground">Σ Direcionado</span>
                       <span className={`font-medium ${d.delta === 0 ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
