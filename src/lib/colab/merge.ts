@@ -54,7 +54,10 @@ export function mergeLinhas<R extends LinhaId>(o: {
   return { linhas: out, conflitos, atualizadas };
 }
 
-function igual(a: unknown, b: unknown): boolean {
+// Exportada p/ as telas compararem "valor ao vivo vs valor ENVIADO no save" com a MESMA
+// semântica do merge (null≈undefined, deep p/ objetos/arrays) — ver onSuccess do save
+// composto no Desenvolvimento (teclas digitadas durante o voo do save seguem touched).
+export function igual(a: unknown, b: unknown): boolean {
   // null e undefined são EQUIVALENTES entre si (semântica anterior preservada)
   if (a == null || b == null) return a == null && b == null;
   if (a === b) return true; // inclui +0 === -0

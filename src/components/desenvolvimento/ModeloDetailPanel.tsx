@@ -29,7 +29,7 @@ import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/Unsave
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { ColabBanner } from "@/components/shared/ColabBanner";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
-import { mergeDraft, type Conflito } from "@/lib/colab/merge";
+import { igual, mergeDraft, type Conflito } from "@/lib/colab/merge";
 import { useAuth } from "@/hooks/useAuth";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useFieldLabels } from "@/hooks/useFieldLabels";
@@ -349,7 +349,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     },
   });
 
-  const { data: tecidosData } = useQuery({
+  const { data: tecidosData, isFetching: tecidosDataFetching } = useQuery({
     queryKey: ["modelo-tecidos", modeloId],
     queryFn: async () => {
       const { data: tecidos, error } = await supabase
@@ -433,7 +433,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   });
 
   // Seção 4. CAD — row do cad (para saber o cad_id e alimentar queries de cad_tecidos).
-  const { data: cadRowDev } = useQuery({
+  const { data: cadRowDev, isFetching: cadRowDevFetching } = useQuery({
     queryKey: ["dev-cad-row", modeloId],
     queryFn: async () => {
       const { data } = await (supabase as any).from("cad").select("id").eq("modelo_id", modeloId).maybeSingle();
@@ -441,7 +441,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     },
   });
 
-  const { data: cadTecidosDev = [], isFetched: cadTecidosDevFetched } = useQuery({
+  const { data: cadTecidosDev = [], isFetched: cadTecidosDevFetched, isFetching: cadTecidosDevFetching } = useQuery({
     queryKey: ["dev-cad-tecidos", cadRowDev?.id],
     enabled: !!cadRowDev?.id,
     queryFn: async () => {
@@ -522,6 +522,13 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   // (roda depois de um `await` — ver comentário extenso no onError, mesma razão do piloto).
   const draftLiveRef = useRef(draft);
   draftLiveRef.current = draft;
+  // Snapshot do QUE FOI ENVIADO no save em voo (bug-fix ago/2026): o onSuccess NÃO pode
+  // re-basear no draft AO VIVO — teclas/edições feitas DURANTE o voo do save não entraram
+  // no payload; adotá-las como "verdade do servidor" (baseRef) e limpar seu `touched` fazia
+  // o refetch pós-save (eco do meu próprio UPDATE) reverter o campo em silêncio OU criar um
+  // conflito-fantasma comigo mesmo que bloqueava todos os saves seguintes ("Resolva os
+  // conflitos…"). Capturado no início de persistModelo; consumido no onSuccess.
+  const savedAtRef = useRef<{ draft: any; snapshot: string; bomSnap: string } | null>(null);
 
   // Wrapper que DIFERE prev→next e marca o que mudou — os filhos continuam recebendo a
   // mesma assinatura de `setDraft` (mesma técnica do piloto OC Tecido).
@@ -822,9 +829,17 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   useEffect(() => {
     if (cadSeeded) return;
     if (!frozenPrecosCadFetched) return; // espera o preço congelado
+    // ⚠️ Bug-fix (ago/2026, repro dev-save-repro-cad.mjs): `isFetched` NUNCA reseta após
+    // invalidate — no re-seed pós-save (setCadSeeded(false) no onSuccess) o efeito rodava
+    // IMEDIATAMENTE com o CACHE VELHO (1 save atrás), a tela revertia a seção "4. CAD" e o
+    // PRÓXIMO Salvar regravava o velho no banco (salvar_cad_completo espelha consumo_cad →
+    // modelo_tecidos.consumo — perda real de dado com toast "Modelo salvo"). Os gates de
+    // `isFetching` seguram a semeadura até as re-buscas disparadas no onSuccess (e no
+    // onMudancaServidor) assentarem — aí sim semeia do estado recém-salvo.
+    if (cadRowDevFetching || tecidosDataFetching) return;
     // Quando já existe um CAD, espera as queries dele terminarem.
     const hasCad = !!cadRowDev?.id;
-    if (hasCad && !cadTecidosDevFetched) return;
+    if (hasCad && (!cadTecidosDevFetched || cadTecidosDevFetching)) return;
 
     const precoTec = (tipo: string, numero: number, artigoPpm: number) =>
       Number((frozenPrecosCad as Record<string, number>)[`${tipo}|${numero}`] ?? artigoPpm);
@@ -937,7 +952,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
       (TIPO_ORDER[a.tipo] ?? 9) - (TIPO_ORDER[b.tipo] ?? 9) || (a.numero - b.numero));
     setCadTecidosState(initialTec);
     setCadSeeded(true);
-  }, [cadSeeded, cadRowDev, cadTecidosDev, cadTecidosDevFetched, frozenPrecosCad, frozenPrecosCadFetched, tecidosData, artigoMap]);
+  }, [cadSeeded, cadRowDev, cadRowDevFetching, cadTecidosDev, cadTecidosDevFetched, cadTecidosDevFetching, frozenPrecosCad, frozenPrecosCadFetched, tecidosData, tecidosDataFetching, artigoMap]);
 
   // Helpers p/ editar o estado dos tecidos CAD.
   // Ao mudar consumo_cad ou loss_percent_cad, sincroniza também o bloco correspondente
@@ -1382,6 +1397,11 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
       qc.invalidateQueries({ queryKey: ["modelo-aviamentos", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-etiquetas", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelo-grades", modeloId] });
+      // Seção "4. CAD" também faz parte do agregado: sem estes invalidates, o re-seed limpo
+      // pós-merge (save de OUTRA pessoa) semearia do cache velho do cad_* (bug do isFetched
+      // que não reseta — ver gates de isFetching no efeito de semeadura do CAD).
+      qc.invalidateQueries({ queryKey: ["dev-cad-row", modeloId] });
+      qc.invalidateQueries({ queryKey: ["dev-cad-tecidos"] });
     },
     campoFocado,
   });
@@ -1443,7 +1463,12 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   // use exatamente o que está no Desenvolvimento (a validação usa estado local; a
   // cópia ao CAD lê do banco — sem persistir, iria dado incompleto/vazio).
   const persistModelo = async () => {
-      if (!draft) return;
+      // Fonte do payload = o ESPELHO ao vivo do draft (bug-fix ago/2026): no retry pós-P0409
+      // o closure do render ainda é ANTERIOR ao setDraft(md.valor) do merge do onError — ler
+      // do ref garante que o payload leva os campos ADOTADOS do outro usuário (o closure cru
+      // os reverteria em silêncio no banco). No fluxo normal, ref === draft do render.
+      const d = draftLiveRef.current ?? draft;
+      if (!d) return;
       // Colab (Task 1): com conflitos pendentes na tela (escalares OU a seção "Tecidos &
       // BOM"), o save NÃO pode passar — mesmo escala rev já bata, o usuário precisa
       // resolver ("manter meu"/"usar o novo"/"descartar e recarregar") primeiro. Mesmo
@@ -1451,46 +1476,54 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
       // versão da outra pessoa em silêncio).
       if (conflitosRef.current.length > 0 || conflitoBomRef.current)
         throw new Error("Resolva os conflitos listados no aviso no topo antes de salvar.");
+      // Congela o que este save ENVIA (draft + BOM) — o onSuccess re-baseia nisto, nunca no
+      // estado ao vivo (que pode ganhar teclas durante o voo). Ver comentário em savedAtRef.
+      savedAtRef.current = {
+        draft: d,
+        snapshot: snapshotSemIds({ draft: d, blocks, aviamentosState, etiquetasState, grades, cadTecidosState }),
+        bomSnap: snapshotSemIds({ blocks, aviamentosState, etiquetasState, grades, cadTecidosState }),
+      };
+      const reprovadoAtual = (d.status_desenvolvimento ?? "").toLowerCase() === "reprovado";
       const payload = {
-        nome: draft.nome,
-        ref: draft.ref || null,
-        status_desenvolvimento: draft.status_desenvolvimento,
-        motivo_cancelamento: isReprovado ? draft.motivo_cancelamento : null,
-        linha_id: draft.linha_id,
-        estilista_id: draft.estilista_id,
-        modelista_id: draft.modelista_id,
-        piloteiro1_id: draft.piloteiro1_id,
-        piloteiro2_id: draft.piloteiro2_id,
-        piloteiro3_id: draft.piloteiro3_id,
-        data_piloto1: draft.data_piloto1 || null,
-        data_piloto2: draft.data_piloto2 || null,
-        data_piloto3: draft.data_piloto3 || null,
-        data_desenho_tecnico: draft.data_desenho_tecnico || null,
-        data_aprovacao: draft.data_aprovacao || null,
-        observacoes_tecnicas: draft.observacoes_tecnicas || null,
-        observacoes_gerais: draft.observacoes_gerais || null,
-        observacoes_mao_obra: draft.observacoes_mao_obra || null,
-        ficha_medida_url: draft.ficha_medida_url || null,
-        desenho_tecnico_url: draft.desenho_tecnico_url || null,
-        croqui_url: draft.croqui_url || null,
-        categoria_principal_id: draft.categoria_principal_id || null,
-        subcategoria1_id: draft.subcategoria1_id || null,
-        subcategoria2_id: draft.subcategoria2_id || null,
-        colecao_id: draft.colecao_id || null,
-        subcolecao: draft.subcolecao || null,
-        mes_id: draft.mes_id || null,
-        ano_id: draft.ano_id || null,
-        semana: draft.semana || null,
-        custo_terceirizados_previsto: draft.custo_terceirizados_previsto || 0,
-        custos_adicionais: draft.custos_adicionais ?? [],
+        nome: d.nome,
+        ref: d.ref || null,
+        status_desenvolvimento: d.status_desenvolvimento,
+        motivo_cancelamento: reprovadoAtual ? d.motivo_cancelamento : null,
+        linha_id: d.linha_id,
+        estilista_id: d.estilista_id,
+        modelista_id: d.modelista_id,
+        piloteiro1_id: d.piloteiro1_id,
+        piloteiro2_id: d.piloteiro2_id,
+        piloteiro3_id: d.piloteiro3_id,
+        data_piloto1: d.data_piloto1 || null,
+        data_piloto2: d.data_piloto2 || null,
+        data_piloto3: d.data_piloto3 || null,
+        data_desenho_tecnico: d.data_desenho_tecnico || null,
+        data_aprovacao: d.data_aprovacao || null,
+        observacoes_tecnicas: d.observacoes_tecnicas || null,
+        observacoes_gerais: d.observacoes_gerais || null,
+        observacoes_mao_obra: d.observacoes_mao_obra || null,
+        ficha_medida_url: d.ficha_medida_url || null,
+        desenho_tecnico_url: d.desenho_tecnico_url || null,
+        croqui_url: d.croqui_url || null,
+        categoria_principal_id: d.categoria_principal_id || null,
+        subcategoria1_id: d.subcategoria1_id || null,
+        subcategoria2_id: d.subcategoria2_id || null,
+        colecao_id: d.colecao_id || null,
+        subcolecao: d.subcolecao || null,
+        mes_id: d.mes_id || null,
+        ano_id: d.ano_id || null,
+        semana: d.semana || null,
+        custo_terceirizados_previsto: d.custo_terceirizados_previsto || 0,
+        custos_adicionais: d.custos_adicionais ?? [],
         custo_tecido_total: totals.tecido,
         custo_forro_total: totals.forro,
         custo_entretela_total: totals.entretela,
         custo_aviamento_total: totals.aviamento,
         custo_peca_previsto: totals.peca,
-        proporcoes: draft.proporcoes ?? {},
-        fotos_modelo: draft.fotos_modelo ?? [],
-        fotos_referencia: draft.fotos_referencia ?? [],
+        proporcoes: d.proporcoes ?? {},
+        fotos_modelo: d.fotos_modelo ?? [],
+        fotos_referencia: d.fotos_referencia ?? [],
         // Mantém no plano os artigos principais E os substitutos efetivamente
         // usados (artigos das variantes de tecido), senão o pool de substitutos
         // do tecido encolheria ao recarregar e órfanaria variantes.
@@ -1661,7 +1694,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
           _grades: cadGradesPayload,
           _aviamentos: cadAviamentosPayload,
           _etiquetas: cadEtiquetasPayload,
-          _proporcoes: draft?.proporcoes ?? {},
+          _proporcoes: d.proporcoes ?? {},
           _observacoes_molde: null,
           _data_previsao_corte: null,
         });
@@ -1672,18 +1705,43 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   const save = useMutation({
     mutationFn: persistModelo,
     onSuccess: async () => {
-      markClean(); // limpa o indicador de "alterações não salvas" já no sucesso
-      // Colab: o que acabei de salvar já É o "base" atual — evita que o eco do Realtime
+      // Colab: o que acabei de ENVIAR já É o "base" atual — evita que o eco do Realtime
       // (meu próprio UPDATE) apareça como "alguém atualizou N campos" no banner. O rev
       // real (bumpado no servidor) chega no próximo refetch de ["modelo-detail"] — o
       // merge effect processa em silêncio (base≈fresh, sem conflitos) e avança `revRef`.
-      baseRef.current = { draft };
-      touchedRef.current = new Set();
-      colecoesTouchadasRef.current = false;
+      //
+      // ⚠️ Bug-fix (ago/2026, repro no scratchpad dev-save-repro.mjs): re-basear no draft
+      // AO VIVO + touched.clear() incondicional "adotava" teclas digitadas DURANTE o voo do
+      // save como se estivessem salvas → o refetch pós-save revertia o campo em silêncio ou
+      // criava conflito-fantasma comigo mesmo (banner + todos os saves bloqueados). Agora:
+      // base = o que FOI ENVIADO (savedAtRef); campo que divergiu do enviado SEGUE touched
+      // (e o selo segue aceso) até o próximo Salvar persistir de verdade.
+      const enviado = savedAtRef.current;
+      const live = draftLiveRef.current;
+      baseRef.current = { draft: enviado?.draft ?? draft };
+      const aindaTocados = new Set<string>();
+      if (enviado && live) {
+        for (const k of touchedRef.current) if (!igual(live[k], enviado.draft[k])) aindaTocados.add(k);
+      }
+      touchedRef.current = aindaTocados;
+      // Coleções do BOM: só "desmarca" se nada mudou durante o voo (senão o guard dos
+      // efeitos de semeadura precisa continuar congelando as coleções locais).
+      const bomVivo = snapshotSemIds({ blocks, aviamentosState, etiquetasState, grades, cadTecidosState });
+      const bomMudouEmVoo = !!enviado && bomVivo !== enviado.bomSnap;
+      if (!bomMudouEmVoo) colecoesTouchadasRef.current = false;
       conflitosRef.current = [];
       setConflitos([]);
       setUltimoMerge(null);
       setConflitoBomBoth(false);
+      const emVooLimpo = aindaTocados.size === 0 && !bomMudouEmVoo;
+      if (emVooLimpo) {
+        markClean(); // limpa o indicador de "alterações não salvas" já no sucesso
+      } else if (enviado) {
+        // Houve edição durante o voo: baseline = o snapshot ENVIADO → `dirty` fica true
+        // (selo aceso, honesto — há mesmo alteração não salva) e o guarda segue ARMADO.
+        baselineRef.current = enviado.snapshot;
+        setBaselineTick((n) => n + 1);
+      }
       // Marca revisão (#Erro) nas etapas afetadas — o SERVIDOR retorna EXATAMENTE quais
       // etapas existem downstream e foram marcadas. A mensagem usa esse retorno (não o
       // hasDownstream cacheado, que fica stale depois de reverter uma etapa e faria o toast
@@ -1730,10 +1788,15 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
       // Re-semeia a seção "4. CAD" a partir do cad_* recém-criado/salvo. Sem isso, o
       // cadSeeded (one-shot, só reseta ao trocar de modelo) trava a re-semeadura e a
       // seção CAD fica defasada até fechar+reabrir o card (bug pós-importação/1º save).
-      setCadSeeded(false);
-      // Desarma o guarda: o re-seed pós-save re-baselina para o estado gravado/normalizado
-      // (absorve qualquer diferença de normalização do refetch, sem falso "não salvo").
-      setGuardReady(false);
+      // ⚠️ Só quando NADA mudou durante o voo do save: com edição em voo, o re-seed (e o
+      // re-arme do guarda, que re-baselina no estado semeado) engoliria a edição pendente —
+      // o estado local é o mais novo e o selo precisa continuar aceso até o próximo Salvar.
+      if (emVooLimpo) {
+        setCadSeeded(false);
+        // Desarma o guarda: o re-seed pós-save re-baselina para o estado gravado/normalizado
+        // (absorve qualquer diferença de normalização do refetch, sem falso "não salvo").
+        setGuardReady(false);
+      }
       // Printável (Ficha Técnica, useFichaData keys ft-*) lê do banco — invalida p/ refletir o que acabou de salvar.
       qc.invalidateQueries({ predicate: (query) => typeof query.queryKey?.[0] === "string" && (query.queryKey[0] as string).startsWith("ft-") });
       qc.invalidateQueries({ queryKey: ["modelo-observacoes", modeloId] });
@@ -1761,7 +1824,12 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
           const liveDraft = draftLiveRef.current;
           const base = baseRef.current ?? { draft: freshDraft };
           const md = mergeDraft({ base: base.draft, draft: liveDraft, fresh: freshDraft, touched: touchedRef.current });
-          if (md.atualizados.length > 0 || md.conflitos.length > 0) setDraft(md.valor);
+          if (md.atualizados.length > 0 || md.conflitos.length > 0) {
+            setDraft(md.valor);
+            // Espelho SÍNCRONO: o retry (save.mutate logo abaixo) roda ANTES do re-render —
+            // persistModelo lê draftLiveRef, que precisa já conter os campos adotados.
+            draftLiveRef.current = md.valor;
+          }
           conflitosRef.current = md.conflitos;
           setConflitos(md.conflitos);
           setUltimoMerge({ atualizados: md.atualizados.length, conflitos: md.conflitos });
