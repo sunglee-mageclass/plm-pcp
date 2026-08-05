@@ -205,3 +205,149 @@ describe.skipIf(!hasDb)("Multi-lojas fase 2 — direcionamento_lojas + backfill 
     });
   });
 });
+
+describe.skipIf(!hasDb)("Multi-lojas fase 3 — RPC core v2", () => {
+  // Fixture comum: 1 cad da Loja Teste com PELO MENOS 1 tamanho de grade real > 0
+  // (grade toda zerada tornaria os testes de falta/sobra vácuos) + a loja default.
+  async function fixture(c: any) {
+    const cad = await um<{ id: string } | undefined>(
+      c,
+      `select c2.id from cad c2
+        where c2.tenant_id = $1
+          and exists (select 1 from cad_grades g
+                        cross join lateral jsonb_each_text(coalesce(g.grades_reais, '{}'::jsonb)) t
+                       where g.cad_id = c2.id and (t.value)::int > 0)
+        limit 1`,
+      [TENANT_TESTE],
+    );
+    if (!cad) return null;
+    const loja = await um<{ id: string }>(
+      c, `select id from lojas_direcionamento where tenant_id = $1 and is_default limit 1`, [TENANT_TESTE],
+    );
+    const grades = await c.query(
+      `select variante_numero, coalesce(grades_reais, '{}'::jsonb) as g
+         from cad_grades where cad_id = $1 order by variante_numero`,
+      [cad.id],
+    );
+    return { cadId: cad.id, lojaId: loja.id, grades: grades.rows as { variante_numero: number; g: Record<string, number> }[] };
+  }
+
+  it("rascunho parcial grava (soma menor que a grade real é aceita)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const f = await fixture(c);
+      if (!f) return;
+      const rows = [{ loja_id: f.lojaId, variante_numero: f.grades[0].variante_numero, grades: {} }];
+      await c.query(`select salvar_direcionamento($1, $2::jsonb)`, [f.cadId, JSON.stringify(rows)]);
+      const n = await um<{ n: string }>(
+        c,
+        `select count(*) as n from direcionamento_lojas where cad_id = $1 and loja_id = $2`,
+        [f.cadId, f.lojaId],
+      );
+      expect(Number(n.n)).toBe(1);
+    });
+  });
+
+  it("confirmar (core estrito) com soma exata passa e marca 'separado' na MESMA txn", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const f = await fixture(c);
+      if (!f) return;
+      // Direciona TUDO pra loja default: Σ por tamanho = grade real em toda variante.
+      const rows = f.grades.map((r) => ({ loja_id: f.lojaId, variante_numero: r.variante_numero, grades: r.g }));
+      // Core direto (conexão postgres ignora ACL) — o gate de CQ do wrapper é testado à parte.
+      await c.query(`select _salvar_direcionamento_core($1, $2::jsonb, true, true)`, [f.cadId, JSON.stringify(rows)]);
+      const st = await um<{ s: string }>(c, `select direcionamento_status as s from cad where id = $1`, [f.cadId]);
+      expect(st.s).toBe("separado");
+    });
+  });
+
+  it("confirmar com FALTA num tamanho dá RAISE em PT com o tamanho e a diferença", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const f = await fixture(c);
+      if (!f) return;
+      const rows = f.grades.map((r) => {
+        const g = { ...r.g };
+        const tam = Object.keys(g).find((t) => Number(g[t]) > 0);
+        if (tam) g[tam] = Number(g[tam]) - 1; // 1 peça a menos num tamanho com real > 0
+        return { loja_id: f.lojaId, variante_numero: r.variante_numero, grades: g };
+      });
+      await expect(
+        c.query(`select _salvar_direcionamento_core($1, $2::jsonb, true, false)`, [f.cadId, JSON.stringify(rows)]),
+      ).rejects.toThrow(/Falta direcionar/);
+    });
+  });
+
+  it("confirmar com SOBRA num tamanho dá RAISE", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const f = await fixture(c);
+      if (!f) return;
+      const rows = f.grades.map((r) => {
+        const g = { ...r.g };
+        const tam = Object.keys(g)[0];
+        if (tam) g[tam] = Number(g[tam] ?? 0) + 1; // 1 peça a mais
+        return { loja_id: f.lojaId, variante_numero: r.variante_numero, grades: g };
+      });
+      await expect(
+        c.query(`select _salvar_direcionamento_core($1, $2::jsonb, true, false)`, [f.cadId, JSON.stringify(rows)]),
+      ).rejects.toThrow(/a mais/);
+    });
+  });
+
+  it("loja de OUTRO tenant no payload dá RAISE", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const f = await fixture(c);
+      if (!f) return;
+      const outra = await um<{ id: string } | undefined>(
+        c, `select id from lojas_direcionamento where tenant_id <> $1 limit 1`, [TENANT_TESTE],
+      );
+      if (!outra) return;
+      const rows = [{ loja_id: outra.id, variante_numero: f.grades[0].variante_numero, grades: {} }];
+      await expect(
+        c.query(`select salvar_direcionamento($1, $2::jsonb)`, [f.cadId, JSON.stringify(rows)]),
+      ).rejects.toThrow(/não encontrada nesta conta/);
+    });
+  });
+
+  it("linha NOVA de loja desativada dá RAISE", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const f = await fixture(c);
+      if (!f) return;
+      const inativa = await um<{ id: string }>(
+        c,
+        `insert into lojas_direcionamento (tenant_id, nome, ativo, ordem) values ($1, 'Inativa Teste', false, 7) returning id`,
+        [TENANT_TESTE],
+      );
+      const rows = [{ loja_id: inativa.id, variante_numero: f.grades[0].variante_numero, grades: {} }];
+      await expect(
+        c.query(`select salvar_direcionamento($1, $2::jsonb)`, [f.cadId, JSON.stringify(rows)]),
+      ).rejects.toThrow(/desativada/);
+    });
+  });
+
+  it("core tem EXECUTE revogado de anon e authenticated (invariante #9)", async () => {
+    await withTx(async (c) => {
+      const r = await um<{ a: boolean; b: boolean }>(
+        c,
+        `select has_function_privilege('anon', 'public._salvar_direcionamento_core(uuid,jsonb,boolean,boolean)', 'EXECUTE') as a,
+                has_function_privilege('authenticated', 'public._salvar_direcionamento_core(uuid,jsonb,boolean,boolean)', 'EXECUTE') as b`,
+      );
+      expect(r.a).toBe(false);
+      expect(r.b).toBe(false);
+    });
+  });
+
+  it("confirmar_direcionamento mantém o gate de CQ no servidor (_cq_liberado)", async () => {
+    await withTx(async (c) => {
+      const r = await um<{ tem: boolean }>(
+        c,
+        `select position('_cq_liberado' in pg_get_functiondef('public.confirmar_direcionamento(uuid,jsonb)'::regprocedure)) > 0 as tem`,
+      );
+      expect(r.tem).toBe(true);
+    });
+  });
+});
