@@ -1529,7 +1529,23 @@ function OcDialog({
     const el = document.getElementById("oc-sec-recebimento");
     if (!el) return;
     pulouRecebimentoRef.current = true;
-    requestAnimationFrame(() => irParaSecao("oc-sec-recebimento"));
+    setSecAtiva("oc-sec-recebimento");
+    // Na 1ª abertura o conteúdo ACIMA ainda carrega e empurra a seção pra baixo
+    // depois do scroll (ficava curto). Re-scroll instantâneo por ~1,8s até o
+    // layout assentar; para na hora se o usuário rolar (wheel/touch).
+    let desisti = false;
+    const parar = () => { desisti = true; };
+    window.addEventListener("wheel", parar, { once: true, passive: true });
+    window.addEventListener("touchstart", parar, { once: true, passive: true });
+    let vezes = 0;
+    const tick = () => {
+      if (desisti) return;
+      const alvo = document.getElementById("oc-sec-recebimento");
+      if (!alvo) return;
+      alvo.scrollIntoView({ block: "start" });
+      if (++vezes < 12) setTimeout(tick, 150);
+    };
+    tick();
   });
   // Scroll-spy simples: ativa = ÚLTIMA seção cujo topo já passou do topo do container.
   const onBodyScroll = (e: React.UIEvent<HTMLDivElement>) => {
