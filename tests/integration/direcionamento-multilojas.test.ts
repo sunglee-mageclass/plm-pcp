@@ -95,6 +95,63 @@ describe.skipIf(!hasDb)("Multi-lojas fase 2 — direcionamento_lojas + backfill 
     });
   });
 
+  it("trigger de rebaixe: cad com direcionamento SÓ no modelo novo (sem linha legada) rebaixa 'separado'→'pendente' quando a grade real muda", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const cad = await um<{ id: string }>(
+        c,
+        `insert into cad (tenant_id, direcionamento_status) values ($1, 'separado') returning id`,
+        [TENANT_TESTE],
+      );
+      await c.query(
+        `insert into cad_grades (cad_id, variante_numero, grades_planejadas, grades_reais)
+         values ($1, 1, '{"P":10}'::jsonb, '{"P":5}'::jsonb)`,
+        [cad.id],
+      );
+      const loja = await um<{ id: string }>(
+        c,
+        `select id from lojas_direcionamento where tenant_id = $1 and is_default limit 1`,
+        [TENANT_TESTE],
+      );
+      await c.query(
+        `insert into direcionamento_lojas (tenant_id, cad_id, loja_id, variante_numero, grades)
+         values ($1, $2, $3, 1, '{}'::jsonb)`,
+        [TENANT_TESTE, cad.id, loja.id],
+      );
+      // sanidade: NENHUMA linha legada para este cad — prova que é o gate NOVO
+      // (EXISTS direcionamento_lojas) que dispara o rebaixe, não o legado.
+      const legado = await um<{ n: string }>(
+        c, `select count(*) as n from direcionamento where cad_id = $1`, [cad.id],
+      );
+      expect(Number(legado.n)).toBe(0);
+
+      // Muda a grade real (como o CQ faria ao confirmar/desmarcar) → dispara o trigger.
+      await c.query(
+        `update cad_grades set grades_reais = '{"P":7}'::jsonb where cad_id = $1 and variante_numero = 1`,
+        [cad.id],
+      );
+
+      const status = await um<{ direcionamento_status: string }>(
+        c, `select direcionamento_status from cad where id = $1`, [cad.id],
+      );
+      expect(status.direcionamento_status).toBe("pendente");
+    });
+  });
+
+  it("excluir_loja_direcionamento: exige tenant_admin/super_admin no corpo (SECURITY DEFINER bypassa RLS, checagem tem que ser explícita)", async () => {
+    await withTx(async (c) => {
+      // Não dá pra simular um usuário NÃO-admin no harness: USER_TESTE (único usuário de
+      // TENANT_TESTE) é super_admin (ver tests/integration/db.ts) — qualquer chamada dele
+      // passa no gate de admin de qualquer forma. A negativa (RAISE p/ chamador sem
+      // tenant_admin/super_admin) foi provada manualmente via psql — ver task-2-report.md.
+      const r = await um<{ tem: boolean }>(
+        c,
+        `select position('is_tenant_admin' in pg_get_functiondef('public.excluir_loja_direcionamento(uuid)'::regprocedure)) > 0 as tem`,
+      );
+      expect(r.tem).toBe(true);
+    });
+  });
+
   it("excluir_loja_direcionamento: loja padrão dá RAISE", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
