@@ -80,8 +80,11 @@ export function MaoObraEditor({
               </span>
             )}
             {/* Remover é edição de VALOR (força re-envio do estado completo). Só p/ quem vê custos —
-                senão um usuário só-aprovador (valores mascarados=null) zeraria os demais no Salvar. */}
-            {podeVerCustos && <Button type="button" variant="ghost" size="iconSm" aria-label="Remover" title="Remover" className={podeAprovar ? "" : "ml-auto"} onClick={() => remover(id)}><Trash2 className="h-4 w-4" /></Button>}
+                senão um usuário só-aprovador (valores mascarados=null) zeraria os demais no Salvar.
+                E só aparece onde o servidor DEIXA remover: linha já APROVADA (livre) OU quem tem a
+                permissão de aprovar (o BEFORE DELETE gate barra remover linha pendente/reprovada sem
+                `producao_servico_aprovacao` → sem esta guarda o botão levava a um 42501 e save parcial). */}
+            {podeVerCustos && (podeAprovar || l.aprovado === true) && <Button type="button" variant="ghost" size="iconSm" aria-label="Remover" title="Remover" className={podeAprovar ? "" : "ml-auto"} onClick={() => remover(id)}><Trash2 className="h-4 w-4" /></Button>}
           </div>
         );
       })}
