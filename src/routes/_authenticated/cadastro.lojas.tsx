@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Store, Plus, Pencil, Trash2, Search, Loader2, ArrowLeft } from "lucide-react";
+import { Store, Plus, Pencil, Trash2, Search, Loader2, ArrowLeft, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,7 +40,15 @@ type Loja = { id: string; nome: string; ativo: boolean; is_default: boolean; ord
 
 function LojasPage() {
   const qc = useQueryClient();
-  const readOnly = useReadOnly();
+  const pageReadOnly = useReadOnly();
+  const { isTenantAdmin, isSuperAdmin } = useAuth();
+  // Escrita em lojas_direcionamento exige tenant_admin/super_admin no banco (RLS de
+  // escrita + excluir_loja_direcionamento) — quem tem canEdit da PÁGINA (permissão
+  // explícita) mas não é admin da loja cairia num beco-sem-saída (formulário liberado,
+  // Salvar/Excluir estourando erro de RLS). Trata como somente-leitura aqui também, com
+  // aviso próprio (o banner genérico da RequirePermission só cobre o caso sem canEdit).
+  const isAdminLoja = isTenantAdmin || isSuperAdmin;
+  const readOnly = pageReadOnly || !isAdminLoja;
   const [search, setSearch] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<Loja | null>(null);
@@ -182,6 +191,13 @@ function LojasPage() {
           </p>
         </div>
       </header>
+
+      {!pageReadOnly && !isAdminLoja && (
+        <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+          <Lock className="h-4 w-4 shrink-0" />
+          Apenas o administrador da loja pode editar.
+        </div>
+      )}
 
       <div className="flex items-center gap-2">
         <div className="relative flex-1">

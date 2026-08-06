@@ -589,3 +589,75 @@ describe.skipIf(!hasDb)("Multi-lojas fase 5 — fix wave: delete defensivo + pod
     });
   });
 });
+
+// Fase 6 (fast-follow de hardening — review final, migração 20260805190000): escrita nas
+// LINHAS de direcionamento virou RPC-only. `direcionamento_lojas` (modelo novo) e
+// `direcionamento` (legado, INERTE) tinham INSERT/UPDATE/DELETE liberados pro PostgREST —
+// o `ALTER DEFAULT PRIVILEGES` da Supabase concede ALL a `authenticated`/`anon` em toda
+// tabela nova, e nenhum código cliente precisava disso (save/confirma sempre passaram pelas
+// RPCs SECURITY DEFINER `salvar_direcionamento`/`confirmar_direcionamento`, que validam
+// grade/CQ/loja no servidor). Este teste é ANTI-DRIFT: uma recriação da tabela (ex.: rodar
+// de novo a migração de origem, ou um GRANT acidental) reconcede ALL por padrão — sem este
+// teste a regressão passaria batido. NÃO cobre `lojas_direcionamento` (o CADASTRO de lojas
+// segue escrevendo direto nela; a RLS já exige tenant_admin/super_admin desde 20260805120000).
+describe.skipIf(!hasDb)("Multi-lojas fase 6 — escrita RPC-only (hardening)", () => {
+  it("authenticated NÃO tem INSERT/UPDATE/DELETE direto em direcionamento_lojas nem direcionamento (só via RPC)", async () => {
+    await withTx(async (c) => {
+      const r = await um<{
+        dlIns: boolean; dlUpd: boolean; dlDel: boolean;
+        dIns: boolean; dUpd: boolean; dDel: boolean;
+      }>(
+        c,
+        `select
+           has_table_privilege('authenticated', 'public.direcionamento_lojas', 'INSERT') as "dlIns",
+           has_table_privilege('authenticated', 'public.direcionamento_lojas', 'UPDATE') as "dlUpd",
+           has_table_privilege('authenticated', 'public.direcionamento_lojas', 'DELETE') as "dlDel",
+           has_table_privilege('authenticated', 'public.direcionamento', 'INSERT') as "dIns",
+           has_table_privilege('authenticated', 'public.direcionamento', 'UPDATE') as "dUpd",
+           has_table_privilege('authenticated', 'public.direcionamento', 'DELETE') as "dDel"`,
+      );
+      expect(r.dlIns).toBe(false);
+      expect(r.dlUpd).toBe(false);
+      expect(r.dlDel).toBe(false);
+      expect(r.dIns).toBe(false);
+      expect(r.dUpd).toBe(false);
+      expect(r.dDel).toBe(false);
+    });
+  });
+
+  it("authenticated ainda LÊ as duas tabelas (SELECT não foi revogado — a tela de Direcionamento e o rebaixe/gate downstream dependem disso)", async () => {
+    await withTx(async (c) => {
+      const r = await um<{ dlSel: boolean; dSel: boolean }>(
+        c,
+        `select
+           has_table_privilege('authenticated', 'public.direcionamento_lojas', 'SELECT') as "dlSel",
+           has_table_privilege('authenticated', 'public.direcionamento', 'SELECT') as "dSel"`,
+      );
+      expect(r.dlSel).toBe(true);
+      expect(r.dSel).toBe(true);
+    });
+  });
+
+  it("os 4 excluir_* sensíveis: PUBLIC/anon sem EXECUTE, authenticated com EXECUTE (REVOKE de verdade — o antigo só tirava anon, PUBLIC herdava)", async () => {
+    await withTx(async (c) => {
+      const fns = [
+        "public.excluir_loja_direcionamento(uuid)",
+        "public.excluir_tecido(uuid)",
+        "public.excluir_variante_tecido(uuid)",
+        "public.excluir_rolo(uuid)",
+      ];
+      for (const fn of fns) {
+        const r = await um<{ pub: boolean; anon: boolean; auth: boolean }>(
+          c,
+          `select
+             has_function_privilege('public', '${fn}', 'EXECUTE') as pub,
+             has_function_privilege('anon', '${fn}', 'EXECUTE') as anon,
+             has_function_privilege('authenticated', '${fn}', 'EXECUTE') as auth`,
+        );
+        expect(r.pub).toBe(false);
+        expect(r.anon).toBe(false);
+        expect(r.auth).toBe(true);
+      }
+    });
+  });
+});
