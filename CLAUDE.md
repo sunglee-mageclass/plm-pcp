@@ -328,22 +328,28 @@ e verifique** — o repo muda rápido.
    (sentinela nil → RLS bloqueia + RPCs dão RAISE). `reset_loja`/`excluir_loja` são
    super_admin-only; `_wipe_tenant_core` usa `session_replication_role=replica` (FKs p/
    `tenants` são NO ACTION); super_admins nunca são apagados.
-10. **Direcionamento** — split da Grade Real em E-commerce (digitado) + Loja Física.
-    O split é **derivado e travado no SERVIDOR** (`_salvar_direcionamento_core`): lê a
-    grade real autoritativa de `cad_grades.grades_reais` (ignora real/loja_fisica/totais
-    do cliente), garante `ecommerce ≤ real` por tamanho (`salvar_direcionamento`=rascunho
-    clampa; `confirmar_direcionamento`=RAISE) e recomputa `loja_fisica`+totais por soma —
-    invariante `Σec + Σloja = Σreal`. **Confirmar é atômico** (`confirmar_direcionamento`
-    = save strict + `cad.direcionamento_status='separado'` numa txn; NÃO fazer save+update
-    separados no front) e **exige CQ liberado no SERVIDOR** (`_cq_liberado(_cad_id)`, espelho de
-    `@/lib/cq-status` — Pré confirmado E, se há serviço pós-costura ativo, Pós confirmado; jul/2026:
-    fecha o bypass de confirmar via URL direta sem passar pelo filtro da lista). **Grade real defasada rebaixa**: trigger `trg_rebaixa_direcionamento_grade`
-    em `cad_grades` — se a grade real muda (CQ confirmar/desmarcar/reconfirmar) e o
-    Direcionamento estava 'separado', volta a 'pendente' + acende `#Erro` na etapa
-    `direcionamento` (espelha o M2 do CQ). 2º lote NÃO entra no split (a grade real já o
-    desconta). ⚠️ A queryKey `["cad-grades", cad?.id]` é **compartilhada** por Direcionamento
-    (sufixo `"reais"`) e Oficina (`"full"`) com `select` de colunas diferentes — sufixo por
-    consumidor evita shape errado; o CQ invalida por prefixo (casa ambos).
+10. **Direcionamento MULTI-LOJAS (ago/2026)** — a Grade Real é distribuída em **N linhas
+    digitáveis, uma por loja** do cadastro `lojas_direcionamento` (Cadastro > Lojas;
+    seed "E-commerce" default + "Loja Física"; default não-excluível; RLS de escrita e
+    `excluir_loja_direcionamento` exigem tenant_admin). Linhas em `direcionamento_lojas`
+    (cad × loja × variante, UNIQUE triplo); a tabela legada `direcionamento` está
+    **INERTE** (backfill feito; nada escreve nela — não reintroduzir leitor/writer).
+    Validação **no SERVIDOR** (`_salvar_direcionamento_core` v2, payload
+    `[{loja_id, variante_numero, grades}]` = **estado COMPLETO** — linha ausente é
+    APAGADA; front monta sempre o estado inteiro): grade real autoritativa de
+    `cad_grades.grades_reais`; rascunho livre; **Confirmar = RAISE P0001 em PT se
+    Σ por tamanho ≠ real** (mensagem com tamanho+diferença — não trocar o ERRCODE:
+    23514 seria engolido pelo erro-mensagem.ts), atômico com `direcionamento_status=
+    'separado'` e **exige CQ liberado** (`_cq_liberado`). Linha nova só em loja ATIVA do
+    tenant (front espelha: célula de loja inativa sem par histórico fica disabled —
+    `paresHistoricos`). Rodapé vivo usa `@/lib/direcionamento-diff` (não reimplementar a
+    conta). **Gates downstream olham as DUAS tabelas** (`fn_rebaixa_direcionamento_grade`,
+    `modelo_etapas_afetadas`, `marcar_revisao_por_mudanca` — `EXISTS legado OR EXISTS
+    novo`; qualquer gate novo por direcionamento deve fazer igual). Trigger de rebaixa:
+    grade real mudou + estava 'separado' → 'pendente' + `#Erro` (espelha o M2 do CQ).
+    2º lote NÃO entra (a grade real já o desconta). ⚠️ A queryKey `["cad-grades", cad?.id]`
+    é **compartilhada** por Direcionamento (sufixo `"reais"`) e Oficina (`"full"`) —
+    sufixo por consumidor; o CQ invalida por prefixo E `["direcionamento-lojas", id]`.
 11. **REF automática do modelo** — ao CHEGAR em Desenvolvimento (`ordem_criacao_enviada=true`) a REF
     é gerada por trigger `fn_modelo_ref_auto` (`BEFORE INSERT/UPDATE`, DEFINER): sigla = Grupo (2
     iniciais; multi-palavra = inicial de cada, "One Piece"→OP) + Categoria (1ª letra) + Subcategoria1
