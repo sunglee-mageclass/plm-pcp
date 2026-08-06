@@ -333,7 +333,8 @@ e verifique** — o repo muda rápido.
     seed "E-commerce" default + "Loja Física"; default não-excluível; RLS de escrita e
     `excluir_loja_direcionamento` exigem tenant_admin). Linhas em `direcionamento_lojas`
     (cad × loja × variante, UNIQUE triplo); a tabela legada `direcionamento` está
-    **INERTE** (backfill feito; nada escreve nela — não reintroduzir leitor/writer).
+    **INERTE** (backfill feito; nenhum save NOVO cria linha nela — rebaixe/limpezas
+    legítimas seguem tocando o legado, não remover esses blocos; não reintroduzir leitor/writer NOVO).
     Validação **no SERVIDOR** (`_salvar_direcionamento_core` v2, payload
     `[{loja_id, variante_numero, grades}]` = **estado COMPLETO** — linha ausente é
     APAGADA; front monta sempre o estado inteiro): grade real autoritativa de

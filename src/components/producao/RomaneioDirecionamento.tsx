@@ -76,8 +76,8 @@ export function RomaneioDirecionamento({
     gPorLoja.forEach((pl, i) => { pl.vals[t] = porLojaT[i]; });
   });
 
-  const renderRow = (label: string, vals: Record<string, number>) => (
-    <tr key={label}>
+  const renderRow = (label: string, vals: Record<string, number>, keyId?: string) => (
+    <tr key={keyId ?? label}>
       <td style={{ ...cell, fontWeight: 600 }}>{label}</td>
       {tamanhos.map((t) => <td key={t} style={cellC}>{vals[t] ?? 0}</td>)}
       <td style={{ ...cellC, fontWeight: 700 }}>{sum(vals)}</td>
@@ -94,9 +94,9 @@ export function RomaneioDirecionamento({
         </tr>
       </thead>
       <tbody>
-        {renderRow("Grade Real", vals.real)}
-        {vals.porLoja.map((pl) => renderRow(pl.loja.nome, pl.vals))}
-        {renderRow("Σ Direcionado", vals.dir)}
+        {renderRow("Grade Real", vals.real, "real")}
+        {vals.porLoja.map((pl) => renderRow(pl.loja.nome, pl.vals, `loja-${pl.loja.id}`))}
+        {renderRow("Σ Direcionado", vals.dir, "dir")}
       </tbody>
     </table>
   );

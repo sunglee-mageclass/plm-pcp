@@ -445,3 +445,147 @@ describe.skipIf(!hasDb)("Multi-lojas fase 4 — gate downstream (modelo_etapas_a
     });
   });
 });
+
+// Fase 5 (fix wave — review final de branch): três pontos que já cuidavam do downstream do
+// Direcionamento tocavam SÓ a tabela LEGADA `direcionamento`, deixando `direcionamento_lojas`
+// (o modelo novo, escrito desde a Task 3) fora do alcance. Migração 20260805180000:
+// (1) `_reverter_corte_tecido_core` e `_voltar_cq_para_servico_core` ganharam o delete
+// defensivo espelhado; (2) `_poda_variantes_cad` — o PRODUTOR real de linhas órfãs (variante
+// removida do Tecido 1 sem podar `direcionamento_lojas` travava "Confirmar" no front e
+// `excluir_loja_direcionamento`) — ganhou o mesmo DELETE por variante; (3)
+// `_dashboard_producao_core` ganhou o OR EXISTS na timeline (mesmo padrão da fase 4).
+describe.skipIf(!hasDb)("Multi-lojas fase 5 — fix wave: delete defensivo + poda + dashboard", () => {
+  it("reverter_corte_tecido: cad direcionado SÓ no modelo novo (sem linha legada) some de direcionamento_lojas", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const modelo = await um<{ id: string }>(
+        c, `insert into modelos (nome) values ($1) returning id`, ["FIXWAVE REVERTER CORTE TESTE"],
+      );
+      const cad = await um<{ id: string }>(
+        c,
+        `insert into cad (tenant_id, modelo_id, enviado_corte, status_corte) values ($1, $2, true, 'cortado') returning id`,
+        [TENANT_TESTE, modelo.id],
+      );
+      const loja = await um<{ id: string }>(
+        c, `select id from lojas_direcionamento where tenant_id = $1 and is_default limit 1`, [TENANT_TESTE],
+      );
+      await c.query(
+        `insert into direcionamento_lojas (tenant_id, cad_id, loja_id, variante_numero, grades)
+         values ($1, $2, $3, 1, '{}'::jsonb)`,
+        [TENANT_TESTE, cad.id, loja.id],
+      );
+      // sanidade: nenhuma linha legada para este cad — prova que é direcionamento_lojas
+      // (o gate/limpeza NOVO) que o teste cobre, não o legado.
+      const legado = await um<{ n: string }>(c, `select count(*) as n from direcionamento where cad_id = $1`, [cad.id]);
+      expect(Number(legado.n)).toBe(0);
+
+      await c.query(`select reverter_corte_tecido($1)`, [cad.id]);
+
+      const n = await um<{ n: string }>(
+        c, `select count(*) as n from direcionamento_lojas where cad_id = $1`, [cad.id],
+      );
+      expect(Number(n.n)).toBe(0);
+    });
+  });
+
+  it("_poda_variantes_cad (via salvar_cad_completo, caminho real): remover uma variante do Tecido 1 apaga só a linha DELA em direcionamento_lojas", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      // Artigo da própria loja com pelo menos 2 variantes cadastradas (fixture real, não
+      // inventada) — sem isso não dá pra montar um Tecido-1 com 2 variantes pra podar 1.
+      const artigo = await um<{ id: string } | undefined>(
+        c,
+        `select vt.artigo_id as id from variantes_tecido vt
+           join artigos a on a.id = vt.artigo_id and a.tenant_id = $1
+          group by vt.artigo_id having count(*) >= 2 limit 1`,
+        [TENANT_TESTE],
+      );
+      if (!artigo) return;
+      const vars = await c.query(
+        `select id from variantes_tecido where artigo_id = $1 order by id limit 2`,
+        [artigo.id],
+      );
+      const [var1, var2] = vars.rows.map((r: { id: string }) => r.id);
+
+      const modelo = await um<{ id: string }>(
+        c, `insert into modelos (nome) values ($1) returning id`, ["FIXWAVE PODA VARIANTE TESTE"],
+      );
+
+      // 1º save: Tecido 1 com 2 variantes (ordem 1 e 2) + grade pra cada uma → cria o cad.
+      const tecidosFull = [{
+        artigo_id: artigo.id, numero: 1, tipo: "tecido",
+        variantes: [{ variante_tecido_id: var1, ordem: 1 }, { variante_tecido_id: var2, ordem: 2 }],
+      }];
+      const gradesFull = [
+        { variante_numero: 1, grades: { P: 1 }, grade_total: 1 },
+        { variante_numero: 2, grades: { P: 1 }, grade_total: 1 },
+      ];
+      const salvo = await um<{ cad_id: string }>(
+        c,
+        `select salvar_cad_completo($1, $2::jsonb, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, $7, $8) as cad_id`,
+        [modelo.id, JSON.stringify(tecidosFull), JSON.stringify(gradesFull), JSON.stringify([]), JSON.stringify([]), JSON.stringify({}), null, null],
+      );
+      const cadId = salvo.cad_id;
+
+      // Direcionamento (rascunho) das DUAS variantes, como o usuário faria antes de remover uma.
+      const loja = await um<{ id: string }>(
+        c, `select id from lojas_direcionamento where tenant_id = $1 and is_default limit 1`, [TENANT_TESTE],
+      );
+      await c.query(
+        `insert into direcionamento_lojas (tenant_id, cad_id, loja_id, variante_numero, grades) values ($1,$2,$3,1,'{}'::jsonb)`,
+        [TENANT_TESTE, cadId, loja.id],
+      );
+      await c.query(
+        `insert into direcionamento_lojas (tenant_id, cad_id, loja_id, variante_numero, grades) values ($1,$2,$3,2,'{}'::jsonb)`,
+        [TENANT_TESTE, cadId, loja.id],
+      );
+
+      // 2º save: Tecido 1 SÓ com a variante ordem 1 (caminho REAL — é _salvar_cad_completo_core
+      // quem chama _poda_variantes_cad, depois de reinserir cad_tecidos/cad_tecido_variantes).
+      const tecidosPruned = [{
+        artigo_id: artigo.id, numero: 1, tipo: "tecido",
+        variantes: [{ variante_tecido_id: var1, ordem: 1 }],
+      }];
+      const gradesPruned = [{ variante_numero: 1, grades: { P: 1 }, grade_total: 1 }];
+      await c.query(
+        `select salvar_cad_completo($1, $2::jsonb, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, $7, $8)`,
+        [modelo.id, JSON.stringify(tecidosPruned), JSON.stringify(gradesPruned), JSON.stringify([]), JSON.stringify([]), JSON.stringify({}), null, null],
+      );
+
+      const restantes = await c.query(
+        `select variante_numero from direcionamento_lojas where cad_id = $1 order by variante_numero`,
+        [cadId],
+      );
+      expect(restantes.rows.map((r: { variante_numero: number }) => r.variante_numero)).toEqual([1]);
+    });
+  });
+
+  it("dashboard_producao: cad com rascunho SÓ em direcionamento_lojas (sem linha legada) reporta etapa 'Direcionamento' na timeline", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const modelo = await um<{ id: string }>(
+        c, `insert into modelos (nome) values ($1) returning id`, ["FIXWAVE DASHBOARD DIRECIONAMENTO TESTE"],
+      );
+      const cad = await um<{ id: string }>(
+        c, `insert into cad (tenant_id, modelo_id) values ($1, $2) returning id`, [TENANT_TESTE, modelo.id],
+      );
+      const loja = await um<{ id: string }>(
+        c, `select id from lojas_direcionamento where tenant_id = $1 and is_default limit 1`, [TENANT_TESTE],
+      );
+      await c.query(
+        `insert into direcionamento_lojas (tenant_id, cad_id, loja_id, variante_numero, grades) values ($1,$2,$3,1,'{}'::jsonb)`,
+        [TENANT_TESTE, cad.id, loja.id],
+      );
+      const legado = await um<{ n: string }>(c, `select count(*) as n from direcionamento where cad_id = $1`, [cad.id]);
+      expect(Number(legado.n)).toBe(0);
+
+      // Via o WRAPPER (gate de permissão): USER_TESTE é super_admin no harness (ver db.ts),
+      // então user_can_view('dashboard_producao') passa igual a um admin real da loja.
+      const r = await um<{ resultado: { timeline: { id: string; etapa: string }[] } }>(
+        c, `select dashboard_producao() as resultado`,
+      );
+      const linha = r.resultado.timeline.find((x) => x.id === cad.id);
+      expect(linha?.etapa).toBe("Direcionamento");
+    });
+  });
+});
