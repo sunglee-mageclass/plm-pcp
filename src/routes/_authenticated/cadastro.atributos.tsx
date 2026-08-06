@@ -320,6 +320,7 @@ const ATTRIBUTES: AttributeItem[] = [
       // Corte e Oficina são fixos do sistema (semeados por loja); não podem ser
       // renomeados nem excluídos — "Oficina" alimenta a detecção do fluxo de oficina.
       protectedNames: ["corte", "oficina"],
+      toggleField: { field: "ativo", label: "Ativo", hint: "Desligar esconde o serviço de novos usos (não exclui)." },
     },
   },
   {

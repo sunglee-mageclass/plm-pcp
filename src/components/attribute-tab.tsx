@@ -41,6 +41,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { useReadOnly } from "@/components/RequirePermission";
 import { useSort, SortHead } from "@/components/shared/sort";
@@ -82,6 +83,8 @@ export type AttributeTabConfig = {
   fixed?: boolean;
   /** Coluna de ordenação da lista e dos dropdowns (ex.: "ordem"). Default: nameField. */
   orderField?: string;
+  /** Toggle booleano por linha (soft-hide). Coluna `field` bool NOT NULL. Ex.: ativo. */
+  toggleField?: { field: string; label: string; hint?: string };
 };
 
 type Row = Record<string, any>;
@@ -108,7 +111,7 @@ export function AttributeTab({
   const { isAdmin } = useAuth(); // exclusão em massa é só p/ admin+ (tenant_admin ou super_admin)
   // Conjunto fixo (meses): sem criar/excluir/seleção em massa — só renomear.
   const showCheck = isAdmin && !config.fixed;
-  const colCount = 2 + (showCheck ? 1 : 0) + (config.extra ? 1 : 0) + (config.extraNumber ? 1 : 0) + (config.extraEnum ? 1 : 0);
+  const colCount = 2 + (showCheck ? 1 : 0) + (config.extra ? 1 : 0) + (config.extraNumber ? 1 : 0) + (config.extraEnum ? 1 : 0) + (config.toggleField ? 1 : 0);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [deleteRow, setDeleteRow] = useState<Row | null>(null);
@@ -328,6 +331,24 @@ export function AttributeTab({
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao atualizar.")),
   });
 
+  const updateToggleMut = useMutation({
+    mutationFn: async ({ id, value }: { id: string; value: boolean }) => {
+      if (!config.toggleField) return;
+      const { data, error } = await supabase
+        .from(config.table as any)
+        .update({ [config.toggleField.field]: value })
+        .eq("id", id)
+        .select("id");
+      if (error) throw error;
+      if (!data || data.length === 0) throw new Error("Sem permissão para editar este item.");
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: listKey });
+      onChanged?.();
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao alterar")),
+  });
+
   const deleteMut = useMutation({
     mutationFn: async (id: string) => {
       const { data, error } = await supabase.from(config.table as any).delete().eq("id", id).select("id");
@@ -443,6 +464,9 @@ export function AttributeTab({
               )}
               {config.extraEnum && (
                 <SortHead label={config.extraEnum.label} sortKey={config.extraEnum.field} sortState={sortState} className="w-44" />
+              )}
+              {config.toggleField && (
+                <TableHead className="w-32">{config.toggleField.label}</TableHead>
               )}
               <TableHead className="w-32 text-right">Ações</TableHead>
             </TableRow>
@@ -568,6 +592,21 @@ export function AttributeTab({
                           ))}
                         </SelectContent>
                       </Select>
+                    </TableCell>
+                  )}
+                  {config.toggleField && (
+                    <TableCell>
+                      <div className="flex items-center gap-2" title={config.toggleField.hint}>
+                        <Switch
+                          checked={row[config.toggleField.field] !== false}
+                          onCheckedChange={(v) => updateToggleMut.mutate({ id: row.id, value: v })}
+                          aria-label={config.toggleField.label}
+                          disabled={readOnly || updateToggleMut.isPending}
+                        />
+                        <span className="text-xs text-muted-foreground">
+                          {row[config.toggleField.field] !== false ? "Ativo" : "Inativo"}
+                        </span>
+                      </div>
                     </TableCell>
                   )}
                   <TableCell className="text-right">

@@ -253,9 +253,8 @@ export function TerceirizadosDetail({
   const { data: categorias = [], error: categoriasError, isLoading: categoriasLoading } = useQuery({
     queryKey: ["categorias_terceirizado"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("categorias_terceirizado")
-        .select("id, nome, etapa")
+      const { data, error } = await (supabase.from("categorias_terceirizado") as any)
+        .select("id, nome, etapa, ativo")
         .order("ordem")
         .order("nome");
       if (error) throw error;
@@ -706,6 +705,14 @@ export function TerceirizadosDetail({
   // Trava POR ABA: cada etapa (pré/pós) tem seu "finalizado" + lápis. Finalizar o pré
   // não trava o pós (que ainda nem aconteceu), e vice-versa.
   const blocosDaAba = blocos.filter((b) => catEtapa(b.categoria_terceirizado_id) === tabEtapa);
+  // Botões "Categorias do Serviço" (só p/ ADICIONAR bloco novo): categoria inativa some,
+  // exceto se já existir um bloco dela no modelo (aí some esmaecida — permite editar o
+  // existente, mas não convida a criar outro).
+  const catsDaAba = (categorias as any[]).filter(
+    (cat) =>
+      (cat.etapa ?? "ate_costura") === tabEtapa &&
+      (cat.ativo !== false || blocos.some((b) => b.categoria_terceirizado_id === cat.id)),
+  );
   // A trava reflete o estado SALVO (existing), NÃO o que está sendo digitado — senão travava no
   // meio da digitação (ex.: ao começar a digitar a qtd recebida). Só trava após Salvar. Marcar
   // "não há pós" também trava (o checkbox auto-salva).
@@ -885,14 +892,17 @@ export function TerceirizadosDetail({
       <Card className="p-4">
         <Label className="text-sm font-semibold mb-3 block">Categorias do Serviço (clique para adicionar um bloco)</Label>
         <div className="flex flex-wrap gap-2">
-          {(categorias as any[]).filter((c) => (c.etapa ?? "ate_costura") === tabEtapa).map((c) => {
+          {catsDaAba.map((c) => {
             const count = countByCat[c.id] ?? 0;
+            const inativa = c.ativo === false;
             return (
               <Button
                 key={c.id}
                 type="button"
                 variant={count > 0 ? "default" : "outline"}
                 size="sm"
+                className={inativa ? "opacity-60" : undefined}
+                title={inativa ? "Serviço desativado — some das novas seleções" : undefined}
                 onClick={() => addCategoria(c.id, c.nome)}
               >
                 <Plus className="h-3.5 w-3.5 mr-1" />
