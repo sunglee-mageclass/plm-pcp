@@ -21,6 +21,13 @@ trabalho é **estender** essa cobertura e usar a verificação estática como re
 - Checagem de regressões conhecidas (parcelas OC, ledger de estoque, grade real do CQ, queryKeys).
 - Cuidados da suíte: âncora = Loja Teste (`37889b78…`); todo usuário é super_admin (usar
   UUID sem papel p/ testar bloqueio); CI deve apontar p/ banco dedicado, nunca produção.
+- QA ao vivo de mecanismo de segurança/concorrência (lock otimista, detecção de conflito,
+  idempotência): o sinal literal de UI (toast, texto) aparecer correto NÃO prova que a garantia
+  de estado se sustentou. Quando um sinal secundário esperado (destaque, banner, campo
+  desabilitado) estiver ausente mas o critério literal passar, rode mais uma ação barata e
+  não-destrutiva (repetir a ação, aguardar mais um ciclo de render) e **confirme no banco via
+  SQL** o estado persistido antes de reportar como passou — distinga "cosmético/timing" de
+  "perda silenciosa de dado" empiricamente, nunca por leitura de UI isolada.
 
 # ESPECIALIDADE sisTrama
 - Verificação sem runner: build/tsc/lint + SQL manual. ⚠️ embeds do PostgREST **não**

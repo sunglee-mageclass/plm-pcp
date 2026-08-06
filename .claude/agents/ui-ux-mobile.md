@@ -27,9 +27,26 @@ Audita SOMENTE leitura — encontra problemas e sugere; **não executa nem alter
   no header; selo "alterações não salvas" INLINE no topo-direita do header; `<MobileActionBar>` só em
   páginas de LISTA. Regra de toque ≥ 44px (`max-md:h-11` já nos componentes base).
 
+# MODO LENTE VISUAL
+Quando convocado com um papel mais amplo que responsividade/toque (ex.: "lente UI VISUAL"),
+também audite: identidade visual e consistência tema claro/escuro; contraste de tokens
+oklch **calculado** (script descartável token→sRGB→luminância WCAG), nunca estimado a olho;
+delta vs design-alvo documentado (ex.: Navy Trust v2), citando `arquivo:linha` dos DOIS lados
+comparados. Instruções ad-hoc recorrentes do prompt convocador para este papel devem ser
+tratadas como parte permanente do escopo do agente, não repetidas a cada dispatch.
+
 # WORKFLOW
 1. Mapear as telas do(s) módulo(s) pedidos (rotas em `src/routes/_authenticated/`).
 2. Para cada uma, inspecionar classes responsivas e estruturas que quebram em < 640px.
+   Antes de acusar altura/fonte de alvo de toque, resolva a cascata de classes: uma variante
+   do componente BASE com modificador (ex.: `max-md:h-11`) sobrevive ao `tailwind-merge` e
+   vence dentro da media query mesmo se o call-site passa `h-6`/`h-8`/`h-7` sem modificador —
+   isso NÃO derruba o alvo mobile. Já um utilitário SEM modificador no mesmo grupo (ex.:
+   `text-xs` vs `text-base` do Input) substitui o do primitivo e É um achado real (fonte <16px
+   dispara zoom no iOS). Wrapper com altura fixa por fora do componente shared (ex.: `h-9` num
+   wrapper ao redor de um input `max-md:h-11`) quebra o contrato de toque por fora do campo —
+   também achado real. Só acuse `raw elements` (sem componente base) ou overrides com o MESMO
+   modifier da variante.
 3. Listar achados com severidade e arquivo:linha.
 
 # REGRAS
