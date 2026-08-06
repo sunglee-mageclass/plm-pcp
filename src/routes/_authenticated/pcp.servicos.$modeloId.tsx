@@ -8,6 +8,7 @@ import { mensagemErro } from "@/lib/erro-mensagem";
 import { corApelidoLabelServico } from "@/lib/variante";
 import { somaCustosAdicionais } from "@/lib/custo";
 import type { MoLinha, EstadoMO } from "@/lib/mao-obra";
+import { type CelulaGrade, type GradeDetalhe, CELULA_ZERO, somaCampo as somaGrade, saldoCelula } from "@/lib/grade-cortada";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
@@ -80,17 +81,6 @@ type Bloco = {
   detalhado: boolean;
   grade_detalhe: GradeDetalhe;
 };
-
-// { variante_tecido_id: { tamanho: { enviada, recebida, defeito } } }
-type CelulaGrade = { enviada: number; recebida: number; defeito: number };
-type GradeDetalhe = Record<string, Record<string, CelulaGrade>>;
-const CELULA_ZERO: CelulaGrade = { enviada: 0, recebida: 0, defeito: 0 };
-// Soma um campo (enviada/recebida/defeito) sobre toda a grade de um bloco.
-function somaGrade(g: GradeDetalhe | undefined, campo: keyof CelulaGrade): number {
-  let s = 0;
-  for (const varId in g ?? {}) for (const tam in g![varId]) s += Number(g![varId][tam]?.[campo]) || 0;
-  return s;
-}
 
 const STATUS_COLORS: Record<string, string> = {
   pendente: "bg-amber-500",
@@ -1029,7 +1019,7 @@ export function TerceirizadosDetail({
                     const on = e.target.checked;
                     if (on && gradeTpl && somaGrade(b.grade_detalhe, "enviada") === 0 && Object.keys(b.grade_detalhe ?? {}).length === 0) {
                       const g: GradeDetalhe = {};
-                      for (const v of gradeTpl.variantes) { g[v.id] = {}; for (const t of gradeTpl.tamanhos) g[v.id][t] = { enviada: Number(gradeTpl.planejado[v.id]?.[t]) || 0, recebida: 0, defeito: 0 }; }
+                      for (const v of gradeTpl.variantes) { g[v.id] = {}; for (const t of gradeTpl.tamanhos) g[v.id][t] = { enviada: Number(gradeTpl.planejado[v.id]?.[t]) || 0, cortada: 0, recebida: 0, defeito: 0 }; }
                       updateBloco(idx, { detalhado: true, grade_detalhe: g });
                     } else updateBloco(idx, { detalhado: on });
                   }}
@@ -1121,6 +1111,18 @@ export function TerceirizadosDetail({
                   onChange={(e) => updateBloco(idx, { quantidade_enviada: Number(e.target.value) })}
                 />
               </div>
+              {b.detalhado && (
+                <div>
+                  <Label className="text-xs">Qtd Cortada (Σ grade)</Label>
+                  <Input readOnly value={somaGrade(b.grade_detalhe, "cortada")} className="bg-muted/40" />
+                </div>
+              )}
+              {b.detalhado && (
+                <div>
+                  <Label className="text-xs">Saldo a receber (Σ)</Label>
+                  <Input readOnly value={somaGrade(b.grade_detalhe, "cortada") - somaGrade(b.grade_detalhe, "recebida")} className="bg-muted/40" />
+                </div>
+              )}
 
               <div>
                 <Label className="text-xs">Data Enviado</Label>
@@ -1382,10 +1384,12 @@ export function TerceirizadosDetail({
   );
 }
 
-// Editor da grade por tamanho × variante — 3 tabelas (Enviada / Recebida / Defeito). Chaveado por
-// variante_tecido_id; tamanho no formato "38|P" (exibe o rótulo). Total por linha à direita.
+// Editor da grade por tamanho × variante — 4 tabelas (Enviada / Cortada / Recebida / Defeito) +
+// Saldo a receber (derivado, read-only). Chaveado por variante_tecido_id; tamanho no formato
+// "38|P" (exibe o rótulo). Total por linha à direita.
 const CAMPOS_GRADE: { k: keyof CelulaGrade; label: string }[] = [
   { k: "enviada", label: "Enviada" },
+  { k: "cortada", label: "Cortada" },
   { k: "recebida", label: "Recebida" },
   { k: "defeito", label: "Defeito" },
 ];
@@ -1445,6 +1449,36 @@ function GradeEditor({
           </div>
         </div>
       ))}
+      {/* Saldo a receber = Cortada − Recebida (derivado; negativo = recebido a mais). */}
+      <div>
+        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Saldo a receber (Cortada − Recebida)</div>
+        <div className="overflow-x-auto">
+          <table className="text-xs tabular-nums">
+            <thead className="text-muted-foreground">
+              <tr>
+                <th className="p-1 text-left font-medium">Variante</th>
+                {tpl.tamanhos.map((t) => <th key={t} className="p-1 text-center font-medium">{tamLabel(t)}</th>)}
+                <th className="p-1 text-center font-medium">Σ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tpl.variantes.map((v) => {
+                let linhaTotal = 0;
+                return (
+                  <tr key={v.id} className="border-t">
+                    <td className="whitespace-nowrap p-1">{v.label}</td>
+                    {tpl.tamanhos.map((t) => {
+                      const s = saldoCelula(cel(v.id, t)); linhaTotal += s;
+                      return <td key={t} className={`p-1 text-center ${s < 0 ? "text-destructive font-semibold" : ""}`}>{s}</td>;
+                    })}
+                    <td className={`p-1 text-center font-medium ${linhaTotal < 0 ? "text-destructive" : ""}`}>{linhaTotal}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
