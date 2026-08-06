@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { corApelidoLabelServico } from "@/lib/variante";
 import { somaCustosAdicionais } from "@/lib/custo";
+import type { MoLinha, EstadoMO } from "@/lib/mao-obra";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
@@ -613,8 +614,25 @@ export function TerceirizadosDetail({
   // + custos adicionais do modelo (seguem para frente desde o Desenvolvimento — src/lib/custo.ts).
   const custosAdicionaisPeca = somaCustosAdicionais((modelo as any)?.custos_adicionais);
   const custoRealPeca = (Number(materiaisPorPeca) || 0) + servicoPorPeca + custosAdicionaisPeca;
-  // Aprovação da MO (flag por modelo, feita no Planejamento): true/false/null=pendente.
-  const moAprovada = (modelo as any)?.custo_terceirizados_aprovado as boolean | null | undefined;
+
+  // Resumo da MO PLANEJADA aprovada por serviço (Task 6, RPC `modelo_mo_resumo` da Task 4).
+  // Distinto do "Custo real (c/ serviço)/peça" acima (blocos EXECUTADOS na produção): este lê o
+  // PLANEJADO/aprovado no Planejamento. Mascara total/total_aprovado p/ quem não vê custos — mas
+  // o card já é gated por `podeVerPrecos` (∈ `_pode_ver_custos`), então na prática não chega mascarado.
+  const { data: moResumo } = useQuery({
+    queryKey: ["pcp-mo-resumo", modeloId],
+    enabled: !!modeloId && podeVerPrecos,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("modelo_mo_resumo" as any, { _ids: [modeloId] });
+      if (error) throw error;
+      return ((data as any)?.[modeloId] ?? null) as
+        { estado: EstadoMO; total: number | null; total_aprovado: number | null; linhas: (MoLinha & { valor: number | null })[] } | null;
+    },
+  });
+  // `total_aprovado` null = mascarado (sem permissão de custo) — não vira "R$ 0,00" enganoso.
+  const moTotalAprovado = moResumo?.total_aprovado != null ? Number(moResumo.total_aprovado) : null;
+  const moEstado = moResumo?.estado ?? null;
+  const moLinhas = moResumo?.linhas ?? [];
 
   const saveMut = useMutation({
     mutationFn: async () => {
@@ -872,18 +890,31 @@ export function TerceirizadosDetail({
         )}
         {podeVerPrecos && (
         <div>
-          {/* MO Aprovada (dono, ago/2026): valor da mão de obra terceirizada (Σ dos serviços
-              externos) + estado da aprovação por modelo (custo_terceirizados_aprovado). */}
-          <Label className="text-xs text-muted-foreground">MO Aprovada</Label>
+          {/* MO Aprovada = MO PLANEJADA aprovada (Σ modelo_servico_mo.valor onde aprovado=true),
+              com detalhe por serviço (Task 6). Distinto do "Custo real (c/ serviço)/peça" acima
+              (blocos executados na produção). */}
+          <Label className="text-xs text-muted-foreground">MO Aprovada (planejada)</Label>
           <div
-            className={`mt-1 text-sm font-bold ${moAprovada === true ? "text-emerald-600" : moAprovada === false ? "text-destructive" : "text-foreground"}`}
-            title={`Mão de obra terceirizada (soma dos serviços externos): ${brl(servicoTotal)} — ${brl(servicoPorPeca)}/peça`}
+            className={`mt-1 text-sm font-bold ${moEstado === "aprovada" ? "text-emerald-600" : moEstado === "reprovada" ? "text-destructive" : "text-foreground"}`}
+            title={moLinhas.map((l) => `${l.nome}: ${l.valor != null ? brl(Number(l.valor)) : "—"} — ${l.aprovado === true ? "aprovada" : l.aprovado === false ? "reprovada" : "pendente"}`).join("\n") || "Sem serviços de mão de obra"}
           >
-            {brl(servicoTotal)}
+            {moTotalAprovado != null ? brl(moTotalAprovado) : "—"}
           </div>
-          <div className={`text-xs ${moAprovada === true ? "text-emerald-600" : moAprovada === false ? "text-destructive" : "text-amber-600"}`}>
-            {moAprovada === true ? "✓ aprovada" : moAprovada === false ? "reprovada" : "aprovação pendente"}
+          <div className={`text-xs ${moEstado === "aprovada" ? "text-emerald-600" : moEstado === "reprovada" ? "text-destructive" : moEstado === "sem_servico" ? "text-muted-foreground" : "text-amber-600"}`}>
+            {moEstado === "aprovada" ? "✓ aprovada" : moEstado === "reprovada" ? "reprovada" : moEstado === "sem_servico" ? "sem serviços" : "aprovação pendente"}
           </div>
+          {moLinhas.length > 0 && (
+            <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+              {moLinhas.map((l) => (
+                <li key={l.categoria_terceirizado_id ?? "legado"} className="flex justify-between gap-2">
+                  <span className="truncate">{l.nome}</span>
+                  <span className={`shrink-0 ${l.aprovado === true ? "text-emerald-600" : l.aprovado === false ? "text-destructive" : "text-amber-600"}`}>
+                    {l.valor != null ? brl(Number(l.valor)) : "—"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
         )}
       </Card>
