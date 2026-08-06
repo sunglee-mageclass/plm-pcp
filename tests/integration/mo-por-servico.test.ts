@@ -110,6 +110,10 @@ describe.skipIf(!hasDb)("MO por serviço — Task 3: rollup derivado do flag", (
     const r = await um<{ f: boolean }>(c, `select custo_terceirizados_aprovado as f from modelos where id=$1`, [id]);
     return r.f;
   }
+  async function rev(c: any, id: string) {
+    const r = await um<{ r: number }>(c, `select rev as r from modelos where id=$1`, [id]);
+    return r.r;
+  }
 
   it("sem linha → flag true (sem serviço = liberada)", async () => {
     await withTx(async (c) => {
@@ -166,6 +170,32 @@ describe.skipIf(!hasDb)("MO por serviço — Task 3: rollup derivado do flag", (
         c, `select count(*) as n from pg_trigger where tgname='trg_enforce_maodeobra_aprovacao'`,
       );
       expect(Number(r.n)).toBe(0);
+    });
+  });
+
+  // Fix round 1 (review): o rollup fazia UPDATE modelos SEM guard → bumpava modelos.rev
+  // (trg_colab_rev) a cada escrita em modelo_servico_mo, mesmo quando o flag não mudava.
+  // O Planejamento usa colab por modelos.rev — isso geraria P0409 falsos nas Tasks 4/5.
+  it("editar valor de linha JÁ aprovada (flag não muda) NÃO bumpa modelos.rev", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const id = await novoModeloComLinhas(c, [true]); // 1 linha aprovada → flag true
+      expect(await flag(c, id)).toBe(true);
+      const revAntes = await rev(c, id);
+      await c.query(`update modelo_servico_mo set valor=99 where modelo_id=$1`, [id]);
+      expect(await flag(c, id)).toBe(true); // continua aprovada
+      expect(await rev(c, id)).toBe(revAntes); // rev NÃO bumpou
+    });
+  });
+  it("transição real do flag (pendente→aprovada) bumpa modelos.rev exatamente 1×", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const id = await novoModeloComLinhas(c, [null]); // pendente → flag false
+      expect(await flag(c, id)).toBe(false);
+      const revAntes = await rev(c, id);
+      await c.query(`update modelo_servico_mo set aprovado=true where modelo_id=$1`, [id]);
+      expect(await flag(c, id)).toBe(true); // transição real
+      expect(await rev(c, id)).toBe(revAntes + 1); // bumpou exatamente 1×
     });
   });
 });
