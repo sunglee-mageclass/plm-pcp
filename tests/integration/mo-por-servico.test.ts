@@ -88,3 +88,84 @@ describe.skipIf(!hasDb)("MO por serviço — Task 2: tabela + backfill legado", 
     });
   });
 });
+
+describe.skipIf(!hasDb)("MO por serviço — Task 3: rollup derivado do flag", () => {
+  async function novoModeloComLinhas(c: any, aprovados: (boolean | null)[]) {
+    const m = await um<{ id: string }>(
+      c, `insert into modelos (tenant_id, nome) values ($1,'M rollup') returning id`, [TENANT_TESTE],
+    );
+    for (let i = 0; i < aprovados.length; i++) {
+      const cat = await um<{ id: string }>(
+        c, `insert into categorias_terceirizado (tenant_id, nome, etapa)
+            values ($1,$2,'ate_costura') returning id`, [TENANT_TESTE, `Serv rollup ${i} ${m.id.slice(0,8)}`],
+      );
+      await c.query(
+        `insert into modelo_servico_mo (tenant_id, modelo_id, categoria_terceirizado_id, valor, aprovado)
+         values ($1,$2,$3,10,$4)`, [TENANT_TESTE, m.id, cat.id, aprovados[i]],
+      );
+    }
+    return m.id;
+  }
+  async function flag(c: any, id: string) {
+    const r = await um<{ f: boolean }>(c, `select custo_terceirizados_aprovado as f from modelos where id=$1`, [id]);
+    return r.f;
+  }
+
+  it("sem linha → flag true (sem serviço = liberada)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const id = await novoModeloComLinhas(c, []);
+      expect(await flag(c, id)).toBe(true);
+    });
+  });
+  it("todas aprovadas → flag true", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const id = await novoModeloComLinhas(c, [true, true]);
+      expect(await flag(c, id)).toBe(true);
+    });
+  });
+  it("uma pendente → flag false", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const id = await novoModeloComLinhas(c, [true, null]);
+      expect(await flag(c, id)).toBe(false);
+    });
+  });
+  it("uma reprovada → flag false; ao aprovar todas → volta true", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const id = await novoModeloComLinhas(c, [true, false]);
+      expect(await flag(c, id)).toBe(false);
+      await c.query(`update modelo_servico_mo set aprovado=true where modelo_id=$1`, [id]);
+      expect(await flag(c, id)).toBe(true);
+      await c.query(`delete from modelo_servico_mo where modelo_id=$1`, [id]);
+      expect(await flag(c, id)).toBe(true); // sem serviço = liberada
+    });
+  });
+  it("flag é à prova de adulteração: UPDATE direto é re-derivado", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const id = await novoModeloComLinhas(c, [null]); // pendente → derivado false
+      await c.query(`update modelos set custo_terceirizados_aprovado=true where id=$1`, [id]);
+      expect(await flag(c, id)).toBe(false); // trigger BEFORE UPDATE re-derivou
+    });
+  });
+  it("custo_unitario.mao_obra_previsto passou a somar modelo_servico_mo.valor", async () => {
+    await withTx(async (c) => {
+      const r = await um<{ tem: boolean }>(
+        c, `select position('modelo_servico_mo' in
+              pg_get_functiondef('public._custo_unitario_modelos_core(uuid[])'::regprocedure)) > 0 as tem`,
+      );
+      expect(r.tem).toBe(true);
+    });
+  });
+  it("enforce_maodeobra_aprovacao foi aposentado (trigger não existe mais)", async () => {
+    await withTx(async (c) => {
+      const r = await um<{ n: string }>(
+        c, `select count(*) as n from pg_trigger where tgname='trg_enforce_maodeobra_aprovacao'`,
+      );
+      expect(Number(r.n)).toBe(0);
+    });
+  });
+});

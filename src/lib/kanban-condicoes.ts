@@ -57,7 +57,7 @@ export const CONDICOES: Condicao[] = [
   // A key `servico_aprovado` (histórica) É a APROVAÇÃO DE CUSTO/mão de obra, feita no card
   // do Planejamento (modelos.custo_terceirizados_aprovado). Módulo Planejamento; key mantida.
   // Aparece na §8 Custos do Sheet (badge de mão de obra).
-  { key: "servico_aprovado", label: "Aprovação de custo", modulo: "planejamento", secao: "s5", descricao: "custo_terceirizados_aprovado = true" },
+  { key: "servico_aprovado", label: "Aprovação de custo", modulo: "planejamento", secao: "s5", descricao: "custo_terceirizados_aprovado (derivado de modelo_servico_mo) = true" },
 
   // ── Desenvolvimento ───────────────────────────────────────────
   { key: "modelista_definido", label: "Modelista definido", modulo: "desenvolvimento", secao: "s1" },
