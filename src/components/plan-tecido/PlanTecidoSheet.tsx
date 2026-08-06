@@ -560,39 +560,29 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   // alterar o BOM (o CAD já explodiu o BOM antigo); o card avisa e desabilita (pedido do dono).
   const enviadoCadSet = useMemo(() => new Set(((modelosDb ?? []) as any[]).filter((m) => m.enviado_cad).map((m) => m.id as string)), [modelosDb]);
 
-  // Custo do Desenvolvimento (mão de obra real) p/ refletir no card (read-only) — bug 6
+  // IDs dos modelos reais do plano → base das buscas por-modelo (MO por serviço etc.).
   const modeloIdsDb = useMemo(() => [...new Set(((modelosDb ?? []) as any[]).map((m) => m.id as string))].sort(), [modelosDb]);
-  const { data: custoDevMap = {} } = useQuery({
-    queryKey: ["plan-tecido-custo-dev", modeloIdsDb],
-    enabled: modeloIdsDb.length > 0,
-    queryFn: async () => {
-      const { data } = await supabase.rpc("custo_unitario_modelos" as any, { _ids: modeloIdsDb });
-      return (data ?? {}) as Record<string, { previsto: number; real: number; confirmado: boolean; mao_obra_previsto: number; mao_obra_real: number }>;
-    },
-  });
   // versão do modelo (Planejamento de Produto) → badge no card p/ ver repetição (item 14)
   const versaoMap = useMemo(() => Object.fromEntries(((modelosDb ?? []) as any[]).map((m) => [m.id as string, Number(m.versao) || null])) as Record<string, number | null>, [modelosDb]);
-  const maoObraDevDe = (modeloId: string): number | null => {
-    const c = custoDevMap[modeloId];
-    if (!c) return null;
-    const v = lancadoSet.has(modeloId) ? c.mao_obra_real : c.mao_obra_previsto;
-    return v == null ? null : Number(v);
-  };
-  // Estado da MO por serviço por modelo — READ-ONLY, derivado de `modelo_mo_resumo.estado`
-  // (aprovada|pendente|reprovada|sem_servico). A aprovação é POR SERVIÇO no Planejamento
-  // (MaoObraEditor); o Plan. Tecido NÃO aprova. O botão antigo dava `.update` no flag
-  // custo_terceirizados_aprovado, que virou DERIVADO por trigger → era no-op silencioso (mentia).
-  // A RPC mascara p/ quem não vê custos ({} → estado undefined → sem badge — não vaza valor).
+  // MO por serviço por modelo — READ-ONLY, derivada de `modelo_mo_resumo` (fonte ÚNICA da MO, a
+  // mesma do Desenvolvimento). `estado` (aprovada|pendente|reprovada|sem_servico) pinta o badge;
+  // `total` (Σ modelo_servico_mo.valor) é a MO prevista que alimenta o custo do card. A aprovação
+  // é POR SERVIÇO no Planejamento (MaoObraEditor); o Plan. Tecido NÃO aprova. A RPC mascara p/ quem
+  // não vê custos ({} → estado undefined + total null → sem badge, MO 0 — não vaza valor).
   const { data: moResumoMap = {} } = useQuery({
     queryKey: ["plan-tecido-mo-resumo", modeloIdsDb],
     enabled: modeloIdsDb.length > 0,
     queryFn: async () => {
       const { data, error } = await supabase.rpc("modelo_mo_resumo" as any, { _ids: modeloIdsDb });
       if (error) throw error;
-      return (data ?? {}) as Record<string, { estado: string }>;
+      return (data ?? {}) as Record<string, { estado: string; total: number | null; total_aprovado: number | null }>;
     },
   });
   const maoObraEstadoDe = (modeloId: string): string | undefined => moResumoMap[modeloId]?.estado;
+  const maoObraPorServicoDe = (modeloId: string): number | null => {
+    const t = moResumoMap[modeloId]?.total;
+    return t == null ? null : Number(t);
+  };
 
   // Fontes do merge: seed (OTB) e modelosReais (modelos+BOM+consumo+subcoleção). O react-query dá
   // referência ESTÁVEL quando o dado não muda, então comparar referência distingue "mudou de verdade"
@@ -1092,7 +1082,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
               lancado={slot.modelo_id ? lancadoSet.has(slot.modelo_id) : false}
               travado={slot.modelo_id ? enviadoCadSet.has(slot.modelo_id) : false}
               maoObraEstado={slot.modelo_id ? maoObraEstadoDe(slot.modelo_id) : undefined}
-              maoObraDev={slot.modelo_id ? maoObraDevDe(slot.modelo_id) : null}
+              maoObraDev={slot.modelo_id ? maoObraPorServicoDe(slot.modelo_id) : null}
               versao={slot.modelo_id ? (versaoMap[slot.modelo_id] ?? null) : null}
               onEnsureSaved={ensureSaved}
               onChange={(ns) => { const next = structuredClone(arvore) as PtArvore; next.subcolecoes[subAtiva].linhas[li].slots[sli] = ns; patch(next); }}

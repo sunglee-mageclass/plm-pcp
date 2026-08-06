@@ -243,19 +243,23 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
       return (((data ?? {}) as any)[modeloId] ?? {}) as Record<string, boolean>;
     },
   });
-  // Estado da MO por serviço — READ-ONLY, derivado de `modelo_mo_resumo.estado`
-  // (aprovada|pendente|reprovada|sem_servico). O flag cru custo_terceirizados_aprovado virou
-  // boolean DERIVADO (false = pendente OU reprovada), então o badge antigo pintava pendente como
-  // "Reprovada". A RPC mascara p/ quem não vê custos ({} → estado undefined → sem badge).
-  const { data: moEstado } = useQuery({
+  // MO por serviço — READ-ONLY, derivada de `modelo_mo_resumo` (fonte ÚNICA da MO). `estado`
+  // (aprovada|pendente|reprovada|sem_servico) pinta o selo; `total` (Σ modelo_servico_mo.valor)
+  // é a "MO prevista" que alimenta o "Custo de Serviços" — substitui o antigo campo editável
+  // custo_terceirizados_previsto (agora inerte). O flag cru custo_terceirizados_aprovado virou
+  // boolean DERIVADO (false = pendente OU reprovada). A RPC mascara p/ quem não vê custos
+  // ({} → estado undefined + total null → sem badge; mas a seção Custos só abre com podeVerCustos).
+  const { data: moResumo } = useQuery({
     queryKey: ["modelo-mo-resumo", modeloId],
     enabled: !!modeloId,
     queryFn: async () => {
       const { data, error } = await supabase.rpc("modelo_mo_resumo" as any, { _ids: [modeloId] });
       if (error) throw error;
-      return (((data ?? {}) as any)[modeloId]?.estado ?? undefined) as string | undefined;
+      return (((data ?? {}) as any)[modeloId] ?? null) as { estado?: string; total: number | null; total_aprovado: number | null } | null;
     },
   });
+  const moEstado = moResumo?.estado;
+  const maoObraPorServico = Number(moResumo?.total) || 0;
   const podeEntrarStatus = (statusKey: string) =>
     requisitosOk(((tenantCfg as any)?.kanban_requisitos ?? {})[statusKey], condicoesModelo as Record<string, boolean>);
   // status_kanban resolvido para chave SNAKE canônica (bate com status_desenvolvimento).
@@ -1148,11 +1152,12 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     const entretela = sum("entretela");
     const aviamento = aviamentosState.reduce((s, r) => s + (r.custo_previsto || 0), 0);
     const etiqueta = etiquetasState.reduce((s, r) => s + (r.custo_previsto || 0), 0);
-    const terceirizados = draft?.custo_terceirizados_previsto ?? 0;
+    // Mão de obra = MO por serviço (Σ modelo_servico_mo.valor), fonte ÚNICA read-only.
+    const terceirizados = maoObraPorServico;
     const custosAdd = somaCustosAdicionais(draft?.custos_adicionais);
     const peca = tecido + forro + entretela + aviamento + etiqueta + terceirizados + custosAdd;
     return { tecido, forro, entretela, aviamento, etiqueta, terceirizados, peca };
-  }, [blocks, aviamentosState, etiquetasState, draft?.custo_terceirizados_previsto, draft?.custos_adicionais]);
+  }, [blocks, aviamentosState, etiquetasState, maoObraPorServico, draft?.custos_adicionais]);
 
   const curStatus = (draft?.status_desenvolvimento ?? "").toLowerCase();
   const isAprovado = curStatus === APROVADO_KEY;
@@ -2556,8 +2561,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
               <fieldset disabled={locked} className="contents space-y-3">
               <ModeloCustosSection
                 totals={totals}
-                custoTerceirizados={draft.custo_terceirizados_previsto}
-                onChangeTerceirizados={(v) => setDraftTracked({ ...draft, custo_terceirizados_previsto: v })}
+                custoTerceirizados={maoObraPorServico}
                 maoObraEstado={moEstado}
                 custosAdicionais={draft.custos_adicionais ?? []}
                 onChangeCustos={(v) => setDraftTracked({ ...draft, custos_adicionais: v })}

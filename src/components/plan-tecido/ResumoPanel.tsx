@@ -139,6 +139,23 @@ export function ResumoPanel({
     },
   });
 
+  // MO por serviço por modelo (Σ modelo_servico_mo.valor) — fonte ÚNICA da MO no poder de venda,
+  // a mesma do card/Desenvolvimento (substitui o antigo slot.custo_terceirizados_previsto, inerte).
+  // Slot sem modelo → 0. Mascarado p/ quem não vê custos → total null → 0.
+  const moModeloIds = [...new Set(slots.map((s) => s.modelo_id).filter((x): x is string => !!x))].sort();
+  const { data: moTotalMap = {} } = useQuery({
+    queryKey: ["plan-tecido-resumo-mo", moModeloIds],
+    enabled: moModeloIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("modelo_mo_resumo" as any, { _ids: moModeloIds });
+      if (error) throw error;
+      const map: Record<string, number> = {};
+      for (const [id, v] of Object.entries((data ?? {}) as Record<string, { total: number | null }>)) map[id] = Number(v?.total) || 0;
+      return map;
+    },
+  });
+  const maoObraSlot = (slot: PtSlot) => (slot.modelo_id ? (moTotalMap[slot.modelo_id] ?? 0) : 0);
+
   // ---- A comprar (encomenda), por CATEGORIA de tecido (subcoleção) ----
   const enc = slots.filter((s) => !(s.usar_estoque ?? false));
   const slotsCat = (cid: string | null) => enc.filter((s) => (s.categoria_tecido_id ?? null) === cid);
@@ -223,7 +240,7 @@ export function ResumoPanel({
     const tec1 = firstTec(slot);
     const grade = (tec1?.variantes ?? []).reduce((s, v) => s + (v.grade_total || 0), 0);
     const cs = (slot.custo_simulado ?? {}) as { materiais?: number };
-    const custo = custoMateriaisPrevisto(slot) + (Number(cs.materiais) || 0) + (Number(slot.custo_terceirizados_previsto) || 0);
+    const custo = custoMateriaisPrevisto(slot) + (Number(cs.materiais) || 0) + maoObraSlot(slot);
     const markup = slot.linha_id ? (markupMap[slot.linha_id] ?? 0) : 0;
     pv += precoInfo(custo, markup, slot.preco_venda ?? null).efetivo * grade;
   }

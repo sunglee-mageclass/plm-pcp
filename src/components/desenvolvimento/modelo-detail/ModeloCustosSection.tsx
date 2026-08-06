@@ -29,7 +29,6 @@ function LinhaFixa({ label, value, strong }: { label: string; value: number; str
 export function ModeloCustosSection({
   totals,
   custoTerceirizados,
-  onChangeTerceirizados,
   maoObraEstado,
   custosAdicionais,
   onChangeCustos,
@@ -37,8 +36,8 @@ export function ModeloCustosSection({
   onCampoEditado,
 }: {
   totals: { tecido: number; forro: number; entretela: number; aviamento: number; etiqueta: number; peca: number };
+  /** MO planejada por serviço (Σ modelo_servico_mo.valor) — READ-ONLY; editar/aprovar é por serviço, no Planejamento. */
   custoTerceirizados: number;
-  onChangeTerceirizados: (v: number) => void;
   /** Estado da MO por serviço (aprovada|pendente|reprovada|sem_servico); undefined = sem custo/mascarado. */
   maoObraEstado?: string;
   custosAdicionais: CustoAdicional[];
@@ -61,10 +60,11 @@ export function ModeloCustosSection({
       <LinhaFixa label="Aviamento" value={totals.aviamento} />
       <LinhaFixa label="Etiquetas" value={totals.etiqueta} />
 
-      {/* Mão de obra: input na MESMA régua + calha vazia (alinha com os R$ acima). */}
+      {/* Mão de obra: READ-ONLY, fonte ÚNICA = MO por serviço (Σ modelo_servico_mo.valor).
+          Editar/aprovar a MO é POR SERVIÇO, no card do Planejamento — aqui só reflete o total. */}
       <div className="flex items-center gap-2">
         <span className="flex-1 min-w-0 flex items-center gap-2">
-          <Label>Previsão de Mão de Obra</Label>
+          <Label>Mão de Obra (por serviço)</Label>
           {/* Reflexo (read-only) do estado da MO por serviço — aprovação é por serviço, no Planejamento.
               undefined (sem custo/mascarado) ou sem_servico → sem selo. */}
           {maoObraEstado && maoObraEstado !== "sem_servico" && (
@@ -74,15 +74,10 @@ export function ModeloCustosSection({
             </span>
           )}
         </span>
-        <NumberInput
-          className={VAL}
-          placeholder="0,00"
-          // 0 aparece como placeholder (não como valor a apagar) — digita direto.
-          value={custoTerceirizados || ""}
-          onChange={(e) => onChangeTerceirizados(Number(e.target.value) || 0)}
-        />
+        <span className={`${VAL} pr-3`}>R$ {fmtNum(custoTerceirizados)}</span>
         <span className={GUT} aria-hidden />
       </div>
+      <p className="text-[11px] text-muted-foreground -mt-1">Definida por serviço no Planejamento.</p>
 
       {/* Custos adicionais (descrição + valor por peça) — entram no Custo de 1 Peça E no custo real.
           Valor na régua VAL + lixeira na calha GUT: alinha com as linhas fixas e a mão de obra. */}

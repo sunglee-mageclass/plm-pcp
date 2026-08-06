@@ -132,7 +132,7 @@ export function ModelCard({
       linha_id: slot.linha_id ?? null, categoria_id: slot.categoria_id ?? null,
       subcolecao_id: subcolecaoId ?? null,
       preco_venda: slot.preco_venda ?? null,
-      custo_terceirizados_previsto: slot.custo_terceirizados_previsto ?? 0,
+      custo_terceirizados_previsto: 0, // inerte: a MO nasce por-serviço no Planejamento (modelo_servico_mo)
       custo_simulado: slot.custo_simulado ?? {},
       materiais: buildMateriais(),
     };
