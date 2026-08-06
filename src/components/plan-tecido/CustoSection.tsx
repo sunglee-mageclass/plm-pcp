@@ -7,7 +7,7 @@ import { AlertTriangle } from "lucide-react";
 import type { PtSlot } from "@/lib/plan-tecido/types";
 import { custoMateriaisPrevisto } from "@/lib/plan-tecido/calc";
 
-export function CustoSection({ slot, onChange, maoObraEstado, maoObraDev }: { slot: PtSlot; onChange: (s: PtSlot) => void; maoObraEstado?: string; maoObraDev?: number | null }) {
+export function CustoSection({ slot, onChange, maoObraEstado, maoObraServico }: { slot: PtSlot; onChange: (s: PtSlot) => void; maoObraEstado?: string; maoObraServico?: number | null }) {
   // markup vem da LINHA do modelo (linhas.markup) — necessário p/ o preço sugerido
   const { data: markupMap = {} } = useQuery({
     queryKey: ["plan-tecido-linhas-markup"],
@@ -24,9 +24,9 @@ export function CustoSection({ slot, onChange, maoObraEstado, maoObraDev }: { sl
   const custoForro = custoMateriaisPrevisto({ ...slot, materiais: slot.materiais.filter((m) => m.tipo === "forro") });
   const materiais = Number(cs.materiais) || 0; // materiais/aviamentos (semeado dos aviamentos do Dev)
   // Mão de obra: MO por serviço (Σ modelo_servico_mo.valor) do modelo do slot — READ-ONLY, fonte
-  // ÚNICA (chega em `maoObraDev` = `modelo_mo_resumo.total`). Slot sem modelo → 0 (a MO nasce
+  // ÚNICA (chega em `maoObraServico` = `modelo_mo_resumo.total`). Slot sem modelo → 0 (a MO nasce
   // por-serviço no Planejamento). Mascarado p/ quem não vê custos → null → 0.
-  const maoObra = Number(maoObraDev) || 0;
+  const maoObra = Number(maoObraServico) || 0;
   const custoTotal = custoTecido + custoForro + materiais + maoObra;
   const pi = precoInfo(custoTotal, markup, slot.preco_venda ?? null);
   const fromDev = !!slot.modelo_id; // materiais vem dos aviamentos do Dev quando é modelo

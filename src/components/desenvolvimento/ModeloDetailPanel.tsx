@@ -1538,7 +1538,13 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
         custo_forro_total: totals.forro,
         custo_entretela_total: totals.entretela,
         custo_aviamento_total: totals.aviamento,
-        custo_peca_previsto: totals.peca,
+        // custo_peca_previsto fecha a MO por serviço, que `modelo_mo_resumo` MASCARA (→0) p/ quem
+        // não vê custos. Gravá-lo sem `podeVerCustos` subestimaria `custo_unitario_modelos.previsto`
+        // (que lê esta coluna) e propagaria MO=0 ao Planejamento/dashboards até alguém com custo
+        // re-salvar. Só recomputa/grava quando podeVerCustos (aí totals.peca tem a MO real); senão
+        // OMITE a chave do UPDATE → preserva o valor do banco. Os custos de material acima NÃO são
+        // mascarados (vêm das colunas armazenadas) → seguem gravando normalmente.
+        ...(podeVerCustos ? { custo_peca_previsto: totals.peca } : {}),
         proporcoes: d.proporcoes ?? {},
         fotos_modelo: d.fotos_modelo ?? [],
         fotos_referencia: d.fotos_referencia ?? [],

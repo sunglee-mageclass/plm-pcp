@@ -1082,7 +1082,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
               lancado={slot.modelo_id ? lancadoSet.has(slot.modelo_id) : false}
               travado={slot.modelo_id ? enviadoCadSet.has(slot.modelo_id) : false}
               maoObraEstado={slot.modelo_id ? maoObraEstadoDe(slot.modelo_id) : undefined}
-              maoObraDev={slot.modelo_id ? maoObraPorServicoDe(slot.modelo_id) : null}
+              maoObraServico={slot.modelo_id ? maoObraPorServicoDe(slot.modelo_id) : null}
               versao={slot.modelo_id ? (versaoMap[slot.modelo_id] ?? null) : null}
               onEnsureSaved={ensureSaved}
               onChange={(ns) => { const next = structuredClone(arvore) as PtArvore; next.subcolecoes[subAtiva].linhas[li].slots[sli] = ns; patch(next); }}

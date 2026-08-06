@@ -41,7 +41,7 @@ export function ModelCard({
   lancado,
   travado,
   maoObraEstado,
-  maoObraDev,
+  maoObraServico,
   versao,
   onEnsureSaved,
   defaultOpen,
@@ -67,7 +67,7 @@ export function ModelCard({
   travado?: boolean;
   /** Estado da MO por serviço (aprovada|pendente|reprovada|sem_servico) — READ-ONLY; undefined = sem custo/mascarado. */
   maoObraEstado?: string;
-  maoObraDev?: number | null;
+  maoObraServico?: number | null;
   versao?: number | null;
   onEnsureSaved?: () => Promise<boolean>;
   defaultOpen?: boolean;
@@ -418,7 +418,7 @@ export function ModelCard({
               <AccordionItem value="custo">
                 <AccordionTrigger className="py-2 text-xs">2. Custo &amp; Preço</AccordionTrigger>
                 <AccordionContent>
-                  <CustoSection slot={slot} onChange={onChange} maoObraEstado={maoObraEstado} maoObraDev={maoObraDev} />
+                  <CustoSection slot={slot} onChange={onChange} maoObraEstado={maoObraEstado} maoObraServico={maoObraServico} />
                 </AccordionContent>
               </AccordionItem>
             </Accordion>
