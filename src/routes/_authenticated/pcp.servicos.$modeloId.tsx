@@ -1432,7 +1432,7 @@ function GradeEditor({
               <thead className="text-muted-foreground">
                 <tr>
                   <th className="p-1 text-left font-medium">Variante</th>
-                  {tpl.tamanhos.map((t) => <th key={t} className="p-1 text-center font-medium">{tamLabel(t)}</th>)}
+                  {tpl.tamanhos.map((t) => <th key={t} className="w-14 p-1 text-center font-medium">{tamLabel(t)}</th>)}
                   <th className="p-1 text-center font-medium">Σ</th>
                 </tr>
               </thead>
@@ -1450,7 +1450,7 @@ function GradeEditor({
                             <input
                               type="number" min={0} disabled={disabled}
                               title={alerta ? "Recebida maior que a Cortada — confira." : undefined}
-                              className={`h-7 w-14 rounded border bg-background px-1 text-right disabled:opacity-60 ${alerta ? "border-destructive text-destructive font-semibold" : ""}`}
+                              className={`h-7 w-14 rounded border bg-background px-1 text-center disabled:opacity-60 ${alerta ? "border-destructive text-destructive font-semibold" : ""}`}
                               value={cel(v.id, t)[k] || ""}
                               onChange={(e) => set(v.id, t, k, Number(e.target.value) || 0)}
                             />
@@ -1474,7 +1474,7 @@ function GradeEditor({
             <thead className="text-muted-foreground">
               <tr>
                 <th className="p-1 text-left font-medium">Variante</th>
-                {tpl.tamanhos.map((t) => <th key={t} className="p-1 text-center font-medium">{tamLabel(t)}</th>)}
+                {tpl.tamanhos.map((t) => <th key={t} className="w-14 p-1 text-center font-medium">{tamLabel(t)}</th>)}
                 <th className="p-1 text-center font-medium">Σ</th>
               </tr>
             </thead>
@@ -1486,7 +1486,7 @@ function GradeEditor({
                     <td className="whitespace-nowrap p-1">{v.label}</td>
                     {tpl.tamanhos.map((t) => {
                       const s = saldoCelula(cel(v.id, t)); linhaTotal += s;
-                      return <td key={t} className={`p-1 text-center ${s < 0 ? "text-destructive font-semibold" : ""}`}>{s}</td>;
+                      return <td key={t} className={`w-14 p-1 text-center ${s < 0 ? "text-destructive font-semibold" : ""}`}>{s}</td>;
                     })}
                     <td className={`p-1 text-center font-medium ${linhaTotal < 0 ? "text-destructive" : ""}`}>{linhaTotal}</td>
                   </tr>
