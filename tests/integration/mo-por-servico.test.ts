@@ -199,3 +199,109 @@ describe.skipIf(!hasDb)("MO por serviço — Task 3: rollup derivado do flag", (
     });
   });
 });
+
+describe.skipIf(!hasDb)("MO por serviço — Task 4: RPCs + permissão por linha", () => {
+  it("salvar_modelo_servico_mo faz diff estado-completo (upsert + delete de ausentes)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const m = await um<{ id: string }>(c, `insert into modelos (tenant_id, nome) values ($1,'M rpc') returning id`, [TENANT_TESTE]);
+      const cat = await um<{ id: string }>(c, `insert into categorias_terceirizado (tenant_id, nome, etapa) values ($1,'Serv rpc a','ate_costura') returning id`, [TENANT_TESTE]);
+      const cat2 = await um<{ id: string }>(c, `insert into categorias_terceirizado (tenant_id, nome, etapa) values ($1,'Serv rpc b','ate_costura') returning id`, [TENANT_TESTE]);
+      await c.query(`select salvar_modelo_servico_mo($1, $2::jsonb)`, [m.id,
+        JSON.stringify([{ categoria_terceirizado_id: cat.id, valor: 12 }, { categoria_terceirizado_id: cat2.id, valor: 8 }])]);
+      let n = await um<{ n: string }>(c, `select count(*) as n from modelo_servico_mo where modelo_id=$1`, [m.id]);
+      expect(Number(n.n)).toBe(2);
+      // novo estado sem cat2 → cat2 é apagada; cat vira 20
+      await c.query(`select salvar_modelo_servico_mo($1, $2::jsonb)`, [m.id,
+        JSON.stringify([{ categoria_terceirizado_id: cat.id, valor: 20 }])]);
+      n = await um<{ n: string }>(c, `select count(*) as n from modelo_servico_mo where modelo_id=$1`, [m.id]);
+      expect(Number(n.n)).toBe(1);
+      const v = await um<{ valor: string; aprovado: boolean | null }>(c, `select valor, aprovado from modelo_servico_mo where modelo_id=$1`, [m.id]);
+      expect(Number(v.valor)).toBe(20);
+      expect(v.aprovado).toBeNull(); // salvar nunca toca aprovado
+    });
+  });
+
+  it("aprovar_servico_mo seta aprovado; reprovar exige motivo", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const m = await um<{ id: string }>(c, `insert into modelos (tenant_id, nome) values ($1,'M ap') returning id`, [TENANT_TESTE]);
+      const cat = await um<{ id: string }>(c, `insert into categorias_terceirizado (tenant_id, nome, etapa) values ($1,'Serv ap','ate_costura') returning id`, [TENANT_TESTE]);
+      await c.query(`select salvar_modelo_servico_mo($1, $2::jsonb)`, [m.id, JSON.stringify([{ categoria_terceirizado_id: cat.id, valor: 5 }])]);
+      await c.query(`select aprovar_servico_mo($1,$2,true,null)`, [m.id, cat.id]);
+      let f = await um<{ f: boolean }>(c, `select custo_terceirizados_aprovado as f from modelos where id=$1`, [m.id]);
+      expect(f.f).toBe(true);
+      // savepoint: o RAISE do motivo obrigatório aborta a txn até o próximo ROLLBACK/SAVEPOINT.
+      await c.query("SAVEPOINT sp_motivo");
+      await expect(c.query(`select aprovar_servico_mo($1,$2,false,null)`, [m.id, cat.id])).rejects.toThrow(/motivo/i);
+      await c.query("ROLLBACK TO SAVEPOINT sp_motivo");
+      await c.query(`select aprovar_servico_mo($1,$2,false,'valor alto')`, [m.id, cat.id]);
+      f = await um<{ f: boolean }>(c, `select custo_terceirizados_aprovado as f from modelos where id=$1`, [m.id]);
+      expect(f.f).toBe(false);
+    });
+  });
+
+  it("trigger de permissão por linha: aprovar sem producao_servico_aprovacao → RAISE 42501", async () => {
+    await withTx(async (c) => {
+      const uid = "0a0a0a0a-0000-4000-8000-0000000000aa";
+      // public.users.id → auth.users(id): semeia a auth primeiro (txn revertida). Sem papel em
+      // user_roles nem permissão → user_can_edit('producao_servico_aprovacao')=false.
+      await c.query(`insert into auth.users (id, email) values ($1,'noperm-mo@teste') on conflict (id) do nothing`, [uid]);
+      await c.query(`insert into public.users (id, tenant_id, email, nome) values ($1,$2,'noperm-mo@teste','No Perm')
+                     on conflict (id) do update set tenant_id=excluded.tenant_id`, [uid, TENANT_TESTE]);
+      await c.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: uid, role: "authenticated" })]);
+      const m = await um<{ id: string }>(c, `insert into modelos (tenant_id, nome) values ($1,'M noperm') returning id`, [TENANT_TESTE]);
+      const cat = await um<{ id: string }>(c, `insert into categorias_terceirizado (tenant_id, nome, etapa) values ($1,'Serv noperm','ate_costura') returning id`, [TENANT_TESTE]);
+      // inserir linha pendente é permitido (aprovado null); mudar aprovado sem permissão RAISE.
+      await c.query(`insert into modelo_servico_mo (tenant_id, modelo_id, categoria_terceirizado_id, valor) values ($1,$2,$3,5)`, [TENANT_TESTE, m.id, cat.id]);
+      await expect(
+        c.query(`update modelo_servico_mo set aprovado=true where modelo_id=$1`, [m.id]),
+      ).rejects.toThrow(/permiss/i);
+    });
+  });
+
+  it("modelo_mo_resumo devolve estado + totais; cores com REVOKE dos três", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const m = await um<{ id: string }>(c, `insert into modelos (tenant_id, nome) values ($1,'M resumo') returning id`, [TENANT_TESTE]);
+      const cat = await um<{ id: string }>(c, `insert into categorias_terceirizado (tenant_id, nome, etapa) values ($1,'Serv resumo','ate_costura') returning id`, [TENANT_TESTE]);
+      await c.query(`select salvar_modelo_servico_mo($1, $2::jsonb)`, [m.id, JSON.stringify([{ categoria_terceirizado_id: cat.id, valor: 30 }])]);
+      await c.query(`select aprovar_servico_mo($1,$2,true,null)`, [m.id, cat.id]);
+      const r = await um<{ resumo: any }>(c, `select modelo_mo_resumo(array[$1]::uuid[]) as resumo`, [m.id]);
+      const info = r.resumo[m.id];
+      expect(info.estado).toBe("aprovada");
+      expect(Number(info.total_aprovado)).toBe(30);
+      const priv = await um<{ a: boolean; b: boolean }>(
+        c, `select has_function_privilege('anon','public._modelo_mo_resumo_core(uuid[])','EXECUTE') as a,
+                   has_function_privilege('authenticated','public._modelo_mo_resumo_core(uuid[])','EXECUTE') as b`,
+      );
+      expect(priv.a).toBe(false); expect(priv.b).toBe(false);
+    });
+  });
+
+  it("modelo_mo_resumo MASCARA valor/total p/ quem não pode ver custos (invariante #12)", async () => {
+    await withTx(async (c) => {
+      // 1) super_admin cria os dados
+      await comoUsuario(c);
+      const m = await um<{ id: string }>(c, `insert into modelos (tenant_id, nome) values ($1,'M mask') returning id`, [TENANT_TESTE]);
+      const cat = await um<{ id: string }>(c, `insert into categorias_terceirizado (tenant_id, nome, etapa) values ($1,'Serv mask','ate_costura') returning id`, [TENANT_TESTE]);
+      await c.query(`select salvar_modelo_servico_mo($1, $2::jsonb)`, [m.id, JSON.stringify([{ categoria_terceirizado_id: cat.id, valor: 42 }])]);
+      // 2) usuário SÓ com producao_servico_aprovacao (Editar): abre o gate do wrapper, mas NÃO vê custos
+      const uid = "0b0b0b0b-0000-4000-8000-0000000000bb";
+      await c.query(`insert into auth.users (id, email) values ($1,'mask-mo@teste') on conflict (id) do nothing`, [uid]);
+      await c.query(`insert into public.users (id, tenant_id, email, nome) values ($1,$2,'mask-mo@teste','Mask User')
+                     on conflict (id) do update set tenant_id=excluded.tenant_id`, [uid, TENANT_TESTE]);
+      await c.query(`insert into public.user_permissions (user_id, tenant_id, pagina, pode_ver, pode_editar)
+                     values ($1,$2,'producao_servico_aprovacao',true,true)`, [uid, TENANT_TESTE]);
+      await c.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: uid, role: "authenticated" })]);
+      const r = await um<{ resumo: any }>(c, `select modelo_mo_resumo(array[$1]::uuid[]) as resumo`, [m.id]);
+      const info = r.resumo[m.id];
+      expect(info).toBeTruthy(); // gate abriu (tem aprovacao)
+      expect(info.estado).toBe("pendente"); // estado sempre visível
+      expect(info.total).toBeNull(); // custo mascarado
+      expect(info.total_aprovado).toBeNull();
+      expect(info.linhas[0].valor).toBeNull();
+      expect(info.linhas[0].aprovado).toBeNull(); // metadado (não-custo) visível
+    });
+  });
+});
