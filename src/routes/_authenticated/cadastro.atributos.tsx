@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Tags } from "lucide-react";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
+import { Tags, ArrowUp, ArrowDown } from "lucide-react";
+import { toast } from "sonner";
 import { AttributeTab, type AttributeTabConfig } from "@/components/attribute-tab";
 import { useTenantModules } from "@/hooks/useTenantModules";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import { useAuth } from "@/hooks/useAuth";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import {
   Select,
   SelectTrigger,
@@ -17,8 +21,10 @@ import {
 } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
+import { mensagemErro } from "@/lib/erro-mensagem";
+import { isServicoConfeccao, isServicoPL } from "@/lib/servico-confeccao";
 
-import { RequirePermission } from "@/components/RequirePermission";
+import { RequirePermission, useReadOnly } from "@/components/RequirePermission";
 import { GradeTamanhosCard } from "@/components/shared/GradeTamanhosCard";
 
 export const Route = createFileRoute("/_authenticated/cadastro/atributos")({
@@ -355,6 +361,121 @@ function useAttributeCount(table: string | null) {
   });
 }
 
+/**
+ * Prioridade da fonte de confecção (grade cortada): ordena as categorias de serviço
+ * de confecção (PL/Oficina/Costura) — quando um modelo tem mais de um bloco destrinchado
+ * dessas categorias, a grade cortada/recebida/defeito vem do primeiro da lista. Grava
+ * `tenant_config.confeccao_prioridade` (array de `categoria_terceirizado_id`, ordenado).
+ * Espelha (TS puro) a resolução que o servidor faz em `_resolver_fonte_confeccao`
+ * (Task 3) — ver `src/lib/confeccao-fonte.ts`; risco de drift TS↔SQL documentado lá.
+ * Some da aba quando há ≤1 categoria de confecção (nada para priorizar).
+ */
+function ConfeccaoPrioridadeCard() {
+  const qc = useQueryClient();
+  const readOnly = useReadOnly();
+  const tenantId = useActiveTenantId();
+
+  const { data: cfgPrio } = useQuery({
+    queryKey: ["confeccao-prioridade", tenantId],
+    enabled: !!tenantId,
+    queryFn: async () =>
+      ((await supabase.from("tenant_config").select("confeccao_prioridade").eq("tenant_id", tenantId).maybeSingle())
+        .data as any)?.confeccao_prioridade ?? [],
+  });
+
+  const { data: categorias = [] } = useQuery({
+    queryKey: ["cat-terceirizado-confeccao", tenantId],
+    enabled: !!tenantId,
+    queryFn: async () => {
+      // `ativo` é coluna nova (migração 20260806100000) — types.ts pendente de regen
+      // (não dá pra referenciar no `.select()`/`.eq()` tipado); traz `*` e filtra em JS,
+      // como o resto do arquivo faz para colunas fora do types.ts.
+      const { data, error } = await supabase.from("categorias_terceirizado").select("*").order("nome");
+      if (error) throw error;
+      return ((data ?? []) as unknown as { id: string; nome: string; ativo: boolean }[]).filter((c) => c.ativo);
+    },
+  });
+
+  const confeccaoCats = useMemo(() => categorias.filter((c) => isServicoConfeccao(c.nome)), [categorias]);
+
+  // Ordem efetiva: as salvas primeiro (na ordem), depois as demais confecções pelo default (PL antes).
+  const ordemAtual = useMemo(() => {
+    const saved = (cfgPrio ?? []).filter((id: string) => confeccaoCats.some((c) => c.id === id));
+    const resto = confeccaoCats
+      .map((c) => c.id)
+      .filter((id) => !saved.includes(id))
+      .sort(
+        (a, b) =>
+          Number(isServicoPL(confeccaoCats.find((c) => c.id === b)!.nome)) -
+          Number(isServicoPL(confeccaoCats.find((c) => c.id === a)!.nome)),
+      );
+    return [...saved, ...resto];
+  }, [cfgPrio, confeccaoCats]);
+
+  const savePrio = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const { error } = await supabase
+        .from("tenant_config")
+        .update({ confeccao_prioridade: ids } as any)
+        .eq("tenant_id", tenantId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["confeccao-prioridade", tenantId] });
+      toast.success("Prioridade salva.");
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar prioridade.")),
+  });
+
+  if (confeccaoCats.length <= 1) return null;
+
+  return (
+    <Card className="p-4 space-y-2">
+      <h3 className="font-semibold">Prioridade da grade cortada</h3>
+      <p className="text-xs text-muted-foreground">
+        Quando um modelo tem mais de um serviço de confecção destrinchado (ex.: PL e Oficina), a
+        grade cortada/recebida/defeito vem do primeiro da lista abaixo.
+      </p>
+      <ol className="space-y-1">
+        {ordemAtual.map((id, i) => {
+          const nome = confeccaoCats.find((c) => c.id === id)?.nome ?? id;
+          const mover = (delta: number) => {
+            const arr = [...ordemAtual];
+            const j = i + delta;
+            if (j < 0 || j >= arr.length) return;
+            [arr[i], arr[j]] = [arr[j], arr[i]];
+            savePrio.mutate(arr);
+          };
+          return (
+            <li key={id} className="flex items-center gap-2 text-sm">
+              <span className="w-5 text-muted-foreground">{i + 1}.</span>
+              <span className="flex-1">{nome}</span>
+              <Button
+                size="iconSm"
+                variant="ghost"
+                onClick={() => mover(-1)}
+                disabled={readOnly || i === 0 || savePrio.isPending}
+                aria-label="Subir"
+              >
+                <ArrowUp className="h-4 w-4" />
+              </Button>
+              <Button
+                size="iconSm"
+                variant="ghost"
+                onClick={() => mover(1)}
+                disabled={readOnly || i === ordemAtual.length - 1 || savePrio.isPending}
+                aria-label="Descer"
+              >
+                <ArrowDown className="h-4 w-4" />
+              </Button>
+            </li>
+          );
+        })}
+      </ol>
+    </Card>
+  );
+}
+
 function AtributosPage() {
   const { isStockOnly } = useTenantModules();
   const { isTenantAdmin, isSuperAdmin } = useAuth();
@@ -495,6 +616,9 @@ function AtributosPage() {
               />
             )
           )}
+
+          {/* Prioridade da fonte de confecção (grade cortada) — só na aba de Categoria do Serviço. */}
+          {selected.value === "cat_terceirizado" && <ConfeccaoPrioridadeCard />}
         </div>
       </div>
     </div>

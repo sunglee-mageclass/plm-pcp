@@ -16,3 +16,11 @@ export function isServicoConfeccao(nome: string): boolean {
     (t) => t === "oficina" || t === "oficinas" || t === "costura" || t === "costuras" || t === "pl" || t === "pls",
   );
 }
+
+/** A categoria é PL / Private Label (prioridade default de fonte de confecção)? */
+export function isServicoPL(nome: string): boolean {
+  const n = norm(nome);
+  if (!n) return false;
+  if (n.includes("private label")) return true;
+  return n.split(/[^a-z0-9]+/).filter(Boolean).some((t) => t === "pl" || t === "pls");
+}
