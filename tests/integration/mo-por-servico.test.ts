@@ -32,3 +32,59 @@ describe.skipIf(!hasDb)("MO por serviço — Task 1: toggle ativo em categorias_
     });
   });
 });
+
+describe.skipIf(!hasDb)("MO por serviço — Task 2: tabela + backfill legado", () => {
+  it("tabela existe com FK RESTRICT na categoria e índice parcial do legado", async () => {
+    await withTx(async (c) => {
+      const restrict = await um<{ n: string }>(
+        c,
+        `select count(*) as n from pg_constraint
+          where conname='modelo_servico_mo_categoria_terceirizado_id_fkey' and confdeltype='r'`,
+      );
+      expect(Number(restrict.n)).toBe(1); // 'r' = RESTRICT
+      const parcial = await um<{ n: string }>(
+        c,
+        `select count(*) as n from pg_indexes
+          where tablename='modelo_servico_mo' and indexname='ux_msm_legado'`,
+      );
+      expect(Number(parcial.n)).toBe(1);
+    });
+  });
+
+  it("índice parcial barra 2º legado (categoria NULL) no mesmo modelo", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const m = await um<{ id: string }>(
+        c, `insert into modelos (tenant_id, nome) values ($1,'M legado') returning id`, [TENANT_TESTE],
+      );
+      await c.query(
+        `insert into modelo_servico_mo (tenant_id, modelo_id, categoria_terceirizado_id, valor)
+         values ($1,$2,NULL,10)`, [TENANT_TESTE, m.id],
+      );
+      await expect(
+        c.query(`insert into modelo_servico_mo (tenant_id, modelo_id, categoria_terceirizado_id, valor)
+                 values ($1,$2,NULL,20)`, [TENANT_TESTE, m.id]),
+      ).rejects.toThrow(/duplicate key|ux_msm_legado/);
+    });
+  });
+
+  it("FK RESTRICT impede excluir categoria com MO", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const cat = await um<{ id: string }>(
+        c, `insert into categorias_terceirizado (tenant_id, nome, etapa)
+            values ($1,'Serv RESTRICT','ate_costura') returning id`, [TENANT_TESTE],
+      );
+      const m = await um<{ id: string }>(
+        c, `insert into modelos (tenant_id, nome) values ($1,'M restrict') returning id`, [TENANT_TESTE],
+      );
+      await c.query(
+        `insert into modelo_servico_mo (tenant_id, modelo_id, categoria_terceirizado_id, valor)
+         values ($1,$2,$3,5)`, [TENANT_TESTE, m.id, cat.id],
+      );
+      await expect(
+        c.query(`delete from categorias_terceirizado where id=$1`, [cat.id]),
+      ).rejects.toThrow(/violates foreign key|modelo_servico_mo/);
+    });
+  });
+});
