@@ -13,7 +13,7 @@ Nome de exibição: **sisTrama** ("sis" leve, "Trama" em destaque). A renomeaç�
 antigo "PLM+PCP" já foi feita (0 ocorrências em `src/`).
 
 ## Stack
-
+          
 - **Vite** + **React** + **TypeScript**
 - **TanStack Router** (file-based em `src/routes/`) + **TanStack Query**
 - **Supabase próprio** (Postgres + RLS + Storage + Auth) — ref `ruinwcuabilumcspeyjk`
@@ -303,18 +303,27 @@ e verifique** — o repo muda rápido.
    `deficit[]` por variante.
 8. **Serviços no financeiro** — serviços terceirizados externos viram contas a pagar
    (`parcelas_servico` + RPC `servicos_financeiro`); oficina entra após CQ confirmado.
-   **Aprovação de mão de obra (jul/2026):** consolidada num flag POR MODELO
-   `modelos.custo_terceirizados_aprovado` (`true`/`false`/**`null`=pendente**, 3 estados),
-   aprovado/reprovado nos ícones do **card do Planejamento E do Plan. Tecido** (mesmo flag; jul/2026)
-   — a **lista do Desenvolvimento** mostra badge "Custo aprovado" (verde) / "Custo reprovado" (vermelho).
-   O checkbox por-bloco `producao_terceirizados.aprovado` foi APOSENTADO — coluna órfã.
-   **Quem pode aprovar** é gated pela permissão `producao_servico_aprovacao` (Editar) — trigger
-   `trg_enforce_maodeobra_aprovacao` bloqueia o UPDATE do flag sem ela (ver invariante #12). **Lançar (`lancar_modelo`)
-   exige CQ liberado E mão de obra aprovada** (gate no servidor + pré-check no detalhe); o
-   botão-foguete do card lança/cancela com data. `custo_unitario_modelos` devolve
-   `mao_obra_previsto`/`mao_obra_real` → o card separa **materiais (= total − mão de obra)** da
-   mão de obra, trocando previsto→real quando pronto/lançado. **Markup/Preço seguem no custo
-   TOTAL** (materiais + mão de obra) — não mexer em `preco.ts`.
+   **MO por serviço (ago/2026):** o antigo flag único virou **agregado DERIVADO**.
+   `modelo_servico_mo` guarda 1 linha por **modelo×serviço** (`categoria_terceirizado_id`;
+   `NULL` = "Geral (legado)", do backfill) com `valor` + `aprovado` (`null`=pendente/true/false)
+   + `motivo_reprovacao`; editor por-serviço no **card do Planejamento** (`MaoObraEditor`;
+   dropdown de adicionar só lista serviços `categorias_terceirizado.ativo=true` — toggle
+   soft-hide, Cadastro > Serviços; usados somem do dropdown mas linhas históricas em categoria
+   desativada persistem). `modelos.custo_terceirizados_aprovado` **não é mais escrito pela UI**:
+   trigger `fn_modelo_mo_flag_derivada` (BEFORE INSERT/UPDATE em `modelos`) re-deriva em TODA
+   escrita via `_mo_liberada(modelo_id)` = `NOT EXISTS(linha com aprovado IS DISTINCT FROM true)`
+   — **sem linha nenhuma = liberada**; trigger `fn_modelo_servico_mo_rollup` (AFTER em
+   `modelo_servico_mo`, guard `IS DISTINCT FROM` p/ não bumpar `modelos.rev` à toa) repinta o
+   modelo a cada mudança de linha. A coluna virou **boolean efetivo** (a pendência mora nas
+   linhas, não mais nela). `lancar_modelo`/kanban seguem lendo o flag
+   `COALESCE(custo_terceirizados_aprovado,false)` — nenhum consumidor downstream mudou.
+   **Lançar exige CQ liberado E mão de obra aprovada**; botão-foguete do card lança/cancela
+   com data. `custo_unitario_modelos.mao_obra_previsto` = **Σ `modelo_servico_mo.valor`** (era
+   `custo_terceirizados_previsto`, agora INERTE). O card separa **materiais (= total − mão de
+   obra)** da mão de obra, trocando previsto→real quando pronto/lançado; PCP mostra card
+   "MO Aprovada (planejada)" = `modelo_mo_resumo().total_aprovado` (Σ só linhas `aprovado=true`).
+   **Markup/Preço seguem no custo TOTAL** — não mexer em `preco.ts`. Ver invariante #12
+   (permissão por linha) e memória `project_mo_por_servico`.
 9. **Segurança / RPC** — padrão **wrapper + `_core`**: o wrapper checa
    `user_can_view(_pagina)` (dashboards) ou `tenant_module_enabled(_module)` (módulos
    desligáveis) e o `_core` tem EXECUTE revogado. ⚠️ **Revogue dos TRÊS: `REVOKE EXECUTE ON FUNCTION
@@ -368,12 +377,26 @@ e verifique** — o repo muda rápido.
     `'{}'::jsonb` (custos → "—" em TODOS os 6 consumidores) quando `NOT _pode_ver_custos()`
     (= `user_can_view` de `criacao_planejamento:custos`/`criacao_desenvolvimento:custos`/
     `producao_terceirizados:precos`/`dashboard_custos`/`dashboard_comercial`; admins furam);
-    `_custo_unitario_modelos_core` com EXECUTE revogado. **Aprovar mão de obra**: trigger
-    `trg_enforce_maodeobra_aprovacao` (BEFORE UPDATE em `modelos`) RAISE 42501 se
-    `custo_terceirizados_aprovado` mudar sem `user_can_edit('producao_servico_aprovacao')`
-    (novo helper, espelho de `user_can_view`). O front só ESCONDE (`canView`/`canEdit`); o banco
+    `_custo_unitario_modelos_core` com EXECUTE revogado. **Aprovar mão de obra (ago/2026, POR
+    LINHA):** `trg_enforce_maodeobra_aprovacao`/`enforce_maodeobra_aprovacao` (o guard antigo em
+    `modelos`) foram **APOSENTADOS** (dropados na mesma migração que instalou o rollup — senão
+    bloqueariam o próprio recompute do flag). A permissão `producao_servico_aprovacao` agora é
+    enforçada **por linha** em `modelo_servico_mo`: `trg_enforce_servico_mo_aprovacao`/
+    `enforce_servico_mo_aprovacao` (BEFORE INSERT/UPDATE) RAISE 42501 se `aprovado` for
+    definido/mudar sem `user_can_edit(...)`; `trg_enforce_servico_mo_del_aprovacao`/
+    `enforce_servico_mo_del_aprovacao` (BEFORE DELETE) RAISE 42501 ao apagar linha
+    **não-aprovada** sem a permissão (apagar libera o modelo tanto quanto aprovar — mesmo
+    furo, mesmo gate; guarda de cascade: não bloqueia se o `modelos` pai já sumiu, ex. exclusão
+    do modelo). `salvar_modelo_servico_mo` NUNCA toca `aprovado` (só `valor`/`observacoes`) —
+    aprovar/reprovar é sempre via `aprovar_servico_mo`. O flag do modelo é à prova de
+    adulteração por construção: `fn_modelo_mo_flag_derivada` **re-deriva em toda escrita** de
+    `modelos`, ignorando qualquer `custo_terceirizados_aprovado` vindo do cliente (substitui a
+    garantia do enforce dropado). `modelo_mo_resumo` é gated por `_pode_ver_custos() OR
+    user_can_edit('producao_servico_aprovacao')` (espelha a superfície do editor/badge — um
+    aprovador sem visão de custo não perde a tela) e **mascara `valor`/`total`/`total_aprovado`**
+    (`NULL`) quando não pode ver custos. O front só ESCONDE (`canView`/`canEdit`); o banco
     garante. Rollout com backfill não-quebra (concede aos que já viam/aprovavam). Ver
-    memória `project_permissao_secoes`.
+    memória `project_permissao_secoes` e `project_mo_por_servico`.
 
 **Docs de referência LOCAIS (gitignored, manter atualizados — papel do agente `docs-keeper`):**
 `docs/mapeamento-campos-calculos.md` (campos×campos, fórmulas, etapas),
@@ -390,7 +413,9 @@ Enforcement no Select de status E no arraste (colunas inválidas esmaecidas). At
 a memória a cada mudança (papel do `docs-keeper`). ⚠️ A condição `servico_aprovado` (key histórica,
 label **"Aprovação de custo"**, módulo **Planejamento**) foi REPONTADA (jul/2026) p/
 `coalesce(modelos.custo_terceirizados_aprovado,false)` — null/false não liberam; key MANTIDA
-(requisitos já configurados + anti-drift seguem). Condição `grade_todas_variantes` (Desenvolvimento):
+(requisitos já configurados + anti-drift seguem). **Sem mudança de chave em ago/2026**: o flag
+virou boolean DERIVADO de `modelo_servico_mo` por trigger (invariantes #8/#12), mas a condição
+continua lendo a MESMA coluna/key — catálogo, RPC e anti-drift inalterados. Condição `grade_todas_variantes` (Desenvolvimento):
 toda variante do Tecido 1 tem `modelo_grades.grade_total > 0` (mais estrita que `grade_preenchida`).
 
 ## O que NÃO fazer
