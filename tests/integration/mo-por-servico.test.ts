@@ -305,3 +305,101 @@ describe.skipIf(!hasDb)("MO por serviço — Task 4: RPCs + permissão por linha
     });
   });
 });
+
+describe.skipIf(!hasDb)("MO por serviço — Task 4 fix1: gate no DELETE + categoria ativa", () => {
+  // Semeia um usuário do tenant SEM papel (não super_admin) e SEM producao_servico_aprovacao,
+  // e o deixa como identidade ativa (auth.uid()). Txn revertida.
+  async function comoSemPermissao(c: any, uid: string) {
+    await c.query(`insert into auth.users (id, email) values ($1,$2) on conflict (id) do nothing`, [uid, `${uid}@teste`]);
+    await c.query(`insert into public.users (id, tenant_id, email, nome) values ($1,$2,$3,'Sem Perm')
+                   on conflict (id) do update set tenant_id=excluded.tenant_id`, [uid, TENANT_TESTE, `${uid}@teste`]);
+    await c.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: uid, role: "authenticated" })]);
+  }
+  const salvar = (c: any, m: string, linhas: any[]) =>
+    c.query(`select salvar_modelo_servico_mo($1,$2::jsonb)`, [m, JSON.stringify(linhas)]);
+  const conta = async (c: any, m: string) =>
+    Number((await um<{ n: string }>(c, `select count(*) as n from modelo_servico_mo where modelo_id=$1`, [m])).n);
+  const flag = async (c: any, m: string) =>
+    (await um<{ f: boolean }>(c, `select custo_terceirizados_aprovado as f from modelos where id=$1`, [m])).f;
+
+  it("(a) salvar que OMITE linha reprovada SEM permissão → 42501 (não fura o gate via DELETE)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const m = await um<{ id: string }>(c, `insert into modelos (tenant_id, nome) values ($1,'M del noperm') returning id`, [TENANT_TESTE]);
+      const cat = await um<{ id: string }>(c, `insert into categorias_terceirizado (tenant_id, nome, etapa) values ($1,'Serv del noperm','ate_costura') returning id`, [TENANT_TESTE]);
+      await salvar(c, m.id, [{ categoria_terceirizado_id: cat.id, valor: 5 }]);
+      await c.query(`select aprovar_servico_mo($1,$2,false,'valor alto')`, [m.id, cat.id]); // reprovada → flag false
+      expect(await flag(c, m.id)).toBe(false);
+      await comoSemPermissao(c, "0c0c0c0c-0000-4000-8000-0000000000cc");
+      // salvar com payload vazio tentaria APAGAR a linha reprovada (estado-completo) → liberaria o flag.
+      await c.query("SAVEPOINT sp");
+      await expect(salvar(c, m.id, [])).rejects.toThrow(/permiss/i);
+      await c.query("ROLLBACK TO SAVEPOINT sp");
+      expect(await conta(c, m.id)).toBe(1); // reprovada permanece
+      expect(await flag(c, m.id)).toBe(false); // continua bloqueada
+    });
+  });
+
+  it("(b) COM permissão, salvar que omite a reprovada REMOVE a linha", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c); // super_admin tem a permissão
+      const m = await um<{ id: string }>(c, `insert into modelos (tenant_id, nome) values ($1,'M del ok') returning id`, [TENANT_TESTE]);
+      const cat = await um<{ id: string }>(c, `insert into categorias_terceirizado (tenant_id, nome, etapa) values ($1,'Serv del ok','ate_costura') returning id`, [TENANT_TESTE]);
+      await salvar(c, m.id, [{ categoria_terceirizado_id: cat.id, valor: 5 }]);
+      await c.query(`select aprovar_servico_mo($1,$2,false,'motivo')`, [m.id, cat.id]);
+      await salvar(c, m.id, []); // remove a reprovada
+      expect(await conta(c, m.id)).toBe(0);
+      expect(await flag(c, m.id)).toBe(true); // sem linha = liberada
+    });
+  });
+
+  it("(c) deletar linha APROVADA não exige a permissão (remover serviço ≠ aprovar)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const m = await um<{ id: string }>(c, `insert into modelos (tenant_id, nome) values ($1,'M del aprov') returning id`, [TENANT_TESTE]);
+      const cat = await um<{ id: string }>(c, `insert into categorias_terceirizado (tenant_id, nome, etapa) values ($1,'Serv del aprov','ate_costura') returning id`, [TENANT_TESTE]);
+      await salvar(c, m.id, [{ categoria_terceirizado_id: cat.id, valor: 5 }]);
+      await c.query(`select aprovar_servico_mo($1,$2,true,null)`, [m.id, cat.id]); // aprovada
+      await comoSemPermissao(c, "0d0d0d0d-0000-4000-8000-0000000000dd");
+      await salvar(c, m.id, []); // remove linha aprovada → permitido
+      expect(await conta(c, m.id)).toBe(0);
+    });
+  });
+
+  it("(d) salvar linha NOVA em categoria inativa → RAISE 'desativado'", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const m = await um<{ id: string }>(c, `insert into modelos (tenant_id, nome) values ($1,'M cat inativa') returning id`, [TENANT_TESTE]);
+      const cat = await um<{ id: string }>(c, `insert into categorias_terceirizado (tenant_id, nome, etapa, ativo) values ($1,'Serv inativa','ate_costura',false) returning id`, [TENANT_TESTE]);
+      await c.query("SAVEPOINT sp");
+      await expect(salvar(c, m.id, [{ categoria_terceirizado_id: cat.id, valor: 5 }])).rejects.toThrow(/desativ/i);
+      await c.query("ROLLBACK TO SAVEPOINT sp");
+      expect(await conta(c, m.id)).toBe(0);
+    });
+  });
+
+  it("(e) UPDATE de linha histórica em categoria desativada DEPOIS → permitido (soft-hide)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const m = await um<{ id: string }>(c, `insert into modelos (tenant_id, nome) values ($1,'M hist inativa') returning id`, [TENANT_TESTE]);
+      const cat = await um<{ id: string }>(c, `insert into categorias_terceirizado (tenant_id, nome, etapa) values ($1,'Serv hist','ate_costura') returning id`, [TENANT_TESTE]);
+      await salvar(c, m.id, [{ categoria_terceirizado_id: cat.id, valor: 5 }]); // cria a linha enquanto ATIVA
+      await c.query(`update categorias_terceirizado set ativo=false where id=$1`, [cat.id]); // desativa DEPOIS
+      await salvar(c, m.id, [{ categoria_terceirizado_id: cat.id, valor: 9 }]); // UPDATE do valor → permitido
+      const v = await um<{ valor: string }>(c, `select valor from modelo_servico_mo where modelo_id=$1`, [m.id]);
+      expect(Number(v.valor)).toBe(9);
+    });
+  });
+
+  it("(f) cascade de excluir modelo (linha pendente) NÃO é barrado pelo gate por-linha", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const m = await um<{ id: string }>(c, `insert into modelos (tenant_id, nome) values ($1,'M cascade') returning id`, [TENANT_TESTE]);
+      const cat = await um<{ id: string }>(c, `insert into categorias_terceirizado (tenant_id, nome, etapa) values ($1,'Serv cascade','ate_costura') returning id`, [TENANT_TESTE]);
+      await c.query(`insert into modelo_servico_mo (tenant_id, modelo_id, categoria_terceirizado_id, valor) values ($1,$2,$3,5)`, [TENANT_TESTE, m.id, cat.id]); // pendente (aprovado null)
+      await comoSemPermissao(c, "0e0e0e0e-0000-4000-8000-0000000000ee");
+      await c.query(`delete from modelos where id=$1`, [m.id]); // cascade apaga a linha pendente; guarda de pai-inexistente NÃO gateia
+      expect(await conta(c, m.id)).toBe(0);
+    });
+  });
+});
