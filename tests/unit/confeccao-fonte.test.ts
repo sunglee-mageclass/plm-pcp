@@ -32,4 +32,14 @@ describe("resolverFonteConfeccao", () => {
     const r = resolverFonteConfeccao([bloco("bB", "cBord", true)], cats);
     expect(r.fonteId).toBeNull();
   });
+  it("2 blocos mesmo rank (2× Oficina) → desempata por created_at (o mais antigo vence)", () => {
+    const bOfi1 = { ...bloco("bOfi1", "cOfi", true), created_at: "2026-08-06T12:00:00Z" };
+    const bOfi2 = { ...bloco("bOfi2", "cOfi", true), created_at: "2026-08-01T09:00:00Z" };
+    // Ordem de entrada propositalmente "errada" (o mais novo primeiro) — o desempate
+    // tem que ignorar a ordem do array e escolher pelo created_at, não pela posição.
+    const r = resolverFonteConfeccao([bOfi1, bOfi2], cats);
+    expect(r.fonteId).toBe("bOfi2");
+    expect(r.ambiguo).toBe(true);
+    expect(r.candidatos.sort()).toEqual(["bOfi1", "bOfi2"]);
+  });
 });

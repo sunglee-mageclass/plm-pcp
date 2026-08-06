@@ -414,10 +414,11 @@ function ConfeccaoPrioridadeCard() {
 
   const savePrio = useMutation({
     mutationFn: async (ids: string[]) => {
+      // upsert (não update): loja sem linha de tenant_config ainda não perde a gravação em
+      // silêncio (0 rows, sem erro) — mesmo padrão de admin/configuracoes.tsx.
       const { error } = await supabase
         .from("tenant_config")
-        .update({ confeccao_prioridade: ids } as any)
-        .eq("tenant_id", tenantId);
+        .upsert({ tenant_id: tenantId, confeccao_prioridade: ids } as any, { onConflict: "tenant_id" });
       if (error) throw error;
     },
     onSuccess: () => {
