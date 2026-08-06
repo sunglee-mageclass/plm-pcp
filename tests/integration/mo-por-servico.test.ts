@@ -403,3 +403,50 @@ describe.skipIf(!hasDb)("MO por serviço — Task 4 fix1: gate no DELETE + categ
     });
   });
 });
+
+describe.skipIf(!hasDb)("MO por serviço — Fix wave: contagem p/ o KPI da Home", () => {
+  const cnt = async (c: any) =>
+    Number((await um<{ n: string }>(c, `select modelos_mo_a_aprovar_count() as n`)).n);
+
+  it("conta modelos com ≥1 linha PENDENTE; aprovar/remover a linha faz sair da conta", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const base = await cnt(c);
+      const m = await um<{ id: string }>(c, `insert into modelos (tenant_id, nome) values ($1,'M cnt A') returning id`, [TENANT_TESTE]);
+      const cat = await um<{ id: string }>(c, `insert into categorias_terceirizado (tenant_id, nome, etapa) values ($1,'Serv cnt A','ate_costura') returning id`, [TENANT_TESTE]);
+      await c.query(`select salvar_modelo_servico_mo($1,$2::jsonb)`, [m.id, JSON.stringify([{ categoria_terceirizado_id: cat.id, valor: 5 }])]);
+      expect(await cnt(c)).toBe(base + 1); // linha pendente (aprovado null) → entra
+      await c.query(`select aprovar_servico_mo($1,$2,true,null)`, [m.id, cat.id]);
+      expect(await cnt(c)).toBe(base); // aprovada → sai
+      // modelo sem serviço nenhum não conta
+      await um<{ id: string }>(c, `insert into modelos (tenant_id, nome) values ($1,'M cnt vazio') returning id`, [TENANT_TESTE]);
+      expect(await cnt(c)).toBe(base);
+    });
+  });
+
+  it("core com REVOKE dos três (has_function_privilege f/f)", async () => {
+    await withTx(async (c) => {
+      const priv = await um<{ a: boolean; b: boolean }>(
+        c, `select has_function_privilege('anon','public._modelos_mo_a_aprovar_count_core()','EXECUTE') as a,
+                   has_function_privilege('authenticated','public._modelos_mo_a_aprovar_count_core()','EXECUTE') as b`,
+      );
+      expect(priv.a).toBe(false); expect(priv.b).toBe(false);
+    });
+  });
+
+  it("retorna 0 p/ quem não pode ver custos NEM aprovar", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c); // super cria os dados
+      const m = await um<{ id: string }>(c, `insert into modelos (tenant_id, nome) values ($1,'M cnt gate') returning id`, [TENANT_TESTE]);
+      const cat = await um<{ id: string }>(c, `insert into categorias_terceirizado (tenant_id, nome, etapa) values ($1,'Serv cnt gate','ate_costura') returning id`, [TENANT_TESTE]);
+      await c.query(`select salvar_modelo_servico_mo($1,$2::jsonb)`, [m.id, JSON.stringify([{ categoria_terceirizado_id: cat.id, valor: 5 }])]);
+      // usuário do tenant SEM papel e SEM producao_servico_aprovacao / visão de custos
+      const uid = "0f0f0f0f-0000-4000-8000-0000000000ff";
+      await c.query(`insert into auth.users (id, email) values ($1,'cnt-gate@teste') on conflict (id) do nothing`, [uid]);
+      await c.query(`insert into public.users (id, tenant_id, email, nome) values ($1,$2,'cnt-gate@teste','Cnt Gate')
+                     on conflict (id) do update set tenant_id=excluded.tenant_id`, [uid, TENANT_TESTE]);
+      await c.query(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: uid, role: "authenticated" })]);
+      expect(await cnt(c)).toBe(0);
+    });
+  });
+});

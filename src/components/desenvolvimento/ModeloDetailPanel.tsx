@@ -243,6 +243,19 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
       return (((data ?? {}) as any)[modeloId] ?? {}) as Record<string, boolean>;
     },
   });
+  // Estado da MO por serviço — READ-ONLY, derivado de `modelo_mo_resumo.estado`
+  // (aprovada|pendente|reprovada|sem_servico). O flag cru custo_terceirizados_aprovado virou
+  // boolean DERIVADO (false = pendente OU reprovada), então o badge antigo pintava pendente como
+  // "Reprovada". A RPC mascara p/ quem não vê custos ({} → estado undefined → sem badge).
+  const { data: moEstado } = useQuery({
+    queryKey: ["modelo-mo-resumo", modeloId],
+    enabled: !!modeloId,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("modelo_mo_resumo" as any, { _ids: [modeloId] });
+      if (error) throw error;
+      return (((data ?? {}) as any)[modeloId]?.estado ?? undefined) as string | undefined;
+    },
+  });
   const podeEntrarStatus = (statusKey: string) =>
     requisitosOk(((tenantCfg as any)?.kanban_requisitos ?? {})[statusKey], condicoesModelo as Record<string, boolean>);
   // status_kanban resolvido para chave SNAKE canônica (bate com status_desenvolvimento).
@@ -2545,7 +2558,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
                 totals={totals}
                 custoTerceirizados={draft.custo_terceirizados_previsto}
                 onChangeTerceirizados={(v) => setDraftTracked({ ...draft, custo_terceirizados_previsto: v })}
-                maoObraAprovado={(modelo as any)?.custo_terceirizados_aprovado ?? null}
+                maoObraEstado={moEstado}
                 custosAdicionais={draft.custos_adicionais ?? []}
                 onChangeCustos={(v) => setDraftTracked({ ...draft, custos_adicionais: v })}
                 camposCopiados={camposCopiados}

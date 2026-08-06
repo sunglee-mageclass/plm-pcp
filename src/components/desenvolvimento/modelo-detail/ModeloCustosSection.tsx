@@ -30,7 +30,7 @@ export function ModeloCustosSection({
   totals,
   custoTerceirizados,
   onChangeTerceirizados,
-  maoObraAprovado,
+  maoObraEstado,
   custosAdicionais,
   onChangeCustos,
   camposCopiados = new Set(),
@@ -39,7 +39,8 @@ export function ModeloCustosSection({
   totals: { tecido: number; forro: number; entretela: number; aviamento: number; etiqueta: number; peca: number };
   custoTerceirizados: number;
   onChangeTerceirizados: (v: number) => void;
-  maoObraAprovado?: boolean | null;
+  /** Estado da MO por serviço (aprovada|pendente|reprovada|sem_servico); undefined = sem custo/mascarado. */
+  maoObraEstado?: string;
   custosAdicionais: CustoAdicional[];
   onChangeCustos: (v: CustoAdicional[]) => void;
   camposCopiados?: Set<string>;
@@ -64,11 +65,14 @@ export function ModeloCustosSection({
       <div className="flex items-center gap-2">
         <span className="flex-1 min-w-0 flex items-center gap-2">
           <Label>Previsão de Mão de Obra</Label>
-          {/* Reflexo (read-only) da aprovação feita no Planejamento. */}
-          <span className={`text-[10px] rounded px-1.5 py-0.5 ${maoObraAprovado === true ? "bg-emerald-100 text-emerald-700" : maoObraAprovado === false ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}
-            title="Aprovação da mão de obra (no Planejamento)">
-            {maoObraAprovado === true ? "Aprovada" : maoObraAprovado === false ? "Reprovada" : "Pendente"}
-          </span>
+          {/* Reflexo (read-only) do estado da MO por serviço — aprovação é por serviço, no Planejamento.
+              undefined (sem custo/mascarado) ou sem_servico → sem selo. */}
+          {maoObraEstado && maoObraEstado !== "sem_servico" && (
+            <span className={`text-[10px] rounded px-1.5 py-0.5 ${maoObraEstado === "aprovada" ? "bg-emerald-100 text-emerald-700" : maoObraEstado === "reprovada" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}
+              title="Estado da mão de obra (aprovação por serviço, no Planejamento)">
+              {maoObraEstado === "aprovada" ? "Aprovada" : maoObraEstado === "reprovada" ? "Reprovada" : "Pendente"}
+            </span>
+          )}
         </span>
         <NumberInput
           className={VAL}

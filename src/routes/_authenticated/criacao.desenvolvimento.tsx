@@ -60,7 +60,6 @@ type Modelo = {
   enviado_cad: boolean | null;
   cad: { enviado_corte: boolean | null }[] | null;
   created_at: string | null;
-  custo_terceirizados_aprovado?: boolean | null;
 };
 
 const SORT_FIELDS = [
@@ -198,7 +197,7 @@ function DesenvolvimentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, ref, versao, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, linha_id, status_desenvolvimento, fotos_modelo, desenho_tecnico_url, croqui_url, enviado_cad, cad(enviado_corte), created_at, custo_terceirizados_aprovado")
+        .select("id, nome, ref, versao, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, linha_id, status_desenvolvimento, fotos_modelo, desenho_tecnico_url, croqui_url, enviado_cad, cad(enviado_corte), created_at")
         .eq("ordem_criacao_enviada", true)
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -236,6 +235,22 @@ function DesenvolvimentoPage() {
       const { data, error } = await supabase.rpc("avaliar_condicoes_kanban" as any, { _ids: modeloIdsAll });
       if (error) throw error;
       return (data ?? {}) as Record<string, Record<string, boolean>>;
+    },
+  });
+  // Estado da MO por serviço (badge do card) — derivado de `modelo_mo_resumo.estado`
+  // (aprovada|pendente|reprovada|sem_servico). O flag cru custo_terceirizados_aprovado virou
+  // boolean DERIVADO: false = pendente OU reprovada, então o badge antigo pintava PENDENTE de
+  // vermelho ("reprovado"). A RPC mascara p/ quem não vê custos ({} → sem badge).
+  const { data: moEstadoMap = {} } = useQuery({
+    queryKey: ["desenv-mo-resumo", modeloIdsAll],
+    enabled: modeloIdsAll.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("modelo_mo_resumo" as any, { _ids: modeloIdsAll });
+      if (error) throw error;
+      const src = (data ?? {}) as Record<string, { estado: string }>;
+      const m: Record<string, string> = {};
+      for (const [id, v] of Object.entries(src)) if (v?.estado) m[id] = v.estado;
+      return m;
     },
   });
   // Um card pode ENTRAR no status? (requisitos do status ⊆ condições satisfeitas do modelo)
@@ -320,6 +335,7 @@ function DesenvolvimentoPage() {
     <KanbanCard
       key={m.id}
       modelo={m}
+      moEstado={moEstadoMap[m.id]}
       estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
       categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
       onOpen={() => setOpenId(m.id)}
@@ -344,6 +360,7 @@ function DesenvolvimentoPage() {
       <MobileCard
         key={m.id}
         modelo={m}
+        moEstado={moEstadoMap[m.id]}
         estilistaNome={m.estilista_id ? estMap[m.estilista_id] : null}
         categoriaNome={m.categoria_principal_id ? catMap[m.categoria_principal_id] : null}
         onOpen={() => setOpenId(m.id)}
@@ -674,8 +691,22 @@ function CardCover({ url, isPdf, nome }: { url: string | null; isPdf: boolean; n
   );
 }
 
-function MobileCard({ modelo, estilistaNome, categoriaNome, onOpen, moverOpts, onMove }: {
+// Badge da MO por serviço no card. `estado` derivado de `modelo_mo_resumo`:
+// aprovada=verde, reprovada=vermelho, pendente=âmbar; sem_servico ou undefined
+// (sem custo/mascarado pela RPC) = sem badge.
+function MaoObraBadge({ estado }: { estado?: string }) {
+  if (estado === "aprovada")
+    return <span className="inline-flex items-center mt-0.5 rounded px-1 py-0 text-[10px] font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">Custo aprovado</span>;
+  if (estado === "reprovada")
+    return <span className="inline-flex items-center mt-0.5 rounded px-1 py-0 text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">Custo reprovado</span>;
+  if (estado === "pendente")
+    return <span className="inline-flex items-center mt-0.5 rounded px-1 py-0 text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Custo pendente</span>;
+  return null;
+}
+
+function MobileCard({ modelo, moEstado, estilistaNome, categoriaNome, onOpen, moverOpts, onMove }: {
   modelo: Modelo;
+  moEstado?: string;
   estilistaNome: string | null;
   categoriaNome: string | null;
   onOpen: () => void;
@@ -688,7 +719,6 @@ function MobileCard({ modelo, estilistaNome, categoriaNome, onOpen, moverOpts, o
   const url = useSignedUrlBucket(cover);
   const coverIsPdf = /\.pdf$/i.test(cover ?? "");
   const naExplosao = !!modelo.enviado_cad && !modelo.cad?.[0]?.enviado_corte;
-  const aprovado = modelo.custo_terceirizados_aprovado;
   return (
     <div className="relative bg-card border rounded-md p-2 space-y-2">
       {naExplosao && (
@@ -704,16 +734,7 @@ function MobileCard({ modelo, estilistaNome, categoriaNome, onOpen, moverOpts, o
           {modelo.ref && <p className="text-xs font-mono text-primary truncate">{fl("ref")} {modelo.ref}</p>}
           <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
           <p className="text-xs text-muted-foreground truncate">{categoriaNome ?? "—"}</p>
-          {aprovado === true && (
-            <span className="inline-flex items-center mt-0.5 rounded px-1 py-0 text-[10px] font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
-              Custo aprovado
-            </span>
-          )}
-          {aprovado === false && (
-            <span className="inline-flex items-center mt-0.5 rounded px-1 py-0 text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">
-              Custo reprovado
-            </span>
-          )}
+          <MaoObraBadge estado={moEstado} />
         </div>
       </div>
       {/* "Mover para…" = arraste do desktop, no toque. key por status reseta o placeholder ao mover. */}
@@ -737,8 +758,8 @@ function MobileCard({ modelo, estilistaNome, categoriaNome, onOpen, moverOpts, o
 }
 
 
-function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: isDraggable, dragging, onDragStartCard, onDragEndCard }: {
-  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; onOpen: () => void; draggable: boolean;
+function KanbanCard({ modelo, moEstado, estilistaNome, categoriaNome, onOpen, draggable: isDraggable, dragging, onDragStartCard, onDragEndCard }: {
+  modelo: Modelo; moEstado?: string; estilistaNome: string | null; categoriaNome: string | null; onOpen: () => void; draggable: boolean;
   dragging?: boolean; onDragStartCard?: () => void; onDragEndCard?: () => void;
 }) {
   const fl = useFieldLabels();
@@ -747,7 +768,6 @@ function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: i
   const url = useSignedUrlBucket(cover);
   const coverIsPdf = /\.pdf$/i.test(cover ?? "");
   const naExplosao = !!modelo.enviado_cad && !modelo.cad?.[0]?.enviado_corte;
-  const aprovado = modelo.custo_terceirizados_aprovado;
   const { handlers, node } = useCursorTip(naExplosao ? "Enviado à Explosão" : null);
   return (
     <>
@@ -776,16 +796,7 @@ function KanbanCard({ modelo, estilistaNome, categoriaNome, onOpen, draggable: i
           {modelo.ref && <p className="text-xs font-mono text-primary truncate">{fl("ref")} {modelo.ref}</p>}
           <p className="text-xs text-muted-foreground truncate">{estilistaNome ?? "—"}</p>
           <p className="text-xs text-muted-foreground truncate">{categoriaNome ?? "—"}</p>
-          {aprovado === true && (
-            <span className="inline-flex items-center mt-0.5 rounded px-1 py-0 text-[10px] font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
-              Custo aprovado
-            </span>
-          )}
-          {aprovado === false && (
-            <span className="inline-flex items-center mt-0.5 rounded px-1 py-0 text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">
-              Custo reprovado
-            </span>
-          )}
+          <MaoObraBadge estado={moEstado} />
         </div>
       </div>
     </div>

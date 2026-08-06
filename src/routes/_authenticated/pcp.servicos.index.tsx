@@ -23,6 +23,15 @@ export const Route = createFileRoute("/_authenticated/pcp/servicos/")({
   component: TercListPage,
 });
 
+// Bolinha do estado da MO por serviço (aprovada=verde, reprovada=vermelho, pendente=âmbar).
+// sem_servico ou undefined (sem custo/mascarado pela RPC) → sem bolinha.
+function MoDot({ estado }: { estado?: string }) {
+  if (!estado || estado === "sem_servico") return null;
+  const cls = estado === "aprovada" ? "bg-emerald-500" : estado === "reprovada" ? "bg-red-500" : "bg-amber-400";
+  const title = estado === "aprovada" ? "Mão de obra aprovada" : estado === "reprovada" ? "Mão de obra reprovada" : "Mão de obra pendente";
+  return <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${cls}`} title={title} />;
+}
+
 function TercListPage() {
   const fl = useFieldLabels();
   const [sheetId, setSheetId] = useState<string | null>(null);
@@ -44,7 +53,7 @@ function TercListPage() {
       const { data, error } = await supabase
         .from("modelos")
         .select(
-          "id, ref, versao, nome, colecao, mes_id, ano_id, categoria_principal_id, revisao_pendente, custo_terceirizados_aprovado, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, status_corte, sem_acabamento, producao_terceirizados(data_enviado, data_entregue, quantidade_enviada, quantidade_recebida, quantidade_defeito, ativo, interno, categorias_terceirizado(etapa)))",
+          "id, ref, versao, nome, colecao, mes_id, ano_id, categoria_principal_id, revisao_pendente, categorias_produto:categoria_principal_id(nome), cad(id, enviado_corte, status_corte, sem_acabamento, producao_terceirizados(data_enviado, data_entregue, quantidade_enviada, quantidade_recebida, quantidade_defeito, ativo, interno, categorias_terceirizado(etapa)))",
         )
         .eq("enviado_cad", true)
         .order("created_at", { ascending: false });
@@ -75,9 +84,6 @@ function TercListPage() {
           else if (sPos === "vazio") statusGeral = m.cad?.[0]?.sem_acabamento === true ? "finalizado" : "pre_finalizado";
           else statusGeral = "pendente";
         }
-        // Aprovação da mão de obra (feita no Planejamento): 3 estados — aprovado/reprovado/pendente(null).
-        const _mo = (m as any).custo_terceirizados_aprovado;
-        const aprovacao: "verde" | "vermelha" | "amarela" = _mo == null ? "amarela" : _mo ? "verde" : "vermelha";
         return {
           modelo_id: m.id,
           ref: m.ref,
@@ -90,9 +96,26 @@ function TercListPage() {
           categoria_nome: m.categorias_produto?.nome ?? null,
           cad_id: m.cad?.[0]?.id ?? null,
           statusGeral,
-          aprovacao,
         };
       });
+    },
+  });
+
+  // Estado da MO por serviço (bolinha da REF) — derivado de `modelo_mo_resumo.estado`
+  // (aprovada|pendente|reprovada|sem_servico). O flag cru custo_terceirizados_aprovado virou
+  // boolean DERIVADO (false = pendente OU reprovada), então a bolinha antiga pintava pendente de
+  // vermelho. A RPC mascara p/ quem não vê custos ({} → sem bolinha).
+  const modeloIds = useMemo(() => [...new Set((rows as any[]).map((r) => r.modelo_id))].sort(), [rows]);
+  const { data: moEstadoMap = {} } = useQuery({
+    queryKey: ["producao-terc-mo-resumo", modeloIds],
+    enabled: modeloIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("modelo_mo_resumo" as any, { _ids: modeloIds });
+      if (error) throw error;
+      const src = (data ?? {}) as Record<string, { estado: string }>;
+      const m: Record<string, string> = {};
+      for (const [id, v] of Object.entries(src)) if (v?.estado) m[id] = v.estado;
+      return m;
     },
   });
 
@@ -184,10 +207,7 @@ function TercListPage() {
               >
                 <td className="px-4 py-2">
                   <span className="inline-flex items-center gap-2">
-                    <span
-                      className={`h-2.5 w-2.5 shrink-0 rounded-full ${r.aprovacao === "verde" ? "bg-emerald-500" : r.aprovacao === "vermelha" ? "bg-red-500" : "bg-amber-400"}`}
-                      title={r.aprovacao === "verde" ? "Mão de obra aprovada" : r.aprovacao === "vermelha" ? "Mão de obra reprovada" : "Mão de obra pendente"}
-                    />
+                    <MoDot estado={(moEstadoMap as Record<string, string>)[r.modelo_id]} />
                     <span className="font-mono text-primary">{r.ref ?? "—"}</span>
                     <VersaoBadge versao={r.versao} className="text-[10px]" />
                     <RevisaoErroBadge revisao={r.revisao_pendente} etapa="terceirizados" />

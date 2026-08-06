@@ -7,7 +7,7 @@ import { AlertTriangle } from "lucide-react";
 import type { PtSlot } from "@/lib/plan-tecido/types";
 import { custoMateriaisPrevisto } from "@/lib/plan-tecido/calc";
 
-export function CustoSection({ slot, onChange, maoObraAprovado, maoObraDev }: { slot: PtSlot; onChange: (s: PtSlot) => void; maoObraAprovado?: boolean | null; maoObraDev?: number | null }) {
+export function CustoSection({ slot, onChange, maoObraEstado, maoObraDev }: { slot: PtSlot; onChange: (s: PtSlot) => void; maoObraEstado?: string; maoObraDev?: number | null }) {
   // markup vem da LINHA do modelo (linhas.markup) — necessário p/ o preço sugerido
   const { data: markupMap = {} } = useQuery({
     queryKey: ["plan-tecido-linhas-markup"],
@@ -51,12 +51,23 @@ export function CustoSection({ slot, onChange, maoObraAprovado, maoObraDev }: { 
           <div><div className="text-[10px] text-muted-foreground">Mão de obra prevista</div>
             <NumberInput blankZero placeholder="0,00" className="h-7 w-full text-right" value={maoObra} onChange={(e) => onChange({ ...slot, custo_terceirizados_previsto: Number(e.target.value) || 0 })} /></div>
         )}
-        {slot.modelo_id && (
-          <div className="col-span-2 flex items-center gap-2 text-[11px]">
-            <span className="text-muted-foreground">Aprovação de Mão de Obra:</span>
-            <span className={`ml-auto rounded px-2 py-0.5 font-medium ${maoObraAprovado === true ? "bg-emerald-100 text-emerald-700" : maoObraAprovado === false ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>
-              {maoObraAprovado === true ? "aprovada" : maoObraAprovado === false ? "reprovada" : "pendente"}
-            </span>
+        {/* Estado da MO por serviço — READ-ONLY (aprovação é por serviço, no Planejamento).
+            estado undefined = sem custo/mascarado → não mostra badge (não vaza valor). */}
+        {slot.modelo_id && maoObraEstado && (
+          <div className="col-span-2 space-y-0.5 text-[11px]">
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">Mão de Obra:</span>
+              <span className={`ml-auto rounded px-2 py-0.5 font-medium ${
+                maoObraEstado === "aprovada" ? "bg-emerald-100 text-emerald-700"
+                : maoObraEstado === "reprovada" ? "bg-red-100 text-red-700"
+                : maoObraEstado === "pendente" ? "bg-amber-100 text-amber-700"
+                : "bg-muted text-muted-foreground"}`}>
+                {maoObraEstado === "aprovada" ? "aprovada"
+                  : maoObraEstado === "reprovada" ? "reprovada"
+                  : maoObraEstado === "pendente" ? "pendente" : "sem serviço"}
+              </span>
+            </div>
+            <p className="text-[10px] text-muted-foreground">Aprovação da mão de obra é por serviço, no Planejamento.</p>
           </div>
         )}
         <RO label="Custo total" value={brl(custoTotal)} />

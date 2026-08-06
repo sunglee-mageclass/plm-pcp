@@ -149,19 +149,17 @@ export function HomeLogado() {
     },
   });
 
-  // Mão de obra pendente de aprovação (modelos em Dev/produção, não lançados, flag null).
+  // Mão de obra a aprovar: modelos com ≥1 linha de MO PENDENTE (modelo_servico_mo.aprovado IS NULL).
+  // O flag modelos.custo_terceirizados_aprovado virou BOOLEAN DERIVADO (nunca NULL) — contar `.is(null)`
+  // dava sempre 0. A pendência mora nas linhas; a tabela é RLS zero-policy, então a contagem vem por
+  // RPC DEFINER (gate = _pode_ver_custos() OR producao_servico_aprovacao; 0 fora disso).
   const maoObra = useQuery({
-    queryKey: ["home", "mao-obra-pendente"],
+    queryKey: ["home", "mo-a-aprovar-count"],
     enabled: !!modules.producao && podeVer("producao_servico_aprovacao"),
     queryFn: async () => {
-      const { count, error } = await supabase
-        .from("modelos")
-        .select("*", { count: "exact", head: true })
-        .eq("ordem_criacao_enviada", true)
-        .is("custo_terceirizados_aprovado", null)
-        .or("lancado.is.null,lancado.eq.false");
+      const { data, error } = await supabase.rpc("modelos_mo_a_aprovar_count" as any);
       if (error) throw error;
-      return count ?? 0;
+      return Number(data ?? 0);
     },
   });
 

@@ -40,10 +40,9 @@ export function ModelCard({
   vinculos,
   lancado,
   travado,
-  maoObraAprovado,
+  maoObraEstado,
   maoObraDev,
   versao,
-  onSetMaoObra,
   onEnsureSaved,
   defaultOpen,
   open: openProp,
@@ -66,10 +65,10 @@ export function ModelCard({
   lancado?: boolean;
   /** Modelo já enviado ao CAD (travado p/ edição no Dev): "Aplicar ao modelo" fica desabilitado. */
   travado?: boolean;
-  maoObraAprovado?: boolean | null;
+  /** Estado da MO por serviço (aprovada|pendente|reprovada|sem_servico) — READ-ONLY; undefined = sem custo/mascarado. */
+  maoObraEstado?: string;
   maoObraDev?: number | null;
   versao?: number | null;
-  onSetMaoObra?: (aprovado: boolean) => void;
   onEnsureSaved?: () => Promise<boolean>;
   defaultOpen?: boolean;
   /** Controle externo do aberto/recolhido (para "recolher/expandir todos"). Se ausente, usa estado local. */
@@ -419,7 +418,7 @@ export function ModelCard({
               <AccordionItem value="custo">
                 <AccordionTrigger className="py-2 text-xs">2. Custo &amp; Preço</AccordionTrigger>
                 <AccordionContent>
-                  <CustoSection slot={slot} onChange={onChange} maoObraAprovado={maoObraAprovado} maoObraDev={maoObraDev} />
+                  <CustoSection slot={slot} onChange={onChange} maoObraEstado={maoObraEstado} maoObraDev={maoObraDev} />
                 </AccordionContent>
               </AccordionItem>
             </Accordion>

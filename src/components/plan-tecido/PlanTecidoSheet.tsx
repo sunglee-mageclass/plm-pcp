@@ -21,7 +21,6 @@ import { ColabBanner } from "@/components/shared/ColabBanner";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import type { Conflito } from "@/lib/colab/merge";
 import { mergeArvorePorSlot } from "@/lib/plan-tecido/colab-merge-arvore";
-import { useAuth } from "@/hooks/useAuth";
 import { ArrowLeft, ShoppingCart, Plus, X, Tag, PanelLeft, Ruler, ChevronDown, ChevronRight } from "lucide-react";
 import {
   semearComModelos, mergeArvore, type SeedInput, type ModeloReal, type ModeloRealMaterial,
@@ -375,7 +374,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
       ((await supabase
         .from("modelos")
         .select(
-          "id, ref, nome, versao, subcolecao, linha_id, categoria_principal_id, proporcoes, lancado, enviado_cad, custo_terceirizados_aprovado, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(artigo_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total)",
+          "id, ref, nome, versao, subcolecao, linha_id, categoria_principal_id, proporcoes, lancado, enviado_cad, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(artigo_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total)",
         )
         .eq("colecao_id", colecaoId)).data ?? []) as any[],
   });
@@ -579,31 +578,21 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
     const v = lancadoSet.has(modeloId) ? c.mao_obra_real : c.mao_obra_previsto;
     return v == null ? null : Number(v);
   };
-  // Aprovação de custo de mão de obra por modelo (mesmo flag do Planejamento).
-  const maoObraAprovadoMap = useMemo(
-    () => new Map(((modelosDb ?? []) as any[]).map((m) => [m.id as string, (m.custo_terceirizados_aprovado ?? null) as boolean | null])),
-    [modelosDb],
-  );
-  // Só quem tem a permissão dedicada pode aprovar (o banco também bloqueia via trigger).
-  const { canEdit } = useAuth();
-  const podeAprovarMaoObra = canEdit("producao_servico_aprovacao");
-  const aprovarMaoObraMut = useMutation({
-    mutationFn: async ({ id, aprovado }: { id: string; aprovado: boolean }) => {
-      const { error } = await supabase.from("modelos").update({ custo_terceirizados_aprovado: aprovado } as any).eq("id", id);
+  // Estado da MO por serviço por modelo — READ-ONLY, derivado de `modelo_mo_resumo.estado`
+  // (aprovada|pendente|reprovada|sem_servico). A aprovação é POR SERVIÇO no Planejamento
+  // (MaoObraEditor); o Plan. Tecido NÃO aprova. O botão antigo dava `.update` no flag
+  // custo_terceirizados_aprovado, que virou DERIVADO por trigger → era no-op silencioso (mentia).
+  // A RPC mascara p/ quem não vê custos ({} → estado undefined → sem badge — não vaza valor).
+  const { data: moResumoMap = {} } = useQuery({
+    queryKey: ["plan-tecido-mo-resumo", modeloIdsDb],
+    enabled: modeloIdsDb.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("modelo_mo_resumo" as any, { _ids: modeloIdsDb });
       if (error) throw error;
+      return (data ?? {}) as Record<string, { estado: string }>;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["plan-tecido-modelos", colecaoId] });
-      // Reflete no Planejamento e na lista do Desenvolvimento (badge "Custo aprovado").
-      qc.invalidateQueries({
-        predicate: (q) => {
-          const k = q.queryKey?.[0];
-          return typeof k === "string" && (k.includes("modelos") || k.includes("desenvolvimento") || k.includes("planejamento"));
-        },
-      });
-    },
-    onError: (e) => toast.error(mensagemErro(e, "Não foi possível aprovar o custo de mão de obra.")),
   });
+  const maoObraEstadoDe = (modeloId: string): string | undefined => moResumoMap[modeloId]?.estado;
 
   // Fontes do merge: seed (OTB) e modelosReais (modelos+BOM+consumo+subcoleção). O react-query dá
   // referência ESTÁVEL quando o dado não muda, então comparar referência distingue "mudou de verdade"
@@ -1102,10 +1091,9 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
               vinculos={slot.modelo_id ? (vinculosMap[slot.modelo_id] ?? []) : []}
               lancado={slot.modelo_id ? lancadoSet.has(slot.modelo_id) : false}
               travado={slot.modelo_id ? enviadoCadSet.has(slot.modelo_id) : false}
-              maoObraAprovado={slot.modelo_id ? (maoObraAprovadoMap.get(slot.modelo_id) ?? null) : null}
+              maoObraEstado={slot.modelo_id ? maoObraEstadoDe(slot.modelo_id) : undefined}
               maoObraDev={slot.modelo_id ? maoObraDevDe(slot.modelo_id) : null}
               versao={slot.modelo_id ? (versaoMap[slot.modelo_id] ?? null) : null}
-              onSetMaoObra={slot.modelo_id && podeAprovarMaoObra ? (aprovado) => aprovarMaoObraMut.mutate({ id: slot.modelo_id!, aprovado }) : undefined}
               onEnsureSaved={ensureSaved}
               onChange={(ns) => { const next = structuredClone(arvore) as PtArvore; next.subcolecoes[subAtiva].linhas[li].slots[sli] = ns; patch(next); }}
               open={!recolhidos.has(chave)} onToggleOpen={() => toggleRecolhido(chave)}
