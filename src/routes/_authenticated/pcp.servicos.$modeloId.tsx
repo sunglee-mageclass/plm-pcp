@@ -147,7 +147,7 @@ export function TerceirizadosDetail({
     queryKey: ["terc-modelo", modeloId],
     queryFn: async () => {
       const { data, error } = await (supabase.from("modelos") as any)
-        .select("id, ref, nome, colecao, subcolecao, semana, categoria_principal_id, custos_adicionais, fotos_modelo, desenho_tecnico_url, croqui_url, mes:mes_id(mes), ano:ano_id(ano)")
+        .select("id, ref, nome, colecao, subcolecao, semana, categoria_principal_id, custos_adicionais, custo_terceirizados_aprovado, fotos_modelo, desenho_tecnico_url, croqui_url, mes:mes_id(mes), ano:ano_id(ano)")
         .eq("id", modeloId)
         .maybeSingle();
       if (error) throw error;
@@ -614,6 +614,8 @@ export function TerceirizadosDetail({
   // + custos adicionais do modelo (seguem para frente desde o Desenvolvimento — src/lib/custo.ts).
   const custosAdicionaisPeca = somaCustosAdicionais((modelo as any)?.custos_adicionais);
   const custoRealPeca = (Number(materiaisPorPeca) || 0) + servicoPorPeca + custosAdicionaisPeca;
+  // Aprovação da MO (flag por modelo, feita no Planejamento): true/false/null=pendente.
+  const moAprovada = (modelo as any)?.custo_terceirizados_aprovado as boolean | null | undefined;
 
   const saveMut = useMutation({
     mutationFn: async () => {
@@ -859,6 +861,22 @@ export function TerceirizadosDetail({
           {custosAdicionaisPeca > 0 && (
             <div className="text-xs text-muted-foreground">inclui custos adicionais: {brl(custosAdicionaisPeca)}</div>
           )}
+        </div>
+        )}
+        {podeVerPrecos && (
+        <div>
+          {/* MO Aprovada (dono, ago/2026): valor da mão de obra terceirizada (Σ dos serviços
+              externos) + estado da aprovação por modelo (custo_terceirizados_aprovado). */}
+          <Label className="text-xs text-muted-foreground">MO Aprovada</Label>
+          <div
+            className={`mt-1 text-sm font-bold ${moAprovada === true ? "text-emerald-600" : moAprovada === false ? "text-destructive" : "text-foreground"}`}
+            title={`Mão de obra terceirizada (soma dos serviços externos): ${brl(servicoTotal)} — ${brl(servicoPorPeca)}/peça`}
+          >
+            {brl(servicoTotal)}
+          </div>
+          <div className={`text-xs ${moAprovada === true ? "text-emerald-600" : moAprovada === false ? "text-destructive" : "text-amber-600"}`}>
+            {moAprovada === true ? "✓ aprovada" : moAprovada === false ? "reprovada" : "aprovação pendente"}
+          </div>
         </div>
         )}
       </Card>
