@@ -22,3 +22,23 @@ export function somaCampo(g: GradeDetalhe | undefined, campo: keyof CelulaGrade)
   for (const vid in g ?? {}) for (const t in g![vid] ?? {}) s += n(g![vid][t]?.[campo]);
   return s;
 }
+
+/**
+ * A Recebida nunca deveria ser maior que a Cortada — alerta (não bloqueio) por célula.
+ * Cortada ausente lê como 0, então recebida > 0 sem cortada também é violação (correto:
+ * recebeu algo que não consta como cortado).
+ */
+export function recebidaExcedeCortada(c: Partial<CelulaGrade> | undefined): boolean {
+  return n(c?.recebida) > n(c?.cortada);
+}
+
+/** Lista (variante_tecido_id, tamanho) de toda célula da grade com Recebida > Cortada. Reusado pelo CQ. */
+export function celulasRecebidaAcimaCortada(
+  g: GradeDetalhe | undefined
+): Array<{ variante_tecido_id: string; tamanho: string }> {
+  const out: Array<{ variante_tecido_id: string; tamanho: string }> = [];
+  for (const vid in g ?? {})
+    for (const t in g![vid] ?? {})
+      if (recebidaExcedeCortada(g![vid][t])) out.push({ variante_tecido_id: vid, tamanho: t });
+  return out;
+}

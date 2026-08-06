@@ -2,13 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { brl, fmtNum } from "@/lib/format";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Users, Save, Plus, Trash2, FileText, Pencil, Printer, Undo2 } from "lucide-react";
+import { ArrowLeft, Users, Save, Plus, Trash2, FileText, Pencil, Printer, Undo2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { corApelidoLabelServico } from "@/lib/variante";
 import { somaCustosAdicionais } from "@/lib/custo";
 import type { MoLinha, EstadoMO } from "@/lib/mao-obra";
-import { type CelulaGrade, type GradeDetalhe, CELULA_ZERO, somaCampo as somaGrade, saldoCelula } from "@/lib/grade-cortada";
+import { type CelulaGrade, type GradeDetalhe, CELULA_ZERO, somaCampo as somaGrade, saldoCelula, recebidaExcedeCortada, celulasRecebidaAcimaCortada } from "@/lib/grade-cortada";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
@@ -1169,6 +1169,18 @@ export function TerceirizadosDetail({
               {b.detalhado && (
                 <div className="col-span-full rounded-md border bg-muted/20 p-3">
                   <div className="mb-2 text-xs text-muted-foreground">Grade por <b>tamanho × variante</b> — a <b>Enviada</b> vem pré-preenchida da grade planejada; ajuste conforme o envio/recebimento.</div>
+                  {(() => {
+                    const violacoes = celulasRecebidaAcimaCortada(b.grade_detalhe);
+                    if (violacoes.length === 0) return null;
+                    return (
+                      <div className="mb-2 flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs font-medium text-destructive">
+                        <AlertTriangle className="h-4 w-4 shrink-0" />
+                        <span>
+                          Recebida acima da Cortada em {violacoes.length} célula{violacoes.length > 1 ? "s" : ""} — confira.
+                        </span>
+                      </div>
+                    );
+                  })()}
                   <GradeEditor tpl={gradeTpl ?? { variantes: [], tamanhos: [] }} grade={b.grade_detalhe} onChange={(g) => updateBloco(idx, { grade_detalhe: g })} />
                 </div>
               )}
@@ -1430,16 +1442,21 @@ function GradeEditor({
                   return (
                     <tr key={v.id} className="border-t">
                       <td className="whitespace-nowrap p-1">{v.label}</td>
-                      {tpl.tamanhos.map((t) => (
-                        <td key={t} className="p-0.5">
-                          <input
-                            type="number" min={0} disabled={disabled}
-                            className="h-7 w-14 rounded border bg-background px-1 text-right disabled:opacity-60"
-                            value={cel(v.id, t)[k] || ""}
-                            onChange={(e) => set(v.id, t, k, Number(e.target.value) || 0)}
-                          />
-                        </td>
-                      ))}
+                      {tpl.tamanhos.map((t) => {
+                        // Recebida não deveria superar a Cortada — alerta visual (não bloqueia o save).
+                        const alerta = k === "recebida" && recebidaExcedeCortada(cel(v.id, t));
+                        return (
+                          <td key={t} className="p-0.5">
+                            <input
+                              type="number" min={0} disabled={disabled}
+                              title={alerta ? "Recebida maior que a Cortada — confira." : undefined}
+                              className={`h-7 w-14 rounded border bg-background px-1 text-right disabled:opacity-60 ${alerta ? "border-destructive text-destructive font-semibold" : ""}`}
+                              value={cel(v.id, t)[k] || ""}
+                              onChange={(e) => set(v.id, t, k, Number(e.target.value) || 0)}
+                            />
+                          </td>
+                        );
+                      })}
                       <td className="p-1 text-center font-medium">{total}</td>
                     </tr>
                   );
