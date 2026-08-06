@@ -273,4 +273,72 @@ describe.skipIf(!hasDb)("Grade Cortada — fonte única", () => {
       expect(real.v).toBe(6); // a Grade Real seguiu a edição do PCP
     });
   });
+
+  it("[C1] com fonte: confirmar é BLOQUEADO quando a Grade Real da fonte = 0 (recebida=defeito), mesmo com _reais não-zero", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const s = await setupFonte(c);
+      if (!s) return;
+      // fonte: recebida=3, defeito=3 ⇒ Grade Real = max(0,3−3) = 0.
+      await inserirBlocoFonte(c, s, { [s.vid]: { [TAM]: { enviada: 3, cortada: 3, recebida: 3, defeito: 3 } } });
+      const variantes = JSON.stringify([
+        { variante_numero: s.vnum, etapa: "recebimento", grades: { [TAM]: 3 }, grade_total: 3 },
+        { variante_numero: s.vnum, etapa: "defeito", grades: { [TAM]: 3 }, grade_total: 3 },
+      ]);
+      // cliente "mente" mandando _reais não-zero — não deve furar o [C1].
+      const reais = JSON.stringify([{ variante_numero: s.vnum, grades: { [TAM]: 5 }, grade_total: 5 }]);
+      await expect(
+        c.query(`select salvar_cq($1,'{}'::jsonb,$2::jsonb,$3::jsonb,true)`, [s.cadId, variantes, reais]),
+      ).rejects.toThrow(/Conte ao menos uma peça/);
+    });
+  });
+
+  it("[C1] com fonte: confirmar SUCEDE quando a Grade Real da fonte > 0, mesmo com _reais vazio", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const s = await setupFonte(c);
+      if (!s) return;
+      await inserirBlocoFonte(c, s, { [s.vid]: { [TAM]: { enviada: 8, cortada: 8, recebida: 8, defeito: 0 } } });
+      const variantes = JSON.stringify([
+        { variante_numero: s.vnum, etapa: "recebimento", grades: { [TAM]: 8 }, grade_total: 8 },
+      ]);
+      const reais = JSON.stringify([]); // cliente manda vazio — a fonte manda.
+      const res = await um<{ r: { status: string } }>(
+        c,
+        `select salvar_cq($1,'{}'::jsonb,$2::jsonb,$3::jsonb,true) as r`,
+        [s.cadId, variantes, reais],
+      );
+      expect(res.r.status).toBe("confirmado");
+      const real = await um<{ v: number }>(
+        c,
+        `select coalesce((grades_reais->>$2)::int,0) v from cad_grades where cad_id=$1 and variante_numero=$3`,
+        [s.cadId, TAM, s.vnum],
+      );
+      expect(real.v).toBe(8);
+    });
+  });
+
+  it("save de CQ recompõe quantidade_enviada da grade e não rebaixa o status do bloco-fonte para pendente", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const s = await setupFonte(c);
+      if (!s) return;
+      // bloco detalhado com enviada/recebida na GRADE, mas SEM o escalar quantidade_enviada.
+      const fonteId = await inserirBlocoFonte(c, s, {
+        [s.vid]: { [TAM]: { enviada: 10, cortada: 10, recebida: 8, defeito: 0 } },
+      });
+      const variantes = JSON.stringify([
+        { variante_numero: s.vnum, etapa: "recebimento", grades: { [TAM]: 8 }, grade_total: 8 },
+      ]);
+      const reais = JSON.stringify([{ variante_numero: s.vnum, grades: { [TAM]: 8 }, grade_total: 8 }]);
+      await c.query(`select salvar_cq($1,'{}'::jsonb,$2::jsonb,$3::jsonb,true)`, [s.cadId, variantes, reais]);
+      const pt = await um<{ env: number; status: string }>(
+        c,
+        `select coalesce(quantidade_enviada,0) env, status from producao_terceirizados where id=$1`,
+        [fonteId],
+      );
+      expect(pt.env).toBe(10); // escalar recomposto de Σ grade_detalhe.enviada
+      expect(pt.status).toBe("finalizado"); // enviada>0 & recebida>0 ⇒ não rebaixa p/ pendente
+    });
+  });
 });
