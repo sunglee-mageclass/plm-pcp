@@ -6,6 +6,8 @@ import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { varianteLabel } from "@/lib/variante";
+import { resolverFonteConfeccao } from "@/lib/confeccao-fonte";
+import { celulasRecebidaAcimaCortada, type GradeDetalhe } from "@/lib/grade-cortada";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -103,13 +105,13 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   });
 
   // Variantes do Tecido Principal (tipo=tecido, numero=1), rotuladas por cor.
-  const { data: mainFabric } = useQuery({
+  const { data: mainFabric, isFetched: mainFabricFetched, isFetching: mainFabricFetching } = useQuery({
     queryKey: ["cq-main-fabric", cad?.id],
     enabled: !!cad?.id,
     queryFn: async () => {
       const { data } = await supabase
         .from("cad_tecidos")
-        .select("tipo, numero, cad_tecido_variantes(ordem, variantes_tecido:variante_tecido_id(nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))")
+        .select("tipo, numero, cad_tecido_variantes(ordem, variante_tecido_id, variantes_tecido:variante_tecido_id(nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))")
         .eq("cad_id", cad!.id)
         .eq("tipo", "tecido")
         .eq("numero", 1)
@@ -141,6 +143,25 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
         .eq("cad_id", cad!.id);
       return (data ?? []).filter((t: any) => t.ativo !== false);
     },
+  });
+
+  // Blocos de Serviços + categorias + prioridade — p/ resolver o BLOCO-FONTE da grade cortada.
+  // (types.ts ainda sem detalhado/grade_detalhe em producao_terceirizados → from cast p/ any.)
+  const { data: blocosFonte = [], isFetched: blocosFetched, isFetching: blocosFetching } = useQuery({
+    queryKey: ["cq-blocos-fonte", cad?.id],
+    enabled: !!cad?.id,
+    queryFn: async () => (await (supabase.from("producao_terceirizados") as any)
+      .select("id, categoria_terceirizado_id, detalhado, ativo, grade_detalhe").eq("cad_id", cad!.id)).data ?? [],
+  });
+  const { data: catsServico = [], isFetched: catsFetched, isFetching: catsFetching } = useQuery({
+    queryKey: ["cq-cats-servico", tenantId],
+    enabled: !!tenantId,
+    queryFn: async () => (await supabase.from("categorias_terceirizado").select("id, nome").eq("tenant_id", tenantId)).data ?? [],
+  });
+  const { data: prioridade = [], isFetched: prioFetched, isFetching: prioFetching } = useQuery({
+    queryKey: ["cq-confeccao-prioridade", tenantId],
+    enabled: !!tenantId,
+    queryFn: async () => ((await supabase.from("tenant_config").select("confeccao_prioridade").eq("tenant_id", tenantId).maybeSingle()).data as any)?.confeccao_prioridade ?? [],
   });
 
   // Enviado Oficina = data mais antiga; Prevista = mais recente; Entregue = mais recente.
@@ -190,6 +211,27 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     variantList.forEach((v) => { m[v.num] = v.label; });
     return m;
   }, [variantList]);
+
+  // ordem (variante_numero) → variante_tecido_id, do Tecido Principal do CAD (chave da grade_detalhe).
+  const vidByNum = useMemo(() => {
+    const m: Record<number, string> = {};
+    (((mainFabric as any)?.cad_tecido_variantes ?? []) as any[]).forEach((v) => {
+      if (v.ordem != null && v.variante_tecido_id) m[Number(v.ordem)] = v.variante_tecido_id as string;
+    });
+    return m;
+  }, [mainFabric]);
+  // Bloco-fonte de confecção (destrinchado, ATIVO). PRÉ-FILTRA por ativo p/ casar com o servidor
+  // (o resolver TS filtra só por detalhado; a SQL exige ativo — ver task-2 review).
+  const fonte = useMemo(
+    () => resolverFonteConfeccao(
+      (blocosFonte as any[]).filter((b) => b.ativo !== false).map((b) => ({ id: b.id, categoria_terceirizado_id: b.categoria_terceirizado_id, detalhado: !!b.detalhado })),
+      catsServico as any[], prioridade as string[]),
+    [blocosFonte, catsServico, prioridade]);
+  const fonteGrade = useMemo(() => {
+    const b = (blocosFonte as any[]).find((x) => x.id === fonte.fonteId);
+    return (b?.grade_detalhe ?? {}) as Record<string, Record<string, { cortada?: number; recebida?: number; defeito?: number }>>;
+  }, [blocosFonte, fonte.fonteId]);
+  const temFonte = !!fonte.fonteId;
 
   const { data: cqRow, refetch: refetchCq, isFetched: cqFetched, isFetching: cqFetching } = useQuery({
     queryKey: ["cq", cad?.id],
@@ -256,10 +298,17 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   // salvar, rehidratava do cache vazio/antigo e os números digitados sumiam.
   const cqSettled = cqFetched && !cqFetching;
   const varsSettled = !cqRow?.id || (varsFetched && !varsFetching);
+  // Só semeia recebimento/defeito quando as fontes que decidem `temFonte` já assentaram —
+  // senão hidrataria como "sem fonte" (de cq_variantes) e não re-semearia (hydrated trava).
+  // tenantId vazio (degenerado) = escape p/ não pendurar (aí temFonte=false, retrocompat).
+  const fonteSettled =
+    mainFabricFetched && !mainFabricFetching &&
+    blocosFetched && !blocosFetching &&
+    (!tenantId || (catsFetched && !catsFetching && prioFetched && !prioFetching));
 
   useEffect(() => {
     if (hydrated || !cad?.id) return;
-    if (!cqSettled || !varsSettled) return;
+    if (!cqSettled || !varsSettled || !fonteSettled) return;
     // Estado semeado (usado também p/ re-baselinar o guarda de alterações).
     let nextForm = {
       data_conserto_enviado: "",
@@ -295,24 +344,36 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
         setFotografado(fmap);
       }
       const g = emptyGrades();
+      // conserto/lavagem (+ destino_defeito) sempre vêm de cq_variantes.
       (varRows as any[]).forEach((v) => {
         const et = v.etapa as Etapa;
         if (!ETAPAS.includes(et)) return;
-        g[et][v.variante_numero] = {
-          id: v.id,
-          variante_numero: v.variante_numero,
-          grades: v.grades ?? {},
-          grade_total: Number(v.grade_total ?? 0),
-          destino_defeito: v.destino_defeito,
-        };
+        if (temFonte && (et === "recebimento" || et === "defeito")) {
+          // recebimento/defeito virão do grade_detalhe (fonte única) — só preserva destino_defeito.
+          if (et === "defeito") g.defeito[v.variante_numero] = { id: v.id, variante_numero: v.variante_numero, grades: {}, grade_total: 0, destino_defeito: v.destino_defeito };
+          return;
+        }
+        g[et][v.variante_numero] = { id: v.id, variante_numero: v.variante_numero, grades: v.grades ?? {}, grade_total: Number(v.grade_total ?? 0), destino_defeito: v.destino_defeito };
       });
+      if (temFonte) {
+        // Fonte única: recebido/defeito vêm do grade_detalhe do bloco-fonte (traduz vid→num).
+        variantList.forEach(({ num }) => {
+          const vid = vidByNum[num]; if (!vid) return;
+          const cel = fonteGrade[vid] ?? {};
+          const rec: Record<string, number> = {}; const def: Record<string, number> = {};
+          let rT = 0; let dT = 0;
+          tamanhos.forEach((t) => { const rc = Number(cel[t]?.recebida) || 0; const dc = Number(cel[t]?.defeito) || 0; if (rc) { rec[t] = rc; rT += rc; } if (dc) { def[t] = dc; dT += dc; } });
+          g.recebimento[num] = { variante_numero: num, grades: rec, grade_total: rT };
+          g.defeito[num] = { ...(g.defeito[num] ?? { variante_numero: num }), grades: def, grade_total: dT } as VarRow;
+        });
+      }
       setGrades(g);
       // Re-baseline o guarda de alterações a partir do estado semeado (passa o valor
       // explícito — o estado recém-setado ainda está stale neste tick).
       resetBaseline({ form: nextForm, grades: g, fotografado: nextFoto });
       setHydrated(true);
     }
-  }, [cqRow, varRows, cad?.id, hydrated, cqSettled, varsSettled]);
+  }, [cqRow, varRows, cad?.id, hydrated, cqSettled, varsSettled, fonteSettled, temFonte, fonteGrade, vidByNum, tamanhos, variantList]);
 
   const ensureRow = (etapa: Etapa, num: number): VarRow => {
     return grades[etapa][num] ?? { variante_numero: num, grades: {}, grade_total: 0 };
@@ -335,25 +396,52 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     });
   };
 
-  // Grade editada no CAD (modelo_grades) — referência read-only exibida no topo.
-  const cadGradeByNum = useMemo(() => {
+  // Referência read-only do CQ: COM bloco-fonte = CORTADA do grade_detalhe (afetada só pelo PCP);
+  // SEM fonte = grade planejada do CAD (modelo_grades), retrocompatível.
+  const refByNum = useMemo(() => {
     const m: Record<number, { grades: Record<string, number>; total: number }> = {};
-    (modeloGrades as any[]).forEach((g) => {
-      m[Number(g.variante_numero)] = { grades: g.grades ?? {}, total: Number(g.grade_total ?? 0) };
-    });
+    if (temFonte) {
+      variantList.forEach(({ num }) => {
+        const vid = vidByNum[num]; const cel = (vid && fonteGrade[vid]) || {};
+        const grades: Record<string, number> = {}; let total = 0;
+        tamanhos.forEach((t) => { const c = Number((cel as any)[t]?.cortada) || 0; grades[t] = c; total += c; });
+        m[num] = { grades, total };
+      });
+    } else {
+      (modeloGrades as any[]).forEach((g) => { m[Number(g.variante_numero)] = { grades: g.grades ?? {}, total: Number(g.grade_total ?? 0) }; });
+    }
     return m;
-  }, [modeloGrades]);
+  }, [temFonte, fonteGrade, vidByNum, tamanhos, variantList, modeloGrades]);
 
-  // Divergência do Recebimento × grade do CAD (p/ banner de alerta). Considera só
-  // variantes que já têm algum recebimento lançado.
+  // Alerta "Recebida > Cortada" (anomalia: recebeu mais do que foi cortado). Reusa o helper puro
+  // (celulasRecebidaAcimaCortada) sobre uma grade sintética ao vivo = cortada da fonte × recebimento
+  // editado no CQ. Só quando há bloco-fonte (a cortada só existe com fonte).
+  const recebAcimaCortada = useMemo(() => {
+    if (!temFonte) return [] as { variante_tecido_id: string; tamanho: string }[];
+    const gd: GradeDetalhe = {};
+    variantList.forEach(({ num }) => {
+      const vid = vidByNum[num]; if (!vid) return;
+      const cortadaCel = (fonteGrade[vid] ?? {}) as Record<string, { cortada?: number }>;
+      const rec = grades.recebimento[num]?.grades ?? {};
+      const cell: Record<string, { enviada: number; cortada: number; recebida: number; defeito: number }> = {};
+      tamanhos.forEach((t) => {
+        cell[t] = { enviada: 0, cortada: Number(cortadaCel[t]?.cortada) || 0, recebida: Number(rec[t]) || 0, defeito: 0 };
+      });
+      gd[vid] = cell;
+    });
+    return celulasRecebidaAcimaCortada(gd);
+  }, [temFonte, fonteGrade, vidByNum, tamanhos, variantList, grades]);
+
+  // Divergência do Recebimento × referência (grade cortada com fonte, senão grade do CAD) —
+  // p/ banner de alerta. Considera só variantes que já têm algum recebimento lançado.
   const recebDivergente = useMemo(() => {
     return variantList.some(({ num }) => {
       const receb = grades.recebimento[num]?.grades ?? {};
       const rowTotal = Object.values(receb).reduce((s: number, x: any) => s + Number(x || 0), 0);
       if (rowTotal === 0) return false;
-      return tamanhos.some((t) => Number(receb[t] ?? 0) !== Number(cadGradeByNum[num]?.grades?.[t] ?? 0));
+      return tamanhos.some((t) => Number(receb[t] ?? 0) !== Number(refByNum[num]?.grades?.[t] ?? 0));
     });
-  }, [grades, variantList, tamanhos, cadGradeByNum]);
+  }, [grades, variantList, tamanhos, refByNum]);
 
   // Grade Real = Recebimento − Defeito (por variante, por tamanho; mínimo 0).
   const realByNum = useMemo(() => {
@@ -381,9 +469,9 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       const recebTotal = Object.values(grades.recebimento[num]?.grades ?? {}).reduce((s: number, x: any) => s + Number(x || 0), 0);
       if (recebTotal === 0) return false; // ainda sem contagem → não sinaliza
       const real = realByNum[num]?.grades ?? {};
-      return tamanhos.some((t) => Number(real[t] ?? 0) !== Number(cadGradeByNum[num]?.grades?.[t] ?? 0));
+      return tamanhos.some((t) => Number(real[t] ?? 0) !== Number(refByNum[num]?.grades?.[t] ?? 0));
     });
-  }, [realByNum, grades, variantList, tamanhos, cadGradeByNum]);
+  }, [realByNum, grades, variantList, tamanhos, refByNum]);
 
   // Monta os dados do CQ (controle_qualidade + cq_variantes + grade real) para o RPC.
   const buildCqData = () => {
@@ -477,6 +565,12 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       if (confirmado) await invalidateDownstream();
       await refetchCq();
       await refetchVars();
+      // Fonte única: o save (mesmo sem confirmar) reescreve recebido/defeito no grade_detalhe do
+      // bloco-fonte. Refresca o cache do CQ (re-hidratação com números frescos — o gate fonteSettled
+      // segura o re-seed até chegar fresco) e marca o do PCP (Serviços) como stale (mesmo dado).
+      await qc.invalidateQueries({ queryKey: ["cq-blocos-fonte", cad?.id] });
+      qc.invalidateQueries({ queryKey: ["producao-terc", cad?.id] });
+      qc.invalidateQueries({ queryKey: ["producao-terc-list"] });
       setHydrated(false);
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro")),
@@ -491,6 +585,11 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       await invalidateDownstream();
       await refetchCq();
       await refetchVars();
+      // Fonte única: confirmar reescreveu recebido/defeito no grade_detalhe do bloco-fonte —
+      // refresca o cache do CQ (re-hidratação fresca) e marca o do PCP (Serviços) como stale.
+      await qc.invalidateQueries({ queryKey: ["cq-blocos-fonte", cad?.id] });
+      qc.invalidateQueries({ queryKey: ["producao-terc", cad?.id] });
+      qc.invalidateQueries({ queryKey: ["producao-terc-list"] });
       setHydrated(false);
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao confirmar")),
@@ -679,26 +778,37 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
         </Card>
       )}
 
-      {/* Grade editada no CAD (referência, read-only) */}
+      {/* Referência read-only: Grade Cortada (do bloco-fonte) OU grade do CAD (retrocompat) */}
       <Card className="p-5 space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-lg">Grade (CAD)</h3>
-          <span className="text-xs text-muted-foreground">Grade planejada no CAD · referência</span>
+          <h3 className="font-semibold text-lg">{temFonte ? "Grade Cortada" : "Grade (CAD)"}</h3>
+          <span className="text-xs text-muted-foreground">{temFonte ? "Cortada reportada no PCP (Serviços) · referência" : "Grade planejada no CAD · referência"}</span>
         </div>
         <MatrizGradeResponsiva
           tamanhos={tamanhos}
           variantes={variantList.map((v) => ({ num: v.num, label: v.label }))}
           emptyLabel="Sem variantes no Tecido Principal."
-          total={(num) => cadGradeByNum[num]?.total ?? 0}
+          total={(num) => refByNum[num]?.total ?? 0}
           renderCell={(num, t) => (
-            <div className="px-2 py-1 text-center bg-muted/20">{cadGradeByNum[num]?.grades?.[t] ?? 0}</div>
+            <div className="px-2 py-1 text-center bg-muted/20">{refByNum[num]?.grades?.[t] ?? 0}</div>
           )}
         />
       </Card>
+      {temFonte && fonte.ambiguo && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+          ⚠ Há mais de um serviço de confecção destrinchado neste modelo. A grade cortada usa o de maior prioridade (ajuste em Cadastro › Serviços).
+        </div>
+      )}
 
       {recebDivergente && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          ⚠ O recebimento diverge da grade do CAD em alguns tamanhos (células em vermelho abaixo).
+          ⚠ O recebimento diverge {temFonte ? "da grade cortada" : "da grade do CAD"} em alguns tamanhos (células em vermelho abaixo).
+        </div>
+      )}
+
+      {temFonte && recebAcimaCortada.length > 0 && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          ⚠ Em {recebAcimaCortada.length} {recebAcimaCortada.length === 1 ? "tamanho" : "tamanhos"} o Recebido é MAIOR que a Grade Cortada (recebeu mais do que foi cortado) — verifique com a confecção.
         </div>
       )}
 
@@ -719,10 +829,10 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
         grades={grades}
         setQtd={setQtd}
         overFn={(num, t, val) => {
-          // Alerta de divergência: recebido ≠ grade do CAD (mais OU menos).
+          // Alerta de divergência: recebido ≠ referência (grade cortada com fonte, senão CAD).
           // Só sinaliza depois que a variante já tem algum recebimento lançado,
           // p/ a matriz não ficar toda vermelha antes de digitar.
-          const g = Number(cadGradeByNum[num]?.grades?.[t] ?? 0);
+          const g = Number(refByNum[num]?.grades?.[t] ?? 0);
           const recebido = grades.recebimento[num]?.grades ?? {};
           const rowTotal = Object.values(recebido).reduce((s: number, x: any) => s + Number(x || 0), 0);
           return rowTotal > 0 && Number(val) !== g;
@@ -803,7 +913,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
         </div>
         {realDivergente && (
           <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
-            ⚠ A Grade Real está diferente da grade planejada no CAD — é ela (com os defeitos descontados) que seguirá para o Direcionamento.
+            ⚠ A Grade Real está diferente {temFonte ? "da grade cortada" : "da grade planejada no CAD"} — é ela (com os defeitos descontados) que seguirá para o Direcionamento.
           </div>
         )}
         <MatrizGradeResponsiva
