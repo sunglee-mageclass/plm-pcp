@@ -16,14 +16,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
-import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
+import { useDirtySnapshot, snapshotsEqual } from "@/hooks/useDirtySnapshot";
 import { ColabBanner } from "@/components/shared/ColabBanner";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mergeDraft, type Conflito } from "@/lib/colab/merge";
 import { useAuth } from "@/hooks/useAuth";
 import { ObsMaoObraField } from "@/components/shared/ObsMaoObraField";
-import { Textarea } from "@/components/ui/textarea";
 import { NumberInput } from "@/components/shared/NumberInput";
+import { MaoObraEditor, type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
+import { estadoMO, type MoLinha } from "@/lib/mao-obra";
 import { DateField } from "@/components/shared/DateField";
 import { ResumoVenda } from "@/components/shared/ResumoVenda";
 import { HeaderActions } from "@/components/shared/HeaderActions";
@@ -229,26 +230,9 @@ function PlanejamentoPage() {
     },
     onError: (e: any) => { setConfirmBulkDel(false); toast.error(mensagemErro(e, "Erro ao excluir os cards")); },
   });
-  const setMaoObra = useMutation({
-    // Colab (spec 2026-08-03, Task 2): classe b (ação pontual de 1 campo, botão do CARD) — SEM
-    // trava de `rev`. É singular e idempotente (aprovar/reprovar é um estado final, não um merge
-    // de rascunho) e o próprio card refaz o toggle se o usuário clicar de novo; não compete com
-    // edições de outros campos do modelo. Mesma ação existe no detalhe (`setMaoObraDetalhe`
-    // abaixo, no `ModeloDialog`) — ambas seguem essa classificação.
-    mutationFn: async ({ id, aprovado, motivo }: { id: string; aprovado: boolean; motivo?: string | null }) => {
-      // Reprovar exige motivo (validado no diálogo); aprovar limpa o motivo.
-      const { error } = await supabase.from("modelos").update({
-        custo_terceirizados_aprovado: aprovado,
-        motivo_reprovacao_mao_obra: aprovado ? null : (motivo ?? null),
-      } as any).eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["modelos-planejamento"] }); },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao aprovar mão de obra")),
-  });
-  // Reprovar mão de obra pede motivo obrigatório num diálogo (P3).
-  const [reprova, setReprova] = useState<{ id: string; nome: string | null } | null>(null);
-  const [reprovaMotivo, setReprovaMotivo] = useState("");
+  // MO por serviço (spec 2026-08-06): aprovar/reprovar saiu do CARD — agora é POR LINHA no
+  // editor do detalhe (`MaoObraEditor`). O card só exibe o estado agregado (badge derivado de
+  // `modelo_mo_resumo.estado`).
   // Lançar/cancelar direto do card (botão foguete) — mesma RPC do detalhe (gate no servidor).
   const lancarCard = useMutation({
     mutationFn: async ({ id, data, send }: { id: string; data: string | null; send: boolean }) => {
@@ -375,6 +359,18 @@ function PlanejamentoPage() {
       const { data, error } = await supabase.rpc("custo_unitario_modelos" as any, { _ids: modeloIdsAll });
       if (error) throw error;
       return (data ?? {}) as Record<string, { previsto: number; real: number; confirmado: boolean }>;
+    },
+  });
+  // Estado da MO por serviço (badge do card) — derivado do resumo (`modelo_mo_resumo.estado`):
+  // sem_servico | pendente | reprovada | aprovada. Substitui o antigo badge do flag
+  // `custo_terceirizados_aprovado` (2 estados) por 4 estados. Sem custo exposto: só `estado`.
+  const { data: moResumoLista = {} } = useQuery({
+    queryKey: ["mo-resumo-list", modeloIdsAll],
+    enabled: modeloIdsAll.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("modelo_mo_resumo" as any, { _ids: modeloIdsAll });
+      if (error) throw error;
+      return (data ?? {}) as Record<string, { estado: string; total: number | null; total_aprovado: number | null }>;
     },
   });
   const { data: gradeByModelo = {} } = useQuery({
@@ -549,10 +545,8 @@ function PlanejamentoPage() {
           const maoObra = ls != null ? (c?.mao_obra_real ?? null) : (c?.mao_obra_previsto ?? null);
           return maoObra != null ? custo - maoObra : custo;
         })()}
-        maoObraAprovado={((m as any).custo_terceirizados_aprovado ?? null) as boolean | null}
+        moEstado={(moResumoLista as Record<string, { estado: string }>)[m.id]?.estado ?? null}
         dataLancamento={(m as any).data_lancamento ?? null}
-        onAprovar={() => setMaoObra.mutate({ id: m.id, aprovado: true })}
-        onReprovar={() => { setReprovaMotivo(""); setReprova({ id: m.id, nome: m.nome }); }}
         onLancar={(data, send) => lancarCard.mutate({ id: m.id, data, send })}
         lancStatus={lancStatusDe(m)}
         mesNome={m.mes_id ? mesMap[m.mes_id] : null}
@@ -900,43 +894,6 @@ function PlanejamentoPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Reprovar mão de obra: motivo OBRIGATÓRIO (aparece no tooltip do card). */}
-      <Dialog open={!!reprova} onOpenChange={(o) => { if (!o) setReprova(null); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Reprovar mão de obra</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">
-              Informe o motivo da reprovação{reprova?.nome ? ` de "${reprova.nome}"` : ""}. Ele aparece ao passar o mouse no card.
-            </p>
-            <Textarea
-              autoFocus
-              rows={3}
-              placeholder="Motivo da reprovação…"
-              value={reprovaMotivo}
-              onChange={(e) => setReprovaMotivo(e.target.value)}
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setReprova(null)}>Cancelar</Button>
-            <Button
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={!reprovaMotivo.trim() || setMaoObra.isPending}
-              onClick={() => {
-                if (!reprova || !reprovaMotivo.trim()) return;
-                setMaoObra.mutate(
-                  { id: reprova.id, aprovado: false, motivo: reprovaMotivo.trim() },
-                  { onSuccess: () => setReprova(null) },
-                );
-              }}
-            >
-              {setMaoObra.isPending ? "Reprovando…" : "Reprovar"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <MobileActionBar>
         <Button variant="outline" onClick={() => setOpenBatch(true)}><Layers className="h-4 w-4 mr-1" /> Novos Cards</Button>
         <Button className="ml-auto" onClick={() => setOpenNew(true)}><Plus className="h-4 w-4 mr-1" /> Novo Modelo</Button>
@@ -946,8 +903,8 @@ function PlanejamentoPage() {
 }
 
 
-function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, custoReal, markup, preco, maoObra, custoMat, maoObraAprovado, dataLancamento, onAprovar, onReprovar, onLancar, lancStatus, mesNome, anoNome, onOpen, compact }: {
-  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; maoObra: number | null; custoMat: number | null; maoObraAprovado: boolean | null; dataLancamento: string | null; onAprovar: () => void; onReprovar: () => void; onLancar: (data: string | null, send: boolean) => void; lancStatus: "lancado" | "pronto" | null; mesNome: string | null; anoNome: string | null; onOpen: () => void; compact?: boolean;
+function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, custoReal, markup, preco, maoObra, custoMat, moEstado, dataLancamento, onLancar, lancStatus, mesNome, anoNome, onOpen, compact }: {
+  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; maoObra: number | null; custoMat: number | null; moEstado: string | null; dataLancamento: string | null; onLancar: (data: string | null, send: boolean) => void; lancStatus: "lancado" | "pronto" | null; mesNome: string | null; anoNome: string | null; onOpen: () => void; compact?: boolean;
 }) {
   // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
   const cover = (modelo.fotos_modelo?.[0]) || modelo.desenho_tecnico_url || modelo.croqui_url || null;
@@ -958,19 +915,20 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
   const { canView, canEdit } = useAuth();
   const podeVerCustos = canView("criacao_planejamento:custos");
   const podeAprovarMaoObra = canEdit("producao_servico_aprovacao");
-  // Mão de obra: 3 estados — aprovado(true)/reprovado(false)/pendente(null).
-  const moTxt = maoObraAprovado === true ? "Mão de obra aprovada" : maoObraAprovado === false ? "Mão de obra reprovada" : "Mão de obra pendente";
+  // Mão de obra por serviço (estado agregado do modelo): sem_servico | pendente | reprovada |
+  // aprovada. Aprovar/reprovar é POR LINHA no editor do detalhe — o card só exibe o estado.
+  const moTxt = moEstado === "aprovada" ? "Mão de obra aprovada"
+    : moEstado === "reprovada" ? "Mão de obra reprovada"
+    : moEstado === "sem_servico" ? "Sem serviço de mão de obra"
+    : "Mão de obra pendente";
   const obsMO = String((modelo as any).observacoes_mao_obra ?? "").trim();
-  const motivoReprova = String((modelo as any).motivo_reprovacao_mao_obra ?? "").trim();
-  // Tooltip que SEGUE o cursor: status + situação da mão de obra + obs + motivo (se reprovado).
+  // Tooltip que SEGUE o cursor: status + situação da mão de obra + obs. O motivo da reprova
+  // (agora por serviço) fica visível na linha do serviço, dentro do editor do detalhe.
   const tip = (
     <div className="space-y-1">
       <div className="font-medium">{meta.label}</div>
-      <div>{moTxt}</div>
-      {obsMO && <div><span className="opacity-70">Obs. MO: </span>{obsMO}</div>}
-      {maoObraAprovado === false && motivoReprova && (
-        <div><span className="opacity-70">Motivo da reprova: </span>{motivoReprova}</div>
-      )}
+      {(podeVerCustos || podeAprovarMaoObra) && <div>{moTxt}</div>}
+      {obsMO && podeVerCustos && <div><span className="opacity-70">Obs. MO: </span>{obsMO}</div>}
     </div>
   );
   const { handlers, node } = useCursorTip(tip);
@@ -1005,10 +963,12 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
           <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${meta.color}`}>{meta.label}</span>
           <div className="flex items-center gap-1">
             {categoriaNome && <span className="truncate text-[10px] text-muted-foreground">{categoriaNome}</span>}
-            <span className={`ml-auto shrink-0 rounded-full px-1 py-0.5 text-[8px] font-semibold ${
-              maoObraAprovado === true ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
-              : maoObraAprovado === false ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200"
-              : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200"}`} title={moTxt}>MO</span>
+            {(podeVerCustos || podeAprovarMaoObra) && (
+              <span className={`ml-auto shrink-0 rounded-full px-1 py-0.5 text-[8px] font-semibold ${
+                moEstado === "aprovada" || moEstado === "sem_servico" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
+                : moEstado === "reprovada" ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200"
+                : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200"}`} title={moTxt}>MO</span>
+            )}
           </div>
           {podeVerCustos && <p className="text-[11px] font-medium truncate">{preco != null ? brl(preco) : "—"}</p>}
         </div>
@@ -1037,24 +997,16 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
           {podeVerCustos && <p className="text-xs text-muted-foreground truncate">{custoReal ? "Custo" : "Custo prev."}: {custoMat != null ? brl(custoMat) : "—"}</p>}
           {(podeVerCustos || podeAprovarMaoObra) && (
             <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 border-t border-dashed pt-1.5 text-xs">
-              {/* Mão de obra em CANAL PRÓPRIO (badge ícone, não a bolinha do status). Cores -700 (AA). */}
+              {/* Mão de obra em CANAL PRÓPRIO (badge ícone, não a bolinha do status). Estado
+                  agregado por serviço; aprovar/reprovar é por linha no editor do detalhe. */}
               <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                maoObraAprovado === true ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
-                : maoObraAprovado === false ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200"
+                moEstado === "aprovada" || moEstado === "sem_servico" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
+                : moEstado === "reprovada" ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200"
                 : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200"}`}>
-                {maoObraAprovado === true ? <Check className="h-3 w-3" /> : maoObraAprovado === false ? <X className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
-                MO {maoObraAprovado === true ? "aprovada" : maoObraAprovado === false ? "reprovada" : "pendente"}
+                {moEstado === "aprovada" || moEstado === "sem_servico" ? <Check className="h-3 w-3" /> : moEstado === "reprovada" ? <X className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
+                MO {moEstado === "sem_servico" ? "—" : moEstado === "aprovada" ? "aprovada" : moEstado === "reprovada" ? "reprovada" : "pendente"}
               </span>
               {podeVerCustos && <span className="truncate text-muted-foreground">{maoObra != null ? brl(maoObra) : "—"}</span>}
-              {podeAprovarMaoObra && (
-                <span className="ml-auto flex shrink-0 gap-1" onClick={(e) => e.stopPropagation()}>
-                  {/* Botões VISÍVEIS (antes text-muted/40 = ~1,8:1, invisíveis — laudo). */}
-                  <button type="button" aria-label="Aprovar mão de obra" title="Aprovar mão de obra" onClick={onAprovar}
-                    className={`inline-flex h-7 w-7 items-center justify-center rounded-md border max-md:h-11 max-md:w-11 ${maoObraAprovado === true ? "border-emerald-600 bg-emerald-50 text-emerald-700 dark:bg-emerald-950" : "border-input text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950"}`}><Check className="h-4 w-4" /></button>
-                  <button type="button" aria-label="Reprovar mão de obra" title="Reprovar mão de obra" onClick={onReprovar}
-                    className={`inline-flex h-7 w-7 items-center justify-center rounded-md border max-md:h-11 max-md:w-11 ${maoObraAprovado === false ? "border-red-600 bg-red-50 text-red-700 dark:bg-red-950" : "border-input text-red-700 hover:bg-red-50 dark:hover:bg-red-950"}`}><X className="h-4 w-4" /></button>
-                </span>
-              )}
             </div>
           )}
           {podeVerCustos && (preco != null ? <p className="text-xs font-medium truncate">{brl(preco)}</p> : <p className="text-xs text-muted-foreground truncate">Preço: —</p>)}
@@ -1272,7 +1224,19 @@ function ModeloDialog({
   const podeVerCustos = canView("criacao_planejamento:custos");
   const podeAprovarMaoObra = canEdit("producao_servico_aprovacao");
   const [draft, setDraft] = useState<Draft>(emptyDraft());
-  const { dirty, markClean, reset: resetDraftBaseline } = useDirtySnapshot(draft);
+  // MO por serviço (spec 2026-08-06): rascunho LOCAL das linhas (VALOR editável) — fora do
+  // `draft` principal; persiste no Salvar da página via RPC `salvar_modelo_servico_mo`. O
+  // baseline (`moLinhasBase`) é o estado do servidor semeado do resumo; a divergência acende
+  // o indicador de "não salvo". Refs p/ leitura síncrona (seed guardada + save mutationFn).
+  const [moLinhas, setMoLinhas] = useState<MaoObraEditorLinha[]>([]);
+  const [moLinhasBase, setMoLinhasBase] = useState<MaoObraEditorLinha[]>([]);
+  const moLinhasRef = useRef(moLinhas); moLinhasRef.current = moLinhas;
+  const moBaseRef = useRef(moLinhasBase); moBaseRef.current = moLinhasBase;
+  const { dirty: draftDirty, markClean, reset: resetDraftBaseline } = useDirtySnapshot(draft);
+  // Dirty combinado: draft OU linhas de MO divergem do baseline (mantidos em baselines
+  // INDEPENDENTES — cada um re-semeia no seu próprio momento, sem corrida de ordem entre os
+  // dois carregamentos assíncronos).
+  const dirty = draftDirty || !snapshotsEqual(moLinhas, moLinhasBase);
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
   // Grupo é transiente (não é coluna do modelo) — filtra as Categorias na cascata.
   const [grupoSel, setGrupoSel] = useState<string | null>(null);
@@ -1373,6 +1337,31 @@ function ModeloDialog({
     },
   });
 
+  // Categorias de serviço ATIVAS — dropdown "Adicionar serviço" do editor de MO (linhas
+  // históricas de categoria já desativada seguem visíveis como linhas, mas não no dropdown).
+  const { data: catsServico = [] } = useQuery({
+    queryKey: ["cats-servico-ativas"],
+    queryFn: async () => {
+      const { data, error } = await (supabase.from("categorias_terceirizado") as any)
+        .select("id, nome, ativo").order("ordem").order("nome");
+      if (error) throw error;
+      return (data ?? []) as { id: string; nome: string; ativo: boolean }[];
+    },
+  });
+  // Resumo da MO por serviço (RPC mascara valor/total p/ quem não vê custos; {} p/ quem não vê
+  // nem aprova). Semeia `moLinhas` (VALORES + estado por linha) e o gate do botão Lançar.
+  const { data: moResumo } = useQuery({
+    queryKey: ["mo-resumo", modeloId],
+    enabled: !!modeloId,
+    queryFn: async () => {
+      if (!modeloId) return null;
+      const { data, error } = await supabase.rpc("modelo_mo_resumo" as any, { _ids: [modeloId] });
+      if (error) throw error;
+      return ((data as any)?.[modeloId] ?? null) as
+        { estado: string; total: number | null; total_aprovado: number | null; linhas: (MoLinha & { valor: number | null })[] } | null;
+    },
+  });
+
   // Consumo real do BOM (Desenvolvimento/CAD) por artigo — alimenta o pré-preenchimento
   // do consumo na Simulação de custo quando o modelo já avançou.
   const { data: bomTecidos = [] } = useQuery({
@@ -1407,12 +1396,11 @@ function ModeloDialog({
     : 0;
   const consumoOverride = draft.custo_simulado.consumo_tecido ?? null;
   const consumoUsado = consumoOverride ?? consumoRealBOM;
-  // Mão de obra: espelha o padrão do consumo — usa a "Previsão de Mão de Obra" do
-  // Desenvolvimento (custo_terceirizados_previsto, via custo_unitario_modelos) como
-  // DEFAULT editável (override). Reflete na edição o mesmo valor mostrado no card.
+  // Mão de obra: agora é Σ das linhas de MO por serviço (via `custo_unitario_modelos.
+  // mao_obra_previsto`, repontado na Task 3). Só LEITURA na Simulação — o override manual
+  // (`custo_simulado.mao_obra`) ficou inerte (spec §5); o campo virou read-only.
   const maoObraDev = Number((custoData as any)?.mao_obra_previsto) || 0;
-  const maoObraOverride = draft.custo_simulado.mao_obra ?? null;
-  const maoObraUsado = maoObraOverride ?? (maoObraDev > 0 ? maoObraDev : null);
+  const maoObraUsado = maoObraDev > 0 ? maoObraDev : null;
   const simCalc = custoSimulado({
     consumo_tecido: consumoUsado,
     preco_tecido_m: precoTecidoM,
@@ -1449,38 +1437,52 @@ function ModeloDialog({
   // gate do Direcionamento (predicado único em @/lib/cq-status).
   const cqConfirmado = cqLiberado(cqInfo as any);
 
-  // Aprovação da MÃO DE OBRA (feita no card do Planejamento): flag por modelo.
-  // 3 estados; lançar exige aprovado(true). pendente(null)/reprovado(false) = bloqueia.
-  const { data: maoObraAprov } = useQuery({
-    queryKey: ["plan-mao-obra-aprov", modeloId],
-    enabled: !!modeloId,
-    queryFn: async () => {
-      const { data, error } = await (supabase.from("modelos") as any).select("custo_terceirizados_aprovado").eq("id", modeloId).maybeSingle();
+  // MO por serviço (spec 2026-08-06): semeia `moLinhas` do resumo do servidor. GUARDADA — se o
+  // usuário tem edições locais de VALOR não salvas (moLinhas ≠ moLinhasBase), um refetch em
+  // background (foco de janela / invalidação pós-aprovação) NÃO sobrescreve o rascunho; só
+  // (re)semeia quando o rascunho de MO está limpo. Mesma proteção do merge do draft colab.
+  useEffect(() => {
+    if (!moResumo) return;
+    const seed = (moResumo.linhas ?? []).map((l) => ({
+      categoria_terceirizado_id: l.categoria_terceirizado_id ?? null,
+      nome: l.nome, valor: l.valor ?? null, aprovado: l.aprovado ?? null, motivo_reprovacao: l.motivo_reprovacao ?? null,
+    })) as MaoObraEditorLinha[];
+    if (!snapshotsEqual(moLinhasRef.current, moBaseRef.current)) return; // preserva edições não salvas
+    setMoLinhas(seed); setMoLinhasBase(seed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [moResumo]);
+
+  // Gate do botão Lançar: liberada = sem serviço OU todas as linhas aprovadas. Derivado das
+  // linhas LOCAIS (`estadoMO`) — reflete aprovações imediatas sem esperar o refetch do resumo.
+  const moEstadoLocal = estadoMO(moLinhas);
+  const maoObraPendente = !(moEstadoLocal === "sem_servico" || moEstadoLocal === "aprovada");
+
+  // Aprovar/reprovar POR SERVIÇO (RPC `aprovar_servico_mo`, gated no servidor por
+  // `producao_servico_aprovacao`). Ação imediata (não entra no Salvar da página). Patch LOCAL
+  // das linhas (preserva os VALORES não salvos; atualiza aprovado/motivo) + re-sync da rev do
+  // colab (o rollup no banco bumpa `modelos.rev` — sem re-hidratar `revRef`, o próximo Salvar
+  // do card daria P0409 falso).
+  const aprovarServicoMO = useMutation({
+    mutationFn: async ({ categoriaId, aprovado, motivo }: { categoriaId: string | null; aprovado: boolean; motivo?: string }) => {
+      const { error } = await supabase.rpc("aprovar_servico_mo" as any, {
+        _modelo_id: modeloId, _categoria_terceirizado_id: categoriaId, _aprovado: aprovado, _motivo: motivo ?? null,
+      });
       if (error) throw error;
-      return (data?.custo_terceirizados_aprovado ?? null) as boolean | null;
     },
-  });
-  const maoObraPendente = maoObraAprov !== true;
-  // Aprovar/Reprovar a mão de obra AQUI no detalhe (laudo jul/2026): antes só no card do Planejamento
-  // — inacessível no mobile (card compacto sem os botões) e ao revisar o custo no Sheet. Mutation
-  // auto-contida (mesmo update do flag por modelo). Reprovar exige motivo (AlertDialog local).
-  const [reproMotivo, setReproMotivo] = useState("");
-  const [reproOpen, setReproOpen] = useState(false);
-  // Colab (Task 2): classe b — mesma classificação/motivo do `setMaoObra` do CARD (topo do
-  // arquivo): ação pontual, singular, idempotente. SEM trava de `rev`.
-  const setMaoObraDetalhe = useMutation({
-    mutationFn: async ({ aprovado, motivo }: { aprovado: boolean; motivo?: string | null }) => {
-      const { error } = await (supabase.from("modelos") as any).update({
-        custo_terceirizados_aprovado: aprovado,
-        motivo_reprovacao_mao_obra: aprovado ? null : (motivo ?? null),
-      }).eq("id", modeloId);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success("Mão de obra atualizada.");
-      qc.invalidateQueries({ queryKey: ["plan-mao-obra-aprov", modeloId] });
+    onSuccess: (_d, vars) => {
+      toast.success(vars.aprovado ? "Mão de obra aprovada." : "Mão de obra reprovada.");
+      const patch = (ls: MaoObraEditorLinha[]) => ls.map((l) =>
+        l.categoria_terceirizado_id === vars.categoriaId
+          ? { ...l, aprovado: vars.aprovado, motivo_reprovacao: vars.aprovado ? null : (vars.motivo ?? null) }
+          : l);
+      setMoLinhas(patch); setMoLinhasBase(patch);
+      // ⚠️ Re-sincroniza a rev do colab (rollup bumpou modelos.rev). Sem isto o próximo Salvar
+      // do card compara `.eq('rev', revRef)` desatualizado e dá P0409 falso.
+      qc.invalidateQueries({ queryKey: ["modelo", modeloId] });
+      qc.invalidateQueries({ queryKey: ["mo-resumo", modeloId] });
+      qc.invalidateQueries({ queryKey: ["plan-custo-unit", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
-      setReproOpen(false); setReproMotivo("");
+      qc.invalidateQueries({ queryKey: ["mo-resumo-list"] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Não foi possível atualizar a mão de obra.")),
   });
@@ -1600,6 +1602,7 @@ function ModeloDialog({
         observacoes_mao_obra: draft.observacoes_mao_obra || null,
         custo_simulado: limparCustoSim(draft.custo_simulado),
       };
+      let savedId: string | null = isEdit ? modeloId : null;
       if (isEdit && modeloId) {
         // Colab (Task 2) — contrato desta tela (spec 2026-08-03): UPDATE DIRETO com
         // `.eq("rev", revRef.current)` — só casa a linha se ninguém salvou desde a última
@@ -1622,7 +1625,25 @@ function ModeloDialog({
         // Card novo: sem concorrência possível (linha ainda não existe) — insert direto.
         const { data: inserted, error } = await supabase.from("modelos").insert(payload).select("id").single();
         if (error) throw error;
-        if (inserted?.id) await syncTecidosToDesenvolvimento(inserted.id, draft.tecidos_planejados);
+        savedId = inserted?.id ?? null;
+        if (savedId) await syncTecidosToDesenvolvimento(savedId, draft.tecidos_planejados);
+      }
+      // MO por serviço (spec 2026-08-06): persiste os VALORES das linhas (estado COMPLETO;
+      // aprovação já foi imediata via RPC própria, não entra aqui). Só quando o rascunho de MO
+      // divergiu do baseline — assim um Salvar disparado ANTES de `moResumo` semear não manda
+      // um estado vazio que apagaria as linhas existentes no servidor. `moLinhasRef` = leitura
+      // síncrona (nenhuma edição feita durante o `await` acima se perde). Gated por
+      // `podeVerCustos`: quem não vê custos tem os valores MASCARADOS (null) e não deve reescrevê-los.
+      if (podeVerCustos && savedId && !snapshotsEqual(moLinhasRef.current, moBaseRef.current)) {
+        const { error: moErr } = await supabase.rpc("salvar_modelo_servico_mo" as any, {
+          _modelo_id: savedId,
+          _linhas: moLinhasRef.current.map((l) => ({
+            categoria_terceirizado_id: l.categoria_terceirizado_id,
+            valor: Number(l.valor) || 0,
+            observacoes: null,
+          })),
+        });
+        if (moErr) throw moErr;
       }
     },
     onSuccess: () => {
@@ -1637,9 +1658,15 @@ function ModeloDialog({
       conflitosRef.current = [];
       setConflitos([]);
       setUltimoMerge(null);
+      // MO por serviço: o que acabei de persistir vira o novo baseline (limpa o indicador de
+      // "não salvo" das linhas de MO).
+      setMoLinhasBase(moLinhas);
       qc.invalidateQueries({ queryKey: ["modelo"] });
       qc.invalidateQueries({ queryKey: ["modelo-tecidos"] });
       qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
+      qc.invalidateQueries({ queryKey: ["mo-resumo", modeloId] });
+      qc.invalidateQueries({ queryKey: ["mo-resumo-list"] });
+      qc.invalidateQueries({ queryKey: ["plan-custo-unit", modeloId] });
       onSaved();
       onClose();
     },
@@ -1836,7 +1863,7 @@ function ModeloDialog({
   // do botão desabilitado no setor Lançamento.
   const lancarBloqueios: string[] = [];
   if (!cqConfirmado) lancarBloqueios.push("Confirme o Controle de Qualidade (Pré e, se houver acabamento, o Pós).");
-  if (maoObraPendente) lancarBloqueios.push("Aprove a mão de obra (no card do Planejamento).");
+  if (maoObraPendente) lancarBloqueios.push("Aprove a mão de obra de todos os serviços (na seção Mão de obra).");
   if (!draft.data_lancamento) lancarBloqueios.push("Preencha a Data de Lançamento.");
 
   // Conteúdo interno idêntico p/ os dois containers (header / corpo rolável / rodapé
@@ -2039,10 +2066,10 @@ function ModeloDialog({
               </div>
               <div className="grid gap-1">
                 <Label>Mão de obra (R$)</Label>
-                <NumberInput
-                  value={maoObraOverride ?? (maoObraDev > 0 ? maoObraDev : "")}
-                  onChange={(e) => { const v = e.target.value; setSim({ mao_obra: numOr0(v) > 0 ? Number(v) : null }); }}
-                />
+                {/* Σ das linhas de MO por serviço (só leitura) — editar é na seção "Mão de obra". */}
+                <div className="h-9 px-3 flex items-center rounded-md border bg-muted text-sm tabular-nums">
+                  {maoObraDev > 0 ? brl(maoObraDev) : "—"}
+                </div>
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -2056,57 +2083,31 @@ function ModeloDialog({
             )}
           </Secao>
 
-          {/* Mão de obra — aprovar/reprovar AQUI (destrava mobile + revisão no Sheet) + observação.
-              Gated: ver custos (obs) OU aprovar (botões). */}
+          {/* Mão de obra POR SERVIÇO (spec 2026-08-06): lista de serviços com valor (R$),
+              estado por linha (pendente/aprovado/reprovado) e aprovar/reprovar por serviço.
+              Gated: ver custos (valores + obs) OU aprovar (botões). O VALOR persiste no Salvar
+              da página; aprovar/reprovar é imediato. */}
           {(podeVerCustos || (isEdit && podeAprovarMaoObra)) && (
             <Secao titulo="Mão de obra">
-              {isEdit && podeAprovarMaoObra && (
-                <div className="mb-3 flex flex-wrap items-center gap-2">
-                  <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
-                    maoObraAprov === true ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
-                    : maoObraAprov === false ? "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200"
-                    : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200"}`}>
-                    {maoObraAprov === true ? <Check className="h-3.5 w-3.5" /> : maoObraAprov === false ? <X className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
-                    {maoObraAprov === true ? "Aprovada" : maoObraAprov === false ? "Reprovada" : "Pendente"}
-                  </span>
-                  <div className="ml-auto flex gap-2">
-                    <Button variant="outline" size="sm" className="text-emerald-700" disabled={setMaoObraDetalhe.isPending || maoObraAprov === true}
-                      onClick={() => setMaoObraDetalhe.mutate({ aprovado: true })}>
-                      <Check className="h-4 w-4 mr-1" />Aprovar
-                    </Button>
-                    <Button variant="outline" size="sm" className="text-red-700" disabled={setMaoObraDetalhe.isPending}
-                      onClick={() => { setReproMotivo(""); setReproOpen(true); }}>
-                      <X className="h-4 w-4 mr-1" />Reprovar…
-                    </Button>
-                  </div>
-                </div>
-              )}
+              <MaoObraEditor
+                linhas={moLinhas}
+                categorias={catsServico}
+                podeVerCustos={podeVerCustos}
+                podeAprovar={isEdit && podeAprovarMaoObra}
+                onChangeLinhas={(ls) => setMoLinhas(ls)}
+                onAprovar={(catId) => aprovarServicoMO.mutate({ categoriaId: catId, aprovado: true })}
+                onReprovar={(catId, motivo) => aprovarServicoMO.mutate({ categoriaId: catId, aprovado: false, motivo })}
+              />
               {podeVerCustos && (
-                <ObsMaoObraField
-                  value={draft.observacoes_mao_obra}
-                  onChange={(v) => setDraftTracked({ ...draft, observacoes_mao_obra: v })}
-                />
+                <div className="mt-3">
+                  <ObsMaoObraField
+                    value={draft.observacoes_mao_obra}
+                    onChange={(v) => setDraftTracked({ ...draft, observacoes_mao_obra: v })}
+                  />
+                </div>
               )}
             </Secao>
           )}
-          {/* Reprovar mão de obra: motivo obrigatório (mesma regra do card). */}
-          <AlertDialog open={reproOpen} onOpenChange={setReproOpen}>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Reprovar mão de obra</AlertDialogTitle>
-                <AlertDialogDescription>Diga o motivo — ele aparece no card e no detalhe.</AlertDialogDescription>
-              </AlertDialogHeader>
-              <textarea className="min-h-[80px] w-full rounded border bg-background px-2 py-1.5 text-sm max-md:text-base"
-                value={reproMotivo} onChange={(e) => setReproMotivo(e.target.value)} placeholder="Ex.: valor acima do previsto; refazer a cotação." />
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                <AlertDialogAction disabled={!reproMotivo.trim() || setMaoObraDetalhe.isPending}
-                  onClick={(e) => { e.preventDefault(); if (reproMotivo.trim()) setMaoObraDetalhe.mutate({ aprovado: false, motivo: reproMotivo.trim() }); }}>
-                  Reprovar
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
 
           {/* SETOR 5 — Anexos */}
           <Secao titulo="Anexos">
