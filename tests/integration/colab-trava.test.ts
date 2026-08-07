@@ -138,6 +138,65 @@ describe.skipIf(!hasDb)("colab — trava otimista (P0409)", () => {
       expect(Number(n.n)).toBeGreaterThanOrEqual(0);
     });
   });
+
+  // Colab CQ (spec 2026-08-07), Task 3: _rev_base DOS DOIS LADOS ({cq, fonte}) em salvar_cq.
+  // O core confere controle_qualidade.rev (lado cq) E producao_terceirizados.rev do bloco-fonte
+  // (lado fonte, só quando _resolver_fonte_confeccao retorna id). Consome os rev da Task 1.
+  it("salvar_cq: _rev_base.cq errado → P0409; correto passa e bumpa o cq", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const cad = await um<{ id: string }>(c, `insert into cad (tenant_id) values ($1) returning id`, [TENANT_TESTE]);
+      const cq = await um<{ id: string; rev: number }>(
+        c, `insert into controle_qualidade (cad_id, tenant_id, status) values ($1,$2,'pendente') returning id, rev`,
+        [cad.id, TENANT_TESTE]);
+      await c.query("SAVEPOINT sp1");
+      await expect(
+        um(c, `select salvar_cq($1,'{}'::jsonb,'[]'::jsonb,'[]'::jsonb,false, jsonb_build_object('cq',$2::int,'fonte',null))`,
+           [cad.id, cq.rev + 99]),
+      ).rejects.toMatchObject({ code: "P0409" });
+      await c.query("ROLLBACK TO SAVEPOINT sp1");
+      await um(c, `select salvar_cq($1,'{}'::jsonb,'[]'::jsonb,'[]'::jsonb,false, jsonb_build_object('cq',$2::int,'fonte',null))`,
+               [cad.id, cq.rev]);
+      const r = await um<{ rev: number }>(c, `select rev from controle_qualidade where id=$1`, [cq.id]);
+      expect(r.rev).toBeGreaterThan(cq.rev);
+    });
+  });
+  it("salvar_cq: PCP mexe no bloco-fonte → _rev_base.fonte velho → P0409", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const cad = await um<{ id: string }>(c, `insert into cad (tenant_id) values ($1) returning id`, [TENANT_TESTE]);
+      // bloco-fonte: precisa ser confecção detalhada; usa uma categoria de confecção existente do tenant
+      const catConf = await um<{ id: string }>(
+        c, `select ct.id from categorias_terceirizado ct
+             where ct.tenant_id=$1 and public._categoria_eh_confeccao(ct.nome) limit 1`, [TENANT_TESTE]);
+      const cq = await um<{ id: string; rev: number }>(
+        c, `insert into controle_qualidade (cad_id, tenant_id, status) values ($1,$2,'pendente') returning id, rev`,
+        [cad.id, TENANT_TESTE]);
+      const pt = await um<{ id: string; rev: number }>(
+        c, `insert into producao_terceirizados (cad_id, tenant_id, ativo, detalhado, categoria_terceirizado_id)
+            values ($1,$2,true,true,$3) returning id, rev`, [cad.id, TENANT_TESTE, catConf.id]);
+      // simula PCP mexendo no bloco-fonte (bumpa fonte rev)
+      await um(c, `update producao_terceirizados set observacao='pcp' where id=$1`, [pt.id]);
+      await c.query("SAVEPOINT sp1");
+      await expect(
+        um(c, `select salvar_cq($1,'{}'::jsonb,'[]'::jsonb,'[]'::jsonb,false, jsonb_build_object('cq',$2::int,'fonte',$3::int))`,
+           [cad.id, cq.rev, pt.rev]),  // pt.rev é o velho (antes do update do PCP)
+      ).rejects.toMatchObject({ code: "P0409" });
+      await c.query("ROLLBACK TO SAVEPOINT sp1");
+    });
+  });
+  it("salvar_cq: modelo SEM bloco-fonte só checa o cq (_rev_base.fonte null ignorado)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const cad = await um<{ id: string }>(c, `insert into cad (tenant_id) values ($1) returning id`, [TENANT_TESTE]);
+      const cq = await um<{ id: string; rev: number }>(
+        c, `insert into controle_qualidade (cad_id, tenant_id, status) values ($1,$2,'pendente') returning id, rev`,
+        [cad.id, TENANT_TESTE]);
+      // sem bloco-fonte: passa checando só o cq
+      await um(c, `select salvar_cq($1,'{}'::jsonb,'[]'::jsonb,'[]'::jsonb,false, jsonb_build_object('cq',$2::int,'fonte',null))`,
+               [cad.id, cq.rev]);
+    });
+  });
 });
 
 describe.skipIf(!hasDb)("colab PCP/CQ — rev infra (T1)", () => {
