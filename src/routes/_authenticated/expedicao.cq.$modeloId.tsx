@@ -64,6 +64,9 @@ const ROTULO_CONFLITO: Record<string, string> = {
   data_lavagem_entregue: "Lavagem — entrega",
 };
 const CAMPO_GRADE_PT: Record<string, string> = { recebida: "Recebida", defeito: "Defeito", enviada: "Enviada", cortada: "Cortada" };
+// Colab (item 3, fast-follow): rótulo curto PT por etapa, p/ o campoFocado da grade
+// destrinchada (célula = etapa + tamanho — sem depender de vid, que só recebimento/defeito têm).
+const ETAPA_FOCO_PT: Record<Etapa, string> = { recebimento: "Recebida", conserto: "Conserto", lavagem: "Lavagem", defeito: "Defeito" };
 function rotuloConflito(path: string): string {
   if (path.startsWith("grade:")) { const [, , tam, campo] = path.split(":"); return `${CAMPO_GRADE_PT[campo] ?? campo} · ${tam}`; }
   return ROTULO_CONFLITO[path] ?? path;
@@ -843,19 +846,26 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       setEditing(false);
       markClean(); // limpa o indicador de "alterações não salvas" já no sucesso
       posSaveReset(); // reseedingRef=true (merge effect fora até a re-baseline manual)
-      // Editar um CQ já confirmado regrava a Grade Real (o _core reescreve cad_grades
-      // enquanto o status segue 'confirmado') — propaga p/ downstream.
-      if (confirmado) await invalidateDownstream();
-      // Fonte única: o save reescreve recebido/defeito no grade_detalhe do bloco-fonte. Refetcho as
-      // DUAS queries do merge JUNTAS (snapshot consistente) ANTES de re-baselinar — senão a
-      // re-seed pegaria ["cq"] fresca + ["cq-blocos-fonte"] stale (flicker 5→0→5 + banner falso).
-      await Promise.all([
-        qc.refetchQueries({ queryKey: ["cq", cad?.id] }),
-        qc.refetchQueries({ queryKey: ["cq-blocos-fonte", cad?.id] }),
-      ]);
-      await refetchVars();
-      reseedPosSaveDoCache(); // re-adota a verdade do servidor do snapshot consistente, sem banner
-      reseedingRef.current = false;
+      // Colab (fix round 2): try/finally — se algum refetch/invalidate abaixo rejeitar, o
+      // finally ainda zera reseedingRef (senão o merge effect ficava PERMANENTEMENTE
+      // desligado, igual ao reconciliarCq). Ordem síncrona preservada: o reseed lê o
+      // snapshot consistente das 2 queries ANTES do finally.
+      try {
+        // Editar um CQ já confirmado regrava a Grade Real (o _core reescreve cad_grades
+        // enquanto o status segue 'confirmado') — propaga p/ downstream.
+        if (confirmado) await invalidateDownstream();
+        // Fonte única: o save reescreve recebido/defeito no grade_detalhe do bloco-fonte. Refetcho as
+        // DUAS queries do merge JUNTAS (snapshot consistente) ANTES de re-baselinar — senão a
+        // re-seed pegaria ["cq"] fresca + ["cq-blocos-fonte"] stale (flicker 5→0→5 + banner falso).
+        await Promise.all([
+          qc.refetchQueries({ queryKey: ["cq", cad?.id] }),
+          qc.refetchQueries({ queryKey: ["cq-blocos-fonte", cad?.id] }),
+        ]);
+        await refetchVars();
+        reseedPosSaveDoCache(); // re-adota a verdade do servidor do snapshot consistente, sem banner
+      } finally {
+        reseedingRef.current = false;
+      }
       // Marca o cache do PCP (Serviços) como stale (mesmo dado).
       qc.invalidateQueries({ queryKey: ["producao-terc", cad?.id] });
       qc.invalidateQueries({ queryKey: ["producao-terc-list"] });
@@ -885,16 +895,20 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       toast.success("Controle de Qualidade confirmado — enviado ao Direcionamento");
       setStatus("confirmado");
       posSaveReset(); // reseedingRef=true (merge effect fora até a re-baseline manual)
-      await invalidateDownstream();
-      // Fonte única: confirmar reescreveu recebido/defeito no grade_detalhe do bloco-fonte. Refetcho
-      // as DUAS queries do merge JUNTAS (snapshot consistente) ANTES de re-baselinar (sem flicker/banner falso).
-      await Promise.all([
-        qc.refetchQueries({ queryKey: ["cq", cad?.id] }),
-        qc.refetchQueries({ queryKey: ["cq-blocos-fonte", cad?.id] }),
-      ]);
-      await refetchVars();
-      reseedPosSaveDoCache();
-      reseedingRef.current = false;
+      // Colab (fix round 2): try/finally — espelha o saveMut acima (mesmo risco de flag presa).
+      try {
+        await invalidateDownstream();
+        // Fonte única: confirmar reescreveu recebido/defeito no grade_detalhe do bloco-fonte. Refetcho
+        // as DUAS queries do merge JUNTAS (snapshot consistente) ANTES de re-baselinar (sem flicker/banner falso).
+        await Promise.all([
+          qc.refetchQueries({ queryKey: ["cq", cad?.id] }),
+          qc.refetchQueries({ queryKey: ["cq-blocos-fonte", cad?.id] }),
+        ]);
+        await refetchVars();
+        reseedPosSaveDoCache();
+      } finally {
+        reseedingRef.current = false;
+      }
       qc.invalidateQueries({ queryKey: ["producao-terc", cad?.id] });
       qc.invalidateQueries({ queryKey: ["producao-terc-list"] });
     },
@@ -1167,6 +1181,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
           const rowTotal = Object.values(recebido).reduce((s: number, x: any) => s + Number(x || 0), 0);
           return rowTotal > 0 && Number(val) !== g;
         }}
+        onCampoFoco={setCampoFocado}
       />
 
       {/* Seção 2 - Conserto */}
@@ -1185,6 +1200,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
         labelByNumero={labelByNumero}
         grades={grades}
         setQtd={setQtd}
+        onCampoFoco={setCampoFocado}
       />
 
       {/* Seção 3 - Lavagem */}
@@ -1202,6 +1218,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
         labelByNumero={labelByNumero}
         grades={grades}
         setQtd={setQtd}
+        onCampoFoco={setCampoFocado}
       />
 
       {/* Seção 4 - Defeito */}
@@ -1214,6 +1231,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
           labelByNumero={labelByNumero}
           grades={grades}
           setQtd={setQtd}
+          onCampoFoco={setCampoFocado}
           extraCols={["destino"]}
           renderExtra={(num) => {
             const row = grades.defeito[num];
@@ -1279,23 +1297,31 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
           <div>
             <Label className="text-xs">Peças Incompletas</Label>
             <NumberInput integer value={form.pecas_incompletas}
-              onChange={(e) => setFormTracked((f) => ({ ...f, pecas_incompletas: Number(e.target.value) }))} />
+              onChange={(e) => setFormTracked((f) => ({ ...f, pecas_incompletas: Number(e.target.value) }))}
+              onFocus={() => setCampoFocado(rotuloConflito("pecas_incompletas"))}
+              onBlur={() => setCampoFocado(null)} />
           </div>
           <div>
             <Label className="text-xs">Peças Faltantes</Label>
             <NumberInput integer value={form.pecas_faltantes}
-              onChange={(e) => setFormTracked((f) => ({ ...f, pecas_faltantes: Number(e.target.value) }))} />
+              onChange={(e) => setFormTracked((f) => ({ ...f, pecas_faltantes: Number(e.target.value) }))}
+              onFocus={() => setCampoFocado(rotuloConflito("pecas_faltantes"))}
+              onBlur={() => setCampoFocado(null)} />
           </div>
           <div>
             <Label className="text-xs">Peças sem Etiqueta</Label>
             <NumberInput integer value={form.pecas_sem_etiqueta}
-              onChange={(e) => setFormTracked((f) => ({ ...f, pecas_sem_etiqueta: Number(e.target.value) }))} />
+              onChange={(e) => setFormTracked((f) => ({ ...f, pecas_sem_etiqueta: Number(e.target.value) }))}
+              onFocus={() => setCampoFocado(rotuloConflito("pecas_sem_etiqueta"))}
+              onBlur={() => setCampoFocado(null)} />
           </div>
         </div>
         <div>
           <Label className="text-xs">Observações do Controle de Qualidade</Label>
           <Textarea rows={3} value={form.observacoes_cq}
-            onChange={(e) => setFormTracked((f) => ({ ...f, observacoes_cq: e.target.value }))} />
+            onChange={(e) => setFormTracked((f) => ({ ...f, observacoes_cq: e.target.value }))}
+            onFocus={() => setCampoFocado(rotuloConflito("observacoes_cq"))}
+            onBlur={() => setCampoFocado(null)} />
         </div>
       </Card>
       </fieldset>
@@ -1365,8 +1391,10 @@ function EtapaSection(props: {
   grades: GradesByEtapa;
   setQtd: (etapa: Etapa, num: number, tam: string, qtd: number) => void;
   overFn?: (num: number, tam: string, val: number) => boolean;
+  // Colab (item 3, fast-follow): presença por campo — repassa p/ a GradeMatrix.
+  onCampoFoco?: (label: string | null) => void;
 }) {
-  const { title, hint, etapa, datas, readOnlyDatas, form, setForm, tamanhos, variantList, labelByNumero, grades, setQtd, overFn } = props;
+  const { title, hint, etapa, datas, readOnlyDatas, form, setForm, tamanhos, variantList, labelByNumero, grades, setQtd, overFn, onCampoFoco } = props;
   return (
     <Card className="p-5 space-y-4">
       <div>
@@ -1404,6 +1432,7 @@ function EtapaSection(props: {
         grades={grades}
         setQtd={setQtd}
         overFn={overFn}
+        onCampoFoco={onCampoFoco}
       />
     </Card>
   );
@@ -1420,8 +1449,10 @@ function GradeMatrix(props: {
   renderExtra?: (variante_numero: number) => React.ReactNode;
   /** Marca a célula em vermelho quando o valor for "demais" (ex.: recebimento > grade do CAD). */
   overFn?: (num: number, tam: string, val: number) => boolean;
+  // Colab (item 3, fast-follow): presença por campo — célula = etapa + tamanho.
+  onCampoFoco?: (label: string | null) => void;
 }) {
-  const { etapa, tamanhos, variantList, labelByNumero, grades, setQtd, extraCols = [], renderExtra, overFn } = props;
+  const { etapa, tamanhos, variantList, labelByNumero, grades, setQtd, extraCols = [], renderExtra, overFn, onCampoFoco } = props;
 
   return (
     <MatrizGradeResponsiva
@@ -1439,6 +1470,8 @@ function GradeMatrix(props: {
             className={`h-8 max-md:h-11 w-full border-0 text-center ${over ? "text-destructive font-semibold" : ""}`}
             value={row?.grades?.[t] ?? ""}
             onChange={(e) => setQtd(etapa, num, t, Number(e.target.value) || 0)}
+            onFocus={() => onCampoFoco?.(`${ETAPA_FOCO_PT[etapa]} · ${t}`)}
+            onBlur={() => onCampoFoco?.(null)}
           />
         );
       }}

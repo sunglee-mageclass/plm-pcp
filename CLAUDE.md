@@ -232,8 +232,9 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   rev}` bloco a bloco (sem `_core` — gate+trava dentro do mesmo `SECURITY DEFINER`);
   `salvar_cq` checa OS DOIS LADOS via `_rev_base {cq, fonte}` (`cq` sempre presente — omitir pula o
   check e abre janela de lost-update; `fonte` null se o modelo não tem bloco-fonte). O merge da
-  grade compartilhada é POR CÉLULA (`mergeGrade`, `@/lib/colab/merge-grade`, mesma assinatura
-  `{base,meu,fresh,tocadas}` do `mergeDraft`, path `grade:{vid}:{tam}:{campo}`). `useColabRegistro`
+  grade compartilhada é POR CÉLULA (`mergeGrade`, `@/lib/colab/merge-grade`, mesmo padrão 3-vias
+  base/draft/fresh/touched do `mergeDraft` — mas com campos em PT, `{base,meu,fresh,tocadas}`, NÃO a
+  mesma assinatura literal —, path `grade:{vid}:{tam}:{campo}`). `useColabRegistro`
   ganhou `filtroColuna` (default `"id"`; PCP/CQ usam `"cad_id"` — N linhas por cad, sem raiz única)
   e `tabelasExtra` (listeners extra no mesmo canal — o CQ também escuta o bloco-fonte, então um save
   do PCP na grade compartilhada dispara re-merge no CQ aberto, cross-tela). Spec/plano original em

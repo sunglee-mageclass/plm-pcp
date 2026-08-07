@@ -873,19 +873,24 @@ export function TerceirizadosDetail({
         const live = blocosLiveRef.current;
         const ml = mergeLinhas({ base, draft: live, fresh, touchedIds: touchedBlocoIdsRef.current });
         const gradeConf: Conflito[] = [];
+        // Colab (item 2, fast-follow): soma as células de grade ADOTADAS (mg.atualizados) junto
+        // com ml.atualizadas — espelha o merge effect (linha 629, `gradeAtual`). Sem isso o banner
+        // "N campos atualizados" no retry P0409 subcontava (só via linhas, nunca via célula).
+        let gradeAtual = 0;
         const out = ml.linhas.map((b) => {
           if (!b.id) return b;
           const fb = fresh.find((x) => x.id === b.id); const bb = base.find((x) => x.id === b.id);
           if (!fb || !bb) return b;
           const mg = mergeGrade({ base: bb.grade_detalhe ?? {}, meu: b.grade_detalhe ?? {}, fresh: fb.grade_detalhe ?? {}, tocadas: touchedGradeRef.current });
           gradeConf.push(...mg.conflitos);
+          gradeAtual += mg.atualizados.length;
           return mg.atualizados.length || mg.conflitos.length ? { ...b, grade_detalhe: mg.valor } : b;
         });
         setBlocos(out);
         const todos = [...ml.conflitos, ...gradeConf];
         conflitosRef.current = todos;
         setConflitos(todos);
-        setUltimoMerge({ atualizados: ml.atualizadas.length, conflitos: todos });
+        setUltimoMerge({ atualizados: ml.atualizadas.length + gradeAtual, conflitos: todos });
         baseBlocosRef.current = fresh;
         if (todos.length === 0) {
           saveMut.mutate(undefined, { onSettled: () => { savingRef.current = false; retryRef.current = false; } });
@@ -1325,6 +1330,8 @@ export function TerceirizadosDetail({
                     placeholder="0,00"
                     value={b.preco_metro_unidade || ""}
                     onChange={(e) => updateBloco(idx, { preco_metro_unidade: Number(e.target.value) })}
+                    onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("preco_metro_unidade")}`)}
+                    onBlur={() => setCampoFocado(null)}
                   />
                 </div>
               )}
@@ -1336,6 +1343,8 @@ export function TerceirizadosDetail({
                   disabled={b.detalhado}
                   value={b.detalhado ? somaGrade(b.grade_detalhe, "enviada") : (b.quantidade_enviada || "")}
                   onChange={(e) => updateBloco(idx, { quantidade_enviada: Number(e.target.value) })}
+                  onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("quantidade_enviada")}`)}
+                  onBlur={() => setCampoFocado(null)}
                 />
               </div>
               {b.detalhado && (
@@ -1381,6 +1390,8 @@ export function TerceirizadosDetail({
                   disabled={b.detalhado}
                   value={b.detalhado ? somaGrade(b.grade_detalhe, "recebida") : (b.quantidade_recebida || "")}
                   onChange={(e) => updateBloco(idx, { quantidade_recebida: Number(e.target.value) })}
+                  onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("quantidade_recebida")}`)}
+                  onBlur={() => setCampoFocado(null)}
                 />
               </div>
               <div>
@@ -1391,6 +1402,8 @@ export function TerceirizadosDetail({
                   disabled={b.detalhado}
                   value={b.detalhado ? somaGrade(b.grade_detalhe, "defeito") : (b.quantidade_defeito || "")}
                   onChange={(e) => updateBloco(idx, { quantidade_defeito: Number(e.target.value) })}
+                  onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("quantidade_defeito")}`)}
+                  onBlur={() => setCampoFocado(null)}
                 />
               </div>
               {b.detalhado && (
@@ -1408,7 +1421,7 @@ export function TerceirizadosDetail({
                       </div>
                     );
                   })()}
-                  <GradeEditor tpl={gradeTpl ?? { variantes: [], tamanhos: [] }} grade={b.grade_detalhe} onChange={(g) => updateBloco(idx, { grade_detalhe: g })} />
+                  <GradeEditor tpl={gradeTpl ?? { variantes: [], tamanhos: [] }} grade={b.grade_detalhe} onChange={(g) => updateBloco(idx, { grade_detalhe: g })} onCampoFoco={setCampoFocado} />
                 </div>
               )}
               {!b.interno && (
@@ -1420,6 +1433,8 @@ export function TerceirizadosDetail({
                     placeholder="0,00"
                     value={b.desconto_total || ""}
                     onChange={(e) => updateBloco(idx, { desconto_total: Number(e.target.value) })}
+                    onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("desconto_total")}`)}
+                    onBlur={() => setCampoFocado(null)}
                   />
                 </div>
               )}
@@ -1432,6 +1447,8 @@ export function TerceirizadosDetail({
                     placeholder="0,00"
                     value={b.multa_total || ""}
                     onChange={(e) => updateBloco(idx, { multa_total: Number(e.target.value) })}
+                    onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("multa_total")}`)}
+                    onBlur={() => setCampoFocado(null)}
                   />
                 </div>
               )}
@@ -1444,6 +1461,8 @@ export function TerceirizadosDetail({
                     min={1}
                     value={b.numero_parcelas}
                     onChange={(e) => updateBloco(idx, { numero_parcelas: Math.max(1, Math.trunc(Number(e.target.value)) || 1) })}
+                    onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("numero_parcelas")}`)}
+                    onBlur={() => setCampoFocado(null)}
                   />
                 </div>
               )}
@@ -1535,6 +1554,8 @@ export function TerceirizadosDetail({
               <Textarea
                 value={b.observacao}
                 onChange={(e) => updateBloco(idx, { observacao: e.target.value })}
+                onFocus={() => setCampoFocado(`${catNome} · ${rotuloConflito("observacao")}`)}
+                onBlur={() => setCampoFocado(null)}
                 rows={2}
               />
             </div>
@@ -1633,12 +1654,15 @@ const CAMPOS_GRADE: { k: keyof CelulaGrade; label: string }[] = [
   { k: "defeito", label: "Defeito" },
 ];
 function GradeEditor({
-  tpl, grade, onChange, disabled,
+  tpl, grade, onChange, disabled, onCampoFoco,
 }: {
   tpl: { variantes: { id: string; label: string }[]; tamanhos: string[] };
   grade: GradeDetalhe;
   onChange: (g: GradeDetalhe) => void;
   disabled?: boolean;
+  // Colab (item 3, fast-follow): presença por campo — célula = campo (Enviada/Cortada/
+  // Recebida/Defeito) + tamanho (sem depender de vid, já que a variante fica no rótulo da linha).
+  onCampoFoco?: (label: string | null) => void;
 }) {
   const tamLabel = (t: string) => (t.includes("|") ? t.split("|")[1] || t : t);
   const cel = (vid: string, t: string): CelulaGrade => grade[vid]?.[t] ?? CELULA_ZERO;
@@ -1691,6 +1715,8 @@ function GradeEditor({
                               className={`h-7 w-full rounded border bg-background px-1 text-center disabled:opacity-60 ${alerta ? "border-destructive text-destructive font-semibold" : ""}`}
                               value={cel(v.id, t)[k] || ""}
                               onChange={(e) => set(v.id, t, k, Number(e.target.value) || 0)}
+                              onFocus={() => onCampoFoco?.(`${label} · ${tamLabel(t)}`)}
+                              onBlur={() => onCampoFoco?.(null)}
                             />
                           </td>
                         );
