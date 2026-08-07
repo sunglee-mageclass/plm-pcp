@@ -305,16 +305,20 @@ e verifique** — o repo muda rápido.
    bloco (chave `variante_tecido_id`, traduzida de/para `variante_numero` via
    `cad_tecido_variantes.ordem`) e DERIVA `cad_grades.grades_reais` = `max(0,recebida−defeito)`
    DELE, na MESMA txn (`_aplicar_reais_do_grade_detalhe`, também chamado por `salvar_terceirizados`
-   quando o CQ já está confirmado — editar recebida/defeito no PCP move a Grade Real). **[C1] e [Σ]
-   passam a computar dessa fonte, não do `_reais`/escalar do cliente.** A "Grade (CAD)" no CQ vira
-   **"Grade Cortada"** (lida da CORTADA do bloco-fonte, read-only — só editável no PCP/Serviços).
-   Modelo SEM bloco-fonte destrinchado = comportamento de hoje (`cq_variantes`/`_reais`
-   intocados). Ver memória `project_terceirizados_grade_detalhe`.
+   quando o CQ já está confirmado — editar recebida/defeito no PCP move a Grade Real). **[C1] passa
+   a computar dessa fonte (não do `_reais`/escalar do cliente); [Σ] de `cad_grades` idem.
+   `cq_variantes.grade_total` CONTINUA vindo do payload do formulário de CQ** (não lê
+   `grade_detalhe`) — pode DIVERGIR do `grade_detalhe`/`cad_grades` depois de uma edição feita só
+   no PCP (CQ já confirmado). A "Grade (CAD)" no CQ vira **"Grade Cortada"** (lida da CORTADA do
+   bloco-fonte, read-only — só editável no PCP/Serviços). Modelo SEM bloco-fonte destrinchado =
+   comportamento de hoje (`cq_variantes`/`_reais` intocados). Ver memória
+   `project_terceirizados_grade_detalhe`.
 7. **1 CAD por modelo** — garantido por TRIGGER `enforce_unique_fk` (NÃO por UNIQUE, ver
    "O que NÃO fazer"). Enviar ao corte (`baixar_estoque_tecido_corte`) é atômico e retorna
-   `deficit[]` por variante. `cad_grades.grades_planejadas` (usada aqui pro corte/déficit) **NÃO é
-   tocada** pela Grade Cortada (ago/2026, invariante #6) — a feature só troca a REFERÊNCIA exibida
-   no CQ (Grade CAD → Grade Cortada); o dado usado pra enviar ao corte segue o mesmo de sempre.
+   `deficit[]` por variante; o déficit roda por `cad_tecido_variantes.metragem_enviada` (metros de
+   tecido), NÃO por `cad_grades`/`grades_planejadas`. `cad_grades.grades_planejadas` segue
+   INTOCADA pela Grade Cortada (ago/2026, invariante #6) — a feature só troca a REFERÊNCIA exibida
+   no CQ (Grade CAD → Grade Cortada), sem relação com o corte de tecido.
 8. **Serviços no financeiro** — serviços terceirizados externos viram contas a pagar
    (`parcelas_servico` + RPC `servicos_financeiro`); oficina entra após CQ confirmado.
    **MO por serviço (ago/2026):** o antigo flag único virou **agregado DERIVADO**.
