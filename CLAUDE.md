@@ -298,9 +298,23 @@ e verifique** — o repo muda rápido.
    `_dashboard_colecao_core` (KPI "Lançados"/"Em Produção", era "CQ Pré confirmado" — unificado jul/2026). Trigger `trg_rebaixa_lancado_cq` em `controle_qualidade`: desmarcar o CQ
    (Pré ou Pós → deixa de estar liberado) rebaixa `modelos.lancado=false` + acende `#Erro` na etapa
    'lancamentos' (espelha o #10 do Direcionamento).
+   **Grade Cortada (ago/2026, fonte única):** quando o modelo tem um **bloco-fonte de confecção
+   destrinchado** (PL ou Oficina, `detalhado`+`ativo`, resolvido por `_resolver_fonte_confeccao`/
+   `tenant_config.confeccao_prioridade` — paridade com `resolverFonteConfeccao` TS), o
+   `_salvar_cq_core` grava Recebido/Defeito do CQ no `producao_terceirizados.grade_detalhe` desse
+   bloco (chave `variante_tecido_id`, traduzida de/para `variante_numero` via
+   `cad_tecido_variantes.ordem`) e DERIVA `cad_grades.grades_reais` = `max(0,recebida−defeito)`
+   DELE, na MESMA txn (`_aplicar_reais_do_grade_detalhe`, também chamado por `salvar_terceirizados`
+   quando o CQ já está confirmado — editar recebida/defeito no PCP move a Grade Real). **[C1] e [Σ]
+   passam a computar dessa fonte, não do `_reais`/escalar do cliente.** A "Grade (CAD)" no CQ vira
+   **"Grade Cortada"** (lida da CORTADA do bloco-fonte, read-only — só editável no PCP/Serviços).
+   Modelo SEM bloco-fonte destrinchado = comportamento de hoje (`cq_variantes`/`_reais`
+   intocados). Ver memória `project_terceirizados_grade_detalhe`.
 7. **1 CAD por modelo** — garantido por TRIGGER `enforce_unique_fk` (NÃO por UNIQUE, ver
    "O que NÃO fazer"). Enviar ao corte (`baixar_estoque_tecido_corte`) é atômico e retorna
-   `deficit[]` por variante.
+   `deficit[]` por variante. `cad_grades.grades_planejadas` (usada aqui pro corte/déficit) **NÃO é
+   tocada** pela Grade Cortada (ago/2026, invariante #6) — a feature só troca a REFERÊNCIA exibida
+   no CQ (Grade CAD → Grade Cortada); o dado usado pra enviar ao corte segue o mesmo de sempre.
 8. **Serviços no financeiro** — serviços terceirizados externos viram contas a pagar
    (`parcelas_servico` + RPC `servicos_financeiro`); oficina entra após CQ confirmado.
    **MO por serviço (ago/2026):** o antigo flag único virou **agregado DERIVADO**.
