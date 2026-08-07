@@ -102,3 +102,49 @@ describe.skipIf(!hasDb)("colab — trava otimista (P0409)", () => {
     });
   });
 });
+
+describe.skipIf(!hasDb)("colab PCP/CQ — rev infra (T1)", () => {
+  it("producao_terceirizados: UPDATE bumpa rev (BEFORE UPDATE); rev é do servidor", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const cad = await um<{ id: string }>(
+        c, `insert into cad (tenant_id) values ($1) returning id`, [TENANT_TESTE]);
+      const pt = await um<{ id: string; rev: number }>(
+        c, `insert into producao_terceirizados (cad_id, tenant_id, ativo) values ($1,$2,true) returning id, rev`,
+        [cad.id, TENANT_TESTE]);
+      const r1 = await um<{ rev: number }>(
+        c, `update producao_terceirizados set observacao='x' where id=$1 returning rev`, [pt.id]);
+      expect(r1.rev).toBe(pt.rev + 1);
+      // rev é do SERVIDOR: gravar rev na mão não rebaixa
+      const r2 = await um<{ rev: number }>(
+        c, `update producao_terceirizados set rev=0 where id=$1 returning rev`, [pt.id]);
+      expect(r2.rev).toBe(r1.rev + 1);
+    });
+  });
+  it("controle_qualidade: UPDATE bumpa rev; insert de cq_variantes bumpa a raiz", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const cad = await um<{ id: string }>(
+        c, `insert into cad (tenant_id) values ($1) returning id`, [TENANT_TESTE]);
+      const cq = await um<{ id: string; rev: number }>(
+        c, `insert into controle_qualidade (cad_id, tenant_id, status) values ($1,$2,'pendente') returning id, rev`,
+        [cad.id, TENANT_TESTE]);
+      const r1 = await um<{ rev: number }>(
+        c, `update controle_qualidade set observacoes_cq='y' where id=$1 returning rev`, [cq.id]);
+      expect(r1.rev).toBe(cq.rev + 1);
+      await um(c, `insert into cq_variantes (controle_qualidade_id, variante_numero, etapa, grades, grade_total)
+                   values ($1, 1, 'recebimento', '{}'::jsonb, 0)`, [cq.id]);
+      const r2 = await um<{ rev: number }>(c, `select rev from controle_qualidade where id=$1`, [cq.id]);
+      expect(r2.rev).toBeGreaterThan(r1.rev);
+    });
+  });
+  it("publicação supabase_realtime contém producao_terceirizados e controle_qualidade", async () => {
+    await withTx(async (c) => {
+      const rows = await c.query(
+        `select tablename from pg_publication_tables
+          where pubname='supabase_realtime' and tablename in ('producao_terceirizados','controle_qualidade')`);
+      expect(rows.rows.map((r: any) => r.tablename).sort())
+        .toEqual(["controle_qualidade", "producao_terceirizados"]);
+    });
+  });
+});
