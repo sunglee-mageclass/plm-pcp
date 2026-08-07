@@ -10,12 +10,21 @@ import { useAuth } from "@/hooks/useAuth";
 
 export type PresencaColab = { userId: string; nome: string; campoFocado: string | null };
 
+export type ColabTabela = "ocs_tecido" | "modelos" | "colecoes" | "producao_terceirizados" | "controle_qualidade";
+export type ColabListener = { tabela: ColabTabela; filtroColuna: string; valor: string };
+
 export function useColabRegistro(o: {
   canal: string | null;
-  tabela: "ocs_tecido" | "modelos" | "colecoes";
+  tabela: ColabTabela;
   registroId: string | null;
   onMudancaServidor: () => void;
   campoFocado?: string | null;
+  // NOVO: coluna do filtro do postgres_changes (default "id"). PCP/CQ filtram por "cad_id"
+  // (há N linhas por cad, sem id de raiz única).
+  filtroColuna?: string;
+  // NOVO: listeners extra no MESMO canal (ex.: CQ escuta controle_qualidade E o bloco-fonte
+  // em producao_terceirizados). Sem presença própria — só reagem com onMudancaServidor.
+  tabelasExtra?: ColabListener[];
 }): { presentes: PresencaColab[] } {
   const { user } = useAuth();
   const [presentes, setPresentes] = useState<PresencaColab[]>([]);
@@ -46,9 +55,15 @@ export function useColabRegistro(o: {
     // Se um dia precisar de presença tenant-privada de verdade, usar Realtime Authorization
     // (private channels), não confiar em RLS aqui.
     const ch = supabase.channel(chave, { config: { presence: { key: user!.id } } });
+    const col = o.filtroColuna ?? "id";
     ch.on("postgres_changes",
-      { event: "UPDATE", schema: "public", table: o.tabela, filter: `id=eq.${o.registroId}` },
+      { event: "*", schema: "public", table: o.tabela, filter: `${col}=eq.${o.registroId}` },
       () => onMudancaRef.current());
+    for (const ex of o.tabelasExtra ?? []) {
+      ch.on("postgres_changes",
+        { event: "*", schema: "public", table: ex.tabela, filter: `${ex.filtroColuna}=eq.${ex.valor}` },
+        () => onMudancaRef.current());
+    }
     ch.on("presence", { event: "sync" }, () => {
       const state = ch.presenceState<{ nome: string; campoFocado: string | null }>();
       setPresentes(
@@ -65,7 +80,7 @@ export function useColabRegistro(o: {
     // Invariante: `o.tabela`/`o.registroId`/`user.id` são capturados por closure — seguros
     // porque o chamador codifica o registroId dentro do `canal` (ex.: `colab:oc:${ocId}`).
     // Mudar registroId sem mudar canal quebra silenciosamente — NÃO fazer.
-  }, [chave, meuNome]);
+  }, [chave, meuNome, o.filtroColuna, JSON.stringify(o.tabelasExtra ?? [])]);
 
   // atualiza o campo focado sem recriar o canal
   // No primeiro render em que chave/meuNome ficam truthy, ambos effects disparam track() com o mesmo payload

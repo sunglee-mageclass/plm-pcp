@@ -47,10 +47,44 @@ import { useReverterImpacto } from "@/hooks/useReverterImpacto";
 import { printWithImages } from "@/lib/print";
 import { FichaTecnica } from "@/components/producao/FichaTecnica";
 import { OrdemServicoTerceirizados, type OSItem } from "@/components/producao/OrdemServicoTerceirizados";
+import { ColabBanner } from "@/components/shared/ColabBanner";
+import { useColabRegistro } from "@/hooks/useColabRegistro";
+import { mergeLinhas, igual, type Conflito } from "@/lib/colab/merge";
+import { mergeGrade } from "@/lib/colab/merge-grade";
 
 export const Route = createFileRoute("/_authenticated/pcp/servicos/$modeloId")({
   component: TercDetailPage,
 });
+
+// Colab (spec 2026-08-07): rótulos PT dos paths do banner de resolução genérica.
+const ROTULO_CONFLITO: Record<string, string> = {
+  categoria_terceirizado_id: "Serviço",
+  empresa_id: "Fornecedor",
+  representante_id: "Representante",
+  colaborador_id: "Colaborador",
+  preco_metro_unidade: "Preço unit.",
+  quantidade_enviada: "Qtd. enviada",
+  quantidade_recebida: "Qtd. recebida",
+  quantidade_defeito: "Qtd. defeito",
+  desconto_total: "Desconto",
+  multa_total: "Multa",
+  numero_parcelas: "Nº de parcelas",
+  data_enviado: "Data de envio",
+  data_prevista: "Data prevista",
+  data_entregue: "Data de entrega",
+  observacao: "Observação",
+};
+const CAMPO_GRADE_PT: Record<string, string> = {
+  enviada: "Enviada", cortada: "Cortada", recebida: "Recebida", defeito: "Defeito",
+};
+function rotuloConflito(path: string): string {
+  if (path.startsWith("linha:")) return "Bloco de serviço";
+  if (path.startsWith("grade:")) {
+    const [, , tam, campo] = path.split(":");   // grade:{vid}:{tam}:{campo}
+    return `${CAMPO_GRADE_PT[campo] ?? campo} · ${tam}`;
+  }
+  return ROTULO_CONFLITO[path] ?? path;
+}
 
 type Bloco = {
   _key: string; // chave estável de render (permite blocos repetidos da mesma categoria)
@@ -364,6 +398,49 @@ export function TerceirizadosDetail({
   });
 
   const [blocos, setBlocos] = useState<Bloco[]>([]);
+
+  // Colab (spec 2026-08-07): merge 3-vias no refetch/Realtime em vez de re-seed às cegas.
+  const touchedBlocoIdsRef = useRef<Set<string>>(new Set());   // blocos com escalar editado
+  const touchedGradeRef = useRef<Set<string>>(new Set());      // células "grade:{vid}:{tam}:{campo}"
+  const baseBlocosRef = useRef<Bloco[] | null>(null);          // último "fresh" visto (por bloco)
+  const revByBlocoRef = useRef<Record<string, number>>({});    // bloco.id → rev do servidor
+  const retryRef = useRef(false);
+  const savingRef = useRef(false);
+  const blocosLiveRef = useRef(blocos);
+  blocosLiveRef.current = blocos;
+  const [ultimoMerge, setUltimoMerge] = useState<{ atualizados: number; conflitos: Conflito[] } | null>(null);
+  const [conflitos, setConflitos] = useState<Conflito[]>([]);
+  const conflitosRef = useRef<Conflito[]>([]);
+  const [campoFocado, setCampoFocado] = useState<string | null>(null);
+
+  // Setter rastreado: difere prev→next por bloco (id) e por célula da grade; marca o touched.
+  // Mantém a assinatura de setBlocos (zero mudança nos filhos que já chamam setBlocos).
+  const setBlocosTracked: typeof setBlocos = (upd) =>
+    setBlocos((prev) => {
+      const next = typeof upd === "function" ? (upd as (p: Bloco[]) => Bloco[])(prev) : upd;
+      for (const b of next) {
+        if (!b.id) continue;
+        const p = prev.find((x) => x.id === b.id);
+        if (!p) continue;
+        // escalares do bloco (tudo menos grade_detalhe/_key)
+        for (const k of Object.keys(b) as (keyof Bloco)[]) {
+          if (k === "grade_detalhe" || k === "_key") continue;
+          if (!igual(b[k], p[k])) touchedBlocoIdsRef.current.add(b.id);
+        }
+        // células da grade
+        const vids = new Set([...Object.keys(b.grade_detalhe ?? {}), ...Object.keys(p.grade_detalhe ?? {})]);
+        for (const vid of vids) {
+          const tams = new Set([...Object.keys(b.grade_detalhe?.[vid] ?? {}), ...Object.keys(p.grade_detalhe?.[vid] ?? {})]);
+          for (const tam of tams) for (const campo of ["enviada", "cortada", "recebida", "defeito"] as const) {
+            const a = Number(b.grade_detalhe?.[vid]?.[tam]?.[campo]) || 0;
+            const c = Number(p.grade_detalhe?.[vid]?.[tam]?.[campo]) || 0;
+            if (a !== c) touchedGradeRef.current.add(`grade:${vid}:${tam}:${campo}`);
+          }
+        }
+      }
+      return next;
+    });
+
   // Abas Pré (até costura) / Pós (pós costura = "acabamento") — filtram categorias e blocos.
   const [tabEtapa, setTabEtapa] = useState<"ate_costura" | "pos_costura">("ate_costura");
   const catEtapa = (id: string) => (categorias as any[]).find((c) => c.id === id)?.etapa ?? "ate_costura";
@@ -486,44 +563,125 @@ export function TerceirizadosDetail({
     },
   });
 
-  // Hidrata os blocos a partir do servidor uma única vez (e de novo após salvar,
-  // quando liberamos o guard). Espera a query ASSENTAR (isFetched && !isFetching):
-  // hidratar do cache vazio enquanto o refetch ainda corria era o que zerava o
-  // formulário ao salvar.
+  // Mapeamento server-row → Bloco (reusado pela hidratação/merge e pelo retry P0409).
+  const blocosFromRows = (rows: any[]): Bloco[] =>
+    rows.map((r) => ({
+      _key: r.id ?? crypto.randomUUID(),
+      id: r.id,
+      categoria_terceirizado_id: r.categoria_terceirizado_id,
+      interno: Boolean(r.interno),
+      empresa_id: r.empresa_id ?? null,
+      representante_id: r.representante_id ?? null,
+      colaborador_id: r.colaborador_id ?? null,
+      preco_metro_unidade: Number(r.preco_metro_unidade ?? 0),
+      aprovado: Boolean(r.aprovado),
+      quantidade_enviada: Number(r.quantidade_enviada ?? 0),
+      quantidade_recebida: Number(r.quantidade_recebida ?? 0),
+      quantidade_defeito: Number(r.quantidade_defeito ?? 0),
+      desconto_total: Number(r.desconto_total ?? 0),
+      multa_total: Number(r.multa_total ?? 0),
+      numero_parcelas: Number(r.numero_parcelas ?? 1),
+      data_enviado: r.data_enviado,
+      data_prevista: r.data_prevista,
+      data_entregue: r.data_entregue,
+      status: r.status,
+      observacao: r.observacao ?? "",
+      aviamentos_enviados: Array.isArray(r.aviamentos_enviados) ? r.aviamentos_enviados : [],
+      tecidos_enviados: Array.isArray(r.tecidos_enviados) ? r.tecidos_enviados : [],
+      detalhado: Boolean(r.detalhado),
+      grade_detalhe: (r.grade_detalhe && typeof r.grade_detalhe === "object" ? r.grade_detalhe : {}) as GradeDetalhe,
+    }));
+
+  // Colab: 1ª carga semeia + baseline; refetch/Realtime faz merge 3-vias (escalares por bloco
+  // via mergeLinhas + células por bloco via mergeGrade) em vez de re-seed às cegas. Espera a
+  // query ASSENTAR (isFetched && !isFetching): hidratar do cache vazio enquanto o refetch
+  // ainda corria era o que zerava o formulário ao salvar.
   useEffect(() => {
-    if (hydrated) return;
     if (!cad?.id) return;
     if (!existingFetched || existingFetching) return;
-    setBlocos(
-      (existing as any[]).map((r) => ({
-        _key: r.id ?? crypto.randomUUID(),
-        id: r.id,
-        categoria_terceirizado_id: r.categoria_terceirizado_id,
-        interno: Boolean((r as any).interno),
-        empresa_id: (r as any).empresa_id ?? null,
-        representante_id: (r as any).representante_id ?? null,
-        colaborador_id: (r as any).colaborador_id ?? null,
-        preco_metro_unidade: Number(r.preco_metro_unidade ?? 0),
-        aprovado: Boolean((r as any).aprovado),
-        quantidade_enviada: Number(r.quantidade_enviada ?? 0),
-        quantidade_recebida: Number(r.quantidade_recebida ?? 0),
-        quantidade_defeito: Number(r.quantidade_defeito ?? 0),
-        desconto_total: Number((r as any).desconto_total ?? 0),
-        multa_total: Number((r as any).multa_total ?? 0),
-        numero_parcelas: Number((r as any).numero_parcelas ?? 1),
-        data_enviado: r.data_enviado,
-        data_prevista: r.data_prevista,
-        data_entregue: r.data_entregue,
-        status: r.status,
-        observacao: r.observacao ?? "",
-        aviamentos_enviados: Array.isArray(r.aviamentos_enviados) ? r.aviamentos_enviados : [],
-        tecidos_enviados: Array.isArray((r as any).tecidos_enviados) ? (r as any).tecidos_enviados : [],
-        detalhado: Boolean((r as any).detalhado),
-        grade_detalhe: ((r as any).grade_detalhe && typeof (r as any).grade_detalhe === "object" ? (r as any).grade_detalhe : {}) as GradeDetalhe,
-      })),
-    );
-    setHydrated(true);
-  }, [existing, cad?.id, hydrated, existingFetched, existingFetching]);
+    const fresh = blocosFromRows(existing as any[]);
+    revByBlocoRef.current = Object.fromEntries((existing as any[]).filter((r) => r.id).map((r) => [r.id, Number(r.rev ?? 0)]));
+
+    if (!baseBlocosRef.current) {
+      // 1ª carga: seed normal.
+      baseBlocosRef.current = fresh;
+      setBlocos(fresh);
+      setHydrated(true);
+      touchedBlocoIdsRef.current = new Set();
+      touchedGradeRef.current = new Set();
+      conflitosRef.current = [];
+      setConflitos([]);
+      resetBaseline({ blocos: fresh, observacoesMolde });
+      return;
+    }
+    // Refetch: MERGE. Escalares por bloco (mergeLinhas) + células (mergeGrade) por bloco.
+    const ml = mergeLinhas({ base: baseBlocosRef.current, draft: blocos, fresh, touchedIds: touchedBlocoIdsRef.current });
+    let out = ml.linhas;
+    const gradeConf: Conflito[] = [];
+    let gradeAtual = 0;
+    out = out.map((b) => {
+      if (!b.id) return b;
+      const fb = fresh.find((x) => x.id === b.id);
+      const bb = baseBlocosRef.current!.find((x) => x.id === b.id);
+      if (!fb || !bb) return b;
+      const mg = mergeGrade({ base: bb.grade_detalhe ?? {}, meu: b.grade_detalhe ?? {}, fresh: fb.grade_detalhe ?? {}, tocadas: touchedGradeRef.current });
+      gradeConf.push(...mg.conflitos);
+      gradeAtual += mg.atualizados.length;
+      return mg.atualizados.length || mg.conflitos.length ? { ...b, grade_detalhe: mg.valor } : b;
+    });
+    const todos = [...ml.conflitos, ...gradeConf];
+    const semResultado = ml.atualizadas.length === 0 && ml.conflitos.length === 0 && gradeConf.length === 0 && gradeAtual === 0;
+    if (semResultado) { baseBlocosRef.current = fresh; return; }
+    setBlocos(out);
+    conflitosRef.current = todos;
+    setConflitos(todos);
+    setUltimoMerge({ atualizados: ml.atualizadas.length + gradeAtual, conflitos: todos });
+    baseBlocosRef.current = fresh;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existing, cad?.id, existingFetched, existingFetching]);
+
+  // Colab: presença (quem está na tela) + reação a UPDATE/INSERT/DELETE de blocos alheios
+  // (canal por cad; filtra por cad_id porque há N blocos por cad, sem id de raiz).
+  const { presentes } = useColabRegistro({
+    canal: cad?.id ? `colab:pcp-servico:${cad.id}` : null,
+    tabela: "producao_terceirizados",
+    filtroColuna: "cad_id",
+    registroId: cad?.id ?? null,
+    onMudancaServidor: () => qc.invalidateQueries({ queryKey: ["producao-terc", cad?.id] }),
+    campoFocado,
+  });
+
+  // Resolução GENÉRICA de um conflito a partir do banner (round 4): "usar o novo" aplica o
+  // valor do servidor no rascunho e tira o campo/célula/id do touched; "manter meu" só descarta
+  // o aviso. Cobre TODO conflito (escalar de bloco, linha, célula da grade) — sem isso, um
+  // conflito sem UI própria deixaria o Salvar travado (deadlock, lição do piloto).
+  const resolverPorPath = (path: string, escolha: "meu" | "dele") => {
+    const c = conflitos.find((x) => x.path === path);
+    if (!c) return;
+    if (escolha === "dele") {
+      if (path.startsWith("grade:")) {
+        const [, vid, tam, campo] = path.split(":");
+        setBlocos((prev) => prev.map((b) => {
+          const has = b.grade_detalhe?.[vid]?.[tam] !== undefined || b.grade_detalhe?.[vid] !== undefined;
+          if (!b.id || !has) return b;
+          const gd = { ...b.grade_detalhe, [vid]: { ...(b.grade_detalhe?.[vid] ?? {}) } };
+          gd[vid][tam] = { ...(b.grade_detalhe?.[vid]?.[tam] ?? {} as any), [campo]: Number(c.dele) || 0 };
+          return { ...b, grade_detalhe: gd };
+        }));
+        touchedGradeRef.current.delete(path);
+      } else if (path.startsWith("linha:")) {
+        const id = path.slice("linha:".length);
+        setBlocos((prev) => c.dele ? prev.map((b) => (b.id === id ? (c.dele as Bloco) : b)) : prev.filter((b) => b.id !== id));
+        touchedBlocoIdsRef.current.delete(id);
+      } else {
+        // conflito de escalar num bloco: aplica dele.[path] no bloco correspondente
+        const id = (c.dele as any)?.id ?? (c.meu as any)?.id;
+        if (id) { setBlocos((prev) => prev.map((b) => (b.id === id ? { ...b, ...(c.dele as any) } : b))); touchedBlocoIdsRef.current.delete(id); }
+      }
+    }
+    setConflitos((prev) => { const nx = prev.filter((x) => x.path !== path); conflitosRef.current = nx; return nx; });
+    setUltimoMerge((prev) => prev ? { ...prev, conflitos: prev.conflitos.filter((x) => x.path !== path) } : prev);
+  };
 
   // Quantos blocos existem por categoria (a mesma categoria pode repetir).
   const countByCat = blocos.reduce<Record<string, number>>((m, b) => {
@@ -533,7 +691,7 @@ export function TerceirizadosDetail({
 
   // Cada clique ACRESCENTA um novo bloco da categoria (pode mandar pra dois lugares).
   const addCategoria = (catId: string, catNome: string) => {
-    setBlocos((bs) => [
+    setBlocosTracked((bs) => [
       ...bs,
       {
         _key: crypto.randomUUID(),
@@ -563,10 +721,10 @@ export function TerceirizadosDetail({
       },
     ]);
   };
-  const removeBloco = (idx: number) => setBlocos((bs) => bs.filter((_, i) => i !== idx));
+  const removeBloco = (idx: number) => setBlocosTracked((bs) => bs.filter((_, i) => i !== idx));
 
   const updateBloco = (idx: number, patch: Partial<Bloco>) => {
-    setBlocos((bs) => bs.map((b, i) => (i === idx ? { ...b, ...patch } : b)));
+    setBlocosTracked((bs) => bs.map((b, i) => (i === idx ? { ...b, ...patch } : b)));
   };
 
   // 3 status: PRÉ (até costura), PÓS (pós costura) e GERAL (derivado). Regras do dono:
@@ -655,10 +813,19 @@ export function TerceirizadosDetail({
         aviamentos_enviados: b.aviamentos_enviados,
         tecidos_enviados: b.tecidos_enviados,
       }));
+      // Colab: barra o save enquanto há conflito pendente (o banner no topo lista cada um).
+      if (conflitosRef.current.length > 0)
+        throw new Error("Resolva os conflitos listados no aviso no topo antes de salvar.");
+      // _rev_base por bloco existente (id→rev semeado da query). null=bypass; a RPC dá P0409
+      // se algum bloco avançou desde a última carga.
+      const _rev_base = Object.fromEntries(
+        blocos.filter((b) => b.id).map((b) => [b.id as string, revByBlocoRef.current[b.id as string] ?? 0]),
+      );
       const { error } = await supabase.rpc("salvar_terceirizados" as any, {
         _cad_id: cad.id,
         _blocos,
         _observacoes_molde: observacoesMolde || null,
+        _rev_base,
       });
       if (error) throw error;
     },
@@ -666,6 +833,18 @@ export function TerceirizadosDetail({
       toast.success("Salvo com sucesso");
       markClean(); // limpa o indicador de "alterações não salvas" já no sucesso
       setEditing(false); // salvar re-trava ambas as abas que já estão finalizadas
+      // Colab: limpa o touched/conflitos. Diferente do piloto (OC Tecido FECHA no save), esta
+      // tela FICA ABERTA e re-trava — então o pós-save NÃO pode ser um "merge": o rascunho
+      // ainda tem o bloco novo SEM id enquanto o refetch traz o mesmo bloco COM id (duplicaria)
+      // + acenderia "alguém salvou" pro meu próprio save. Zerar `baseBlocosRef` faz o refetch
+      // abaixo cair no caminho de SEED (re-adota a verdade do servidor, como o PCP sempre fez),
+      // sem tocar o merge da via realtime (UPDATE alheio enquanto edito segue com base != null).
+      baseBlocosRef.current = null;
+      touchedBlocoIdsRef.current = new Set();
+      touchedGradeRef.current = new Set();
+      conflitosRef.current = [];
+      setConflitos([]);
+      setUltimoMerge(null);
       // Busca os dados frescos ANTES de liberar o guard de hidratação, senão a
       // re-hidratação rodava com o cache antigo (vazio) e o formulário "sumia".
       await qc.invalidateQueries({ queryKey: ["producao-terc", cad?.id] });
@@ -675,11 +854,49 @@ export function TerceirizadosDetail({
       // calendário) e a Home consomem servicos_financeiro; mantê-los em sincronia.
       qc.invalidateQueries({ queryKey: ["servicos-financeiro"] });
       await refetch();
-      setHydrated(false);
       setMoldeHydrated(false);
       baselinedRef.current = false; // re-baseliniza o guarda na próxima hidratação
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
+    onError: async (e: any) => {
+      // Colab: conflito de versão (outra pessoa salvou entre a carga e agora). Busca o
+      // estado novo e roda o merge AQUI MESMO (síncrono, lendo o cache direto + os refs-
+      // espelho — NUNCA via useEffect, que rodaria com refs velhos e reenviaria o mesmo
+      // _rev_base rejeitado). Sem conflito de verdade → tenta salvar de novo UMA vez.
+      if (e?.code === "P0409" && !retryRef.current) {
+        retryRef.current = true;
+        savingRef.current = true;
+        await qc.refetchQueries({ queryKey: ["producao-terc", cad?.id] });
+        const rows = qc.getQueryData<any[]>(["producao-terc", cad?.id]) ?? [];
+        const fresh = blocosFromRows(rows);
+        revByBlocoRef.current = Object.fromEntries(rows.filter((r) => r.id).map((r) => [r.id, Number(r.rev ?? 0)]));
+        const base = baseBlocosRef.current ?? fresh;
+        const live = blocosLiveRef.current;
+        const ml = mergeLinhas({ base, draft: live, fresh, touchedIds: touchedBlocoIdsRef.current });
+        const gradeConf: Conflito[] = [];
+        const out = ml.linhas.map((b) => {
+          if (!b.id) return b;
+          const fb = fresh.find((x) => x.id === b.id); const bb = base.find((x) => x.id === b.id);
+          if (!fb || !bb) return b;
+          const mg = mergeGrade({ base: bb.grade_detalhe ?? {}, meu: b.grade_detalhe ?? {}, fresh: fb.grade_detalhe ?? {}, tocadas: touchedGradeRef.current });
+          gradeConf.push(...mg.conflitos);
+          return mg.atualizados.length || mg.conflitos.length ? { ...b, grade_detalhe: mg.valor } : b;
+        });
+        setBlocos(out);
+        const todos = [...ml.conflitos, ...gradeConf];
+        conflitosRef.current = todos;
+        setConflitos(todos);
+        setUltimoMerge({ atualizados: ml.atualizadas.length, conflitos: todos });
+        baseBlocosRef.current = fresh;
+        if (todos.length === 0) {
+          saveMut.mutate(undefined, { onSettled: () => { savingRef.current = false; retryRef.current = false; } });
+          return;
+        }
+        savingRef.current = false; retryRef.current = false;
+        toast.error(mensagemErro(e, "Erro ao salvar"));
+        return;
+      }
+      toast.error(mensagemErro(e, "Erro ao salvar"));
+    },
   });
 
   // "Voltar uma etapa" — reverte o corte/baixa e volta o modelo para a Explosão.
@@ -781,6 +998,16 @@ export function TerceirizadosDetail({
           </Button>
         </div>
       </div>
+
+      {/* Colab: presença + resultado do merge + resolução genérica de conflitos. FORA do
+          fieldset (resolver conflito precisa funcionar mesmo com a aba travada). */}
+      <ColabBanner
+        presentes={presentes}
+        ultimoMerge={ultimoMerge}
+        conflitos={conflitos}
+        onResolver={resolverPorPath}
+        rotulo={rotuloConflito}
+      />
 
       {/* Abas Pré/Pós — FORA do fieldset: travar uma aba não pode impedir trocar de aba. */}
       <div className="flex rounded-md border p-0.5 w-fit">
