@@ -199,6 +199,60 @@ describe.skipIf(!hasDb)("colab — trava otimista (P0409)", () => {
   });
 });
 
+// Fast-follow do review final (spec 2026-08-07-colab-pcp-cq), Item 1: invariante #9 —
+// o DROP+CREATE de 20260803190000 (trava otimista) recriou os 3 wrappers do zero e só
+// fez GRANT a `authenticated`, sem REVOKE explícito de PUBLIC/anon (toda função nova
+// nasce com EXECUTE pra PUBLIC; anon/authenticated herdam dele). Migração
+// 20260807130000 fecha o furo.
+describe.skipIf(!hasDb)("colab — ACL dos wrappers de salvar (invariante #9, fast-follow)", () => {
+  it("salvar_oc_tecido/salvar_modelo_bom/salvar_plan_tecido: PUBLIC e anon SEM EXECUTE; authenticated COM", async () => {
+    await withTx(async (c) => {
+      const r = await um<{ public_oc: boolean; anon_oc: boolean; auth_oc: boolean;
+        public_bom: boolean; anon_bom: boolean; auth_bom: boolean;
+        public_pt: boolean; anon_pt: boolean; auth_pt: boolean }>(
+        c,
+        `select
+           has_function_privilege('public', 'public.salvar_oc_tecido(uuid,jsonb,jsonb,integer)', 'EXECUTE') public_oc,
+           has_function_privilege('anon', 'public.salvar_oc_tecido(uuid,jsonb,jsonb,integer)', 'EXECUTE') anon_oc,
+           has_function_privilege('authenticated', 'public.salvar_oc_tecido(uuid,jsonb,jsonb,integer)', 'EXECUTE') auth_oc,
+           has_function_privilege('public', 'public.salvar_modelo_bom(uuid,jsonb,jsonb,jsonb,integer)', 'EXECUTE') public_bom,
+           has_function_privilege('anon', 'public.salvar_modelo_bom(uuid,jsonb,jsonb,jsonb,integer)', 'EXECUTE') anon_bom,
+           has_function_privilege('authenticated', 'public.salvar_modelo_bom(uuid,jsonb,jsonb,jsonb,integer)', 'EXECUTE') auth_bom,
+           has_function_privilege('public', 'public.salvar_plan_tecido(uuid,jsonb,integer)', 'EXECUTE') public_pt,
+           has_function_privilege('anon', 'public.salvar_plan_tecido(uuid,jsonb,integer)', 'EXECUTE') anon_pt,
+           has_function_privilege('authenticated', 'public.salvar_plan_tecido(uuid,jsonb,integer)', 'EXECUTE') auth_pt`,
+      );
+      expect(r.public_oc).toBe(false);
+      expect(r.anon_oc).toBe(false);
+      expect(r.auth_oc).toBe(true);
+      expect(r.public_bom).toBe(false);
+      expect(r.anon_bom).toBe(false);
+      expect(r.auth_bom).toBe(true);
+      expect(r.public_pt).toBe(false);
+      expect(r.anon_pt).toBe(false);
+      expect(r.auth_pt).toBe(true);
+    });
+  });
+});
+
+// Fast-follow do review final (spec 2026-08-07-colab-pcp-cq), Item 2: sem REPLICA
+// IDENTITY FULL, o DELETE só manda a PK no WAL — o useColabRegistro filtra o payload
+// do DELETE por cad_id=eq (filtroColuna="cad_id"), que nunca casa e a exclusão não
+// propaga em tempo real pra outra aba do colab. Migração 20260807130000 corrige.
+describe.skipIf(!hasDb)("colab — REPLICA IDENTITY FULL (fast-follow, propaga DELETE)", () => {
+  it("producao_terceirizados e controle_qualidade: relreplident = 'f' (FULL)", async () => {
+    await withTx(async (c) => {
+      const rows = await c.query(
+        `select relname, relreplident from pg_class
+          where relname in ('producao_terceirizados','controle_qualidade')
+            and relnamespace = 'public'::regnamespace`);
+      const byName = Object.fromEntries(rows.rows.map((r: any) => [r.relname, r.relreplident]));
+      expect(byName["producao_terceirizados"]).toBe("f");
+      expect(byName["controle_qualidade"]).toBe("f");
+    });
+  });
+});
+
 describe.skipIf(!hasDb)("colab PCP/CQ — rev infra (T1)", () => {
   it("producao_terceirizados: UPDATE bumpa rev (BEFORE UPDATE); rev é do servidor", async () => {
     await withTx(async (c) => {
