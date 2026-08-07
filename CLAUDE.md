@@ -223,9 +223,22 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   na tela/campo) + reagir a UPDATE alheio; `mergeDraft`/`mergeLinhas` (`@/lib/colab/merge`, puros)
   fazem merge 3-vias (base/draft/fresh) por campo tocado (`touched`), sinalizando conflito só onde
   EU editei e o servidor também mudou (`<ColabBanner>` + destaque âmbar + "manter meu · usar o novo").
-  Piloto vivo: OC Tecido (`entrada-saida.oc-tecido.tsx`). Spec/plano em `.superpowers/sdd/2026-08-03-
-  concorrencia-multiusuario/`; adotar o mesmo padrão ao levar outras telas quentes (Desenvolvimento,
-  Plan. Produto, Plan. Tecido) para colaboração — não reinventar o merge.
+  **Adotado em 6 telas**: OC Tecido (piloto, `entrada-saida.oc-tecido.tsx`) · Desenvolvimento ·
+  Plan. Produto · Plan. Tecido (merge POR SLOT, `colab-merge-arvore.ts`) · **PCP Serviços + CQ**
+  (ago/2026, spec `.superpowers/sdd/2026-08-07-colab-pcp-cq/`). PCP+CQ têm um grão mais fino porque
+  as 2 telas editam o MESMO dado — o `grade_detalhe` destrinchado do bloco-fonte (Grade Cortada):
+  `rev` é POR BLOCO em `producao_terceirizados` (cobre o PCP e o grade_detalhe que o CQ também
+  escreve) e por cad em `controle_qualidade`; `salvar_terceirizados` checa `_rev_base` `{bloco_id:
+  rev}` bloco a bloco (sem `_core` — gate+trava dentro do mesmo `SECURITY DEFINER`);
+  `salvar_cq` checa OS DOIS LADOS via `_rev_base {cq, fonte}` (`cq` sempre presente — omitir pula o
+  check e abre janela de lost-update; `fonte` null se o modelo não tem bloco-fonte). O merge da
+  grade compartilhada é POR CÉLULA (`mergeGrade`, `@/lib/colab/merge-grade`, mesma assinatura
+  `{base,meu,fresh,tocadas}` do `mergeDraft`, path `grade:{vid}:{tam}:{campo}`). `useColabRegistro`
+  ganhou `filtroColuna` (default `"id"`; PCP/CQ usam `"cad_id"` — N linhas por cad, sem raiz única)
+  e `tabelasExtra` (listeners extra no mesmo canal — o CQ também escuta o bloco-fonte, então um save
+  do PCP na grade compartilhada dispara re-merge no CQ aberto, cross-tela). Spec/plano original em
+  `.superpowers/sdd/2026-08-03-concorrencia-multiusuario/`; não reinventar o merge ao levar novas
+  telas.
 
 ## Invariantes a preservar (não regredir)
 
