@@ -42,3 +42,24 @@ export function celulasRecebidaAcimaCortada(
       if (recebidaExcedeCortada(g![vid][t])) out.push({ variante_tecido_id: vid, tamanho: t });
   return out;
 }
+
+/**
+ * Grade COMPLETA (zeros EXPLÍCITOS em toda size-key de `tamanhos`) de uma linha do payload do CQ.
+ * Usada no caminho fonte-única: o `_salvar_cq_core` só faz jsonb_set das size-keys PRESENTES no
+ * payload; se o operador zera tudo e a linha some (ou vai com grade parcial), o grade_detalhe da
+ * fonte mantém os valores velhos e o refetch re-semeia os antigos (perda silenciosa da zeragem).
+ * Enviar zeros explícitos em todas as size-keys faz o backend gravar 0 e a zeragem persistir.
+ */
+export function completarGradeFonte(
+  grades: Record<string, number> | undefined,
+  tamanhos: string[],
+): { grades: Record<string, number>; grade_total: number } {
+  const out: Record<string, number> = {};
+  let total = 0;
+  for (const t of tamanhos) {
+    const v = n(grades?.[t]);
+    out[t] = v;
+    total += v;
+  }
+  return { grades: out, grade_total: total };
+}

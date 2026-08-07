@@ -1422,17 +1422,28 @@ function GradeEditor({
   };
   if (!tpl.variantes.length || !tpl.tamanhos.length)
     return <p className="text-xs text-muted-foreground">Sem grade planejada para destrinchar — defina a grade (tamanhos/variantes) do modelo primeiro.</p>;
+  // Colgroup COMPARTILHADO por TODAS as grades (Enviada/Cortada/Recebida/Defeito + Saldo) —
+  // com table-fixed, garante que cada coluna tenha a MESMA largura em todas as tabelas, então
+  // as colunas alinham verticalmente independente do conteúdo (input vs texto). (dono, ago/2026)
+  const colGroup = (
+    <colgroup>
+      <col className="w-28" />
+      {tpl.tamanhos.map((t) => <col key={t} className="w-14" />)}
+      <col className="w-12" />
+    </colgroup>
+  );
   return (
     <div className="space-y-3">
       {CAMPOS_GRADE.map(({ k, label }) => (
         <div key={k}>
           <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
           <div className="overflow-x-auto">
-            <table className="text-xs tabular-nums">
+            <table className="table-fixed text-xs tabular-nums">
+              {colGroup}
               <thead className="text-muted-foreground">
                 <tr>
                   <th className="p-1 text-left font-medium">Variante</th>
-                  {tpl.tamanhos.map((t) => <th key={t} className="w-14 p-1 text-center font-medium">{tamLabel(t)}</th>)}
+                  {tpl.tamanhos.map((t) => <th key={t} className="p-1 text-center font-medium">{tamLabel(t)}</th>)}
                   <th className="p-1 text-center font-medium">Σ</th>
                 </tr>
               </thead>
@@ -1441,7 +1452,7 @@ function GradeEditor({
                   const total = tpl.tamanhos.reduce((s, t) => s + (Number(cel(v.id, t)[k]) || 0), 0);
                   return (
                     <tr key={v.id} className="border-t">
-                      <td className="whitespace-nowrap p-1">{v.label}</td>
+                      <td className="truncate p-1" title={v.label}>{v.label}</td>
                       {tpl.tamanhos.map((t) => {
                         // Recebida não deveria superar a Cortada — alerta visual (não bloqueia o save).
                         const alerta = k === "recebida" && recebidaExcedeCortada(cel(v.id, t));
@@ -1450,7 +1461,7 @@ function GradeEditor({
                             <input
                               type="number" min={0} disabled={disabled}
                               title={alerta ? "Recebida maior que a Cortada — confira." : undefined}
-                              className={`h-7 w-14 rounded border bg-background px-1 text-center disabled:opacity-60 ${alerta ? "border-destructive text-destructive font-semibold" : ""}`}
+                              className={`h-7 w-full rounded border bg-background px-1 text-center disabled:opacity-60 ${alerta ? "border-destructive text-destructive font-semibold" : ""}`}
                               value={cel(v.id, t)[k] || ""}
                               onChange={(e) => set(v.id, t, k, Number(e.target.value) || 0)}
                             />
@@ -1470,11 +1481,12 @@ function GradeEditor({
       <div>
         <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Saldo a receber (Cortada − Recebida)</div>
         <div className="overflow-x-auto">
-          <table className="text-xs tabular-nums">
+          <table className="table-fixed text-xs tabular-nums">
+            {colGroup}
             <thead className="text-muted-foreground">
               <tr>
                 <th className="p-1 text-left font-medium">Variante</th>
-                {tpl.tamanhos.map((t) => <th key={t} className="w-14 p-1 text-center font-medium">{tamLabel(t)}</th>)}
+                {tpl.tamanhos.map((t) => <th key={t} className="p-1 text-center font-medium">{tamLabel(t)}</th>)}
                 <th className="p-1 text-center font-medium">Σ</th>
               </tr>
             </thead>
@@ -1483,10 +1495,10 @@ function GradeEditor({
                 let linhaTotal = 0;
                 return (
                   <tr key={v.id} className="border-t">
-                    <td className="whitespace-nowrap p-1">{v.label}</td>
+                    <td className="truncate p-1" title={v.label}>{v.label}</td>
                     {tpl.tamanhos.map((t) => {
                       const s = saldoCelula(cel(v.id, t)); linhaTotal += s;
-                      return <td key={t} className={`w-14 p-1 text-center ${s < 0 ? "text-destructive font-semibold" : ""}`}>{s}</td>;
+                      return <td key={t} className={`p-1 text-center ${s < 0 ? "text-destructive font-semibold" : ""}`}>{s}</td>;
                     })}
                     <td className={`p-1 text-center font-medium ${linhaTotal < 0 ? "text-destructive" : ""}`}>{linhaTotal}</td>
                   </tr>

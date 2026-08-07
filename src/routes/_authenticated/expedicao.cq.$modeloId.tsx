@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { varianteLabel } from "@/lib/variante";
 import { resolverFonteConfeccao } from "@/lib/confeccao-fonte";
-import { celulasRecebidaAcimaCortada, type GradeDetalhe } from "@/lib/grade-cortada";
+import { celulasRecebidaAcimaCortada, completarGradeFonte, type GradeDetalhe } from "@/lib/grade-cortada";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -151,7 +151,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     queryKey: ["cq-blocos-fonte", cad?.id],
     enabled: !!cad?.id,
     queryFn: async () => (await (supabase.from("producao_terceirizados") as any)
-      .select("id, categoria_terceirizado_id, detalhado, ativo, grade_detalhe").eq("cad_id", cad!.id)).data ?? [],
+      .select("id, categoria_terceirizado_id, detalhado, ativo, created_at, grade_detalhe").eq("cad_id", cad!.id)).data ?? [],
   });
   const { data: catsServico = [], isFetched: catsFetched, isFetching: catsFetching } = useQuery({
     queryKey: ["cq-cats-servico", tenantId],
@@ -224,7 +224,10 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   // (o resolver TS filtra só por detalhado; a SQL exige ativo — ver task-2 review).
   const fonte = useMemo(
     () => resolverFonteConfeccao(
-      (blocosFonte as any[]).filter((b) => b.ativo !== false).map((b) => ({ id: b.id, categoria_terceirizado_id: b.categoria_terceirizado_id, detalhado: !!b.detalhado })),
+      // created_at no desempate p/ casar com o ORDER BY created_at da SQL (_resolver_fonte_confeccao)
+      // quando há 2+ blocos de confecção destrinchados do MESMO rank — senão a Cortada exibida podia
+      // ser de bloco diferente de onde a recebida é gravada no servidor.
+      (blocosFonte as any[]).filter((b) => b.ativo !== false).map((b) => ({ id: b.id, categoria_terceirizado_id: b.categoria_terceirizado_id, detalhado: !!b.detalhado, created_at: b.created_at })),
       catsServico as any[], prioridade as string[]),
     [blocosFonte, catsServico, prioridade]);
   const fonteGrade = useMemo(() => {
@@ -496,13 +499,21 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     const variantes: any[] = [];
     ETAPAS.forEach((et) => {
       Object.values(grades[et]).forEach((r) => {
+        // Caminho fonte-única: Recebimento/Defeito vão com a grade COMPLETA (zeros explícitos) e a
+        // linha NÃO é descartada mesmo com total 0 — senão a zeragem líquida não persiste no
+        // grade_detalhe da fonte (o jsonb_set do backend só toca size-keys presentes) e o refetch
+        // reverteria pros números velhos. Redução parcial já round-trippa; só o "líquido zero" falhava.
+        const fonteFullGrid = temFonte && (et === "recebimento" || et === "defeito");
         const hasAny = r.grade_total > 0 || (et === "defeito" && r.destino_defeito);
-        if (!hasAny) return;
+        if (!hasAny && !fonteFullGrid) return;
+        const g = fonteFullGrid
+          ? completarGradeFonte(r.grades, tamanhos)
+          : { grades: r.grades, grade_total: r.grade_total };
         variantes.push({
           variante_numero: r.variante_numero,
           etapa: et,
-          grades: r.grades,
-          grade_total: r.grade_total,
+          grades: g.grades,
+          grade_total: g.grade_total,
           destino_defeito: et === "defeito" ? r.destino_defeito ?? null : null,
         });
       });
