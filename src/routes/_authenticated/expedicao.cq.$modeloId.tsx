@@ -39,6 +39,10 @@ import { CqPosView, type CqPosHandle, type CqPosStatus } from "@/components/prod
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
+import { ColabBanner } from "@/components/shared/ColabBanner";
+import { useColabRegistro } from "@/hooks/useColabRegistro";
+import { mergeDraft, igual, type Conflito } from "@/lib/colab/merge";
+import { mergeGrade } from "@/lib/colab/merge-grade";
 
 export const Route = createFileRoute("/_authenticated/expedicao/cq/$modeloId")({
   component: CqDetailPage,
@@ -46,6 +50,24 @@ export const Route = createFileRoute("/_authenticated/expedicao/cq/$modeloId")({
 
 type Etapa = "recebimento" | "conserto" | "lavagem" | "defeito";
 const ETAPAS: Etapa[] = ["recebimento", "conserto", "lavagem", "defeito"];
+
+// Colab (spec 2026-08-07): rótulos PT dos paths do banner de resolução genérica.
+const ROTULO_CONFLITO: Record<string, string> = {
+  observacoes_cq: "Observações do CQ",
+  pecas_incompletas: "Peças incompletas",
+  pecas_faltantes: "Peças faltantes",
+  pecas_sem_etiqueta: "Peças sem etiqueta",
+  data_conserto_enviado: "Conserto — envio",
+  data_conserto_prevista: "Conserto — previsão",
+  data_conserto_entregue: "Conserto — entrega",
+  data_lavagem_enviado: "Lavagem — envio",
+  data_lavagem_entregue: "Lavagem — entrega",
+};
+const CAMPO_GRADE_PT: Record<string, string> = { recebida: "Recebida", defeito: "Defeito", enviada: "Enviada", cortada: "Cortada" };
+function rotuloConflito(path: string): string {
+  if (path.startsWith("grade:")) { const [, , tam, campo] = path.split(":"); return `${CAMPO_GRADE_PT[campo] ?? campo} · ${tam}`; }
+  return ROTULO_CONFLITO[path] ?? path;
+}
 
 type VarInfo = { num: number; label: string };
 
@@ -151,7 +173,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     queryKey: ["cq-blocos-fonte", cad?.id],
     enabled: !!cad?.id,
     queryFn: async () => (await (supabase.from("producao_terceirizados") as any)
-      .select("id, categoria_terceirizado_id, detalhado, ativo, created_at, grade_detalhe").eq("cad_id", cad!.id)).data ?? [],
+      .select("id, categoria_terceirizado_id, detalhado, ativo, created_at, grade_detalhe, rev").eq("cad_id", cad!.id)).data ?? [],
   });
   const { data: catsServico = [], isFetched: catsFetched, isFetching: catsFetching } = useQuery({
     queryKey: ["cq-cats-servico", tenantId],
@@ -271,6 +293,22 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   const [editing, setEditing] = useState(false);
   const [oficinaOpen, setOficinaOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+
+  // Colab (spec 2026-08-07): merge no refetch em vez de re-seed one-shot.
+  const touchedFormRef = useRef<Set<string>>(new Set());   // campos escalares do form
+  const touchedGradeRef = useRef<Set<string>>(new Set());  // células "grade:{vid}:{tam}:{campo}" (recebida/defeito)
+  const baseFormRef = useRef<typeof form | null>(null);
+  const baseGradeRef = useRef<GradeDetalhe>({});           // recebida/defeito do fonteGrade da última carga
+  const cqRevRef = useRef<number | null>(null);
+  const fonteRevRef = useRef<number | null>(null);
+  const retryRef = useRef(false);
+  const savingRef = useRef(false);
+  const formLiveRef = useRef(form); formLiveRef.current = form;
+  const gradesLiveRef = useRef(grades); gradesLiveRef.current = grades;
+  const [ultimoMerge, setUltimoMerge] = useState<{ atualizados: number; conflitos: Conflito[] } | null>(null);
+  const [conflitos, setConflitos] = useState<Conflito[]>([]);
+  const conflitosRef = useRef<Conflito[]>([]);
+  const [campoFocado, setCampoFocado] = useState<string | null>(null);
   // Abas Pré/Pós DENTRO do item (como em Serviços). Pré = CQ da costura (atual); Pós = acabamento.
   const [view, setView] = useState<"pre" | "pos">("pre");
   // As ações do Pós vivem no CqPosView; espelhamos o estado + ref p/ renderizar os
@@ -309,9 +347,81 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     blocosFetched && !blocosFetching &&
     (!tenantId || (catsFetched && !catsFetching && prioFetched && !prioFetching));
 
+  // ===== Colab helpers (spec 2026-08-07) — puros sobre o closure atual =====
+  // Escalares do CQ a partir de uma linha de controle_qualidade (mesmo shape do `form`).
+  const freshFormDe = (row: any): typeof form => ({
+    data_conserto_enviado: row?.data_conserto_enviado ?? "",
+    data_conserto_prevista: row?.data_conserto_prevista ?? "",
+    data_conserto_entregue: row?.data_conserto_entregue ?? "",
+    data_lavagem_enviado: row?.data_lavagem_enviado ?? "",
+    data_lavagem_entregue: row?.data_lavagem_entregue ?? "",
+    observacoes_cq: row?.observacoes_cq ?? "",
+    pecas_incompletas: Number(row?.pecas_incompletas ?? 0),
+    pecas_faltantes: Number(row?.pecas_faltantes ?? 0),
+    pecas_sem_etiqueta: Number(row?.pecas_sem_etiqueta ?? 0),
+  });
+  // GradeDetalhe (recebida/defeito) derivado do grade_detalhe da fonte (chave vid).
+  const gradeDetalheDeFonte = (fg: Record<string, Record<string, { recebida?: number; defeito?: number }>>): GradeDetalhe => {
+    const out: GradeDetalhe = {};
+    if (!temFonte) return out;
+    variantList.forEach(({ num }) => {
+      const vid = vidByNum[num]; if (!vid) return; const cel = fg[vid] ?? {};
+      out[vid] = {}; tamanhos.forEach((t) => { out[vid][t] = { enviada: 0, cortada: 0, recebida: Number(cel[t]?.recebida) || 0, defeito: Number(cel[t]?.defeito) || 0 }; });
+    });
+    return out;
+  };
+  // GradeDetalhe (recebida/defeito) do que estou vendo AGORA (via ref-espelho — não perde tecla no voo do save).
+  const meuGradeAtual = (): GradeDetalhe => {
+    const out: GradeDetalhe = {};
+    if (!temFonte) return out;
+    variantList.forEach(({ num }) => {
+      const vid = vidByNum[num]; if (!vid) return; out[vid] = {};
+      tamanhos.forEach((t) => {
+        out[vid][t] = { enviada: 0, cortada: 0,
+          recebida: Number(gradesLiveRef.current.recebimento[num]?.grades?.[t]) || 0,
+          defeito: Number(gradesLiveRef.current.defeito[num]?.grades?.[t]) || 0 };
+      });
+    });
+    return out;
+  };
+  // Aplica um GradeDetalhe (recebida/defeito resolvido) de volta no estado `grades` (traduz vid→num).
+  const aplicarGradeNoState = (prev: GradesByEtapa, gd: GradeDetalhe): GradesByEtapa => {
+    const g = { ...prev, recebimento: { ...prev.recebimento }, defeito: { ...prev.defeito } };
+    variantList.forEach(({ num }) => {
+      const vid = vidByNum[num]; if (!vid) return;
+      const rec: Record<string, number> = {}; const def: Record<string, number> = {}; let rT = 0, dT = 0;
+      tamanhos.forEach((t) => {
+        const rc = Number(gd[vid]?.[t]?.recebida) || 0; const dc = Number(gd[vid]?.[t]?.defeito) || 0;
+        if (rc) { rec[t] = rc; rT += rc; } if (dc) { def[t] = dc; dT += dc; }
+      });
+      g.recebimento[num] = { variante_numero: num, grades: rec, grade_total: rT };
+      g.defeito[num] = { ...(g.defeito[num] ?? { variante_numero: num }), grades: def, grade_total: dT } as VarRow;
+    });
+    return g;
+  };
+  // rev da fonte a partir de uma lista de blocos (state ou cache). Sempre número quando temFonte
+  // (T1 garante a coluna) — NUNCA NaN, senão o _rev_base.fonte viraria null e o rev-check seria pulado.
+  const fonteRevDe = (blocos: any[]): number | null => {
+    if (!temFonte) return null;
+    const ft = (blocos ?? []).find((x) => x.id === fonte.fonteId);
+    return ft?.rev != null ? Number(ft.rev) : null;
+  };
+  // Setter rastreado do form: marca no touched os campos escalares que EU mudei.
+  const setFormTracked: typeof setForm = (upd) =>
+    setForm((prev) => {
+      const next = typeof upd === "function" ? (upd as (p: typeof prev) => typeof prev)(prev) : upd;
+      for (const k of Object.keys(next) as (keyof typeof next)[]) {
+        if (!igual(next[k], prev[k])) touchedFormRef.current.add(k as string);
+      }
+      return next;
+    });
+
   useEffect(() => {
     if (hydrated || !cad?.id) return;
     if (!cqSettled || !varsSettled || !fonteSettled) return;
+    // Colab: 1ª carga (ou re-seed via cancel-edit) = base/touched limpos.
+    touchedFormRef.current = new Set();
+    touchedGradeRef.current = new Set();
     // Estado semeado (usado também p/ re-baselinar o guarda de alterações).
     let nextForm = {
       data_conserto_enviado: "",
@@ -375,14 +485,110 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       // explícito — o estado recém-setado ainda está stale neste tick).
       resetBaseline({ form: nextForm, grades: g, fotografado: nextFoto });
       setHydrated(true);
+      // Colab: captura base/rev p/ o merge do próximo refetch (base != null → merge, não seed).
+      baseFormRef.current = nextForm;
+      cqRevRef.current = (cqRow as any)?.rev ?? null;
+      fonteRevRef.current = fonteRevDe(blocosFonte as any[]);
+      // base da grade = recebida/defeito derivados do fonteGrade nesta carga (por vid/tam).
+      baseGradeRef.current = gradeDetalheDeFonte(fonteGrade);
     }
   }, [cqRow, varRows, cad?.id, hydrated, cqSettled, varsSettled, fonteSettled, temFonte, fonteGrade, vidByNum, tamanhos, variantList]);
+
+  // Colab: MERGE-no-refetch. Roda quando cqRow/blocosFonte chegam frescos com hydrated já true
+  // (realtime cross-tela/aba OU pós-save). base==null (pós-save, ver onSuccess) → SEED limpo
+  // (re-adota a verdade do servidor sem banner, espelhando o desvio do PCP); senão 3-vias.
+  useEffect(() => {
+    if (!hydrated || !cad?.id) return;
+    if (!(cqFetched && !cqFetching && blocosFetched && !blocosFetching)) return;
+    const freshForm = freshFormDe(cqRow);
+    const freshGrade = gradeDetalheDeFonte(fonteGrade);
+    // SEED pós-save: base foi zerada no onSuccess → re-adota servidor (sem "alguém salvou").
+    if (!baseFormRef.current) {
+      setForm(freshForm);
+      if (temFonte) setGrades((prev) => aplicarGradeNoState(prev, freshGrade));
+      baseFormRef.current = freshForm;
+      baseGradeRef.current = freshGrade;
+      cqRevRef.current = (cqRow as any)?.rev ?? null;
+      fonteRevRef.current = fonteRevDe(blocosFonte as any[]);
+      setUltimoMerge(null);
+      return;
+    }
+    const meuGrade = meuGradeAtual();
+    const md = mergeDraft({ base: baseFormRef.current, draft: formLiveRef.current, fresh: freshForm, touched: touchedFormRef.current });
+    const mg = mergeGrade({ base: baseGradeRef.current, meu: meuGrade, fresh: freshGrade, tocadas: touchedGradeRef.current });
+    const todos = [...md.conflitos, ...mg.conflitos];
+    if (md.atualizados.length === 0 && md.conflitos.length === 0 && mg.atualizados.length === 0 && mg.conflitos.length === 0) {
+      // No-op: só reajusta as bases/revs (igual ao guard `semResultado` do piloto).
+      baseFormRef.current = freshForm; baseGradeRef.current = freshGrade;
+      cqRevRef.current = (cqRow as any)?.rev ?? null;
+      fonteRevRef.current = fonteRevDe(blocosFonte as any[]);
+      return;
+    }
+    if (md.atualizados.length || md.conflitos.length) setForm(md.valor);
+    if (mg.atualizados.length || mg.conflitos.length) setGrades((prev) => aplicarGradeNoState(prev, mg.valor));
+    conflitosRef.current = todos; setConflitos(todos);
+    setUltimoMerge({ atualizados: md.atualizados.length + mg.atualizados.length, conflitos: todos });
+    baseFormRef.current = freshForm; baseGradeRef.current = freshGrade;
+    cqRevRef.current = (cqRow as any)?.rev ?? null;
+    fonteRevRef.current = fonteRevDe(blocosFonte as any[]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cqRow, varRows, blocosFonte, fonteGrade, hydrated, temFonte, cqFetched, cqFetching, blocosFetched, blocosFetching]);
+
+  // Colab: presença (quem está na tela) + reação a UPDATE alheio de controle_qualidade E do
+  // bloco-fonte (producao_terceirizados por cad) — quando o PCP grava recebido/defeito, o fonte
+  // bumpa e o CQ aberto refaz o merge. Canal por cad (há N linhas por cad, sem id de raiz única).
+  const { presentes } = useColabRegistro({
+    canal: cad?.id ? `colab:cq:${cad.id}` : null,
+    tabela: "controle_qualidade",
+    filtroColuna: "cad_id",
+    registroId: cad?.id ?? null,
+    tabelasExtra: cad?.id ? [{ tabela: "producao_terceirizados", filtroColuna: "cad_id", valor: cad.id }] : [],
+    onMudancaServidor: () => {
+      qc.invalidateQueries({ queryKey: ["cq", cad?.id] });
+      qc.invalidateQueries({ queryKey: ["cq_variantes", cqRow?.id] });
+      qc.invalidateQueries({ queryKey: ["cq-blocos-fonte", cad?.id] });
+    },
+    campoFocado,
+  });
+
+  // Resolução GENÉRICA de um conflito a partir do banner: "usar o novo" aplica o valor do
+  // servidor no rascunho e tira o campo/célula do touched; "manter meu" só descarta o aviso.
+  // Cobre TODO conflito (escalar do form + grade recebida/defeito) — senão o Salvar trava (deadlock).
+  const resolverPorPath = (path: string, escolha: "meu" | "dele") => {
+    const c = conflitos.find((x) => x.path === path);
+    if (!c) return;
+    if (escolha === "dele") {
+      if (path.startsWith("grade:")) {
+        const [, vid, tam, campo] = path.split(":");
+        const num = Number(Object.keys(vidByNum).find((k) => vidByNum[Number(k)] === vid));
+        const et = campo === "recebida" ? "recebimento" : "defeito";
+        setGrades((prev) => {
+          const row = prev[et as "recebimento" | "defeito"][num] ?? { variante_numero: num, grades: {}, grade_total: 0 };
+          const grades = { ...row.grades, [tam]: Number(c.dele) || 0 };
+          const grade_total = Object.values(grades).reduce((s, v) => s + (Number(v) || 0), 0);
+          return { ...prev, [et]: { ...prev[et as "recebimento" | "defeito"], [num]: { ...row, grades, grade_total } } };
+        });
+        touchedGradeRef.current.delete(path);
+      } else {
+        setForm((f) => ({ ...f, [path]: c.dele as any }));
+        touchedFormRef.current.delete(path);
+      }
+    }
+    setConflitos((prev) => { const nx = prev.filter((x) => x.path !== path); conflitosRef.current = nx; return nx; });
+    setUltimoMerge((prev) => prev ? { ...prev, conflitos: prev.conflitos.filter((x) => x.path !== path) } : prev);
+  };
 
   const ensureRow = (etapa: Etapa, num: number): VarRow => {
     return grades[etapa][num] ?? { variante_numero: num, grades: {}, grade_total: 0 };
   };
 
   const setQtd = (etapa: Etapa, num: number, tam: string, qtd: number) => {
+    // Colab: recebimento/defeito são o OVERLAP com a fonte (grade_detalhe) — marca a célula
+    // tocada p/ o merge preservar minha edição. conserto/lavagem não entram no merge.
+    if ((etapa === "recebimento" || etapa === "defeito") && temFonte) {
+      const vid = vidByNum[num];
+      if (vid) touchedGradeRef.current.add(`grade:${vid}:${tam}:${etapa === "recebimento" ? "recebida" : "defeito"}`);
+    }
     setGrades((g) => {
       const row = { ...ensureRow(etapa, num) };
       row.grades = { ...row.grades, [tam]: qtd };
@@ -530,15 +736,47 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   // Grade Real (cad_grades) na MESMA transação — tudo ou nada.
   const saveCq = async (confirmar: boolean) => {
     if (!cad?.id) throw new Error("CAD não encontrado. Abra o CAD desse modelo primeiro.");
+    // Colab: barra o save enquanto há conflito pendente (o banner no topo lista cada um).
+    if (conflitosRef.current.length > 0) throw new Error("Resolva os conflitos listados no aviso no topo antes de salvar.");
     const { cq, variantes, reais } = buildCqData();
+    // _rev_base = { cq, fonte }. SEMPRE inclui a chave `cq` (omiti-la pularia o rev-check do CQ
+    // no servidor = janela de lost-update). `fonte` só quando há bloco-fonte destrinchado.
+    const _rev_base = { cq: cqRevRef.current, fonte: temFonte ? fonteRevRef.current : null };
     const { error } = await supabase.rpc("salvar_cq" as any, {
       _cad_id: cad.id,
       _cq: cq,
       _variantes: variantes,
       _reais: reais,
       _confirmar: confirmar,
+      _rev_base,
     });
     if (error) throw error;
+  };
+
+  // Reconcilia o estado a partir do servidor fresco (chamado no onError P0409). Retorna os
+  // conflitos que sobraram; [] = pode re-salvar. Lê os refs-espelho (formLive/gradesLive) p/ não
+  // perder tecla digitada durante o voo do save (janela do await) — igual ao piloto.
+  const reconciliarCq = async (): Promise<Conflito[]> => {
+    await qc.refetchQueries({ queryKey: ["cq", cad?.id] });
+    await qc.refetchQueries({ queryKey: ["cq-blocos-fonte", cad?.id] });
+    const freshCq = qc.getQueryData<any>(["cq", cad?.id]) ?? null;
+    const freshBlocos = qc.getQueryData<any[]>(["cq-blocos-fonte", cad?.id]) ?? [];
+    const freshFonte = freshBlocos.find((x) => x.id === fonte.fonteId);
+    const freshFonteGrade = (freshFonte?.grade_detalhe ?? {}) as Record<string, Record<string, { recebida?: number; defeito?: number }>>;
+    const freshForm = freshFormDe(freshCq);
+    const freshGrade = gradeDetalheDeFonte(freshFonteGrade);
+    const meuGrade = meuGradeAtual();
+    const md = mergeDraft({ base: baseFormRef.current ?? freshForm, draft: formLiveRef.current, fresh: freshForm, touched: touchedFormRef.current });
+    const mg = mergeGrade({ base: baseGradeRef.current, meu: meuGrade, fresh: freshGrade, tocadas: touchedGradeRef.current });
+    if (md.atualizados.length || md.conflitos.length) setForm(md.valor);
+    if (mg.atualizados.length || mg.conflitos.length) setGrades((prev) => aplicarGradeNoState(prev, mg.valor));
+    const todos = [...md.conflitos, ...mg.conflitos];
+    conflitosRef.current = todos; setConflitos(todos);
+    setUltimoMerge({ atualizados: md.atualizados.length + mg.atualizados.length, conflitos: todos });
+    baseFormRef.current = freshForm; baseGradeRef.current = freshGrade;
+    cqRevRef.current = (freshCq as any)?.rev ?? null;
+    fonteRevRef.current = temFonte && freshFonte?.rev != null ? Number(freshFonte.rev) : null;
+    return todos;
   };
 
   // Confirmar/desmarcar/editar o CQ mexe na Grade Real (cad_grades.grade_total_real) e no
@@ -562,14 +800,24 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     ]);
   };
 
+  // Colab: pós-save re-adota a verdade do servidor SEM banner. Como a tela fica aberta (e pode
+  // seguir editável no pendente), zerar `baseFormRef` faz o merge effect (no refetch abaixo) cair
+  // no ramo de SEED — em vez de acender "alguém salvou" pro meu próprio save. Limpa touched/conflitos.
+  const posSaveReset = () => {
+    touchedFormRef.current = new Set();
+    touchedGradeRef.current = new Set();
+    conflitosRef.current = []; setConflitos([]); setUltimoMerge(null);
+    baseFormRef.current = null; // sinaliza SEED ao merge effect (mantém hydrated=true)
+  };
+
   const saveMut = useMutation({
     mutationFn: () => saveCq(false),
     onSuccess: async () => {
       toast.success("Salvo");
       setEditing(false);
       markClean(); // limpa o indicador de "alterações não salvas" já no sucesso
-      // Busca os dados frescos ANTES de liberar a hidratação (senão re-hidrata do
-      // cache antigo/vazio e zera os números).
+      posSaveReset();
+      // Busca os dados frescos: o merge effect (base==null) re-semeia com os números do servidor.
       await qc.invalidateQueries({ queryKey: ["cq", cad?.id] });
       // Editar um CQ já confirmado regrava a Grade Real (o _core reescreve cad_grades
       // enquanto o status segue 'confirmado') — propaga p/ downstream.
@@ -577,14 +825,29 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       await refetchCq();
       await refetchVars();
       // Fonte única: o save (mesmo sem confirmar) reescreve recebido/defeito no grade_detalhe do
-      // bloco-fonte. Refresca o cache do CQ (re-hidratação com números frescos — o gate fonteSettled
-      // segura o re-seed até chegar fresco) e marca o do PCP (Serviços) como stale (mesmo dado).
+      // bloco-fonte. Refresca o cache do CQ (o merge effect re-semeia com números frescos) e marca
+      // o do PCP (Serviços) como stale (mesmo dado).
       await qc.invalidateQueries({ queryKey: ["cq-blocos-fonte", cad?.id] });
       qc.invalidateQueries({ queryKey: ["producao-terc", cad?.id] });
       qc.invalidateQueries({ queryKey: ["producao-terc-list"] });
-      setHydrated(false);
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro")),
+    onError: async (e: any) => {
+      // Colab: conflito de versão (outra pessoa/tela salvou entre a carga e agora). Reconcilia
+      // AQUI MESMO (síncrono, lendo cache + refs-espelho — NUNCA via useEffect, que rodaria com
+      // refs velhos e reenviaria o mesmo _rev_base rejeitado). Sem conflito real → re-salva 1×.
+      if (e?.code === "P0409" && !retryRef.current) {
+        retryRef.current = true; savingRef.current = true;
+        const restantes = await reconciliarCq();
+        if (restantes.length === 0) {
+          saveMut.mutate(undefined, { onSettled: () => { savingRef.current = false; retryRef.current = false; } });
+          return;
+        }
+        savingRef.current = false; retryRef.current = false;
+        toast.error(mensagemErro(e, "Erro ao salvar"));
+        return;
+      }
+      toast.error(mensagemErro(e, "Erro ao salvar"));
+    },
   });
 
   const confirmMut = useMutation({
@@ -592,18 +855,32 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     onSuccess: async () => {
       toast.success("Controle de Qualidade confirmado — enviado ao Direcionamento");
       setStatus("confirmado");
+      posSaveReset();
       await qc.invalidateQueries({ queryKey: ["cq", cad?.id] });
       await invalidateDownstream();
       await refetchCq();
       await refetchVars();
       // Fonte única: confirmar reescreveu recebido/defeito no grade_detalhe do bloco-fonte —
-      // refresca o cache do CQ (re-hidratação fresca) e marca o do PCP (Serviços) como stale.
+      // refresca o cache do CQ (o merge effect re-semeia) e marca o do PCP (Serviços) como stale.
       await qc.invalidateQueries({ queryKey: ["cq-blocos-fonte", cad?.id] });
       qc.invalidateQueries({ queryKey: ["producao-terc", cad?.id] });
       qc.invalidateQueries({ queryKey: ["producao-terc-list"] });
-      setHydrated(false);
     },
-    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao confirmar")),
+    onError: async (e: any) => {
+      // Idêntico ao saveMut, re-chamando confirmMut no retry.
+      if (e?.code === "P0409" && !retryRef.current) {
+        retryRef.current = true; savingRef.current = true;
+        const restantes = await reconciliarCq();
+        if (restantes.length === 0) {
+          confirmMut.mutate(undefined, { onSettled: () => { savingRef.current = false; retryRef.current = false; } });
+          return;
+        }
+        savingRef.current = false; retryRef.current = false;
+        toast.error(mensagemErro(e, "Erro ao confirmar"));
+        return;
+      }
+      toast.error(mensagemErro(e, "Erro ao confirmar"));
+    },
   });
 
   const desmarcarMut = useMutation({
@@ -680,7 +957,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
         </>
       ) : editing ? (
         <>
-          <Button variant="ghost" onClick={() => { setEditing(false); setHydrated(false); }} disabled={saveMut.isPending}>
+          <Button variant="ghost" onClick={() => { setEditing(false); setHydrated(false); conflitosRef.current = []; setConflitos([]); setUltimoMerge(null); }} disabled={saveMut.isPending}>
             Voltar
           </Button>
           <Button onClick={() => saveMut.mutate()} disabled={saveMut.isPending || permReadOnly}>
@@ -761,6 +1038,16 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
         </Badge>
         </div>
       </header>
+
+      {/* Colab: presença + resultado do merge + resolução genérica de conflitos. FORA do
+          fieldset (resolver conflito precisa funcionar mesmo com o CQ confirmado/travado). */}
+      <ColabBanner
+        presentes={presentes}
+        ultimoMerge={ultimoMerge}
+        conflitos={conflitos}
+        onResolver={resolverPorPath}
+        rotulo={rotuloConflito}
+      />
 
       {/* Abas Pré/Pós — dentro do item, como em Serviços. */}
       <div className="flex rounded-md border p-0.5 w-fit">
@@ -860,7 +1147,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
           { key: "data_conserto_entregue", label: "Data Entregue" },
         ]}
         form={form}
-        setForm={setForm}
+        setForm={setFormTracked}
         tamanhos={tamanhos}
         variantList={variantList}
         labelByNumero={labelByNumero}
@@ -877,7 +1164,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
           { key: "data_lavagem_entregue", label: "Data Entregue" },
         ]}
         form={form}
-        setForm={setForm}
+        setForm={setFormTracked}
         tamanhos={tamanhos}
         variantList={variantList}
         labelByNumero={labelByNumero}
@@ -960,23 +1247,23 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
           <div>
             <Label className="text-xs">Peças Incompletas</Label>
             <NumberInput integer value={form.pecas_incompletas}
-              onChange={(e) => setForm((f) => ({ ...f, pecas_incompletas: Number(e.target.value) }))} />
+              onChange={(e) => setFormTracked((f) => ({ ...f, pecas_incompletas: Number(e.target.value) }))} />
           </div>
           <div>
             <Label className="text-xs">Peças Faltantes</Label>
             <NumberInput integer value={form.pecas_faltantes}
-              onChange={(e) => setForm((f) => ({ ...f, pecas_faltantes: Number(e.target.value) }))} />
+              onChange={(e) => setFormTracked((f) => ({ ...f, pecas_faltantes: Number(e.target.value) }))} />
           </div>
           <div>
             <Label className="text-xs">Peças sem Etiqueta</Label>
             <NumberInput integer value={form.pecas_sem_etiqueta}
-              onChange={(e) => setForm((f) => ({ ...f, pecas_sem_etiqueta: Number(e.target.value) }))} />
+              onChange={(e) => setFormTracked((f) => ({ ...f, pecas_sem_etiqueta: Number(e.target.value) }))} />
           </div>
         </div>
         <div>
           <Label className="text-xs">Observações do Controle de Qualidade</Label>
           <Textarea rows={3} value={form.observacoes_cq}
-            onChange={(e) => setForm((f) => ({ ...f, observacoes_cq: e.target.value }))} />
+            onChange={(e) => setFormTracked((f) => ({ ...f, observacoes_cq: e.target.value }))} />
         </div>
       </Card>
       </fieldset>
