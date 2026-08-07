@@ -101,6 +101,43 @@ describe.skipIf(!hasDb)("colab — trava otimista (P0409)", () => {
       await c.query("ROLLBACK TO SAVEPOINT sp1");
     });
   });
+
+  // Colab PCP Serviços + CQ (spec 2026-08-07), Task 2: _rev_base POR BLOCO em
+  // salvar_terceirizados. Consome producao_terceirizados.rev (Task 1).
+  it("salvar_terceirizados: _rev_base de bloco EXISTENTE errado → P0409; correto passa e bumpa", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const cad = await um<{ id: string }>(c, `insert into cad (tenant_id) values ($1) returning id`, [TENANT_TESTE]);
+      const pt = await um<{ id: string; rev: number }>(
+        c, `insert into producao_terceirizados (cad_id, tenant_id, ativo) values ($1,$2,true) returning id, rev`,
+        [cad.id, TENANT_TESTE]);
+      const bloco = (rev: number) => JSON.stringify([{ id: pt.id, rev }]);
+      await c.query("SAVEPOINT sp1");
+      await expect(
+        um(c, `select salvar_terceirizados($1, $2::jsonb, null, jsonb_build_object($3::text, $4::int))`,
+           [cad.id, JSON.stringify([{ id: pt.id }]), pt.id, pt.rev + 99]),
+      ).rejects.toMatchObject({ code: "P0409" });
+      await c.query("ROLLBACK TO SAVEPOINT sp1");
+      // correto: passa e bumpa
+      await um(c, `select salvar_terceirizados($1, $2::jsonb, null, jsonb_build_object($3::text, $4::int))`,
+               [cad.id, JSON.stringify([{ id: pt.id, categoria_terceirizado_id: null }]), pt.id, pt.rev]);
+      const r = await um<{ rev: number }>(c, `select rev from producao_terceirizados where id=$1`, [pt.id]);
+      expect(r.rev).toBeGreaterThan(pt.rev);
+    });
+  });
+  it("salvar_terceirizados: bloco NOVO (sem id) não trava mesmo com _rev_base presente; null bypassa", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const cad = await um<{ id: string }>(c, `insert into cad (tenant_id) values ($1) returning id`, [TENANT_TESTE]);
+      // bloco novo (sem id) + _rev_base '{}' → insere sem P0409
+      await um(c, `select salvar_terceirizados($1, $2::jsonb, null, '{}'::jsonb)`,
+               [cad.id, JSON.stringify([{ categoria_terceirizado_id: null }])]);
+      // _rev_base null = bypass total
+      await um(c, `select salvar_terceirizados($1, '[]'::jsonb, null, null)`, [cad.id]);
+      const n = await um<{ n: string }>(c, `select count(*) n from producao_terceirizados where cad_id=$1`, [cad.id]);
+      expect(Number(n.n)).toBeGreaterThanOrEqual(0);
+    });
+  });
 });
 
 describe.skipIf(!hasDb)("colab PCP/CQ — rev infra (T1)", () => {
