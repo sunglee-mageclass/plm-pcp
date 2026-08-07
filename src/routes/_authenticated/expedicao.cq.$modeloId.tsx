@@ -303,6 +303,11 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   const fonteRevRef = useRef<number | null>(null);
   const retryRef = useRef(false);
   const savingRef = useRef(false);
+  // Colab (fix round 1): enquanto verdadeiro, o merge effect fica de fora — uma re-baseline
+  // MANUAL (pós-save / reconcile P0409) está lendo um snapshot consistente das DUAS queries do
+  // merge (["cq"] + ["cq-blocos-fonte"]). Sem isso, o effect rodava no meio com uma fresca e a
+  // outra STALE → flicker da célula (5→0→5) + banner falso "alguém salvou" do próprio save.
+  const reseedingRef = useRef(false);
   const formLiveRef = useRef(form); formLiveRef.current = form;
   const gradesLiveRef = useRef(grades); gradesLiveRef.current = grades;
   const [ultimoMerge, setUltimoMerge] = useState<{ atualizados: number; conflitos: Conflito[] } | null>(null);
@@ -494,25 +499,17 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     }
   }, [cqRow, varRows, cad?.id, hydrated, cqSettled, varsSettled, fonteSettled, temFonte, fonteGrade, vidByNum, tamanhos, variantList]);
 
-  // Colab: MERGE-no-refetch. Roda quando cqRow/blocosFonte chegam frescos com hydrated já true
-  // (realtime cross-tela/aba OU pós-save). base==null (pós-save, ver onSuccess) → SEED limpo
-  // (re-adota a verdade do servidor sem banner, espelhando o desvio do PCP); senão 3-vias.
+  // Colab: MERGE-no-refetch, SÓ para UPDATE alheio (realtime cross-tela/aba). O pós-save e o
+  // reconcile P0409 re-baselinam MANUALMENTE (reseedingRef true) a partir de um snapshot
+  // consistente das duas queries — o effect fica de fora nesse meio-tempo (senão rodava com
+  // ["cq"] fresca + ["cq-blocos-fonte"] STALE → flicker 5→0→5 + banner falso do próprio save).
   useEffect(() => {
     if (!hydrated || !cad?.id) return;
+    if (reseedingRef.current) return;                 // re-baseline manual em curso — não interferir
     if (!(cqFetched && !cqFetching && blocosFetched && !blocosFetching)) return;
+    if (!baseFormRef.current) return;                 // antes da 1ª captura de base (o seed effect cuida)
     const freshForm = freshFormDe(cqRow);
     const freshGrade = gradeDetalheDeFonte(fonteGrade);
-    // SEED pós-save: base foi zerada no onSuccess → re-adota servidor (sem "alguém salvou").
-    if (!baseFormRef.current) {
-      setForm(freshForm);
-      if (temFonte) setGrades((prev) => aplicarGradeNoState(prev, freshGrade));
-      baseFormRef.current = freshForm;
-      baseGradeRef.current = freshGrade;
-      cqRevRef.current = (cqRow as any)?.rev ?? null;
-      fonteRevRef.current = fonteRevDe(blocosFonte as any[]);
-      setUltimoMerge(null);
-      return;
-    }
     const meuGrade = meuGradeAtual();
     const md = mergeDraft({ base: baseFormRef.current, draft: formLiveRef.current, fresh: freshForm, touched: touchedFormRef.current });
     const mg = mergeGrade({ base: baseGradeRef.current, meu: meuGrade, fresh: freshGrade, tocadas: touchedGradeRef.current });
@@ -757,26 +754,35 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   // conflitos que sobraram; [] = pode re-salvar. Lê os refs-espelho (formLive/gradesLive) p/ não
   // perder tecla digitada durante o voo do save (janela do await) — igual ao piloto.
   const reconciliarCq = async (): Promise<Conflito[]> => {
-    await qc.refetchQueries({ queryKey: ["cq", cad?.id] });
-    await qc.refetchQueries({ queryKey: ["cq-blocos-fonte", cad?.id] });
-    const freshCq = qc.getQueryData<any>(["cq", cad?.id]) ?? null;
-    const freshBlocos = qc.getQueryData<any[]>(["cq-blocos-fonte", cad?.id]) ?? [];
-    const freshFonte = freshBlocos.find((x) => x.id === fonte.fonteId);
-    const freshFonteGrade = (freshFonte?.grade_detalhe ?? {}) as Record<string, Record<string, { recebida?: number; defeito?: number }>>;
-    const freshForm = freshFormDe(freshCq);
-    const freshGrade = gradeDetalheDeFonte(freshFonteGrade);
-    const meuGrade = meuGradeAtual();
-    const md = mergeDraft({ base: baseFormRef.current ?? freshForm, draft: formLiveRef.current, fresh: freshForm, touched: touchedFormRef.current });
-    const mg = mergeGrade({ base: baseGradeRef.current, meu: meuGrade, fresh: freshGrade, tocadas: touchedGradeRef.current });
-    if (md.atualizados.length || md.conflitos.length) setForm(md.valor);
-    if (mg.atualizados.length || mg.conflitos.length) setGrades((prev) => aplicarGradeNoState(prev, mg.valor));
-    const todos = [...md.conflitos, ...mg.conflitos];
-    conflitosRef.current = todos; setConflitos(todos);
-    setUltimoMerge({ atualizados: md.atualizados.length + mg.atualizados.length, conflitos: todos });
-    baseFormRef.current = freshForm; baseGradeRef.current = freshGrade;
-    cqRevRef.current = (freshCq as any)?.rev ?? null;
-    fonteRevRef.current = temFonte && freshFonte?.rev != null ? Number(freshFonte.rev) : null;
-    return todos;
+    // Suprime o merge effect durante o voo: refetcho as DUAS queries JUNTAS e só releio DEPOIS
+    // (snapshot consistente) — senão o effect rodaria no meio com uma fresca + outra STALE.
+    reseedingRef.current = true;
+    try {
+      await Promise.all([
+        qc.refetchQueries({ queryKey: ["cq", cad?.id] }),
+        qc.refetchQueries({ queryKey: ["cq-blocos-fonte", cad?.id] }),
+      ]);
+      const freshCq = qc.getQueryData<any>(["cq", cad?.id]) ?? null;
+      const freshBlocos = qc.getQueryData<any[]>(["cq-blocos-fonte", cad?.id]) ?? [];
+      const freshFonte = freshBlocos.find((x) => x.id === fonte.fonteId);
+      const freshFonteGrade = (freshFonte?.grade_detalhe ?? {}) as Record<string, Record<string, { recebida?: number; defeito?: number }>>;
+      const freshForm = freshFormDe(freshCq);
+      const freshGrade = gradeDetalheDeFonte(freshFonteGrade);
+      const meuGrade = meuGradeAtual();
+      const md = mergeDraft({ base: baseFormRef.current ?? freshForm, draft: formLiveRef.current, fresh: freshForm, touched: touchedFormRef.current });
+      const mg = mergeGrade({ base: baseGradeRef.current, meu: meuGrade, fresh: freshGrade, tocadas: touchedGradeRef.current });
+      if (md.atualizados.length || md.conflitos.length) setForm(md.valor);
+      if (mg.atualizados.length || mg.conflitos.length) setGrades((prev) => aplicarGradeNoState(prev, mg.valor));
+      const todos = [...md.conflitos, ...mg.conflitos];
+      conflitosRef.current = todos; setConflitos(todos);
+      setUltimoMerge({ atualizados: md.atualizados.length + mg.atualizados.length, conflitos: todos });
+      baseFormRef.current = freshForm; baseGradeRef.current = freshGrade;
+      cqRevRef.current = (freshCq as any)?.rev ?? null;
+      fonteRevRef.current = temFonte && freshFonte?.rev != null ? Number(freshFonte.rev) : null;
+      return todos;
+    } finally {
+      reseedingRef.current = false;
+    }
   };
 
   // Confirmar/desmarcar/editar o CQ mexe na Grade Real (cad_grades.grade_total_real) e no
@@ -800,14 +806,34 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     ]);
   };
 
-  // Colab: pós-save re-adota a verdade do servidor SEM banner. Como a tela fica aberta (e pode
-  // seguir editável no pendente), zerar `baseFormRef` faz o merge effect (no refetch abaixo) cair
-  // no ramo de SEED — em vez de acender "alguém salvou" pro meu próprio save. Limpa touched/conflitos.
+  // Colab: início do pós-save. SUPRIME o merge effect (reseedingRef) enquanto refetcho as duas
+  // queries do merge, e limpa touched/conflitos. A re-baseline em si é MANUAL (reseedPosSaveDoCache)
+  // de um snapshot consistente — NÃO delego ao effect (que rodaria com uma query fresca + outra
+  // stale → flicker + banner falso do próprio save).
   const posSaveReset = () => {
+    reseedingRef.current = true;
     touchedFormRef.current = new Set();
     touchedGradeRef.current = new Set();
     conflitosRef.current = []; setConflitos([]); setUltimoMerge(null);
-    baseFormRef.current = null; // sinaliza SEED ao merge effect (mantém hydrated=true)
+  };
+
+  // Colab: re-baselina o CQ a partir de um snapshot CONSISTENTE (as DUAS queries do merge já
+  // frescas, lidas do cache DEPOIS de ambos os refetches). Re-adota a verdade do servidor SEM
+  // banner e zera o merge effect a seguir. Chamado no fim do onSuccess (dentro do reseedingRef).
+  const reseedPosSaveDoCache = () => {
+    const freshCq = qc.getQueryData<any>(["cq", cad?.id]) ?? null;
+    const freshBlocos = qc.getQueryData<any[]>(["cq-blocos-fonte", cad?.id]) ?? [];
+    const freshFonte = freshBlocos.find((x) => x.id === fonte.fonteId);
+    const freshFonteGrade = (freshFonte?.grade_detalhe ?? {}) as Record<string, Record<string, { recebida?: number; defeito?: number }>>;
+    const freshForm = freshFormDe(freshCq);
+    const freshGrade = gradeDetalheDeFonte(freshFonteGrade);
+    setForm(freshForm);
+    if (temFonte) setGrades((prev) => aplicarGradeNoState(prev, freshGrade));
+    baseFormRef.current = freshForm;
+    baseGradeRef.current = freshGrade;
+    cqRevRef.current = (freshCq as any)?.rev ?? null;
+    fonteRevRef.current = temFonte && freshFonte?.rev != null ? Number(freshFonte.rev) : null;
+    setUltimoMerge(null);
   };
 
   const saveMut = useMutation({
@@ -816,18 +842,21 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       toast.success("Salvo");
       setEditing(false);
       markClean(); // limpa o indicador de "alterações não salvas" já no sucesso
-      posSaveReset();
-      // Busca os dados frescos: o merge effect (base==null) re-semeia com os números do servidor.
-      await qc.invalidateQueries({ queryKey: ["cq", cad?.id] });
+      posSaveReset(); // reseedingRef=true (merge effect fora até a re-baseline manual)
       // Editar um CQ já confirmado regrava a Grade Real (o _core reescreve cad_grades
       // enquanto o status segue 'confirmado') — propaga p/ downstream.
       if (confirmado) await invalidateDownstream();
-      await refetchCq();
+      // Fonte única: o save reescreve recebido/defeito no grade_detalhe do bloco-fonte. Refetcho as
+      // DUAS queries do merge JUNTAS (snapshot consistente) ANTES de re-baselinar — senão a
+      // re-seed pegaria ["cq"] fresca + ["cq-blocos-fonte"] stale (flicker 5→0→5 + banner falso).
+      await Promise.all([
+        qc.refetchQueries({ queryKey: ["cq", cad?.id] }),
+        qc.refetchQueries({ queryKey: ["cq-blocos-fonte", cad?.id] }),
+      ]);
       await refetchVars();
-      // Fonte única: o save (mesmo sem confirmar) reescreve recebido/defeito no grade_detalhe do
-      // bloco-fonte. Refresca o cache do CQ (o merge effect re-semeia com números frescos) e marca
-      // o do PCP (Serviços) como stale (mesmo dado).
-      await qc.invalidateQueries({ queryKey: ["cq-blocos-fonte", cad?.id] });
+      reseedPosSaveDoCache(); // re-adota a verdade do servidor do snapshot consistente, sem banner
+      reseedingRef.current = false;
+      // Marca o cache do PCP (Serviços) como stale (mesmo dado).
       qc.invalidateQueries({ queryKey: ["producao-terc", cad?.id] });
       qc.invalidateQueries({ queryKey: ["producao-terc-list"] });
     },
@@ -855,14 +884,17 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     onSuccess: async () => {
       toast.success("Controle de Qualidade confirmado — enviado ao Direcionamento");
       setStatus("confirmado");
-      posSaveReset();
-      await qc.invalidateQueries({ queryKey: ["cq", cad?.id] });
+      posSaveReset(); // reseedingRef=true (merge effect fora até a re-baseline manual)
       await invalidateDownstream();
-      await refetchCq();
+      // Fonte única: confirmar reescreveu recebido/defeito no grade_detalhe do bloco-fonte. Refetcho
+      // as DUAS queries do merge JUNTAS (snapshot consistente) ANTES de re-baselinar (sem flicker/banner falso).
+      await Promise.all([
+        qc.refetchQueries({ queryKey: ["cq", cad?.id] }),
+        qc.refetchQueries({ queryKey: ["cq-blocos-fonte", cad?.id] }),
+      ]);
       await refetchVars();
-      // Fonte única: confirmar reescreveu recebido/defeito no grade_detalhe do bloco-fonte —
-      // refresca o cache do CQ (o merge effect re-semeia) e marca o do PCP (Serviços) como stale.
-      await qc.invalidateQueries({ queryKey: ["cq-blocos-fonte", cad?.id] });
+      reseedPosSaveDoCache();
+      reseedingRef.current = false;
       qc.invalidateQueries({ queryKey: ["producao-terc", cad?.id] });
       qc.invalidateQueries({ queryKey: ["producao-terc-list"] });
     },
