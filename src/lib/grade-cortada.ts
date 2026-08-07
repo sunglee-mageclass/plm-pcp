@@ -28,8 +28,11 @@ export function somaCampo(g: GradeDetalhe | undefined, campo: keyof CelulaGrade)
  * Cortada ausente lê como 0, então recebida > 0 sem cortada também é violação (correto:
  * recebeu algo que não consta como cortado).
  */
+// Alerta "recebida acima da cortada": só faz sentido quando HÁ cortada lançada (>0).
+// Cortada 0 (bloco legado sem cortada preenchida, ou corte ainda não lançado) NÃO acende
+// o alerta mesmo com recebida>0 — evita ruído em dado legado (dono, ago/2026).
 export function recebidaExcedeCortada(c: Partial<CelulaGrade> | undefined): boolean {
-  return n(c?.recebida) > n(c?.cortada);
+  return n(c?.cortada) > 0 && n(c?.recebida) > n(c?.cortada);
 }
 
 /** Lista (variante_tecido_id, tamanho) de toda célula da grade com Recebida > Cortada. Reusado pelo CQ. */

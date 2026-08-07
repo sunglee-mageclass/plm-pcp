@@ -25,9 +25,11 @@ describe("grade-cortada helpers", () => {
     expect(recebidaExcedeCortada({ enviada: 0, cortada: 5, recebida: 3, defeito: 0 })).toBe(false);
   });
 
-  it("recebidaExcedeCortada trata cortada ausente como 0 (recebida>0 vira violação)", () => {
-    expect(recebidaExcedeCortada({ enviada: 0, recebida: 3, defeito: 0 } as any)).toBe(true);
+  it("recebidaExcedeCortada NÃO alerta quando cortada é 0/ausente (dado legado; só alerta se cortada>0)", () => {
+    expect(recebidaExcedeCortada({ enviada: 0, recebida: 3, defeito: 0 } as any)).toBe(false); // cortada ausente = 0 → sem alerta
+    expect(recebidaExcedeCortada({ enviada: 0, cortada: 0, recebida: 3, defeito: 0 })).toBe(false); // cortada 0 explícita → sem alerta
     expect(recebidaExcedeCortada({ enviada: 0, recebida: 0, defeito: 0 } as any)).toBe(false);
+    expect(recebidaExcedeCortada({ enviada: 0, cortada: 5, recebida: 8, defeito: 0 })).toBe(true); // cortada>0 e recebida>cortada → alerta
   });
 
   it("celulasRecebidaAcimaCortada lista as células com recebida > cortada", () => {
