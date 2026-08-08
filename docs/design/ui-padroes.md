@@ -401,6 +401,7 @@ function CampoRO({ label, value }: { label: string; value: string }) {
 - Distribuição por peso: total → destrincha **automática** (método do **maior resto** — Σ células ≡ total, re-derivado no servidor) → células **editáveis** (visual `primary-soft`); rotular "auto + editável".
 - Variante SEMPRE **"cor base · cor apelido"** via `src/lib/variante.ts`; cabeçalho de coluna **"Variante"**, não "Cor".
 - Cadeia monetária SEMPRE explícita e completa: bruto → desconto (campo) → total c/ desconto → v. unitário real (derivados em InfoStrip §K) — não pular passos.
+- **Bloco de compra** (fornecedor · REF forn. · qtd · valor): campos **empilhados, 1 por linha** — rótulo à esquerda (~150px), valor à direita (numérico com largura contida) — formato da planilha de referência do dono. Grid de 4 colunas fica pros forms densos de registro (§O).
 - Preço: **o preço é o campo digitado**; markup real = preço ÷ base (derivado); markup da linha do cadastro = sugestão (sugerido arredonda p/ ,90 — `preco.ts`). Não introduzir markup digitável por item sem decisão explícita.
 
 ## O. Formulário de registro (padrão OC)
