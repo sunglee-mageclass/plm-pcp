@@ -372,6 +372,63 @@ function CampoRO({ label, value }: { label: string; value: string }) {
 
 ---
 
+> **§K–§P — padrões estabelecidos no mockup do Produto Acabado (ago/2026).** Nasceram do redesign da família de revenda (Produto Acabado · OC P. Acabado · card revenda no Plan. Produto) e valem para TODO o sistema — a padronização acontece tela a tela (ver §P). Guia visual desses padrões ainda pendente no `ui-padroes.html`.
+
+## K. Divisão por função — dado de outra tela = RESUMO EM TEXTO, nunca campo travado
+
+- Uma tela só renderiza **CAMPO** para o dado de que ela é **DONA**. Dado cuja edição mora em outra tela aparece como **tira de resumo** (pares rótulo/valor sobre `bg-muted`, `tabular-nums`) + link **⧉ "editar em X"** — NUNCA como input `disabled`/read-only (campo travado parece bug e convida clique).
+- `CampoRO` (cinza) fica reservado a **DERIVADOS da própria tela** (§D); espelho de outra tela = texto.
+- Exemplo canônico: card do Produto Acabado — identidade/taxonomia (dono = Plan. Produto, que já edita nome/grupo/categoria/subcats hoje) vira resumo no header; só a COMPRA (fornecedor, REF forn., proporção, qtd, valores, desconto) tem campos.
+- Componente a criar: **`<InfoStrip>`** em `src/components/shared/` (lista de `{label, valor, hi?}`; flex-wrap; gap 8×22).
+
+## L. Ações de CICLO na tela; ações do ITEM no card
+
+- **Voltar · Excluir · [ação de negócio] · Salvar** são da **TELA** (barra sticky §G) — nunca aparecem por card. **Excluir = destructive PREENCHIDO** (fundo vermelho), não outline.
+- O **card** carrega só o que é do item: atalho **⧉** (abre a tela dona) e menu **⋯** (ações secundárias: criar card, aplicar, excluir o item — com AlertDialog).
+- Canvas-planejador (Plan. Tecido, Produto Acabado): rodapé = **Voltar/Subcoleções · Fazer pedido · Salvar** (sem Excluir de tela).
+- Pílula âmbar "alterações não salvas" no **topo-direito** (header da tela e/ou do card aberto) — `UnsavedIndicator` (§A).
+
+## M. Canvas de cards — colapsáveis + setores acordeão
+
+- Card default **COLAPSADO** (só header; chevron ▸/▾ via CSS `::before`); densidade alvo **4–5 cards por tela**; lanes por categoria com contador **"N produtos · X pç"**.
+- Card aberto: **setores numerados em acordeão**; setor colapsado carrega **resumo inline na própria linha** (pill à direita — ex.: Preço → "Varejo R$ 210,50 · Atacado R$ 151,56"), então colapsar não esconde a informação-chave.
+- Header do card aberto = identidade completa em 2 linhas (nome; REF `AUTO` · fornecedor · Σ pç; taxonomia › coleção · ⧉) — evita seção "Geral" duplicando o header.
+- Navegação do canvas: coleção → subcoleção por **grids de cards + breadcrumb** (padrão vivo do Plan. Tecido), não tabs; rail de resumo à esquerda colapsável.
+
+## N. Grade, proporção (peso) e variantes
+
+- Grade de proporção: **TODAS as size-keys cadastradas**, `0` como placeholder apagado; pesos usados em destaque âmbar. Nunca resumir em texto ("38·1 40·1") nem esconder tamanhos não usados.
+- Distribuição por peso: total → destrincha **automática** (método do **maior resto** — Σ células ≡ total, re-derivado no servidor) → células **editáveis** (visual `primary-soft`); rotular "auto + editável".
+- Variante SEMPRE **"cor base · cor apelido"** via `src/lib/variante.ts`; cabeçalho de coluna **"Variante"**, não "Cor".
+- Cadeia monetária SEMPRE explícita e completa: bruto → desconto (campo) → total c/ desconto → v. unitário real (derivados em InfoStrip §K) — não pular passos.
+- Preço: **o preço é o campo digitado**; markup real = preço ÷ base (derivado); markup da linha do cadastro = sugestão (sugerido arredonda p/ ,90 — `preco.ts`). Não introduzir markup digitável por item sem decisão explícita.
+
+## O. Formulário de registro (padrão OC)
+
+- Editar = **Sheet 70vw**; Novo = **Dialog com o MESMO formulário** (`OcModalShell`) — o form curto "só essencial" no Dialog diverge do padrão.
+- Seções numeradas **"N ·" CONTÍNUAS** (não colapsáveis) + **trilho de âncoras** à esquerda com scroll-spy e cadeado nas seções travadas (`OcAnchorRail`).
+- Anexos = **chips FileField** (nome do arquivo + ícone zoom; clique = Dialog de visualização) — thumbnails só em galeria de fotos de modelo.
+- Lista com **abas por status** (ex.: Encomendadas · Recebidas · Estoque) + ações contextuais por aba.
+- Rodapé: Voltar · Excluir · **[transição de status]** (ex.: Marcar Recebido) · Salvar.
+
+## P. Rollout — padronização tela a tela
+
+Aplicar §K–§O **de pouco em pouco, uma tela por vez** (cada adoção = rodada própria de mockup→aprovação→implementação). Status em ago/2026:
+
+| Tela | Padrões a aplicar | Status |
+|---|---|---|
+| Produto Acabado + OC P. Acabado (novas) | K L M N O | nascem 100% no padrão (mockup aprovado) |
+| OC Tecido | referência do §O | ✓ no ar (Navy Trust v2) |
+| Plan. Tecido | referência do §M (navegação/rail) | ✓ no ar; conferir L (Excluir/⋯) e K |
+| Plan. Produto (Planejamento) | K (custo/preço como resumo?) · L · M (cards colapsados ✓) · N (variante · apelido) | a alinhar |
+| Desenvolvimento | K (dados do Planejamento) · N | a alinhar |
+| OC Aviamento / OC Insumo | O (Sheet+âncoras+chips+abas) | a alinhar |
+| PCP Serviços / CQ | N (variante · apelido nas grades destrinchadas) · K | a alinhar |
+| Estoque / Direcionamento / Financeiro | K · L (barras/Excluir) | a alinhar |
+| Cadastros | L · O parcial (Sheet/Dialog ✓) | conferir |
+
+---
+
 ## Checklist rápido (dev)
 
 - [ ] Cor via token semântico, nunca hex solto. Dirty/estimativa/atenção = `--warning` (`amber-*`).
@@ -382,4 +439,8 @@ function CampoRO({ label, value }: { label: string; value: string }) {
 - [ ] Status via `StatusBadge` (tone semântico), não classes soltas.
 - [ ] Formulário com Salvar: guarda de descarte via `useUnsavedGuard` + `<UnsavedChangesGuard>` (§A); nunca refazer à mão.
 - [ ] Componentes novos (Breadcrumb, VarianteSwatch): criar em `src/components/shared/`, não em `src/components/ui/`.
+- [ ] Dado de OUTRA tela = resumo em texto + ⧉ (§K), nunca input travado; campo só do que a tela é dona.
+- [ ] Ações de ciclo (Voltar/Excluir/Salvar) = da TELA; card só ⧉ + menu ⋯ (§L). Excluir sempre preenchido.
+- [ ] Grade de proporção com TODAS as size-keys (0 placeholder); variante "cor base · apelido"; split auto por maior resto, células editáveis (§N).
+- [ ] Form de registro segue §O: Sheet 70vw + Dialog mesmo form + seções "N ·" com trilho de âncoras + anexos em chip.
 ```
