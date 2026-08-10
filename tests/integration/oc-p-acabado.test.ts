@@ -309,3 +309,75 @@ describe.skipIf(!hasDb)("OC Produto Acabado — estoque_p_acabado (Task 3)", () 
   // super_admin"). Consistente com o resto da suíte: nenhum teste de módulo-off para
   // as RPCs de Produto Acabado.
 });
+
+// Task 5 fix round 1 (review): o front tinha um .delete() cru na tabela — RPC nova
+// excluir_oc_p_acabado (migration 20260807180000) espelha excluir_oc_tecido/
+// _excluir_oc_tecido_core (P0001 se recebida ou com parcela paga; senão DELETE, o
+// cascade de parcelas.oc_p_acabado_id limpa as não-pagas sozinho).
+describe.skipIf(!hasDb)("OC Produto Acabado — excluir_oc_p_acabado (Task 5 fix round 1)", () => {
+  it("exclui OC encomendada sem parcela paga; cascade limpa as parcelas (não-pagas) junto", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const oc = await um<{ id: string }>(
+        c,
+        `select salvar_oc_p_acabado(null, $1::jsonb, $2::jsonb) as id`,
+        [
+          JSON.stringify({ nome_produto: "OC excluir PA5Test-a", qtd_total: 10, valor_unitario: 50, prazo_pagamento: "30" }),
+          JSON.stringify({ "0": { UN: { pedida: 10 } } }),
+        ],
+      );
+      const antes = await c.query(`select count(*)::int as n from parcelas where oc_p_acabado_id = $1`, [oc.id]);
+      expect(antes.rows[0].n).toBeGreaterThan(0); // trigger gerou parcela(s) a_pagar
+
+      await c.query(`select excluir_oc_p_acabado($1)`, [oc.id]);
+
+      const ocDepois = await c.query(`select id from ocs_p_acabado where id = $1`, [oc.id]);
+      expect(ocDepois.rows).toHaveLength(0);
+      const parcelasDepois = await c.query(`select id from parcelas where oc_p_acabado_id = $1`, [oc.id]);
+      expect(parcelasDepois.rows).toHaveLength(0); // cascade
+    });
+  });
+
+  it("OC recebida (status='recebido') → P0001, não exclui", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const oc = await um<{ id: string }>(
+        c,
+        `select salvar_oc_p_acabado(null, '{"nome_produto":"OC excluir PA5Test-b"}'::jsonb, '{}'::jsonb) as id`,
+      );
+      await c.query(`update ocs_p_acabado set status = 'recebido' where id = $1`, [oc.id]);
+
+      await c.query("SAVEPOINT sp_excluir_recebida");
+      await expect(c.query(`select excluir_oc_p_acabado($1)`, [oc.id])).rejects.toThrow(/já recebida/);
+      await c.query("ROLLBACK TO SAVEPOINT sp_excluir_recebida");
+
+      const aindaExiste = await c.query(`select id from ocs_p_acabado where id = $1`, [oc.id]);
+      expect(aindaExiste.rows).toHaveLength(1);
+    });
+  });
+
+  it("OC com parcela paga → P0001, não exclui (mesmo status='encomendado')", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const oc = await um<{ id: string }>(
+        c,
+        `select salvar_oc_p_acabado(null, $1::jsonb, $2::jsonb) as id`,
+        [
+          JSON.stringify({ nome_produto: "OC excluir PA5Test-c", qtd_total: 10, valor_unitario: 50, prazo_pagamento: "30" }),
+          JSON.stringify({ "0": { UN: { pedida: 10 } } }),
+        ],
+      );
+      await c.query(
+        `update parcelas set status = 'pago', data_pagamento = current_date where oc_p_acabado_id = $1 and numero_parcela = 1`,
+        [oc.id],
+      );
+
+      await c.query("SAVEPOINT sp_excluir_parcela_paga");
+      await expect(c.query(`select excluir_oc_p_acabado($1)`, [oc.id])).rejects.toThrow(/parcela paga/);
+      await c.query("ROLLBACK TO SAVEPOINT sp_excluir_parcela_paga");
+
+      const aindaExiste = await c.query(`select id from ocs_p_acabado where id = $1`, [oc.id]);
+      expect(aindaExiste.rows).toHaveLength(1);
+    });
+  });
+});

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ShoppingCart, Plus, ArrowLeft, Trash2, Check } from "lucide-react";
 import { toast } from "sonner";
@@ -21,11 +21,13 @@ import { OcAnchorRail, type SecaoOc } from "@/components/shared/OcAnchorRail";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
+import { useTenantModules } from "@/hooks/useTenantModules";
 import { varianteLabel } from "@/lib/variante";
+import { ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { OcPaForm, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt, type ProdutoVinculadoInfo } from "@/components/oc-p-acabado/OcPaForm";
 import { OcPaRecebimento, type ColaboradorOpt } from "@/components/oc-p-acabado/OcPaRecebimento";
 import {
-  emptyDraft, fmtMoney, fmtDate, uploadFile, DEFAULT_TAMANHOS,
+  emptyDraft, fmtMoney, fmtDate, uploadFile, DEFAULT_TAMANHOS, TAM_ACESSORIO,
   type Draft, type GradeDetalhe, type OcPaRow, type OcPaTab, type OcPaStatus,
 } from "@/components/oc-p-acabado/shared";
 
@@ -51,6 +53,13 @@ export const Route = createFileRoute("/_authenticated/entrada-saida/oc-p-acabado
 function OcPaPage() {
   const qc = useQueryClient();
   const search = Route.useSearch();
+  // Mitigação parcial de UI (achado IMPORTANT do review, decisão do controller): módulo OFF
+  // ainda é alcançável por URL direta com a permissão de página concedida — RequirePermission
+  // não checa gate de módulo (mesmo padrão do OTB) e as RPCs por trás são a guarda de verdade
+  // (tenant_module_enabled). O gap de RLS/modgate nas 3 tabelas fica registrado pro review
+  // final, NÃO resolvido aqui — isto só evita mostrar a lista/form quando dá pra saber que
+  // está desligado.
+  const { isModuleEnabled, isLoading: modulesLoading } = useTenantModules();
   const [tab, setTab] = useState<OcPaTab>(search.tab ?? "encomendado");
   const [openDialog, setOpenDialog] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -98,7 +107,11 @@ function OcPaPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("ocs_p_acabado" as any).delete().eq("id", id);
+      // RPC (não .delete() cru): excluir_oc_p_acabado bloqueia (P0001) OC já recebida
+      // (materializou cad/CQ) ou com parcela paga — a guarda "só encomendada" no botão
+      // (rodapé do OcPaDialog) é só a primeira camada, redundante de propósito; a real
+      // é no servidor. Migration 20260807180000 (Task 5 fix round 1).
+      const { error } = await supabase.rpc("excluir_oc_p_acabado" as any, { _oc_id: id });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -108,6 +121,19 @@ function OcPaPage() {
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir.")),
   });
+
+  if (modulesLoading) return null; // evita flash de conteúdo antes de carregar a config (padrão ModuleGuard)
+  if (!isModuleEnabled("produto_acabado")) {
+    return (
+      <div className="container mx-auto flex min-h-[50vh] flex-col items-center justify-center gap-2 p-6 text-center">
+        <ShoppingCart className="h-10 w-10 text-muted-foreground" />
+        <h1 className="text-xl font-semibold">Módulo Produto Acabado desativado</h1>
+        <p className="max-w-md text-sm text-muted-foreground">
+          Ative em <Link to="/admin/configuracoes" className="underline underline-offset-2">Config da Loja</Link> para usar OC P. Acabado.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
@@ -443,6 +469,15 @@ function OcPaDialog({
     },
   });
 
+  // Acessório = grade única "UN" (mesma fonte da Seção 2, OcPaForm) — a Seção 4
+  // (Recebimento) tinha ficado com os 6 tamanhos completos mesmo pro grupo Acessórios
+  // (achado SPEC GAP do review, fix round 1): as grades Recebida/Defeito e o InfoStrip
+  // de somas precisam da MESMA coluna única "UN", senão o usuário digita numa célula
+  // (ex. "34|PPP") que a RPC de recebimento ignora (só lê o que bate com a grade pedida).
+  const grupoNomeAtual = (grupos as Opt[]).find((g) => g.id === draft.grupo_id)?.nome ?? "";
+  const acessorioAtual = ehGrupoAcessorio(grupoNomeAtual);
+  const tamanhosAtivos = acessorioAtual ? [TAM_ACESSORIO] : tamanhos;
+
   const { data: ocQueryData } = useQuery({
     queryKey: ["oc-p-acabado", ocId],
     enabled: !!ocId,
@@ -658,7 +693,7 @@ function OcPaDialog({
                 setDraft={setDraft}
                 grade={grade}
                 setGrade={setGrade}
-                tamanhos={tamanhos}
+                tamanhos={tamanhosAtivos}
                 cores={cores as Opt[]}
                 coresApelido={coresApelido as CorApelidoOpt[]}
                 colaboradores={colaboradores}
