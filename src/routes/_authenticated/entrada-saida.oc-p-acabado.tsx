@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ShoppingCart, Plus, ArrowLeft, Trash2, Check } from "lucide-react";
@@ -32,8 +32,11 @@ import {
 } from "@/components/oc-p-acabado/shared";
 
 export const Route = createFileRoute("/_authenticated/entrada-saida/oc-p-acabado")({
-  validateSearch: (s: Record<string, unknown>): { tab?: OcPaTab } => ({
+  validateSearch: (s: Record<string, unknown>): { tab?: OcPaTab; oc?: string } => ({
     tab: s.tab === "encomendado" || s.tab === "recebido" || s.tab === "estoque" ? (s.tab as OcPaTab) : undefined,
+    // `?oc=<id>` abre a OC direto (deep-link) — usado por "Fazer pedido"/"⧉" do planejador
+    // Produto Acabado (Task 6, revenda), que cria/aponta pra uma OC específica.
+    oc: typeof s.oc === "string" && s.oc ? s.oc : undefined,
   }),
   // Sem ModuleGuard aqui de propósito — espelha o padrão real do OTB (outro módulo
   // opt-in, `otb.index.tsx`): o gate de módulo é aplicado na SIDEBAR/HUB (PageDef.gate,
@@ -64,6 +67,15 @@ function OcPaPage() {
   const [openDialog, setOpenDialog] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<OcPaRow | null>(null);
+  // Deep-link `?oc=<id>` — abre a OC direto uma vez ao montar (ver Route.validateSearch acima).
+  const deepLinkAbertoRef = useRef(false);
+  useEffect(() => {
+    if (search.oc && !deepLinkAbertoRef.current) {
+      deepLinkAbertoRef.current = true;
+      setEditingId(search.oc);
+      setOpenDialog(true);
+    }
+  }, [search.oc]);
 
   const { data: ocs = [], isLoading } = useQuery({
     queryKey: ["ocs_p_acabado", tab],

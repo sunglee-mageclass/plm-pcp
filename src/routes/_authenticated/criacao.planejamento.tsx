@@ -54,7 +54,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { BulkEditDialog } from "@/components/planejamento/BulkEditDialog";
 import { ProdutoRelacionadoSetor } from "@/components/planejamento/ProdutoRelacionadoSetor";
 import { useOrcamento, orcLabel } from "@/components/otb/orcamento";
+// `?modelo=<id>` abre o card direto (deep-link) — usado pelo ⧉ "abrir card no Plan. Produto"
+// do planejador Produto Acabado (Task 6, revenda), que precisa navegar pra um card específico
+// sem um mecanismo próprio de endereçamento (a tela não tinha nenhum search param antes).
 export const Route = createFileRoute("/_authenticated/criacao/planejamento")({
+  validateSearch: (s: Record<string, unknown>): { modelo?: string } => ({
+    modelo: typeof s.modelo === "string" && s.modelo ? s.modelo : undefined,
+  }),
   component: () => (
     <RequirePermission page="criacao_planejamento">
       <PlanejamentoPage />
@@ -198,6 +204,16 @@ function PlanejamentoPage() {
   const [fColecao, setFColecao] = useState("all");
   const [fLancamento, setFLancamento] = useState("all"); // all | pronto | lancado
   const [openId, setOpenId] = useState<string | null>(null);
+  // Deep-link `?modelo=<id>` (ver Route.validateSearch acima) — abre o card uma vez ao montar;
+  // não reabre se o usuário fechar e a URL ainda tiver o param (evita reabrir sozinho).
+  const modeloParam = Route.useSearch({ select: (s) => s.modelo });
+  const deepLinkAbertoRef = useRef(false);
+  useEffect(() => {
+    if (modeloParam && !deepLinkAbertoRef.current) {
+      deepLinkAbertoRef.current = true;
+      setOpenId(modeloParam);
+    }
+  }, [modeloParam]);
   const [openNew, setOpenNew] = useState(false);
   const [openBatch, setOpenBatch] = useState(false);
   const [openBulk, setOpenBulk] = useState(false);
