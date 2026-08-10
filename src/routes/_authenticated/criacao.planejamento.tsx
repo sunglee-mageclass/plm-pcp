@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ClipboardList, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, Save, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, AlertTriangle, Rocket, Check, X } from "lucide-react";
+import { ClipboardList, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, Save, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, AlertTriangle, Rocket, Check, X, ExternalLink, PackagePlus } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
@@ -54,6 +54,12 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { BulkEditDialog } from "@/components/planejamento/BulkEditDialog";
 import { ProdutoRelacionadoSetor } from "@/components/planejamento/ProdutoRelacionadoSetor";
 import { useOrcamento, orcLabel } from "@/components/otb/orcamento";
+import { MoneyInput } from "@/components/shared/MoneyInput";
+import { ehGrupoAcessorio } from "@/lib/produto-acabado";
+import { varianteLabel } from "@/lib/variante";
+import { erroValidacao } from "@/components/produto-acabado/shared";
+import { DEFAULT_TAMANHOS } from "@/components/oc-p-acabado/shared";
+import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 // `?modelo=<id>` abre o card direto (deep-link) — usado pelo ⧉ "abrir card no Plan. Produto"
 // do planejador Produto Acabado (Task 6, revenda), que precisa navegar pra um card específico
 // sem um mecanismo próprio de endereçamento (a tela não tinha nenhum search param antes).
@@ -1095,6 +1101,7 @@ type Draft = {
   subcategoria2_id: string | null;
   origem: string;
   preco_venda: number | null;
+  preco_atacado: number | null;
   data_lancamento: string | null;
   tecidos_planejados: string[];
   status_planejamento: string;
@@ -1111,7 +1118,7 @@ type Draft = {
 const emptyDraft = (): Draft => ({
   nome: "", estilista_id: null, linha_id: null, colecao: "", colecao_id: null, subcolecao: "", semana: "", mes_id: null, ano_id: null,
   categoria_principal_id: null,
-  subcategoria1_id: null, subcategoria2_id: null, origem: "interno", preco_venda: null, data_lancamento: null,
+  subcategoria1_id: null, subcategoria2_id: null, origem: "interno", preco_venda: null, preco_atacado: null, data_lancamento: null,
   tecidos_planejados: [],
   status_planejamento: "em_planejamento", croqui_url: "", desenho_tecnico_url: "", fotos_modelo: [], fotos_referencia: [],
   observacoes_gerais: "",
@@ -1141,6 +1148,7 @@ function draftFromModeloRow(data: any): Draft {
     subcategoria2_id: data.subcategoria2_id ?? null,
     origem: data.origem ?? "interno",
     preco_venda: data.preco_venda ?? null,
+    preco_atacado: data.preco_atacado ?? null,
     data_lancamento: data.data_lancamento ?? null,
     tecidos_planejados: data.tecidos_planejados ?? [],
     status_planejamento: data.status_planejamento ?? "em_planejamento",
@@ -1163,7 +1171,7 @@ const ROTULO_CONFLITO_PLAN: Record<string, string> = {
   colecao: "Coleção", colecao_id: "Coleção", subcolecao: "Subcoleção", semana: "Semana de Lançamento",
   mes_id: "Mês de Planejamento", ano_id: "Ano",
   categoria_principal_id: "Categoria", subcategoria1_id: "Subcategoria 1", subcategoria2_id: "Subcategoria 2",
-  origem: "Origem", preco_venda: "Preço para venda", data_lancamento: "Data de Lançamento",
+  origem: "Origem", preco_venda: "Preço para venda", preco_atacado: "Preço atacado", data_lancamento: "Data de Lançamento",
   tecidos_planejados: "Tecido Planejado", status_planejamento: "Status",
   croqui_url: "Foto do Croqui", desenho_tecnico_url: "Desenho Técnico",
   fotos_modelo: "Fotos do modelo", fotos_referencia: "Fotos de referência",
@@ -1248,11 +1256,19 @@ function ModeloDialog({
   const [moLinhasBase, setMoLinhasBase] = useState<MaoObraEditorLinha[]>([]);
   const moLinhasRef = useRef(moLinhas); moLinhasRef.current = moLinhas;
   const moBaseRef = useRef(moLinhasBase); moBaseRef.current = moLinhasBase;
+  // Grade cor×tamanho (revenda, Task 7) — declarado aqui (cedo) só o estado/refs, pra entrar
+  // no `dirty` combinado abaixo; a query/efeito de seed e os handlers ficam mais abaixo, perto
+  // do resto do cálculo de preço/produto vinculado (closures sobre o mesmo state, ordem de
+  // hooks não muda entre renders).
+  const [gradeRevenda, setGradeRevenda] = useState<Record<number, Record<string, number>>>({});
+  const gradeRevendaSeededRef = useRef(false);
+  const gradeRevendaBaseRef = useRef("{}");
   const { dirty: draftDirty, markClean, reset: resetDraftBaseline } = useDirtySnapshot(draft);
-  // Dirty combinado: draft OU linhas de MO divergem do baseline (mantidos em baselines
-  // INDEPENDENTES — cada um re-semeia no seu próprio momento, sem corrida de ordem entre os
-  // dois carregamentos assíncronos).
-  const dirty = draftDirty || !snapshotsEqual(moLinhas, moLinhasBase);
+  // Dirty combinado: draft OU linhas de MO OU grade revenda divergem do baseline (mantidos em
+  // baselines INDEPENDENTES — cada um re-semeia no seu próprio momento, sem corrida de ordem
+  // entre os carregamentos assíncronos).
+  const gradeRevendaDirty = gradeRevendaSeededRef.current && JSON.stringify(gradeRevenda) !== gradeRevendaBaseRef.current;
+  const dirty = draftDirty || !snapshotsEqual(moLinhas, moLinhasBase) || gradeRevendaDirty;
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
   // Grupo é transiente (não é coluna do modelo) — filtra as Categorias na cascata.
   const [grupoSel, setGrupoSel] = useState<string | null>(null);
@@ -1291,6 +1307,11 @@ function ModeloDialog({
   const [confirmDel, setConfirmDel] = useState(false);
   const { isModuleEnabled } = useTenantModules();
   const otbOn = isModuleEnabled("otb");
+  // Revenda (Produto Acabado, Task 7): card revenda ganha campo de preço atacado + grade
+  // cor×tamanho + atalhos pro planejador Produto Acabado — só quando o módulo está ligado.
+  const paOn = isModuleEnabled("produto_acabado");
+  const isRevenda = draft.origem === "revenda";
+  const navigate = useNavigate();
   const orc = useOrcamento();
   const { data: colecoes = [] } = useQuery({
     queryKey: ["otb-colecoes-opts"],
@@ -1398,6 +1419,132 @@ function ModeloDialog({
   const custoReal = !!custoData?.confirmado;
   const { custo, markupLinha: markup, preco, sugerido: precoSug, markupReal } =
     precoInfo(custoData?.real, linhas.find((l) => l.id === draft.linha_id)?.markup, draft.preco_venda);
+
+  // Preço ATACADO (revenda, Task 7): mesma função `precoInfo` (intocada), mas com a base
+  // sempre em "previsto" — o custo_unitario_modelos.previsto já traz insumos+desconto p/
+  // revenda (Task 4) e fica disponível MESMO antes da OC ser recebida (ao contrário de
+  // `.real`, que fica null até `oc.status='recebido'` — ver _custo_unitario_modelos_core).
+  const custoPrevistoRevenda = Number(custoData?.previsto) || 0;
+  const { markupReal: markupAtacadoReal } =
+    precoInfo(custoPrevistoRevenda, markup, draft.preco_atacado);
+
+  // Produto Acabado vinculado a este modelo (revenda, Task 7) — embed REVERSO
+  // (`produtos_acabados.modelo_id`): rótulo de variante "cor · apelido" (mesmo padrão do
+  // planejador Produto Acabado, Task 6) + grade_proporcao (tamanhos ativos) + grupo (p/
+  // `ehGrupoAcessorio`, grade em coluna única "UN").
+  const { data: produtoRevenda, isLoading: produtoRevendaLoading } = useQuery({
+    queryKey: ["pa-produto-modelo", modeloId],
+    enabled: isEdit && !!modeloId && isRevenda && paOn,
+    queryFn: async () => {
+      const { data, error } = await (supabase.from("produtos_acabados" as any) as any)
+        .select("id, colecao_id, categoria_id, grupo_id, grade_proporcao, variantes:produto_acabado_variantes(ordem, cor:cor_id(nome), apelido:cor_apelido_id(nome))")
+        .eq("modelo_id", modeloId)
+        .maybeSingle();
+      if (error) throw error;
+      return data as {
+        id: string; colecao_id: string | null; categoria_id: string | null; grupo_id: string | null;
+        grade_proporcao: Record<string, number>;
+        variantes: { ordem: number; cor: { nome: string | null } | null; apelido: { nome: string | null } | null }[];
+      } | null;
+    },
+  });
+  const grupoRevendaNome = grupos.find((g) => g.id === produtoRevenda?.grupo_id)?.nome ?? null;
+  const acessorioRevenda = ehGrupoAcessorio(grupoRevendaNome);
+  // Tamanhos ativos do tenant (ordem canônica) — mesma fonte/fallback do planejador
+  // Produto Acabado (Task 6); colunas da grade = interseção com `grade_proporcao`.
+  const tenantIdAtivo = useActiveTenantId();
+  const { data: tenantTamanhosRevenda = DEFAULT_TAMANHOS } = useQuery({
+    queryKey: ["tenant-config-tamanhos-planejamento", tenantIdAtivo],
+    enabled: !!tenantIdAtivo && isRevenda && paOn,
+    queryFn: async () => {
+      const { data } = await supabase.from("tenant_config").select("tamanhos_grade").eq("tenant_id", tenantIdAtivo).maybeSingle();
+      const raw = (data as any)?.tamanhos_grade;
+      return Array.isArray(raw) && raw.length > 0 ? raw.map(String) : DEFAULT_TAMANHOS;
+    },
+  });
+  const variantesRevenda = useMemo(
+    () => [...(produtoRevenda?.variantes ?? [])].sort((a, b) => a.ordem - b.ordem),
+    [produtoRevenda],
+  );
+  const tamanhosRevenda = useMemo(() => {
+    if (acessorioRevenda) return ["UN"];
+    const prop = produtoRevenda?.grade_proporcao ?? {};
+    return tenantTamanhosRevenda.filter((t) => Object.prototype.hasOwnProperty.call(prop, t));
+  }, [acessorioRevenda, produtoRevenda, tenantTamanhosRevenda]);
+
+  // Grade cor×tamanho (revenda, Task 7) — lê/grava `modelo_grades` (variante_numero=ordem).
+  // Estado/refs já declarados mais acima (perto do `dirty` combinado); aqui só a query de
+  // leitura + o efeito de seed (1× por abertura do card — o Dialog nasce/some por inteiro a
+  // cada abrir/fechar, ver render do pai — então nunca perde edição de um refetch em BG).
+  const { data: gradeModeloRows } = useQuery({
+    queryKey: ["modelo-grades-revenda", modeloId],
+    enabled: isEdit && !!modeloId && isRevenda && paOn,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("modelo_grades")
+        .select("variante_numero, grades, grade_total")
+        .eq("modelo_id", modeloId as string);
+      if (error) throw error;
+      return (data ?? []) as { variante_numero: number; grades: Record<string, number> | null; grade_total: number }[];
+    },
+  });
+  useEffect(() => {
+    if (!gradeModeloRows || gradeRevendaSeededRef.current) return;
+    const seeded: Record<number, Record<string, number>> = {};
+    for (const r of gradeModeloRows) seeded[r.variante_numero] = { ...(r.grades ?? {}) };
+    setGradeRevenda(seeded);
+    gradeRevendaBaseRef.current = JSON.stringify(seeded);
+    gradeRevendaSeededRef.current = true;
+  }, [gradeModeloRows]);
+  const setCelulaGradeRevenda = (ordem: number, tam: string, v: number) =>
+    setGradeRevenda((prev) => ({ ...prev, [ordem]: { ...(prev[ordem] ?? {}), [tam]: Math.max(0, Math.trunc(v) || 0) } }));
+  const totalLinhaRevenda = (ordem: number) =>
+    Object.values(gradeRevenda[ordem] ?? {}).reduce((s, v) => s + (Number(v) || 0), 0);
+  const totalColunaRevenda = (tam: string) =>
+    variantesRevenda.reduce((s, v) => s + (Number(gradeRevenda[v.ordem]?.[tam]) || 0), 0);
+  const totalGeralRevenda = variantesRevenda.reduce((s, v) => s + totalLinhaRevenda(v.ordem), 0);
+
+  // "criar produto acabado" (revenda sem produto vinculado, Task 7): INSERT em
+  // produtos_acabados herdando identidade do modelo (grupo derivado de
+  // categorias_produto.grupo_id — `modelos` não tem grupo_id próprio) + vincula
+  // `modelo_id` (mesma RPC de escrita usada pelo planejador Produto Acabado, com o
+  // module-gate/REF automática — só a coluna modelo_id é ajustada depois, direto na
+  // tabela: não existe RPC pronta pra esse sentido produto←modelo, só modelo←produto
+  // via `criar_card_produto_acabado`, Task 2).
+  const criarProdutoAcabado = useMutation({
+    mutationFn: async () => {
+      if (!modeloId) throw erroValidacao("Salve o modelo antes de criar o produto acabado.");
+      const cat = categorias.find((c) => c.id === draft.categoria_principal_id);
+      const grupoId = cat?.grupo_id ?? null;
+      if (!grupoId || !draft.categoria_principal_id) {
+        throw erroValidacao("Defina Grupo e Categoria (setor Informações Gerais) antes de criar o produto acabado.");
+      }
+      const dados = {
+        nome: draft.nome,
+        grupo_id: grupoId,
+        categoria_id: draft.categoria_principal_id,
+        subcategoria1_id: draft.subcategoria1_id,
+        subcategoria2_id: draft.subcategoria2_id,
+        colecao_id: draft.colecao_id,
+        subcolecao: draft.subcolecao || null,
+        semana: draft.semana || null,
+      };
+      const { data: novoId, error } = await supabase.rpc("salvar_produto_acabado" as any, {
+        _id: null, _dados: dados, _variantes: [],
+      });
+      if (error) throw error;
+      const { error: linkErr } = await (supabase.from("produtos_acabados" as any) as any)
+        .update({ modelo_id: modeloId }).eq("id", novoId);
+      if (linkErr) throw linkErr;
+      return { produtoId: novoId as string, colecaoId: draft.colecao_id };
+    },
+    onSuccess: ({ produtoId, colecaoId }) => {
+      toast.success("Produto acabado criado e vinculado.");
+      qc.invalidateQueries({ queryKey: ["pa-produto-modelo", modeloId] });
+      navigate({ to: "/criacao/produto-acabado", search: colecaoId ? ({ colecao: colecaoId } as any) : ({} as any) });
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Não foi possível criar o produto acabado.")),
+  });
 
   // Simulação de custo (isolada do real). Tecido: preço/m = o TECIDO PLANEJADO MAIS CARO
   // (auto do cadastro); consumo = override do usuário, senão o consumo REAL do BOM (editável).
@@ -1614,6 +1761,7 @@ function ModeloDialog({
         croqui_url: draft.croqui_url || null,
         desenho_tecnico_url: draft.desenho_tecnico_url || null,
         preco_venda: numOr0(draft.preco_venda) > 0 ? numOr0(draft.preco_venda) : null,
+        preco_atacado: numOr0(draft.preco_atacado) > 0 ? numOr0(draft.preco_atacado) : null,
         data_lancamento: draft.data_lancamento || null,
         observacoes_mao_obra: draft.observacoes_mao_obra || null,
         custo_simulado: limparCustoSim(draft.custo_simulado),
@@ -1643,6 +1791,23 @@ function ModeloDialog({
         if (error) throw error;
         savedId = inserted?.id ?? null;
         if (savedId) await syncTecidosToDesenvolvimento(savedId, draft.tecidos_planejados);
+      }
+      // Grade cor×tamanho (revenda, Task 7): estado COMPLETO por save (delete+insert, sem
+      // merge — mesmo padrão do resto do Produto Acabado) — só quando o rascunho divergiu
+      // do que foi lido do servidor, pra não regravar à toa.
+      if (isRevenda && savedId && gradeRevendaDirty) {
+        const { error: delErr } = await supabase.from("modelo_grades").delete().eq("modelo_id", savedId);
+        if (delErr) throw delErr;
+        const linhasGrade = Object.entries(gradeRevenda).map(([ordem, grades]) => ({
+          modelo_id: savedId,
+          variante_numero: Number(ordem),
+          grades,
+          grade_total: Object.values(grades).reduce((s, v) => s + (Number(v) || 0), 0),
+        }));
+        if (linhasGrade.length > 0) {
+          const { error: insErr } = await supabase.from("modelo_grades").insert(linhasGrade);
+          if (insErr) throw insErr;
+        }
       }
       // MO por serviço (spec 2026-08-06): persiste os VALORES das linhas (estado COMPLETO;
       // aprovação já foi imediata via RPC própria, não entra aqui). Só quando o rascunho de MO
@@ -1683,6 +1848,8 @@ function ModeloDialog({
       qc.invalidateQueries({ queryKey: ["mo-resumo", modeloId] });
       qc.invalidateQueries({ queryKey: ["mo-resumo-list"] });
       qc.invalidateQueries({ queryKey: ["plan-custo-unit", modeloId] });
+      qc.invalidateQueries({ queryKey: ["plan-grade-total"] });
+      qc.invalidateQueries({ queryKey: ["modelo-grades-revenda", modeloId] });
       onSaved();
       onClose();
     },
@@ -2038,11 +2205,111 @@ function ModeloDialog({
                 />
               </div>
               <CampoRO label="Markup real" value={markupReal > 0 ? markupReal.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—"} />
+              {/* Revenda (Task 7): Preço atacado ao lado do varejo + markup real derivado dos
+                  dois (preço ÷ base; base = custo PREVISTO, que já traz insumos+desconto —
+                  disponível mesmo antes da OC ser recebida, diferente do custo real acima). */}
+              {isRevenda && (
+                <>
+                  <div className="grid gap-1">
+                    <Label>Preço atacado</Label>
+                    <MoneyInput
+                      value={draft.preco_atacado}
+                      onChange={(e) => setDraftTracked((d) => ({ ...d, preco_atacado: numOr0(e.target.value) > 0 ? Number(e.target.value) : null }))}
+                    />
+                  </div>
+                  <CampoRO label="Markup atacado (real)" value={markupAtacadoReal > 0 ? markupAtacadoReal.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—"} />
+                </>
+              )}
             </div>
           </Secao>
           )}
 
-          {/* SETOR 4 — Tecido Planejado */}
+          {/* Revenda (Task 7): produto vinculado (Produto Acabado) — atalho ⧉ ou criar. */}
+          {isEdit && isRevenda && paOn && (
+            <Secao titulo="Produto Acabado">
+              {produtoRevendaLoading ? (
+                <p className="text-sm text-muted-foreground">Carregando…</p>
+              ) : produtoRevenda ? (
+                <div className="flex flex-wrap items-center gap-3">
+                  <p className="text-sm text-muted-foreground">Este modelo está vinculado a um produto de revenda.</p>
+                  <Button
+                    type="button" variant="outline" size="sm" className="ml-auto gap-1.5"
+                    onClick={() => navigate({ to: "/criacao/produto-acabado", search: produtoRevenda.colecao_id ? ({ colecao: produtoRevenda.colecao_id } as any) : ({} as any) })}
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" /> Ver no Produto Acabado
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-3">
+                  <p className="text-sm text-muted-foreground">Nenhum produto de revenda vinculado ainda.</p>
+                  <Button
+                    type="button" variant="outline" size="sm" className="ml-auto gap-1.5"
+                    onClick={() => criarProdutoAcabado.mutate()}
+                    disabled={criarProdutoAcabado.isPending || !modeloId}
+                  >
+                    <PackagePlus className="h-3.5 w-3.5" /> Criar produto acabado
+                  </Button>
+                </div>
+              )}
+            </Secao>
+          )}
+
+          {/* Revenda (Task 7): grade cor×tamanho editável — por variante do produto (rótulo
+              cor·apelido) × tamanhos ativos da proporção (grupo Acessórios = coluna única
+              "UN"); lê/grava `modelo_grades` (variante_numero=ordem). */}
+          {isEdit && isRevenda && paOn && produtoRevenda && (
+            <Secao titulo="Grade">
+              {variantesRevenda.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  O produto vinculado ainda não tem variantes de cor — cadastre-as no Produto Acabado.
+                </p>
+              ) : tamanhosRevenda.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Defina a proporção de tamanhos deste produto no Produto Acabado antes de preencher a grade.
+                </p>
+              ) : (
+                <div className="overflow-x-auto rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50 text-left">
+                      <tr>
+                        <th className="px-3 py-2">Variante</th>
+                        {tamanhosRevenda.map((t) => <th key={t} className="px-3 py-2 text-right">{t}</th>)}
+                        <th className="px-3 py-2 text-right font-semibold">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {variantesRevenda.map((v) => (
+                        <tr key={v.ordem} className="border-t">
+                          <td className="px-3 py-2">{varianteLabel({ cor: v.cor?.nome, apelido: v.apelido?.nome })}</td>
+                          {tamanhosRevenda.map((t) => (
+                            <td key={t} className="px-3 py-1.5 text-right">
+                              <NumberInput
+                                integer
+                                className="h-8 w-20 text-right ml-auto"
+                                value={gradeRevenda[v.ordem]?.[t] ?? 0}
+                                onChange={(e) => setCelulaGradeRevenda(v.ordem, t, Number(e.target.value) || 0)}
+                              />
+                            </td>
+                          ))}
+                          <td className="px-3 py-2 text-right font-medium tabular-nums">{totalLinhaRevenda(v.ordem)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t bg-muted/30 font-medium">
+                        <td className="px-3 py-2">Total</td>
+                        {tamanhosRevenda.map((t) => <td key={t} className="px-3 py-2 text-right tabular-nums">{totalColunaRevenda(t)}</td>)}
+                        <td className="px-3 py-2 text-right tabular-nums">{totalGeralRevenda}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </Secao>
+          )}
+
+          {/* SETOR 4 — Tecido Planejado (oculto p/ revenda — sem tecido) */}
+          {!isRevenda && (
           <Secao titulo="Tecido Planejado">
             <MultiArtigosField
               label=""
@@ -2052,8 +2319,11 @@ function ModeloDialog({
               estoque={estoqueMap}
             />
           </Secao>
+          )}
 
-          {/* SETOR — Simulação de custo (após Tecido Planejado; isolada do custo/preço real do BOM/CAD) */}
+          {/* SETOR — Simulação de custo (oculto p/ revenda — custo vem do produto/OC, não do
+              BOM/CAD manufaturado). Após Tecido Planejado; isolada do custo/preço real. */}
+          {!isRevenda && (
           <Secao titulo="Simulação de custo">
             <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200 flex items-start gap-2">
               <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
@@ -2098,12 +2368,14 @@ function ModeloDialog({
               <p className="text-xs text-muted-foreground">Defina a Linha (com markup) para ver o preço estimado.</p>
             )}
           </Secao>
+          )}
 
           {/* Mão de obra POR SERVIÇO (spec 2026-08-06): lista de serviços com valor (R$),
               estado por linha (pendente/aprovado/reprovado) e aprovar/reprovar por serviço.
               Gated: ver custos (valores + obs) OU aprovar (botões). O VALOR persiste no Salvar
-              da página; aprovar/reprovar é imediato. */}
-          {(podeVerCustos || (isEdit && podeAprovarMaoObra)) && (
+              da página; aprovar/reprovar é imediato. Oculto p/ revenda (Task 7) — o gate de MO
+              já libera sozinho sem linha nenhuma (invariante #8), só a UI some. */}
+          {!isRevenda && (podeVerCustos || (isEdit && podeAprovarMaoObra)) && (
             <Secao titulo="Mão de obra">
               <MaoObraEditor
                 linhas={moLinhas}

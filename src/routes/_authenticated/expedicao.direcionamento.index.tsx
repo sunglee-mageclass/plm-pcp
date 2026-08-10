@@ -40,10 +40,16 @@ function DirListPage() {
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["dir-list"],
     queryFn: async () => {
+      // Revenda (Produto Acabado, Task 7): nunca passa por Desenvolvimento/CAD, então
+      // `enviado_cad` fica sempre false — o `cad` (com `controle_qualidade`/
+      // `cad_grades`) nasce direto em `receber_oc_p_acabado` (Task 3). Sem o `.or(...)`
+      // abaixo, um modelo revenda com OC recebida nunca aparecia aqui, mesmo com CQ
+      // liberado (`cqLiberado` já é origem-agnóstico — só faltava esta linha buscar a
+      // linha). `cqLiberado` no filtro abaixo segue igual pros dois casos.
       const { data, error } = await supabase
         .from("modelos")
         .select("id, ref, versao, nome, colecao, mes_id, ano_id, linha_id, revisao_pendente, linha:linha_id(nome), categorias_produto:categoria_principal_id(nome), cad(direcionamento_status, producao_terceirizados(ativo, categorias_terceirizado(etapa)), controle_qualidade(status, status_pos))")
-        .eq("enviado_cad", true)
+        .or("enviado_cad.eq.true,origem.eq.revenda")
         .order("created_at", { ascending: false });
       if (error) throw error;
       // Só aparece após o CQ ser Confirmado: o Pré sempre; e o Pós também quando o
