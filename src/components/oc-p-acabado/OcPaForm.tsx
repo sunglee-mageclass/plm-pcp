@@ -104,13 +104,13 @@ export function OcPaForm({
   // "Redistribuir por peso" (§N: auto por maior resto + editável): 1 clique refaz TANTO a
   // qtd de cada variante (peso × qtd_total) QUANTO a grade pedida de cada uma (peso × qtd
   // da variante) — os dois splits usam o mesmo helper do banco (_split_maior_resto).
+  // `redistribuirPedida` já devolve a grade INTEIRA mesclada célula-a-célula (preserva
+  // recebida/defeito e tamanhos fora da proporção — ver comentário na função) — setGrade
+  // recebe o resultado direto, sem spread por cima (evitaria só duplicar o merge à toa).
   const redistribuirTudo = () => {
     const variantesRedistribuidas = redistribuirVariantesPorPeso(draft.variantes, draft.qtd_total);
     setDraft((d) => ({ ...d, variantes: variantesRedistribuidas }));
-    setGrade((g) => ({
-      ...g,
-      ...redistribuirPedida(variantesRedistribuidas, g, draft.grade_proporcao, acessorio),
-    }));
+    setGrade((g) => redistribuirPedida(variantesRedistribuidas, g, draft.grade_proporcao, acessorio));
   };
 
   return (

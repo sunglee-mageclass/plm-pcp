@@ -124,22 +124,28 @@ export function somaGrade(grade: GradeDetalhe, tamanhos: string[], campo: keyof 
 }
 
 /** Aplica a proporção de peso (grade_proporcao) sobre a qtd de UMA variante, célula "pedida" —
- *  espelha `_pa_grade_variante`/`_split_maior_resto` do banco (maior resto), sem tocar
- *  recebida/defeito já digitados. Acessório: uma única chave "UN" = a qtd inteira. */
+ *  espelha `_pa_grade_variante`/`_split_maior_resto` do banco (maior resto). MERGE POR CÉLULA,
+ *  nunca replace de linha (achado CRITICAL do review, fix round 1): só as size-keys ATIVAS da
+ *  proporção (as que saem do split) têm `pedida` recalculada — toda célula existente FORA do
+ *  split (ex.: um tamanho digitado manualmente que não está mais na proporção) e os campos
+ *  `recebida`/`defeito` de TODAS as células (dentro ou fora do split) são PRESERVADOS
+ *  intocados. Sem isso, "Redistribuir por peso" apagava em silêncio dado já recebido — a soma
+ *  ainda batia (Σ pedida das ativas = qtd_total), então o guard do servidor não pegava, e
+ *  `receber_oc_p_acabado` derivava `grades_reais` desse estado incompleto. Acessório: uma
+ *  única chave "UN" = a qtd inteira (mesma regra de merge). */
 export function redistribuirPedida(
   variantes: VarianteDraft[],
   grade: GradeDetalhe,
   grade_proporcao: Record<string, number>,
   acessorio: boolean,
 ): GradeDetalhe {
-  const next: GradeDetalhe = {};
+  const next: GradeDetalhe = { ...grade };
   for (const v of variantes) {
     const key = String(v.ordem);
     const split = acessorio ? { [TAM_ACESSORIO]: v.qtd } : splitMaiorResto(v.qtd, grade_proporcao);
-    const linhaAtual = grade[key] ?? {};
-    const linha: Record<string, CelulaGrade> = {};
+    const linha: Record<string, CelulaGrade> = { ...(next[key] ?? {}) };
     for (const [tam, pedida] of Object.entries(split)) {
-      const atual = linhaAtual[tam] ?? { pedida: 0, recebida: 0, defeito: 0 };
+      const atual = linha[tam] ?? { pedida: 0, recebida: 0, defeito: 0 };
       linha[tam] = { ...atual, pedida };
     }
     next[key] = linha;
