@@ -47,6 +47,22 @@ describe.skipIf(!hasDb)("Produto Acabado — RPCs de escrita (Task 2)", () => {
     });
   });
 
+  it("_split_maior_resto: pesos todos 0 (degenerado) SEM perder Σ=total — split igualitário (fix round 1)", async () => {
+    await withTx(async (c) => {
+      const r1 = await um<any>(c, `select _split_maior_resto(10, '{"38":0,"40":0,"42":0}'::jsonb) as g`);
+      expect(r1.g).toEqual({ "38": 4, "40": 3, "42": 3 });
+      const soma1 = Object.values(r1.g as Record<string, number>).reduce((a, b) => a + b, 0);
+      expect(soma1).toBe(10);
+      // pesos negativos também caem no ramo degenerado (Σ dos positivos = 0)
+      const r2 = await um<any>(c, `select _split_maior_resto(10, '{"a":-1,"b":-2,"c":0}'::jsonb) as g`);
+      const soma2 = Object.values(r2.g as Record<string, number>).reduce((a, b) => a + b, 0);
+      expect(soma2).toBe(10);
+      // chave com peso 0 ENTRE pesos positivos continua recebendo 0 (comportamento preservado)
+      const r3 = await um<any>(c, `select _split_maior_resto(100, '{"38":1,"40":1,"42":0}'::jsonb) as g`);
+      expect(r3.g).toEqual({ "38": 50, "40": 50, "42": 0 });
+    });
+  });
+
   it("salvar_produto_acabado sem grupo/categoria no create rejeita (P0001, pendência da Task 1)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
@@ -86,6 +102,27 @@ describe.skipIf(!hasDb)("Produto Acabado — RPCs de escrita (Task 2)", () => {
       ]);
       const rows = await c.query(`select ordem, qtd from produto_acabado_variantes where produto_acabado_id = $1 order by ordem`, [p.id]);
       expect(rows.rows.map((r: any) => Number(r.qtd))).toEqual([60, 20, 20]);
+    });
+  });
+
+  it("salvar_produto_acabado redistribuir=true com pesos 0: Σ qtd = qtd_total (fix round 1 — não pode colapsar)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const g = await um<any>(c, `insert into grupos_produto (tenant_id, nome) values ('${TENANT_TESTE}','Fem T2b2 PATest') returning id`);
+      const cat = await um<any>(c, `insert into categorias_produto (tenant_id, nome) values ('${TENANT_TESTE}','Vestido T2b2 PATest') returning id`);
+      const dados = { nome: "Vestido T2b2", grupo_id: g.id, categoria_id: cat.id, qtd_total: 100, redistribuir: "true" };
+      const variantes = [
+        { ordem: 0, peso: 0, qtd: 0 },
+        { ordem: 1, peso: 0, qtd: 0 },
+        { ordem: 2, peso: 0, qtd: 0 },
+      ];
+      const p = await um<any>(c, `select salvar_produto_acabado(null, $1::jsonb, $2::jsonb) as id`, [
+        JSON.stringify(dados),
+        JSON.stringify(variantes),
+      ]);
+      const rows = await c.query(`select qtd from produto_acabado_variantes where produto_acabado_id = $1 order by ordem`, [p.id]);
+      const soma = rows.rows.reduce((a: number, r: any) => a + Number(r.qtd), 0);
+      expect(soma).toBe(100);
     });
   });
 
@@ -143,6 +180,31 @@ describe.skipIf(!hasDb)("Produto Acabado — RPCs de escrita (Task 2)", () => {
       const grade = await um<any>(c, `select grades, grade_total from modelo_grades where modelo_id = $1`, [modelo.id]);
       expect(grade.grades).toEqual({ UN: 10 });
       expect(Number(grade.grade_total)).toBe(10);
+    });
+  });
+
+  it("criar_card_produto_acabado com grade_proporcao toda 0: grade_total = qtd da variante, não some (fix round 1)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const g = await um<any>(c, `insert into grupos_produto (tenant_id, nome) values ('${TENANT_TESTE}','Fem T2d2 PATest') returning id`);
+      const cat = await um<any>(c, `insert into categorias_produto (tenant_id, nome) values ('${TENANT_TESTE}','Vestido T2d2 PATest') returning id`);
+      const dados = {
+        nome: "Vestido T2d2",
+        grupo_id: g.id,
+        categoria_id: cat.id,
+        qtd_total: 50,
+        grade_proporcao: { "38": 0, "40": 0, "42": 0 },
+      };
+      const variantes = [{ ordem: 0, peso: 1, qtd: 50 }];
+      const prod = await um<any>(c, `select salvar_produto_acabado(null, $1::jsonb, $2::jsonb) as id`, [
+        JSON.stringify(dados),
+        JSON.stringify(variantes),
+      ]);
+      const modelo = await um<any>(c, `select criar_card_produto_acabado($1) as id`, [prod.id]);
+      const grade = await um<any>(c, `select grades, grade_total from modelo_grades where modelo_id = $1`, [modelo.id]);
+      expect(Number(grade.grade_total)).toBe(50);
+      const soma = Object.values(grade.grades as Record<string, number>).reduce((a, b) => a + Number(b), 0);
+      expect(soma).toBe(50);
     });
   });
 
