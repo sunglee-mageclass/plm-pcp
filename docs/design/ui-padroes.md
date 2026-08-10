@@ -418,7 +418,7 @@ Aplicar §K–§O **de pouco em pouco, uma tela por vez** (cada adoção = rodad
 
 | Tela | Padrões a aplicar | Status |
 |---|---|---|
-| Produto Acabado + OC P. Acabado (novas) | K L M N O | nascem 100% no padrão (mockup aprovado) |
+| Produto Acabado + OC P. Acabado (novas) | K L M N O | ✓ implementado (ago/2026, `.superpowers/sdd/2026-08-07-produto-acabado-revenda/`) |
 | OC Tecido | referência do §O | ✓ no ar (Navy Trust v2) |
 | Plan. Tecido | referência do §M (navegação/rail) | ✓ no ar; conferir L (Excluir/⋯) e K |
 | Plan. Produto (Planejamento) | K (custo/preço como resumo?) · L · M (cards colapsados ✓) · N (variante · apelido) | a alinhar |

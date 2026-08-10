@@ -81,6 +81,20 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   `?? true`; sem isso, chave ausente ligaria por engano). Loja sem `otb` = Coleção é texto
   livre (como antes); com `otb` = Coleção vira dropdown das `colecoes`. **Modos da loja** em `tenant_config`: `modo_oc_rolo ∈ {oc,rolo,ambos}`,
   `modo_baixa_estoque ∈ {por_oc,automatico}`, `timezone` (`useStoreTimezone`).
+  ⚠️ **`produto_acabado` (ago/2026, feature Revenda) também é OPT-IN (default OFF)** — mesmo
+  padrão do `otb`: sobrescrito p/ `false` em `useTenantModules.DEFAULTS` E `admin/lojas.tsx
+  MODULE_DEFAULTS`. Diferente dos 7 módulos de contratação, **NÃO tem `ModuleDef` de topo** em
+  `PAGES_CATALOG` (não vira Switch/badge em Admin > Lojas) — o toggle mora em **Config da
+  Loja** (`admin/configuracoes.tsx`, card "Produto Acabado (Revenda)"), editável pelo próprio
+  `tenant_admin` (os outros 7 módulos são badge só-leitura ali, editáveis só em Gerenciar
+  Lojas). Novo `PageDef.gate?: string` em `permissions-catalog.ts` (mesmo conceito do
+  `ModuleDef.gate`, mas por PÁGINA dentro de um módulo já ligado) — consumido por
+  `app-sidebar.tsx`/`SectionHub.tsx` além do gate de módulo (`!p.gate || isModuleEnabled(p.gate)`).
+  As 2 rotas novas **não usam `ModuleGuard`** (mesmo precedente do `otb`: o hook
+  `useTenantModules().isLoading` tem uma corrida de render antes do `tenantId` resolver — cai
+  nos `DEFAULTS`=off e redireciona por engano numa navegação DIRETA por URL; bug pré-existente,
+  fora de escopo consertar aqui) — em vez disso renderizam um empty-state próprio quando o
+  módulo está OFF (mitigação de UI; ver invariante 13).
 
 ## Mapa de rotas (`src/routes/_authenticated/`)
 
@@ -145,6 +159,10 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   `artigos`/`aviamentos` têm `representante_id` (FK `representantes`)
 - **criacao**: **plan-tecido** (Plan. Tecido — planejamento de TECIDO por coleção, acima de Plan. Produto;
   ver [[project_plan_tecido]] e docs/mapeamento §2C. NÃO mesclado — branch `feature/plan-tecido-a1`),
+  **produto-acabado** (Produto Acabado/Revenda — planejador por coleção→subcoleção, canvas de
+  cards com espelho `modelos.origem='revenda'`; página `criacao_produto_acabado`, exige
+  módulos `produto_acabado` E `otb`; ver docs/mapeamento §2D e invariante 13. NÃO mesclado —
+  branch `feature/plan-tecido-a1`),
   planejamento, desenvolvimento (kanban dinâmico, ficha técnica, observações).
   No card (`ModeloDetailPanel`), a seção **"2. Ajustes na Prova"** é um FIO DE COMENTÁRIOS
   (tabela `modelo_prova_comentarios`, RPCs `prova_comentar`/`prova_resolver`/`prova_excluir`;
@@ -156,7 +174,10 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   `salvar_modelo_bom`), com AlertDialog de sobrescrita. Regras: **sem OC-links**, **Grade só com Variantes do
   Tecido**, anexos/identidade/Ajustes fora. Exceção: **obs bloco grava na hora** (substitui, idempotente) por o
   `ModeloObservacoes` ser auto-save. `src/components/desenvolvimento/importar/` (`construirCopia` pura + testes).
-- **entrada-saida**: oc-tecido, oc-aviamento, rolos, estoque
+- **entrada-saida**: oc-tecido, oc-aviamento, rolos, estoque, **oc-p-acabado** (OC Produto
+  Acabado/Revenda — abas Encomendadas · Recebidas · Estoque; página `entrada_oc_p_acabado`,
+  gate `produto_acabado`; ver docs/mapeamento §2D e invariante 13. NÃO mesclado — branch
+  `feature/plan-tecido-a1`)
 - ⚠️ **O nível `producao` (PCP) foi DIVIDIDO em 2 níveis (jul/2026, ver [[project_pcp_expedicao]]):**
   **PCP** (`/pcp` = o próprio **Serviços**, nível de página única como o OTB; rotas `pcp.servicos.*`,
   `pcp.cad.*`, `pcp.oficina.*`) + **Expedição & Logística** (`/expedicao`, hub com **CQ + Direcionamento
@@ -431,6 +452,59 @@ e verifique** — o repo muda rápido.
     (`NULL`) quando não pode ver custos. O front só ESCONDE (`canView`/`canEdit`); o banco
     garante. Rollout com backfill não-quebra (concede aos que já viam/aprovavam). Ver
     memória `project_permissao_secoes` e `project_mo_por_servico`.
+13. **Produto Acabado / Revenda (ago/2026)** — segunda "família" de aquisição além de tecido/
+    aviamento: compra peça PRONTA de terceiro pra revender (não fabrica). Entidade
+    **`produtos_acabados`** (+`produto_acabado_variantes`, por cor) é **espelho 1:1 com
+    `modelos`** via trigger `enforce_unique_fk('modelo_id')` (NUNCA `UNIQUE` — regra "O que NÃO
+    fazer"); `modelos.origem='revenda'` (coluna pré-existente) marca o card espelho. **REF**:
+    gerada na CRIAÇÃO do produto (7 dígitos sequenciais + sigla — trigger `fn_produto_acabado_ref`)
+    e **copiada DIRETO pra `modelos.ref`** quando o card é criado (`criar_card_produto_acabado`)
+    — passa por FORA do fluxo `ref_auto`→aprovar da invariante 11 (o card nasce com
+    `ordem_criacao_enviada=false`, então `fn_modelo_ref_auto` nunca mexe nele). **Grupo
+    Acessórios** (nome normalizado contém `'acessor'`, `_grupo_eh_acessorio`/`ehGrupoAcessorio`
+    espelhados banco↔TS) tem regra própria: grade única `"UN"` (sem tamanho), REF no formato
+    2G+3CAT (em vez de 2G+1C+2S) e nº de OC terminando em `ACE`. **OC** (`ocs_p_acabado`):
+    **1 OC ativa por produto** (trigger `enforce_oc_pa_vinculo_unico`); grade em
+    **`grade_detalhe` jsonb** `{"<ordem_variante>":{"<tamanho>":{pedida,recebida,defeito}}}` —
+    **estado COMPLETO por save** (o cliente manda o objeto inteiro, sem merge no servidor,
+    mesmo padrão de `producao_terceirizados.grade_detalhe`); derivados
+    (`valor_bruto`/`valor_total_desconto`/`valor_unitario_real`) **re-derivados no servidor**
+    a cada save, nunca confiados do cliente; parcelas com `tipo_oc='p_acabado'`
+    (trigger `gerar_parcelas_oc_p_acabado`) **netam contra as já pagas** — espelha
+    `_recalcular_parcelas_core` (não o `recalcular_parcelas` mais antigo, que divide o total
+    cheio; usar o `_core` como referência ao tocar essa família). **Excluir só via RPC com
+    guarda** (`excluir_oc_p_acabado` bloqueia OC `recebido`/parcela paga;
+    `excluir_produto_acabado` bloqueia produto com OC vinculada — nenhum `.delete()` cru).
+    **Receber** (`receber_oc_p_acabado`, atômico): materializa `cad` **BARE** (sem
+    `cad_tecidos` — não é fluxo de tecido) + `cad_grades` (`grades_planejadas`=pedida,
+    `grades_reais`=`max(0,recebida−defeito)`) + `controle_qualidade` **pendente** (só cria se
+    não existir — nunca sobrescreve CQ já confirmado; reedições posteriores no PCP só
+    regravam `grades_reais`, a trigger de rebaixa do Direcionamento age normalmente sobre
+    isso). **CQ/Direcionamento**: as duas listas ampliaram o filtro de entrada pra
+    `.or("enviado_cad.eq.true,origem.eq.revenda")` (revenda nunca seta `enviado_cad`, senão
+    ficaria inalcançável mesmo com OC recebida); rótulo de variante nas duas telas usa
+    `produto_acabado_variantes` como fonte (fallback por `origem==='revenda'`, antes do
+    fallback genérico "Variante N"). **Insumos**: consumo revenda entra na aba Estoque do OC
+    Insumo por **peças recebidas** (`baixa_revenda` nova CTE em `_estoque_etiqueta_core`,
+    casada por etiqueta+cor sem tamanho — BOM de revenda não distingue tamanho), já que
+    revenda nunca passa por `enviado_corte`/`cad_etiquetas` (caminho manufaturado intocado).
+    **Preço/custo**: `modelos.preco_atacado` (novo, ao lado do varejo `preco_venda`);
+    `_custo_unitario_modelos_core` ganhou ramo revenda (ativo só quando
+    `produtos_acabados.modelo_id` existe) — `previsto` = valor unitário real (bruto − desconto)
+    + insumos, sempre disponível; `real` fica `NULL` até a OC vinculada ficar `recebido`
+    (aí `previsto===real`); caminho não-revenda intacto byte-a-byte (diff-validado). Helper
+    **`_split_maior_resto`** (método do maior resto/Hamilton: Σ resultado sempre ≡ total pedido;
+    Σpesos≤0 → split IGUALITÁRIO, não zera) tem espelho TS puro `splitMaiorResto`
+    (`src/lib/produto-acabado.ts`, junto de `ehGrupoAcessorio`/`cadeiaValores`/
+    `previewRefProduto`/`previewNumeroOc` — os `preview*` só a SIGLA, número sequencial sempre
+    vem do banco; `norm3` TS espelha `_norm3` SQL byte-a-byte, só a lista fixa de acentos PT-BR
+    do `translate()`, não um NFD genérico — acento fora da lista, ex. ä/ö/ü/ñ, é DESCARTADO
+    nos dois lados). ⚠️ **Gap conhecido/aceito**: nenhuma das 3 tabelas novas tem policy
+    `modgate_*` RESTRICTIVE de `tenant_module_enabled('produto_acabado')` (RLS é só
+    tenant-scoped, igual `otb`) — módulo OFF é enforçado nos WRAPPERS de escrita (invariante 9)
+    e por empty-state na UI (leitura direta via REST/embed não é bloqueada no banco se alguém
+    montar a query à mão); decisão registrada 3× (Tasks 1/5/8), mesmo padrão do `otb`, não é
+    regressão desta feature.
 
 **Docs de referência LOCAIS (gitignored, manter atualizados — papel do agente `docs-keeper`):**
 `docs/mapeamento-campos-calculos.md` (campos×campos, fórmulas, etapas),
