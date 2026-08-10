@@ -293,3 +293,77 @@ describe.skipIf(!hasDb)("Produto Acabado — RPCs de escrita (Task 2)", () => {
     });
   });
 });
+
+// custo_unitario_modelos, ramo revenda (Task 4): modelo origem='revenda' COM produto
+// vinculado lê a cadeia de valores do produto/OC em vez do caminho CAD/cad_conf normal.
+describe.skipIf(!hasDb)("custo_unitario_modelos — ramo revenda (Task 4)", () => {
+  it("modelo revenda + OC recebida → previsto/real batem com a cadeia de valores + insumos; sem OC recebida real=null", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const g = await um<any>(c, `insert into grupos_produto (tenant_id, nome) values ('${TENANT_TESTE}','Fem T4 PATest') returning id`);
+      const cat = await um<any>(c, `insert into categorias_produto (tenant_id, nome) values ('${TENANT_TESTE}','Vestido T4 PATest') returning id`);
+
+      const dadosProduto = {
+        nome: "Vestido T4",
+        grupo_id: g.id,
+        categoria_id: cat.id,
+        qtd_total: 198,
+        valor_unitario: 99,
+        desconto_pct: 20,
+        grade_proporcao: { UN: 1 },
+      };
+      const variantes = [{ ordem: 0, peso: 1, qtd: 198 }];
+      const prod = await um<any>(c, `select salvar_produto_acabado(null, $1::jsonb, $2::jsonb) as id`, [
+        JSON.stringify(dadosProduto),
+        JSON.stringify(variantes),
+      ]);
+
+      const modelo = await um<any>(c, `select criar_card_produto_acabado($1) as id`, [prod.id]);
+
+      // insumos_por_peça = Σ (consumo × custo_previsto) = 2 × 1,5 = 3
+      await c.query(
+        `insert into modelo_etiquetas (tenant_id, modelo_id, consumo, custo_previsto) values ('${TENANT_TESTE}', $1, 2, 1.5)`,
+        [modelo.id],
+      );
+
+      const custoDe = async () =>
+        (await um<any>(c, `select custo_unitario_modelos(array[$1::uuid]) -> $1::text as v`, [modelo.id])).v;
+
+      // Antes de existir OC vinculada: previsto já reflete o produto (79,20 + 3 insumos); sem OC, real=null/não-confirmado
+      const antes = await custoDe();
+      expect(Number(antes.previsto)).toBeCloseTo(82.2, 2);
+      expect(antes.real).toBeNull();
+      expect(antes.confirmado).toBe(false);
+
+      const oc = await um<any>(
+        c,
+        `select salvar_oc_p_acabado(null, $1::jsonb, $2::jsonb) as id`,
+        [
+          JSON.stringify({ nome_produto: "OC T4 PATest", produto_acabado_id: prod.id, qtd_total: 198, valor_unitario: 99, desconto_pct: 20 }),
+          JSON.stringify({ "0": { UN: { pedida: 198 } } }),
+        ],
+      );
+
+      // OC vinculada mas ainda 'encomendado' (não recebida): real continua null, previsto igual
+      const encomendado = await custoDe();
+      expect(Number(encomendado.previsto)).toBeCloseTo(82.2, 2);
+      expect(encomendado.real).toBeNull();
+      expect(encomendado.confirmado).toBe(false);
+
+      await c.query(
+        `select receber_oc_p_acabado($1::uuid, $2::jsonb, $3::jsonb)`,
+        [
+          oc.id,
+          JSON.stringify({ data_entrega: new Date().toISOString().slice(0, 10), nota_fiscal: "NF-T4" }),
+          JSON.stringify({ "0": { UN: { pedida: 198, recebida: 198, defeito: 0 } } }),
+        ],
+      );
+
+      // Recebida (status='recebido'): real = valor_unitario_real (79,20) + insumos (3) = 82,20; confirmado=true
+      const depois = await custoDe();
+      expect(Number(depois.previsto)).toBeCloseTo(82.2, 2);
+      expect(Number(depois.real)).toBeCloseTo(82.2, 2);
+      expect(depois.confirmado).toBe(true);
+    });
+  });
+});
