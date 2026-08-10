@@ -19,7 +19,6 @@ import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { OcModalShell } from "@/components/shared/OcModalShell";
 import { OcAnchorRail, type SecaoOc } from "@/components/shared/OcAnchorRail";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
-import { useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { varianteLabel } from "@/lib/variante";
