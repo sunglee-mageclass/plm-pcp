@@ -111,4 +111,22 @@ describe("previewNumeroOc — sigla do número da OC (contador+dash vem do banco
     expect(previewNumeroOc("123", "Feminino", "Vestido", false)).toBe("FORFVE");
     expect(previewNumeroOc("", "Acessórios", "Bolsa", true)).toBe("FORACE");
   });
+
+  // FIX ROUND 1 (review adversarial): `norm3` interno usava .normalize("NFD"), que
+  // converte QUALQUER acento pra letra-base — mas o `_norm3` do SQL só converte a lista
+  // fixa PT-BR (ÁÀÂÃÉÊÍÓÔÕÚÇ/áàâãéêíóôõúç) via translate(); acento FORA dessa lista
+  // (ä/ö/ü/ñ/ï…) não é convertido pelo banco e é DESCARTADO no filtro seguinte — o
+  // NFD antigo, ao contrário, mantinha a letra-base e divergia do banco. Valores
+  // conferidos AO VIVO no banco (`select _norm3('Ärger')` etc.) antes de escrever o teste.
+  it("acento FORA da lista fixa do banco (ä/ñ) é DESCARTADO, não convertido pra letra-base", () => {
+    // _norm3('Ärger') = 'RGE' no banco (Ä não traduzido, cai fora do filtro A-Za-z)
+    expect(previewNumeroOc("Ärger", "Feminino", "Vestido", false)).toBe("RGEFVE");
+    // _norm3('Ñandú') = 'AND' no banco (Ñ descartado; o 'ú' SEGUE convertido — está na lista)
+    expect(previewNumeroOc("Ñandú", "Feminino", "Vestido", false)).toBe("ANDFVE");
+  });
+
+  it("acento DENTRO da lista fixa PT-BR (ã/é) segue convertido normalmente — 'São José' = 'SAO' no banco", () => {
+    // _norm3('São José') = 'SAO' no banco (ã→a, espaço removido, José nem entra nas 3 primeiras)
+    expect(previewNumeroOc("São José", "Feminino", "Vestido", false)).toBe("SAOFVE");
+  });
 });

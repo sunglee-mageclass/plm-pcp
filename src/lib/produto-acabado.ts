@@ -12,11 +12,38 @@
 
 const DIACRITICOS = /[\u0300-\u036f]/g;
 
-/** Normaliza: remove acento, mantém só letras A-Z, maiúsculo, 3 primeiras — espelha
- *  o helper SQL `_norm3(text)` (translate + regexp_replace + substr + upper). */
+// Mapa EXATO da tabela `translate()` usada pelo SQL em `_norm3`/`_grupo_eh_acessorio`
+// (`ÁÀÂÃÉÊÍÓÔÕÚÇáàâãéêíóôõúç` → `AAAAEEIOOOUCaaaaeeiooouc`) — só essa lista fixa de
+// acentos PT-BR é convertida. Achado de review (FIX ROUND 1, Task 4): um
+// `.normalize("NFD")` genérico convertia TAMBÉM acentos fora dessa lista (ex.:
+// ä/ö/ü/ñ/ï), que o banco NÃO reconhece — esses caracteres continuam não-A-Za-z e são
+// DESCARTADOS pelo passo seguinte, não convertidos pra letra-base. Repro confirmado ao
+// vivo: `_norm3('Ärger')`='RGE' (Ä descartado) vs NFD dava 'ARG' (Ä→A, errado);
+// `_norm3('Ñandú')`='AND' (Ñ descartado) vs NFD dava 'NAN' (Ñ→N, errado).
+const TRANSLATE_ACENTOS_PT: Record<string, string> = {
+  Á: "A", À: "A", Â: "A", Ã: "A",
+  É: "E", Ê: "E",
+  Í: "I",
+  Ó: "O", Ô: "O", Õ: "O",
+  Ú: "U",
+  Ç: "C",
+  á: "a", à: "a", â: "a", ã: "a",
+  é: "e", ê: "e",
+  í: "i",
+  ó: "o", ô: "o", õ: "o",
+  ú: "u",
+  ç: "c",
+};
+
+/** Normaliza: aplica a MESMA tabela de `translate()` do SQL (só a lista fixa de acentos
+ *  PT-BR acima — acento fora dela NÃO converte, e cai fora no filtro seguinte), mantém
+ *  só letras A-Z, maiúsculo, 3 primeiras — espelha `_norm3(text)` byte-a-byte (translate
+ *  + regexp_replace + substr + upper). */
 function norm3(s: string | null | undefined): string {
-  const semAcento = (s ?? "").normalize("NFD").replace(DIACRITICOS, "");
-  const soLetras = semAcento.replace(/[^A-Za-z]/g, "");
+  const traduzido = Array.from(s ?? "")
+    .map((ch) => TRANSLATE_ACENTOS_PT[ch] ?? ch)
+    .join("");
+  const soLetras = traduzido.replace(/[^A-Za-z]/g, "");
   return soLetras.slice(0, 3).toUpperCase();
 }
 
