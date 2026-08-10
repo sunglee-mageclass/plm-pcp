@@ -218,7 +218,7 @@ describe.skipIf(!hasDb)("OC Produto Acabado — parcelas por prazo de pagamento 
     });
   });
 
-  it("editar desconto regera as NÃO-pagas; a parcela paga é preservada intacta", async () => {
+  it("editar desconto regera as NÃO-pagas DESCONTANDO o que já foi pago (Σ TODAS as parcelas === novo total — fix round 1)", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);
       const oc = await um<{ id: string }>(
@@ -241,14 +241,21 @@ describe.skipIf(!hasDb)("OC Produto Acabado — parcelas por prazo de pagamento 
         `select numero_parcela, valor, status from parcelas where oc_p_acabado_id = $1 order by numero_parcela`,
         [oc.id],
       );
+      const ocRow = await um<{ valor_total_desconto: string }>(c, `select valor_total_desconto from ocs_p_acabado where id = $1`, [oc.id]);
+
       expect(parcelas.rows).toHaveLength(3);
       expect(parcelas.rows[0].status).toBe("pago");
       expect(Number(parcelas.rows[0].valor)).toBeCloseTo(5227.2, 2); // valor ORIGINAL preservado
       expect(parcelas.rows[1].status).toBe("a_pagar");
       expect(parcelas.rows[2].status).toBe("a_pagar");
-      // novo total 198*99*0.9 = 17.641,80 — as duas não-pagas refletem o novo valor (≠ original)
-      expect(Number(parcelas.rows[1].valor)).not.toBeCloseTo(5227.2, 2);
-      expect(Number(parcelas.rows[1].valor)).toBeCloseTo(Number(parcelas.rows[2].valor), 2);
+      // novo total 198*99*0.9 = 17.641,80; restante (total − pago) = 17.641,80 − 5.227,20 =
+      // 12.414,60, dividido pelos 2 slots NÃO-pagos → 6.207,30 cada (cenário exato do review).
+      expect(Number(parcelas.rows[1].valor)).toBeCloseTo(6207.3, 2);
+      expect(Number(parcelas.rows[2].valor)).toBeCloseTo(6207.3, 2);
+
+      expect(Number(ocRow.valor_total_desconto)).toBeCloseTo(17641.8, 2);
+      const soma = parcelas.rows.reduce((acc: number, r: any) => acc + Number(r.valor), 0);
+      expect(soma).toBeCloseTo(Number(ocRow.valor_total_desconto), 2); // Σ TODAS as parcelas === total novo
     });
   });
 });
