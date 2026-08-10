@@ -274,8 +274,9 @@ function ConfiguracoesLojaPage() {
           colunas), 1 no mobile. */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 items-start">
       {/* Modo só-estoque: só Nomenclaturas + Módulos da loja. O restante (produção,
-          fuso, baixa, OC/rolo, ERP) fica escondido. */}
+          fuso, baixa, OC/rolo, ERP, Produto Acabado) fica escondido. */}
       {!isStockOnly && (<>
+      <ProdutoAcabadoToggleCard tenantId={data?.tenantId ?? null} modules={modules as Record<string, boolean>} />
       {/* Serviços (categorias), Acabamento e Grade de Tamanhos migraram p/ Cadastro > Atributos.
           A Config NÃO gerencia mais esses campos (ver exclusão no payload do save). */}
       <SortableListCard
@@ -658,6 +659,68 @@ function LeadtimeGrupo({
         })}
       </div>
     </div>
+  );
+}
+
+// Toggle do módulo opt-in `produto_acabado` (fluxo de revenda: Produto Acabado + OC P.
+// Acabado). Diferente dos 7 módulos de contratação (badges acima, só o super_admin liga em
+// Gerenciar Lojas), este é uma FEATURE que o próprio tenant_admin decide ativar — por isso
+// mora aqui, com Switch de verdade, e não em `admin/lojas.tsx` (que não tem ModuleDef
+// próprio pra ele — ver comentário em `PAGES_CATALOG`/`useTenantModules`). Escreve direto em
+// `tenant_config.modules` (upsert só a chave `produto_acabado`, preservando as demais).
+function ProdutoAcabadoToggleCard({ tenantId, modules }: { tenantId: string | null; modules: Record<string, boolean> }) {
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const on = !!modules.produto_acabado;
+
+  const toggle = async (checked: boolean) => {
+    if (!tenantId) return;
+    setBusy(true);
+    try {
+      const { data: row, error: readErr } = await supabase
+        .from("tenant_config")
+        .select("modules")
+        .eq("tenant_id", tenantId)
+        .maybeSingle();
+      if (readErr) throw readErr;
+      const nextModules = { ...(((row as any)?.modules as Record<string, boolean>) ?? {}), produto_acabado: checked };
+      const { error } = await supabase
+        .from("tenant_config")
+        .upsert({ tenant_id: tenantId, modules: nextModules } as any, { onConflict: "tenant_id" });
+      if (error) throw error;
+      toast.success(checked ? "Produto Acabado ativado." : "Produto Acabado desativado.");
+      qc.invalidateQueries({
+        predicate: (q) => {
+          const k = q.queryKey?.[0];
+          return typeof k === "string" && (k.includes("tenant") || k.includes("tamanhos"));
+        },
+      });
+    } catch (e: any) {
+      toast.error(mensagemErro(e, "Erro ao salvar"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Produto Acabado (Revenda)</CardTitle>
+        <CardDescription>
+          Comprar produto pronto em vez de produzir a partir de tecido — libera as telas
+          "Produto Acabado" (Estilo &amp; Engenharia) e "OC P. Acabado" (Entrada e Saída).
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <label className="flex min-h-11 items-center justify-between gap-3">
+          <span className="text-sm">Ativar módulo</span>
+          <Switch checked={on} disabled={busy || !tenantId} onCheckedChange={toggle} />
+        </label>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Desativar não apaga produtos/OCs já cadastrados — só esconde as telas.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 

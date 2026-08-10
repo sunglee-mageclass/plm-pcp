@@ -2,10 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { fmtNum } from "@/lib/format";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Scissors, Plus, Minus, ArrowLeft, Trash2, Printer, Lock, Check, AlertTriangle } from "lucide-react";
+import { Scissors, Plus, Minus, ArrowLeft, Trash2, Printer, Check, AlertTriangle } from "lucide-react";
 import { addDays, format as formatDate, parseISO } from "date-fns";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { empresaTemCategoria, FABRIC_TOKENS } from "@/lib/fornecedor-categoria";
 
@@ -38,6 +37,7 @@ import { OcTecidoForm } from "@/components/oc-tecido/OcTecidoForm";
 import { OcTecidoRecebimento } from "@/components/oc-tecido/OcTecidoRecebimento";
 import { MobileActionBar } from "@/components/shared/MobileActionBar";
 import { OcModalShell } from "@/components/shared/OcModalShell";
+import { OcAnchorRail, type SecaoOc } from "@/components/shared/OcAnchorRail";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { useModoOcRolo } from "@/hooks/useModoOcRolo";
@@ -584,40 +584,6 @@ function ConfirmarRecebimentoDialog({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-  );
-}
-
-// Trilho de âncoras do form (só sm:+): 5 seções numeradas; itens travados (criação)
-// mostram cadeado e não clicam.
-type SecaoOc = { id: string; n: number; label: string; locked?: boolean };
-function OcAnchorRail({ secoes, ativa, onIr }: { secoes: SecaoOc[]; ativa: string; onIr: (id: string) => void }) {
-  return (
-    <nav aria-label="Seções da OC" className="hidden w-40 shrink-0 flex-col gap-1 self-start sm:flex">
-      {secoes.map((s) =>
-        s.locked ? (
-          <span
-            key={s.id}
-            title="Disponível após salvar"
-            className="flex cursor-not-allowed select-none items-center gap-1.5 rounded-md px-3 py-2 text-sm text-muted-foreground/60"
-          >
-            <span className="tabular-nums">{s.n} ·</span> {s.label}
-            <Lock className="ml-auto h-3.5 w-3.5" />
-          </span>
-        ) : (
-          <button
-            key={s.id}
-            type="button"
-            onClick={() => onIr(s.id)}
-            className={cn(
-              "flex items-center gap-1.5 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-muted",
-              ativa === s.id ? "bg-primary/10 font-medium text-primary" : "text-muted-foreground",
-            )}
-          >
-            <span className="tabular-nums">{s.n} ·</span> {s.label}
-          </button>
-        ),
-      )}
-    </nav>
   );
 }
 

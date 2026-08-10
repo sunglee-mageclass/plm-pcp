@@ -50,6 +50,11 @@ const MODULE_DESC: Record<string, string> = {
 const MODULE_DEFAULTS: Record<string, boolean> = {
   ...Object.fromEntries(MODULE_TOGGLES.map((m) => [m.key, true])),
   otb: false, // opt-in
+  // produto_acabado não tem ModuleDef próprio no PAGES_CATALOG (é PageDef.gate dentro de
+  // criacao/entrada_saida — sem toggle nesta tela; liga-se em Config da Loja pelo próprio
+  // tenant_admin), mas precisa constar aqui p/ o payload `{...modules, cadastro:true}` do
+  // save (l.565) não sobrescrever com `true` quando a config ainda não tem a chave.
+  produto_acabado: false, // opt-in
 };
 
 function TenantLogo({ path, alt }: { path: string | null; alt: string }) {

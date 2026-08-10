@@ -33,6 +33,7 @@ export function SectionHub({ module, subtitle }: { module: string; subtitle?: st
 
   const blocks = moduleOff ? [] : (mod?.pages ?? [])
     .filter((p) => !p.soEdicao && PAGE_URLS[p.key])                        // páginas com tela de verdade
+    .filter((p) => !p.gate || isModuleEnabled(p.gate))                    // gate da PRÓPRIA página (ex.: produto_acabado)
     .filter((p) => pageInProfile(p, profile))                             // perfil da loja (full/estoque)
     .filter((p) => isAdmin || isSuperAdmin || isTenantAdmin || canView(p.key)) // permissão do usuário
     .map((p) => ({

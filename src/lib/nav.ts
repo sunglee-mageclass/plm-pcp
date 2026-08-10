@@ -6,6 +6,8 @@ import {
   Tags, Users, Building2, Layers, Scissors, Boxes, ShoppingCart, AlertTriangle, Tag, MapPin,
   Hammer, CheckCircle2, Split, Rocket, FileText, Truck, Store, type LucideIcon,
 } from "lucide-react";
+// PAGE_ICONS de produto_acabado (revenda) usa Package (planejador) e ShoppingCart (OC) —
+// mesmo ícone de OC das demais entradas de compra (paridade visual com OC Tecido/Aviamento).
 
 export const MODULE_META: Record<string, { title: string; icon: LucideIcon }> = {
   dashboard: { title: "Dashboard", icon: BarChart3 },
@@ -30,11 +32,13 @@ export const PAGE_URLS: Record<string, string> = {
   cadastro_lojas: "/cadastro/lojas",
   entrada_oc_tecido: "/entrada-saida/oc-tecido",
   entrada_alertas_tecido: "/entrada-saida/alertas-tecido",
+  entrada_oc_p_acabado: "/entrada-saida/oc-p-acabado",
   entrada_oc_aviamento: "/entrada-saida/oc-aviamento",
   entrada_oc_insumo: "/entrada-saida/oc-insumo",
   entrada_os_tecido: "/entrada-saida/os-tecido",
   entrada_os_aviamento: "/entrada-saida/os-aviamento",
   criacao_plan_tecido: "/criacao/plan-tecido",
+  criacao_produto_acabado: "/criacao/produto-acabado",
   criacao_planejamento: "/criacao/planejamento",
   criacao_desenvolvimento: "/criacao/desenvolvimento",
   producao_explosao: "/entrada-saida/explosao",
@@ -59,11 +63,13 @@ export const PAGE_ICONS: Record<string, LucideIcon> = {
   producao_explosao: Scissors,
   entrada_oc_tecido: ShoppingCart,
   entrada_alertas_tecido: AlertTriangle,
+  entrada_oc_p_acabado: ShoppingCart,
   entrada_oc_aviamento: ShoppingCart,
   entrada_oc_insumo: ShoppingCart,
   entrada_os_tecido: FileText,
   entrada_os_aviamento: FileText,
   criacao_plan_tecido: Layers,
+  criacao_produto_acabado: Package,
   criacao_planejamento: ClipboardList,
   criacao_desenvolvimento: Hammer,
   producao_terceirizados: Factory,

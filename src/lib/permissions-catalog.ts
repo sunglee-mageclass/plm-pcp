@@ -10,7 +10,11 @@ export type SectionDef = { key: PageKey; label: string };
 // esconde o "Leitor" e mostra um toggle único (ex.: aprovar/reprovar mão de obra).
 // `shortLabel`: forma curta p/ superfícies apertadas (sidebar); `description`: 1 linha de
 // CRITÉRIO DE DECISÃO exibida nos hubs de setor (SSOT — antes duplicada por rota, driftava).
-export type PageDef = { key: PageKey; label: string; shortLabel?: string; description?: string; modes?: StoreProfile[]; sections?: SectionDef[]; soEdicao?: boolean };
+// `gate`: chave de CONTRATAÇÃO (tenant_config.modules) da PRÓPRIA página — mesmo conceito
+// do `ModuleDef.gate`, mas por página dentro de um módulo já ligado (ex.: `produto_acabado`
+// dentro de `criacao`/`entrada_saida`, opt-in, sem ModuleDef próprio). Ausente = só o gate
+// do módulo vale.
+export type PageDef = { key: PageKey; label: string; shortLabel?: string; description?: string; modes?: StoreProfile[]; sections?: SectionDef[]; soEdicao?: boolean; gate?: string };
 // `gate`: chave de CONTRATAÇÃO (tenant_config.modules) usada p/ habilitar o nível. Ausente = usa o
 // próprio `module`. Permite 2 níveis de navegação (ex.: PCP e Expedição) compartilharem a MESMA flag
 // de contratação (`producao`) sem virar 2 módulos separados no banco.
@@ -47,6 +51,7 @@ export const PAGES_CATALOG: ModuleDef[] = [
       { key: "producao_explosao", label: "Explosão", description: "Baixa de estoque / envio ao corte.", modes: ["full"] },
       { key: "entrada_oc_tecido", label: "OC Tecido", description: "Ordens de compra de tecidos e recebimento." },
       { key: "entrada_alertas_tecido", label: "Alertas de Tecido", description: "CQ de tecido reprovado: trocar ou cancelar.", modes: ["full"] },
+      { key: "entrada_oc_p_acabado", label: "OC P. Acabado", description: "Ordens de compra de produto acabado (revenda) e recebimento.", modes: ["full"], gate: "produto_acabado" },
       { key: "entrada_oc_aviamento", label: "OC Aviamento", description: "Ordens de compra de aviamentos." },
       { key: "entrada_oc_insumo", label: "OC Insumo", description: "Ordens de compra de insumos.", modes: ["full"] },
       { key: "entrada_os_tecido", label: "OS Tecido", description: "Ordens de saída / baixa de tecidos.", modes: ["stock"] },
@@ -67,6 +72,7 @@ export const PAGES_CATALOG: ModuleDef[] = [
     basePath: "/criacao",
     pages: [
       { key: "criacao_plan_tecido", label: "Planejamento de Tecido", shortLabel: "Plan. Tecido", description: "Necessidade de tecido × estoque × OCs por coleção — antes de comprar." },
+      { key: "criacao_produto_acabado", label: "Produto Acabado", description: "Planeje produtos de revenda (comprar pronto) por coleção.", gate: "produto_acabado" },
       { key: "criacao_planejamento", label: "Planejamento de Produto", shortLabel: "Plan. Produto", description: "Cards em planejamento; lança quando CQ e custo estão aprovados.",
         sections: [{ key: "criacao_planejamento:custos", label: "Custos / Preço" }] },
       // Permissão-só (sem tela): "Editar" = pode aprovar/reprovar o custo de mão de obra no

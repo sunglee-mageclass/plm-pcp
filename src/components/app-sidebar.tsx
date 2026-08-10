@@ -113,13 +113,17 @@ export function AppSidebar() {
     .filter((m) =>
       isAdmin || isSuperAdmin || isTenantAdmin
         ? true
-        // Espelha o filtro dos BLOCOS do hub: página real (não-soEdicao) no perfil da loja —
-        // senão o link pousa num hub vazio (ex.: usuário só com "Aprovar mão de obra").
-        : m.pages.some((p) => !p.soEdicao && pageInProfile(p, profile) && canView(p.key)),
+        // Espelha o filtro dos BLOCOS do hub: página real (não-soEdicao), gate de página
+        // ligado, no perfil da loja — senão o link pousa num hub vazio (ex.: usuário só
+        // com "Aprovar mão de obra", ou módulo cujas páginas visíveis estão todas gateadas).
+        : m.pages.some((p) => !p.soEdicao && (!p.gate || isModuleEnabled(p.gate)) && pageInProfile(p, profile) && canView(p.key)),
     )
     .map((m) => {
       const subs = m.pages
         .filter((p) => pageInProfile(p, profile))
+        // Gate de PÁGINA (ex.: produto_acabado dentro de criacao/entrada_saida): além do
+        // gate do módulo (já filtrado acima), a própria página pode exigir outra flag.
+        .filter((p) => !p.gate || isModuleEnabled(p.gate))
         .filter((p) => PAGE_URLS[p.key] && (isAdmin || isSuperAdmin || isTenantAdmin || canView(p.key)))
         .map((p) => ({ key: p.key, label: labelFor(p.key, p.label), url: PAGE_URLS[p.key] }));
       return {
