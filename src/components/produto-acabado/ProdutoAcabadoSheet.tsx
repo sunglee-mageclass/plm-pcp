@@ -11,12 +11,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
-import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { ProdutoCard } from "./ProdutoCard";
 import { ResumoRevendaPanel } from "./ResumoRevendaPanel";
 import { NovoProdutoDialog } from "./NovoProdutoDialog";
 import {
-  chaveDirty, somaPecas, hojeISO,
+  chaveDirty, somaPecas, hojeISO, montarDadosProduto, variantesBatemComTotal, erroValidacao,
   type ProdutoDraft, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt,
 } from "./shared";
 import { DEFAULT_TAMANHOS } from "@/components/oc-p-acabado/shared";
@@ -214,13 +213,25 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     },
   });
 
-  const { dirty, markClean, reset: resetBaseline } = useDirtySnapshot((drafts ?? []).map(chaveDirty));
+  // Baseline de dirty POR PRODUTO (id → snapshot serializado dos campos de `chaveDirty`) — não
+  // é o `useDirtySnapshot` de 1 blob só. Achado no fix round 1: "Fazer pedido" já persiste o
+  // produto via `salvarUmProduto` ANTES de navegar (item 4a), mas um baseline de blob único só
+  // zera com `markClean()` do Salvar em LOTE — a navegação subsequente via `useBlocker` via
+  // `navigate()` continuava vendo `dirty=true` (achando que a Compra recém-persistida ainda
+  // estava suja) e disparava "Descartar alterações?" logo depois do toast de sucesso, uma
+  // contradição visual (dado JÁ salvo, prompt dizendo o contrário). Com baseline por produto,
+  // `salvarUmProduto` marca SÓ o produto que persistiu, sem esconder edições pendentes dos
+  // demais cards abertos ao mesmo tempo.
+  const [baseline, setBaseline] = useState<Record<string, string>>({});
+  const dirty = (drafts ?? []).some((p) => JSON.stringify(chaveDirty(p)) !== baseline[p.id]);
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose, blockNav: true, navPermitida });
+
+  const marcarProdutoLimpo = (p: ProdutoDraft) => setBaseline((b) => ({ ...b, [p.id]: JSON.stringify(chaveDirty(p)) }));
 
   useEffect(() => {
     if (produtosQuery.data && drafts === null) {
       setDrafts(produtosQuery.data);
-      resetBaseline(produtosQuery.data.map(chaveDirty));
+      setBaseline(Object.fromEntries(produtosQuery.data.map((p) => [p.id, JSON.stringify(chaveDirty(p))])));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [produtosQuery.data, drafts]);
@@ -250,47 +261,38 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
 
   const produtosDeSub = (nome: string | null) => (drafts ?? []).filter((p) => (p.subcolecao ?? null) === nome);
 
+  // Save de UM produto — fonte ÚNICA reusada pelo Salvar em lote (abaixo) E pelo "Fazer
+  // pedido" de cada card (`ProdutoCard`, que precisa persistir a Compra ANTES de gerar a OC —
+  // fix round 1 item 4). Nunca redistribui sozinho (`redistribuir:"false"` sempre, via
+  // `montarDadosProduto`) — bloqueia com mensagem clara em vez de mandar o servidor rejeitar.
+  const salvarUmProduto = async (p: ProdutoDraft) => {
+    if (!variantesBatemComTotal(p)) {
+      throw erroValidacao(
+        `A soma das variantes (${somaPecas(p)}) precisa bater com a Qtd total (${p.qtd_total}) de "${p.nome}" — use "Redistribuir por peso" ou corrija manualmente.`,
+      );
+    }
+    const { error } = await supabase.rpc("salvar_produto_acabado" as any, {
+      _id: p.id,
+      _dados: montarDadosProduto(p),
+      _variantes: p.variantes,
+    });
+    if (error) throw error;
+    marcarProdutoLimpo(p); // baseline por produto — ver comentário acima (fix round 1 item 4b)
+  };
+
   const salvarMut = useMutation({
     mutationFn: async () => {
       const lista = drafts ?? [];
-      const invalidas = lista.filter((p) => p.variantes.reduce((s, v) => s + (Number(v.qtd) || 0), 0) !== p.qtd_total);
+      const invalidas = lista.filter((p) => !variantesBatemComTotal(p));
       if (invalidas.length > 0) {
-        throw new Error(
+        throw erroValidacao(
           `A soma das variantes precisa bater com a Qtd total antes de salvar — use "Redistribuir por peso" ou corrija manualmente em: ${invalidas.map((p) => p.nome).join(", ")}.`,
         );
       }
-      await Promise.all(
-        lista.map((p) =>
-          supabase.rpc("salvar_produto_acabado" as any, {
-            _id: p.id,
-            _dados: {
-              nome: p.nome,
-              ref: p.ref,
-              grupo_id: p.grupo_id,
-              categoria_id: p.categoria_id,
-              subcategoria1_id: p.subcategoria1_id,
-              subcategoria2_id: p.subcategoria2_id,
-              colecao_id: p.colecao_id,
-              subcolecao: p.subcolecao,
-              semana: p.semana,
-              empresa_id: p.empresa_id,
-              representante_id: p.representante_id,
-              ref_fornecedor: p.ref_fornecedor || null,
-              composicao: p.composicao || null,
-              grade_proporcao: p.grade_proporcao,
-              qtd_total: p.qtd_total,
-              valor_unitario: p.valor_unitario,
-              desconto_pct: p.desconto_pct,
-              redistribuir: "false",
-            },
-            _variantes: p.variantes,
-          }).then(({ error }) => { if (error) throw error; }),
-        ),
-      );
+      await Promise.all(lista.map((p) => salvarUmProduto(p)));
     },
     onSuccess: () => {
       toast.success("Produtos salvos.");
-      markClean();
       qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar.")),
@@ -420,6 +422,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                                 tamanhos={tamanhos}
                                 colecaoNome={colecao?.nome ?? null}
                                 linhasMarkup={linhasMarkup}
+                                onSalvarProduto={salvarUmProduto}
                                 onCardCriado={(modeloId) => patchProduto(p.id, { modelo_id: modeloId, modeloPrecoVenda: null, modeloPrecoAtacado: null, modeloLinhaId: null })}
                                 onOcVinculada={(oc) => patchProduto(p.id, { oc })}
                                 onExcluido={() => removeProduto(p.id)}
@@ -471,7 +474,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
             if (!error && data) {
               const novo = rowToDraft(data);
               setDrafts((ds) => (ds ? [...ds, novo] : [novo]));
-              resetBaseline([...(drafts ?? []), novo].map(chaveDirty));
+              marcarProdutoLimpo(novo); // já veio fresco do servidor — nasce limpo
               setOpenCards((s) => new Set([...s, novo.id]));
             }
             qc.invalidateQueries({ queryKey: ["produtos-acabados"] });

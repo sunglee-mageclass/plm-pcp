@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Package } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useTenantModules } from "@/hooks/useTenantModules";
+import { useAuth } from "@/hooks/useAuth";
 import { RequirePermission } from "@/components/RequirePermission";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -52,6 +53,7 @@ const TIPO_LABEL: Record<string, string> = { orcamento: "Orçamento", poder_vend
 
 function ProdutoAcabadoListPage() {
   const { isModuleEnabled, isLoading } = useTenantModules();
+  const { isSuperAdmin } = useAuth();
   const navigate = useNavigate({ from: Route.fullPath });
   const { colecao: openColecaoId, sub: subAberta } = Route.useSearch();
 
@@ -105,10 +107,28 @@ function ProdutoAcabadoListPage() {
       </div>
     );
   }
+  // Achado EXTRA do review (fix round 1): loja com produto_acabado ON e otb OFF caía num
+  // texto cinza discreto (fácil de confundir com "tela vazia") — o planejador é 100% organizado
+  // por coleção do OTB (§2 do design), então merece o MESMO tratamento visual do módulo OFF
+  // acima. ⚠️ Sem link pra "Config da Loja" aqui de propósito: diferente de `produto_acabado`
+  // (Task 5, `ProdutoAcabadoToggleCard` — Switch de verdade), `otb` é um dos 7 módulos de
+  // CONTRATAÇÃO (badge só-leitura em `admin/configuracoes.tsx`, editável só por super_admin em
+  // `admin/lojas.tsx`) — um `tenant_admin` clicando num link pra Config da Loja só veria o
+  // mesmo badge "Inativo", sem ação nenhuma (achado ao conferir o código de `configuracoes.tsx`
+  // durante o fix). `isSuperAdmin` ganha o link de verdade; os demais veem o pedido pra loja.
   if (!isModuleEnabled("otb")) {
     return (
-      <div className="p-6 text-sm text-muted-foreground">
-        Ative o módulo OTB para organizar produtos acabados por coleção.
+      <div className="container mx-auto flex min-h-[50vh] flex-col items-center justify-center gap-2 p-6 text-center">
+        <Package className="h-10 w-10 text-muted-foreground" />
+        <h1 className="text-xl font-semibold">Módulo OTB desativado</h1>
+        <p className="max-w-md text-sm text-muted-foreground">
+          O Produto Acabado usa as coleções do OTB.{" "}
+          {isSuperAdmin ? (
+            <>Ative o módulo OTB em <Link to="/admin/lojas" className="underline underline-offset-2">Gerenciar Lojas</Link>.</>
+          ) : (
+            "Peça a um administrador da loja para ativar o módulo OTB."
+          )}
+        </p>
       </div>
     );
   }

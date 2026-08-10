@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FornecedorSelect, type EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 import { ehGrupoAcessorio, previewRefProduto } from "@/lib/produto-acabado";
-import type { Opt, CatOpt, SubOpt } from "./shared";
+import { erroValidacao, type Opt, type CatOpt, type SubOpt } from "./shared";
 
 /** "+ Novo produto" — Dialog central (§G: criar = Dialog). Sem dirty-guard: a ação "Criar"
  *  COMMITA na hora (RPC grava e a REF nasce no INSERT) — não há rascunho pra descartar,
@@ -60,8 +60,8 @@ export function NovoProdutoDialog({
 
   const criarMut = useMutation({
     mutationFn: async () => {
-      if (!nome.trim()) throw new Error("Informe o nome do produto.");
-      if (!grupoId || !categoriaId) throw new Error("Informe grupo e categoria do produto.");
+      if (!nome.trim()) throw erroValidacao("Informe o nome do produto.");
+      if (!grupoId || !categoriaId) throw erroValidacao("Informe grupo e categoria do produto.");
       const { data, error } = await supabase.rpc("salvar_produto_acabado" as any, {
         _id: null,
         _dados: {

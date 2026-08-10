@@ -367,3 +367,71 @@ describe.skipIf(!hasDb)("custo_unitario_modelos — ramo revenda (Task 4)", () =
     });
   });
 });
+
+describe.skipIf(!hasDb)("Produto Acabado — excluir_produto_acabado (Task 6 fix round 1)", () => {
+  async function novoProduto(c: any, sufixo: string) {
+    const g = await um<any>(c, `insert into grupos_produto (tenant_id, nome) values ('${TENANT_TESTE}','Grupo excluir ${sufixo}') returning id`);
+    const cat = await um<any>(c, `insert into categorias_produto (tenant_id, nome) values ('${TENANT_TESTE}','Cat excluir ${sufixo}') returning id`);
+    return um<any>(
+      c,
+      `select salvar_produto_acabado(null, $1::jsonb, $2::jsonb) as id`,
+      [
+        JSON.stringify({ nome: `Produto excluir ${sufixo}`, grupo_id: g.id, categoria_id: cat.id, qtd_total: 10, valor_unitario: 50 }),
+        JSON.stringify([{ ordem: 0, peso: 1, qtd: 10 }]),
+      ],
+    );
+  }
+
+  it("sem OC vinculada: apaga o produto; variantes somem via cascade", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const p = await novoProduto(c, "PA6Test-a");
+      const variantesAntes = await c.query(`select id from produto_acabado_variantes where produto_acabado_id = $1`, [p.id]);
+      expect(variantesAntes.rows.length).toBeGreaterThan(0);
+
+      await c.query(`select excluir_produto_acabado($1)`, [p.id]);
+
+      const depois = await c.query(`select id from produtos_acabados where id = $1`, [p.id]);
+      expect(depois.rows).toHaveLength(0);
+      const variantesDepois = await c.query(`select id from produto_acabado_variantes where produto_acabado_id = $1`, [p.id]);
+      expect(variantesDepois.rows).toHaveLength(0); // cascade
+    });
+  });
+
+  it("com OC vinculada (qualquer status) → P0001, não exclui", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const p = await novoProduto(c, "PA6Test-b");
+      await c.query(`insert into ocs_p_acabado (tenant_id, nome_produto, produto_acabado_id) values ('${TENANT_TESTE}','OC excluir PA6Test-b','${p.id}')`);
+
+      await c.query("SAVEPOINT sp_excluir_produto_com_oc");
+      await expect(c.query(`select excluir_produto_acabado($1)`, [p.id])).rejects.toThrow(/Desvincule a OC/);
+      await c.query("ROLLBACK TO SAVEPOINT sp_excluir_produto_com_oc");
+
+      const aindaExiste = await c.query(`select id from produtos_acabados where id = $1`, [p.id]);
+      expect(aindaExiste.rows).toHaveLength(1);
+    });
+  });
+
+  it("com card espelho (modelo_id) mas sem OC: apaga o produto; o modelo NÃO é apagado (vira independente)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const p = await novoProduto(c, "PA6Test-c");
+      const modelo = await um<any>(c, `select criar_card_produto_acabado($1) as id`, [p.id]);
+
+      await c.query(`select excluir_produto_acabado($1)`, [p.id]);
+
+      const produtoDepois = await c.query(`select id from produtos_acabados where id = $1`, [p.id]);
+      expect(produtoDepois.rows).toHaveLength(0);
+      const modeloDepois = await c.query(`select id from modelos where id = $1`, [modelo.id]);
+      expect(modeloDepois.rows).toHaveLength(1); // não cai — vira modelo independente
+    });
+  });
+
+  it("produto inexistente → erro (não encontrado)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await expect(c.query(`select excluir_produto_acabado('00000000-0000-0000-0000-000000000000'::uuid)`)).rejects.toThrow(/não encontrado/);
+    });
+  });
+});

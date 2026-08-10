@@ -25,6 +25,7 @@ import { varianteLabel } from "@/lib/variante";
 import { ehGrupoAcessorio, cadeiaValores } from "@/lib/produto-acabado";
 import {
   redistribuirVariantesPorPeso, gradePedidaDeVariantes, somaGradeCampo, somaPecas, hojeISO, fmtMoney,
+  variantesBatemComTotal, erroValidacao,
   type ProdutoDraft, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt, type OcVinculadaInfo,
 } from "./shared";
 
@@ -54,6 +55,7 @@ export function ProdutoCard({
   tamanhos,
   colecaoNome,
   linhasMarkup,
+  onSalvarProduto,
   onCardCriado,
   onOcVinculada,
   onExcluido,
@@ -75,6 +77,10 @@ export function ProdutoCard({
    *  = sugestão". Modelos espelho de revenda nascem SEM linha (`criar_card_produto_acabado`
    *  grava `linha_id: null`); mostra "—" até alguém setar uma linha no Plan. Produto. */
   linhasMarkup: Record<string, number>;
+  /** Save de UM produto (RPC `salvar_produto_acabado`), reusado do `ProdutoAcabadoSheet` — o
+   *  "Fazer pedido" chama isto ANTES de gerar a OC, pra nunca criar um pedido em cima de um
+   *  rascunho de Compra ainda não persistido (fix round 1 item 4a). Lança em caso de erro. */
+  onSalvarProduto: (p: ProdutoDraft) => Promise<void>;
   /** Patch local imediato (sem esperar refetch) após criar o card espelho — preserva edições
    *  não salvas de OUTROS cards (a tela não tem colab/merge — Fora de escopo, ver design spec). */
   onCardCriado: (modeloId: string) => void;
@@ -152,7 +158,11 @@ export function ProdutoCard({
 
   const excluirMut = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.from("produtos_acabados" as any).delete().eq("id", produto.id);
+      // RPC com guarda no servidor (não `.delete()` cru) — fix round 1 item 1: a guarda "só
+      // mostra Excluir se sem OC vinculada" abaixo é só a 1ª camada, redundante de propósito;
+      // a real é `_excluir_produto_acabado_core` (RAISE P0001 se existir OC vinculada,
+      // qualquer status — mesmo padrão de `excluir_oc_p_acabado`, Task 5 fix round 1).
+      const { error } = await supabase.rpc("excluir_produto_acabado" as any, { _produto_id: produto.id });
       if (error) throw error;
     },
     onSuccess: () => { toast.success("Produto excluído."); setConfirmExcluir(false); onExcluido(); invalidarVizinhos(); },
@@ -177,12 +187,21 @@ export function ProdutoCard({
 
   const fazerPedidoMut = useMutation({
     mutationFn: async () => {
+      // NUNCA redistribui silenciosamente (fix round 1 item 3) — usa as qtds ATUAIS das
+      // variantes tal como o usuário deixou; se Σ ≠ qtd_total, bloqueia com mensagem clara
+      // (ação: "Redistribuir por peso" explícito ou ajuste manual) em vez de gerar uma OC com
+      // grade inconsistente ou deixar o servidor rejeitar com um erro genérico.
+      if (!variantesBatemComTotal(produto)) {
+        throw erroValidacao(
+          `A soma das variantes (${somaPecas(produto)}) precisa bater com a Qtd total (${produto.qtd_total}) antes de fazer o pedido — use "Redistribuir por peso" ou ajuste manualmente.`,
+        );
+      }
       setFazendoPedido(true);
-      // Consistência: redistribui a qtd das variantes pela proporção de peso ANTES de gerar a
-      // OC — evita P0001 "soma da grade pedida difere da qtd total" se o usuário mudou qtd_total
-      // sem clicar em Redistribuir aqui na Compra.
-      const variantesConsistentes = redistribuirVariantesPorPeso(produto.variantes, produto.qtd_total);
-      const grade = gradePedidaDeVariantes(variantesConsistentes, produto.grade_proporcao, acessorio);
+      // Persiste a Compra ANTES de gerar a OC (fix round 1 item 4a) — sem isto, um "Fazer
+      // pedido" com rascunho sujo (ex.: qtd/valor editados sem clicar Salvar) criava a OC com
+      // os dados certos mas deixava o PRODUTO com dado velho no servidor.
+      await onSalvarProduto(produto);
+      const grade = gradePedidaDeVariantes(produto.variantes, produto.grade_proporcao, acessorio);
       const dados = {
         nome_produto: produto.nome,
         grupo_id: produto.grupo_id,
@@ -197,7 +216,7 @@ export function ProdutoCard({
         prazo_pagamento: "30",
         parcelas_entrega: 1,
         grade_proporcao: produto.grade_proporcao,
-        variantes: variantesConsistentes,
+        variantes: produto.variantes,
         qtd_total: produto.qtd_total,
         valor_unitario: produto.valor_unitario,
         desconto_pct: produto.desconto_pct,
@@ -205,13 +224,32 @@ export function ProdutoCard({
       };
       const { data: ocId, error } = await supabase.rpc("salvar_oc_p_acabado" as any, { _id: null, _dados: dados, _grade: grade });
       if (error) throw error;
-      return ocId as string;
+      // Busca a OC recém-criada (nº/status reais, gerados por trigger) pra patchear o card na
+      // hora — fix round 1 item 4b: sem isto, o card ficava mostrando "Nenhuma OC vinculada"
+      // até um reload, mesmo com a OC já criada e vinculada no servidor.
+      const { data: ocRow, error: fetchErr } = await supabase
+        .from("ocs_p_acabado" as any)
+        .select("id, numero, status, qtd_total, valor_unitario_real, grade_detalhe")
+        .eq("id", ocId)
+        .maybeSingle();
+      if (fetchErr) throw fetchErr;
+      return ocRow as unknown as { id: string; numero: string | null; status: "encomendado" | "recebido"; qtd_total: number; valor_unitario_real: number; grade_detalhe: OcVinculadaInfo["grade_detalhe"] } | null;
     },
-    onSuccess: (ocId) => {
+    onSuccess: (ocRow) => {
       toast.success("Pedido criado e vinculado.");
+      if (ocRow) {
+        onOcVinculada({
+          id: ocRow.id,
+          numero: ocRow.numero,
+          status: ocRow.status,
+          qtd_total: ocRow.qtd_total ?? 0,
+          valor_unitario_real: Number(ocRow.valor_unitario_real) || 0,
+          grade_detalhe: ocRow.grade_detalhe ?? {},
+        });
+      }
       qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
       qc.invalidateQueries({ queryKey: ["ocs_p_acabado"] });
-      navigate({ to: "/entrada-saida/oc-p-acabado", search: { oc: ocId } as any });
+      navigate({ to: "/entrada-saida/oc-p-acabado", search: { oc: ocRow?.id } as any });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao criar pedido.")),
     onSettled: () => setFazendoPedido(false),
@@ -482,10 +520,21 @@ export function ProdutoCard({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir produto?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {produto.oc
-                ? `Este produto tem a OC ${produto.oc.numero ?? ""} vinculada — desvincule antes (aba "3 · OC vinculada" → Vincular OC existente → nenhuma) para poder excluir.`
-                : "Esta ação não pode ser desfeita. O produto e suas variantes serão removidos."}
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                {produto.oc ? (
+                  <p>Este produto tem a OC {produto.oc.numero ?? ""} vinculada — desvincule antes (aba "3 · OC vinculada" → Vincular OC existente → nenhuma) para poder excluir.</p>
+                ) : (
+                  <>
+                    <p>Esta ação não pode ser desfeita. O produto e suas variantes serão removidos.</p>
+                    {produto.modelo_id && (
+                      <p className="font-medium text-amber-700 dark:text-amber-400">
+                        O card no Planejamento ({produto.ref ?? "sem REF"}) NÃO é apagado — ele continua existindo, agora como um modelo independente (sem vínculo com este produto de revenda).
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

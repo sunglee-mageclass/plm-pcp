@@ -121,6 +121,58 @@ export function hojeISO(): string {
   return format(new Date(), "yyyy-MM-dd");
 }
 
+/** `_dados` de `salvar_produto_acabado` — FONTE ÚNICA (achado do fix round 1: o Salvar em
+ *  lote da tela esquecia `qtd_total`/`valor_unitario`/`desconto_pct` no payload, e o
+ *  servidor persistia zeros sem avisar visualmente — só o reload/round-trip revelava).
+ *  Usado tanto pelo Salvar em lote (`ProdutoAcabadoSheet`) quanto pelo save-antes-do-pedido
+ *  (`ProdutoCard`, "Fazer pedido") — os dois SEMPRE mandam o mesmo shape completo. */
+export function montarDadosProduto(p: ProdutoDraft): Record<string, unknown> {
+  return {
+    nome: p.nome,
+    ref: p.ref,
+    grupo_id: p.grupo_id,
+    categoria_id: p.categoria_id,
+    subcategoria1_id: p.subcategoria1_id,
+    subcategoria2_id: p.subcategoria2_id,
+    colecao_id: p.colecao_id,
+    subcolecao: p.subcolecao,
+    semana: p.semana,
+    empresa_id: p.empresa_id,
+    representante_id: p.representante_id,
+    ref_fornecedor: p.ref_fornecedor || null,
+    composicao: p.composicao || null,
+    grade_proporcao: p.grade_proporcao,
+    qtd_total: p.qtd_total,
+    valor_unitario: p.valor_unitario,
+    desconto_pct: p.desconto_pct,
+    redistribuir: "false",
+  };
+}
+
+/** Produto tem Σ qtd das variantes batendo com a Qtd total? Mesma regra de
+ *  `_salvar_produto_acabado_core` quando `redistribuir=false` (o caminho usado pelo Salvar da
+ *  tela e pelo Fazer pedido — NUNCA redistribui silenciosamente, ver fix round 1 item 3). */
+export function variantesBatemComTotal(p: Pick<ProdutoDraft, "variantes" | "qtd_total">): boolean {
+  return somaPecas(p) === p.qtd_total;
+}
+
+/**
+ * Erro de validação CLIENT-SIDE que deve aparecer VERBATIM no toast — mesmo mecanismo que
+ * `mensagemErro` (`@/lib/erro-mensagem`) já usa pro `RAISE ... using errcode = 'P0001'` do
+ * servidor (`if (code === "P0001" && msg) return msg`). Achado no fix round 1: um
+ * `throw new Error("mensagem clara em PT")` cru não carrega `.code`, então `mensagemErro` cai
+ * na heurística `PARECE_PT` (lista fixa de palavras/acentos) — se a frase não bater nenhuma
+ * (ex.: "A soma das variantes (0) precisa bater com a Qtd total (50)..."), o toast mostra o
+ * FALLBACK genérico ("Erro ao criar pedido.") em vez da orientação real, escondendo exatamente
+ * a mensagem que o usuário precisa pra corrigir. `erroValidacao` marca o erro com
+ * `code: "P0001"` pra usar o MESMO atalho confiável do servidor, sem depender da heurística.
+ */
+export function erroValidacao(mensagem: string): Error {
+  const erro = new Error(mensagem) as Error & { code: string };
+  erro.code = "P0001";
+  return erro;
+}
+
 export function fmtMoney(v: number | null | undefined): string {
   const n = Number(v) || 0;
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
