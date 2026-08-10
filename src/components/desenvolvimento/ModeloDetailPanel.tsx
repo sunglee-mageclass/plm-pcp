@@ -1907,13 +1907,13 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     // Colab: importar dados também mexe nas coleções do BOM (rev-check-only).
     if (patch.blocks || patch.aviamentos || patch.etiquetas || patch.grades) colecoesTouchadasRef.current = true;
     if (patch.blocks !== undefined) setBlocks(patch.blocks.map((b) => recomputeBlock(b, artigoMap, varianteArtigoMap, frozenPrecos as Record<string, number>)));
-    if (patch.aviamentos !== undefined) setAviamentosState(patch.aviamentos);
-    // Recomputa o custo com o preço ATUAL do etiquetaMap ao aplicar a cópia — espelha o
-    // tratamento de `patch.blocks` (recomputeBlock, acima): `construirCopia` fica pura (não
-    // conhece preço vivo), o custo_previsto copiado é só um placeholder de staging, e este é
-    // o ponto que o corrige antes de virar estado exibido. Sem isto, "Importar dados" herdava
-    // o `custo_previsto` cru do modelo de origem (mesma classe do bug de corrida acima — ver
-    // scratchpad/bug-insumos-diagnostico.md).
+    // Recomputa o custo com o preço ATUAL do aviamentoMap/etiquetaMap ao aplicar a cópia —
+    // espelha o tratamento de `patch.blocks` (recomputeBlock, acima): `construirCopia` fica
+    // pura (não conhece preço vivo), o custo_previsto copiado é só um placeholder de staging,
+    // e este é o ponto que o corrige antes de virar estado exibido. Sem isto, "Importar dados"
+    // herdava o `custo_previsto` cru do modelo de origem (mesma classe do bug de corrida acima
+    // — ver scratchpad/bug-insumos-diagnostico.md).
+    if (patch.aviamentos !== undefined) setAviamentosState(patch.aviamentos.map((r) => recomputeAviamento(r, aviamentoMap)));
     if (patch.etiquetas !== undefined) setEtiquetasState(patch.etiquetas.map((r) => recomputeEtiqueta(r, etiquetaMap)));
     if (patch.grades !== undefined) setGrades(patch.grades);
     // Marca alterações p/ o alerta de revisão downstream (mesma semântica do editar à mão)
