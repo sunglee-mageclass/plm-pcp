@@ -821,12 +821,28 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   }, [modeloEtiquetasData]);
 
   // Quando os preços das etiquetas carregam/mudam, recalcula o custo das linhas na hora
-  // (sem reabrir e sem salvar) — preserva consumo/cor já digitados. Só roda quando o
-  // etiquetaMap muda (carga/refetch), não durante a digitação.
+  // (sem reabrir e sem salvar) — preserva consumo/cor já digitados. Roda quando o etiquetaMap
+  // MUDA e também quando modeloEtiquetasData chega (bug-fix ago/2026: as duas queries são
+  // independentes — se ["etiquetas-bom"] resolvesse ANTES de ["modelo-etiquetas", modeloId],
+  // este efeito rodava com `etiquetasState` ainda vazio [813-821] (no-op) e nunca mais
+  // re-disparava; a linha ficava presa exibindo o `custo_previsto` CRU do banco, que fica
+  // desatualizado sempre que o preço da etiqueta mudar depois do último save daquela linha —
+  // repro: scratchpad/bug-insumos-diagnostico.md). Com `modeloEtiquetasData` nas deps, os dois
+  // efeitos [813-821]/aqui disparam no mesmo commit quando ele chega, em QUALQUER ordem das
+  // duas queries; como os dois usam a forma funcional de `setEtiquetasState`, o React aplica
+  // em sequência (carrega do banco → recalcula), então este sempre vê `rows.length > 0`. Guard
+  // de no-op (só troca o array se algum custo_previsto realmente mudou) evita re-render/ciclo
+  // à toa quando o efeito dispara sem preço ter mudado de fato (ex.: refetch em segundo plano
+  // do Realtime da colab devolvendo o mesmo valor).
   useEffect(() => {
     if (Object.keys(etiquetaMap).length === 0) return;
-    setEtiquetasState((rows) => (rows.length ? rows.map((r) => recomputeEtiqueta(r, etiquetaMap)) : rows));
-  }, [etiquetaMap]);
+    setEtiquetasState((rows) => {
+      if (!rows.length) return rows;
+      const next = rows.map((r) => recomputeEtiqueta(r, etiquetaMap));
+      const mudou = next.some((r, i) => r.custo_previsto !== rows[i].custo_previsto);
+      return mudou ? next : rows;
+    });
+  }, [etiquetaMap, modeloEtiquetasData]);
 
   useEffect(() => {
     if (colecoesTouchadasRef.current) return; // colab: coleção tocada — não sobrescreve
@@ -1892,7 +1908,13 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     if (patch.blocks || patch.aviamentos || patch.etiquetas || patch.grades) colecoesTouchadasRef.current = true;
     if (patch.blocks !== undefined) setBlocks(patch.blocks.map((b) => recomputeBlock(b, artigoMap, varianteArtigoMap, frozenPrecos as Record<string, number>)));
     if (patch.aviamentos !== undefined) setAviamentosState(patch.aviamentos);
-    if (patch.etiquetas !== undefined) setEtiquetasState(patch.etiquetas);
+    // Recomputa o custo com o preço ATUAL do etiquetaMap ao aplicar a cópia — espelha o
+    // tratamento de `patch.blocks` (recomputeBlock, acima): `construirCopia` fica pura (não
+    // conhece preço vivo), o custo_previsto copiado é só um placeholder de staging, e este é
+    // o ponto que o corrige antes de virar estado exibido. Sem isto, "Importar dados" herdava
+    // o `custo_previsto` cru do modelo de origem (mesma classe do bug de corrida acima — ver
+    // scratchpad/bug-insumos-diagnostico.md).
+    if (patch.etiquetas !== undefined) setEtiquetasState(patch.etiquetas.map((r) => recomputeEtiqueta(r, etiquetaMap)));
     if (patch.grades !== undefined) setGrades(patch.grades);
     // Marca alterações p/ o alerta de revisão downstream (mesma semântica do editar à mão)
     if (patch.blocks) setConsumoAlterado(true);
