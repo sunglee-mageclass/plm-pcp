@@ -381,3 +381,70 @@ describe.skipIf(!hasDb)("OC Produto Acabado — excluir_oc_p_acabado (Task 5 fix
     });
   });
 });
+
+// Task 7/8 (front) Step 3 — Insumos/Explosão: `_estoque_etiqueta_core` calculava "baixa"
+// só a partir de `cad_etiquetas` de um `cad` com `enviado_corte=true`, que um modelo
+// revenda NUNCA seta (não passa pela Explosão/corte de tecido). Fix aditivo
+// `baixa_revenda`: consumo de insumo revenda = modelo_etiquetas.consumo × peças
+// recebidas (cad_grades.grade_total_real do cad-espelho de receber_oc_p_acabado).
+describe.skipIf(!hasDb)("estoque_etiqueta — ramo revenda (Task 7 fix)", () => {
+  it("consumo de insumo revenda entra na 'baixa' via peças recebidas, sem depender de enviado_corte", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const { produtoId, modeloId } = await criarProdutoComCard(c, "PA7Test-etq", 20);
+
+      const etq = await um<{ id: string }>(c, `insert into etiquetas (nome) values ('Etiqueta PA7Test') returning id`);
+      await c.query(
+        `insert into modelo_etiquetas (tenant_id, modelo_id, etiqueta_id, consumo, custo_previsto) values ($1,$2,$3,2,1.5)`,
+        [TENANT_TESTE, modeloId, etq.id],
+      );
+
+      // Antes de receber a OC (sem cad ainda) — nenhuma linha de baixa pra essa etiqueta.
+      const antes = await c.query(`select * from estoque_etiqueta() where etiqueta_id = $1`, [etq.id]);
+      expect(antes.rows).toHaveLength(0);
+
+      const grade = {
+        "0": { P: { pedida: 10 }, M: { pedida: 10 } },
+        "1": { P: { pedida: 10 }, M: { pedida: 10 } },
+      };
+      const oc = await um<{ id: string }>(
+        c,
+        `select salvar_oc_p_acabado(null, $1::jsonb, $2::jsonb) as id`,
+        [JSON.stringify({ nome_produto: "OC PA7Test-etq", produto_acabado_id: produtoId }), JSON.stringify(grade)],
+      );
+      const gradeRecebimento = {
+        "0": { P: { pedida: 10, recebida: 9, defeito: 1 }, M: { pedida: 10, recebida: 10, defeito: 0 } },
+        "1": { P: { pedida: 10, recebida: 10, defeito: 2 }, M: { pedida: 10, recebida: 9, defeito: 0 } },
+      };
+      await c.query(`select receber_oc_p_acabado($1, '{}'::jsonb, $2::jsonb)`, [oc.id, JSON.stringify(gradeRecebimento)]);
+
+      // Peças recebidas: var0 8+10=18, var1 8+9=17 → total 35. Consumo 2/peça → baixa = 70.
+      const depois = await um<{ baixa: string; fisico: string; tamanho: string | null }>(
+        c,
+        `select baixa, fisico, tamanho from estoque_etiqueta() where etiqueta_id = $1`,
+        [etq.id],
+      );
+      expect(Number(depois.baixa)).toBe(70);
+      expect(depois.tamanho).toBeNull();
+      expect(Number(depois.fisico)).toBe(0); // sem recebimento de OC insumo — greatest(0, 0-70)
+
+      // Modelo NÃO-revenda com o mesmo etiqueta_id não deve ganhar consumo nenhum
+      // (a nova CTE filtra origem='revenda' — sem efeito nos modelos manufaturados).
+      const outroModelo = await um<{ id: string }>(
+        c,
+        `insert into modelos (tenant_id, nome, origem) values ($1,'Manufaturado PA7Test-etq','interno') returning id`,
+        [TENANT_TESTE],
+      );
+      await c.query(
+        `insert into modelo_etiquetas (tenant_id, modelo_id, etiqueta_id, consumo, custo_previsto) values ($1,$2,$3,5,1)`,
+        [TENANT_TESTE, outroModelo.id, etq.id],
+      );
+      const depoisOutro = await um<{ baixa: string }>(
+        c,
+        `select baixa from estoque_etiqueta() where etiqueta_id = $1`,
+        [etq.id],
+      );
+      expect(Number(depoisOutro.baixa)).toBe(70); // sem mudança — modelo interno sem cad/enviado_corte não soma
+    });
+  });
+});

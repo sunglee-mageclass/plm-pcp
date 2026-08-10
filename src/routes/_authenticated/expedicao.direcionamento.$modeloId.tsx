@@ -52,7 +52,7 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
 
   const { data: modelo } = useQuery({
     queryKey: ["dir-modelo", modeloId],
-    queryFn: async () => (await (supabase.from("modelos") as any).select("id, ref, nome, colecao, subcolecao, semana, fotos_modelo, desenho_tecnico_url, croqui_url, mes:mes_id(mes), ano:ano_id(ano)").eq("id", modeloId).single()).data,
+    queryFn: async () => (await (supabase.from("modelos") as any).select("id, ref, nome, colecao, subcolecao, semana, origem, fotos_modelo, desenho_tecnico_url, croqui_url, mes:mes_id(mes), ano:ano_id(ano)").eq("id", modeloId).single()).data,
   });
 
   const { data: cad } = useQuery({
@@ -116,6 +116,21 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
       return data;
     },
   });
+  // Revenda (Produto Acabado, Task 7): modelo `origem='revenda'` não tem Tecido
+  // Principal (nunca passa por CAD/cad_tecidos) — rótulo vem do produto vinculado.
+  const { data: paVariantes } = useQuery({
+    queryKey: ["pa-variantes", modeloId],
+    enabled: (modelo as any)?.origem === "revenda",
+    queryFn: async () => {
+      const { data, error } = await (supabase.from("produtos_acabados" as any) as any)
+        .select("id, produto_acabado_variantes(ordem, cor:cor_id(nome), apelido:cor_apelido_id(nome))")
+        .eq("modelo_id", modeloId)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+
   // variante_numero (= ordem) -> "N - nome - cor - apelido" (fallback "Variante N").
   const labelByNumero = useMemo<Record<number, string>>(() => {
     const m: Record<number, string> = {};
@@ -125,8 +140,16 @@ export function DirecionamentoDetail({ modeloId, onClose, onDirtyChange }: { mod
       const lbl = varianteLabel({ nome: vt?.nome_variante, cor: vt?.cor?.nome, apelido: vt?.apelido?.nome });
       m[Number(v.ordem)] = lbl !== "—" ? `${v.ordem} - ${lbl}` : `Variante ${v.ordem}`;
     });
+    // Revenda (Task 7): sem Tecido Principal — fallback pras variantes do produto vinculado.
+    if (Object.keys(m).length === 0 && (modelo as any)?.origem === "revenda") {
+      (((paVariantes as any)?.produto_acabado_variantes ?? []) as any[]).forEach((v) => {
+        if (v.ordem == null) return;
+        const lbl = varianteLabel({ cor: v.cor?.nome, apelido: v.apelido?.nome });
+        m[Number(v.ordem)] = lbl !== "—" ? `${v.ordem} - ${lbl}` : `Variante ${v.ordem}`;
+      });
+    }
     return m;
-  }, [mainFabric]);
+  }, [mainFabric, modelo, paVariantes]);
 
   // Apenas os tamanhos presentes na Grade Real (cadastrados), na ordem do
   // tenant_config — não traz os tamanhos da config que o modelo não usa.

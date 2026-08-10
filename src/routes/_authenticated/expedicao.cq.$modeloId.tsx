@@ -113,7 +113,7 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, ref, nome, colecao, subcolecao, semana, categorias_produto:categoria_principal_id(nome), fotos_modelo, desenho_tecnico_url, croqui_url, mes:mes_id(mes), ano:ano_id(ano)")
+        .select("id, ref, nome, colecao, subcolecao, semana, origem, categorias_produto:categoria_principal_id(nome), fotos_modelo, desenho_tecnico_url, croqui_url, mes:mes_id(mes), ano:ano_id(ano)")
         .eq("id", modeloId)
         .single();
       if (error) throw error;
@@ -149,6 +149,23 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
   const { data: modeloGrades = [] } = useQuery({
     queryKey: ["cq-modelo-grades", modeloId],
     queryFn: async () => (await supabase.from("modelo_grades").select("variante_numero, grades, grade_total").eq("modelo_id", modeloId)).data ?? [],
+  });
+
+  // Revenda (Produto Acabado, Task 7): modelo `origem='revenda'` não tem Tecido Principal
+  // (nunca passa por CAD/cad_tecidos — ver receber_oc_p_acabado, Task 3) — rótulo de
+  // variante vem do produto vinculado (cor base · apelido), ordem = mesma chave usada em
+  // `modelo_grades`/`cad_grades` (`variante_numero`). 1 query, só quando origem=revenda.
+  const { data: paVariantes } = useQuery({
+    queryKey: ["pa-variantes", modeloId],
+    enabled: (modelo as any)?.origem === "revenda",
+    queryFn: async () => {
+      const { data, error } = await (supabase.from("produtos_acabados" as any) as any)
+        .select("id, produto_acabado_variantes(ordem, cor:cor_id(nome), apelido:cor_apelido_id(nome))")
+        .eq("modelo_id", modeloId)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
   });
 
   const { data: tenantCfg } = useQuery({
@@ -215,7 +232,8 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
     return [...ordered, ...extras];
   }, [modeloGrades, tenantCfg]);
 
-  // Lista de variantes a exibir (do Tecido Principal; fallback p/ grade do modelo).
+  // Lista de variantes a exibir (do Tecido Principal; revenda: do produto vinculado;
+  // fallback final p/ grade do modelo).
   const variantList = useMemo<VarInfo[]>(() => {
     const vs = (((mainFabric as any)?.cad_tecido_variantes ?? []) as any[])
       .filter((v) => v.ordem != null)
@@ -226,10 +244,22 @@ export function CqDetail({ modeloId, onClose, onForceClose, onDirtyChange }: { m
       })
       .sort((a, b) => a.num - b.num);
     if (vs.length) return vs;
+    // Revenda (Task 7): sem Tecido Principal — rótulo vem das variantes do produto
+    // acabado vinculado (cor base · apelido, na mesma ordem/chave de modelo_grades).
+    if ((modelo as any)?.origem === "revenda") {
+      const pv = (((paVariantes as any)?.produto_acabado_variantes ?? []) as any[])
+        .filter((v) => v.ordem != null)
+        .map((v) => {
+          const lbl = varianteLabel({ cor: v.cor?.nome, apelido: v.apelido?.nome });
+          return { num: Number(v.ordem), label: lbl !== "—" ? `${v.ordem} - ${lbl}` : `${v.ordem}` };
+        })
+        .sort((a, b) => a.num - b.num);
+      if (pv.length) return pv;
+    }
     return (modeloGrades as any[])
       .map((g) => ({ num: Number(g.variante_numero), label: `Variante ${g.variante_numero}` }))
       .sort((a, b) => a.num - b.num);
-  }, [mainFabric, modeloGrades]);
+  }, [mainFabric, modeloGrades, modelo, paVariantes]);
 
   const labelByNumero = useMemo(() => {
     const m: Record<number, string> = {};
