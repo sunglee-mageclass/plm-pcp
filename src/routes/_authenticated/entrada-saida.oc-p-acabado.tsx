@@ -1,0 +1,742 @@
+import { useEffect, useMemo, useState } from "react";
+import { createFileRoute } from "@tanstack/react-router";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ShoppingCart, Plus, ArrowLeft, Trash2, Check } from "lucide-react";
+import { toast } from "sonner";
+import { mensagemErro } from "@/lib/erro-mensagem";
+import { supabase } from "@/integrations/supabase/client";
+import { RequirePermission } from "@/components/RequirePermission";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Breadcrumb } from "@/components/shared/Breadcrumb";
+import { OcModalShell } from "@/components/shared/OcModalShell";
+import { OcAnchorRail, type SecaoOc } from "@/components/shared/OcAnchorRail";
+import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
+import { useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
+import { MobileActionBar } from "@/components/shared/MobileActionBar";
+import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
+import { varianteLabel } from "@/lib/variante";
+import { OcPaForm, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt, type ProdutoVinculadoInfo } from "@/components/oc-p-acabado/OcPaForm";
+import { OcPaRecebimento, type ColaboradorOpt } from "@/components/oc-p-acabado/OcPaRecebimento";
+import {
+  emptyDraft, fmtMoney, fmtDate, uploadFile, DEFAULT_TAMANHOS,
+  type Draft, type GradeDetalhe, type OcPaRow, type OcPaTab, type OcPaStatus,
+} from "@/components/oc-p-acabado/shared";
+
+export const Route = createFileRoute("/_authenticated/entrada-saida/oc-p-acabado")({
+  validateSearch: (s: Record<string, unknown>): { tab?: OcPaTab } => ({
+    tab: s.tab === "encomendado" || s.tab === "recebido" || s.tab === "estoque" ? (s.tab as OcPaTab) : undefined,
+  }),
+  // Sem ModuleGuard aqui de propósito — espelha o padrão real do OTB (outro módulo
+  // opt-in, `otb.index.tsx`): o gate de módulo é aplicado na SIDEBAR/HUB (PageDef.gate,
+  // ver app-sidebar.tsx/SectionHub.tsx) e nas RPCs (`tenant_module_enabled`); a página
+  // em si é protegida só por permissão. `ModuleGuard` tem um race real (achado em QA):
+  // `useTenantModules().isLoading` é `false` numa render intermediária ANTES do
+  // `tenantId` resolver (query fica `enabled:false` → `isPending && isFetching` dá
+  // `false` mesmo sem dado), lendo os DEFAULTS (produto_acabado:false) e redirecionando
+  // por engano numa navegação direta/F5 — reproduzido com o módulo já ligado no banco.
+  component: () => (
+    <RequirePermission page="entrada_oc_p_acabado">
+      <OcPaPage />
+    </RequirePermission>
+  ),
+});
+
+function OcPaPage() {
+  const qc = useQueryClient();
+  const search = Route.useSearch();
+  const [tab, setTab] = useState<OcPaTab>(search.tab ?? "encomendado");
+  const [openDialog, setOpenDialog] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<OcPaRow | null>(null);
+
+  const { data: ocs = [], isLoading } = useQuery({
+    queryKey: ["ocs_p_acabado", tab],
+    enabled: tab !== "estoque",
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("ocs_p_acabado" as any)
+        .select("id, numero, nome_produto, produto_acabado_id, empresa_id, data_pedido, data_prevista, data_entrega, qtd_total, valor_total_desconto, status")
+        .eq("status", tab as OcPaStatus)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as unknown as OcPaRow[];
+    },
+  });
+
+  const { data: tabCounts } = useQuery({
+    queryKey: ["ocs_p_acabado", "tab-counts"],
+    queryFn: async () => {
+      const [enc, rec] = await Promise.all([
+        supabase.from("ocs_p_acabado" as any).select("id", { count: "exact", head: true }).eq("status", "encomendado"),
+        supabase.from("ocs_p_acabado" as any).select("id", { count: "exact", head: true }).eq("status", "recebido"),
+      ]);
+      return { encomendado: enc.count ?? 0, recebido: rec.count ?? 0 };
+    },
+  });
+
+  const { data: empresas = [] } = useQuery({
+    queryKey: ["empresas-options", "produto-acabado"],
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("empresas")
+        .select("id, nome_fantasia, representantes(id, nome)")
+        .eq("tipo", "material")
+        .order("nome_fantasia");
+      if (error) throw error;
+      return (data ?? []) as { id: string; nome_fantasia: string; representantes: { id: string; nome: string | null }[] }[];
+    },
+  });
+  const empresaMap = useMemo(() => Object.fromEntries(empresas.map((e) => [e.id, e.nome_fantasia])), [empresas]);
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("ocs_p_acabado" as any).delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("OC excluída.");
+      setDeleting(null);
+      qc.invalidateQueries({ queryKey: ["ocs_p_acabado"] });
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao excluir.")),
+  });
+
+  return (
+    <div className="container mx-auto p-3 sm:p-6 space-y-6 max-sm:pb-24">
+      <header className="flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4">
+        <div className="flex min-w-0 items-start gap-3">
+          <ShoppingCart className="h-7 w-7 text-primary mt-0.5 shrink-0" />
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold truncate">OC P. Acabado</h1>
+            <p className="text-sm text-muted-foreground mt-1">Ordens de compra de produto acabado (revenda).</p>
+          </div>
+        </div>
+        <Button className="max-sm:hidden" onClick={() => { setEditingId(null); setOpenDialog(true); }}>
+          <Plus className="h-4 w-4 mr-1" /> Novo Pedido
+        </Button>
+      </header>
+
+      <Tabs value={tab} onValueChange={(v) => setTab(v as OcPaTab)}>
+        <TabsList>
+          <TabsTrigger value="encomendado">Encomendadas{tabCounts ? ` ${tabCounts.encomendado}` : ""}</TabsTrigger>
+          <TabsTrigger value="recebido">Recebidas{tabCounts ? ` ${tabCounts.recebido}` : ""}</TabsTrigger>
+          <TabsTrigger value="estoque">Estoque</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="encomendado" className="mt-4">
+          <OcPaListaTable
+            ocs={ocs}
+            empresaMap={empresaMap}
+            isLoading={isLoading}
+            emptyLabel="Nenhuma OC encomendada."
+            dataCol={{ label: "Data Prevista", get: (o) => fmtDate(o.data_prevista) }}
+            onRowClick={(id) => { setEditingId(id); setOpenDialog(true); }}
+            onDelete={(o) => setDeleting(o)}
+          />
+        </TabsContent>
+
+        <TabsContent value="recebido" className="mt-4">
+          <OcPaListaTable
+            ocs={ocs}
+            empresaMap={empresaMap}
+            isLoading={isLoading}
+            emptyLabel="Nenhuma OC recebida."
+            dataCol={{ label: "Data Entrega", get: (o) => fmtDate(o.data_entrega) }}
+            onRowClick={(id) => { setEditingId(id); setOpenDialog(true); }}
+          />
+        </TabsContent>
+
+        <TabsContent value="estoque" className="mt-4">
+          <EstoquePaTable />
+        </TabsContent>
+      </Tabs>
+
+      {openDialog && (
+        <OcPaDialog
+          ocId={editingId}
+          empresas={empresas}
+          onClose={() => { setOpenDialog(false); setEditingId(null); }}
+          onSaved={() => qc.invalidateQueries({ queryKey: ["ocs_p_acabado"] })}
+          onDelete={(oc) => { setOpenDialog(false); setEditingId(null); setDeleting(oc); }}
+        />
+      )}
+
+      <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir OC?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação não pode ser desfeita. A OC "{deleting?.numero || deleting?.nome_produto || "sem número"}" será removida.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleting && deleteMutation.mutate(deleting.id)}
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <MobileActionBar>
+        <Button className="ml-auto" onClick={() => { setEditingId(null); setOpenDialog(true); }}>
+          <Plus className="h-4 w-4 mr-1" /> Novo Pedido
+        </Button>
+      </MobileActionBar>
+    </div>
+  );
+}
+
+// ── Lista (Encomendadas/Recebidas) — mobile cards + tabela desktop ──
+function OcPaListaTable({
+  ocs, empresaMap, isLoading, emptyLabel, dataCol, onRowClick, onDelete,
+}: {
+  ocs: OcPaRow[];
+  empresaMap: Record<string, string>;
+  isLoading: boolean;
+  emptyLabel: string;
+  dataCol: { label: string; get: (o: OcPaRow) => string };
+  onRowClick: (id: string) => void;
+  onDelete?: (o: OcPaRow) => void;
+}) {
+  return (
+    <>
+      {/* Mobile: cards */}
+      <div className="space-y-2 sm:hidden">
+        {!isLoading && ocs.length === 0 && (
+          <Card className="p-6 text-center text-sm text-muted-foreground">{emptyLabel}</Card>
+        )}
+        {ocs.map((o) => (
+          <Card key={o.id} className="p-3 cursor-pointer active:bg-muted/50" onClick={() => onRowClick(o.id)}>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-medium">{o.numero ?? "—"}</span>
+              </div>
+              <div className="text-sm text-muted-foreground truncate mt-0.5">{o.nome_produto}</div>
+              <div className="text-xs text-muted-foreground truncate mt-0.5">{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</div>
+              <div className="text-xs text-muted-foreground mt-1">
+                {dataCol.label} {dataCol.get(o)} · {fmtMoney(o.valor_total_desconto)}
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      {/* Desktop: tabela */}
+      <Card className="hidden sm:block">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Nº</TableHead>
+              <TableHead>Produto</TableHead>
+              <TableHead>Fornecedor</TableHead>
+              <TableHead>{dataCol.label}</TableHead>
+              <TableHead className="text-right">Valor</TableHead>
+              <TableHead></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {!isLoading && ocs.length === 0 && (
+              <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">{emptyLabel}</TableCell></TableRow>
+            )}
+            {ocs.map((o) => (
+              <TableRow key={o.id} className="cursor-pointer" onClick={() => onRowClick(o.id)}>
+                <TableCell className="font-medium">{o.numero ?? "—"}</TableCell>
+                <TableCell className="max-w-[16rem] truncate" title={o.nome_produto}>{o.nome_produto}</TableCell>
+                <TableCell>{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</TableCell>
+                <TableCell>{dataCol.get(o)}</TableCell>
+                <TableCell className="text-right tabular-nums whitespace-nowrap">{fmtMoney(o.valor_total_desconto)}</TableCell>
+                <TableCell className="w-10 py-0 text-right">
+                  {onDelete && (
+                    <Button size="iconSm" variant="ghost" className="text-muted-foreground hover:text-destructive"
+                      onClick={(e) => { e.stopPropagation(); onDelete(o); }}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Card>
+    </>
+  );
+}
+
+// ── Estoque (estoque_p_acabado RPC) — produto × variante × real/direcionado/em mãos ──
+function EstoquePaTable() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["estoque_p_acabado"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("estoque_p_acabado" as any);
+      if (error) throw error;
+      return (data ?? {}) as Record<string, Record<string, { real: number; direcionado: number; em_maos: number }>>;
+    },
+  });
+  const produtoIds = useMemo(() => Object.keys(data ?? {}), [data]);
+
+  const { data: produtos = [] } = useQuery({
+    queryKey: ["produtos-acabados-estoque", produtoIds],
+    enabled: produtoIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("produtos_acabados" as any).select("id, nome, ref").in("id", produtoIds);
+      if (error) throw error;
+      return (data ?? []) as unknown as { id: string; nome: string; ref: string | null }[];
+    },
+  });
+  const { data: variantes = [] } = useQuery({
+    queryKey: ["produto-acabado-variantes-estoque", produtoIds],
+    enabled: produtoIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("produto_acabado_variantes" as any)
+        .select("produto_acabado_id, ordem, cor_id, cor_apelido_id, cor:cor_id(nome), apelido:cor_apelido_id(nome)")
+        .in("produto_acabado_id", produtoIds);
+      if (error) throw error;
+      return (data ?? []) as unknown as { produto_acabado_id: string; ordem: number; cor?: { nome: string | null } | null; apelido?: { nome: string | null } | null }[];
+    },
+  });
+  const produtoMap = useMemo(() => Object.fromEntries(produtos.map((p) => [p.id, p])), [produtos]);
+  const varianteMap = useMemo(() => {
+    const m: Record<string, { produto_acabado_id: string; ordem: number; cor?: { nome: string | null } | null; apelido?: { nome: string | null } | null }> = {};
+    for (const v of variantes) m[`${v.produto_acabado_id}:${v.ordem}`] = v;
+    return m;
+  }, [variantes]);
+
+  const rows = useMemo(() => {
+    const out: { produtoId: string; produtoNome: string; ref: string | null; variante: string; real: number; direcionado: number; emMaos: number }[] = [];
+    for (const [produtoId, porVariante] of Object.entries(data ?? {})) {
+      const produto = produtoMap[produtoId];
+      for (const [numero, v] of Object.entries(porVariante)) {
+        const info = varianteMap[`${produtoId}:${numero}`];
+        out.push({
+          produtoId,
+          produtoNome: produto?.nome ?? "—",
+          ref: produto?.ref ?? null,
+          variante: `${numero} · ${varianteLabel({ cor: info?.cor?.nome, apelido: info?.apelido?.nome })}`,
+          real: v.real,
+          direcionado: v.direcionado,
+          emMaos: v.em_maos,
+        });
+      }
+    }
+    return out.sort((a, b) => a.produtoNome.localeCompare(b.produtoNome, "pt-BR"));
+  }, [data, produtoMap, varianteMap]);
+
+  return (
+    <Card>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Produto</TableHead>
+            <TableHead>Variante</TableHead>
+            <TableHead className="text-right">Real</TableHead>
+            <TableHead className="text-right">Direcionado</TableHead>
+            <TableHead className="text-right">Em mãos</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {!isLoading && rows.length === 0 && (
+            <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">Nenhum produto recebido ainda.</TableCell></TableRow>
+          )}
+          {rows.map((r, i) => (
+            <TableRow key={i}>
+              <TableCell className="font-medium">{r.produtoNome}{r.ref ? <span className="text-muted-foreground"> · {r.ref}</span> : null}</TableCell>
+              <TableCell>{r.variante}</TableCell>
+              <TableCell className="text-right tabular-nums">{r.real}</TableCell>
+              <TableCell className="text-right tabular-nums">{r.direcionado}</TableCell>
+              <TableCell className="text-right tabular-nums font-semibold">{r.emMaos}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </Card>
+  );
+}
+
+// ── Sheet/Dialog de edição/criação (OcModalShell — editar=Sheet 70vw, novo=Dialog) ──
+function draftFromOc(oc: any): Draft {
+  return {
+    nome_produto: oc.nome_produto ?? "",
+    produto_acabado_id: oc.produto_acabado_id ?? null,
+    grupo_id: oc.grupo_id ?? null,
+    categoria_id: oc.categoria_id ?? null,
+    subcategoria1_id: oc.subcategoria1_id ?? null,
+    subcategoria2_id: oc.subcategoria2_id ?? null,
+    empresa_id: oc.empresa_id ?? null,
+    representante_id: oc.representante_id ?? null,
+    ref_fornecedor: oc.ref_fornecedor ?? "",
+    composicao: oc.composicao ?? "",
+    data_pedido: oc.data_pedido ?? "",
+    data_prevista: oc.data_prevista ?? "",
+    prazo_pagamento: oc.prazo_pagamento ?? "30",
+    parcelas_entrega: oc.parcelas_entrega ?? 1,
+    grade_proporcao: oc.grade_proporcao ?? {},
+    variantes: Array.isArray(oc.variantes) ? oc.variantes : [],
+    qtd_total: oc.qtd_total ?? 0,
+    valor_unitario: Number(oc.valor_unitario ?? 0),
+    desconto_pct: Number(oc.desconto_pct ?? 0),
+    data_entrega: oc.data_entrega ?? "",
+    nota_fiscal: oc.nota_fiscal ?? "",
+    responsavel_recebimento_id: oc.responsavel_recebimento_id ?? null,
+    devolucao: oc.devolucao ?? "",
+    revisao: oc.revisao ?? "",
+    anexo_pedido_url: oc.anexo_pedido_url ?? null,
+    anexo_nf_url: oc.anexo_nf_url ?? null,
+  };
+}
+
+function OcPaDialog({
+  ocId, empresas, onClose, onSaved, onDelete,
+}: {
+  ocId: string | null;
+  empresas: { id: string; nome_fantasia: string; representantes: { id: string; nome: string | null }[] }[];
+  onClose: () => void;
+  onSaved: () => void;
+  onDelete: (oc: OcPaRow) => void;
+}) {
+  const isEdit = !!ocId;
+  const qc = useQueryClient();
+  const [draft, setDraft] = useState<Draft>(emptyDraft());
+  const [grade, setGrade] = useState<GradeDetalhe>({});
+  const [status, setStatus] = useState<OcPaStatus>("encomendado");
+  const [numeroReal, setNumeroReal] = useState<string | null>(null);
+  const [secAtiva, setSecAtiva] = useState("ocpa-sec-pedido");
+  const [confirmReceber, setConfirmReceber] = useState(false);
+
+  const { dirty, markClean, reset: resetBaseline } = useDirtySnapshot({ draft, grade });
+
+  // ── Opções (taxonomia, cores, tamanhos, colaboradores) ──
+  const { data: grupos = [] } = useOpt("grupos_produto");
+  const { data: categorias = [] } = useOptCat("categorias_produto", "grupo_id");
+  const { data: subcats1 = [] } = useOptCat("subcategorias1_produto", "categoria_id");
+  const { data: subcats2 = [] } = useOptCat("subcategorias2_produto", "categoria_id");
+  const { data: cores = [] } = useOpt("cores");
+  const { data: coresApelido = [] } = useOptCat("cores_apelido", "cor_base_id");
+  const { data: colaboradores = [] } = useQuery({
+    queryKey: ["colaboradores-todos-ocpa"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("colaboradores").select("id, nome").order("nome");
+      if (error) throw error;
+      return (data ?? []) as ColaboradorOpt[];
+    },
+  });
+  const { data: tamanhos = DEFAULT_TAMANHOS } = useQuery({
+    queryKey: ["tenant-config-tamanhos-ocpa"],
+    queryFn: async () => {
+      const { data } = await supabase.rpc("get_user_tenant_id" as any);
+      if (!data) return DEFAULT_TAMANHOS;
+      const { data: cfg } = await supabase.from("tenant_config").select("tamanhos_grade").eq("tenant_id", data as string).maybeSingle();
+      const raw = (cfg as any)?.tamanhos_grade;
+      return Array.isArray(raw) && raw.length > 0 ? raw.map(String) : DEFAULT_TAMANHOS;
+    },
+  });
+
+  const { data: ocQueryData } = useQuery({
+    queryKey: ["oc-p-acabado", ocId],
+    enabled: !!ocId,
+    queryFn: async () => {
+      const { data, error } = await supabase.from("ocs_p_acabado" as any).select("*").eq("id", ocId!).maybeSingle();
+      if (error) throw error;
+      return data as any;
+    },
+  });
+
+  useEffect(() => {
+    if (!ocQueryData) return;
+    const freshDraft = draftFromOc(ocQueryData);
+    setDraft(freshDraft);
+    setGrade((ocQueryData.grade_detalhe ?? {}) as GradeDetalhe);
+    setStatus((ocQueryData.status as OcPaStatus) ?? "encomendado");
+    setNumeroReal(ocQueryData.numero ?? null);
+    resetBaseline({ draft: freshDraft, grade: (ocQueryData.grade_detalhe ?? {}) as GradeDetalhe });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ocQueryData]);
+
+  const { data: produtoVinculado } = useQuery({
+    queryKey: ["produto-acabado-vinculado", draft.produto_acabado_id],
+    enabled: !!draft.produto_acabado_id,
+    queryFn: async (): Promise<ProdutoVinculadoInfo> => {
+      const { data, error } = await supabase
+        .from("produtos_acabados" as any)
+        .select("nome, ref, empresa_id")
+        .eq("id", draft.produto_acabado_id!)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) return null;
+      const empresaId = (data as any).empresa_id as string | null;
+      const fornecedor = empresaId ? empresas.find((e) => e.id === empresaId)?.nome_fantasia ?? null : null;
+      return { nome: (data as any).nome, ref: (data as any).ref, fornecedor };
+    },
+  });
+
+  const handleUpload = async (file: File, key: "anexo_pedido_url" | "anexo_nf_url") => {
+    try {
+      const path = await uploadFile(file, key);
+      setDraft((d) => ({ ...d, [key]: path }));
+      toast.success("Arquivo enviado");
+    } catch (e: any) {
+      toast.error(mensagemErro(e));
+    }
+  };
+
+  const montarDados = () => ({
+    nome_produto: draft.nome_produto,
+    grupo_id: draft.grupo_id,
+    categoria_id: draft.categoria_id,
+    subcategoria1_id: draft.subcategoria1_id,
+    subcategoria2_id: draft.subcategoria2_id,
+    empresa_id: draft.empresa_id,
+    representante_id: draft.representante_id,
+    ref_fornecedor: draft.ref_fornecedor || null,
+    composicao: draft.composicao || null,
+    data_pedido: draft.data_pedido || null,
+    data_prevista: draft.data_prevista || null,
+    prazo_pagamento: draft.prazo_pagamento || null,
+    parcelas_entrega: draft.parcelas_entrega,
+    grade_proporcao: draft.grade_proporcao,
+    variantes: draft.variantes,
+    qtd_total: draft.qtd_total,
+    valor_unitario: draft.valor_unitario,
+    desconto_pct: draft.desconto_pct,
+    nota_fiscal: draft.nota_fiscal || null,
+    responsavel_recebimento_id: draft.responsavel_recebimento_id,
+    devolucao: draft.devolucao || null,
+    revisao: draft.revisao || null,
+    anexo_pedido_url: draft.anexo_pedido_url,
+    anexo_nf_url: draft.anexo_nf_url,
+    // produto_acabado_id só é aplicado NA CRIAÇÃO pela RPC (update não toca — decisão da
+    // Task 2, ver task-2-report.md): tudo bem mandar sempre, o servidor ignora em update.
+    produto_acabado_id: draft.produto_acabado_id,
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      if (!draft.nome_produto.trim()) throw new Error("Informe o nome do produto.");
+      const { data: savedId, error } = await supabase.rpc("salvar_oc_p_acabado" as any, {
+        _id: isEdit ? ocId : null,
+        _dados: montarDados(),
+        _grade: grade,
+      });
+      if (error) throw error;
+      return savedId as string;
+    },
+    onSuccess: (savedId) => {
+      toast.success("OC salva.");
+      markClean();
+      qc.invalidateQueries({ queryKey: ["ocs_p_acabado"] });
+      qc.invalidateQueries({ queryKey: ["oc-p-acabado", savedId] });
+      onSaved();
+      onClose();
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar")),
+  });
+
+  const receberMutation = useMutation({
+    mutationFn: async () => {
+      // Recebimento exige a OC já salva (RPC recebe id) — salva primeiro (persiste
+      // TODO o rascunho, inclusive edições de seção 2 ainda não gravadas) e então
+      // aplica a transição (materializa cad/cad_grades/CQ + parcelas — Task 3).
+      const { data: savedId, error: saveErr } = await supabase.rpc("salvar_oc_p_acabado" as any, {
+        _id: isEdit ? ocId : null,
+        _dados: montarDados(),
+        _grade: grade,
+      });
+      if (saveErr) throw saveErr;
+      // O save intermediário JÁ persistiu (savedId existe no servidor com o rascunho
+      // atual) mesmo que o passo de recebimento falhe a seguir (ex.: "Crie o card no
+      // Planejamento antes de receber") — sem isto, o selo "alterações não salvas"
+      // continuava aceso após um save que na verdade teve sucesso (achado em QA).
+      markClean();
+      qc.invalidateQueries({ queryKey: ["ocs_p_acabado"] });
+      qc.invalidateQueries({ queryKey: ["oc-p-acabado", savedId] });
+      const { error: recErr } = await supabase.rpc("receber_oc_p_acabado" as any, {
+        _oc_id: savedId,
+        _dados: {
+          data_entrega: draft.data_entrega || null,
+          nota_fiscal: draft.nota_fiscal || null,
+          responsavel_recebimento_id: draft.responsavel_recebimento_id,
+          devolucao: draft.devolucao || null,
+          revisao: draft.revisao || null,
+        },
+        _grade: grade,
+      });
+      if (recErr) throw recErr;
+      return savedId as string;
+    },
+    onSuccess: (savedId) => {
+      toast.success("OC marcada como recebida.");
+      setConfirmReceber(false);
+      markClean();
+      qc.invalidateQueries({ queryKey: ["ocs_p_acabado"] });
+      qc.invalidateQueries({ queryKey: ["oc-p-acabado", savedId] });
+      qc.invalidateQueries({ queryKey: ["estoque_p_acabado"] });
+      qc.invalidateQueries({ queryKey: ["sidebar-badges"] });
+      onSaved();
+      onClose();
+    },
+    onError: (e: any) => { setConfirmReceber(false); toast.error(mensagemErro(e, "Erro ao marcar recebido")); },
+  });
+
+  const canMarkReceived = isEdit && status === "encomendado" && !!draft.data_entrega;
+
+  const secoes: SecaoOc[] = [
+    { id: "ocpa-sec-pedido", n: 1, label: "Dados do pedido" },
+    { id: "ocpa-sec-grade", n: 2, label: "Grade & valores" },
+    { id: "ocpa-sec-anexos", n: 3, label: "Anexos" },
+    { id: "ocpa-sec-recebimento", n: 4, label: "Recebimento", locked: !isEdit },
+  ];
+  const irParaSecao = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setSecAtiva(id);
+  };
+  const onBodyScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const topo = e.currentTarget.getBoundingClientRect().top;
+    let atual = secoes[0]?.id ?? "ocpa-sec-pedido";
+    for (const s of secoes) {
+      if (s.locked) continue;
+      const el = document.getElementById(s.id);
+      if (el && el.getBoundingClientRect().top - topo <= 40) atual = s.id;
+    }
+    if (atual !== secAtiva) setSecAtiva(atual);
+  };
+
+  return (
+    <>
+      <OcModalShell isEdit={isEdit} onClose={onClose} dirty={dirty} discardMessage="Há alterações não salvas nesta OC de produto acabado.">
+        <div className="shrink-0 space-y-1">
+          <Breadcrumb items={[{ label: "Entrada e Saída" }, { label: "OC P. Acabado" }, { label: numeroReal ?? draft.nome_produto ?? "OC" }]} />
+          <DialogHeader>
+            <div className="flex items-center gap-2">
+              <DialogTitle>{isEdit ? `OC ${numeroReal ?? ""}` : "Novo Pedido"}</DialogTitle>
+              <UnsavedIndicator show={dirty} className="ml-auto shrink-0" />
+            </div>
+          </DialogHeader>
+        </div>
+
+        <div className="flex min-h-0 gap-4">
+          <OcAnchorRail secoes={secoes} ativa={secAtiva} onIr={irParaSecao} />
+          <div className="min-w-0 flex-1 space-y-6 overflow-y-auto" onScroll={onBodyScroll}>
+            <OcPaForm
+              draft={draft}
+              setDraft={setDraft}
+              grade={grade}
+              setGrade={setGrade}
+              numeroReal={numeroReal}
+              empresas={empresas}
+              grupos={grupos as Opt[]}
+              categorias={categorias as CatOpt[]}
+              subcats1={subcats1 as SubOpt[]}
+              subcats2={subcats2 as SubOpt[]}
+              cores={cores as Opt[]}
+              coresApelido={coresApelido as CorApelidoOpt[]}
+              tamanhos={tamanhos}
+              produtoVinculado={produtoVinculado ?? null}
+              handleUpload={handleUpload}
+            />
+
+            {!isEdit && (
+              <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300">
+                <span>O <b>Recebimento</b> fica disponível depois de salvar a OC (salvou → reabra e registre a chegada).</span>
+              </div>
+            )}
+
+            {isEdit && (
+              <OcPaRecebimento
+                draft={draft}
+                setDraft={setDraft}
+                grade={grade}
+                setGrade={setGrade}
+                tamanhos={tamanhos}
+                cores={cores as Opt[]}
+                coresApelido={coresApelido as CorApelidoOpt[]}
+                colaboradores={colaboradores}
+                readOnly={status === "recebido"}
+              />
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0 border-t bg-background -mx-6 -mb-6 px-6 py-3 max-md:-mx-4 max-md:-mb-4 max-md:px-4 max-md:shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">
+          <Button variant="outline" onClick={onClose} aria-label="Voltar">
+            <ArrowLeft className="h-4 w-4 md:mr-1" />
+            <span className="max-md:sr-only">Voltar</span>
+          </Button>
+          {isEdit && status === "encomendado" && (
+            <Button
+              variant="destructive"
+              aria-label="Excluir"
+              onClick={() => onDelete({ id: ocId!, numero: numeroReal, nome_produto: draft.nome_produto, produto_acabado_id: draft.produto_acabado_id, empresa_id: draft.empresa_id, data_pedido: draft.data_pedido, data_prevista: draft.data_prevista, data_entrega: draft.data_entrega, qtd_total: draft.qtd_total, valor_total_desconto: null, status })}
+            >
+              <Trash2 className="h-4 w-4 md:mr-1" />
+              <span className="max-md:sr-only">Excluir</span>
+            </Button>
+          )}
+          <div className="ml-auto flex gap-2">
+            {canMarkReceived && (
+              <Button variant="outline" onClick={() => setConfirmReceber(true)} disabled={receberMutation.isPending}>
+                Marcar Recebido
+              </Button>
+            )}
+            <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+              <Check className="h-4 w-4 mr-1" />
+              Salvar
+            </Button>
+          </div>
+        </div>
+      </OcModalShell>
+
+      <AlertDialog open={confirmReceber} onOpenChange={(o) => !o && setConfirmReceber(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Marcar como recebido?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Isto salva a OC, registra a entrada e libera o CQ/Direcionamento para este produto. A grade real vira recebida − defeito.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => receberMutation.mutate()} disabled={receberMutation.isPending}>
+              Confirmar recebimento
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
+function useOpt(table: string) {
+  return useQuery({
+    queryKey: ["opt-ocpa", table],
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const { data, error } = await supabase.from(table as any).select("id, nome").order("nome");
+      if (error) throw error;
+      return (data ?? []) as unknown as { id: string; nome: string }[];
+    },
+  });
+}
+function useOptCat(table: string, fk: string) {
+  return useQuery({
+    queryKey: ["opt-ocpa-cat", table, fk],
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const { data, error } = await supabase.from(table as any).select(`id, nome, ${fk}`).order("nome");
+      if (error) throw error;
+      return (data ?? []) as any[];
+    },
+  });
+}
