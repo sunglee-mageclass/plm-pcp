@@ -86,6 +86,7 @@ export const BADGE_CLS: Record<string, string> = {
   entrada_oc_tecido: "bg-red-600 text-white",
   entrada_oc_aviamento: "bg-red-600 text-white",
   entrada_oc_insumo: "bg-red-600 text-white",
+  entrada_oc_p_acabado: "bg-red-600 text-white",
   otb_divergencia: "bg-red-600 text-white",
   producao_terceirizados: "bg-red-600 text-white",
   producao_cq: "bg-red-600 text-white",
@@ -101,6 +102,7 @@ export function pageBadgeCounts(b?: Record<string, number>): Record<string, numb
     entrada_oc_tecido: n("oc_tecido_atrasada"),
     entrada_oc_aviamento: n("oc_aviamento_atrasada"),
     entrada_oc_insumo: n("oc_etiqueta_atrasada"),
+    entrada_oc_p_acabado: n("oc_p_acabado_atrasada"),
     otb_divergencia: n("otb_divergencia"),
     producao_terceirizados: n("erro_terceirizados"),
     producao_cq: n("erro_cq"),
@@ -117,7 +119,8 @@ export function badgeViva(key: string, n: number): string | null {
     case "entrada_alertas_tecido": return `${n} alerta${um ? "" : "s"} pendente${um ? "" : "s"}`;
     case "entrada_oc_tecido":
     case "entrada_oc_aviamento":
-    case "entrada_oc_insumo": return `${n} OC${um ? "" : "s"} atrasada${um ? "" : "s"}`;
+    case "entrada_oc_insumo":
+    case "entrada_oc_p_acabado": return `${n} OC${um ? "" : "s"} atrasada${um ? "" : "s"}`;
     case "producao_cq": return `${n} erro${um ? "" : "s"} de CQ`;
     case "producao_direcionamento": return `${n} erro${um ? "" : "s"} de direcionamento`;
     case "producao_terceirizados": return `${n} erro${um ? "" : "s"} em serviços`;

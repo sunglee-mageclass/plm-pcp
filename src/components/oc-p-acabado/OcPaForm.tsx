@@ -1,4 +1,5 @@
-import { Plus, Trash2, RefreshCw } from "lucide-react";
+import { useState } from "react";
+import { Plus, Trash2, RefreshCw, Search, X, ImageOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,11 +11,13 @@ import { FornecedorSelect, type EmpresaFornecedor } from "@/components/shared/Fo
 import { FileField } from "@/components/oc-tecido/FileField";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { OcSecTitle } from "@/components/oc-tecido/OcTecidoForm";
+import { useSignedUrl } from "@/hooks/useSignedUrl";
 import { ehGrupoAcessorio, cadeiaValores, previewNumeroOc } from "@/lib/produto-acabado";
 import { varianteLabel } from "@/lib/variante";
 import { GradeDestrinchada } from "./GradeDestrinchada";
+import { ProdutoAcabadoPicker, type ProdutoAcabadoSelecionado } from "./ProdutoAcabadoPicker";
 import {
-  redistribuirPedida, redistribuirVariantesPorPeso, fmtMoney, TAM_ACESSORIO,
+  redistribuirPedida, redistribuirVariantesPorPeso, contarParcelasPrazo, fmtMoney, TAM_ACESSORIO,
   type Draft, type GradeDetalhe, type VarianteDraft,
 } from "./shared";
 
@@ -47,7 +50,6 @@ export type ProdutoVinculadoInfo = { nome: string; ref: string | null; fornecedo
 export function OcPaForm({
   draft, setDraft,
   grade, setGrade,
-  numeroReal,
   empresas,
   grupos, categorias, subcats1, subcats2,
   cores, coresApelido,
@@ -55,12 +57,13 @@ export function OcPaForm({
   produtoVinculado,
   handleUpload,
   disabled = false,
+  isEdit = false,
+  valoresTravados = false,
 }: {
   draft: Draft;
   setDraft: React.Dispatch<React.SetStateAction<Draft>>;
   grade: GradeDetalhe;
   setGrade: React.Dispatch<React.SetStateAction<GradeDetalhe>>;
-  numeroReal: string | null; // OC existente: número real gerado pelo trigger; null = ainda não salvou
   empresas: EmpresaFornecedor[];
   grupos: Opt[];
   categorias: CatOpt[];
@@ -72,7 +75,56 @@ export function OcPaForm({
   produtoVinculado: ProdutoVinculadoInfo;
   handleUpload: (file: File, key: "anexo_pedido_url" | "anexo_nf_url") => void;
   disabled?: boolean;
+  // Item 3 (refino onda 2): o seletor de produto existente só faz sentido pra OC NOVA —
+  // `produto_acabado_id` só é aplicado no INSERT pela RPC (update não toca, comentário
+  // em `montarDados` no route file), então picker em modo edição vincularia visualmente
+  // sem nenhum efeito real no servidor. `!isEdit` decide a UI (nome vira picker); sem
+  // isso o form não sabe se está criando ou editando.
+  isEdit?: boolean;
+  // Item 4: OC 'recebido' — valor unitário/desconto/qtd pedida (+ grade "pedida", campo
+  // section 2) ficam read-only na UI, espelhando a guarda do servidor (P0001, migração
+  // 20260811150000). NÃO afeta o resto do form (nome/categorias/fornecedor/datas/prazo/
+  // anexos seguem editáveis) — só os campos de $/qtd pedida.
+  valoresTravados?: boolean;
 }) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  // Foto do produto escolhido no picker (item 3) — estado local só de exibição (não vai
+  // pro payload de save): capturada no momento da seleção, junto do path de storage
+  // devolvido pela query do picker. Some ao trocar/desvincular ou ao reabrir a OC do
+  // zero (o InfoStrip de "Produto vinculado" abaixo já cobre a exibição pós-reload).
+  const [fotoProdutoSelecionado, setFotoProdutoSelecionado] = useState<string | null>(null);
+  const fotoProdutoUrl = useSignedUrl(fotoProdutoSelecionado, "modelos");
+
+  const selecionarProduto = (p: ProdutoAcabadoSelecionado) => {
+    setDraft((d) => ({
+      ...d,
+      produto_acabado_id: p.id,
+      nome_produto: p.nome,
+      grupo_id: p.grupo_id,
+      categoria_id: p.categoria_id,
+      subcategoria1_id: p.subcategoria1_id,
+      subcategoria2_id: p.subcategoria2_id,
+      empresa_id: p.empresa_id,
+      representante_id: p.representante_id,
+      ref_fornecedor: p.ref_fornecedor ?? "",
+      composicao: p.composicao ?? "",
+      grade_proporcao: p.grade_proporcao,
+      variantes: p.variantes,
+      qtd_total: p.qtd_total,
+      valor_unitario: p.valor_unitario,
+      desconto_pct: p.desconto_pct,
+    }));
+    // Grade "pedida" anterior referenciava outras variantes/ordens — reinicia limpa (o
+    // usuário preenche/"Redistribui por peso" em cima das variantes recém-carregadas,
+    // igual a uma OC avulsa nova).
+    setGrade({});
+    setFotoProdutoSelecionado(p.fotoPath);
+    setPickerOpen(false);
+  };
+  const desvincularProduto = () => {
+    setDraft((d) => ({ ...d, produto_acabado_id: null }));
+    setFotoProdutoSelecionado(null);
+  };
   const grupoNome = grupos.find((g) => g.id === draft.grupo_id)?.nome ?? "";
   const categoriaNome = categorias.find((c) => c.id === draft.categoria_id)?.nome ?? "";
   const acessorio = ehGrupoAcessorio(grupoNome);
@@ -120,8 +172,40 @@ export function OcPaForm({
         <OcSecTitle n={1}>Dados do pedido</OcSecTitle>
         <div className="grid sm:grid-cols-2 gap-4">
           <div className="sm:col-span-2 grid gap-1">
-            <Label>Nome do produto *</Label>
-            <Input value={draft.nome_produto} disabled={disabled} onChange={(e) => setDraft((d) => ({ ...d, nome_produto: e.target.value }))} />
+            <div className="flex items-center justify-between">
+              <Label>Nome do produto *</Label>
+              {/* Item 3: só faz sentido pra OC NOVA sem produto ainda escolhido — editar
+                  não vincula (a RPC ignora produto_acabado_id no update) e um produto já
+                  escolhido mostra o chip abaixo em vez do link. */}
+              {!isEdit && !disabled && !draft.produto_acabado_id && (
+                <Button type="button" variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => setPickerOpen(true)}>
+                  <Search className="h-3 w-3 mr-1" /> Selecionar produto existente
+                </Button>
+              )}
+            </div>
+            {!isEdit && draft.produto_acabado_id ? (
+              <div className="flex items-center gap-2 rounded-md border p-2">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded border bg-muted/40">
+                  {fotoProdutoUrl ? (
+                    <img src={fotoProdutoUrl} alt={draft.nome_produto} className="h-full w-full object-cover" />
+                  ) : (
+                    <ImageOff className="h-4 w-4 text-muted-foreground" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{draft.nome_produto || "—"}</p>
+                  <p className="truncate text-xs text-muted-foreground">Produto existente vinculado</p>
+                </div>
+                <Button type="button" size="iconSm" variant="ghost" aria-label="Desvincular produto" title="Desvincular — digitar novo nome" onClick={desvincularProduto} disabled={disabled}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : (
+              <Input value={draft.nome_produto} disabled={disabled} onChange={(e) => setDraft((d) => ({ ...d, nome_produto: e.target.value }))} />
+            )}
+            {!isEdit && (
+              <ProdutoAcabadoPicker open={pickerOpen} onOpenChange={setPickerOpen} onSelect={selecionarProduto} />
+            )}
           </div>
 
           <CatSelect label="Grupo" value={draft.grupo_id} disabled={disabled} options={grupos}
@@ -157,7 +241,20 @@ export function OcPaForm({
 
           <div className="grid gap-1">
             <Label>Nº do pedido</Label>
-            <Input readOnly disabled value={numeroReal ?? `Prévia: ${numeroPreview || "—"}-NNNNN (sequencial ao salvar)`} className="text-muted-foreground" />
+            {/* Item 1: EDITÁVEL — a trigger `fn_oc_p_acabado_numero` só gera quando vazio
+                (guard `if new.numero is not null and new.numero <> ''`); em branco = gera
+                ao criar (ou mantém o valor atual ao editar, RPC 20260811160000). */}
+            <Input
+              value={draft.numero}
+              disabled={disabled}
+              placeholder="Automático se vazio"
+              onChange={(e) => setDraft((d) => ({ ...d, numero: e.target.value }))}
+            />
+            <p className="text-xs text-muted-foreground">
+              {isEdit
+                ? "Deixe em branco para manter o número atual."
+                : `Gerado automaticamente ao criar (formato ${numeroPreview || "SIGLA"}-NNNNN) se deixado em branco.`}
+            </p>
           </div>
           <div className="grid gap-1">
             <Label>Composição</Label>
@@ -173,15 +270,21 @@ export function OcPaForm({
             <DateField value={draft.data_prevista} disabled={disabled} onChange={(e) => setDraft((d) => ({ ...d, data_prevista: e.target.value }))} />
           </div>
 
+          {/* Item 2: prazo digitado → nº de parcelas a pagar DERIVADO ao lado (mesmo
+              formato da OC Tecido, `OcTecidoForm.tsx` — campo "Parcelas a pagar
+              (derivado)" readOnly; parser próprio da OC P. Acabado — `contarParcelasPrazo`
+              espelha o trigger `gerar_parcelas_oc_p_acabado`, que só reconhece "/"). */}
           <div className="grid gap-1">
             <Label>Prazo de pagamento</Label>
             <Input placeholder="Ex: 30/60/90" value={draft.prazo_pagamento} disabled={disabled}
-              onChange={(e) => setDraft((d) => ({ ...d, prazo_pagamento: e.target.value }))} />
+              onChange={(e) => {
+                const v = e.target.value;
+                setDraft((d) => ({ ...d, prazo_pagamento: v, parcelas_entrega: contarParcelasPrazo(v) }));
+              }} />
           </div>
           <div className="grid gap-1">
-            <Label>Parcelas de entrega</Label>
-            <NumberInput type="number" integer min={1} max={24} value={draft.parcelas_entrega} disabled={disabled}
-              onChange={(e) => setDraft((d) => ({ ...d, parcelas_entrega: Math.max(1, Math.trunc(Number(e.target.value)) || 1) }))} />
+            <Label>Parcelas a pagar (derivado)</Label>
+            <NumberInput type="number" integer value={draft.parcelas_entrega} readOnly disabled />
           </div>
         </div>
 
@@ -201,13 +304,22 @@ export function OcPaForm({
         <OcSecTitle
           n={2}
           right={
-            <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={redistribuirTudo}>
+            // Item 4: desabilitado quando travado — o botão só reescreve qtd/pedida, os
+            // dois campos congelados; deixá-lo ativo levaria a um Salvar que falha (P0001)
+            // sem nenhum sinal visual do porquê.
+            <Button type="button" variant="outline" size="sm" disabled={disabled || valoresTravados} onClick={redistribuirTudo}>
               <RefreshCw className="h-3.5 w-3.5 mr-1" /> Redistribuir por peso
             </Button>
           }
         >
           Grade, variantes &amp; valores
         </OcSecTitle>
+
+        {valoresTravados && (
+          <p className="text-xs text-muted-foreground">
+            OC recebida — qtd total, valor unitário, desconto e a grade pedida ficam travados (desfaça o recebimento pra alterar).
+          </p>
+        )}
 
         {!acessorio && (
           <div className="space-y-1.5">
@@ -280,15 +392,15 @@ export function OcPaForm({
         <div className="max-w-sm space-y-2 rounded-md border p-3">
           <div className="flex items-center gap-3">
             <Label className="w-[150px] shrink-0 text-sm">Qtd total</Label>
-            <NumberInput integer disabled={disabled} className="flex-1" value={draft.qtd_total} onChange={(e) => setDraft((d) => ({ ...d, qtd_total: Math.max(0, Math.trunc(Number(e.target.value)) || 0) }))} />
+            <NumberInput integer disabled={disabled || valoresTravados} className="flex-1" value={draft.qtd_total} onChange={(e) => setDraft((d) => ({ ...d, qtd_total: Math.max(0, Math.trunc(Number(e.target.value)) || 0) }))} />
           </div>
           <div className="flex items-center gap-3">
             <Label className="w-[150px] shrink-0 text-sm">Valor unitário</Label>
-            <MoneyInput disabled={disabled} className="flex-1" value={draft.valor_unitario} onChange={(e) => setDraft((d) => ({ ...d, valor_unitario: Number(e.target.value) || 0 }))} />
+            <MoneyInput disabled={disabled || valoresTravados} className="flex-1" value={draft.valor_unitario} onChange={(e) => setDraft((d) => ({ ...d, valor_unitario: Number(e.target.value) || 0 }))} />
           </div>
           <div className="flex items-center gap-3">
             <Label className="w-[150px] shrink-0 text-sm">Desconto (%)</Label>
-            <NumberInput disabled={disabled} className="flex-1" value={draft.desconto_pct} onChange={(e) => setDraft((d) => ({ ...d, desconto_pct: Math.max(0, Number(e.target.value) || 0) }))} />
+            <NumberInput disabled={disabled || valoresTravados} className="flex-1" value={draft.desconto_pct} onChange={(e) => setDraft((d) => ({ ...d, desconto_pct: Math.max(0, Number(e.target.value) || 0) }))} />
           </div>
         </div>
 
@@ -309,7 +421,7 @@ export function OcPaForm({
             campo="pedida"
             onChange={setGrade}
             labelFor={(ordem) => labelVarianteRow(draft.variantes.find((v) => v.ordem === ordem)!)}
-            disabled={disabled}
+            disabled={disabled || valoresTravados}
           />
         </div>
       </section>

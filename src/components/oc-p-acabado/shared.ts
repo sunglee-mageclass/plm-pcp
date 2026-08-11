@@ -45,6 +45,10 @@ export type OcPaRow = {
 };
 
 export type Draft = {
+  // Refino onda 2, item 1: campo EDITÁVEL — a trigger `fn_oc_p_acabado_numero` só gera
+  // quando vazio (`new.numero is null or ''`); "" aqui vira NULL no payload (auto-gera
+  // ao criar / mantém o valor atual ao editar), preenchido bypassa a geração.
+  numero: string;
   nome_produto: string;
   produto_acabado_id: string | null;
   grupo_id: string | null;
@@ -76,6 +80,7 @@ export type Draft = {
 
 export function emptyDraft(): Draft {
   return {
+    numero: "",
     nome_produto: "",
     produto_acabado_id: null,
     grupo_id: null,
@@ -112,6 +117,22 @@ export function redistribuirVariantesPorPeso(variantes: VarianteDraft[], qtdTota
   const pesos = Object.fromEntries(variantes.map((v) => [String(v.ordem), v.peso]));
   const split = splitMaiorResto(qtdTotal, pesos);
   return variantes.map((v) => ({ ...v, qtd: split[String(v.ordem)] ?? 0 }));
+}
+
+/** Nº de parcelas a pagar DERIVADO do prazo de pagamento digitado — espelha
+ *  BYTE-A-BYTE o parsing do trigger `gerar_parcelas_oc_p_acabado` (banco):
+ *    `unnest(string_to_array(coalesce(prazo_pagamento,'30'), '/')) where t ~ '^[0-9]+$'`
+ *  — separa só por "/", SEM trim (um token com espaço, ex. " 60", falha o regex ancorado
+ *  igual no banco — NÃO tolerar espaço aqui seria uma divergência silenciosa do preview),
+ *  cai em 1 quando nenhum token válido (mesmo fallback `array[30]` do trigger) e limita a
+ *  24 (`least(array_length,24)`). Refino onda 2, item 2 — mostra a contagem ao lado do
+ *  campo "Prazo de pagamento" (mesmo formato da OC Tecido, que deriva `quantidade_
+ *  prazos`), mas com o parser PRÓPRIO da OC P. Acabado (o trigger daqui só reconhece "/"
+ *  como separador — não vírgula/traço/espaço como o de tecido). */
+export function contarParcelasPrazo(prazoPagamento: string): number {
+  const tokens = (prazoPagamento ?? "").split("/").filter((t) => /^[0-9]+$/.test(t));
+  const n = tokens.length > 0 ? tokens.length : 1;
+  return Math.min(n, 24);
 }
 
 /** Soma de uma célula da grade num campo específico, por todas as chaves de tamanho. */

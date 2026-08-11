@@ -28,9 +28,11 @@ import { erroValidacao } from "@/components/produto-acabado/shared";
 import { OcPaForm, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt, type ProdutoVinculadoInfo } from "@/components/oc-p-acabado/OcPaForm";
 import { OcPaRecebimento, type ColaboradorOpt } from "@/components/oc-p-acabado/OcPaRecebimento";
 import {
-  emptyDraft, fmtMoney, fmtDate, uploadFile, DEFAULT_TAMANHOS, TAM_ACESSORIO,
+  emptyDraft, fmtMoney, fmtDate, uploadFile, contarParcelasPrazo, DEFAULT_TAMANHOS, TAM_ACESSORIO,
   type Draft, type GradeDetalhe, type OcPaRow, type OcPaTab, type OcPaStatus,
 } from "@/components/oc-p-acabado/shared";
+import { OcPrazoBadge } from "@/components/shared/oc-prazo-badge";
+import { AtrasadasBadge } from "@/components/shared/AtrasadasBadge";
 
 export const Route = createFileRoute("/_authenticated/entrada-saida/oc-p-acabado")({
   validateSearch: (s: Record<string, unknown>): { tab?: OcPaTab; oc?: string } => ({
@@ -65,7 +67,11 @@ function OcPaPage() {
   // final, NÃO resolvido aqui — isto só evita mostrar a lista/form quando dá pra saber que
   // está desligado.
   const { isModuleEnabled, isLoading: modulesLoading } = useTenantModules();
-  const [tab, setTab] = useState<OcPaTab>(search.tab ?? "encomendado");
+  // Item 5 (refino onda 2): default "recebido" — espelha OC Aviamento/OC Insumo
+  // (`entrada-saida.oc-aviamento.tsx`/`entrada-saida.oc-insumo.tsx`, ambas abrem em
+  // "recebido"); a ordem das abas na UI abaixo também virou Recebidas · Encomendadas ·
+  // Estoque, pedido explícito do dono.
+  const [tab, setTab] = useState<OcPaTab>(search.tab ?? "recebido");
   const [openDialog, setOpenDialog] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<OcPaRow | null>(null);
@@ -164,24 +170,17 @@ function OcPaPage() {
         </Button>
       </header>
 
+      {/* Item 5 (refino onda 2): ordem Recebidas · Encomendadas · Estoque (pedido explícito
+          do dono) — espelha a ordem já usada em OC Aviamento/OC Insumo. */}
       <Tabs value={tab} onValueChange={(v) => setTab(v as OcPaTab)}>
         <TabsList>
-          <TabsTrigger value="encomendado">Encomendadas{tabCounts ? ` ${tabCounts.encomendado}` : ""}</TabsTrigger>
           <TabsTrigger value="recebido">Recebidas{tabCounts ? ` ${tabCounts.recebido}` : ""}</TabsTrigger>
+          <TabsTrigger value="encomendado" className="relative">
+            Encomendadas{tabCounts ? ` ${tabCounts.encomendado}` : ""}
+            <AtrasadasBadge chave="oc_p_acabado_atrasada" />
+          </TabsTrigger>
           <TabsTrigger value="estoque">Estoque</TabsTrigger>
         </TabsList>
-
-        <TabsContent value="encomendado" className="mt-4">
-          <OcPaListaTable
-            ocs={ocs}
-            empresaMap={empresaMap}
-            isLoading={isLoading}
-            emptyLabel="Nenhuma OC encomendada."
-            dataCol={{ label: "Data Prevista", get: (o) => fmtDate(o.data_prevista) }}
-            onRowClick={(id) => { setEditingId(id); setOpenDialog(true); }}
-            onDelete={(o) => setDeleting(o)}
-          />
-        </TabsContent>
 
         <TabsContent value="recebido" className="mt-4">
           <OcPaListaTable
@@ -189,8 +188,22 @@ function OcPaPage() {
             empresaMap={empresaMap}
             isLoading={isLoading}
             emptyLabel="Nenhuma OC recebida."
+            status="recebido"
             dataCol={{ label: "Data Entrega", get: (o) => fmtDate(o.data_entrega) }}
             onRowClick={(id) => { setEditingId(id); setOpenDialog(true); }}
+          />
+        </TabsContent>
+
+        <TabsContent value="encomendado" className="mt-4">
+          <OcPaListaTable
+            ocs={ocs}
+            empresaMap={empresaMap}
+            isLoading={isLoading}
+            emptyLabel="Nenhuma OC encomendada."
+            status="encomendado"
+            dataCol={{ label: "Data Prevista", get: (o) => fmtDate(o.data_prevista) }}
+            onRowClick={(id) => { setEditingId(id); setOpenDialog(true); }}
+            onDelete={(o) => setDeleting(o)}
           />
         </TabsContent>
 
@@ -251,12 +264,17 @@ function OcPaPage() {
 
 // ── Lista (Encomendadas/Recebidas) — mobile cards + tabela desktop ──
 function OcPaListaTable({
-  ocs, empresaMap, isLoading, emptyLabel, dataCol, onRowClick, onDelete,
+  ocs, empresaMap, isLoading, emptyLabel, status, dataCol, onRowClick, onDelete,
 }: {
   ocs: OcPaRow[];
   empresaMap: Record<string, string>;
   isLoading: boolean;
   emptyLabel: string;
+  // Item 6a (refino onda 2): status da ABA (não da linha — todas as linhas aqui têm o
+  // mesmo `status` de OcPaRow) — alimenta o chip de prazo (`OcPrazoBadge`, mesmo
+  // componente compartilhado por OC Tecido/Aviamento/Insumo): atrasada (encomendado +
+  // hoje > prevista) / adiantada (recebido + entrega < prevista) / no prazo.
+  status: OcPaStatus;
   dataCol: { label: string; get: (o: OcPaRow) => string };
   onRowClick: (id: string) => void;
   onDelete?: (o: OcPaRow) => void;
@@ -273,6 +291,7 @@ function OcPaListaTable({
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-medium">{o.numero ?? "—"}</span>
+                <OcPrazoBadge dataPrevista={o.data_prevista} dataEntrega={o.data_entrega} status={status} />
               </div>
               <div className="text-sm text-muted-foreground truncate mt-0.5">{o.nome_produto}</div>
               <div className="text-xs text-muted-foreground truncate mt-0.5">{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</div>
@@ -293,13 +312,14 @@ function OcPaListaTable({
               <TableHead>Produto</TableHead>
               <TableHead>Fornecedor</TableHead>
               <TableHead>{dataCol.label}</TableHead>
+              <TableHead>Prazo</TableHead>
               <TableHead className="text-right">Valor</TableHead>
               <TableHead></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {!isLoading && ocs.length === 0 && (
-              <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">{emptyLabel}</TableCell></TableRow>
+              <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">{emptyLabel}</TableCell></TableRow>
             )}
             {ocs.map((o) => (
               <TableRow key={o.id} className="cursor-pointer" onClick={() => onRowClick(o.id)}>
@@ -307,6 +327,7 @@ function OcPaListaTable({
                 <TableCell className="max-w-[16rem] truncate" title={o.nome_produto}>{o.nome_produto}</TableCell>
                 <TableCell>{o.empresa_id ? empresaMap[o.empresa_id] ?? "—" : "—"}</TableCell>
                 <TableCell>{dataCol.get(o)}</TableCell>
+                <TableCell><OcPrazoBadge dataPrevista={o.data_prevista} dataEntrega={o.data_entrega} status={status} /></TableCell>
                 <TableCell className="text-right tabular-nums whitespace-nowrap">{fmtMoney(o.valor_total_desconto)}</TableCell>
                 <TableCell className="w-10 py-0 text-right">
                   {onDelete && (
@@ -419,6 +440,7 @@ function EstoquePaTable() {
 // ── Sheet/Dialog de edição/criação (OcModalShell — editar=Sheet 70vw, novo=Dialog) ──
 function draftFromOc(oc: any): Draft {
   return {
+    numero: oc.numero ?? "",
     nome_produto: oc.nome_produto ?? "",
     produto_acabado_id: oc.produto_acabado_id ?? null,
     grupo_id: oc.grupo_id ?? null,
@@ -432,7 +454,10 @@ function draftFromOc(oc: any): Draft {
     data_pedido: oc.data_pedido ?? "",
     data_prevista: oc.data_prevista ?? "",
     prazo_pagamento: oc.prazo_pagamento ?? "30",
-    parcelas_entrega: oc.parcelas_entrega ?? 1,
+    // Item 2: SEMPRE derivado do prazo_pagamento (nunca confia no valor persistido, que
+    // pode ser de antes desta mudança/editado fora do fluxo) — mesma fonte que o
+    // onChange do campo usa ao vivo (contarParcelasPrazo, espelha o trigger do banco).
+    parcelas_entrega: contarParcelasPrazo(oc.prazo_pagamento ?? "30"),
     grade_proporcao: oc.grade_proporcao ?? {},
     variantes: Array.isArray(oc.variantes) ? oc.variantes : [],
     qtd_total: oc.qtd_total ?? 0,
@@ -552,6 +577,9 @@ function OcPaDialog({
   };
 
   const montarDados = () => ({
+    // Item 1: "" vira NULL no servidor (nullif) — auto-gera ao criar / mantém o valor
+    // atual ao editar; preenchido bypassa a geração (trigger só gera quando vazio).
+    numero: draft.numero || null,
     nome_produto: draft.nome_produto,
     grupo_id: draft.grupo_id,
     categoria_id: draft.categoria_id,
@@ -693,7 +721,6 @@ function OcPaDialog({
               setDraft={setDraft}
               grade={grade}
               setGrade={setGrade}
-              numeroReal={numeroReal}
               empresas={empresas}
               grupos={grupos as Opt[]}
               categorias={categorias as CatOpt[]}
@@ -704,6 +731,11 @@ function OcPaDialog({
               tamanhos={tamanhos}
               produtoVinculado={produtoVinculado ?? null}
               handleUpload={handleUpload}
+              isEdit={isEdit}
+              // Item 4: preço congela ao receber (paridade com a decisão do dono p/
+              // tecido) — o servidor já rejeita (P0001, migração 20260811150000); isto
+              // só evita o usuário digitar pra descobrir na hora do Salvar.
+              valoresTravados={status === "recebido"}
             />
 
             {!isEdit && (
