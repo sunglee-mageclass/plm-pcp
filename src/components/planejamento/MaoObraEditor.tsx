@@ -3,10 +3,10 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { MoneyInput } from "@/components/shared/MoneyInput";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Check, X, AlertTriangle, Plus, Trash2 } from "lucide-react";
 import { brl } from "@/lib/format";
 import type { MoLinha } from "@/lib/mao-obra";
+import { MoReprovarDialog } from "./MoReprovarDialog";
 
 export type MaoObraEditorLinha = MoLinha & { valor: number | null };
 export type CategoriaServicoOpt = { id: string; nome: string; ativo?: boolean };
@@ -33,7 +33,6 @@ export function MaoObraEditor({
 }) {
   const [addSel, setAddSel] = useState<string>("");
   const [repro, setRepro] = useState<{ categoriaId: string | null } | null>(null);
-  const [motivo, setMotivo] = useState("");
 
   const usados = useMemo(() => new Set(linhas.map((l) => l.categoria_terceirizado_id).filter(Boolean) as string[]), [linhas]);
   const disponiveis = categorias.filter((c) => c.ativo !== false && !usados.has(c.id));
@@ -76,7 +75,7 @@ export function MaoObraEditor({
             {podeAprovar && (
               <span className="ml-auto flex shrink-0 gap-1">
                 <Button type="button" variant="outline" size="iconSm" aria-label="Aprovar" title="Aprovar" className="text-emerald-700" onClick={() => onAprovar(id)}><Check className="h-4 w-4" /></Button>
-                <Button type="button" variant="outline" size="iconSm" aria-label="Reprovar" title="Reprovar" className="text-red-700" onClick={() => { setMotivo(""); setRepro({ categoriaId: id }); }}><X className="h-4 w-4" /></Button>
+                <Button type="button" variant="outline" size="iconSm" aria-label="Reprovar" title="Reprovar" className="text-red-700" onClick={() => setRepro({ categoriaId: id })}><X className="h-4 w-4" /></Button>
               </span>
             )}
             {/* Remover é edição de VALOR (força re-envio do estado completo). Só p/ quem vê custos —
@@ -106,20 +105,11 @@ export function MaoObraEditor({
         <p className="text-xs text-muted-foreground">Total aprovado: {brl(linhas.reduce((s, l) => s + (l.aprovado === true ? Number(l.valor) || 0 : 0), 0))}</p>
       )}
 
-      <AlertDialog open={!!repro} onOpenChange={(o) => !o && setRepro(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Reprovar mão de obra</AlertDialogTitle>
-            <AlertDialogDescription>Diga o motivo — ele aparece na linha do serviço.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <textarea className="min-h-[80px] w-full rounded border bg-background px-2 py-1.5 text-sm max-md:text-base"
-            value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ex.: valor acima do previsto; refazer a cotação." />
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction disabled={!motivo.trim()} onClick={(e) => { e.preventDefault(); if (motivo.trim() && repro) { onReprovar(repro.categoriaId, motivo.trim()); setRepro(null); } }}>Reprovar</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <MoReprovarDialog
+        open={!!repro}
+        onOpenChange={(o) => !o && setRepro(null)}
+        onConfirm={(motivo) => { if (repro) { onReprovar(repro.categoriaId, motivo); setRepro(null); } }}
+      />
     </div>
   );
 }

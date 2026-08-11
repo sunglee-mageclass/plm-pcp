@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { ClipboardList, Plus, Search, Upload, Trash2, Copy, ImageIcon, Layers, LayoutGrid, ArrowLeft, ArrowUp, ArrowDown, CheckSquare, Save, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, AlertTriangle, Rocket, Check, X, ExternalLink, PackagePlus } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
@@ -24,6 +24,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { ObsMaoObraField } from "@/components/shared/ObsMaoObraField";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { MaoObraEditor, type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
+import { MoListaSection } from "@/components/planejamento/MoListaSection";
 import { estadoMO, type MoLinha } from "@/lib/mao-obra";
 import { DateField } from "@/components/shared/DateField";
 import { ResumoVenda } from "@/components/shared/ResumoVenda";
@@ -193,6 +194,23 @@ function useOpts(table: string, key = "nome") {
 
 type CatOpt = { id: string; nome: string; grupo_id: string | null };
 
+// MO por serviço: invalidations padrão após aprovar/reprovar POR SERVIÇO (`aprovar_servico_mo`,
+// spec 2026-08-11 Task 2). Extraída p/ ser chamada tanto pelo editor do detalhe (`ModeloDialog`,
+// aprovação de dentro do card aberto) quanto pela seção expandida da lista (`ModeloCard` via
+// `PlanejamentoPage`) sem duplicar a lista de queryKeys entre as duas mutations.
+function invalidarAposAprovarMO(qc: QueryClient, modeloId: string) {
+  // Re-sincroniza a rev do colab (o rollup no banco bumpa `modelos.rev`) — sem isto o próximo
+  // Salvar do card compara `.eq('rev', revRef)` desatualizado e dá P0409 falso.
+  qc.invalidateQueries({ queryKey: ["modelo", modeloId] });
+  qc.invalidateQueries({ queryKey: ["mo-resumo", modeloId] });
+  qc.invalidateQueries({ queryKey: ["plan-custo-unit", modeloId] });
+  qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+  qc.invalidateQueries({ queryKey: ["mo-resumo-list"] });
+  // Cross-invalidation (bidirecionalidade c/ o Desenvolvimento, spec 2026-08-11): sem isto o
+  // Dev não ficava sabendo de aprovações feitas aqui sem refetch manual.
+  qc.invalidateQueries({ queryKey: ["modelo-mo-resumo"] });
+}
+
 function PlanejamentoPage() {
   const qc = useQueryClient();
   const navigate = useNavigate({ from: Route.fullPath });
@@ -253,9 +271,23 @@ function PlanejamentoPage() {
     },
     onError: (e: any) => { setConfirmBulkDel(false); toast.error(mensagemErro(e, "Erro ao excluir os cards")); },
   });
-  // MO por serviço (spec 2026-08-06): aprovar/reprovar saiu do CARD — agora é POR LINHA no
-  // editor do detalhe (`MaoObraEditor`). O card só exibe o estado agregado (badge derivado de
-  // `modelo_mo_resumo.estado`).
+  // MO por serviço (spec 2026-08-06): aprovar/reprovar por linha vive no editor do detalhe
+  // (`MaoObraEditor`, dentro do card aberto). O card FECHADO mostra o badge agregado (derivado
+  // de `modelo_mo_resumo.estado`) e, na variante completa, a seção expandida `MoListaSection`
+  // (spec 2026-08-11, Task 2) — aprovar/reprovar POR SERVIÇO direto da lista, sem abrir o card.
+  const aprovarServicoMOLista = useMutation({
+    mutationFn: async ({ modeloId, categoriaId, aprovado, motivo }: { modeloId: string; categoriaId: string | null; aprovado: boolean; motivo?: string }) => {
+      const { error } = await supabase.rpc("aprovar_servico_mo" as any, {
+        _modelo_id: modeloId, _categoria_terceirizado_id: categoriaId, _aprovado: aprovado, _motivo: motivo ?? null,
+      });
+      if (error) throw error;
+    },
+    onSuccess: (_d, vars) => {
+      toast.success(vars.aprovado ? "Mão de obra aprovada." : "Mão de obra reprovada.");
+      invalidarAposAprovarMO(qc, vars.modeloId);
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Não foi possível atualizar a mão de obra.")),
+  });
   // Lançar/cancelar direto do card (botão foguete) — mesma RPC do detalhe (gate no servidor).
   const lancarCard = useMutation({
     mutationFn: async ({ id, data, send }: { id: string; data: string | null; send: boolean }) => {
@@ -387,13 +419,15 @@ function PlanejamentoPage() {
   // Estado da MO por serviço (badge do card) — derivado do resumo (`modelo_mo_resumo.estado`):
   // sem_servico | pendente | reprovada | aprovada. Substitui o antigo badge do flag
   // `custo_terceirizados_aprovado` (2 estados) por 4 estados. Sem custo exposto: só `estado`.
+  // `linhas[]` (spec 2026-08-11, Task 2) alimenta a seção expandida de MO no card completo —
+  // já vem mascarada (valor NULL) p/ quem não vê custos, mesmo shape do `moResumo` de `ModeloDialog`.
   const { data: moResumoLista = {} } = useQuery({
     queryKey: ["mo-resumo-list", modeloIdsAll],
     enabled: modeloIdsAll.length > 0,
     queryFn: async () => {
       const { data, error } = await supabase.rpc("modelo_mo_resumo" as any, { _ids: modeloIdsAll });
       if (error) throw error;
-      return (data ?? {}) as Record<string, { estado: string; total: number | null; total_aprovado: number | null }>;
+      return (data ?? {}) as Record<string, { estado: string; total: number | null; total_aprovado: number | null; linhas: MoLinha[] }>;
     },
   });
   const { data: gradeByModelo = {} } = useQuery({
@@ -569,6 +603,9 @@ function PlanejamentoPage() {
           return maoObra != null ? custo - maoObra : custo;
         })()}
         moEstado={(moResumoLista as Record<string, { estado: string }>)[m.id]?.estado ?? null}
+        linhasMO={(moResumoLista as Record<string, { linhas?: MoLinha[] }>)[m.id]?.linhas ?? []}
+        onAprovarMO={(categoriaId) => aprovarServicoMOLista.mutate({ modeloId: m.id, categoriaId, aprovado: true })}
+        onReprovarMO={(categoriaId, motivo) => aprovarServicoMOLista.mutate({ modeloId: m.id, categoriaId, aprovado: false, motivo })}
         dataLancamento={(m as any).data_lancamento ?? null}
         onLancar={(data, send) => lancarCard.mutate({ id: m.id, data, send })}
         lancStatus={lancStatusDe(m)}
@@ -932,8 +969,8 @@ function PlanejamentoPage() {
 }
 
 
-function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, custoReal, markup, preco, maoObra, custoMat, moEstado, dataLancamento, onLancar, lancStatus, mesNome, anoNome, onOpen, compact }: {
-  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; maoObra: number | null; custoMat: number | null; moEstado: string | null; dataLancamento: string | null; onLancar: (data: string | null, send: boolean) => void; lancStatus: "lancado" | "pronto" | null; mesNome: string | null; anoNome: string | null; onOpen: () => void; compact?: boolean;
+function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, custoReal, markup, preco, maoObra, custoMat, moEstado, linhasMO, onAprovarMO, onReprovarMO, dataLancamento, onLancar, lancStatus, mesNome, anoNome, onOpen, compact }: {
+  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; maoObra: number | null; custoMat: number | null; moEstado: string | null; linhasMO: MoLinha[]; onAprovarMO: (categoriaId: string | null) => void; onReprovarMO: (categoriaId: string | null, motivo: string) => void; dataLancamento: string | null; onLancar: (data: string | null, send: boolean) => void; lancStatus: "lancado" | "pronto" | null; mesNome: string | null; anoNome: string | null; onOpen: () => void; compact?: boolean;
 }) {
   // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
   const cover = (modelo.fotos_modelo?.[0]) || modelo.desenho_tecnico_url || modelo.croqui_url || null;
@@ -1037,6 +1074,19 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
               </span>
               {podeVerCustos && <span className="truncate text-muted-foreground">{maoObra != null ? brl(maoObra) : "—"}</span>}
             </div>
+          )}
+          {/* Seção EXPANDIDA de MO por serviço (spec 2026-08-11, Task 2 — decisão do dono: sempre
+              visível, não popover). Aprovar/reprovar POR SERVIÇO direto da lista, sem abrir o
+              card. Oculta p/ revenda (não tem MO, invariante #8/§Revenda) e p/ "sem_servico" (o
+              badge acima já cobre esse caso; a seção sozinha ficaria vazia). */}
+          {(podeVerCustos || podeAprovarMaoObra) && moEstado !== "sem_servico" && modelo.origem !== "revenda" && (
+            <MoListaSection
+              linhas={linhasMO}
+              podeVerCustos={podeVerCustos}
+              podeAprovarMaoObra={podeAprovarMaoObra}
+              onAprovar={onAprovarMO}
+              onReprovar={onReprovarMO}
+            />
           )}
           {podeVerCustos && (preco != null ? <p className="text-xs font-medium truncate">{brl(preco)}</p> : <p className="text-xs text-muted-foreground truncate">Preço: —</p>)}
           {/* "Lançar" = AÇÃO clara (verbo), alvo grande — antes era um foguete de 16px que lançava
@@ -1667,16 +1717,9 @@ function ModeloDialog({
           ? { ...l, aprovado: vars.aprovado, motivo_reprovacao: vars.aprovado ? null : (vars.motivo ?? null) }
           : l);
       setMoLinhas(patch); setMoLinhasBase(patch);
-      // ⚠️ Re-sincroniza a rev do colab (rollup bumpou modelos.rev). Sem isto o próximo Salvar
-      // do card compara `.eq('rev', revRef)` desatualizado e dá P0409 falso.
-      qc.invalidateQueries({ queryKey: ["modelo", modeloId] });
-      qc.invalidateQueries({ queryKey: ["mo-resumo", modeloId] });
-      qc.invalidateQueries({ queryKey: ["plan-custo-unit", modeloId] });
-      qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
-      qc.invalidateQueries({ queryKey: ["mo-resumo-list"] });
-      // Cross-invalidation (bidirecionalidade c/ o Desenvolvimento, spec 2026-08-11): sem
-      // isto o Dev não ficava sabendo de aprovações feitas aqui sem refetch manual.
-      qc.invalidateQueries({ queryKey: ["modelo-mo-resumo"] });
+      // Invalidations compartilhadas c/ a mutation da lista (`aprovarServicoMOLista`, spec
+      // 2026-08-11 Task 2) — mesma função, não duplicar a lista de queryKeys.
+      invalidarAposAprovarMO(qc, modeloId!);
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Não foi possível atualizar a mão de obra.")),
   });
