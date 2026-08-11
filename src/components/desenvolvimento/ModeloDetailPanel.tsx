@@ -1379,10 +1379,12 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   const anexoLabel = anexoFotoModelo ? "foto do modelo" : anexoDesenho ? "desenho técnico" : anexoCroqui ? "croqui" : null;
   const custoLbl = totals.peca > 0 ? `R$ ${totals.peca.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "R$ —";
   // Ordem das seções → nº 1..N pulando as ocultas (Custos some sem permissão, sem deixar buraco).
+  // `s5` acompanha o MESMO gate do AccordionItem (podeVerCustos OU só-aprovador de MO) — senão
+  // a numeração destoa do que de fato renderiza (Anexos "8" com Custos ausente da lista, etc.).
   const secOrdem: { key: string; on: boolean }[] = [
     { key: "s1", on: true }, { key: "prova", on: true }, { key: "s2", on: true },
     { key: "s-cad", on: true }, { key: "s3", on: true }, { key: "s3e", on: true },
-    { key: "s4", on: true }, { key: "s5", on: podeVerCustos }, { key: "s6", on: true },
+    { key: "s4", on: true }, { key: "s5", on: podeVerCustos || podeAprovarMaoObra }, { key: "s6", on: true },
   ];
   const secNum = (key: string) => {
     let n = 0;
@@ -1663,10 +1665,18 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
         // (que lê esta coluna) e propagaria MO=0 ao Planejamento/dashboards até alguém com custo
         // re-salvar. Só recomputa/grava quando podeVerCustos; senão OMITE a chave do UPDATE →
         // preserva o valor do banco. Os custos de material acima NÃO são mascarados (vêm das
-        // colunas armazenadas) → seguem gravando normalmente. Usa `moSomaEnviada` (não
-        // `totals.peca`, que embute a MO STALE de `moResumo.total`) — a MO editada agora entra
-        // no mesmo Salvar sem esperar um 2º save.
-        ...(podeVerCustos ? { custo_peca_previsto: totals.peca - maoObraPorServico + moSomaEnviada } : {}),
+        // colunas armazenadas) → seguem gravando normalmente.
+        //
+        // ⚠️ Usa `totals.peca` (com `maoObraPorServico` — o total STALE do servidor de ANTES
+        // desta edição), NÃO `moSomaEnviada` — este UPDATE roda ANTES de `salvar_modelo_bom`/
+        // `salvar_cad_completo`/`salvar_modelo_servico_mo` mais abaixo. Se algum desses passos
+        // falhar (categoria de MO inválida, erro de BOM, rede), essa linha JÁ estaria commitada;
+        // gravar a soma NOVA aqui deixaria `custo_peca_previsto` divergindo de
+        // `modelo_servico_mo` (que nunca recebeu a mudança) até o PRÓXIMO Salvar. A correção
+        // com a MO nova entra como update PONTUAL logo após `salvar_modelo_servico_mo`
+        // CONFIRMAR sucesso (ver mais abaixo) — falhou a MO, a coluna fica no valor velho e o
+        // indicador de "não salvo" segue aceso (honesto).
+        ...(podeVerCustos ? { custo_peca_previsto: totals.peca } : {}),
         proporcoes: d.proporcoes ?? {},
         fotos_modelo: d.fotos_modelo ?? [],
         fotos_referencia: d.fotos_referencia ?? [],
@@ -1865,6 +1875,16 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
           })),
         });
         if (moErr) throw moErr;
+        // MO CONFIRMADA no servidor — só AGORA corrige `custo_peca_previsto` com a soma nova
+        // (update PONTUAL, 1 coluna; não reabre a trava de rev do header — já validada acima,
+        // mesma janela estreita já aceita/documentada pro resto do save composto desta função).
+        // Se ESTE update falhar, `modelo_servico_mo` já está certo mas a coluna fica atrasada —
+        // aceitável (corrige no próximo Salvar) e nunca o inverso (coluna à frente do que foi
+        // persistido).
+        const { error: pecaErr } = await (supabase.from("modelos") as any)
+          .update({ custo_peca_previsto: totals.peca - maoObraPorServico + moSomaEnviada })
+          .eq("id", modeloId);
+        if (pecaErr) throw pecaErr;
       }
   };
 
@@ -2716,7 +2736,13 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             </AccordionContent>
           </AccordionItem>
 
-          {podeVerCustos && (
+          {/* Seção abre p/ quem vê custos OU quem só aprova MO (paridade com o Planejamento
+              `:2460`, persona suportada pelo banco — `modelo_mo_resumo` já mascara valores
+              p/ quem não vê custos). DENTRO, os blocos de custo em R$ (linhas fixas, totais,
+              custos adicionais, Obs. Mão de Obra) continuam exclusivos de `podeVerCustos`; só
+              o card do `MaoObraEditor` aparece pro aprovador-sem-custos (valores mascarados
+              pelo próprio componente via `podeVerCustos={false}`). */}
+          {(podeVerCustos || podeAprovarMaoObra) && (
           <AccordionItem value="s5" data-acc="s5">
             <AccordionTrigger>
               <span className="flex flex-1 items-center gap-2 pr-2">
@@ -2726,13 +2752,15 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             </AccordionTrigger>
             <AccordionContent>
               <fieldset disabled={locked} className="contents space-y-3">
-              <ModeloCustosSection
-                totals={totals}
-                custosAdicionais={draft.custos_adicionais ?? []}
-                onChangeCustos={(v) => setDraftTracked({ ...draft, custos_adicionais: v })}
-                camposCopiados={camposCopiados}
-                onCampoEditado={onCampoEditado}
-              />
+              {podeVerCustos && (
+                <ModeloCustosSection
+                  totals={totals}
+                  custosAdicionais={draft.custos_adicionais ?? []}
+                  onChangeCustos={(v) => setDraftTracked({ ...draft, custos_adicionais: v })}
+                  camposCopiados={camposCopiados}
+                  onCampoEditado={onCampoEditado}
+                />
+              )}
               {/* Mão de obra POR SERVIÇO — MESMO editor do Planejamento (bidirecional, mesma
                   tabela/RPCs `modelo_servico_mo`); valor persiste no Salvar do card, aprovar/
                   reprovar é imediato. Oculto p/ revenda (MO não se aplica). */}
@@ -2750,14 +2778,17 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
                   />
                 </Card>
               )}
-              {/* Observação de mão de obra — mesma seção, BLOCO separado dos custos. */}
-              <Card className="p-4">
-                <ObsMaoObraField
-                  label="Obs. Mão de Obra"
-                  value={draft.observacoes_mao_obra ?? ""}
-                  onChange={(v) => setDraftTracked({ ...draft, observacoes_mao_obra: v })}
-                />
-              </Card>
+              {/* Observação de mão de obra — mesma seção, BLOCO separado dos custos. Fica
+                  atrás de `podeVerCustos` (não é MO por si, é observação livre sobre custo). */}
+              {podeVerCustos && (
+                <Card className="p-4">
+                  <ObsMaoObraField
+                    label="Obs. Mão de Obra"
+                    value={draft.observacoes_mao_obra ?? ""}
+                    onChange={(v) => setDraftTracked({ ...draft, observacoes_mao_obra: v })}
+                  />
+                </Card>
+              )}
               </fieldset>
             </AccordionContent>
           </AccordionItem>
