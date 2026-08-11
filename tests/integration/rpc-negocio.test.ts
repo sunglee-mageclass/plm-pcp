@@ -55,6 +55,45 @@ describe.skipIf(!hasDb)("RPC de negócio — parcelas e estoque", () => {
     });
   });
 
+  // FF1b (fast-follow Revenda, ago/2026, migração 20260811100000): recalcular_parcelas
+  // ganhou um 3º tipo, 'p_acabado', espelhando a mesma matemática de gerar_parcelas_oc_p_acabado
+  // (base=data_pedido, total=valor_total_desconto, neta contra as já pagas).
+  it("recalcular_parcelas('p_acabado') preserva parcela paga e redistribui o restante entre as demais", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const oc = await um<{ id: string }>(
+        c,
+        `insert into ocs_p_acabado (nome_produto, data_pedido, prazo_pagamento, valor_total_desconto)
+           values ('ITEST recalc pa', '2026-08-01', '30/60/90', 1000.00) returning id`,
+      );
+      // o trigger trg_gerar_parcelas_ocpa já gerou 3 parcelas de ~333.33 no INSERT acima.
+      await c.query(
+        `update parcelas set status='pago', data_pagamento='2026-08-05'
+           where oc_p_acabado_id=$1 and numero_parcela=1`,
+        [oc.id],
+      );
+      await c.query("select recalcular_parcelas($1, 'p_acabado')", [oc.id]);
+      const rows = (
+        await c.query(
+          `select numero_parcela, valor, status from parcelas where oc_p_acabado_id=$1 order by numero_parcela`,
+          [oc.id],
+        )
+      ).rows as { numero_parcela: number; valor: string; status: string }[];
+      expect(rows).toHaveLength(3);
+      expect(rows[0].status).toBe("pago"); // parcela paga preservada, intocada
+      const soma = rows.reduce((s, r) => s + Number(r.valor), 0);
+      expect(Math.abs(soma - 1000)).toBeLessThan(0.01); // Σ sempre ≡ total, mesmo com netting
+    });
+  });
+
+  it("recalcular_parcelas: tipo 'etiqueta' (insumo) continua fora do escopo — RAISE claro", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await expect(c.query("select recalcular_parcelas($1, 'etiqueta')", ["00000000-0000-0000-0000-000000000000"]))
+        .rejects.toThrow(/tipo deve ser/);
+    });
+  });
+
   it("estoque: uma baixa no ledger reduz o físico do item pelo valor exato", async () => {
     await withTx(async (c) => {
       const item = await um<{ id: string; vt: string; qr: string } | undefined>(

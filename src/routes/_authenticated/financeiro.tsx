@@ -11,6 +11,11 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+// Aliases: `Tooltip` já é importado do recharts (gráfico do Resumo) mais abaixo.
+import {
+  Tooltip as UiTooltip, TooltipContent as UiTooltipContent,
+  TooltipProvider as UiTooltipProvider, TooltipTrigger as UiTooltipTrigger,
+} from "@/components/ui/tooltip";
 import { DollarSign, ChevronLeft, ChevronRight, Upload, Printer } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { brl } from "@/lib/format";
@@ -553,7 +558,11 @@ function ParcelaDetailDialog({
   const recalcMut = useMutation({
     mutationFn: async () => {
       if (!parcela) return;
-      const ocId = parcela.oc_tecido_id ?? parcela.oc_aviamento_id;
+      // `_recalcular_parcelas_core` suporta tecido/aviamento/p_acabado (FF1, ago/2026,
+      // migração 20260811100000). Insumo (etiqueta) fica de fora — tem gerador próprio
+      // (`recalcular_parcelas_etiqueta`) que já roda automático a cada save da OC; o
+      // botão nem aparece pra esse tipo (ver JSX abaixo).
+      const ocId = parcela.oc_tecido_id ?? parcela.oc_aviamento_id ?? parcela.oc_p_acabado_id;
       if (!ocId) throw new Error("Parcela sem OC vinculada");
       const { data, error } = await supabase.rpc("recalcular_parcelas" as any, {
         _oc_id: ocId,
@@ -665,7 +674,7 @@ function ParcelaDetailDialog({
               Abrir OC
             </Button>
           )}
-          {canRecalc && (
+          {canRecalc && (parcela.tipo_oc !== "etiqueta" ? (
             <Button
               size="sm"
               variant="outline"
@@ -678,7 +687,21 @@ function ParcelaDetailDialog({
             >
               Recalcular
             </Button>
-          )}
+          ) : (
+            // Insumo (etiqueta): sem recálculo manual — `recalcular_parcelas_etiqueta` já
+            // roda automático via trigger a cada save da OC/itens (FF1, ago/2026).
+            <UiTooltipProvider>
+              <UiTooltip>
+                {/* Botão desabilitado não dispara title nativo — o span recebe o hover. */}
+                <UiTooltipTrigger asChild>
+                  <span className="inline-flex">
+                    <Button size="sm" variant="outline" disabled>Recalcular</Button>
+                  </span>
+                </UiTooltipTrigger>
+                <UiTooltipContent>Recalculado automaticamente ao editar a OC.</UiTooltipContent>
+              </UiTooltip>
+            </UiTooltipProvider>
+          ))}
           {podeEditar && (st === "pago" ? (
             <Button size="sm" variant="destructive" onClick={() => desmarcarPagoMut.mutate()} disabled={desmarcarPagoMut.isPending}>
               Desmarcar pago
@@ -829,6 +852,7 @@ function ListaView({ parcelas, loading, initialStatus }: { parcelas: Parcela[]; 
             { v: "tecido", l: "Tecidos" },
             { v: "aviamento", l: "Aviamentos" },
             { v: "etiqueta", l: "Insumos" },
+            { v: "p_acabado", l: "Produto Acabado" },
           ].map((o) => (
             <Button key={o.v} size="sm" variant={tipo === o.v ? "secondary" : "ghost"} onClick={() => setTipo(o.v)}>{o.l}</Button>
           ))}
@@ -1605,7 +1629,7 @@ function ResumoView({ parcelas, servicos }: { parcelas: Parcela[]; servicos: Par
       <div className="flex flex-wrap items-center justify-end gap-2">
         {/* Origem: ver o gráfico + totais por OC, por Serviço, ou ambos. */}
         <div className="mr-auto flex rounded-md border p-0.5 overflow-x-auto">
-          {([["all", "Todos"], ["tecido", "Tecidos"], ["aviamento", "Aviamentos"], ["etiqueta", "Insumos"], ["servico", "Serviços"]] as const).map(([o, lbl]) => (
+          {([["all", "Todos"], ["tecido", "Tecidos"], ["aviamento", "Aviamentos"], ["etiqueta", "Insumos"], ["p_acabado", "Produto Acabado"], ["servico", "Serviços"]] as const).map(([o, lbl]) => (
             <Button key={o} type="button" size="sm" variant={fOrigem === o ? "secondary" : "ghost"} className="h-7 px-3 text-xs" onClick={() => setFOrigem(o)}>
               {lbl}
             </Button>
