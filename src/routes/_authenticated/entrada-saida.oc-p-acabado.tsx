@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ShoppingCart, Plus, ArrowLeft, Trash2, Check } from "lucide-react";
 import { toast } from "sonner";
@@ -56,6 +56,7 @@ export const Route = createFileRoute("/_authenticated/entrada-saida/oc-p-acabado
 
 function OcPaPage() {
   const qc = useQueryClient();
+  const navigate = useNavigate({ from: Route.fullPath });
   const search = Route.useSearch();
   // Mitigação parcial de UI (achado IMPORTANT do review, decisão do controller): módulo OFF
   // ainda é alcançável por URL direta com a permissão de página concedida — RequirePermission
@@ -202,9 +203,20 @@ function OcPaPage() {
         <OcPaDialog
           ocId={editingId}
           empresas={empresas}
-          onClose={() => { setOpenDialog(false); setEditingId(null); }}
+          onClose={() => {
+            setOpenDialog(false);
+            setEditingId(null);
+            // Deep-link `?oc=<id>` consumido (FF4): limpa da URL ao fechar — senão um F5/
+            // "voltar" do browser reabre a mesma OC sozinha (mantém o resto do search, ex. tab).
+            if (search.oc) navigate({ search: (prev) => ({ ...prev, oc: undefined }), replace: true, resetScroll: false });
+          }}
           onSaved={() => qc.invalidateQueries({ queryKey: ["ocs_p_acabado"] })}
-          onDelete={(oc) => { setOpenDialog(false); setEditingId(null); setDeleting(oc); }}
+          onDelete={(oc) => {
+            setOpenDialog(false);
+            setEditingId(null);
+            setDeleting(oc);
+            if (search.oc) navigate({ search: (prev) => ({ ...prev, oc: undefined }), replace: true, resetScroll: false });
+          }}
         />
       )}
 

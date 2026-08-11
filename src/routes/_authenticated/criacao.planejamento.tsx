@@ -195,6 +195,7 @@ type CatOpt = { id: string; nome: string; grupo_id: string | null };
 
 function PlanejamentoPage() {
   const qc = useQueryClient();
+  const navigate = useNavigate({ from: Route.fullPath });
   const [search, setSearch] = useState("");
   const [fStatus, setFStatus] = useState("all");
   const [fEstilista, setFEstilista] = useState("all");
@@ -861,7 +862,13 @@ function PlanejamentoPage() {
           grupos={grupos}
           categorias={categorias}
           artigos={artigos}
-          onClose={() => { setOpenNew(false); setOpenId(null); }}
+          onClose={() => {
+            setOpenNew(false);
+            setOpenId(null);
+            // Deep-link `?modelo=<id>` consumido (FF4): limpa da URL ao fechar — senão um
+            // F5/"voltar" do browser reabre o mesmo card sozinho (mantém o resto do search).
+            if (modeloParam) navigate({ search: (prev) => ({ ...prev, modelo: undefined }), replace: true, resetScroll: false });
+          }}
           onSaved={() => { qc.invalidateQueries({ queryKey: ["modelos-planejamento"] }); invalidarPlanTecido(); }}
         />
       )}
