@@ -3,6 +3,7 @@ import {
   redistribuirPedida,
   redistribuirVariantesPorPeso,
   somaGrade,
+  contarParcelasPrazo,
   TAM_ACESSORIO,
   type GradeDetalhe,
   type VarianteDraft,
@@ -111,5 +112,44 @@ describe("somaGrade", () => {
       },
     };
     expect(somaGrade(grade, ["34|PPP"], "pedida")).toBe(5);
+  });
+});
+
+// Refino onda 2, item 2: contagem de parcelas a pagar DERIVADA do prazo digitado —
+// espelha o parser do trigger `gerar_parcelas_oc_p_acabado` (banco): só "/" separa,
+// tokens não-numéricos são descartados, sem token válido cai em 1 (fallback array[30]
+// do trigger), capado em 24 (least(array_length,24)).
+describe("contarParcelasPrazo — espelha o parser do trigger gerar_parcelas_oc_p_acabado", () => {
+  it("'30/60/90' → 3 (exemplo do dono)", () => {
+    expect(contarParcelasPrazo("30/60/90")).toBe(3);
+  });
+
+  it("'30' (sem barra) → 1", () => {
+    expect(contarParcelasPrazo("30")).toBe(1);
+  });
+
+  it("vazio → 1 (mesmo fallback array[30] do trigger)", () => {
+    expect(contarParcelasPrazo("")).toBe(1);
+  });
+
+  it("só separador sem números ('/') → 1 (nenhum token válido)", () => {
+    expect(contarParcelasPrazo("/")).toBe(1);
+  });
+
+  it("vírgula NÃO é separador aqui (diferente da OC Tecido) — '30,60' vira 1 token não-numérico → 1", () => {
+    expect(contarParcelasPrazo("30,60")).toBe(1);
+  });
+
+  it("token não-numérico misturado é descartado, mas os numéricos contam", () => {
+    expect(contarParcelasPrazo("30/abc/90")).toBe(2);
+  });
+
+  it("mais de 24 tokens é capado em 24", () => {
+    const prazo = Array.from({ length: 30 }, (_, i) => String((i + 1) * 10)).join("/");
+    expect(contarParcelasPrazo(prazo)).toBe(24);
+  });
+
+  it("espaço ao redor do número quebra o token (SEM trim — espelha o regex ancorado ^[0-9]+$ do trigger, sem espaço tolerado) → cai no fallback 1", () => {
+    expect(contarParcelasPrazo("30 / 60 / 90")).toBe(1);
   });
 });

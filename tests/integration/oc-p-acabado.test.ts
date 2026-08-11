@@ -448,3 +448,193 @@ describe.skipIf(!hasDb)("estoque_etiqueta — ramo revenda (Task 7 fix)", () => 
     });
   });
 });
+
+// Refino onda 2 (ago/2026), item 1: nº do pedido editável — a trigger
+// `fn_oc_p_acabado_numero` já só gerava quando vazio; o gap era `_salvar_oc_p_acabado_
+// core` nunca passar `numero` do payload pro INSERT/UPDATE. Migração 20260811160000.
+describe.skipIf(!hasDb)("OC Produto Acabado — nº do pedido editável (refino onda 2, item 1)", () => {
+  it("numero customizado no payload é honrado no INSERT (bypassa a geração automática)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const oc = await um<{ id: string }>(
+        c,
+        `select salvar_oc_p_acabado(null, '{"nome_produto":"OC numero custom Onda2","numero":"MEUNUM-001"}'::jsonb, '{}'::jsonb) as id`,
+      );
+      const row = await um<{ numero: string }>(c, `select numero from ocs_p_acabado where id = $1`, [oc.id]);
+      expect(row.numero).toBe("MEUNUM-001");
+    });
+  });
+
+  it("numero vazio no payload continua gerando automaticamente (trigger)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const oc = await um<{ id: string }>(
+        c,
+        `select salvar_oc_p_acabado(null, '{"nome_produto":"OC numero auto Onda2"}'::jsonb, '{}'::jsonb) as id`,
+      );
+      const row = await um<{ numero: string | null }>(c, `select numero from ocs_p_acabado where id = $1`, [oc.id]);
+      expect(row.numero).toBeTruthy();
+      expect(row.numero).not.toBe("");
+    });
+  });
+
+  it("editar uma OC existente e mandar numero novo RENOMEIA (UPDATE grava a coluna)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const oc = await um<{ id: string }>(
+        c,
+        `select salvar_oc_p_acabado(null, '{"nome_produto":"OC numero renomear Onda2"}'::jsonb, '{}'::jsonb) as id`,
+      );
+      await c.query(`select salvar_oc_p_acabado($1, '{"nome_produto":"OC numero renomear Onda2","numero":"RENOMEADO-9"}'::jsonb, '{}'::jsonb)`, [oc.id]);
+      const row = await um<{ numero: string }>(c, `select numero from ocs_p_acabado where id = $1`, [oc.id]);
+      expect(row.numero).toBe("RENOMEADO-9");
+    });
+  });
+
+  it("editar sem mandar numero (campo em branco) PRESERVA o número atual", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const oc = await um<{ id: string }>(
+        c,
+        `select salvar_oc_p_acabado(null, '{"nome_produto":"OC numero preservar Onda2","numero":"FIXO-7"}'::jsonb, '{}'::jsonb) as id`,
+      );
+      await c.query(`select salvar_oc_p_acabado($1, '{"nome_produto":"OC numero preservar Onda2"}'::jsonb, '{}'::jsonb)`, [oc.id]);
+      const row = await um<{ numero: string }>(c, `select numero from ocs_p_acabado where id = $1`, [oc.id]);
+      expect(row.numero).toBe("FIXO-7"); // não some/reseta
+    });
+  });
+});
+
+// Refino onda 2 (ago/2026), item 4: preço congela ao receber (paridade com a decisão do
+// dono p/ tecido) — migração 20260811150000. `_salvar_oc_p_acabado_core` rejeita (P0001)
+// mudança de valor_unitario/desconto_pct/qtd_total/grade_detalhe(campo pedida) quando a
+// OC já está 'recebido'; NF/revisão/devolução/anexos/nome/categorias/fornecedor/datas/
+// prazo continuam editáveis normalmente.
+describe.skipIf(!hasDb)("OC Produto Acabado — preço congela ao receber (refino onda 2, item 4)", () => {
+  async function criarOcRecebida(c: any, sufixo: string) {
+    const oc = await um<{ id: string }>(
+      c,
+      `select salvar_oc_p_acabado(null, $1::jsonb, $2::jsonb) as id`,
+      [
+        JSON.stringify({ nome_produto: `OC congela ${sufixo}`, qtd_total: 10, valor_unitario: 50, desconto_pct: 0, prazo_pagamento: "30" }),
+        JSON.stringify({ "0": { UN: { pedida: 10 } } }),
+      ],
+    );
+    await c.query(`update ocs_p_acabado set status = 'recebido' where id = $1`, [oc.id]);
+    return oc.id;
+  }
+
+  it("editar valor_unitario numa OC recebida → P0001 'OC recebida'", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const ocId = await criarOcRecebida(c, "Onda2-a");
+      await c.query("SAVEPOINT sp_valor");
+      await expect(
+        c.query(
+          `select salvar_oc_p_acabado($1, '{"nome_produto":"OC congela Onda2-a","qtd_total":10,"valor_unitario":99,"desconto_pct":0,"prazo_pagamento":"30"}'::jsonb, '{"0":{"UN":{"pedida":10}}}'::jsonb)`,
+          [ocId],
+        ),
+      ).rejects.toThrow(/OC recebida/);
+      await c.query("ROLLBACK TO SAVEPOINT sp_valor");
+    });
+  });
+
+  it("editar desconto_pct numa OC recebida → P0001", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const ocId = await criarOcRecebida(c, "Onda2-b");
+      await c.query("SAVEPOINT sp_desconto");
+      await expect(
+        c.query(
+          `select salvar_oc_p_acabado($1, '{"nome_produto":"OC congela Onda2-b","qtd_total":10,"valor_unitario":50,"desconto_pct":15,"prazo_pagamento":"30"}'::jsonb, '{"0":{"UN":{"pedida":10}}}'::jsonb)`,
+          [ocId],
+        ),
+      ).rejects.toThrow(/OC recebida/);
+      await c.query("ROLLBACK TO SAVEPOINT sp_desconto");
+    });
+  });
+
+  it("editar qtd_total (+ grade pedida coerente) numa OC recebida → P0001", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const ocId = await criarOcRecebida(c, "Onda2-c");
+      await c.query("SAVEPOINT sp_qtd");
+      await expect(
+        c.query(
+          `select salvar_oc_p_acabado($1, '{"nome_produto":"OC congela Onda2-c","qtd_total":20,"valor_unitario":50,"desconto_pct":0,"prazo_pagamento":"30"}'::jsonb, '{"0":{"UN":{"pedida":20}}}'::jsonb)`,
+          [ocId],
+        ),
+      ).rejects.toThrow(/OC recebida/);
+      await c.query("ROLLBACK TO SAVEPOINT sp_qtd");
+    });
+  });
+
+  it("editar só a grade PEDIDA (qtd_total intacto) numa OC recebida → P0001", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const ocId = await criarOcRecebida(c, "Onda2-d");
+      await c.query("SAVEPOINT sp_grade");
+      await expect(
+        c.query(
+          `select salvar_oc_p_acabado($1, '{"nome_produto":"OC congela Onda2-d","qtd_total":10,"valor_unitario":50,"desconto_pct":0,"prazo_pagamento":"30"}'::jsonb, '{"0":{"UN":{"pedida":4}},"1":{"UN":{"pedida":6}}}'::jsonb)`,
+          [ocId],
+        ),
+      ).rejects.toThrow(/OC recebida/);
+      await c.query("ROLLBACK TO SAVEPOINT sp_grade");
+    });
+  });
+
+  it("reenviar os MESMOS valores (nenhuma mudança real) numa OC recebida → OK, não dispara o guard", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const ocId = await criarOcRecebida(c, "Onda2-e");
+      // Mesmo payload que criou a OC — um Salvar comum sem tocar em $/qtd não deve falhar.
+      await c.query(
+        `select salvar_oc_p_acabado($1, '{"nome_produto":"OC congela Onda2-e (renomeada)","qtd_total":10,"valor_unitario":50,"desconto_pct":0,"prazo_pagamento":"30"}'::jsonb, '{"0":{"UN":{"pedida":10}}}'::jsonb)`,
+        [ocId],
+      );
+      const row = await um<{ nome_produto: string }>(c, `select nome_produto from ocs_p_acabado where id = $1`, [ocId]);
+      expect(row.nome_produto).toBe("OC congela Onda2-e (renomeada)"); // nome NÃO é congelado, só $/qtd
+    });
+  });
+
+  it("editar NF/revisão/devolução (campos de recebimento) numa OC recebida → OK, guard não se aplica", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const ocId = await criarOcRecebida(c, "Onda2-f");
+      await c.query(
+        `select salvar_oc_p_acabado($1, '{"nome_produto":"OC congela Onda2-f","qtd_total":10,"valor_unitario":50,"desconto_pct":0,"prazo_pagamento":"30","nota_fiscal":"NF-9988","revisao":"revisado ok","devolucao":"sem devolução"}'::jsonb, '{"0":{"UN":{"pedida":10}}}'::jsonb)`,
+        [ocId],
+      );
+      const row = await um<{ nota_fiscal: string; revisao: string; devolucao: string }>(
+        c,
+        `select nota_fiscal, revisao, devolucao from ocs_p_acabado where id = $1`,
+        [ocId],
+      );
+      expect(row.nota_fiscal).toBe("NF-9988");
+      expect(row.revisao).toBe("revisado ok");
+      expect(row.devolucao).toBe("sem devolução");
+    });
+  });
+
+  it("OC 'encomendado' (não recebida) aceita mudança normal de valor_unitario/qtd — guard só vale pra 'recebido'", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const oc = await um<{ id: string }>(
+        c,
+        `select salvar_oc_p_acabado(null, '{"nome_produto":"OC congela Onda2-g","qtd_total":10,"valor_unitario":50,"desconto_pct":0,"prazo_pagamento":"30"}'::jsonb, '{"0":{"UN":{"pedida":10}}}'::jsonb) as id`,
+      );
+      await c.query(
+        `select salvar_oc_p_acabado($1, '{"nome_produto":"OC congela Onda2-g","qtd_total":20,"valor_unitario":80,"desconto_pct":0,"prazo_pagamento":"30"}'::jsonb, '{"0":{"UN":{"pedida":20}}}'::jsonb)`,
+        [oc.id],
+      );
+      const row = await um<{ qtd_total: number; valor_unitario: string }>(
+        c,
+        `select qtd_total, valor_unitario from ocs_p_acabado where id = $1`,
+        [oc.id],
+      );
+      expect(Number(row.qtd_total)).toBe(20);
+      expect(Number(row.valor_unitario)).toBe(80);
+    });
+  });
+});
