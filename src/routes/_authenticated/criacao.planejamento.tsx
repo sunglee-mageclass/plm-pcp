@@ -1674,6 +1674,9 @@ function ModeloDialog({
       qc.invalidateQueries({ queryKey: ["plan-custo-unit", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
       qc.invalidateQueries({ queryKey: ["mo-resumo-list"] });
+      // Cross-invalidation (bidirecionalidade c/ o Desenvolvimento, spec 2026-08-11): sem
+      // isto o Dev não ficava sabendo de aprovações feitas aqui sem refetch manual.
+      qc.invalidateQueries({ queryKey: ["modelo-mo-resumo"] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Não foi possível atualizar a mão de obra.")),
   });
@@ -1908,6 +1911,9 @@ function ModeloDialog({
       qc.invalidateQueries({ queryKey: ["mo-resumo", modeloId] });
       qc.invalidateQueries({ queryKey: ["mo-resumo-list"] });
       qc.invalidateQueries({ queryKey: ["plan-custo-unit", modeloId] });
+      // Cross-invalidation (bidirecionalidade c/ o Desenvolvimento, spec 2026-08-11): sem
+      // isto o Dev não ficava sabendo de edições de MO salvas aqui sem refetch manual.
+      qc.invalidateQueries({ queryKey: ["modelo-mo-resumo"] });
       qc.invalidateQueries({ queryKey: ["plan-grade-total"] });
       qc.invalidateQueries({ queryKey: ["modelo-grades-revenda", modeloId] });
       onSaved();

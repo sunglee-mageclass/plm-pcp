@@ -1,7 +1,6 @@
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/shared/NumberInput";
-import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Plus, Trash2 } from "lucide-react";
@@ -28,18 +27,12 @@ function LinhaFixa({ label, value, strong }: { label: string; value: number; str
 
 export function ModeloCustosSection({
   totals,
-  custoTerceirizados,
-  maoObraEstado,
   custosAdicionais,
   onChangeCustos,
   camposCopiados = new Set(),
   onCampoEditado,
 }: {
   totals: { tecido: number; forro: number; entretela: number; aviamento: number; etiqueta: number; peca: number };
-  /** MO planejada por serviço (Σ modelo_servico_mo.valor) — READ-ONLY; editar/aprovar é por serviço, no Planejamento. */
-  custoTerceirizados: number;
-  /** Estado da MO por serviço (aprovada|pendente|reprovada|sem_servico); undefined = sem custo/mascarado. */
-  maoObraEstado?: string;
   custosAdicionais: CustoAdicional[];
   onChangeCustos: (v: CustoAdicional[]) => void;
   camposCopiados?: Set<string>;
@@ -60,27 +53,12 @@ export function ModeloCustosSection({
       <LinhaFixa label="Aviamento" value={totals.aviamento} />
       <LinhaFixa label="Etiquetas" value={totals.etiqueta} />
 
-      {/* Mão de obra: READ-ONLY, fonte ÚNICA = MO por serviço (Σ modelo_servico_mo.valor).
-          Editar/aprovar a MO é POR SERVIÇO, no card do Planejamento — aqui só reflete o total. */}
-      <div className="flex items-center gap-2">
-        <span className="flex-1 min-w-0 flex items-center gap-2">
-          <Label>Mão de Obra (por serviço)</Label>
-          {/* Reflexo (read-only) do estado da MO por serviço — aprovação é por serviço, no Planejamento.
-              undefined (sem custo/mascarado) ou sem_servico → sem selo. */}
-          {maoObraEstado && maoObraEstado !== "sem_servico" && (
-            <span className={`text-[10px] rounded px-1.5 py-0.5 ${maoObraEstado === "aprovada" ? "bg-emerald-100 text-emerald-700" : maoObraEstado === "reprovada" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}
-              title="Estado da mão de obra (aprovação por serviço, no Planejamento)">
-              {maoObraEstado === "aprovada" ? "Aprovada" : maoObraEstado === "reprovada" ? "Reprovada" : "Pendente"}
-            </span>
-          )}
-        </span>
-        <span className={`${VAL} pr-3`}>R$ {fmtNum(custoTerceirizados)}</span>
-        <span className={GUT} aria-hidden />
-      </div>
-      <p className="text-[11px] text-muted-foreground -mt-1">Definida por serviço no Planejamento.</p>
+      {/* Mão de obra por serviço: editor completo (`MaoObraEditor`) em card PRÓPRIO, logo
+          abaixo desta — entra no "Custo de 1 Peça" abaixo (Σ modelo_servico_mo.valor, já
+          embutida em `totals.peca` pelo componente-pai) sem repetir a linha aqui. */}
 
       {/* Custos adicionais (descrição + valor por peça) — entram no Custo de 1 Peça E no custo real.
-          Valor na régua VAL + lixeira na calha GUT: alinha com as linhas fixas e a mão de obra. */}
+          Valor na régua VAL + lixeira na calha GUT: alinha com as linhas fixas. */}
       <div className={classeCopiado(camposCopiados, "custos_adicionais")}>
         {custosAdicionais.map((c, i) => (
           <div key={i} className="flex items-center gap-2 mb-1">

@@ -60,7 +60,11 @@ import { ModeloEtiquetasSection } from "./modelo-detail/ModeloEtiquetasSection";
 import { ModeloGradeSection } from "./modelo-detail/ModeloGradeSection";
 import { ModeloCustosSection } from "./modelo-detail/ModeloCustosSection";
 import { ObsMaoObraField } from "@/components/shared/ObsMaoObraField";
+import { MaoObraEditor, type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
+import type { MoLinha } from "@/lib/mao-obra";
+import { snapshotsEqual } from "@/hooks/useDirtySnapshot";
 import { Card } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
 import { ModeloAnexosSection } from "./modelo-detail/ModeloAnexosSection";
 import { useEtapasAfetadas, STAGE_LABEL } from "./DownstreamImpactAlert";
 import { ModeloObservacoes } from "@/components/shared/ModeloObservacoes";
@@ -184,8 +188,11 @@ function SecBadge({ tone, title, children }: { tone: "ok" | "info" | "warn" | "m
 
 function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; onClose: () => void; onDirtyChange?: (dirty: boolean) => void }) {
   const qc = useQueryClient();
-  const { canView } = useAuth();
+  const { canView, canEdit } = useAuth();
   const podeVerCustos = canView("criacao_desenvolvimento:custos");
+  // MO por serviço (bidirecional c/ o Planejamento): permissão de aprovar/reprovar
+  // POR LINHA (mesma permissão, mesma RPC `aprovar_servico_mo`).
+  const podeAprovarMaoObra = canEdit("producao_servico_aprovacao");
   const fl = useFieldLabels();
   const tenantId = useActiveTenantId();
   const provaAbertos = useProvaAbertosCount(modeloId); // badge de ajustes abertos no accordion
@@ -201,6 +208,18 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     },
   });
 
+  // Categorias de serviço ATIVAS — dropdown "Adicionar serviço" do editor de MO (mesma
+  // query/queryKey do Planejamento — cache compartilhado; linhas históricas de categoria já
+  // desativada seguem visíveis como linhas, mas não no dropdown).
+  const { data: catsServico = [] } = useQuery({
+    queryKey: ["cats-servico-ativas"],
+    queryFn: async () => {
+      const { data, error } = await (supabase.from("categorias_terceirizado") as any)
+        .select("id, nome, ativo").order("ordem").order("nome");
+      if (error) throw error;
+      return (data ?? []) as { id: string; nome: string; ativo: boolean }[];
+    },
+  });
   const linhas = useOpts("linhas");
   const categorias = useQuery({
     queryKey: ["opt", "categorias_produto", "grupo"],
@@ -243,22 +262,24 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
       return (((data ?? {}) as any)[modeloId] ?? {}) as Record<string, boolean>;
     },
   });
-  // MO por serviço — READ-ONLY, derivada de `modelo_mo_resumo` (fonte ÚNICA da MO). `estado`
+  // MO por serviço — derivada de `modelo_mo_resumo` (fonte ÚNICA da MO). `estado`
   // (aprovada|pendente|reprovada|sem_servico) pinta o selo; `total` (Σ modelo_servico_mo.valor)
   // é a "MO prevista" que alimenta o "Custo de Serviços" — substitui o antigo campo editável
   // custo_terceirizados_previsto (agora inerte). O flag cru custo_terceirizados_aprovado virou
   // boolean DERIVADO (false = pendente OU reprovada). A RPC mascara p/ quem não vê custos
   // ({} → estado undefined + total null → sem badge; mas a seção Custos só abre com podeVerCustos).
+  // `linhas` semeia o editor completo (`MaoObraEditor`, mesmo componente do Planejamento —
+  // bidirecional, mesma tabela/RPCs).
   const { data: moResumo } = useQuery({
     queryKey: ["modelo-mo-resumo", modeloId],
     enabled: !!modeloId,
     queryFn: async () => {
       const { data, error } = await supabase.rpc("modelo_mo_resumo" as any, { _ids: [modeloId] });
       if (error) throw error;
-      return (((data ?? {}) as any)[modeloId] ?? null) as { estado?: string; total: number | null; total_aprovado: number | null } | null;
+      return (((data ?? {}) as any)[modeloId] ?? null) as
+        { estado?: string; total: number | null; total_aprovado: number | null; linhas: (MoLinha & { valor: number | null })[] } | null;
     },
   });
-  const moEstado = moResumo?.estado;
   const maoObraPorServico = Number(moResumo?.total) || 0;
   const podeEntrarStatus = (statusKey: string) =>
     requisitosOk(((tenantCfg as any)?.kanban_requisitos ?? {})[statusKey], condicoesModelo as Record<string, boolean>);
@@ -545,7 +566,18 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   // o refetch pós-save (eco do meu próprio UPDATE) reverter o campo em silêncio OU criar um
   // conflito-fantasma comigo mesmo que bloqueava todos os saves seguintes ("Resolva os
   // conflitos…"). Capturado no início de persistModelo; consumido no onSuccess.
-  const savedAtRef = useRef<{ draft: any; snapshot: string; bomSnap: string } | null>(null);
+  const savedAtRef = useRef<{ draft: any; snapshot: string; bomSnap: string; moLinhas: MaoObraEditorLinha[] } | null>(null);
+
+  // MO por serviço (bidirecional c/ o Planejamento — mesmo editor `MaoObraEditor`, mesma
+  // tabela/RPCs). `moLinhas` = rascunho LOCAL (VALOR editável), fora do `draft` principal;
+  // persiste no MESMO Salvar do card (dentro de `persistModelo`, via `salvar_modelo_servico_mo`
+  // — estado completo, nunca toca `aprovado`). `moLinhasBase` é o baseline (servidor/último
+  // enviado) — a divergência acende o indicador de "não salvo" (combinado no `dirty` abaixo).
+  // Refs p/ leitura síncrona (seed guardada + persistModelo, mesmo padrão do `draftLiveRef`).
+  const [moLinhas, setMoLinhas] = useState<MaoObraEditorLinha[]>([]);
+  const [moLinhasBase, setMoLinhasBase] = useState<MaoObraEditorLinha[]>([]);
+  const moLinhasRef = useRef(moLinhas); moLinhasRef.current = moLinhas;
+  const moBaseRef = useRef(moLinhasBase); moBaseRef.current = moLinhasBase;
 
   // Wrapper que DIFERE prev→next e marca o que mudou — os filhos continuam recebendo a
   // mesma assinatura de `setDraft` (mesma técnica do piloto OC Tecido).
@@ -601,7 +633,61 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     setConflitos([]);
     setUltimoMerge(null);
     setConflitoBomBoth(false);
+    // MO por serviço: reseta o rascunho local — sem isto, trocar de modelo vazaria as
+    // edições/baseline do modelo ANTERIOR até o próximo `moResumo` re-semear.
+    setMoLinhas([]);
+    setMoLinhasBase([]);
   }, [modeloId]);
+
+  // MO por serviço: semeia `moLinhas` do resumo do servidor. GUARDADA — se o usuário tem
+  // edições locais de VALOR não salvas (moLinhas ≠ moLinhasBase), um refetch em background
+  // (foco de janela / invalidação cross-tela vinda do Planejamento) NÃO sobrescreve o
+  // rascunho; só (re)semeia quando o rascunho de MO está limpo. Mesmo padrão do Planejamento.
+  useEffect(() => {
+    if (!moResumo) return;
+    const seed = (moResumo.linhas ?? []).map((l) => ({
+      categoria_terceirizado_id: l.categoria_terceirizado_id ?? null,
+      nome: l.nome, valor: l.valor ?? null, aprovado: l.aprovado ?? null, motivo_reprovacao: l.motivo_reprovacao ?? null,
+    })) as MaoObraEditorLinha[];
+    if (!snapshotsEqual(moLinhasRef.current, moBaseRef.current)) return; // preserva edições não salvas
+    setMoLinhas(seed); setMoLinhasBase(seed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [moResumo]);
+
+  // Aprovar/reprovar POR SERVIÇO (RPC `aprovar_servico_mo`, gated no servidor por
+  // `producao_servico_aprovacao`) — mesma RPC do Planejamento. Ação IMEDIATA (não entra no
+  // Salvar do card). Patch LOCAL das linhas (preserva os VALORES não salvos; atualiza
+  // aprovado/motivo) + invalida as DUAS telas (bidirecionalidade): o rollup no banco re-deriva
+  // `modelos.custo_terceirizados_aprovado` e bumpa `modelos.rev` — sem re-hidratar
+  // `["modelo-detail", modeloId]` o próximo Salvar do card daria P0409 falso (mesmo cuidado do
+  // Planejamento com `revRef`).
+  const aprovarServicoMO = useMutation({
+    mutationFn: async ({ categoriaId, aprovado, motivo }: { categoriaId: string | null; aprovado: boolean; motivo?: string }) => {
+      const { error } = await supabase.rpc("aprovar_servico_mo" as any, {
+        _modelo_id: modeloId, _categoria_terceirizado_id: categoriaId, _aprovado: aprovado, _motivo: motivo ?? null,
+      });
+      if (error) throw error;
+    },
+    onSuccess: (_d, vars) => {
+      toast.success(vars.aprovado ? "Mão de obra aprovada." : "Mão de obra reprovada.");
+      const patch = (ls: MaoObraEditorLinha[]) => ls.map((l) =>
+        l.categoria_terceirizado_id === vars.categoriaId
+          ? { ...l, aprovado: vars.aprovado, motivo_reprovacao: vars.aprovado ? null : (vars.motivo ?? null) }
+          : l);
+      setMoLinhas(patch); setMoLinhasBase(patch);
+      // Re-sincroniza a rev do colab (rollup bumpou modelos.rev) — sem isto o próximo Salvar
+      // do card compara `.eq('rev', revRef)` desatualizado e dá P0409 falso.
+      qc.invalidateQueries({ queryKey: ["modelo-detail", modeloId] });
+      // Cross-invalidation (bidirecionalidade c/ o Planejamento) — prefixos, cobre QUALQUER
+      // modeloId em cache nas duas telas.
+      qc.invalidateQueries({ queryKey: ["modelo-mo-resumo"] });
+      qc.invalidateQueries({ queryKey: ["mo-resumo"] });
+      qc.invalidateQueries({ queryKey: ["mo-resumo-list"] });
+      qc.invalidateQueries({ queryKey: ["plan-custo-unit"] });
+      qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Não foi possível atualizar a mão de obra.")),
+  });
 
   // Guarda de "alterações não salvas": snapshot do rascunho + BOM editável. O baseline é
   // re-tirado quando as queries semeiam o estado (efeito abaixo, keyed na ASSINATURA do
@@ -1274,6 +1360,10 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   const canEnviarCad = isAprovado && !draft?.enviado_cad && cadMissing.length === 0;
   // Read-only quando já enviado à Explosão e fora do modo edição (lápis "Editar").
   const locked = !!draft?.enviado_cad && !editing;
+  // Revenda (`modelos.origem`, fora do `draft` — nunca editado aqui): a MO por serviço não se
+  // aplica (compra pronta de terceiro; paridade com o Planejamento, que também esconde o
+  // editor p/ revenda).
+  const isRevenda = modelo?.origem === "revenda";
 
   // ── Selos de completude por seção + numeração DINÂMICA do accordion ──────────────────
   const nTecidos = blocks.filter((b) => b.tipo === "tecido" && !!b.artigo_id).length;
@@ -1411,9 +1501,15 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
     }
   }, [guardSnapshotStr, draft, seedSettled, guardReady, baselineTick]);
 
+  // MO por serviço: rascunho local (VALOR) divergiu do baseline — combinado no `dirty` geral
+  // abaixo (mesmo padrão do Planejamento: `dirty = draftDirty || !snapshotsEqual(moLinhas,
+  // moLinhasBase) || ...`). Fora do `guardSnapshotStr`/baselineRef (que só cobrem o BOM
+  // principal) — a semeadura acontece atômica (linhas+base juntos), sem risco de falso-positivo.
+  const moDirty = !snapshotsEqual(moLinhas, moLinhasBase);
+
   // Reporta ao pai (dono do Sheet) se há edições pendentes. Read-only não altera nada.
   // Só conta como sujo depois que o baseline pós-seed assentou (guardReady).
-  const dirty = guardReady && !locked && !!draft && changed;
+  const dirty = (guardReady && !locked && !!draft && changed) || (!locked && moDirty);
   useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
 
   // Colab (spec 2026-08-03, Task 1): canal por modelo — o registroId vai DENTRO do canal
@@ -1510,12 +1606,20 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
       // versão da outra pessoa em silêncio).
       if (conflitosRef.current.length > 0 || conflitoBomRef.current)
         throw new Error("Resolva os conflitos listados no aviso no topo antes de salvar.");
-      // Congela o que este save ENVIA (draft + BOM) — o onSuccess re-baseia nisto, nunca no
-      // estado ao vivo (que pode ganhar teclas durante o voo). Ver comentário em savedAtRef.
+      // Congela o que este save ENVIA (draft + BOM + MO) — o onSuccess re-baseia nisto, nunca
+      // no estado ao vivo (que pode ganhar teclas durante o voo). Ver comentário em savedAtRef.
+      const moLinhasEnviadas = moLinhasRef.current;
+      // Σ da MO que está SENDO enviada agora (não a `maoObraPorServico`/`moResumo.total` do
+      // servidor, que ainda não viu esta edição — `totals.peca` usa esse valor stale). Sem
+      // isto, adicionar/editar uma linha de MO e Salvar em UMA ação gravaria
+      // `custo_peca_previsto` (lido por `custo_unitario_modelos.previsto`, consumido no
+      // Planejamento/dashboards) SEM a MO recém-editada, defasado até o PRÓXIMO Salvar.
+      const moSomaEnviada = moLinhasEnviadas.reduce((s, l) => s + (Number(l.valor) || 0), 0);
       savedAtRef.current = {
         draft: d,
         snapshot: snapshotSemIds({ draft: d, blocks, aviamentosState, etiquetasState, grades, cadTecidosState }),
         bomSnap: snapshotSemIds({ blocks, aviamentosState, etiquetasState, grades, cadTecidosState }),
+        moLinhas: moLinhasEnviadas,
       };
       const reprovadoAtual = (d.status_desenvolvimento ?? "").toLowerCase() === "reprovado";
       const payload = {
@@ -1557,10 +1661,12 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
         // custo_peca_previsto fecha a MO por serviço, que `modelo_mo_resumo` MASCARA (→0) p/ quem
         // não vê custos. Gravá-lo sem `podeVerCustos` subestimaria `custo_unitario_modelos.previsto`
         // (que lê esta coluna) e propagaria MO=0 ao Planejamento/dashboards até alguém com custo
-        // re-salvar. Só recomputa/grava quando podeVerCustos (aí totals.peca tem a MO real); senão
-        // OMITE a chave do UPDATE → preserva o valor do banco. Os custos de material acima NÃO são
-        // mascarados (vêm das colunas armazenadas) → seguem gravando normalmente.
-        ...(podeVerCustos ? { custo_peca_previsto: totals.peca } : {}),
+        // re-salvar. Só recomputa/grava quando podeVerCustos; senão OMITE a chave do UPDATE →
+        // preserva o valor do banco. Os custos de material acima NÃO são mascarados (vêm das
+        // colunas armazenadas) → seguem gravando normalmente. Usa `moSomaEnviada` (não
+        // `totals.peca`, que embute a MO STALE de `moResumo.total`) — a MO editada agora entra
+        // no mesmo Salvar sem esperar um 2º save.
+        ...(podeVerCustos ? { custo_peca_previsto: totals.peca - maoObraPorServico + moSomaEnviada } : {}),
         proporcoes: d.proporcoes ?? {},
         fotos_modelo: d.fotos_modelo ?? [],
         fotos_referencia: d.fotos_referencia ?? [],
@@ -1740,6 +1846,26 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
         });
         if (eCad) throw eCad;
       }
+
+      // MO por serviço (bidirecional c/ o Planejamento): persiste os VALORES das linhas
+      // (estado COMPLETO; aprovação já foi imediata via RPC própria `aprovar_servico_mo`, não
+      // entra aqui — `salvar_modelo_servico_mo` NUNCA toca `aprovado`). Só quando o rascunho de
+      // MO divergiu do baseline — assim um Salvar disparado ANTES de `moResumo` semear não manda
+      // um estado vazio que apagaria as linhas existentes no servidor. Usa o snapshot CONGELADO
+      // no início desta função (`moLinhasEnviadas`), não o estado ao vivo (mesma razão do
+      // draft/BOM acima). Gated por `podeVerCustos`: quem não vê custos tem os valores
+      // MASCARADOS (null) e não deve reescrevê-los (mesmo guard do Planejamento).
+      if (podeVerCustos && !snapshotsEqual(moLinhasEnviadas, moBaseRef.current)) {
+        const { error: moErr } = await supabase.rpc("salvar_modelo_servico_mo" as any, {
+          _modelo_id: modeloId,
+          _linhas: moLinhasEnviadas.map((l) => ({
+            categoria_terceirizado_id: l.categoria_terceirizado_id,
+            valor: Number(l.valor) || 0,
+            observacoes: null,
+          })),
+        });
+        if (moErr) throw moErr;
+      }
   };
 
   const save = useMutation({
@@ -1759,6 +1885,11 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
       const enviado = savedAtRef.current;
       const live = draftLiveRef.current;
       baseRef.current = { draft: enviado?.draft ?? draft };
+      // MO por serviço: o baseline vira o que FOI ENVIADO — se o usuário editou o VALOR de
+      // uma linha durante o voo do save (após o snapshot congelado), `moLinhas` (ao vivo)
+      // segue divergindo desse baseline e o indicador de "não salvo" continua aceso (mesmo
+      // raciocínio do draft acima, sem o rastreio por-campo já que MO não usa `touchedRef`).
+      setMoLinhasBase(enviado?.moLinhas ?? moLinhasBase);
       const aindaTocados = new Set<string>();
       if (enviado && live) {
         for (const k of touchedRef.current) if (!igual(live[k], enviado.draft[k])) aindaTocados.add(k);
@@ -1818,6 +1949,14 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
       qc.invalidateQueries({ queryKey: ["modelo-grades", modeloId] });
       qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
       qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+      // MO por serviço: cross-invalidation (bidirecionalidade c/ o Planejamento) — prefixos
+      // (sem modeloId), cobre QUALQUER modeloId em cache nas duas telas. `["modelo-mo-resumo",
+      // modeloId]` é chave DIFERENTE de `["modelo-detail", modeloId]` (acima) — precisa da sua
+      // própria invalidação.
+      qc.invalidateQueries({ queryKey: ["modelo-mo-resumo"] });
+      qc.invalidateQueries({ queryKey: ["mo-resumo"] });
+      qc.invalidateQueries({ queryKey: ["mo-resumo-list"] });
+      qc.invalidateQueries({ queryKey: ["plan-custo-unit"] });
       // A reserva de estoque é recalculada a partir do BOM salvo (1ª reserva).
       qc.invalidateQueries({ queryKey: ["estoque-tecidos"] });
       // Invalida o cache do CAD (seção "4. CAD") p/ refletir o cad_* salvo.
@@ -2589,13 +2728,28 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
               <fieldset disabled={locked} className="contents space-y-3">
               <ModeloCustosSection
                 totals={totals}
-                custoTerceirizados={maoObraPorServico}
-                maoObraEstado={moEstado}
                 custosAdicionais={draft.custos_adicionais ?? []}
                 onChangeCustos={(v) => setDraftTracked({ ...draft, custos_adicionais: v })}
                 camposCopiados={camposCopiados}
                 onCampoEditado={onCampoEditado}
               />
+              {/* Mão de obra POR SERVIÇO — MESMO editor do Planejamento (bidirecional, mesma
+                  tabela/RPCs `modelo_servico_mo`); valor persiste no Salvar do card, aprovar/
+                  reprovar é imediato. Oculto p/ revenda (MO não se aplica). */}
+              {!isRevenda && (
+                <Card className="p-4">
+                  <Label className="mb-2 block">Mão de obra por serviço</Label>
+                  <MaoObraEditor
+                    linhas={moLinhas}
+                    categorias={catsServico}
+                    podeVerCustos={podeVerCustos}
+                    podeAprovar={podeAprovarMaoObra}
+                    onChangeLinhas={(ls) => setMoLinhas(ls)}
+                    onAprovar={(catId) => aprovarServicoMO.mutate({ categoriaId: catId, aprovado: true })}
+                    onReprovar={(catId, motivo) => aprovarServicoMO.mutate({ categoriaId: catId, aprovado: false, motivo })}
+                  />
+                </Card>
+              )}
               {/* Observação de mão de obra — mesma seção, BLOCO separado dos custos. */}
               <Card className="p-4">
                 <ObsMaoObraField
