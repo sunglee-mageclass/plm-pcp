@@ -18,6 +18,18 @@ export function MoReprovarDialog({
   onConfirm: (motivo: string) => void;
 }) {
   const [motivo, setMotivo] = useState("");
+  // Reset SÍNCRONO no ponto de abertura — "ajuste de estado durante a renderização" (padrão
+  // React p/ resetar estado quando uma prop muda: https://react.dev/learn/you-might-not-need-an-effect).
+  // Compara `open` com o valor do render anterior; se acabou de virar `true`, zera o motivo
+  // ANTES do paint. Um `useEffect` sozinho reage DEPOIS do paint — 1 frame com o motivo
+  // anterior visível ao reabrir pra outra linha (review pediu o reset síncrono).
+  const [openAnterior, setOpenAnterior] = useState(open);
+  if (open !== openAnterior) {
+    setOpenAnterior(open);
+    if (open) setMotivo("");
+  }
+  // Cinto de segurança (mantido a pedido do review): não custa nada e cobre qualquer caminho
+  // que reabra sem passar pelo ramo acima.
   useEffect(() => { if (open) setMotivo(""); }, [open]);
 
   return (

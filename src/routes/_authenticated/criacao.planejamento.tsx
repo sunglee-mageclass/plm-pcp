@@ -606,6 +606,10 @@ function PlanejamentoPage() {
         linhasMO={(moResumoLista as Record<string, { linhas?: MoLinha[] }>)[m.id]?.linhas ?? []}
         onAprovarMO={(categoriaId) => aprovarServicoMOLista.mutate({ modeloId: m.id, categoriaId, aprovado: true })}
         onReprovarMO={(categoriaId, motivo) => aprovarServicoMOLista.mutate({ modeloId: m.id, categoriaId, aprovado: false, motivo })}
+        // Guard de duplo-clique: a mutation é COMPARTILHADA por todos os cards da lista — só
+        // resolve um categoriaId "pendente" pra ESTE card quando o `modeloId` em voo bate com
+        // `m.id` (senão aprovar num card deixaria botões de OUTROS cards desabilitados à toa).
+        pendingCategoriaMO={aprovarServicoMOLista.isPending && aprovarServicoMOLista.variables?.modeloId === m.id ? aprovarServicoMOLista.variables.categoriaId : undefined}
         dataLancamento={(m as any).data_lancamento ?? null}
         onLancar={(data, send) => lancarCard.mutate({ id: m.id, data, send })}
         lancStatus={lancStatusDe(m)}
@@ -969,8 +973,8 @@ function PlanejamentoPage() {
 }
 
 
-function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, custoReal, markup, preco, maoObra, custoMat, moEstado, linhasMO, onAprovarMO, onReprovarMO, dataLancamento, onLancar, lancStatus, mesNome, anoNome, onOpen, compact }: {
-  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; maoObra: number | null; custoMat: number | null; moEstado: string | null; linhasMO: MoLinha[]; onAprovarMO: (categoriaId: string | null) => void; onReprovarMO: (categoriaId: string | null, motivo: string) => void; dataLancamento: string | null; onLancar: (data: string | null, send: boolean) => void; lancStatus: "lancado" | "pronto" | null; mesNome: string | null; anoNome: string | null; onOpen: () => void; compact?: boolean;
+function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, custoReal, markup, preco, maoObra, custoMat, moEstado, linhasMO, onAprovarMO, onReprovarMO, pendingCategoriaMO, dataLancamento, onLancar, lancStatus, mesNome, anoNome, onOpen, compact }: {
+  modelo: Modelo; estilistaNome: string | null; categoriaNome: string | null; linhaNome: string | null; custo: number | null; custoReal: boolean; markup: number | null; preco: number | null; maoObra: number | null; custoMat: number | null; moEstado: string | null; linhasMO: MoLinha[]; onAprovarMO: (categoriaId: string | null) => void; onReprovarMO: (categoriaId: string | null, motivo: string) => void; pendingCategoriaMO?: string | null; dataLancamento: string | null; onLancar: (data: string | null, send: boolean) => void; lancStatus: "lancado" | "pronto" | null; mesNome: string | null; anoNome: string | null; onOpen: () => void; compact?: boolean;
 }) {
   // Hierarquia da capa: Foto do Modelo -> Desenho Técnico -> Croqui -> vazio.
   const cover = (modelo.fotos_modelo?.[0]) || modelo.desenho_tecnico_url || modelo.croqui_url || null;
@@ -1086,6 +1090,7 @@ function ModeloCard({ modelo, estilistaNome, categoriaNome, linhaNome, custo, cu
               podeAprovarMaoObra={podeAprovarMaoObra}
               onAprovar={onAprovarMO}
               onReprovar={onReprovarMO}
+              pendingCategoriaId={pendingCategoriaMO}
             />
           )}
           {podeVerCustos && (preco != null ? <p className="text-xs font-medium truncate">{brl(preco)}</p> : <p className="text-xs text-muted-foreground truncate">Preço: —</p>)}
@@ -2516,6 +2521,7 @@ function ModeloDialog({
                 onChangeLinhas={(ls) => setMoLinhas(ls)}
                 onAprovar={(catId) => aprovarServicoMO.mutate({ categoriaId: catId, aprovado: true })}
                 onReprovar={(catId, motivo) => aprovarServicoMO.mutate({ categoriaId: catId, aprovado: false, motivo })}
+                pendingCategoriaId={aprovarServicoMO.isPending ? aprovarServicoMO.variables?.categoriaId : undefined}
               />
               {podeVerCustos && (
                 <div className="mt-3">

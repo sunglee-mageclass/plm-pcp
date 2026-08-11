@@ -21,7 +21,7 @@ export type CategoriaServicoOpt = { id: string; nome: string; ativo?: boolean };
  */
 export function MaoObraEditor({
   linhas, categorias, podeVerCustos, podeAprovar,
-  onChangeLinhas, onAprovar, onReprovar,
+  onChangeLinhas, onAprovar, onReprovar, pendingCategoriaId,
 }: {
   linhas: MaoObraEditorLinha[];
   categorias: CategoriaServicoOpt[];
@@ -30,6 +30,10 @@ export function MaoObraEditor({
   onChangeLinhas: (linhas: MaoObraEditorLinha[]) => void;
   onAprovar: (categoriaId: string | null) => void;
   onReprovar: (categoriaId: string | null, motivo: string) => void;
+  // Categoria da linha com aprovar/reprovar EM VOO (mutation `isPending` do chamador) —
+  // desabilita os 2 botões DAQUELA linha (guard de duplo-clique; `undefined` = nada pendente,
+  // `null` é um `categoria_terceirizado_id` válido pra "Geral (legado)").
+  pendingCategoriaId?: string | null;
 }) {
   const [addSel, setAddSel] = useState<string>("");
   const [repro, setRepro] = useState<{ categoriaId: string | null } | null>(null);
@@ -72,12 +76,15 @@ export function MaoObraEditor({
             {l.aprovado === false && l.motivo_reprovacao && (
               <span className="w-full text-xs text-red-700 dark:text-red-300">Motivo: {l.motivo_reprovacao}</span>
             )}
-            {podeAprovar && (
-              <span className="ml-auto flex shrink-0 gap-1">
-                <Button type="button" variant="outline" size="iconSm" aria-label="Aprovar" title="Aprovar" className="text-emerald-700" onClick={() => onAprovar(id)}><Check className="h-4 w-4" /></Button>
-                <Button type="button" variant="outline" size="iconSm" aria-label="Reprovar" title="Reprovar" className="text-red-700" onClick={() => setRepro({ categoriaId: id })}><X className="h-4 w-4" /></Button>
-              </span>
-            )}
+            {podeAprovar && (() => {
+              const rowPending = pendingCategoriaId !== undefined && pendingCategoriaId === id;
+              return (
+                <span className="ml-auto flex shrink-0 gap-1">
+                  <Button type="button" variant="outline" size="iconSm" aria-label="Aprovar" title="Aprovar" className="text-emerald-700" disabled={rowPending} onClick={() => onAprovar(id)}><Check className="h-4 w-4" /></Button>
+                  <Button type="button" variant="outline" size="iconSm" aria-label="Reprovar" title="Reprovar" className="text-red-700" disabled={rowPending} onClick={() => setRepro({ categoriaId: id })}><X className="h-4 w-4" /></Button>
+                </span>
+              );
+            })()}
             {/* Remover é edição de VALOR (força re-envio do estado completo). Só p/ quem vê custos —
                 senão um usuário só-aprovador (valores mascarados=null) zeraria os demais no Salvar.
                 E só aparece onde o servidor DEIXA remover: linha já APROVADA (livre) OU quem tem a

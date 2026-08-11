@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Check, X, AlertTriangle } from "lucide-react";
@@ -19,21 +19,29 @@ import { MoReprovarDialog } from "./MoReprovarDialog";
  *
  * Densidade: linhas `py-1 text-xs`, botões `size="iconSm"` (32px, padrão de tabela compacta).
  * >3 serviços trunca com "+N" expansível — evita dobrar a altura do card.
+ *
+ * `pendingCategoriaId` (opcional): categoria da linha com um aprovar/reprovar EM VOO (mutation
+ * `isPending`, resolvida pelo chamador a partir das `variables` da mutation compartilhada da
+ * lista) — desabilita os 2 botões DAQUELA linha, evitando 2 requests por duplo-clique.
+ * `undefined` = nada pendente (não dá p/ usar `null` de sentinela — é um `categoria_
+ * terceirizado_id` válido pra "Geral (legado)").
  */
 export function MoListaSection({
-  linhas, podeVerCustos, podeAprovarMaoObra, onAprovar, onReprovar,
+  linhas, podeVerCustos, podeAprovarMaoObra, onAprovar, onReprovar, pendingCategoriaId,
 }: {
   linhas: MoLinha[];
   podeVerCustos: boolean;
   podeAprovarMaoObra: boolean;
   onAprovar: (categoriaId: string | null) => void;
   onReprovar: (categoriaId: string | null, motivo: string) => void;
+  pendingCategoriaId?: string | null;
 }) {
   const [expanded, setExpanded] = useState(false);
   // `undefined` = dialog fechado; `categoria_terceirizado_id` (pode ser `null`, linha
   // "Geral (legado)") = dialog aberto p/ aquela linha — por isso não dá p/ usar `null` como
   // sentinela de "fechado".
   const [reproAlvo, setReproAlvo] = useState<string | null | undefined>(undefined);
+  const listaId = useId();
 
   if (linhas.length === 0) return null;
 
@@ -41,7 +49,7 @@ export function MoListaSection({
   const ocultos = linhas.length - visiveis.length;
 
   return (
-    <div className="grid min-w-0 gap-1" onClick={(e) => e.stopPropagation()}>
+    <div id={listaId} className="grid min-w-0 gap-1" onClick={(e) => e.stopPropagation()}>
       {visiveis.map((l) => {
         const id = l.categoria_terceirizado_id;
         const estado = l.aprovado === true ? "aprovada" : l.aprovado === false ? "reprovada" : "pendente";
@@ -73,17 +81,26 @@ export function MoListaSection({
                 )}
               </Tooltip>
             </TooltipProvider>
-            {podeAprovarMaoObra && (
-              <span className="ml-auto flex shrink-0 gap-1">
-                <Button type="button" variant="outline" size="iconSm" aria-label="Aprovar" title="Aprovar" className="text-emerald-700" onClick={() => onAprovar(id)}><Check className="h-3.5 w-3.5" /></Button>
-                <Button type="button" variant="outline" size="iconSm" aria-label="Reprovar" title="Reprovar" className="text-red-700" onClick={() => setReproAlvo(id)}><X className="h-3.5 w-3.5" /></Button>
-              </span>
-            )}
+            {podeAprovarMaoObra && (() => {
+              // Guard de duplo-clique: enquanto ESTA linha tem um aprovar/reprovar em voo
+              // (`pendingCategoriaId` resolvido pelo chamador a partir da mutation
+              // compartilhada), os 2 botões da linha ficam desabilitados — sem isso, 2 cliques
+              // rápidos disparavam 2 requests (`aprovar_servico_mo` não é idempotente por si só
+              // contra corrida cliente-side).
+              const rowPending = pendingCategoriaId !== undefined && pendingCategoriaId === id;
+              return (
+                <span className="ml-auto flex shrink-0 gap-1">
+                  <Button type="button" variant="outline" size="iconSm" aria-label="Aprovar" title="Aprovar" className="text-emerald-700" disabled={rowPending} onClick={() => onAprovar(id)}><Check className="h-3.5 w-3.5" /></Button>
+                  <Button type="button" variant="outline" size="iconSm" aria-label="Reprovar" title="Reprovar" className="text-red-700" disabled={rowPending} onClick={() => setReproAlvo(id)}><X className="h-3.5 w-3.5" /></Button>
+                </span>
+              );
+            })()}
           </div>
         );
       })}
       {linhas.length > 3 && (
         <button type="button" className="text-left text-[11px] text-muted-foreground hover:underline"
+          aria-expanded={expanded} aria-controls={listaId}
           onClick={() => setExpanded((v) => !v)}>
           {expanded ? "Mostrar menos" : `+${ocultos} serviço${ocultos > 1 ? "s" : ""}`}
         </button>

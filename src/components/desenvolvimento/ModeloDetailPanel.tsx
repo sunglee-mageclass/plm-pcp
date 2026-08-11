@@ -2780,6 +2780,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
                     onChangeLinhas={(ls) => setMoLinhas(ls)}
                     onAprovar={(catId) => aprovarServicoMO.mutate({ categoriaId: catId, aprovado: true })}
                     onReprovar={(catId, motivo) => aprovarServicoMO.mutate({ categoriaId: catId, aprovado: false, motivo })}
+                    pendingCategoriaId={aprovarServicoMO.isPending ? aprovarServicoMO.variables?.categoriaId : undefined}
                   />
                 </Card>
               )}
