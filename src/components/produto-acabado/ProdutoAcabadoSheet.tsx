@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
+import { useOrcamento } from "@/components/otb/orcamento";
 import { ProdutoCard } from "./ProdutoCard";
 import { ResumoRevendaPanel } from "./ResumoRevendaPanel";
 import { NovoProdutoDialog } from "./NovoProdutoDialog";
@@ -163,6 +164,18 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     }
     return m;
   }, [semanas]);
+
+  // Item 1 (slots vazios de OTB): {total, realizado} por subcoleção via a MESMA RPC/queryKey
+  // (["otb-orcamento"]) que o Plan. Tecido usa p/ vagas — `realizado` conta `modelos` (não
+  // `produtos_acabados`), então é o orçamento COMPARTILHADO entre os planejadores que criam
+  // card nesta subcoleção. `total` casa com `alvoPorSub` p/ coleções tipo 'orcamento', mas
+  // também cobre 'poder_venda' (que `alvoPorSub`, lido só de `colecao_semanas`, não cobre).
+  const orc = useOrcamento();
+  const vagasDe = (nome: string | null): number => {
+    if (!nome) return 0;
+    const b = orc.subcolecao(colecaoId, nome);
+    return b ? Math.max(0, b.total - b.realizado) : 0;
+  };
 
   // ── Opções (taxonomia, cores, fornecedores, tamanhos, markup) — carregadas 1x pra tela toda ──
   const { data: grupos = [] } = useOpt("grupos_produto");
@@ -319,6 +332,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   }, [produtosSub, categorias]);
 
   const alvoAtual = subAtual ? alvoPorSub.get(subAtual.id) ?? null : null;
+  const vagasAtual = subAtual ? vagasDe(subAtual.nome) : 0;
   const semOc = produtosSub.filter((p) => !p.oc);
 
   return (
@@ -351,6 +365,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                 const itens = produtosDeSub(sub.nome);
                 const pecas = itens.reduce((a, p) => a + somaPecas(p), 0);
                 const alvo = alvoPorSub.get(sub.id) ?? null;
+                const vagas = vagasDe(sub.nome);
                 return (
                   <button key={sub.id ?? `__sem__${i}`} type="button"
                     className="flex flex-col gap-2 rounded-lg border bg-background p-4 text-left shadow-sm transition-shadow hover:border-primary hover:shadow-md"
@@ -358,6 +373,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                     <div className="font-medium">{sub.nome ?? "Sem subcoleção"}</div>
                     <div className="text-xs text-muted-foreground">
                       <b className="text-foreground">{itens.length}</b> produto(s) · {pecas} pç{alvo ? ` (alvo ${alvo})` : ""}
+                      {vagas > 0 && <span className="ml-1 font-medium text-primary">· {vagas} disponíve{vagas === 1 ? "l" : "is"}</span>}
                     </div>
                   </button>
                 );
@@ -433,6 +449,32 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                       </section>
                     );
                   })}
+                  {/* Item 1: vagas de OTB disponíveis nesta subcoleção (N = alvo − modelos
+                      existentes, via `useOrcamento()`/["otb-orcamento"] — mesmo orçamento
+                      compartilhado do Plan. Tecido). Cards tracejados clicáveis abrem "+ Novo
+                      produto" já contextualizado na subcoleção aberta. */}
+                  {vagasAtual > 0 && (
+                    <section>
+                      <div className="mb-1.5 flex items-center gap-2">
+                        <span className="text-sm font-semibold text-muted-foreground">Disponíveis para criar</span>
+                        <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{vagasAtual} vaga(s)</span>
+                      </div>
+                      <div className="flex items-start gap-3 overflow-x-auto pb-2">
+                        {Array.from({ length: vagasAtual }, (_, i) => (
+                          <button
+                            key={i}
+                            type="button"
+                            onClick={() => setNovoOpen(true)}
+                            title="Criar um novo produto nesta vaga"
+                            className="flex h-24 w-[420px] max-md:w-[90vw] shrink-0 flex-col items-center justify-center gap-1 rounded-lg border border-dashed text-muted-foreground transition-colors hover:border-primary hover:bg-primary/5 hover:text-primary"
+                          >
+                            <Plus className="h-5 w-5" />
+                            <span className="text-xs font-medium">Novo produto</span>
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  )}
                 </div>
               </main>
             </div>
