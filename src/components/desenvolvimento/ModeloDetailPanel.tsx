@@ -2747,7 +2747,12 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
             <AccordionTrigger>
               <span className="flex flex-1 items-center gap-2 pr-2">
                 <span>{secNum("s5")}. Custos</span>
-                {reqBadge("s5") ?? <SecBadge tone="muted">{custoLbl}</SecBadge>}
+                {/* `custoLbl` é o Custo de 1 Peça agregado (R$, material real) — vaza a
+                    invariante #12 se aparecer pro aprovador-sem-custos (o trigger fica visível
+                    mesmo com a seção colapsada). `reqBadge("s5")` NÃO carrega valor monetário
+                    (é "ok"/"falta aprovação de custo" — só rótulo, conferido em
+                    `kanban-condicoes.ts`), então segue liberado pros dois perfis. */}
+                {podeVerCustos ? (reqBadge("s5") ?? <SecBadge tone="muted">{custoLbl}</SecBadge>) : (reqBadge("s5") ?? null)}
               </span>
             </AccordionTrigger>
             <AccordionContent>
