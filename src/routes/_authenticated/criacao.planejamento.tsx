@@ -1270,6 +1270,14 @@ function ModeloDialog({
   const [gradeRevenda, setGradeRevenda] = useState<Record<number, Record<string, number>>>({});
   const gradeRevendaSeededRef = useRef(false);
   const gradeRevendaBaseRef = useRef("{}");
+  // Trava otimista da grade (fast-follow, fecha o last-write-wins do antigo delete+insert cru):
+  // rev de `modelos` capturado no momento em que a grade foi LIDA do servidor (seed inicial OU
+  // recarga após P0409) — INDEPENDENTE de `revRef` (o rev do header, que o retry dele mesmo já
+  // resincroniza sozinho). O Salvar compara ESTE valor contra o rev atual dentro de
+  // `salvar_grade_revenda` — se comparasse com `revRef.current`, um retry automático do header
+  // (que não sabe nada de `gradeRevenda`) reenviaria a grade PARADA sem notar que ela ficou
+  // desatualizada (ver comentário no `save` mutation).
+  const gradeRevendaRevRef = useRef<number | null>(null);
   const { dirty: draftDirty, markClean, reset: resetDraftBaseline } = useDirtySnapshot(draft);
   // Dirty combinado: draft OU linhas de MO OU grade revenda divergem do baseline (mantidos em
   // baselines INDEPENDENTES — cada um re-semeia no seu próprio momento, sem corrida de ordem
@@ -1501,6 +1509,11 @@ function ModeloDialog({
     for (const r of gradeModeloRows) seeded[r.variante_numero] = { ...(r.grades ?? {}) };
     setGradeRevenda(seeded);
     gradeRevendaBaseRef.current = JSON.stringify(seeded);
+    // Best-effort: `revRef` já deve estar semeado a essa altura (a query de `modelo` carrega
+    // em paralelo, sem dependência entre as duas) — se ainda estiver null (corrida rara), o
+    // 1º Salvar cai no bypass (`_rev_base: null`); qualquer conflito de verdade continua pego
+    // pelo retry do header, que dispara a recarga da grade via `gradeConflict`.
+    gradeRevendaRevRef.current = revRef.current;
     gradeRevendaSeededRef.current = true;
   }, [gradeModeloRows]);
   const setCelulaGradeRevenda = (ordem: number, tam: string, v: number) =>
@@ -1510,6 +1523,14 @@ function ModeloDialog({
   const totalColunaRevenda = (tam: string) =>
     variantesRevenda.reduce((s, v) => s + (Number(gradeRevenda[v.ordem]?.[tam]) || 0), 0);
   const totalGeralRevenda = variantesRevenda.reduce((s, v) => s + totalLinhaRevenda(v.ordem), 0);
+  // Payload da grade p/ `salvar_grade_revenda` — estado COMPLETO (linha ausente = apagada no
+  // servidor); usado nos dois pontos de chamada (edição e criação) do `save` mutation abaixo.
+  const buildLinhasGradeRevenda = () =>
+    Object.entries(gradeRevenda).map(([ordem, grades]) => ({
+      variante_numero: Number(ordem),
+      grades,
+      grade_total: Object.values(grades).reduce((s, v) => s + (Number(v) || 0), 0),
+    }));
 
   // "criar produto acabado" (revenda sem produto vinculado, Task 7): INSERT em
   // produtos_acabados herdando identidade do modelo (grupo derivado de
@@ -1775,8 +1796,45 @@ function ModeloDialog({
       };
       let savedId: string | null = isEdit ? modeloId : null;
       if (isEdit && modeloId) {
+        // Grade cor×tamanho (revenda, fast-follow — fecha o last-write-wins do antigo
+        // delete+insert cru): grava ANTES do UPDATE do header, com `_rev_base` PRÓPRIO
+        // (`gradeRevendaRevRef`, independente de `revRef`) via RPC `salvar_grade_revenda`
+        // (rev-check no molde do `salvar_modelo_bom` + delete+insert atômico no servidor).
+        // Tem que rodar ANTES do header: a escrita em `modelo_grades` já bumpa `modelos.rev`
+        // sozinha (trigger `trg_colab_bump`, infra 2026-08-03) — se corresse DEPOIS do UPDATE
+        // do header, o bump do PRÓPRIO header já teria avançado o rev e a checagem da grade
+        // daria P0409 falso em TODO save. Conflito de grade é tratado por RECARGA (sem merge,
+        // `gradeConflict` marcado no erro, tratado à parte no onError) — não pelo retry do
+        // header abaixo, que só sabe mesclar campos escalares do draft e nunca soube de
+        // `gradeRevenda`; se caísse nesse retry, reenviaria a grade PARADA sem detectar que
+        // ficou desatualizada.
+        let revParaHeader = revRef.current;
+        if (isRevenda && gradeRevendaDirty) {
+          const { error: gradeErr } = await supabase.rpc("salvar_grade_revenda" as any, {
+            _modelo_id: modeloId,
+            _grades: buildLinhasGradeRevenda(),
+            _rev_base: gradeRevendaRevRef.current,
+          });
+          if (gradeErr) {
+            if ((gradeErr as any).code === "P0409") (gradeErr as any).gradeConflict = true;
+            throw gradeErr;
+          }
+          // A grade já gravou (e já bumpou modelos.rev sozinha) — recarrega o rev atual antes
+          // do UPDATE do header logo abaixo, senão ele veria o PRÓPRIO bump da grade como
+          // conflito (ver comentário acima).
+          const { data: revRow, error: revErr } = await (supabase.from("modelos") as any)
+            .select("rev").eq("id", modeloId).single();
+          if (revErr) throw revErr;
+          revParaHeader = (revRow as any).rev;
+          // A grade gravada é agora a verdade do servidor — zera o "não salvo" dela já aqui
+          // (não só no onSuccess do save inteiro): se o UPDATE do header logo abaixo falhar
+          // (P0409 do header, causa separada), um retry automático não pode tentar regravar a
+          // MESMA grade com um `_rev_base` velho.
+          gradeRevendaRevRef.current = revParaHeader;
+          gradeRevendaBaseRef.current = JSON.stringify(gradeRevenda);
+        }
         // Colab (Task 2) — contrato desta tela (spec 2026-08-03): UPDATE DIRETO com
-        // `.eq("rev", revRef.current)` — só casa a linha se ninguém salvou desde a última
+        // `.eq("rev", revParaHeader)` — só casa a linha se ninguém salvou desde a última
         // carga; 0 linhas devolvidas = conflito (mesma UX do P0409 do piloto: merge síncrono +
         // retry 1×). `syncTecidosToDesenvolvimento` roda DEPOIS (várias escritas na tabela
         // filha `modelo_tecidos`, sem RPC composta aqui) — não precisa de trava própria: o
@@ -1784,7 +1842,7 @@ function ModeloDialog({
         // estreita aceita/documentada na adoção do Desenvolvimento). `as any` no builder: o
         // types.ts ainda não tem a coluna `rev` (regen pendente — ver CLAUDE.md).
         const { data: updRows, error } = await (supabase.from("modelos") as any)
-          .update(payload).eq("id", modeloId).eq("rev", revRef.current).select("id");
+          .update(payload).eq("id", modeloId).eq("rev", revParaHeader).select("id");
         if (error) throw error;
         if (!updRows || updRows.length === 0) {
           const conflito: any = new Error("conflito_versao: o registro foi salvo por outra pessoa");
@@ -1798,22 +1856,17 @@ function ModeloDialog({
         if (error) throw error;
         savedId = inserted?.id ?? null;
         if (savedId) await syncTecidosToDesenvolvimento(savedId, draft.tecidos_planejados);
-      }
-      // Grade cor×tamanho (revenda, Task 7): estado COMPLETO por save (delete+insert, sem
-      // merge — mesmo padrão do resto do Produto Acabado) — só quando o rascunho divergiu
-      // do que foi lido do servidor, pra não regravar à toa.
-      if (isRevenda && savedId && gradeRevendaDirty) {
-        const { error: delErr } = await supabase.from("modelo_grades").delete().eq("modelo_id", savedId);
-        if (delErr) throw delErr;
-        const linhasGrade = Object.entries(gradeRevenda).map(([ordem, grades]) => ({
-          modelo_id: savedId,
-          variante_numero: Number(ordem),
-          grades,
-          grade_total: Object.values(grades).reduce((s, v) => s + (Number(v) || 0), 0),
-        }));
-        if (linhasGrade.length > 0) {
-          const { error: insErr } = await supabase.from("modelo_grades").insert(linhasGrade);
-          if (insErr) throw insErr;
+        // Grade cor×tamanho: hoje inatingível na criação (só aparece depois de o Produto
+        // Acabado vinculado existir, o que exige o modelo já salvo) — mantido por
+        // uniformidade/robustez futura, mesma RPC. Linha nova = sem concorrência possível,
+        // `_rev_base: null` (bypass), igual ao resto do fluxo de criação acima.
+        if (isRevenda && savedId && gradeRevendaDirty) {
+          const { error: gradeErr } = await supabase.rpc("salvar_grade_revenda" as any, {
+            _modelo_id: savedId,
+            _grades: buildLinhasGradeRevenda(),
+            _rev_base: null,
+          });
+          if (gradeErr) throw gradeErr;
         }
       }
       // MO por serviço (spec 2026-08-06): persiste os VALORES das linhas (estado COMPLETO;
@@ -1861,6 +1914,28 @@ function ModeloDialog({
       onClose();
     },
     onError: async (e: any) => {
+      // Grade cor×tamanho (revenda, fast-follow): conflito tratado por RECARGA, NÃO por merge
+      // — refaz o fetch da grade e deixa o usuário reaplicar (política "conflito → recarrega",
+      // limitação consciente; ver comentário no `mutationFn`). Fica ANTES do branch de P0409
+      // do header abaixo (que este marcador `gradeConflict` desvia) — não entra no
+      // merge/retry dele, que não sabe nada de `gradeRevenda`.
+      if (e?.code === "P0409" && e?.gradeConflict) {
+        await qc.refetchQueries({ queryKey: ["modelo-grades-revenda", modeloId] });
+        const freshGrade = qc.getQueryData<{ variante_numero: number; grades: Record<string, number> | null; grade_total: number }[]>(["modelo-grades-revenda", modeloId]) ?? [];
+        const seeded: Record<number, Record<string, number>> = {};
+        for (const r of freshGrade) seeded[r.variante_numero] = { ...(r.grades ?? {}) };
+        setGradeRevenda(seeded);
+        gradeRevendaBaseRef.current = JSON.stringify(seeded);
+        // Resincroniza o rev PRÓPRIO da grade — sem isto o PRÓXIMO Salvar compararia com um
+        // `_rev_base` velho e cairia em P0409 de novo, mesmo já com os dados certos na tela.
+        // Não mexe em `revRef`/draft — o merge effect existente (useEffect de `[modeloData]`)
+        // resolve isso sozinho a partir deste mesmo refetch.
+        await qc.refetchQueries({ queryKey: ["modelo", modeloId] });
+        const freshModelo = qc.getQueryData<any>(["modelo", modeloId]);
+        gradeRevendaRevRef.current = freshModelo?.rev ?? null;
+        toast.error(mensagemErro(e, "Erro ao salvar"));
+        return;
+      }
       // Colab (Task 2, mesma armadilha documentada no piloto/Desenvolvimento): ler o cache
       // DIRETO (getQueryData) + refs-espelho DENTRO do onError — NUNCA delegar ao useEffect
       // (só roda no próximo passive-effect commit; o retry leria `revRef.current` VELHO e

@@ -435,3 +435,93 @@ describe.skipIf(!hasDb)("Produto Acabado — excluir_produto_acabado (Task 6 fix
     });
   });
 });
+
+// Fast-follow Revenda (ago/2026, migration 20260811130000): trava otimista (rev +
+// _rev_base + P0409) na grade cor×tamanho do card de Revenda — fecha o last-write-wins do
+// antigo delete+insert cru em `modelo_grades` feito direto pelo front. Mesmo molde do
+// rev-check de `salvar_modelo_bom` (ver colab-trava.test.ts); NÃO é merge por célula.
+describe.skipIf(!hasDb)("Produto Acabado — salvar_grade_revenda (fast-follow trava otimista)", () => {
+  it("_rev_base correto grava e bumpa rev; save seguinte com linha ausente apaga", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const m = await um<{ id: string; rev: number }>(
+        c,
+        `insert into modelos (tenant_id, nome, origem) values ($1,'Grade Revenda T1','revenda') returning id, rev`,
+        [TENANT_TESTE],
+      );
+
+      await um(c, `select salvar_grade_revenda($1, $2::jsonb, $3)`, [
+        m.id,
+        JSON.stringify([
+          { variante_numero: 0, grades: { "38": 5, "40": 3 }, grade_total: 8 },
+          { variante_numero: 1, grades: { "38": 2 }, grade_total: 2 },
+        ]),
+        m.rev,
+      ]);
+      const rows1 = await c.query(
+        `select variante_numero, grade_total from modelo_grades where modelo_id=$1 order by variante_numero`,
+        [m.id],
+      );
+      expect(rows1.rows.map((r: any) => [r.variante_numero, Number(r.grade_total)])).toEqual([
+        [0, 8],
+        [1, 2],
+      ]);
+      const r1 = await um<{ rev: number }>(c, `select rev from modelos where id=$1`, [m.id]);
+      expect(r1.rev).toBeGreaterThan(m.rev); // modelo_grades tem trg_colab_bump (infra 2026-08-03) — bumpa sozinho
+
+      // Estado COMPLETO no 2º save, omitindo variante_numero=0 → linha ausente é APAGADA.
+      await um(c, `select salvar_grade_revenda($1, $2::jsonb, $3)`, [
+        m.id,
+        JSON.stringify([{ variante_numero: 1, grades: { "38": 4 }, grade_total: 4 }]),
+        r1.rev,
+      ]);
+      const rows2 = await c.query(
+        `select variante_numero, grade_total from modelo_grades where modelo_id=$1 order by variante_numero`,
+        [m.id],
+      );
+      expect(rows2.rows.map((r: any) => [r.variante_numero, Number(r.grade_total)])).toEqual([[1, 4]]);
+    });
+  });
+
+  it("_rev_base velho → P0409; null bypassa mesmo com rev desatualizado", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const m = await um<{ id: string; rev: number }>(
+        c,
+        `insert into modelos (tenant_id, nome, origem) values ($1,'Grade Revenda T2','revenda') returning id, rev`,
+        [TENANT_TESTE],
+      );
+
+      await c.query("SAVEPOINT sp_grade_revenda_rev_velho");
+      await expect(
+        um(c, `select salvar_grade_revenda($1, '[]'::jsonb, $2)`, [m.id, m.rev + 99]),
+      ).rejects.toMatchObject({ code: "P0409" });
+      await c.query("ROLLBACK TO SAVEPOINT sp_grade_revenda_rev_velho");
+
+      // Simula "outra pessoa salvou": qualquer UPDATE em modelos bumpa rev (trg_colab_rev).
+      await c.query(`update modelos set nome = nome where id = $1`, [m.id]);
+
+      // _rev_base null = bypass total, mesmo com `m.rev` (capturado antes) já desatualizado.
+      await um(c, `select salvar_grade_revenda($1, $2::jsonb, null)`, [
+        m.id,
+        JSON.stringify([{ variante_numero: 0, grades: { "38": 1 }, grade_total: 1 }]),
+      ]);
+      const rows = await c.query(`select variante_numero from modelo_grades where modelo_id=$1`, [m.id]);
+      expect(rows.rows).toHaveLength(1);
+    });
+  });
+
+  it("modelo não-revenda (origem='interno') → P0001", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const m = await um<{ id: string; rev: number }>(
+        c,
+        `insert into modelos (tenant_id, nome) values ($1,'Grade Revenda T3') returning id, rev`,
+        [TENANT_TESTE],
+      );
+      await expect(
+        um(c, `select salvar_grade_revenda($1, '[]'::jsonb, $2)`, [m.id, m.rev]),
+      ).rejects.toThrow(/não é de Revenda/);
+    });
+  });
+});
