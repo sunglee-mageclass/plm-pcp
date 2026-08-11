@@ -63,7 +63,14 @@ export function MaoObraEditor({
             <span className="min-w-[8rem] flex-1 truncate text-sm font-medium">{nomeCat(id)}</span>
             {podeVerCustos && (
               <div className="w-32">
-                <MoneyInput value={l.valor ?? ""} onChange={(e) => { const v = e.target.value; setValor(id, v === "" ? null : Number(v)); }} placeholder="R$" />
+                {/* `l.valor || ""` (não `??`): 0 e vazio são o MESMO valor de negócio aqui —
+                    linha recém-adicionada (`valor: null`) OU já persistida com 0 (salva sem
+                    digitar, ou legado) nascem/permanecem com o campo VAZIO + placeholder
+                    "0,00", nunca com um "0" preenchido que pareça um valor real digitado.
+                    `moLinhasEqual` (@/lib/mao-obra) espelha essa equivalência na comparação
+                    de dirty — sem isso, digitar e apagar de volta acenderia "não salvo" à
+                    toa mesmo sem mudança de valor de negócio. */}
+                <MoneyInput value={l.valor || ""} onChange={(e) => { const v = e.target.value; setValor(id, v === "" ? null : Number(v)); }} placeholder="0,00" />
               </div>
             )}
             <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${

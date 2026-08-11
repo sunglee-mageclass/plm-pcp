@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
-import { useDirtySnapshot, snapshotsEqual } from "@/hooks/useDirtySnapshot";
+import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { ColabBanner } from "@/components/shared/ColabBanner";
 import { useColabRegistro } from "@/hooks/useColabRegistro";
 import { mergeDraft, type Conflito } from "@/lib/colab/merge";
@@ -25,7 +25,7 @@ import { ObsMaoObraField } from "@/components/shared/ObsMaoObraField";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { MaoObraEditor, type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
 import { MoListaSection } from "@/components/planejamento/MoListaSection";
-import { estadoMO, type MoLinha } from "@/lib/mao-obra";
+import { estadoMO, moLinhasEqual, type MoLinha } from "@/lib/mao-obra";
 import { DateField } from "@/components/shared/DateField";
 import { ResumoVenda } from "@/components/shared/ResumoVenda";
 import { HeaderActions } from "@/components/shared/HeaderActions";
@@ -1338,7 +1338,7 @@ function ModeloDialog({
   // baselines INDEPENDENTES — cada um re-semeia no seu próprio momento, sem corrida de ordem
   // entre os carregamentos assíncronos).
   const gradeRevendaDirty = gradeRevendaSeededRef.current && JSON.stringify(gradeRevenda) !== gradeRevendaBaseRef.current;
-  const dirty = draftDirty || !snapshotsEqual(moLinhas, moLinhasBase) || gradeRevendaDirty;
+  const dirty = draftDirty || !moLinhasEqual(moLinhas, moLinhasBase) || gradeRevendaDirty;
   const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose });
   // Grupo é transiente (não é coluna do modelo) — filtra as Categorias na cascata.
   const [grupoSel, setGrupoSel] = useState<string | null>(null);
@@ -1693,7 +1693,7 @@ function ModeloDialog({
       categoria_terceirizado_id: l.categoria_terceirizado_id ?? null,
       nome: l.nome, valor: l.valor ?? null, aprovado: l.aprovado ?? null, motivo_reprovacao: l.motivo_reprovacao ?? null,
     })) as MaoObraEditorLinha[];
-    if (!snapshotsEqual(moLinhasRef.current, moBaseRef.current)) return; // preserva edições não salvas
+    if (!moLinhasEqual(moLinhasRef.current, moBaseRef.current)) return; // preserva edições não salvas
     setMoLinhas(seed); setMoLinhasBase(seed);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [moResumo]);
@@ -1926,7 +1926,7 @@ function ModeloDialog({
       // um estado vazio que apagaria as linhas existentes no servidor. `moLinhasRef` = leitura
       // síncrona (nenhuma edição feita durante o `await` acima se perde). Gated por
       // `podeVerCustos`: quem não vê custos tem os valores MASCARADOS (null) e não deve reescrevê-los.
-      if (podeVerCustos && savedId && !snapshotsEqual(moLinhasRef.current, moBaseRef.current)) {
+      if (podeVerCustos && savedId && !moLinhasEqual(moLinhasRef.current, moBaseRef.current)) {
         const { error: moErr } = await supabase.rpc("salvar_modelo_servico_mo" as any, {
           _modelo_id: savedId,
           _linhas: moLinhasRef.current.map((l) => ({

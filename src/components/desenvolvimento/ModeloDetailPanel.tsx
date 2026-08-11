@@ -61,8 +61,7 @@ import { ModeloGradeSection } from "./modelo-detail/ModeloGradeSection";
 import { ModeloCustosSection } from "./modelo-detail/ModeloCustosSection";
 import { ObsMaoObraField } from "@/components/shared/ObsMaoObraField";
 import { MaoObraEditor, type MaoObraEditorLinha } from "@/components/planejamento/MaoObraEditor";
-import type { MoLinha } from "@/lib/mao-obra";
-import { snapshotsEqual } from "@/hooks/useDirtySnapshot";
+import { moLinhasEqual, type MoLinha } from "@/lib/mao-obra";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { ModeloAnexosSection } from "./modelo-detail/ModeloAnexosSection";
@@ -649,7 +648,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
       categoria_terceirizado_id: l.categoria_terceirizado_id ?? null,
       nome: l.nome, valor: l.valor ?? null, aprovado: l.aprovado ?? null, motivo_reprovacao: l.motivo_reprovacao ?? null,
     })) as MaoObraEditorLinha[];
-    if (!snapshotsEqual(moLinhasRef.current, moBaseRef.current)) return; // preserva edições não salvas
+    if (!moLinhasEqual(moLinhasRef.current, moBaseRef.current)) return; // preserva edições não salvas
     setMoLinhas(seed); setMoLinhasBase(seed);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [moResumo]);
@@ -1504,10 +1503,12 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
   }, [guardSnapshotStr, draft, seedSettled, guardReady, baselineTick]);
 
   // MO por serviço: rascunho local (VALOR) divergiu do baseline — combinado no `dirty` geral
-  // abaixo (mesmo padrão do Planejamento: `dirty = draftDirty || !snapshotsEqual(moLinhas,
+  // abaixo (mesmo padrão do Planejamento: `dirty = draftDirty || !moLinhasEqual(moLinhas,
   // moLinhasBase) || ...`). Fora do `guardSnapshotStr`/baselineRef (que só cobrem o BOM
   // principal) — a semeadura acontece atômica (linhas+base juntos), sem risco de falso-positivo.
-  const moDirty = !snapshotsEqual(moLinhas, moLinhasBase);
+  // `moLinhasEqual` (não `snapshotsEqual` genérico) normaliza `valor` 0≡null — o mesmo campo
+  // exibido vazio no editor (`MaoObraEditor`) não pode oscilar "sujo" ao ser tocado e voltar.
+  const moDirty = !moLinhasEqual(moLinhas, moLinhasBase);
 
   // Reporta ao pai (dono do Sheet) se há edições pendentes. Read-only não altera nada.
   // Só conta como sujo depois que o baseline pós-seed assentou (guardReady).
@@ -1865,7 +1866,7 @@ function PanelContent({ modeloId, onClose, onDirtyChange }: { modeloId: string; 
       // no início desta função (`moLinhasEnviadas`), não o estado ao vivo (mesma razão do
       // draft/BOM acima). Gated por `podeVerCustos`: quem não vê custos tem os valores
       // MASCARADOS (null) e não deve reescrevê-los (mesmo guard do Planejamento).
-      if (podeVerCustos && !snapshotsEqual(moLinhasEnviadas, moBaseRef.current)) {
+      if (podeVerCustos && !moLinhasEqual(moLinhasEnviadas, moBaseRef.current)) {
         const { error: moErr } = await supabase.rpc("salvar_modelo_servico_mo" as any, {
           _modelo_id: modeloId,
           _linhas: moLinhasEnviadas.map((l) => ({
