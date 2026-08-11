@@ -107,6 +107,65 @@ describe.skipIf(!hasDb)("FF2 — modgate de leitura (produto_acabado)", () => {
   });
 });
 
+// Fix round do FF2 (HIGH confirmado pelo reviewer, migração 20260811140000):
+// `tenant_module_enabled` só tratava `otb` como opt-in-default-OFF no fallback
+// (`_module <> 'otb'`) — pra `produto_acabado`, tenant SEM a chave explícita em
+// `tenant_config.modules` recebia TRUE (falha aberta), furando tanto as policies
+// RESTRICTIVE do FF2 quanto todos os wrappers da feature. Cobre exatamente o gap com um
+// tenant SINTÉTICO (criado na própria transação) — não usa os tenants reais (Controle de
+// Estoque/French/Mun), pra não depender do estado deles. Nota: `trg_criar_tenant_config`
+// semeia um `tenant_config` default pra TODO tenant novo (inclusive via NovaLojaModal),
+// mas esse default NUNCA incluiu a chave `produto_acabado`/`otb` (módulos não existiam
+// quando o seed foi escrito) — "sem a chave" é o estado real de qualquer loja nova, com
+// ou sem essa linha default.
+describe.skipIf(!hasDb)("FF2-fix — tenant_module_enabled trata produto_acabado como opt-in (falha-fechado)", () => {
+  it("tenant novo (chave produto_acabado ausente no config-default): produto_acabado=false, otb=false, cadastro=true", async () => {
+    await withTx(async (c) => {
+      const t = await um<{ id: string }>(c, `insert into tenants (nome) values ('ITEST tenant sem config') returning id`);
+      // Reassocia um usuário real não-super_admin (comum) pra esse tenant sintético só
+      // pra exercitar get_user_tenant_id()/tenant_module_enabled como esse tenant.
+      await c.query(`update users set tenant_id=$1 where id=$2`, [t.id, AVE_RARA_USER_COMUM]);
+      await comoUsuario(c, AVE_RARA_USER_COMUM);
+      await c.query("SET ROLE authenticated");
+      try {
+        const r = await um<{ pa: boolean; otb: boolean; cad: boolean }>(
+          c,
+          `select tenant_module_enabled('produto_acabado') as pa,
+                  tenant_module_enabled('otb') as otb,
+                  tenant_module_enabled('cadastro') as cad`,
+        );
+        expect(r.pa).toBe(false); // era o bug: vinha true
+        expect(r.otb).toBe(false); // já era false antes (regressão-guard)
+        expect(r.cad).toBe(true); // módulo "clássico": chave ausente segue ON
+      } finally {
+        await c.query("RESET ROLE");
+      }
+    });
+  });
+
+  it("mesmo tenant sintético, COM a chave produto_acabado=true: enxerga normal", async () => {
+    await withTx(async (c) => {
+      // trg_criar_tenant_config (AFTER INSERT em tenants) já semeia um tenant_config
+      // default (sem a chave produto_acabado/otb) — UPDATE na linha que o trigger criou,
+      // não INSERT (daria unique_violation em tenant_config_tenant_id_key).
+      const t = await um<{ id: string }>(c, `insert into tenants (nome) values ('ITEST tenant com config') returning id`);
+      await c.query(
+        `update tenant_config set modules = jsonb_set(modules, '{produto_acabado}', 'true') where tenant_id=$1`,
+        [t.id],
+      );
+      await c.query(`update users set tenant_id=$1 where id=$2`, [t.id, AVE_RARA_USER_COMUM]);
+      await comoUsuario(c, AVE_RARA_USER_COMUM);
+      await c.query("SET ROLE authenticated");
+      try {
+        const r = await um<{ pa: boolean }>(c, `select tenant_module_enabled('produto_acabado') as pa`);
+        expect(r.pa).toBe(true);
+      } finally {
+        await c.query("RESET ROLE");
+      }
+    });
+  });
+});
+
 describe.skipIf(!hasDb)("FF3 — tenant-match (produto_acabado.modelo_id / ocs_p_acabado.produto_acabado_id)", () => {
   it("produtos_acabados.modelo_id de OUTRA loja no INSERT → rejeita (P0001, PT)", async () => {
     await withTx(async (c) => {
