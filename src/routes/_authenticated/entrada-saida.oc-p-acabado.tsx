@@ -24,6 +24,7 @@ import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 import { useTenantModules } from "@/hooks/useTenantModules";
 import { varianteLabel } from "@/lib/variante";
 import { ehGrupoAcessorio } from "@/lib/produto-acabado";
+import { erroValidacao } from "@/components/produto-acabado/shared";
 import { OcPaForm, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt, type ProdutoVinculadoInfo } from "@/components/oc-p-acabado/OcPaForm";
 import { OcPaRecebimento, type ColaboradorOpt } from "@/components/oc-p-acabado/OcPaRecebimento";
 import {
@@ -570,7 +571,7 @@ function OcPaDialog({
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      if (!draft.nome_produto.trim()) throw new Error("Informe o nome do produto.");
+      if (!draft.nome_produto.trim()) throw erroValidacao("Informe o nome do produto.");
       const { data: savedId, error } = await supabase.rpc("salvar_oc_p_acabado" as any, {
         _id: isEdit ? ocId : null,
         _dados: montarDados(),
