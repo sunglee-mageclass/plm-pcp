@@ -23,11 +23,17 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { varianteLabel } from "@/lib/variante";
 import { ehGrupoAcessorio, cadeiaValores } from "@/lib/produto-acabado";
+import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import {
   redistribuirVariantesPorPeso, gradePedidaDeVariantes, somaGradeCampo, somaPecas, hojeISO, fmtMoney,
   variantesBatemComTotal, erroValidacao,
   type ProdutoDraft, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt, type OcVinculadaInfo,
 } from "./shared";
+
+// label exibido de um tamanho cadastrado ("34|PPP" → "PPP") — mesmo helper de
+// GradeSection.tsx (Plan. Tecido) / pcp.servicos.$modeloId.tsx; não extraído p/ lib
+// compartilhada (segue o precedente das 2 duplicatas já existentes no código).
+const labelTamanho = (t: string) => (t.includes("|") ? t.split("|")[1] || t : t);
 
 type OcAvulsa = {
   id: string;
@@ -370,28 +376,59 @@ export function ProdutoCard({
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[150px] shrink-0 text-sm">Qtd total</Label>
-                      <NumberInput integer className="flex-1" value={produto.qtd_total} onChange={(e) => onChange({ ...produto, qtd_total: Math.max(0, Math.trunc(Number(e.target.value)) || 0) })} />
+                      <NumberInput
+                        integer
+                        blankZero
+                        placeholder="0"
+                        className="flex-1"
+                        value={produto.qtd_total}
+                        onChange={(e) => {
+                          // Item 7: alterar o TOTAL redistribui as variantes por peso na hora
+                          // (mesma conta de "Redistribuir por peso", só que automática aqui —
+                          // as células continuam editáveis depois; o botão explícito segue existindo
+                          // p/ redistribuir de novo sem tocar no total).
+                          const novoTotal = Math.max(0, Math.trunc(Number(e.target.value)) || 0);
+                          onChange({ ...produto, qtd_total: novoTotal, variantes: redistribuirVariantesPorPeso(produto.variantes, novoTotal) });
+                        }}
+                      />
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[150px] shrink-0 text-sm">Valor unitário</Label>
-                      <MoneyInput className="flex-1" value={produto.valor_unitario} onChange={(e) => onChange({ ...produto, valor_unitario: Number(e.target.value) || 0 })} />
+                      <div className="relative flex-1">
+                        <MoneyInput
+                          className="pl-7"
+                          placeholder="0,00"
+                          value={produto.valor_unitario || ""}
+                          onChange={(e) => onChange({ ...produto, valor_unitario: Number(e.target.value) || 0 })}
+                        />
+                        <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">R$</span>
+                      </div>
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[150px] shrink-0 text-sm">Desconto (%)</Label>
-                      <NumberInput className="flex-1" value={produto.desconto_pct} onChange={(e) => onChange({ ...produto, desconto_pct: Math.max(0, Number(e.target.value) || 0) })} />
+                      <NumberInput blankZero placeholder="0" className="flex-1" value={produto.desconto_pct} onChange={(e) => onChange({ ...produto, desconto_pct: Math.max(0, Number(e.target.value) || 0) })} />
                     </div>
                   </div>
 
                   {!acessorio && (
                     <div className="space-y-1.5">
                       <Label className="text-sm">Proporção de grade (peso)</Label>
-                      <div className="flex flex-wrap gap-2">
+                      {/* Densidade espelhada de GradeSection.tsx (Plan. Tecido) — célula 30px,
+                          label 8px ABAIXO do campo, sem tabela larga (item 2 do refino). */}
+                      <div className="flex flex-wrap gap-1">
                         {tamanhos.map((t) => {
                           const peso = produto.grade_proporcao[t] ?? 0;
                           return (
-                            <div key={t} className={peso > 0 ? "rounded-md border border-amber-300 bg-amber-50 p-1.5 dark:border-amber-500/40 dark:bg-amber-500/10" : "rounded-md border p-1.5"}>
-                              <div className="text-center text-[10px] font-medium text-muted-foreground">{t}</div>
-                              <NumberInput integer className="h-8 w-14 border-0 bg-transparent text-center" value={peso} onChange={(e) => setPeso(t, Math.max(0, Math.trunc(Number(e.target.value)) || 0))} />
+                            <div key={t} className={`flex w-[30px] max-md:w-11 flex-col items-center overflow-hidden rounded border bg-background ${peso > 0 ? "border-amber-300 dark:border-amber-500/40" : ""}`}>
+                              <NumberInput
+                                integer
+                                blankZero
+                                placeholder="0"
+                                className="h-6 w-full rounded-none border-0 bg-transparent px-0 text-center text-xs shadow-none focus-visible:ring-0 max-md:h-9 max-md:text-base"
+                                value={peso}
+                                onChange={(e) => setPeso(t, Math.max(0, Math.trunc(Number(e.target.value)) || 0))}
+                              />
+                              <span className="pb-0.5 text-[8px] uppercase tracking-tight text-muted-foreground">{labelTamanho(t)}</span>
                             </div>
                           );
                         })}
@@ -422,7 +459,7 @@ export function ProdutoCard({
                               <SelectTrigger className="w-40"><SelectValue placeholder="Cor apelido" /></SelectTrigger>
                               <SelectContent>{coresApelido.filter((a) => !v.cor_id || a.cor_base_id === v.cor_id).map((a) => <SelectItem key={a.id} value={a.id}>{a.nome}</SelectItem>)}</SelectContent>
                             </Select>
-                            <span className="text-xs text-muted-foreground">{varianteLabel({ cor: corNome(v.cor_id), apelido: apelidoNome(v.cor_apelido_id) })}</span>
+                            <VarianteSwatch nome={corNome(v.cor_id) ?? undefined} label={varianteLabel({ cor: corNome(v.cor_id), apelido: apelidoNome(v.cor_apelido_id) })} />
                             <div className="ml-auto flex items-center gap-1">
                               <span className="text-xs text-muted-foreground">peso</span>
                               <NumberInput integer className="h-8 w-16 text-center" value={v.peso} onChange={(e) => setVariante(v.ordem, { peso: Math.max(0, Number(e.target.value) || 0) })} />
