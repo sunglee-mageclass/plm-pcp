@@ -1992,6 +1992,16 @@ function ModeloDialog({
         } else {
           toast.success("Produto criado no Produto Acabado.");
         }
+      }
+      // Item 3 (bônus, refino ago/2026): QUALQUER save de um card revenda invalida o cache do
+      // Produto Acabado — antes só cobria o auto-criar do espelho (acima); editar um campo que
+      // o PA lê por embed (ex.: Linha → "Markup da linha (sugestão)" no card, ou preço
+      // varejo/atacado) num produto JÁ vinculado não invalidava nada aqui. Na prática o
+      // `ProdutoAcabadoSheet` já busca fresco a cada montagem (`["produtos-acabados", colecaoId]`
+      // sem staleTime — default 0), mas isto fecha o buraco se o Sheet permanecer montado
+      // durante o save (reabertura rápida) e mantém paridade com `invalidarVizinhos` do sentido
+      // inverso (`ProdutoCard.tsx`, PA → Planejamento).
+      if (draft.origem === "revenda") {
         qc.invalidateQueries({ predicate: (q) => typeof q.queryKey?.[0] === "string" && (q.queryKey[0] as string).startsWith("produtos-acabados") });
         qc.invalidateQueries({ queryKey: ["pa-produto-modelo", modeloId] });
       }
