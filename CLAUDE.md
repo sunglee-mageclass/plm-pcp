@@ -524,16 +524,35 @@ ao mexer em consumo/grade/estoque/custo/financeiro/CQ.
 **Motor de regras do kanban (transição de status no Desenvolvimento):** requisitos de ENTRADA
 por status (todos em E). SSOT do catálogo de condições = `src/lib/kanban-condicoes.ts` (config
 e enforcement leem daí; NÃO duplicar em doc). Avaliação por modelo na RPC `avaliar_condicoes_kanban`;
-config guarda `tenant_config.status_kanban[i].requisitos`. **Ao adicionar condição/módulo:**
-catálogo TS + branch na RPC — o **teste anti-drift** (Vitest) falha se as chaves não casarem.
-Enforcement no Select de status E no arraste (colunas inválidas esmaecidas). Atualizar este bloco +
-a memória a cada mudança (papel do `docs-keeper`). ⚠️ A condição `servico_aprovado` (key histórica,
+config guarda `tenant_config.kanban_requisitos[status_key]` (coluna PRÓPRIA — `status_kanban` só
+guarda as colunas do board, `requisitos` NÃO é campo aninhado nele, apesar do nome sugerir).
+**Ao adicionar condição/módulo:** catálogo TS + branch na RPC — o **teste anti-drift** (Vitest,
+`tests/integration/kanban-condicoes.test.ts`) falha se as chaves não casarem. Enforcement no
+Select de status E no arraste (colunas inválidas esmaecidas). Atualizar este bloco + a memória a
+cada mudança (papel do `docs-keeper`). ⚠️ A condição `servico_aprovado` (key histórica,
 label **"Aprovação de custo"**, módulo **Planejamento**) foi REPONTADA (jul/2026) p/
 `coalesce(modelos.custo_terceirizados_aprovado,false)` — null/false não liberam; key MANTIDA
 (requisitos já configurados + anti-drift seguem). **Sem mudança de chave em ago/2026**: o flag
 virou boolean DERIVADO de `modelo_servico_mo` por trigger (invariantes #8/#12), mas a condição
 continua lendo a MESMA coluna/key — catálogo, RPC e anti-drift inalterados. Condição `grade_todas_variantes` (Desenvolvimento):
 toda variante do Tecido 1 tem `modelo_grades.grade_total > 0` (mais estrita que `grade_preenchida`).
+**Auditoria + 2 condições novas (ago/2026, `20260812140000_kanban_cq_liberado_grade_cortada.sql`):**
+revisadas TODAS as ~33 condições do catálogo contra o schema vivo — nenhuma lê coluna/tabela morta,
+nenhuma remoção necessária (nenhum tenant tinha key obsoleta em `kanban_requisitos` de qualquer forma).
+Adicionadas: **`cq_liberado`** (módulo CQ) — espelha o gate único `_cq_liberado`/`cqLiberado()`
+(`src/lib/cq-status.ts`, já usado por Direcionamento/Lançar/Lançamentos): Pré confirmado E (só se
+há serviço pós-costura ATIVO) Pós confirmado; reusa o helper SQL `_cq_liberado(uuid)` já existente
+(20260718300000) — preferir esta a `cq_pos_confirmado` sozinha, que nunca libera modelo sem
+pós-costura (`status_pos` fica 'pendente' pra sempre nesse caso, então bloquearia esses modelos
+pra sempre se configurada como requisito isolado). **`grade_cortada_lancada`** (módulo Serviços) —
+bloco-fonte de confecção (PL/Oficina, `detalhado`+`ativo`, resolvido por `_resolver_fonte_confeccao`,
+feature Grade Cortada) tem `cortada > 0` em alguma célula do `grade_detalhe`; opt-in — só faz
+sentido pra loja que usa a quantidade detalhada por tamanho×variante, modelo sem bloco-fonte nunca
+satisfaz (mesma classe do `anexo_croqui`). Candidatas AVALIADAS e descartadas: MO por serviço já
+coberta por `servico_aprovado` (mesma key, sem duplicar); preço de venda já existe como
+`preco_venda_preenchido`; "produto acabado vinculado" (revenda) não faz sentido — modelos
+`origem='revenda'` nunca setam `ordem_criacao_enviada=true` (verificado no banco, 0 linhas), não
+entram no kanban de Desenvolvimento.
 
 ## O que NÃO fazer
 

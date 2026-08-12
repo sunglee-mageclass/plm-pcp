@@ -5,7 +5,8 @@
  * Cada condição é uma checagem BOOLEANA sobre o "projeto inteiro" de um modelo
  * (modelo + CAD + CQ + Serviços). A loja escolhe, por status, quais condições são
  * REQUISITO DE ENTRADA (todas em E/AND). Config guarda as chaves em
- * `tenant_config.status_kanban[i].requisitos`.
+ * `tenant_config.kanban_requisitos[status_key]` (coluna PRÓPRIA, separada de
+ * `tenant_config.status_kanban` — que só guarda as colunas do board; não é campo aninhado nele).
  *
  * ── COMO ADICIONAR UMA CONDIÇÃO (ou módulo) ──────────────────────────────────
  * 1) Acrescente aqui (key única + label + módulo).
@@ -83,10 +84,19 @@ export const CONDICOES: Condicao[] = [
 
   // ── Serviços ──────────────────────────────────────────────────
   { key: "servico_finalizado", label: "Serviços finalizados", modulo: "servicos" },
+  // Grade Cortada (ago/2026): bloco-fonte de confecção (PL/Oficina, destrinchado) reportou
+  // CORTADA > 0 em alguma célula do grade_detalhe. Opt-in: só faz sentido pra loja que usa a
+  // quantidade detalhada por tamanho×variante — modelo sem bloco-fonte nunca satisfaz.
+  { key: "grade_cortada_lancada", label: "Grade Cortada lançada", modulo: "servicos", descricao: "bloco-fonte de confecção com cortada > 0 em alguma célula" },
 
   // ── Controle de Qualidade ─────────────────────────────────────
   { key: "cq_confirmado", label: "CQ (Pré) confirmado", modulo: "cq" },
   { key: "cq_pos_confirmado", label: "CQ Pós confirmado", modulo: "cq" },
+  // Espelha o gate único `cqLiberado()` (src/lib/cq-status.ts) já usado por Direcionamento/
+  // Lançar/Lançamentos: Pré confirmado E (só se há serviço pós-costura ATIVO) Pós confirmado.
+  // Preferir esta condição a `cq_pos_confirmado` sozinha — aquela nunca libera modelo sem
+  // pós-costura (status_pos fica 'pendente' pra sempre nesse caso).
+  { key: "cq_liberado", label: "CQ liberado (Pré + Pós)", modulo: "cq", descricao: "Pré confirmado e, se há serviço pós-costura ativo, Pós também confirmado" },
 
   // ── Direcionamento ────────────────────────────────────────────
   { key: "direcionamento_feito", label: "Direcionamento feito", modulo: "direcionamento" },
