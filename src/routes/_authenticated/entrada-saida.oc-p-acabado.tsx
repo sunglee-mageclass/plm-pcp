@@ -813,10 +813,13 @@ function OcPaDialog({
   );
 }
 
+// FIX WAVE (B1-irmão): mesmo bug/fix do planejador Produto Acabado (ProdutoAcabadoSheet.tsx)
+// — grupo/categoria são gerenciados no Cadastro; staleTime aqui fazia um item recém-criado
+// não aparecer no dropdown desta tela (de criar OC avulsa) se reaberta dentro da janela de
+// 5min. Sem staleTime = default 0 = sempre refetch no mount, igual às telas irmãs.
 function useOpt(table: string) {
   return useQuery({
     queryKey: ["opt-ocpa", table],
-    staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const { data, error } = await supabase.from(table as any).select("id, nome").order("nome");
       if (error) throw error;
@@ -827,7 +830,6 @@ function useOpt(table: string) {
 function useOptCat(table: string, fk: string) {
   return useQuery({
     queryKey: ["opt-ocpa-cat", table, fk],
-    staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const { data, error } = await supabase.from(table as any).select(`id, nome, ${fk}`).order("nome");
       if (error) throw error;

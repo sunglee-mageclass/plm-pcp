@@ -1937,9 +1937,64 @@ function ModeloDialog({
         });
         if (moErr) throw moErr;
       }
+      // FIX WAVE (B3-fix): card criado (ou editado pra) origem='revenda' sem produto
+      // vinculado ganha o espelho AUTOMATICAMENTE — reusa exatamente a lógica do botão
+      // manual `criarProdutoAcabado` abaixo (grupo via categorias_produto.grupo_id +
+      // colecao_id/subcolecao/semana herdados do modelo). O botão manual continua existindo
+      // pros modelos antigos sem produto (ex.: cards revenda de antes desta mudança).
+      // Best-effort: qualquer erro aqui (inclusive a trava 1:1 `enforce_unique_fk` numa
+      // corrida de save duplo) é capturado e NUNCA quebra o save do card — o "Modelo salvo"
+      // já é verdade nesse ponto (header + MO já persistiram).
+      let autoProduto: { criou: boolean; semColecao: boolean } | null = null;
+      if (savedId && draft.origem === "revenda" && paOn) {
+        try {
+          const { data: existente } = await supabase
+            .from("produtos_acabados" as any)
+            .select("id")
+            .eq("modelo_id", savedId)
+            .maybeSingle();
+          if (!existente) {
+            const cat = categorias.find((c) => c.id === draft.categoria_principal_id);
+            const grupoId = cat?.grupo_id ?? null;
+            if (grupoId && draft.categoria_principal_id) {
+              const { data: novoProdutoId, error: paErr } = await supabase.rpc("salvar_produto_acabado" as any, {
+                _id: null,
+                _dados: {
+                  nome: draft.nome,
+                  grupo_id: grupoId,
+                  categoria_id: draft.categoria_principal_id,
+                  subcategoria1_id: draft.subcategoria1_id,
+                  subcategoria2_id: draft.subcategoria2_id,
+                  colecao_id: draft.colecao_id,
+                  subcolecao: draft.subcolecao || null,
+                  semana: draft.semana || null,
+                },
+                _variantes: [],
+              });
+              if (paErr) throw paErr;
+              const { error: linkErr } = await (supabase.from("produtos_acabados" as any) as any)
+                .update({ modelo_id: savedId }).eq("id", novoProdutoId);
+              if (linkErr) throw linkErr;
+              autoProduto = { criou: true, semColecao: !draft.colecao_id };
+            }
+          }
+        } catch (autoErr) {
+          console.error("Auto-criação do produto acabado (revenda) falhou — save do card mantido:", autoErr);
+        }
+      }
+      return { autoProduto };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       toast.success("Modelo salvo");
+      if (result?.autoProduto?.criou) {
+        if (result.autoProduto.semColecao) {
+          toast.success('Produto criado no Produto Acabado — defina a coleção do modelo pra ele aparecer no canvas.');
+        } else {
+          toast.success("Produto criado no Produto Acabado.");
+        }
+        qc.invalidateQueries({ predicate: (q) => typeof q.queryKey?.[0] === "string" && (q.queryKey[0] as string).startsWith("produtos-acabados") });
+        qc.invalidateQueries({ queryKey: ["pa-produto-modelo", modeloId] });
+      }
       markClean();
       // Colab: o que acabei de salvar já É o "base" atual — evita que o eco do Realtime (meu
       // próprio UPDATE) apareça como "alguém atualizou N campos" no banner. O rev real
