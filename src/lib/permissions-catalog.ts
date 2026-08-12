@@ -75,10 +75,6 @@ export const PAGES_CATALOG: ModuleDef[] = [
       { key: "criacao_produto_acabado", label: "Produto Acabado", description: "Planeje produtos de revenda (comprar pronto) por coleção.", gate: "produto_acabado" },
       { key: "criacao_planejamento", label: "Planejamento de Produto", shortLabel: "Plan. Produto", description: "Cards em planejamento; lança quando CQ e custo estão aprovados.",
         sections: [{ key: "criacao_planejamento:custos", label: "Custos / Preço" }] },
-      // Permissão-só (sem tela): "Editar" = pode aprovar/reprovar o custo de mão de obra no
-      // card do Planejamento (e Plan. Tecido). Chave legada `producao_servico_aprovacao`
-      // MANTIDA (trigger no banco + atribuições já feitas); só o rótulo/lugar mudaram.
-      { key: "producao_servico_aprovacao", label: "Aprovar/reprovar mão de obra", soEdicao: true },
       { key: "criacao_desenvolvimento", label: "Desenvolvimento", description: "Modelos aprovados: ficha técnica, BOM e kanban.",
         sections: [{ key: "criacao_desenvolvimento:custos", label: "Custos / Preço" }] },
     ],
@@ -93,6 +89,14 @@ export const PAGES_CATALOG: ModuleDef[] = [
     pages: [
       { key: "producao_terceirizados", label: "Serviços",
         sections: [{ key: "producao_terceirizados:precos", label: "Preços" }] },
+      // Permissão-só (sem tela): "Editar" = pode aprovar/reprovar a mão de obra terceirizada
+      // no card do Planejamento (e Plan. Tecido) — a AÇÃO fica lá, mas a permissão mora aqui
+      // (perto de Serviços/Preços, mesmo gate `producao` já usado p/ este card na Início).
+      // Chave legada `producao_servico_aprovacao` MANTIDA (trigger no banco + atribuições já
+      // feitas). Histórico: nasceu em PCP → 27/jul foi p/ Estilo & Engenharia (perto de onde o
+      // botão fica) → voltou pra PCP em 12/ago (o dono não achava em Estilo & Engenharia; "mão
+      // de obra" é lido como assunto de PCP/Serviços, mesmo a ação acontecendo no Planejamento).
+      { key: "producao_servico_aprovacao", label: "Aprovação de mão de obra", soEdicao: true },
       { key: "producao_cad", label: "CAD" },
       { key: "producao_oficina", label: "Oficina" },
     ],
