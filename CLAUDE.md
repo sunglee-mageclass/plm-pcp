@@ -84,12 +84,16 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   ⚠️ **`produto_acabado` (ago/2026, feature Revenda) também é OPT-IN (default OFF)** — mesmo
   padrão do `otb`: sobrescrito p/ `false` em `useTenantModules.DEFAULTS` E `admin/lojas.tsx
   MODULE_DEFAULTS`. Diferente dos 7 módulos de contratação, **NÃO tem `ModuleDef` de topo** em
-  `PAGES_CATALOG` (não vira Switch/badge em Admin > Lojas) — o toggle mora em **Config da
-  Loja** (`admin/configuracoes.tsx`, card "Produto Acabado (Revenda)"), editável pelo próprio
-  `tenant_admin` (os outros 7 módulos são badge só-leitura ali, editáveis só em Gerenciar
-  Lojas). Novo `PageDef.gate?: string` em `permissions-catalog.ts` (mesmo conceito do
-  `ModuleDef.gate`, mas por PÁGINA dentro de um módulo já ligado) — consumido por
-  `app-sidebar.tsx`/`SectionHub.tsx` além do gate de módulo (`!p.gate || isModuleEnabled(p.gate)`).
+  `PAGES_CATALOG` (é `PageDef.gate` dentro de `criacao`/`entrada_saida`, não um módulo próprio),
+  mas **o toggle mora em Gerenciar Lojas junto dos outros 7** (decisão do dono, ago/2026 — reverte
+  uma escolha anterior de deixá-lo em Config da Loja): `admin/lojas.tsx` inclui `produto_acabado`
+  à mão em `MODULE_TOGGLES` (rótulo "Produto Acabado (Revenda)"), editável só por `super_admin`,
+  igual aos demais. Em **Config da Loja** (`admin/configuracoes.tsx`) ele é só **badge
+  read-only** (`MODULE_LABELS`), igual aos outros 7 — o `tenant_admin` NÃO liga/desliga mais por
+  lá (o card próprio antigo, `ProdutoAcabadoToggleCard`, foi removido). Novo `PageDef.gate?:
+  string` em `permissions-catalog.ts` (mesmo conceito do `ModuleDef.gate`, mas por PÁGINA dentro
+  de um módulo já ligado) — consumido por `app-sidebar.tsx`/`SectionHub.tsx` além do gate de
+  módulo (`!p.gate || isModuleEnabled(p.gate)`).
   As 2 rotas novas **não usam `ModuleGuard`** (mesmo precedente do `otb`: o hook
   `useTenantModules().isLoading` tem uma corrida de render antes do `tenantId` resolver — cai
   nos `DEFAULTS`=off e redireciona por engano numa navegação DIRETA por URL; bug pré-existente,
@@ -186,6 +190,11 @@ unit + integração transacional de RPC — ver `tests/README.md`)
   `permissions-catalog`; keys de PÁGINA seguem `producao_*`; RPCs seguem gate `tenant_module_enabled('producao')`
   — zero mudança no banco). As URLs `/producao/*` NÃO existem mais. `MODULE_META`/`PAGE_URLS`/ícones em
   `src/lib/nav.ts` (SSOT). Serviços (`producao_terceirizados`) NÃO entra em `PAGE_URLS` (nível = página única).
+  ⚠️ `admin/lojas.tsx MODULE_TOGGLES` (Switches de contratação, super_admin) precisa DEDUPLICAR por
+  `m.gate ?? m.module` — sem isso, os 2 `ModuleDef` (pcp/expedicao) viravam 2 switches soltos
+  (`modules.pcp`/`modules.expedicao`, chaves que nada lê) e a flag real `modules.producao` nunca
+  aparecia pra ligar/desligar (bug latente entre o split de jul/2026 e o fix de ago/2026 — corrigido
+  junto com o item do toggle `produto_acabado`).
 - **pcp / expedicao** (ex-`producao`): cad, terceirizados=**Serviços** (abas pré/pós-costura por `categorias_terceirizado.etapa`;
   **quantidade por tamanho×variante** opt-in — flag `producao_terceirizados.detalhado` + `grade_detalhe` jsonb,
   ver [[project_terceirizados_grade_detalhe]]),
