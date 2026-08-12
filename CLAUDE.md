@@ -552,18 +552,30 @@ satisfaz (mesma classe do `anexo_croqui`). Candidatas AVALIADAS e descartadas: M
 coberta por `servico_aprovado` (mesma key, sem duplicar); preço de venda já existe como
 `preco_venda_preenchido`; "produto acabado vinculado" (revenda) não faz sentido — modelos
 `origem='revenda'` nunca setam `ordem_criacao_enviada=true` (verificado no banco, 0 linhas), não
-entram no kanban de Desenvolvimento. **Rótulo defasado corrigido (ago/2026):** `cad_confirmado`
-(módulo CAD) tinha label "CAD confirmado (enviado ao corte)" — evocava um conceito velho; a tela
-de HOJE (`pcp.cad.$modeloId.tsx`) usa botão "Enviar"/"Imprimir e Enviar" e toast "Enviado ao
-corte" (o badge "CAD Confirmado" também existe, mas o pedido do dono foi falar a língua do toast).
-Novo label: **"CAD — enviado ao corte"** (key `cad_confirmado` MANTIDA — só rótulo). Rótulos
-vizinhos revisados e CONFIRMADOS já alinhados às telas atuais (sem mudança): `enviado_cad` →
-"Enviado à Explosão" (bate com o filtro/tooltip do kanban), `servico_finalizado` → "Serviços
-finalizados" (bate com o badge "Finalizado" de PCP > Serviços), `cq_confirmado`/`cq_pos_confirmado`
-→ batem com os botões "Confirmar Controle de Qualidade"/"Confirmar CQ Pós" e as abas "Pré
-(costura)"/"Pós (acabamento)". `direcionamento_feito` ("Direcionamento feito") não cita conceito
-morto — só é mais informal que o badge "Separado"/toast "Direcionamento confirmado — Separado" da
-tela; deixado como está (não pedido; não é uma key "quebrada", é estilo).
+entram no kanban de Desenvolvimento. **`cad_confirmado` APOSENTADA → `cad_preenchido` (ago/2026,
+`20260812150000_kanban_cad_preenchido.sql`):** 1ª rodada só trocou o LABEL de `cad_confirmado`
+("CAD confirmado (enviado ao corte)" → "CAD — enviado ao corte"); o dono then decidiu que a
+SEMÂNTICA em si estava errada — o marco correto não é "enviado ao corte" (isso é Serviços/CQ
+downstream), é a **seção "4. CAD" do card de Desenvolvimento** (`ModeloDetailPanel`, accordion
+`s-cad`, `CadTecidosSection.tsx`) estar PREENCHIDA. Semântica nova = **key nova**: `cad_confirmado`
+removida do catálogo E da RPC (nenhum tenant tinha configurado — sem migração de config), key
+**`cad_preenchido`** entra no lugar (label "CAD (Desenvolvimento) preenchido"). **Predicado
+ajustado da proposta inicial após investigação** (autorizado explicitamente pelo dono): a proposta
+era checar `cad_grades.grades_planejadas` não-vazia, mas `enviar_modelo_para_cad`
+(`_enviar_modelo_para_cad_core`) copia a grade do BOM pra `cad_grades` NO MESMO INSTANTE que seta
+`enviado_cad=true` — checar isso ficaria redundante com a condição `enviado_cad` já existente. Os
+ÚNICOS campos que aquela RPC deixa ZERADOS até entrada manual (na tela PCP > CAD) são
+`cad_tecidos.tamanho_folha` e `cad_tecido_variantes.quantidade_folhas`/`metragem_planejada` —
+exatamente os 3 campos editáveis do `CadTecidosSection.tsx` ("Tamanho da folha", "Qtd Folhas",
+"Metr. Planejada"). Predicado final: `EXISTS` variante do CAD do modelo com **tamanho_folha OU
+quantidade_folhas OU metragem_planejada > 0**. Testado transacionalmente: CAD sem folhas → false;
+CAD com ≥1 folha/metragem → true; sem CAD → false. **Rótulos revisados contra as telas atuais**
+(ago/2026): `enviado_cad` → "Enviado à Explosão" (bate com filtro/tooltip do kanban),
+`servico_finalizado` → "Serviços finalizados" (bate com o badge "Finalizado" de PCP > Serviços),
+`cq_confirmado`/`cq_pos_confirmado` → batem com os botões "Confirmar Controle de Qualidade"/
+"Confirmar CQ Pós" e as abas "Pré (costura)"/"Pós (acabamento)" — sem mudança. `direcionamento_feito`
+(key mantida) teve o label trocado p/ **"Direcionamento — separado"**, alinhado ao badge "Separado"/
+toast "Direcionamento confirmado — Separado" de `expedicao.direcionamento.$modeloId.tsx`.
 
 ## O que NÃO fazer
 

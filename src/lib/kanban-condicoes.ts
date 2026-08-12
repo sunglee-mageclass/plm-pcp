@@ -80,10 +80,17 @@ export const CONDICOES: Condicao[] = [
   { key: "enviado_cad", label: "Enviado à Explosão", modulo: "desenvolvimento" },
 
   // ── CAD ───────────────────────────────────────────────────────
-  // Label fala a língua da tela de HOJE (PCP > CAD, `pcp.cad.$modeloId.tsx`): o botão é
-  // "Enviar"/"Imprimir e Enviar" e o resultado é o toast "Enviado ao corte" (key `cad_confirmado`
-  // MANTIDA — histórica, mesmo precedente de `servico_aprovado`; só o rótulo mudou, ago/2026).
-  { key: "cad_confirmado", label: "CAD — enviado ao corte", modulo: "cad" },
+  // `cad_confirmado` (semântica "enviado ao corte") foi APOSENTADA (ago/2026, decisão do dono):
+  // o marco correto é a seção "4. CAD" do card de Desenvolvimento (accordion `s-cad`,
+  // CadTecidosSection) estar PREENCHIDA — não o envio ao corte (isso é responsabilidade de
+  // Serviços/CQ downstream). Semântica nova = KEY NOVA (não reaproveitar `cad_confirmado`).
+  // Predicado (ver comentário da migration `20260812150000` p/ a investigação completa): a
+  // grade planejada É copiada do BOM pro `cad_grades` no MESMO instante que `enviado_cad` vira
+  // true (ficaria redundante com aquela condição); os únicos campos que `enviar_modelo_para_cad`
+  // deixa ZERADOS até entrada manual são `cad_tecidos.tamanho_folha` e
+  // `cad_tecido_variantes.quantidade_folhas`/`metragem_planejada` — exatamente os campos que
+  // `CadTecidosSection.tsx` deixa editar. `cad_preenchido` = ≥1 desses > 0.
+  { key: "cad_preenchido", label: "CAD (Desenvolvimento) preenchido", modulo: "cad", descricao: "cad_tecidos/cad_tecido_variantes com folhas ou metragem planejada preenchidas (não só copiado do BOM)" },
 
   // ── Serviços ──────────────────────────────────────────────────
   { key: "servico_finalizado", label: "Serviços finalizados", modulo: "servicos" },
@@ -102,7 +109,9 @@ export const CONDICOES: Condicao[] = [
   { key: "cq_liberado", label: "CQ liberado (Pré + Pós)", modulo: "cq", descricao: "Pré confirmado e, se há serviço pós-costura ativo, Pós também confirmado" },
 
   // ── Direcionamento ────────────────────────────────────────────
-  { key: "direcionamento_feito", label: "Direcionamento feito", modulo: "direcionamento" },
+  // Label alinhado ao badge "Separado"/toast "Direcionamento confirmado — Separado" da tela
+  // (expedicao.direcionamento.$modeloId.tsx) — key `direcionamento_feito` MANTIDA, só rótulo.
+  { key: "direcionamento_feito", label: "Direcionamento — separado", modulo: "direcionamento", descricao: "direcionamento_confirmado_at preenchido (badge \"Separado\" na tela)" },
 ];
 
 /** Condições que alimentam o selo de uma seção do Sheet (mapa secao → condições). */
