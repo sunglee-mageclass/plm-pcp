@@ -625,6 +625,10 @@ function OcPaDialog({
       markClean();
       qc.invalidateQueries({ queryKey: ["ocs_p_acabado"] });
       qc.invalidateQueries({ queryKey: ["oc-p-acabado", savedId] });
+      // Paridade com OC Tecido (L1227, review R2): editar data_prevista aqui muda se a OC
+      // entra/sai do badge "atrasada" da sidebar — sem isto, o badge só corrige depois do
+      // staleTime da query (["sidebar-badges"]) vencer sozinho.
+      qc.invalidateQueries({ queryKey: ["sidebar-badges"] });
       onSaved();
       onClose();
     },
