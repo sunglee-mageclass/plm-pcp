@@ -242,6 +242,54 @@ export function AgrupamentoButton({ groups }: { groups: GroupToggle[] }) {
   );
 }
 
+export type ExclusiveGroupOption = { value: string; label: string };
+
+/**
+ * Variante EXCLUSIVA do AgrupamentoButton acima (mesmo trigger/Popover) — para escolhas de
+ * agrupamento mutuamente excludentes (ex.: Grupo | Categoria), diferente do combinável via
+ * checkbox. O botão mostra a opção ativa; o popover lista as opções (só uma fica marcada).
+ */
+export function AgrupamentoExclusivoButton({
+  value,
+  onChange,
+  options,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: ExclusiveGroupOption[];
+}) {
+  const ativo = options.find((o) => o.value === value) ?? options[0];
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="gap-2">
+          <Group className="h-4 w-4" />
+          <span>Agrupar: {ativo?.label}</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-48 space-y-1">
+        {options.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            onClick={() => onChange(o.value)}
+            className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-muted ${
+              o.value === value ? "font-medium text-primary" : ""
+            }`}
+          >
+            <span
+              className={`h-3.5 w-3.5 shrink-0 rounded-full border-2 ${
+                o.value === value ? "border-primary bg-primary" : "border-muted-foreground/40"
+              }`}
+            />
+            {o.label}
+          </button>
+        ))}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 type SearchToggleProps = {
   value: string;
   onChange: (v: string) => void;

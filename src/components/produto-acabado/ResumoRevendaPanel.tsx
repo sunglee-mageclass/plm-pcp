@@ -25,15 +25,22 @@ function Secao({ title, defaultOpen = true, children }: { title: string; default
 /**
  * Rail esquerdo colapsável do canvas (§M) — réplica dos padrões visuais de ResumoPanel.tsx
  * (Plan. Tecido), adaptados às métricas de revenda: Poder de venda, Custo previsto,
- * Produtos·peças, OTB comprometido (barra) e Tipos de itens por categoria.
+ * Produtos·peças, OTB comprometido (barra) e Tipos de itens — por categoria OU por grupo,
+ * seguindo o toggle de agrupamento do canvas (`agruparPor`).
  */
 export function ResumoRevendaPanel({
   produtos,
+  agruparPor,
   categoriaNome,
+  grupoNome,
   otbAlvo,
 }: {
   produtos: ProdutoDraft[];
+  /** Segue o agrupamento ATIVO do canvas (item 3 do pedido) — "Tipos de itens" mostra por
+   *  grupo quando o canvas está agrupado por grupo, evitando o rail e as lanes divergirem. */
+  agruparPor: "categoria" | "grupo";
   categoriaNome: (id: string | null) => string;
+  grupoNome: (id: string | null) => string;
   /** Σ colecao_semanas.qtd_planejada da subcoleção ativa (null = sem alvo/coleção sem OTB). */
   otbAlvo: number | null;
 }) {
@@ -47,15 +54,18 @@ export function ResumoRevendaPanel({
 
   const pctOtb = otbAlvo && otbAlvo > 0 ? Math.min(100, Math.round((totalPecas / otbAlvo) * 100)) : null;
 
-  const porCategoria = new Map<string, { nome: string; produtos: number; pecas: number }>();
+  const tipoFallback = agruparPor === "grupo" ? "Sem grupo" : "Sem categoria";
+  const tipoNome = agruparPor === "grupo" ? grupoNome : categoriaNome;
+  const porTipo = new Map<string, { nome: string; produtos: number; pecas: number }>();
   for (const p of produtos) {
-    const key = p.categoria_id ?? "__sem__";
-    const cur = porCategoria.get(key) ?? { nome: p.categoria_id ? categoriaNome(p.categoria_id) : "Sem categoria", produtos: 0, pecas: 0 };
+    const id = agruparPor === "grupo" ? p.grupo_id : p.categoria_id;
+    const key = id ?? "__sem__";
+    const cur = porTipo.get(key) ?? { nome: id ? tipoNome(id) : tipoFallback, produtos: 0, pecas: 0 };
     cur.produtos += 1;
     cur.pecas += somaPecas(p);
-    porCategoria.set(key, cur);
+    porTipo.set(key, cur);
   }
-  const tipos = [...porCategoria.entries()].sort(([a], [b]) => (a === "__sem__" ? 1 : b === "__sem__" ? -1 : porCategoria.get(a)!.nome.localeCompare(porCategoria.get(b)!.nome, "pt-BR")));
+  const tipos = [...porTipo.entries()].sort(([a], [b]) => (a === "__sem__" ? 1 : b === "__sem__" ? -1 : porTipo.get(a)!.nome.localeCompare(porTipo.get(b)!.nome, "pt-BR")));
 
   return (
     <div className="space-y-2">

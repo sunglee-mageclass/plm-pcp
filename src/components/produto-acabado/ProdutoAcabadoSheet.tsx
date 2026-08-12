@@ -9,6 +9,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
+import { AgrupamentoExclusivoButton } from "@/components/shared/filters";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useOrcamento } from "@/components/otb/orcamento";
@@ -24,6 +25,16 @@ import type { EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 
 type SubRow = { id: string; nome: string; ordem: number };
 type SemanaRow = { subcolecao_id: string | null; qtd_planejada: number | null };
+
+// Agrupamento das lanes do canvas — EXCLUSIVO (Grupo | Categoria, nunca os dois ao mesmo
+// tempo, diferente do combinável do Plan. Tecido). Persiste por navegador, mesmo padrão de
+// `GROUPBY_LS` em criacao.desenvolvimento.tsx (chave própria, try/catch, default = valor
+// atual do sistema antes desta feature = "categoria").
+const AGRUPAR_LS = "produto-acabado-agrupar";
+type AgruparPor = "categoria" | "grupo";
+function lerAgruparPorSalvo(): AgruparPor {
+  try { return localStorage.getItem(AGRUPAR_LS) === "grupo" ? "grupo" : "categoria"; } catch { return "categoria"; }
+}
 
 // B1 (FIX WAVE, causa raiz): estas opções são gerenciadas no Cadastro (grupos/categorias/
 // subcategorias de produto, cores) — igual a `useOpts`/os `useQuery` de grupos_produto em
@@ -128,6 +139,11 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   const [resumoAberto, setResumoAberto] = useState(true);
   const [novoOpen, setNovoOpen] = useState(false);
   const [pedidoPickerOpen, setPedidoPickerOpen] = useState(false);
+  const [agruparPor, setAgruparPorState] = useState<AgruparPor>(lerAgruparPorSalvo);
+  const setAgruparPor = (v: AgruparPor) => {
+    setAgruparPorState(v);
+    try { localStorage.setItem(AGRUPAR_LS, v); } catch { /* ignore */ }
+  };
   const resolvedInicialRef = useRef({ done: false });
 
   const navPermitida = useCallback(
@@ -219,6 +235,16 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     },
   });
   const categoriaNome = useCallback((id: string | null) => categorias.find((c) => c.id === id)?.nome ?? "?", [categorias]);
+  const grupoNome = useCallback((id: string | null) => grupos.find((g) => g.id === id)?.nome ?? "?", [grupos]);
+  // Campo/rótulo/fallback do agrupamento ATIVO — item 2 do pedido: produto sem a taxonomia
+  // usada pra agrupar cai numa lane de fallback ("Sem categoria"/"Sem grupo"), NUNCA some
+  // (ex. "Cinto Teste": grupo Acessório, categoria NULL — estado válido).
+  const laneNome = agruparPor === "grupo" ? grupoNome : categoriaNome;
+  const laneFallback = agruparPor === "grupo" ? "Sem grupo" : "Sem categoria";
+  const laneCampo = useCallback(
+    (p: ProdutoDraft) => (agruparPor === "grupo" ? p.grupo_id : p.categoria_id),
+    [agruparPor],
+  );
 
   // ── Produtos da coleção inteira — carregados 1x; a re-hidratação só acontece no load
   //     inicial (ver effect abaixo). Sem colab/merge (fora de escopo) — invalidações de cache
@@ -326,16 +352,18 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   };
 
   const produtosSub = subAtual ? produtosDeSub(subAtual.nome) : [];
-  const cats = useMemo(() => {
-    const set = [...new Set(produtosSub.map((p) => p.categoria_id))];
+  // Lanes do canvas: chaves distintas do campo ativo (categoria_id OU grupo_id), `null`
+  // sempre por último (vira a lane de fallback "Sem categoria"/"Sem grupo").
+  const laneKeys = useMemo(() => {
+    const set = [...new Set(produtosSub.map(laneCampo))];
     return set.sort((a, b) => {
       if (a === b) return 0;
       if (a === null) return 1;
       if (b === null) return -1;
-      return categoriaNome(a).localeCompare(categoriaNome(b), "pt-BR", { sensitivity: "base" });
+      return laneNome(a).localeCompare(laneNome(b), "pt-BR", { sensitivity: "base" });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [produtosSub, categorias]);
+  }, [produtosSub, categorias, grupos, agruparPor]);
 
   const alvoAtual = subAtual ? alvoPorSub.get(subAtual.id) ?? null : null;
   const vagasAtual = subAtual ? vagasDe(subAtual.nome) : 0;
@@ -399,16 +427,32 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
               {resumoAberto && (
                 <aside className="hidden w-80 shrink-0 flex-col overflow-hidden border-r md:flex lg:w-96">
                   <div className="flex-1 overflow-y-auto p-3">
-                    <ResumoRevendaPanel produtos={produtosSub} categoriaNome={categoriaNome} otbAlvo={alvoAtual} />
+                    <ResumoRevendaPanel
+                      produtos={produtosSub}
+                      agruparPor={agruparPor}
+                      categoriaNome={categoriaNome}
+                      grupoNome={grupoNome}
+                      otbAlvo={alvoAtual}
+                    />
                   </div>
                 </aside>
               )}
               <main className="flex-1 overflow-y-auto p-3">
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <span className="text-sm text-muted-foreground">{produtosSub.length} produto(s) · {produtosSub.reduce((a, p) => a + somaPecas(p), 0)} pç</span>
-                  <Button size="sm" variant="outline" className="gap-1" onClick={() => setNovoOpen(true)}>
-                    <Plus className="h-3.5 w-3.5" /> Novo produto
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <AgrupamentoExclusivoButton
+                      value={agruparPor}
+                      onChange={(v) => setAgruparPor(v as AgruparPor)}
+                      options={[
+                        { value: "categoria", label: "Categoria" },
+                        { value: "grupo", label: "Grupo" },
+                      ]}
+                    />
+                    <Button size="sm" variant="outline" className="gap-1" onClick={() => setNovoOpen(true)}>
+                      <Plus className="h-3.5 w-3.5" /> Novo produto
+                    </Button>
+                  </div>
                 </div>
                 <div className="space-y-4">
                   {produtosSub.length === 0 && (
@@ -416,14 +460,14 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                       Nenhum produto nesta subcoleção ainda — clique em "Novo produto".
                     </div>
                   )}
-                  {cats.map((cid) => {
-                    const itens = produtosSub.filter((p) => p.categoria_id === cid);
+                  {laneKeys.map((laneKey) => {
+                    const itens = produtosSub.filter((p) => laneCampo(p) === laneKey);
                     if (itens.length === 0) return null;
                     const pecas = itens.reduce((a, p) => a + somaPecas(p), 0);
                     return (
-                      <section key={cid ?? "__sem__"}>
+                      <section key={laneKey ?? "__sem__"}>
                         <div className="mb-1.5 flex items-center gap-2">
-                          <span className={`text-sm font-semibold ${cid ? "" : "text-muted-foreground"}`}>{cid ? categoriaNome(cid) : "Sem categoria"}</span>
+                          <span className={`text-sm font-semibold ${laneKey ? "" : "text-muted-foreground"}`}>{laneKey ? laneNome(laneKey) : laneFallback}</span>
                           <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{itens.length} produtos · {pecas} pç</span>
                         </div>
                         <div className="flex items-start gap-3 overflow-x-auto pb-2">
