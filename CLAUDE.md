@@ -552,7 +552,18 @@ satisfaz (mesma classe do `anexo_croqui`). Candidatas AVALIADAS e descartadas: M
 coberta por `servico_aprovado` (mesma key, sem duplicar); preço de venda já existe como
 `preco_venda_preenchido`; "produto acabado vinculado" (revenda) não faz sentido — modelos
 `origem='revenda'` nunca setam `ordem_criacao_enviada=true` (verificado no banco, 0 linhas), não
-entram no kanban de Desenvolvimento.
+entram no kanban de Desenvolvimento. **Rótulo defasado corrigido (ago/2026):** `cad_confirmado`
+(módulo CAD) tinha label "CAD confirmado (enviado ao corte)" — evocava um conceito velho; a tela
+de HOJE (`pcp.cad.$modeloId.tsx`) usa botão "Enviar"/"Imprimir e Enviar" e toast "Enviado ao
+corte" (o badge "CAD Confirmado" também existe, mas o pedido do dono foi falar a língua do toast).
+Novo label: **"CAD — enviado ao corte"** (key `cad_confirmado` MANTIDA — só rótulo). Rótulos
+vizinhos revisados e CONFIRMADOS já alinhados às telas atuais (sem mudança): `enviado_cad` →
+"Enviado à Explosão" (bate com o filtro/tooltip do kanban), `servico_finalizado` → "Serviços
+finalizados" (bate com o badge "Finalizado" de PCP > Serviços), `cq_confirmado`/`cq_pos_confirmado`
+→ batem com os botões "Confirmar Controle de Qualidade"/"Confirmar CQ Pós" e as abas "Pré
+(costura)"/"Pós (acabamento)". `direcionamento_feito` ("Direcionamento feito") não cita conceito
+morto — só é mais informal que o badge "Separado"/toast "Direcionamento confirmado — Separado" da
+tela; deixado como está (não pedido; não é uma key "quebrada", é estilo).
 
 ## O que NÃO fazer
 

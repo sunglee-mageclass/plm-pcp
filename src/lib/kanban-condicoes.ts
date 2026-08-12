@@ -80,7 +80,10 @@ export const CONDICOES: Condicao[] = [
   { key: "enviado_cad", label: "Enviado à Explosão", modulo: "desenvolvimento" },
 
   // ── CAD ───────────────────────────────────────────────────────
-  { key: "cad_confirmado", label: "CAD confirmado (enviado ao corte)", modulo: "cad" },
+  // Label fala a língua da tela de HOJE (PCP > CAD, `pcp.cad.$modeloId.tsx`): o botão é
+  // "Enviar"/"Imprimir e Enviar" e o resultado é o toast "Enviado ao corte" (key `cad_confirmado`
+  // MANTIDA — histórica, mesmo precedente de `servico_aprovado`; só o rótulo mudou, ago/2026).
+  { key: "cad_confirmado", label: "CAD — enviado ao corte", modulo: "cad" },
 
   // ── Serviços ──────────────────────────────────────────────────
   { key: "servico_finalizado", label: "Serviços finalizados", modulo: "servicos" },
