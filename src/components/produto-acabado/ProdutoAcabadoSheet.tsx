@@ -24,7 +24,6 @@ import { DEFAULT_TAMANHOS } from "@/components/oc-p-acabado/shared";
 import type { EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 
 type SubRow = { id: string; nome: string; ordem: number };
-type SemanaRow = { subcolecao_id: string | null; qtd_planejada: number | null };
 
 // Agrupamento das lanes do canvas — COMBINÁVEL via checkboxes (item 1 do refino, ago/2026;
 // padrão do AgrupamentoButton — mesmo componente do Plan. Tecido): "Grupo" e "Categoria" são
@@ -192,37 +191,29 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     },
   });
 
-  const { data: semanas = [] } = useQuery({
-    queryKey: ["colecao-semanas-alvo", colecaoId],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("colecao_semanas" as any).select("subcolecao_id, qtd_planejada").eq("colecao_id", colecaoId);
-      if (error) throw error;
-      return (data ?? []) as unknown as SemanaRow[];
-    },
-  });
-  const alvoPorSub = useMemo(() => {
-    const m = new Map<string | null, number>();
-    for (const s of semanas) {
-      const key = s.subcolecao_id ?? null;
-      m.set(key, (m.get(key) ?? 0) + (Number(s.qtd_planejada) || 0));
-    }
-    return m;
-  }, [semanas]);
-
   // Item 1 (slots vazios de OTB): {total, realizado} por subcoleção via a MESMA RPC/queryKey
   // (["otb-orcamento"]) que o Plan. Tecido usa p/ vagas — `realizado` conta `modelos` (não
-  // `produtos_acabados`), então é o orçamento COMPARTILHADO entre os planejadores que criam
-  // card nesta subcoleção. `total` casa com `alvoPorSub` p/ coleções tipo 'orcamento', mas
-  // também cobre 'poder_venda' (que `alvoPorSub`, lido só de `colecao_semanas`, não cobre).
+  // `produtos_acabados`), então é o orçamento COMPARTILHADO entre TODOS os planejadores que
+  // criam card nesta subcoleção (manufaturados do Plan. Tecido/Produto + revenda daqui), não
+  // só os produtos deste planejador. `total` cobre tanto coleção tipo 'orcamento' quanto
+  // 'poder_venda' (lido pela própria RPC, sem depender de somar `colecao_semanas` local).
   // Refino (item 1, ago/2026): staleTime 0 + refetch em foco/montagem SEMPRE — o critério do
   // dono é "mudou lá, volto pra cá, número novo". O `staleTime: 30_000` default (herdado pelas
   // outras telas do OTB) deixava "vagas" velhas por até 30s mesmo já invalidado, e não cobre
   // troca de ABA do navegador (QueryClient é por-aba; sem realtime cross-aba de propósito —
   // foco/montagem já resolve o caso real, dentro da mesma aba, que é o critério do dono).
+  //
+  // FIX (relatado pelo dono, ago/2026 — "8 modelos... deveria mostrar 10-11 de 28, mas marca
+  // 2 de 28"): o rail "OTB comprometido" (`ResumoRevendaPanel`) e o grid de subcoleções
+  // abaixo usavam ESTE MESMO bucket só pras vagas, mas contavam "comprometido" por
+  // `produtos.length`/`itens.length` (só os produtos_acabados deste planejador) — undercounta
+  // sempre que a subcoleção também tem cards manufaturados (Plan. Tecido/Produto). Agora os
+  // DOIS números do bucket (`total` e `realizado`) alimentam tudo — "vagas = total−realizado"
+  // e "comprometido = realizado de total" nunca podem divergir, por construção.
   const orc = useOrcamento({ staleTime: 0, refetchOnWindowFocus: true, refetchOnMount: "always" });
+  const bucketDe = (nome: string | null) => (nome ? orc.subcolecao(colecaoId, nome) : null);
   const vagasDe = (nome: string | null): number => {
-    if (!nome) return 0;
-    const b = orc.subcolecao(colecaoId, nome);
+    const b = bucketDe(nome);
     return b ? Math.max(0, b.total - b.realizado) : 0;
   };
 
@@ -449,7 +440,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     </div>
   );
 
-  const alvoAtual = subAtual ? alvoPorSub.get(subAtual.id) ?? null : null;
+  const bucketAtual = subAtual ? bucketDe(subAtual.nome) : null;
   const vagasAtual = subAtual ? vagasDe(subAtual.nome) : 0;
   const semOc = produtosSub.filter((p) => !p.oc);
 
@@ -482,7 +473,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
               {[...subList.map((s) => ({ id: s.id as string | null, nome: s.nome as string | null })), { id: null, nome: null }].map((sub, i) => {
                 const itens = produtosDeSub(sub.nome);
                 const pecas = itens.reduce((a, p) => a + somaPecas(p), 0);
-                const alvo = alvoPorSub.get(sub.id) ?? null;
+                const bucket = bucketDe(sub.nome);
                 const vagas = vagasDe(sub.nome);
                 return (
                   <button key={sub.id ?? `__sem__${i}`} type="button"
@@ -490,12 +481,12 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                     onClick={() => abrirCanvasDe(sub)}>
                     <div className="font-medium">{sub.nome ?? "Sem subcoleção"}</div>
                     <div className="text-xs text-muted-foreground">
-                      {/* Item 2 do refino: `alvo`/`vagas` são OTB comprometido — contam MODELOS
-                          (cards), não peças (`pecas` aqui é Σ qtd das variantes, outra
-                          grandeza) — nunca rotular como "pç"; separado do "produto(s) · pç"
-                          com "·" em vez de parêntese colado no "pç" (não pode parecer que o
-                          alvo também é em peças). */}
-                      <b className="text-foreground">{itens.length}</b> produto(s) · {pecas} pç{alvo ? ` · alvo ${alvo} modelo${alvo === 1 ? "" : "s"}` : ""}
+                      {/* Item 2 do refino (FIX: comprometido é da subcoleção INTEIRA — manufaturados
+                          + revenda — não só os produtos deste planejador; `bucket` é o MESMO usado
+                          pras vagas abaixo, "realizado de total" e "vagas" nunca divergem). `pecas`
+                          aqui é Σ qtd das variantes, outra grandeza — nunca rotular como "pç". */}
+                      <b className="text-foreground">{itens.length}</b> produto(s) · {pecas} pç
+                      {bucket && bucket.total > 0 && ` · ${bucket.realizado} de ${bucket.total} modelos`}
                       {vagas > 0 && <span className="ml-1 font-medium text-primary">· {vagas} modelo{vagas === 1 ? "" : "s"} disponíve{vagas === 1 ? "l" : "is"}</span>}
                     </div>
                   </button>
@@ -521,7 +512,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                       agruparPor={nivelMacro}
                       categoriaNome={categoriaNome}
                       grupoNome={grupoNome}
-                      otbAlvo={alvoAtual}
+                      otbBucket={bucketAtual}
                     />
                   </div>
                 </aside>
