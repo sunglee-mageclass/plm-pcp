@@ -26,14 +26,18 @@ import type { EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 type SubRow = { id: string; nome: string; ordem: number };
 type SemanaRow = { subcolecao_id: string | null; qtd_planejada: number | null };
 
-// Agrupamento das lanes do canvas — EXCLUSIVO (Grupo | Categoria, nunca os dois ao mesmo
-// tempo, diferente do combinável do Plan. Tecido). Persiste por navegador, mesmo padrão de
-// `GROUPBY_LS` em criacao.desenvolvimento.tsx (chave própria, try/catch, default = valor
-// atual do sistema antes desta feature = "categoria").
+// Agrupamento das lanes do canvas — 3 modos (item 2 do refino, ago/2026): "categoria" (default,
+// como sempre foi), "grupo" (só grupo) e "grupo-categoria" (ANINHADO — lane por Grupo, com
+// sub-seções por Categoria dentro; "Sem categoria" sempre por último). Persiste por navegador,
+// mesmo padrão de `GROUPBY_LS` em criacao.desenvolvimento.tsx (chave própria, try/catch, default
+// = valor atual do sistema antes desta feature = "categoria").
 const AGRUPAR_LS = "produto-acabado-agrupar";
-type AgruparPor = "categoria" | "grupo";
+type AgruparPor = "categoria" | "grupo" | "grupo-categoria";
 function lerAgruparPorSalvo(): AgruparPor {
-  try { return localStorage.getItem(AGRUPAR_LS) === "grupo" ? "grupo" : "categoria"; } catch { return "categoria"; }
+  try {
+    const v = localStorage.getItem(AGRUPAR_LS);
+    return v === "grupo" ? "grupo" : v === "grupo-categoria" ? "grupo-categoria" : "categoria";
+  } catch { return "categoria"; }
 }
 
 // B1 (FIX WAVE, causa raiz): estas opções são gerenciadas no Cadastro (grupos/categorias/
@@ -241,14 +245,20 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   });
   const categoriaNome = useCallback((id: string | null) => categorias.find((c) => c.id === id)?.nome ?? "?", [categorias]);
   const grupoNome = useCallback((id: string | null) => grupos.find((g) => g.id === id)?.nome ?? "?", [grupos]);
-  // Campo/rótulo/fallback do agrupamento ATIVO — item 2 do pedido: produto sem a taxonomia
-  // usada pra agrupar cai numa lane de fallback ("Sem categoria"/"Sem grupo"), NUNCA some
-  // (ex. "Cinto Teste": grupo Acessório, categoria NULL — estado válido).
-  const laneNome = agruparPor === "grupo" ? grupoNome : categoriaNome;
-  const laneFallback = agruparPor === "grupo" ? "Sem grupo" : "Sem categoria";
-  const laneCampo = useCallback(
-    (p: ProdutoDraft) => (agruparPor === "grupo" ? p.grupo_id : p.categoria_id),
-    [agruparPor],
+  // Campo/rótulo/fallback do nível MACRO das lanes — item 2 do refino: "categoria" agrupa por
+  // categoria (como sempre); "grupo" E "grupo-categoria" (aninhado) agrupam a lane de TOPO por
+  // grupo (o nível fino de categoria, no modo aninhado, vira sub-seção DENTRO da lane — ver
+  // render abaixo). Produto sem a taxonomia usada pra agrupar cai numa lane de fallback
+  // ("Sem categoria"/"Sem grupo"), NUNCA some (ex. "Cinto Teste": grupo Acessório, categoria
+  // NULL — estado válido, vira sub-seção "Sem categoria" dentro da lane "Acessório" no modo
+  // aninhado). O Rail "Tipos de itens" (`ResumoRevendaPanel`) recebe esse MESMO nível macro,
+  // nunca o modo aninhado cru — mantém o tipo de prop existente (`"categoria" | "grupo"`).
+  const nivelMacro: "categoria" | "grupo" = agruparPor === "categoria" ? "categoria" : "grupo";
+  const macroNome = nivelMacro === "grupo" ? grupoNome : categoriaNome;
+  const macroFallback = nivelMacro === "grupo" ? "Sem grupo" : "Sem categoria";
+  const macroCampo = useCallback(
+    (p: ProdutoDraft) => (nivelMacro === "grupo" ? p.grupo_id : p.categoria_id),
+    [nivelMacro],
   );
 
   // ── Produtos da coleção inteira — carregados 1x; a re-hidratação só acontece no load
@@ -357,18 +367,64 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   };
 
   const produtosSub = subAtual ? produtosDeSub(subAtual.nome) : [];
-  // Lanes do canvas: chaves distintas do campo ativo (categoria_id OU grupo_id), `null`
+  // Lanes do canvas: chaves distintas do campo MACRO ativo (categoria_id OU grupo_id), `null`
   // sempre por último (vira a lane de fallback "Sem categoria"/"Sem grupo").
   const laneKeys = useMemo(() => {
-    const set = [...new Set(produtosSub.map(laneCampo))];
+    const set = [...new Set(produtosSub.map(macroCampo))];
     return set.sort((a, b) => {
       if (a === b) return 0;
       if (a === null) return 1;
       if (b === null) return -1;
-      return laneNome(a).localeCompare(laneNome(b), "pt-BR", { sensitivity: "base" });
+      return macroNome(a).localeCompare(macroNome(b), "pt-BR", { sensitivity: "base" });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [produtosSub, categorias, grupos, agruparPor]);
+  }, [produtosSub, categorias, grupos, nivelMacro]);
+
+  // Ordena as sub-lanes de categoria DENTRO de um grupo (modo "grupo-categoria" aninhado) —
+  // mesma regra de ordenação das lanes macro (alfabética PT-BR, `null`/"Sem categoria" por
+  // último). Usada só quando `agruparPor === "grupo-categoria"`.
+  const subLaneKeysDe = useCallback(
+    (itensDoGrupo: ProdutoDraft[]) =>
+      [...new Set(itensDoGrupo.map((p) => p.categoria_id))].sort((a, b) => {
+        if (a === b) return 0;
+        if (a === null) return 1;
+        if (b === null) return -1;
+        return categoriaNome(a).localeCompare(categoriaNome(b), "pt-BR", { sensitivity: "base" });
+      }),
+    [categoriaNome],
+  );
+
+  // Linha de cards (mesmo card, mesmas props) — extraído p/ ser reusado tanto na lane simples
+  // (categoria/grupo) quanto na sub-seção do modo aninhado (grupo-categoria), sem duplicar o
+  // JSX do `ProdutoCard`.
+  const renderCardsRow = (itens: ProdutoDraft[]) => (
+    <div className="flex items-start gap-3 overflow-x-auto pb-2">
+      {itens.map((p) => (
+        <div key={p.id} className="w-[420px] max-md:w-[90vw] shrink-0">
+          <ProdutoCard
+            produto={p}
+            onChange={changeProduto}
+            open={openCards.has(p.id)}
+            onToggleOpen={() => toggleCard(p.id)}
+            grupos={grupos}
+            categorias={categorias}
+            subcats1={subcats1}
+            subcats2={subcats2}
+            cores={cores}
+            coresApelido={coresApelido}
+            empresas={empresas}
+            tamanhos={tamanhos}
+            colecaoNome={colecao?.nome ?? null}
+            linhasMarkup={linhasMarkup}
+            onSalvarProduto={salvarUmProduto}
+            onCardCriado={(modeloId) => patchProduto(p.id, { modelo_id: modeloId, modeloPrecoVenda: null, modeloPrecoAtacado: null, modeloLinhaId: null })}
+            onOcVinculada={(oc) => patchProduto(p.id, { oc })}
+            onExcluido={() => removeProduto(p.id)}
+          />
+        </div>
+      ))}
+    </div>
+  );
 
   const alvoAtual = subAtual ? alvoPorSub.get(subAtual.id) ?? null : null;
   const vagasAtual = subAtual ? vagasDe(subAtual.nome) : 0;
@@ -434,7 +490,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                   <div className="flex-1 overflow-y-auto p-3">
                     <ResumoRevendaPanel
                       produtos={produtosSub}
-                      agruparPor={agruparPor}
+                      agruparPor={nivelMacro}
                       categoriaNome={categoriaNome}
                       grupoNome={grupoNome}
                       otbAlvo={alvoAtual}
@@ -452,6 +508,7 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                       options={[
                         { value: "categoria", label: "Categoria" },
                         { value: "grupo", label: "Grupo" },
+                        { value: "grupo-categoria", label: "Grupo › Categoria" },
                       ]}
                     />
                     <Button size="sm" variant="outline" className="gap-1" onClick={() => setNovoOpen(true)}>
@@ -466,40 +523,43 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                     </div>
                   )}
                   {laneKeys.map((laneKey) => {
-                    const itens = produtosSub.filter((p) => laneCampo(p) === laneKey);
+                    const itens = produtosSub.filter((p) => macroCampo(p) === laneKey);
                     if (itens.length === 0) return null;
                     const pecas = itens.reduce((a, p) => a + somaPecas(p), 0);
+                    const header = (
+                      <div className="mb-1.5 flex items-center gap-2">
+                        <span className={`text-sm font-semibold ${laneKey ? "" : "text-muted-foreground"}`}>{laneKey ? macroNome(laneKey) : macroFallback}</span>
+                        <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{itens.length} produtos · {pecas} pç</span>
+                      </div>
+                    );
+                    // Modo "Grupo › Categoria" (item 2 do refino): lane de grupo com sub-seções
+                    // por categoria dentro — "Sem categoria" sempre por último (`subLaneKeysDe`).
+                    if (agruparPor !== "grupo-categoria") {
+                      return (
+                        <section key={laneKey ?? "__sem__"}>
+                          {header}
+                          {renderCardsRow(itens)}
+                        </section>
+                      );
+                    }
+                    const subKeys = subLaneKeysDe(itens);
                     return (
                       <section key={laneKey ?? "__sem__"}>
-                        <div className="mb-1.5 flex items-center gap-2">
-                          <span className={`text-sm font-semibold ${laneKey ? "" : "text-muted-foreground"}`}>{laneKey ? laneNome(laneKey) : laneFallback}</span>
-                          <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{itens.length} produtos · {pecas} pç</span>
-                        </div>
-                        <div className="flex items-start gap-3 overflow-x-auto pb-2">
-                          {itens.map((p) => (
-                            <div key={p.id} className="w-[420px] max-md:w-[90vw] shrink-0">
-                              <ProdutoCard
-                                produto={p}
-                                onChange={changeProduto}
-                                open={openCards.has(p.id)}
-                                onToggleOpen={() => toggleCard(p.id)}
-                                grupos={grupos}
-                                categorias={categorias}
-                                subcats1={subcats1}
-                                subcats2={subcats2}
-                                cores={cores}
-                                coresApelido={coresApelido}
-                                empresas={empresas}
-                                tamanhos={tamanhos}
-                                colecaoNome={colecao?.nome ?? null}
-                                linhasMarkup={linhasMarkup}
-                                onSalvarProduto={salvarUmProduto}
-                                onCardCriado={(modeloId) => patchProduto(p.id, { modelo_id: modeloId, modeloPrecoVenda: null, modeloPrecoAtacado: null, modeloLinhaId: null })}
-                                onOcVinculada={(oc) => patchProduto(p.id, { oc })}
-                                onExcluido={() => removeProduto(p.id)}
-                              />
-                            </div>
-                          ))}
+                        {header}
+                        <div className="space-y-3 border-l-2 pl-3">
+                          {subKeys.map((subKey) => {
+                            const subItens = itens.filter((p) => p.categoria_id === subKey);
+                            const subPecas = subItens.reduce((a, p) => a + somaPecas(p), 0);
+                            return (
+                              <div key={subKey ?? "__sem_cat__"}>
+                                <div className="mb-1 flex items-center gap-1.5">
+                                  <span className={`text-xs font-semibold ${subKey ? "text-muted-foreground" : "text-muted-foreground/70"}`}>{subKey ? categoriaNome(subKey) : "Sem categoria"}</span>
+                                  <span className="rounded-full border px-1.5 text-[10px] text-muted-foreground">{subItens.length} · {subPecas} pç</span>
+                                </div>
+                                {renderCardsRow(subItens)}
+                              </div>
+                            );
+                          })}
                         </div>
                       </section>
                     );
