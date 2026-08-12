@@ -25,7 +25,7 @@ import { varianteLabel } from "@/lib/variante";
 import { ehGrupoAcessorio, cadeiaValores } from "@/lib/produto-acabado";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import {
-  redistribuirVariantesPorPeso, gradePedidaDeVariantes, somaGradeCampo, somaPecas, hojeISO, fmtMoney,
+  redistribuirVariantesPorPeso, ehDistribuicaoProporcional, gradePedidaDeVariantes, somaGradeCampo, somaPecas, hojeISO, fmtMoney,
   variantesBatemComTotal, erroValidacao,
   type ProdutoDraft, type VarianteDraft, type Opt, type CatOpt, type SubOpt, type CorApelidoOpt, type OcVinculadaInfo,
 } from "./shared";
@@ -137,6 +137,11 @@ export function ProdutoCard({
     qc.invalidateQueries({ queryKey: ["otb-orcamento"] });
     qc.invalidateQueries({ queryKey: ["modelo"] });
     qc.invalidateQueries({ queryKey: ["modelos-desenvolvimento"] });
+    // FIX WAVE (higiene ao investigar B2): faltava aqui — o Planejamento (`criacao.
+    // planejamento.tsx`) lista via `["modelos-planejamento"]`; sem esta invalidation, uma
+    // aba/janela já aberta na lista (não pelo deep-link `?modelo=`, que busca por ID à parte)
+    // só pega o card recém-criado no próximo refetch espontâneo.
+    qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
   };
 
   const criarCardMut = useMutation({
@@ -386,9 +391,19 @@ export function ProdutoCard({
                           // Item 7: alterar o TOTAL redistribui as variantes por peso na hora
                           // (mesma conta de "Redistribuir por peso", só que automática aqui —
                           // as células continuam editáveis depois; o botão explícito segue existindo
-                          // p/ redistribuir de novo sem tocar no total).
+                          // p/ redistribuir de novo sem tocar no total). Review R1 (fix round 2):
+                          // SÓ auto-redistribui se a distribuição atual ainda é a "por peso" do
+                          // total anterior — se o usuário editou uma célula de qtd manualmente,
+                          // preserva a edição em vez de descartá-la silenciosamente; a Qtd total
+                          // muda, as qtds ficam como estavam, e "Redistribuir por peso" (sempre
+                          // visível, abaixo) vira a ação explícita pra quem quiser recalcular.
                           const novoTotal = Math.max(0, Math.trunc(Number(e.target.value)) || 0);
-                          onChange({ ...produto, qtd_total: novoTotal, variantes: redistribuirVariantesPorPeso(produto.variantes, novoTotal) });
+                          const podeAutoRedistribuir = ehDistribuicaoProporcional(produto.variantes, produto.qtd_total);
+                          onChange({
+                            ...produto,
+                            qtd_total: novoTotal,
+                            variantes: podeAutoRedistribuir ? redistribuirVariantesPorPeso(produto.variantes, novoTotal) : produto.variantes,
+                          });
                         }}
                       />
                     </div>
@@ -444,6 +459,14 @@ export function ProdutoCard({
                         <Button type="button" variant="outline" size="sm" onClick={addVariante}><Plus className="mr-1 h-3.5 w-3.5" /> Adicionar variante</Button>
                       </div>
                     </div>
+                    {/* Review R1: agora que a Qtd total pode deixar de bater com a soma das
+                        variantes (edição manual preservada, não redistribui sozinho), avisa
+                        em vez de deixar a discrepância muda até o Salvar/Fazer pedido rejeitar. */}
+                    {!variantesBatemComTotal(produto) && (
+                      <p className="text-xs text-amber-600 dark:text-amber-400">
+                        Σ variantes ({somaPecas(produto)}) ≠ Qtd total ({produto.qtd_total}) — use "Redistribuir por peso" ou ajuste manualmente.
+                      </p>
+                    )}
                     {produto.variantes.length === 0 ? (
                       <p className="text-sm text-muted-foreground">Nenhuma variante ainda.</p>
                     ) : (

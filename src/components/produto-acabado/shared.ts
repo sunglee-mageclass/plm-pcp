@@ -149,6 +149,18 @@ export function montarDadosProduto(p: ProdutoDraft): Record<string, unknown> {
   };
 }
 
+/** A distribuição ATUAL das variantes ainda é a saída "por peso" (`redistribuirVariantesPorPeso`)
+ *  para o `qtdTotal` informado — ou seja, ninguém editou manualmente uma célula de qtd (nem
+ *  mudou peso/variantes) desde o último auto-redistribuir. Usado pra decidir se mudar a Qtd
+ *  total pode redistribuir AUTOMATICAMENTE (fix round 2, review R1: antes redistribuía sempre,
+ *  descartando silenciosamente edição manual das qtds por variante) — se `false`, a Qtd total
+ *  muda mas as qtds atuais são PRESERVADAS; redistribuir vira ação explícita (botão
+ *  "Redistribuir por peso", já existente na tela). */
+export function ehDistribuicaoProporcional(variantes: VarianteDraft[], qtdTotal: number): boolean {
+  const auto = redistribuirVariantesPorPeso(variantes, qtdTotal);
+  return auto.every((v, i) => v.qtd === variantes[i].qtd);
+}
+
 /** Produto tem Σ qtd das variantes batendo com a Qtd total? Mesma regra de
  *  `_salvar_produto_acabado_core` quando `redistribuir=false` (o caminho usado pelo Salvar da
  *  tela e pelo Fazer pedido — NUNCA redistribui silenciosamente, ver fix round 1 item 3). */
