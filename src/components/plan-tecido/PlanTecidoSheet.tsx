@@ -245,12 +245,34 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   const [ultimoMergeSlot, setUltimoMergeSlot] = useState<{ atualizados: number; conflitos: Conflito[] } | null>(null);
   // Back/rota com plano sujo confirma ("Descartar?"); trocar ?sub= dentro da MESMA coleção
   // passa livre (o Sheet não desmonta — nada se perde). Laudo das 3 lentes, jul/2026.
+  // Fix (dono, ago/2026 — "aviso de descarte 2x", espelhado do mesmo fix em ProdutoAcabadoSheet):
+  // confirmar "Descartar" na saída REAL (fechar o Sheet/breadcrumb) passa pelo `open` LOCAL do
+  // guarda e chama `onClose` → o pai navega. Nesse instante o Sheet ainda está montado (React só
+  // desmonta depois do pai re-renderizar sem `colecao` na URL) — o MESMO `useBlocker` intercepta
+  // essa navegação de novo (`dirty` ainda true) e mostra um 2º aviso logo após o 1º confirmado.
+  // `justClosingRef` marca "essa navegação É a consequência da minha própria confirmação, deixa
+  // passar" — via REF (não state) porque `navPermitida` roda SÍNCRONO dentro do mesmo clique que
+  // dispara `navigate()`; consome-se sozinho (1 leitura) pra não virar bypass permanente.
+  const justClosingRef = useRef(false);
   const navPermitida = useCallback(
-    (next: { pathname?: string; search?: Record<string, unknown> }) =>
-      String(next?.pathname ?? "").includes("/criacao/plan-tecido") && next?.search?.colecao === colecaoId,
+    (next: { pathname?: string; search?: Record<string, unknown> }) => {
+      if (justClosingRef.current) {
+        justClosingRef.current = false;
+        return true;
+      }
+      return String(next?.pathname ?? "").includes("/criacao/plan-tecido") && next?.search?.colecao === colecaoId;
+    },
     [colecaoId],
   );
-  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose, blockNav: true, navPermitida });
+  // Saída real confirmada ("Descartar"): arma `justClosingRef` ANTES de navegar (comentário
+  // acima) e zera o dirty de verdade — o Sheet está desmontando de qualquer forma, mas evita um
+  // flash de "ainda sujo" se por algum motivo o pai não desmontar na hora.
+  const fecharDeVez = useCallback(() => {
+    justClosingRef.current = true;
+    setDirty(false);
+    onClose();
+  }, [onClose]);
+  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose: fecharDeVez, blockNav: true, navPermitida });
   const [view, setView] = useState<"subcolecoes" | "canvas">("subcolecoes");
   const [subAtiva, setSubAtiva] = useState(0);
   const [catFilter, setCatFilter] = useState<string | null>(null); // null=todos · id de categoria · "__sem__"
