@@ -39,6 +39,7 @@ type Modelo = {
   id: string;
   nome: string | null;
   ref: string | null;
+  ref_auto: string | null;
   versao: number | null;
   estilista_id: string | null;
   modelista_id: string | null;
@@ -197,7 +198,7 @@ function DesenvolvimentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, ref, versao, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, linha_id, status_desenvolvimento, fotos_modelo, desenho_tecnico_url, croqui_url, enviado_cad, cad(enviado_corte), created_at")
+        .select("id, nome, ref, ref_auto, versao, estilista_id, modelista_id, piloteiro1_id, piloteiro2_id, piloteiro3_id, colecao, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, linha_id, status_desenvolvimento, fotos_modelo, desenho_tecnico_url, croqui_url, enviado_cad, cad(enviado_corte), created_at")
         .eq("ordem_criacao_enviada", true)
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -274,7 +275,14 @@ function DesenvolvimentoPage() {
 
   const catGrupoMap = Object.fromEntries(categorias.map((c) => [c.id, c.grupo_id]));
   const filtered = modelos.filter((m) => {
-    if (search && !(m.nome ?? "").toLowerCase().includes(search.toLowerCase())) return false;
+    // Lupa casa por nome OU REF (ref/ref_auto — mesma normalização do nome, sem accent-fold).
+    if (search) {
+      const q = search.toLowerCase();
+      const okNome = (m.nome ?? "").toLowerCase().includes(q);
+      const okRef = (m.ref ?? "").toLowerCase().includes(q);
+      const okRefAuto = (m.ref_auto ?? "").toLowerCase().includes(q);
+      if (!okNome && !okRef && !okRefAuto) return false;
+    }
     if (fGrupo !== "all" && (m.categoria_principal_id ? catGrupoMap[m.categoria_principal_id] : null) !== fGrupo) return false;
     if (fCat !== "all" && m.categoria_principal_id !== fCat) return false;
     if (fSubcolecao !== "all" && m.subcolecao !== fSubcolecao) return false;
@@ -495,7 +503,7 @@ function DesenvolvimentoPage() {
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
           {/* ordem: lupa · recolher (desktop) · ordenar · filtros */}
-          <SearchToggle value={search} onChange={setSearch} placeholder="Pesquisar por nome…" />
+          <SearchToggle value={search} onChange={setSearch} placeholder="Pesquisar por nome ou REF…" />
           {/* Dois níveis (dono): "Tecidos" = grupos dentro das colunas; "Colunas" = as colunas. */}
           {splitters.length > 0 && (
             <Button

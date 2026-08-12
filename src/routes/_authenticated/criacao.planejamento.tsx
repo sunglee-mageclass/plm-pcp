@@ -130,6 +130,8 @@ type Opt = { id: string; nome: string };
 type Modelo = {
   id: string;
   nome: string | null;
+  ref: string | null;
+  ref_auto: string | null;
   estilista_id: string | null;
   linha_id: string | null;
   colecao: string | null;
@@ -308,6 +310,7 @@ function PlanejamentoPage() {
   const [groupByCatTecido, setGroupByCatTecido] = useState(false);
   // Default: agrupa por Tecido (nível 1) > Categoria (nível 2).
   const [groupByTecido, setGroupByTecido] = useState(true);
+  const [groupByOrigem, setGroupByOrigem] = useState(false);
   // Grupos EXPANDIDOS (por caminho único pai/filho). Vazio = todos RECOLHIDOS —
   // default pedido pelo dono (ago/2026): a lista abre com os grupos fechados.
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -395,7 +398,7 @@ function PlanejamentoPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos")
-        .select("id, nome, estilista_id, linha_id, colecao, colecao_id, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, origem, tecidos_planejados, lancado, custo_terceirizados_previsto, custo_terceirizados_aprovado, data_lancamento, observacoes_mao_obra, motivo_reprovacao_mao_obra")
+        .select("id, nome, ref, ref_auto, estilista_id, linha_id, colecao, colecao_id, subcolecao, semana, mes_id, ano_id, categoria_principal_id, subcategoria1_id, status_planejamento, fotos_modelo, fotos_referencia, desenho_tecnico_url, croqui_url, observacoes_gerais, versao, modelo_base_id, preco_venda, origem, tecidos_planejados, lancado, custo_terceirizados_previsto, custo_terceirizados_aprovado, data_lancamento, observacoes_mao_obra, motivo_reprovacao_mao_obra")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as unknown as Modelo[];
@@ -490,7 +493,16 @@ function PlanejamentoPage() {
   // "Repetição" = versão v2 em diante (cópia). O original (v1) é "único".
   const isRepeticao = (m: Modelo) => (m.versao ?? 1) > 1;
   const filtered = modelos.filter((m) => {
-    if (search && !(m.nome ?? "").toLowerCase().includes(search.toLowerCase())) return false;
+    // Lupa casa por nome OU REF (ref/ref_auto — a REF só é exibida a partir do
+    // Desenvolvimento, mas ref_auto já existe desde a chegada lá). Mesma normalização
+    // do nome (sem accent-fold — o filtro de nome também não normaliza acento).
+    if (search) {
+      const q = search.toLowerCase();
+      const okNome = (m.nome ?? "").toLowerCase().includes(q);
+      const okRef = (m.ref ?? "").toLowerCase().includes(q);
+      const okRefAuto = (m.ref_auto ?? "").toLowerCase().includes(q);
+      if (!okNome && !okRef && !okRefAuto) return false;
+    }
     if (fStatus !== "all" && m.status_planejamento !== fStatus) return false;
     if (fEstilista !== "all" && m.estilista_id !== fEstilista) return false;
     if (fSemana && m.semana !== fSemana) return false;
@@ -668,6 +680,18 @@ function PlanejamentoPage() {
     if (unis.length) out.push({ key: "uni", nome: "Únicos", items: unis });
     return out;
   };
+  // Origem: Interno (padrão/NULL) × Revenda — mesma leitura do filtro (fOrigem acima).
+  const byOrigem = (items: Modelo[]): Split[] => {
+    const map = new Map<string, Modelo[]>();
+    items.forEach((m) => {
+      const key = (m.origem ?? "interno") === "revenda" ? "revenda" : "interno";
+      const arr = map.get(key);
+      if (arr) arr.push(m); else map.set(key, [m]);
+    });
+    return Array.from(map.entries())
+      .map(([key, its]) => ({ key, nome: key === "revenda" ? "Revenda" : "Interno", items: its }))
+      .sort(sortSplits);
+  };
   // Categoria de tecido: MULTI-PERTENCIMENTO (deriva da categoria dos tecidos_planejados do modelo).
   // Um modelo com tecidos de categorias diferentes aparece em cada categoria.
   const byCatTecido = (items: Modelo[]): Split[] => {
@@ -706,6 +730,7 @@ function PlanejamentoPage() {
     groupByCat ? byCat : null,
     groupBySub1 ? bySub1 : null,
     groupByRep ? byRep : null,
+    groupByOrigem ? byOrigem : null,
   ].filter(Boolean) as ((items: Modelo[]) => Split[])[];
   type Grupo = { key: string; nome: string; resumo: ReturnType<typeof computeResumo>; items?: Modelo[]; subgroups?: Grupo[] };
   const buildGroups = (items: Modelo[], depth: number): Grupo[] =>
@@ -788,7 +813,7 @@ function PlanejamentoPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto max-sm:justify-end">
 
-          <SearchToggle value={search} onChange={setSearch} placeholder="Pesquisar por nome…" />
+          <SearchToggle value={search} onChange={setSearch} placeholder="Pesquisar por nome ou REF…" />
           {groups && allGroupPaths.length > 0 && (
             <Button
               variant="outline"
@@ -809,6 +834,7 @@ function PlanejamentoPage() {
               { label: "Categoria de tecido", active: groupByCatTecido, onToggle: () => setGroupByCatTecido((v) => !v) },
               { label: "Tecido", active: groupByTecido, onToggle: () => setGroupByTecido((v) => !v) },
               { label: "Repetição", active: groupByRep, onToggle: () => setGroupByRep((v) => !v) },
+              { label: "Origem", active: groupByOrigem, onToggle: () => setGroupByOrigem((v) => !v) },
             ]}
           />
           <FilterButton
