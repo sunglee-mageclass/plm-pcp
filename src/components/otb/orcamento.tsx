@@ -13,7 +13,20 @@ const mk = (total: number, realizado: number): Bucket => ({ total, realizado, ov
 export const orcLabel = (nome: string, b: Bucket | null): string =>
   b ? `${nome} · ${b.realizado}/${b.total}${b.over ? " ⚠" : ""}` : nome;
 
-export function useOrcamento() {
+/** Overrides opcionais por consumidor — mesma queryKey/queryFn sempre (["otb-orcamento"]),
+ *  só a política de frescor muda. Default = staleTime 30s (comportamento de sempre, telas do
+ *  OTB/Plan. Produto). O Produto Acabado (item 1 do refino, ago/2026) passa
+ *  `{staleTime: 0, refetchOnWindowFocus: true, refetchOnMount: "always"}`: o critério do dono é
+ *  "mudou lá, volto pra cá, número novo" — sem isso, reabrir o Sheet dentro da janela de 30s
+ *  servia "vagas" velhas mesmo com o dado já mudado no banco (mutations do Planejamento
+ *  invalidam a query, mas invalidação só refaz fetch imediato se HOUVER observer ativo; entre
+ *  abas do navegador não tem invalidação nenhuma — QueryClient por aba —, então só
+ *  foco/remontagem resolve; cross-aba sem realtime é limite aceito, não um bug). */
+export function useOrcamento(opts?: {
+  staleTime?: number;
+  refetchOnWindowFocus?: boolean | "always";
+  refetchOnMount?: boolean | "always";
+}) {
   const { data, isLoading } = useQuery({
     queryKey: ["otb-orcamento"],
     queryFn: async () => {
@@ -21,7 +34,9 @@ export function useOrcamento() {
       if (error) throw error;
       return (data ?? { colecoes: [], subcolecoes: [], niveis3: [] }) as { colecoes: Col[]; subcolecoes: Sub[]; niveis3: N3[] };
     },
-    staleTime: 30_000,
+    staleTime: opts?.staleTime ?? 30_000,
+    refetchOnWindowFocus: opts?.refetchOnWindowFocus,
+    refetchOnMount: opts?.refetchOnMount,
   });
   const colMap = new Map<string, Col>((data?.colecoes ?? []).map((c) => [c.colecao_id, c]));
   const subMap = new Map<string, Sub>((data?.subcolecoes ?? []).map((s) => [`${s.colecao_id}|${s.subcolecao}`, s]));

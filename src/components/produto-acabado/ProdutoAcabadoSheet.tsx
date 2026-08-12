@@ -192,7 +192,12 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   // `produtos_acabados`), então é o orçamento COMPARTILHADO entre os planejadores que criam
   // card nesta subcoleção. `total` casa com `alvoPorSub` p/ coleções tipo 'orcamento', mas
   // também cobre 'poder_venda' (que `alvoPorSub`, lido só de `colecao_semanas`, não cobre).
-  const orc = useOrcamento();
+  // Refino (item 1, ago/2026): staleTime 0 + refetch em foco/montagem SEMPRE — o critério do
+  // dono é "mudou lá, volto pra cá, número novo". O `staleTime: 30_000` default (herdado pelas
+  // outras telas do OTB) deixava "vagas" velhas por até 30s mesmo já invalidado, e não cobre
+  // troca de ABA do navegador (QueryClient é por-aba; sem realtime cross-aba de propósito —
+  // foco/montagem já resolve o caso real, dentro da mesma aba, que é o critério do dono).
+  const orc = useOrcamento({ staleTime: 0, refetchOnWindowFocus: true, refetchOnMount: "always" });
   const vagasDe = (nome: string | null): number => {
     if (!nome) return 0;
     const b = orc.subcolecao(colecaoId, nome);
