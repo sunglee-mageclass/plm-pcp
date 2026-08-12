@@ -327,6 +327,14 @@ export function ProdutoCard({
   const somaPedida = somaGradeCampo(produto.oc?.grade_detalhe, "pedida");
   const somaRecebida = somaGradeCampo(produto.oc?.grade_detalhe, "recebida");
 
+  // Refino imediato (decisão do dono, ago/2026): produto COM OC vinculada não pode editar
+  // identidade — o nº da OC deriva de fornecedor+grupo+categoria, então mudar depois divergiria
+  // do pedido já feito/numerado. Espelha `temOc` (mesma fonte, `produto.oc`); campos de Compra
+  // (valor/desconto/variantes/qtd) CONTINUAM livres — só a UI trava aqui. A guarda de verdade é
+  // no servidor (`_salvar_produto_acabado_core`, migration 20260812130000) — isto é só o
+  // affordance visual, redundante de propósito (mesmo padrão do bloco "1 · Compra", `temOc`).
+  const identidadeTravada = temOc;
+
   return (
     <div id={`produto-card-${produto.id}`} className="scroll-mt-3 rounded-lg border bg-card">
       <button type="button" onClick={onToggleOpen} className="flex w-full items-start gap-2 p-3 text-left">
@@ -426,12 +434,20 @@ export function ProdutoCard({
                       `produto.grupo_id` a cada render) — os pesos antigos ficam GRAVADOS em
                       `grade_proporcao`, só somem da tela; a grade real da OC/modelo já ignora
                       esse campo pra Acessório (`_pa_grade_variante` sempre manda célula única
-                      "UN"), então nada corrompe ao alternar de volta. */}
+                      "UN"), então nada corrompe ao alternar de volta.
+                      Refino imediato (decisão do dono, ago/2026): com OC vinculada
+                      (`identidadeTravada` = `temOc`), os 5 campos ficam DISABLED com hint — o nº
+                      da OC deriva de fornecedor+grupo+categoria, mudar depois divergiria do
+                      pedido já feito/numerado. Isto é só o affordance visual; a guarda de
+                      verdade é no servidor (`_salvar_produto_acabado_core`, migration
+                      20260812130000, RAISE P0001 se o payload mudar identidade com OC presente).
+                      Campos de Compra (valor/desconto/variantes/qtd) CONTINUAM livres mesmo com
+                      OC — não fazem parte desta trava. */}
                   <div className="max-w-sm space-y-2 rounded-md border p-3">
                     <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Identidade</p>
                     <div className="flex items-center gap-3">
                       <Label className="w-[150px] shrink-0 text-sm">Nome</Label>
-                      <Input className="flex-1" value={produto.nome} onChange={(e) => onChange({ ...produto, nome: e.target.value })} />
+                      <Input className="flex-1" disabled={identidadeTravada} value={produto.nome} onChange={(e) => onChange({ ...produto, nome: e.target.value })} />
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[150px] shrink-0 text-sm">Grupo</Label>
@@ -439,6 +455,7 @@ export function ProdutoCard({
                         <Select
                           value={produto.grupo_id ?? ""}
                           onValueChange={(v) => onChange({ ...produto, grupo_id: v || null, categoria_id: null, subcategoria1_id: null, subcategoria2_id: null })}
+                          disabled={identidadeTravada}
                         >
                           <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
                           <SelectContent>{grupos.map((g) => <SelectItem key={g.id} value={g.id}>{g.nome}</SelectItem>)}</SelectContent>
@@ -451,7 +468,7 @@ export function ProdutoCard({
                         <Select
                           value={produto.categoria_id ?? ""}
                           onValueChange={(v) => onChange({ ...produto, categoria_id: v || null, subcategoria1_id: null, subcategoria2_id: null })}
-                          disabled={!produto.grupo_id}
+                          disabled={identidadeTravada || !produto.grupo_id}
                         >
                           <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
                           <SelectContent>{categorias.filter((c) => c.grupo_id === produto.grupo_id).map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}</SelectContent>
@@ -466,7 +483,7 @@ export function ProdutoCard({
                             <Select
                               value={produto.subcategoria1_id ?? ""}
                               onValueChange={(v) => onChange({ ...produto, subcategoria1_id: v || null })}
-                              disabled={!produto.categoria_id}
+                              disabled={identidadeTravada || !produto.categoria_id}
                             >
                               <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
                               <SelectContent>{subcats1.filter((s) => s.categoria_id === produto.categoria_id).map((s) => <SelectItem key={s.id} value={s.id}>{s.nome}</SelectItem>)}</SelectContent>
@@ -479,7 +496,7 @@ export function ProdutoCard({
                             <Select
                               value={produto.subcategoria2_id ?? ""}
                               onValueChange={(v) => onChange({ ...produto, subcategoria2_id: v || null })}
-                              disabled={!produto.categoria_id}
+                              disabled={identidadeTravada || !produto.categoria_id}
                             >
                               <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
                               <SelectContent>{subcats2.filter((s) => s.categoria_id === produto.categoria_id).map((s) => <SelectItem key={s.id} value={s.id}>{s.nome}</SelectItem>)}</SelectContent>
@@ -487,6 +504,19 @@ export function ProdutoCard({
                           </div>
                         </div>
                       </>
+                    )}
+                    {identidadeTravada && (
+                      <p className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+                        Produto com pedido{" "}
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-0.5 text-primary hover:underline"
+                          onClick={() => navigate({ to: "/entrada-saida/oc-p-acabado", search: { oc: produto.oc!.id } as any })}
+                        >
+                          {produto.oc!.numero ?? "—"} <ExternalLink className="h-3 w-3" />
+                        </button>
+                        {" "}— identidade travada (desvincule a OC para editar).
+                      </p>
                     )}
                   </div>
 
