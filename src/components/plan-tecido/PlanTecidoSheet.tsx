@@ -374,7 +374,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
       ((await supabase
         .from("modelos")
         .select(
-          "id, ref, nome, versao, subcolecao, linha_id, categoria_principal_id, proporcoes, lancado, enviado_cad, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(artigo_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total)",
+          "id, ref, nome, versao, origem, subcolecao, linha_id, categoria_principal_id, proporcoes, lancado, enviado_cad, fotos_modelo, croqui_url, desenho_tecnico_url, fotos_referencia, modelo_tecidos(id, tipo, numero, artigo_id, consumo, loss_percent, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro, categoria_tecido_id), modelo_tecido_variantes(variante_tecido_id, ordem, multiplicador, variante:variante_tecido_id(artigo_id, artigo:artigo_id(nome, unidade_medida, rendimento, preco_por_metro), nome_variante, cor:cor_id(nome), apelido:cor_apelido_id(nome)))), modelo_aviamentos(custo_previsto), modelo_grades(variante_numero, grades, grade_total)",
         )
         .eq("colecao_id", colecaoId)).data ?? []) as any[],
   });
@@ -564,6 +564,11 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   const modeloIdsDb = useMemo(() => [...new Set(((modelosDb ?? []) as any[]).map((m) => m.id as string))].sort(), [modelosDb]);
   // versão do modelo (Planejamento de Produto) → badge no card p/ ver repetição (item 14)
   const versaoMap = useMemo(() => Object.fromEntries(((modelosDb ?? []) as any[]).map((m) => [m.id as string, Number(m.versao) || null])) as Record<string, number | null>, [modelosDb]);
+  // origem do modelo (`interno`|`revenda`) → badge "Revenda" no card + esconde controles de
+  // tecido (item do refino, ago/2026): espelho de revenda ocupa a vaga do bucket (correto, NÃO
+  // filtrar), mas não há tecido a planejar nele. Mesmo padrão de `versaoMap` (map derivado à
+  // parte, sem tocar o slot/engine/merge — só apresentação no ModelCard).
+  const origemMap = useMemo(() => Object.fromEntries(((modelosDb ?? []) as any[]).map((m) => [m.id as string, (m.origem as string | null) ?? null])) as Record<string, string | null>, [modelosDb]);
   // MO por serviço por modelo — READ-ONLY, derivada de `modelo_mo_resumo` (fonte ÚNICA da MO, a
   // mesma do Desenvolvimento). `estado` (aprovada|pendente|reprovada|sem_servico) pinta o badge;
   // `total` (Σ modelo_servico_mo.valor) é a MO prevista que alimenta o custo do card. A aprovação
@@ -1084,6 +1089,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
               maoObraEstado={slot.modelo_id ? maoObraEstadoDe(slot.modelo_id) : undefined}
               maoObraServico={slot.modelo_id ? maoObraPorServicoDe(slot.modelo_id) : null}
               versao={slot.modelo_id ? (versaoMap[slot.modelo_id] ?? null) : null}
+              origem={slot.modelo_id ? (origemMap[slot.modelo_id] ?? null) : null}
               onEnsureSaved={ensureSaved}
               onChange={(ns) => { const next = structuredClone(arvore) as PtArvore; next.subcolecoes[subAtiva].linhas[li].slots[sli] = ns; patch(next); }}
               open={!recolhidos.has(chave)} onToggleOpen={() => toggleRecolhido(chave)}

@@ -20,6 +20,7 @@ import { CustoSection } from "./CustoSection";
 import { ModeloThumb } from "./ModeloThumb";
 import { SlotOcHint } from "./SlotOcHint";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
+import { StatusBadge } from "@/components/shared/StatusBadge";
 
 function novoMaterial(existentes: PtMaterial[], tipo: "tecido" | "forro"): PtMaterial {
   const numero = existentes.filter((m) => m.tipo === tipo).length + 1;
@@ -43,6 +44,7 @@ export function ModelCard({
   maoObraEstado,
   maoObraServico,
   versao,
+  origem,
   onEnsureSaved,
   defaultOpen,
   open: openProp,
@@ -69,6 +71,8 @@ export function ModelCard({
   maoObraEstado?: string;
   maoObraServico?: number | null;
   versao?: number | null;
+  /** `modelos.origem` ("interno"|"revenda") — espelho de revenda: badge + esconde controles de tecido. */
+  origem?: string | null;
   onEnsureSaved?: () => Promise<boolean>;
   defaultOpen?: boolean;
   /** Controle externo do aberto/recolhido (para "recolher/expandir todos"). Se ausente, usa estado local. */
@@ -172,6 +176,9 @@ export function ModelCard({
   const total = necTecidos.reduce((s, t) => s + t.totalMetros, 0);
   const temGrade = slot.materiais.some((m) => m.variantes.some((v) => v.grade_total > 0));
   const usarEstoque = slot.usar_estoque ?? false;
+  // Espelho de revenda: NÃO planeja tecido (card informativo, ocupa a vaga do bucket — não
+  // filtrar/esconder o card em si, só os controles de tecido dentro dele).
+  const isRevenda = origem === "revenda";
   // peças = grade total do Tecido 1 (base do modelo)
   const pieces = (slot.materiais.find((m) => m.tipo === "tecido" && m.numero === 1)?.variantes ?? []).reduce((s, v) => s + (v.grade_total || 0), 0);
   const borderClass = open ? "border-primary" : usarEstoque ? "border-amber-500" : "";
@@ -234,20 +241,25 @@ export function ModelCard({
             <div className="flex items-center gap-1.5">
               <span className="truncate text-[13px] font-semibold leading-tight">{slot.nome ?? "Modelo"}</span>
               {versao != null && <span className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[9px] font-bold text-primary" title="Versão do modelo (Planejamento de Produto)">v{versao}</span>}
+              {isRevenda && (
+                <span title="Espelho de produto de revenda — sem tecido a planejar">
+                  <StatusBadge tone="info" className="shrink-0">Revenda</StatusBadge>
+                </span>
+              )}
             </div>
             <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
               {slot.ref && <span className="tabular-nums">{slot.ref}</span>}
-              <span className="tabular-nums">{pieces} pç</span>
-              <span className="tabular-nums">{total ? `${total.toFixed(0)} m` : "0 m"}</span>
-              {usarEstoque && <span className="font-medium text-amber-700">estoque</span>}
+              {!isRevenda && <span className="tabular-nums">{pieces} pç</span>}
+              {!isRevenda && <span className="tabular-nums">{total ? `${total.toFixed(0)} m` : "0 m"}</span>}
+              {!isRevenda && usarEstoque && <span className="font-medium text-amber-700">estoque</span>}
             </div>
           </div>
-          {fornecTotal ? (
+          {!isRevenda && fornecTotal ? (
             fornecCom === fornecTotal
               ? <span className="shrink-0 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700" title="Todos os materiais têm fornecedor">✓ fornec.</span>
               : <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700" title="Materiais com fornecedor">{fornecCom}/{fornecTotal}</span>
           ) : null}
-          {!temGrade && <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700" title="Falta a grade: informe as PEÇAS (campo 'pç' de cada cor) em 'Tecidos & Forros'. A 'Proporção por tamanho' só distribui essa quantidade — não substitui o 'pç'.">⚠ sem peças</span>}
+          {!isRevenda && !temGrade && <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700" title="Falta a grade: informe as PEÇAS (campo 'pç' de cada cor) em 'Tecidos & Forros'. A 'Proporção por tamanho' só distribui essa quantidade — não substitui o 'pç'.">⚠ sem peças</span>}
           <ChevronRight className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
         </button>
         {!open && necTecidos.length > 0 && (
@@ -270,11 +282,14 @@ export function ModelCard({
         {open && (
           <>
             {/* Proporção por tamanho (fixa no topo, não colapsável) — só a DISTRIBUIÇÃO; a quantidade
-                (peças) é o 'pç' por cor no bloco do tecido. Antes chamava "Grade" e colidia com a badge. */}
-            <div className="border-t bg-muted/20 pb-1">
-              <div className="px-2 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground" title="Distribui as peças (pç) entre os tamanhos. A quantidade é o 'pç' de cada cor, abaixo em Tecidos & Forros.">Proporção por tamanho</div>
-              <GradeSection slot={slot} onChange={onChange} tamanhos={tamanhos} />
-            </div>
+                (peças) é o 'pç' por cor no bloco do tecido. Antes chamava "Grade" e colidia com a badge.
+                Revenda: não há tecido a planejar — controle escondido (card informativo). */}
+            {!isRevenda && (
+              <div className="border-t bg-muted/20 pb-1">
+                <div className="px-2 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground" title="Distribui as peças (pç) entre os tamanhos. A quantidade é o 'pç' de cada cor, abaixo em Tecidos & Forros.">Proporção por tamanho</div>
+                <GradeSection slot={slot} onChange={onChange} tamanhos={tamanhos} />
+              </div>
+            )}
             <div className="border-t px-2 py-1 flex items-center gap-2">
               <span className="text-[10px] text-muted-foreground shrink-0">Categoria</span>
               <select
@@ -290,21 +305,26 @@ export function ModelCard({
                 ))}
               </select>
             </div>
-            <div className="border-t px-2 py-1 flex items-center gap-2">
-              <label
-                className="flex cursor-pointer items-center gap-2 text-xs select-none"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <Checkbox
-                  id={`usar-estoque-${slot.id ?? slot.modelo_id ?? "new"}`}
-                  checked={usarEstoque}
-                  onCheckedChange={(v) => onChange({ ...slot, usar_estoque: !!v })}
-                  className="h-4 w-4"
-                />
-                <span>Usar estoque existente</span>
-              </label>
-            </div>
-            {colecaoId && (
+            {/* "Usar estoque existente" é sobre estoque de TECIDO — sem sentido pra revenda. */}
+            {!isRevenda && (
+              <div className="border-t px-2 py-1 flex items-center gap-2">
+                <label
+                  className="flex cursor-pointer items-center gap-2 text-xs select-none"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Checkbox
+                    id={`usar-estoque-${slot.id ?? slot.modelo_id ?? "new"}`}
+                    checked={usarEstoque}
+                    onCheckedChange={(v) => onChange({ ...slot, usar_estoque: !!v })}
+                    className="h-4 w-4"
+                  />
+                  <span>Usar estoque existente</span>
+                </label>
+              </div>
+            )}
+            {/* "Aplicar ao modelo"/"Criar card" empurram BOM de TECIDO + o hint de OC de tecido —
+                nenhum dos dois se aplica a um espelho de revenda (sem BOM de tecido). */}
+            {colecaoId && !isRevenda && (
               <div className="border-t px-2 py-1">
                 {slot.modelo_id ? (
                   // card existe → aplicar grade nele
@@ -364,57 +384,60 @@ export function ModelCard({
               </div>
             )}
             <Accordion type="multiple" defaultValue={["mat"]} className="border-t px-2">
-              <AccordionItem value="mat">
-                <AccordionTrigger className="py-2 text-xs">1. Tecidos &amp; Forros</AccordionTrigger>
-                <AccordionContent>
-                  {/* Exibição: TECIDO antes de FORRO (dono, ago/2026) — sort estável só na
-                      renderização; o array (e os índices dos callbacks) não muda. */}
-                  {[...slot.materiais.entries()]
-                    .sort(([, a], [, b]) => (a.tipo === b.tipo ? 0 : a.tipo === "tecido" ? -1 : 1))
-                    .map(([i, m]) => (
-                    <MaterialBlock
-                      key={m.id ?? i}
-                      material={m}
-                      laneCategoriaId={slot.categoria_tecido_id ?? null}
-                      paleta={paleta}
-                      onChange={(nm) => {
-                        const materiais = slot.materiais.slice();
-                        materiais[i] = nm;
-                        onChange({ ...slot, materiais });
-                      }}
-                      onRemove={() =>
-                        onChange({ ...slot, materiais: slot.materiais.filter((_, j) => j !== i) })
-                      }
-                    />
-                  ))}
-                  <div className="mt-2 flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        onChange({
-                          ...slot,
-                          materiais: [...slot.materiais, novoMaterial(slot.materiais, "tecido")],
-                        })
-                      }
-                    >
-                      + tecido
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        onChange({
-                          ...slot,
-                          materiais: [...slot.materiais, novoMaterial(slot.materiais, "forro")],
-                        })
-                      }
-                    >
-                      + forro
-                    </Button>
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
+              {/* Materiais de TECIDO/FORRO — não existem num espelho de revenda. */}
+              {!isRevenda && (
+                <AccordionItem value="mat">
+                  <AccordionTrigger className="py-2 text-xs">1. Tecidos &amp; Forros</AccordionTrigger>
+                  <AccordionContent>
+                    {/* Exibição: TECIDO antes de FORRO (dono, ago/2026) — sort estável só na
+                        renderização; o array (e os índices dos callbacks) não muda. */}
+                    {[...slot.materiais.entries()]
+                      .sort(([, a], [, b]) => (a.tipo === b.tipo ? 0 : a.tipo === "tecido" ? -1 : 1))
+                      .map(([i, m]) => (
+                      <MaterialBlock
+                        key={m.id ?? i}
+                        material={m}
+                        laneCategoriaId={slot.categoria_tecido_id ?? null}
+                        paleta={paleta}
+                        onChange={(nm) => {
+                          const materiais = slot.materiais.slice();
+                          materiais[i] = nm;
+                          onChange({ ...slot, materiais });
+                        }}
+                        onRemove={() =>
+                          onChange({ ...slot, materiais: slot.materiais.filter((_, j) => j !== i) })
+                        }
+                      />
+                    ))}
+                    <div className="mt-2 flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          onChange({
+                            ...slot,
+                            materiais: [...slot.materiais, novoMaterial(slot.materiais, "tecido")],
+                          })
+                        }
+                      >
+                        + tecido
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          onChange({
+                            ...slot,
+                            materiais: [...slot.materiais, novoMaterial(slot.materiais, "forro")],
+                          })
+                        }
+                      >
+                        + forro
+                      </Button>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              )}
               <AccordionItem value="custo">
                 <AccordionTrigger className="py-2 text-xs">2. Custo &amp; Preço</AccordionTrigger>
                 <AccordionContent>
