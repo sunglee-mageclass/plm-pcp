@@ -87,11 +87,19 @@ export function somaPecas(p: Pick<ProdutoDraft, "variantes">): number {
   return p.variantes.reduce((s, v) => s + (Number(v.qtd) || 0), 0);
 }
 
-/** Só os campos que a TELA edita (Compra & variantes) — usado como snapshot do dirty-guard,
- *  pra não disparar "não salvo" por causa de dado read-only que muda no refetch. */
+/** Só os campos que a TELA edita (Compra & variantes + Identidade, ago/2026 refino) — usado
+ *  como snapshot do dirty-guard, pra não disparar "não salvo" por causa de dado read-only que
+ *  muda no refetch. nome/grupo_id/categoria_id/subcategoria1_id/subcategoria2_id entraram
+ *  quando o card ganhou o bloco "Identidade" editável (ProdutoCard) — sem isto aqui, editar
+ *  esses campos não acendia o UnsavedIndicator nem habilitava o botão Salvar. */
 export function chaveDirty(p: ProdutoDraft) {
   return {
     id: p.id,
+    nome: p.nome,
+    grupo_id: p.grupo_id,
+    categoria_id: p.categoria_id,
+    subcategoria1_id: p.subcategoria1_id,
+    subcategoria2_id: p.subcategoria2_id,
     empresa_id: p.empresa_id,
     representante_id: p.representante_id,
     ref_fornecedor: p.ref_fornecedor,

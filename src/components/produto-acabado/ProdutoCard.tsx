@@ -410,6 +410,86 @@ export function ProdutoCard({
               <AccordionTrigger className="text-xs font-semibold">1 · Compra &amp; variantes</AccordionTrigger>
               <AccordionContent>
                 <div className="space-y-4">
+                  {/* Identidade (refino ago/2026, "já que é possível criar item por lá") — mesmos
+                      dropdowns/cascata do NovoProdutoDialog, reusando os MESMOS arrays de opções
+                      (props `grupos`/`categorias`/`subcats1`/`subcats2`, já sem staleTime longo —
+                      lição do bug B1, ver `ProdutoAcabadoSheet.useOpt`/`useOptCat`). O header
+                      continua mostrando o resumo read-only; isto edita o rascunho em memória —
+                      só persiste no Salvar. Trocar Grupo/Categoria reseta os filhos (mesma regra
+                      do dialog: subcategoria pertence à categoria, categoria pertence ao grupo).
+                      Quando o produto TEM espelho (`modelo_id`), o Salvar propaga nome/categoria/
+                      subs pro modelo na MESMA transação (`_salvar_produto_acabado_core`, migration
+                      20260812120000) — a REF do modelo NÃO regenera (só o fluxo `ordem_criacao_
+                      enviada=true` de Desenvolvimento mexe nela; cards de revenda nunca passam
+                      por lá). Trocar o Grupo de/para Acessórios já reflete na hora (a seção
+                      "Proporção de grade" abaixo depende de `acessorio`, derivado de
+                      `produto.grupo_id` a cada render) — os pesos antigos ficam GRAVADOS em
+                      `grade_proporcao`, só somem da tela; a grade real da OC/modelo já ignora
+                      esse campo pra Acessório (`_pa_grade_variante` sempre manda célula única
+                      "UN"), então nada corrompe ao alternar de volta. */}
+                  <div className="max-w-sm space-y-2 rounded-md border p-3">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Identidade</p>
+                    <div className="flex items-center gap-3">
+                      <Label className="w-[150px] shrink-0 text-sm">Nome</Label>
+                      <Input className="flex-1" value={produto.nome} onChange={(e) => onChange({ ...produto, nome: e.target.value })} />
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Label className="w-[150px] shrink-0 text-sm">Grupo</Label>
+                      <div className="flex-1">
+                        <Select
+                          value={produto.grupo_id ?? ""}
+                          onValueChange={(v) => onChange({ ...produto, grupo_id: v || null, categoria_id: null, subcategoria1_id: null, subcategoria2_id: null })}
+                        >
+                          <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                          <SelectContent>{grupos.map((g) => <SelectItem key={g.id} value={g.id}>{g.nome}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Label className="w-[150px] shrink-0 text-sm">Categoria</Label>
+                      <div className="flex-1">
+                        <Select
+                          value={produto.categoria_id ?? ""}
+                          onValueChange={(v) => onChange({ ...produto, categoria_id: v || null, subcategoria1_id: null, subcategoria2_id: null })}
+                          disabled={!produto.grupo_id}
+                        >
+                          <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                          <SelectContent>{categorias.filter((c) => c.grupo_id === produto.grupo_id).map((c) => <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    {!acessorio && (
+                      <>
+                        <div className="flex items-center gap-3">
+                          <Label className="w-[150px] shrink-0 text-sm">Subcategoria 1</Label>
+                          <div className="flex-1">
+                            <Select
+                              value={produto.subcategoria1_id ?? ""}
+                              onValueChange={(v) => onChange({ ...produto, subcategoria1_id: v || null })}
+                              disabled={!produto.categoria_id}
+                            >
+                              <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                              <SelectContent>{subcats1.filter((s) => s.categoria_id === produto.categoria_id).map((s) => <SelectItem key={s.id} value={s.id}>{s.nome}</SelectItem>)}</SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <Label className="w-[150px] shrink-0 text-sm">Subcategoria 2</Label>
+                          <div className="flex-1">
+                            <Select
+                              value={produto.subcategoria2_id ?? ""}
+                              onValueChange={(v) => onChange({ ...produto, subcategoria2_id: v || null })}
+                              disabled={!produto.categoria_id}
+                            >
+                              <SelectTrigger><SelectValue placeholder="Selecione…" /></SelectTrigger>
+                              <SelectContent>{subcats2.filter((s) => s.categoria_id === produto.categoria_id).map((s) => <SelectItem key={s.id} value={s.id}>{s.nome}</SelectItem>)}</SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
                   <div className="max-w-sm space-y-2 rounded-md border p-3">
                     <div className="flex items-center gap-3">
                       <Label className="w-[150px] shrink-0 text-sm">Fornecedor</Label>
