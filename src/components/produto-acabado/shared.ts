@@ -29,6 +29,17 @@ export type OcVinculadaInfo = {
   qtd_total: number;
   valor_unitario_real: number;
   grade_detalhe: GradeDetalheOc;
+  // Valor unitário/desconto BRUTOS da OC (não o "real" já líquido acima) — pedido do dono
+  // (ago/2026, "valor unitário e desconto no card devem ser atualizados de acordo com a
+  // OC"): o servidor já sincroniza `produtos_acabados.valor_unitario`/`desconto_pct` com
+  // estes MESMOS valores a cada save/vincular da OC (ver migração
+  // 20260812100000_ocpa_sync_valores_produto.sql), então `p.valor_unitario`/`p.desconto_pct`
+  // e `p.oc.valor_unitario`/`p.oc.desconto_pct` são sempre iguais em qualquer leitura fresca.
+  // Guardados aqui à parte pra `montarDadosProduto` ter uma fonte explicitamente "vinda da
+  // OC" ao reenviar esses campos (evita reenviar um valor local potencialmente mais velho
+  // que o embed da OC, ainda que na prática os dois venham juntos do mesmo SELECT).
+  valor_unitario: number;
+  desconto_pct: number;
 };
 
 export type ProdutoDraft = {
@@ -125,7 +136,15 @@ export function hojeISO(): string {
  *  lote da tela esquecia `qtd_total`/`valor_unitario`/`desconto_pct` no payload, e o
  *  servidor persistia zeros sem avisar visualmente — só o reload/round-trip revelava).
  *  Usado tanto pelo Salvar em lote (`ProdutoAcabadoSheet`) quanto pelo save-antes-do-pedido
- *  (`ProdutoCard`, "Fazer pedido") — os dois SEMPRE mandam o mesmo shape completo. */
+ *  (`ProdutoCard`, "Fazer pedido") — os dois SEMPRE mandam o mesmo shape completo.
+ *
+ *  Quando o produto TEM OC vinculada, `valor_unitario`/`desconto_pct` são espelho da OC (o
+ *  card trava os inputs — ver `ProdutoCard`, seção "1 · Compra") — manda os valores de
+ *  `p.oc`, não os de `p`: evita que um Salvar disparado por outro campo (ex.: REF
+ *  Fornecedor) reenvie um `p.valor_unitario`/`p.desconto_pct` porventura mais velho que o
+ *  que o servidor já sincronizou (pedido do dono, ago/2026 — "valor unitário e desconto no
+ *  card devem ser atualizados de acordo com a OC"; RPC `salvar_produto_acabado` não faz
+ *  COALESCE com o valor atual, então OMITIR o campo zeraria em vez de preservar). */
 export function montarDadosProduto(p: ProdutoDraft): Record<string, unknown> {
   return {
     nome: p.nome,
@@ -143,8 +162,8 @@ export function montarDadosProduto(p: ProdutoDraft): Record<string, unknown> {
     composicao: p.composicao || null,
     grade_proporcao: p.grade_proporcao,
     qtd_total: p.qtd_total,
-    valor_unitario: p.valor_unitario,
-    desconto_pct: p.desconto_pct,
+    valor_unitario: p.oc ? p.oc.valor_unitario : p.valor_unitario,
+    desconto_pct: p.oc ? p.oc.desconto_pct : p.desconto_pct,
     redistribuir: "false",
   };
 }

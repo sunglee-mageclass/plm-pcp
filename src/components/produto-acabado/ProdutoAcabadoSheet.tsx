@@ -107,6 +107,8 @@ function rowToDraft(row: any): ProdutoDraft {
           qtd_total: oc.qtd_total ?? 0,
           valor_unitario_real: Number(oc.valor_unitario_real) || 0,
           grade_detalhe: oc.grade_detalhe ?? {},
+          valor_unitario: Number(oc.valor_unitario) || 0,
+          desconto_pct: Number(oc.desconto_pct) || 0,
         }
       : null,
   };
@@ -118,7 +120,7 @@ const SELECT_PRODUTO = `
   grade_proporcao, qtd_total, valor_unitario, desconto_pct, insumos_total, modelo_id,
   variantes:produto_acabado_variantes(ordem, cor_id, cor_apelido_id, peso, qtd),
   modelo:modelo_id(preco_venda, preco_atacado, linha_id),
-  ocs:ocs_p_acabado(id, numero, status, qtd_total, valor_unitario_real, grade_detalhe)
+  ocs:ocs_p_acabado(id, numero, status, qtd_total, valor_unitario_real, grade_detalhe, valor_unitario, desconto_pct)
 `;
 
 /**

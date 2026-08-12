@@ -638,3 +638,128 @@ describe.skipIf(!hasDb)("OC Produto Acabado — preço congela ao receber (refin
     });
   });
 });
+
+// Refino ago/2026: "o valor unitário e desconto no card devem ser atualizados de acordo
+// com a OC" (migração 20260812100000). `_salvar_oc_p_acabado_core` empurra valor_unitario/
+// desconto_pct pra `produtos_acabados` sempre que a OC salva TEM produto_acabado_id (criação
+// OU edição); `_vincular_oc_p_acabado_core` faz o mesmo ao VINCULAR (não ao desvincular).
+// qtd_total NÃO sincroniza (decisão registrada no cabeçalho da migração).
+describe.skipIf(!hasDb)("OC Produto Acabado — sync valor_unitario/desconto_pct → produto (refino ago/2026)", () => {
+  async function criarProduto(c: any, sufixo: string) {
+    const g = await um<{ id: string }>(
+      c,
+      `insert into grupos_produto (tenant_id, nome) values ($1,$2) returning id`,
+      [TENANT_TESTE, `Fem SyncOcPa ${sufixo}`],
+    );
+    const cat = await um<{ id: string }>(
+      c,
+      `insert into categorias_produto (tenant_id, nome) values ($1,$2) returning id`,
+      [TENANT_TESTE, `Vestido SyncOcPa ${sufixo}`],
+    );
+    const prod = await um<{ id: string }>(
+      c,
+      `select salvar_produto_acabado(null, $1::jsonb, '[]'::jsonb) as id`,
+      [JSON.stringify({ nome: `Vestido SyncOcPa ${sufixo}`, grupo_id: g.id, categoria_id: cat.id })],
+    );
+    return prod.id;
+  }
+
+  async function valoresProduto(c: any, prodId: string) {
+    return um<{ valor_unitario: string; desconto_pct: string; qtd_total: number }>(
+      c,
+      `select valor_unitario, desconto_pct, qtd_total from produtos_acabados where id = $1`,
+      [prodId],
+    );
+  }
+
+  it("salvar_oc_p_acabado: OC AVULSA (sem produto_acabado_id) não toca em produto nenhum", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const prodId = await criarProduto(c, "Avulsa");
+      await c.query(
+        `select salvar_oc_p_acabado(null, '{"nome_produto":"OC avulsa SyncOcPaTest","valor_unitario":123,"desconto_pct":50}'::jsonb, '{}'::jsonb)`,
+      );
+      const row = await valoresProduto(c, prodId);
+      expect(Number(row.valor_unitario)).toBe(0);
+      expect(Number(row.desconto_pct)).toBe(0);
+    });
+  });
+
+  it("salvar_oc_p_acabado: criar OC COM produto_acabado_id sincroniza valor/desconto na hora", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const prodId = await criarProduto(c, "Criacao");
+      await c.query(
+        `select salvar_oc_p_acabado(null, $1::jsonb, '{}'::jsonb)`,
+        [JSON.stringify({ nome_produto: "OC vinc criacao SyncOcPaTest", valor_unitario: 55.5, desconto_pct: 10, produto_acabado_id: prodId })],
+      );
+      const row = await valoresProduto(c, prodId);
+      expect(Number(row.valor_unitario)).toBe(55.5);
+      expect(Number(row.desconto_pct)).toBe(10);
+    });
+  });
+
+  it("salvar_oc_p_acabado: EDITAR uma OC já vinculada re-sincroniza o produto (e qtd_total do produto fica intocado)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const prodId = await criarProduto(c, "Edicao");
+      // qtd_total do PRODUTO é setado à parte, por conta própria (grade de variantes) —
+      // nunca deve ser sobrescrito pelo sync.
+      await c.query(`update produtos_acabados set qtd_total = 42 where id = $1`, [prodId]);
+
+      const oc = await um<{ id: string }>(
+        c,
+        `select salvar_oc_p_acabado(null, $1::jsonb, '{}'::jsonb) as id`,
+        [JSON.stringify({ nome_produto: "OC vinc edicao SyncOcPaTest", valor_unitario: 10, desconto_pct: 0, produto_acabado_id: prodId })],
+      );
+      // qtd_total da OC muda (com grade pedida coerente, senão a validação da própria OC
+      // rejeita) — o ponto do teste é que o qtd_total do PRODUTO não segue essa mudança.
+      await c.query(
+        `select salvar_oc_p_acabado($1, $2::jsonb, $3::jsonb)`,
+        [
+          oc.id,
+          JSON.stringify({ nome_produto: "OC vinc edicao SyncOcPaTest", valor_unitario: 77.77, desconto_pct: 25, qtd_total: 999 }),
+          JSON.stringify({ "0": { UN: { pedida: 999 } } }),
+        ],
+      );
+      const row = await valoresProduto(c, prodId);
+      expect(Number(row.valor_unitario)).toBe(77.77);
+      expect(Number(row.desconto_pct)).toBe(25);
+      expect(Number(row.qtd_total)).toBe(42); // NÃO sincroniza — segue o dado próprio do produto
+    });
+  });
+
+  it("vincular_oc_p_acabado: VINCULAR uma OC existente empurra valor/desconto pro produto na hora", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const prodId = await criarProduto(c, "Vincular");
+      const oc = await um<{ id: string }>(
+        c,
+        `select salvar_oc_p_acabado(null, '{"nome_produto":"OC pre-vinculo SyncOcPaTest","valor_unitario":33.33,"desconto_pct":5}'::jsonb, '{}'::jsonb) as id`,
+      );
+      const antes = await valoresProduto(c, prodId);
+      expect(Number(antes.valor_unitario)).toBe(0);
+
+      await c.query(`select vincular_oc_p_acabado($1, $2)`, [oc.id, prodId]);
+      const depois = await valoresProduto(c, prodId);
+      expect(Number(depois.valor_unitario)).toBe(33.33);
+      expect(Number(depois.desconto_pct)).toBe(5);
+    });
+  });
+
+  it("vincular_oc_p_acabado: DESVINCULAR (produto_id null) não reseta os valores já herdados", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const prodId = await criarProduto(c, "Desvincular");
+      const oc = await um<{ id: string }>(
+        c,
+        `select salvar_oc_p_acabado(null, '{"nome_produto":"OC desvinculo SyncOcPaTest","valor_unitario":20,"desconto_pct":8}'::jsonb, '{}'::jsonb) as id`,
+      );
+      await c.query(`select vincular_oc_p_acabado($1, $2)`, [oc.id, prodId]);
+      await c.query(`select vincular_oc_p_acabado($1, null)`, [oc.id]);
+      const row = await valoresProduto(c, prodId);
+      expect(Number(row.valor_unitario)).toBe(20);
+      expect(Number(row.desconto_pct)).toBe(8);
+    });
+  });
+});

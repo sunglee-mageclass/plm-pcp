@@ -44,6 +44,8 @@ type OcAvulsa = {
   valor_total_desconto: number | null;
   valor_unitario_real: number | null;
   grade_detalhe: OcVinculadaInfo["grade_detalhe"] | null;
+  valor_unitario: number | null;
+  desconto_pct: number | null;
 };
 
 export function ProdutoCard({
@@ -124,7 +126,16 @@ export function ProdutoCard({
   const setPeso = (tam: string, peso: number) => onChange({ ...produto, grade_proporcao: { ...produto.grade_proporcao, [tam]: peso } });
   const redistribuir = () => onChange({ ...produto, variantes: redistribuirVariantesPorPeso(produto.variantes, produto.qtd_total) });
 
-  const { bruto, totalDesc, unitReal } = cadeiaValores(produto.qtd_total, produto.valor_unitario, produto.desconto_pct);
+  // Valor unitário/desconto: quando há OC vinculada, ela é a fonte da verdade da compra
+  // real (pedido do dono, ago/2026) — o servidor já mantém `produto.valor_unitario`/
+  // `desconto_pct` sincronizados com a OC a cada save/vincular (migração
+  // 20260812100000_ocpa_sync_valores_produto.sql), mas lemos de `produto.oc` aqui pra
+  // refletir na hora um vínculo/pedido recém-feito (patch local de `onOcVinculada`), sem
+  // esperar o refetch de `["produtos-acabados"]`. Sem OC, segue o campo próprio (editável).
+  const temOc = !!produto.oc;
+  const valorUnitEfetivo = produto.oc ? produto.oc.valor_unitario : produto.valor_unitario;
+  const descontoEfetivo = produto.oc ? produto.oc.desconto_pct : produto.desconto_pct;
+  const { bruto, totalDesc, unitReal } = cadeiaValores(produto.qtd_total, valorUnitEfetivo, descontoEfetivo);
   const somaPeso = produto.variantes.reduce((s, v) => s + (Number(v.peso) || 0), 0);
   const base = unitReal + produto.insumos_total;
   const markupLinha = produto.modeloLinhaId ? linhasMarkup[produto.modeloLinhaId] ?? null : null;
@@ -190,7 +201,14 @@ export function ProdutoCard({
     onSuccess: (oc) => {
       toast.success(oc ? "OC vinculada." : "OC desvinculada.");
       setVincularOpen(false);
-      onOcVinculada(oc ? { id: oc.id, numero: oc.numero, status: oc.status, qtd_total: oc.qtd_total ?? 0, valor_unitario_real: Number(oc.valor_unitario_real) || 0, grade_detalhe: oc.grade_detalhe ?? {} } : null);
+      onOcVinculada(oc ? {
+        id: oc.id, numero: oc.numero, status: oc.status, qtd_total: oc.qtd_total ?? 0,
+        valor_unitario_real: Number(oc.valor_unitario_real) || 0, grade_detalhe: oc.grade_detalhe ?? {},
+        // Vincular já sincroniza produtos_acabados.valor_unitario/desconto_pct no servidor
+        // (_vincular_oc_p_acabado_core) — patch local com os MESMOS valores da OC escolhida
+        // pra não esperar o refetch de ["produtos-acabados"] pra travar/atualizar os campos.
+        valor_unitario: Number(oc.valor_unitario) || 0, desconto_pct: Number(oc.desconto_pct) || 0,
+      } : null);
       qc.invalidateQueries({ queryKey: ["ocs_p_acabado"] });
     },
     onError: (e: any) => toast.error(mensagemErro(e, "Erro ao vincular OC.")),
@@ -240,11 +258,15 @@ export function ProdutoCard({
       // até um reload, mesmo com a OC já criada e vinculada no servidor.
       const { data: ocRow, error: fetchErr } = await supabase
         .from("ocs_p_acabado" as any)
-        .select("id, numero, status, qtd_total, valor_unitario_real, grade_detalhe")
+        .select("id, numero, status, qtd_total, valor_unitario_real, grade_detalhe, valor_unitario, desconto_pct")
         .eq("id", ocId)
         .maybeSingle();
       if (fetchErr) throw fetchErr;
-      return ocRow as unknown as { id: string; numero: string | null; status: "encomendado" | "recebido"; qtd_total: number; valor_unitario_real: number; grade_detalhe: OcVinculadaInfo["grade_detalhe"] } | null;
+      return ocRow as unknown as {
+        id: string; numero: string | null; status: "encomendado" | "recebido"; qtd_total: number;
+        valor_unitario_real: number; grade_detalhe: OcVinculadaInfo["grade_detalhe"];
+        valor_unitario: number; desconto_pct: number;
+      } | null;
     },
     onSuccess: (ocRow) => {
       toast.success("Pedido criado e vinculado.");
@@ -256,6 +278,11 @@ export function ProdutoCard({
           qtd_total: ocRow.qtd_total ?? 0,
           valor_unitario_real: Number(ocRow.valor_unitario_real) || 0,
           grade_detalhe: ocRow.grade_detalhe ?? {},
+          // "Fazer pedido" cria a OC A PARTIR dos valores atuais do produto (dados acima) —
+          // servidor confirma o mesmo valor de volta (sync na criação), então isto é
+          // idêntico a `produto.valor_unitario`/`desconto_pct` neste instante.
+          valor_unitario: Number(ocRow.valor_unitario) || 0,
+          desconto_pct: Number(ocRow.desconto_pct) || 0,
         });
       }
       qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
@@ -272,7 +299,7 @@ export function ProdutoCard({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("ocs_p_acabado" as any)
-        .select("id, numero, nome_produto, status, qtd_total, valor_total_desconto, valor_unitario_real, grade_detalhe")
+        .select("id, numero, nome_produto, status, qtd_total, valor_total_desconto, valor_unitario_real, grade_detalhe, valor_unitario, desconto_pct")
         .is("produto_acabado_id", null)
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -413,7 +440,8 @@ export function ProdutoCard({
                         <MoneyInput
                           className="pl-7"
                           placeholder="0,00"
-                          value={produto.valor_unitario || ""}
+                          disabled={temOc}
+                          value={valorUnitEfetivo || ""}
                           onChange={(e) => onChange({ ...produto, valor_unitario: Number(e.target.value) || 0 })}
                         />
                         <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">R$</span>
@@ -421,8 +449,21 @@ export function ProdutoCard({
                     </div>
                     <div className="flex items-center gap-3">
                       <Label className="w-[150px] shrink-0 text-sm">Desconto (%)</Label>
-                      <NumberInput blankZero placeholder="0" className="flex-1" value={produto.desconto_pct} onChange={(e) => onChange({ ...produto, desconto_pct: Math.max(0, Number(e.target.value) || 0) })} />
+                      <NumberInput blankZero placeholder="0" className="flex-1" disabled={temOc} value={descontoEfetivo} onChange={(e) => onChange({ ...produto, desconto_pct: Math.max(0, Number(e.target.value) || 0) })} />
                     </div>
+                    {temOc && (
+                      <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                        Definido pela OC vinculada
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-0.5 text-primary hover:underline"
+                          onClick={() => navigate({ to: "/entrada-saida/oc-p-acabado", search: { oc: produto.oc!.id } as any })}
+                        >
+                          {produto.oc!.numero ?? "abrir OC"} <ExternalLink className="h-3 w-3" />
+                        </button>
+                        — edite por lá.
+                      </p>
+                    )}
                   </div>
 
                   {!acessorio && (

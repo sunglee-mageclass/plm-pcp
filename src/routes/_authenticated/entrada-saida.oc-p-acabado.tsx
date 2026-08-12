@@ -629,6 +629,10 @@ function OcPaDialog({
       // entra/sai do badge "atrasada" da sidebar — sem isto, o badge só corrige depois do
       // staleTime da query (["sidebar-badges"]) vencer sozinho.
       qc.invalidateQueries({ queryKey: ["sidebar-badges"] });
+      // Refino ago/2026: `_salvar_oc_p_acabado_core` sincroniza valor_unitario/desconto_pct
+      // no produto vinculado (migração 20260812100000) — sem invalidar aqui, o card do
+      // produto (Plan. Produto) só pegaria o valor novo no próximo refetch espontâneo.
+      qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
       onSaved();
       onClose();
     },
@@ -675,6 +679,10 @@ function OcPaDialog({
       qc.invalidateQueries({ queryKey: ["oc-p-acabado", savedId] });
       qc.invalidateQueries({ queryKey: ["estoque_p_acabado"] });
       qc.invalidateQueries({ queryKey: ["sidebar-badges"] });
+      // O save intermediário (dentro de mutationFn, acima) já passou por
+      // `_salvar_oc_p_acabado_core` — mesmo sync de valor_unitario/desconto_pct do produto
+      // vinculado que o saveMutation faz (ver comentário lá).
+      qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
       onSaved();
       onClose();
     },
