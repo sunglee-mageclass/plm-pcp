@@ -111,6 +111,13 @@ function rowToDraft(row: any): ProdutoDraft {
     modeloPrecoVenda: row.modelo?.preco_venda != null ? Number(row.modelo.preco_venda) : null,
     modeloPrecoAtacado: row.modelo?.preco_atacado != null ? Number(row.modelo.preco_atacado) : null,
     modeloLinhaId: row.modelo?.linha_id ?? null,
+    // hierarquia de imagem: foto de modelo → desenho técnico → croqui (mesma leitura do
+    // Plan. Tecido, `PlanTecidoSheet.tsx`) — `ModeloResumoFoto` escolhe a 1ª truthy.
+    modeloThumbFontes: [
+      Array.isArray(row.modelo?.fotos_modelo) ? row.modelo.fotos_modelo[0] ?? null : null,
+      row.modelo?.desenho_tecnico_url ?? null,
+      row.modelo?.croqui_url ?? null,
+    ],
     oc: oc
       ? {
           id: oc.id,
@@ -132,7 +139,7 @@ const SELECT_PRODUTO = `
   grade_proporcao, qtd_total, valor_unitario, desconto_pct, insumos_total,
   markup_atacado, markup_varejo, modelo_id,
   variantes:produto_acabado_variantes(ordem, cor_id, cor_apelido_id, peso, qtd),
-  modelo:modelo_id(preco_venda, preco_atacado, linha_id),
+  modelo:modelo_id(preco_venda, preco_atacado, linha_id, fotos_modelo, desenho_tecnico_url, croqui_url),
   ocs:ocs_p_acabado(id, numero, status, qtd_total, valor_unitario_real, grade_detalhe, valor_unitario, desconto_pct)
 `;
 

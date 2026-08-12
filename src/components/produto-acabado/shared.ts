@@ -74,6 +74,11 @@ export type ProdutoDraft = {
   modeloPrecoVenda: number | null;
   modeloPrecoAtacado: number | null;
   modeloLinhaId: string | null;
+  // Hierarquia de imagem do espelho (foto do modelo → desenho técnico → croqui), MESMA regra
+  // do Plan. Tecido (`PlanTecidoSheet.tsx`) — consumida por `ModeloResumoFoto` (`fontes`, ela
+  // mesma escolhe a 1ª truthy + trata PDF). Produto sem espelho (`modelo_id` null) = [null,
+  // null, null] → placeholder.
+  modeloThumbFontes: (string | null)[];
   oc: OcVinculadaInfo | null;
 };
 

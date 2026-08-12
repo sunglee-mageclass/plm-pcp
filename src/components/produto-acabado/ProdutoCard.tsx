@@ -24,6 +24,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { varianteLabel } from "@/lib/variante";
 import { ehGrupoAcessorio, cadeiaValores } from "@/lib/produto-acabado";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
+import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
 import {
   redistribuirVariantesPorPeso, ehDistribuicaoProporcional, gradePedidaDeVariantes, somaGradeCampo, somaPecas, hojeISO, fmtMoney,
   variantesBatemComTotal, erroValidacao,
@@ -330,6 +331,7 @@ export function ProdutoCard({
     <div id={`produto-card-${produto.id}`} className="scroll-mt-3 rounded-lg border bg-card">
       <button type="button" onClick={onToggleOpen} className="flex w-full items-start gap-2 p-3 text-left">
         <ChevronRight className={`mt-0.5 h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
+        <ModeloResumoFoto fontes={produto.modeloThumbFontes} nome={produto.nome} className="h-16 w-16" />
         <div className="min-w-0 flex-1">
           <div className="truncate text-[13px] font-semibold leading-tight">{produto.nome}</div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
