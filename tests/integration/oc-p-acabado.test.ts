@@ -763,3 +763,107 @@ describe.skipIf(!hasDb)("OC Produto Acabado — sync valor_unitario/desconto_pct
     });
   });
 });
+
+// Item 3 do refino (markups digitáveis, ago/2026): o sync Compra→Produto acima (custo
+// mudando) agora também recomputa os preços derivados (markup_atacado/markup_varejo ×
+// custo) do espelho — editar valor/desconto na OC, vincular uma OC ou receber recalculam
+// automaticamente modelos.preco_atacado/preco_venda, sem precisar reabrir o card do
+// produto pra "salvar de novo".
+describe.skipIf(!hasDb)("OC Produto Acabado — recompute de preço via markup (item 3 do refino)", () => {
+  async function criarProdutoComMarkupECard(c: any, sufixo: string) {
+    const g = await um<{ id: string }>(
+      c,
+      `insert into grupos_produto (tenant_id, nome) values ($1,$2) returning id`,
+      [TENANT_TESTE, `Fem MkOc ${sufixo}`],
+    );
+    const cat = await um<{ id: string }>(
+      c,
+      `insert into categorias_produto (tenant_id, nome) values ($1,$2) returning id`,
+      [TENANT_TESTE, `Vestido MkOc ${sufixo}`],
+    );
+    const dados = {
+      nome: `Vestido MkOc ${sufixo}`, grupo_id: g.id, categoria_id: cat.id,
+      markup_atacado: 2, markup_varejo: 1.5, grade_proporcao: { UN: 1 },
+    };
+    const prod = await um<{ id: string }>(c, `select salvar_produto_acabado(null, $1::jsonb, '[]'::jsonb) as id`, [JSON.stringify(dados)]);
+    const modelo = await um<{ id: string }>(c, `select criar_card_produto_acabado($1) as id`, [prod.id]);
+    return { produtoId: prod.id, modeloId: modelo.id };
+  }
+
+  it("criar OC vinculada (valor/desconto) já recomputa o preço do espelho (mesmo save que sincroniza compra→produto)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const { produtoId, modeloId } = await criarProdutoComMarkupECard(c, "a");
+      await c.query(
+        `select salvar_oc_p_acabado(null, $1::jsonb, '{}'::jsonb)`,
+        [JSON.stringify({ nome_produto: "OC MkOc-a", valor_unitario: 100, desconto_pct: 0, produto_acabado_id: produtoId })],
+      );
+      // custo = 100 + 0 insumos = 100; atacado = 100×2 = 200; varejo = 200×1.5 = 300
+      const m = await um<{ preco_atacado: string; preco_venda: string }>(c, `select preco_atacado, preco_venda from modelos where id = $1`, [modeloId]);
+      expect(Number(m.preco_atacado)).toBe(200);
+      expect(Number(m.preco_venda)).toBe(300);
+    });
+  });
+
+  it("editar valor_unitario/desconto de uma OC já vinculada RECALCULA o preço do espelho", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const { produtoId, modeloId } = await criarProdutoComMarkupECard(c, "b");
+      const oc = await um<{ id: string }>(
+        c,
+        `select salvar_oc_p_acabado(null, $1::jsonb, '{}'::jsonb) as id`,
+        [JSON.stringify({ nome_produto: "OC MkOc-b", valor_unitario: 100, desconto_pct: 0, produto_acabado_id: produtoId })],
+      );
+      const antes = await um<{ preco_atacado: string }>(c, `select preco_atacado from modelos where id = $1`, [modeloId]);
+      expect(Number(antes.preco_atacado)).toBe(200);
+
+      await c.query(
+        `select salvar_oc_p_acabado($1, $2::jsonb, '{}'::jsonb)`,
+        [oc.id, JSON.stringify({ nome_produto: "OC MkOc-b", valor_unitario: 60, desconto_pct: 50 })],
+      );
+      // custo = 60×(1−50%) = 30; atacado = 30×2 = 60; varejo = 60×1.5 = 90
+      const depois = await um<{ preco_atacado: string; preco_venda: string }>(c, `select preco_atacado, preco_venda from modelos where id = $1`, [modeloId]);
+      expect(Number(depois.preco_atacado)).toBe(60);
+      expect(Number(depois.preco_venda)).toBe(90);
+    });
+  });
+
+  it("vincular_oc_p_acabado também recalcula o preço do espelho ao herdar valor/desconto da OC", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const { produtoId, modeloId } = await criarProdutoComMarkupECard(c, "c");
+      const oc = await um<{ id: string }>(
+        c,
+        `select salvar_oc_p_acabado(null, '{"nome_produto":"OC MkOc-c avulsa","valor_unitario":40,"desconto_pct":0}'::jsonb, '{}'::jsonb) as id`,
+      );
+      await c.query(`select vincular_oc_p_acabado($1, $2)`, [oc.id, produtoId]);
+      // custo = 40; atacado = 80; varejo = 120
+      const m = await um<{ preco_atacado: string; preco_venda: string }>(c, `select preco_atacado, preco_venda from modelos where id = $1`, [modeloId]);
+      expect(Number(m.preco_atacado)).toBe(80);
+      expect(Number(m.preco_venda)).toBe(120);
+    });
+  });
+
+  it("receber_oc_p_acabado também recomputa (defensivo — custo previsto não muda ao receber, mas o recompute roda)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const { produtoId, modeloId } = await criarProdutoComMarkupECard(c, "d");
+      const oc = await um<{ id: string }>(
+        c,
+        `select salvar_oc_p_acabado(null, $1::jsonb, $2::jsonb) as id`,
+        [
+          JSON.stringify({ nome_produto: "OC MkOc-d", valor_unitario: 50, desconto_pct: 0, produto_acabado_id: produtoId }),
+          JSON.stringify({ "0": { UN: { pedida: 10 } } }),
+        ],
+      );
+      await c.query(
+        `select receber_oc_p_acabado($1, '{}'::jsonb, $2::jsonb)`,
+        [oc.id, JSON.stringify({ "0": { UN: { pedida: 10, recebida: 10, defeito: 0 } } })],
+      );
+      // custo = 50; atacado = 100; varejo = 150
+      const m = await um<{ preco_atacado: string; preco_venda: string }>(c, `select preco_atacado, preco_venda from modelos where id = $1`, [modeloId]);
+      expect(Number(m.preco_atacado)).toBe(100);
+      expect(Number(m.preco_venda)).toBe(150);
+    });
+  });
+});

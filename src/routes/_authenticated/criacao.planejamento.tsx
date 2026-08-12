@@ -55,7 +55,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { BulkEditDialog } from "@/components/planejamento/BulkEditDialog";
 import { ProdutoRelacionadoSetor } from "@/components/planejamento/ProdutoRelacionadoSetor";
 import { useOrcamento, orcLabel } from "@/components/otb/orcamento";
-import { MoneyInput } from "@/components/shared/MoneyInput";
 import { ehGrupoAcessorio } from "@/lib/produto-acabado";
 import { varianteLabel } from "@/lib/variante";
 import { erroValidacao } from "@/components/produto-acabado/shared";
@@ -1495,8 +1494,6 @@ function ModeloDialog({
   // revenda (Task 4) e fica disponível MESMO antes da OC ser recebida (ao contrário de
   // `.real`, que fica null até `oc.status='recebido'` — ver _custo_unitario_modelos_core).
   const custoPrevistoRevenda = Number(custoData?.previsto) || 0;
-  const { markupReal: markupAtacadoReal } =
-    precoInfo(custoPrevistoRevenda, markup, draft.preco_atacado);
 
   // Produto Acabado vinculado a este modelo (revenda, Task 7) — embed REVERSO
   // (`produtos_acabados.modelo_id`): rótulo de variante "cor · apelido" (mesmo padrão do
@@ -1507,17 +1504,66 @@ function ModeloDialog({
     enabled: isEdit && !!modeloId && isRevenda && paOn,
     queryFn: async () => {
       const { data, error } = await (supabase.from("produtos_acabados" as any) as any)
-        .select("id, colecao_id, categoria_id, grupo_id, grade_proporcao, variantes:produto_acabado_variantes(ordem, cor:cor_id(nome), apelido:cor_apelido_id(nome))")
+        .select("id, colecao_id, categoria_id, grupo_id, grade_proporcao, markup_atacado, markup_varejo, variantes:produto_acabado_variantes(ordem, cor:cor_id(nome), apelido:cor_apelido_id(nome))")
         .eq("modelo_id", modeloId)
         .maybeSingle();
       if (error) throw error;
       return data as {
         id: string; colecao_id: string | null; categoria_id: string | null; grupo_id: string | null;
         grade_proporcao: Record<string, number>;
+        markup_atacado: number | null; markup_varejo: number | null;
         variantes: { ordem: number; cor: { nome: string | null } | null; apelido: { nome: string | null } | null }[];
       } | null;
     },
   });
+  // Markups digitáveis (item 3 do refino, ago/2026) — mesma fonte de `ProdutoCard.tsx`
+  // (`produtos_acabados.markup_atacado`/`markup_varejo`), bidirecional: editar aqui reflete
+  // lá e vice-versa. Rascunho LOCAL próprio (fora do `draft`/dirty-guard do modelo — vive
+  // numa tabela diferente) persistido por uma RPC pequena e dedicada
+  // (`salvar_markups_produto_acabado`) que grava SÓ os 2 markups, sem o risco de um payload
+  // parcial de `salvar_produto_acabado` apagar o resto do produto (grupo/categoria/
+  // fornecedor/variantes não seriam coalescidos com o valor atual). Seed 1× por abertura do
+  // card, mesmo padrão de `gradeRevendaSeededRef` acima.
+  const [markupAtacadoInput, setMarkupAtacadoInput] = useState<number | null>(null);
+  const [markupVarejoInput, setMarkupVarejoInput] = useState<number | null>(null);
+  const markupRevendaSeededRef = useRef(false);
+  useEffect(() => {
+    if (!produtoRevenda || markupRevendaSeededRef.current) return;
+    setMarkupAtacadoInput(produtoRevenda.markup_atacado);
+    setMarkupVarejoInput(produtoRevenda.markup_varejo);
+    markupRevendaSeededRef.current = true;
+  }, [produtoRevenda]);
+  const salvarMarkupsRevenda = useMutation({
+    mutationFn: async (payload: { markup_atacado: number | null; markup_varejo: number | null }) => {
+      if (!produtoRevenda) return;
+      const { error } = await supabase.rpc("salvar_markups_produto_acabado" as any, {
+        _produto_id: produtoRevenda.id,
+        _markup_atacado: payload.markup_atacado,
+        _markup_varejo: payload.markup_varejo,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      // `modelos.preco_atacado`/`preco_venda` mudaram no servidor (recompute) — refetch
+      // ["modelo", modeloId] pra o rev otimista do colab não ficar defasado (mesmo cuidado
+      // de `invalidarAposAprovarMO`: sem isto, o próximo "Salvar" do card comparava um rev
+      // velho e dava P0409 falso). Também atualiza o planejador Produto Acabado e a lista.
+      qc.invalidateQueries({ queryKey: ["modelo", modeloId] });
+      qc.invalidateQueries({ queryKey: ["pa-produto-modelo", modeloId] });
+      qc.invalidateQueries({ queryKey: ["produtos-acabados"] });
+      qc.invalidateQueries({ queryKey: ["modelos-planejamento"] });
+    },
+    onError: (e: any) => toast.error(mensagemErro(e, "Erro ao salvar o markup.")),
+  });
+  // Custo total da peça (mesmo `custoPrevistoRevenda` acima — já traz valor unitário com
+  // desconto + insumos, ver ramo revenda de `_custo_unitario_modelos_core`) ×
+  // markup_atacado = PREÇO ATACADO; preço atacado × markup_varejo = PREÇO VAREJO. Espelha a
+  // MESMA fórmula/arredondamento do servidor (`_pa_recomputar_precos_modelo`) pra preview AO
+  // VIVO — "Preço para venda"/"Preço atacado" no render abaixo mostram isto, não mais
+  // `draft.preco_atacado`/`preco_venda` (que viraram read-only, atualizados pelo servidor).
+  const arred2Revenda = (v: number) => Math.round(v * 100) / 100;
+  const precoAtacadoRevendaLive = markupAtacadoInput ? arred2Revenda(custoPrevistoRevenda * markupAtacadoInput) : null;
+  const precoVarejoRevendaLive = precoAtacadoRevendaLive != null && markupVarejoInput ? arred2Revenda(precoAtacadoRevendaLive * markupVarejoInput) : null;
   const grupoRevendaNome = grupos.find((g) => g.id === produtoRevenda?.grupo_id)?.nome ?? null;
   const acessorioRevenda = ehGrupoAcessorio(grupoRevendaNome);
   // Tamanhos ativos do tenant (ordem canônica) — mesma fonte/fallback do planejador
@@ -1839,12 +1885,25 @@ function ModeloDialog({
         ...draft,
         croqui_url: draft.croqui_url || null,
         desenho_tecnico_url: draft.desenho_tecnico_url || null,
-        preco_venda: numOr0(draft.preco_venda) > 0 ? numOr0(draft.preco_venda) : null,
-        preco_atacado: numOr0(draft.preco_atacado) > 0 ? numOr0(draft.preco_atacado) : null,
         data_lancamento: draft.data_lancamento || null,
         observacoes_mao_obra: draft.observacoes_mao_obra || null,
         custo_simulado: limparCustoSim(draft.custo_simulado),
       };
+      // Item 3 do refino (ago/2026): pra revenda, preco_venda/preco_atacado viraram
+      // DERIVADOS (markup × custo) — recomputados e persistidos pelo servidor a cada save de
+      // markup/OC (`_pa_recomputar_precos_modelo`), nunca mais digitados aqui. NÃO reenviar
+      // esses 2 campos no payload deste save: `draft.preco_venda`/`preco_atacado` (herdados
+      // do `...draft` acima, spread do que foi carregado ao abrir o card) podem já estar
+      // DESATUALIZADOS em relação ao que o servidor recomputou depois — um Salvar disparado
+      // por outro campo (ex.: nome) sobrescreveria silenciosamente o preço fresco com o valor
+      // velho. MANUFATURADOS seguem mandando o valor digitado, como sempre.
+      if (isRevenda) {
+        delete payload.preco_venda;
+        delete payload.preco_atacado;
+      } else {
+        payload.preco_venda = numOr0(draft.preco_venda) > 0 ? numOr0(draft.preco_venda) : null;
+        payload.preco_atacado = numOr0(draft.preco_atacado) > 0 ? numOr0(draft.preco_atacado) : null;
+      }
       let savedId: string | null = isEdit ? modeloId : null;
       if (isEdit && modeloId) {
         // Grade cor×tamanho (revenda, fast-follow — fecha o last-write-wins do antigo
@@ -2397,29 +2456,63 @@ function ModeloDialog({
               <CampoRO label="Markup" value={markup > 0 ? markup.toLocaleString("pt-BR") : "—"} />
               <CampoRO label="Preço" value={preco > 0 ? brl(preco) : "—"} />
               <CampoRO label="Preço sugerido" value={precoSug > 0 ? brl(precoSug) : "—"} />
-              <div className="grid gap-1">
-                <Label>Preço para venda</Label>
-                <NumberInput
-                  value={draft.preco_venda && draft.preco_venda > 0 ? draft.preco_venda : ""}
-                  placeholder={precoSug > 0 ? brl(precoSug) : undefined}
-                  onChange={(e) => { const v = e.target.value; setDraftTracked((d) => ({ ...d, preco_venda: numOr0(v) > 0 ? Number(v) : null })); }}
-                />
-              </div>
-              <CampoRO label="Markup real" value={markupReal > 0 ? markupReal.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—"} />
-              {/* Revenda (Task 7): Preço atacado ao lado do varejo + markup real derivado dos
-                  dois (preço ÷ base; base = custo PREVISTO, que já traz insumos+desconto —
-                  disponível mesmo antes da OC ser recebida, diferente do custo real acima). */}
+              {/* Revenda (item 3 do refino, ago/2026): "Preço para venda" vira DERIVADO
+                  (markup × custo, ver bloco de markups abaixo) — MANUFATURADOS seguem
+                  digitando como sempre (preco.ts intocado, nada muda aqui). */}
+              {!isRevenda && (
+                <div className="grid gap-1">
+                  <Label>Preço para venda</Label>
+                  <NumberInput
+                    value={draft.preco_venda && draft.preco_venda > 0 ? draft.preco_venda : ""}
+                    placeholder={precoSug > 0 ? brl(precoSug) : undefined}
+                    onChange={(e) => { const v = e.target.value; setDraftTracked((d) => ({ ...d, preco_venda: numOr0(v) > 0 ? Number(v) : null })); }}
+                  />
+                </div>
+              )}
+              {!isRevenda && <CampoRO label="Markup real" value={markupReal > 0 ? markupReal.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—"} />}
+              {/* Revenda: os 2 markups digitáveis (mesma fonte de ProdutoCard.tsx no
+                  planejador Produto Acabado, bidirecional — editar aqui reflete lá e
+                  vice-versa) + Preço atacado/Preço para venda DERIVADOS ao vivo (client-side,
+                  mesma fórmula do servidor). Sem produto vinculado ainda → hint pra criar. */}
               {isRevenda && (
-                <>
-                  <div className="grid gap-1">
-                    <Label>Preço atacado</Label>
-                    <MoneyInput
-                      value={draft.preco_atacado}
-                      onChange={(e) => setDraftTracked((d) => ({ ...d, preco_atacado: numOr0(e.target.value) > 0 ? Number(e.target.value) : null }))}
-                    />
-                  </div>
-                  <CampoRO label="Markup atacado (real)" value={markupAtacadoReal > 0 ? markupAtacadoReal.toLocaleString("pt-BR", { maximumFractionDigits: 2 }) : "—"} />
-                </>
+                produtoRevenda ? (
+                  <>
+                    <div className="grid gap-1">
+                      <Label>Markup atacado</Label>
+                      <div className="relative">
+                        <NumberInput
+                          blankZero
+                          placeholder="2,50"
+                          className="pr-6"
+                          value={markupAtacadoInput ?? 0}
+                          onChange={(e) => setMarkupAtacadoInput(Number(e.target.value) > 0 ? Number(e.target.value) : null)}
+                          onBlur={() => salvarMarkupsRevenda.mutate({ markup_atacado: markupAtacadoInput, markup_varejo: markupVarejoInput })}
+                        />
+                        <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
+                      </div>
+                    </div>
+                    <div className="grid gap-1">
+                      <Label>Markup varejo</Label>
+                      <div className="relative">
+                        <NumberInput
+                          blankZero
+                          placeholder="2,50"
+                          className="pr-6"
+                          value={markupVarejoInput ?? 0}
+                          onChange={(e) => setMarkupVarejoInput(Number(e.target.value) > 0 ? Number(e.target.value) : null)}
+                          onBlur={() => salvarMarkupsRevenda.mutate({ markup_atacado: markupAtacadoInput, markup_varejo: markupVarejoInput })}
+                        />
+                        <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
+                      </div>
+                    </div>
+                    <CampoRO label="Preço atacado" value={precoAtacadoRevendaLive != null ? brl(precoAtacadoRevendaLive) : "—"} />
+                    <CampoRO label="Preço para venda" value={precoVarejoRevendaLive != null ? brl(precoVarejoRevendaLive) : "—"} />
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground sm:col-span-2">
+                    {produtoRevendaLoading ? "Carregando…" : "Crie o produto acabado (abaixo) para definir os markups de preço."}
+                  </p>
+                )
               )}
             </div>
           </Secao>

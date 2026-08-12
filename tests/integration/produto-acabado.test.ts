@@ -368,6 +368,132 @@ describe.skipIf(!hasDb)("custo_unitario_modelos — ramo revenda (Task 4)", () =
   });
 });
 
+// Item 3 do refino (ago/2026) — markups digitáveis: custo (valor_unitario×(1−desconto/100)
+// + insumos) × markup_atacado = preço atacado; preço atacado × markup_varejo = preço venda.
+// `_salvar_produto_acabado_core` persiste os 2 markups e recomputa `modelos.preco_atacado`/
+// `preco_venda` do espelho a cada save; `salvar_markups_produto_acabado` é a RPC pequena
+// usada pelo card revenda do Planejamento (grava só os 2 markups, sem tocar no resto).
+describe.skipIf(!hasDb)("Produto Acabado — markups digitáveis → preço derivado (item 3 do refino)", () => {
+  it("salvar_produto_acabado com markup_atacado/markup_varejo recomputa e persiste preco_atacado/preco_venda do espelho", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const g = await um<any>(c, `insert into grupos_produto (tenant_id, nome) values ('${TENANT_TESTE}','Fem MK PATest') returning id`);
+      const cat = await um<any>(c, `insert into categorias_produto (tenant_id, nome) values ('${TENANT_TESTE}','Vestido MK PATest') returning id`);
+      const dados = {
+        nome: "Vestido MK", grupo_id: g.id, categoria_id: cat.id,
+        qtd_total: 100, valor_unitario: 50, desconto_pct: 10, grade_proporcao: { UN: 1 },
+      };
+      const variantes = [{ ordem: 0, peso: 1, qtd: 100 }];
+      const prod = await um<any>(c, `select salvar_produto_acabado(null, $1::jsonb, $2::jsonb) as id`, [
+        JSON.stringify(dados), JSON.stringify(variantes),
+      ]);
+      const modelo = await um<any>(c, `select criar_card_produto_acabado($1) as id`, [prod.id]);
+
+      // insumos_por_peça = 2 × 1,5 = 3 (mesma base do ramo revenda do custo_unitario_modelos)
+      await c.query(
+        `insert into modelo_etiquetas (tenant_id, modelo_id, consumo, custo_previsto) values ('${TENANT_TESTE}', $1, 2, 1.5)`,
+        [modelo.id],
+      );
+
+      const dados2 = { ...dados, markup_atacado: 2.2, markup_varejo: 1.5 };
+      await c.query(`select salvar_produto_acabado($1, $2::jsonb, $3::jsonb)`, [prod.id, JSON.stringify(dados2), JSON.stringify(variantes)]);
+
+      // custo = 50×(1−10%) + 3 = 48; atacado = 48×2.2 = 105,60; varejo = 105,60×1.5 = 158,40
+      const m = await um<any>(c, `select preco_atacado, preco_venda from modelos where id = $1`, [modelo.id]);
+      expect(Number(m.preco_atacado)).toBeCloseTo(105.6, 2);
+      expect(Number(m.preco_venda)).toBeCloseTo(158.4, 2);
+
+      const p = await um<any>(c, `select markup_atacado, markup_varejo from produtos_acabados where id = $1`, [prod.id]);
+      expect(Number(p.markup_atacado)).toBe(2.2);
+      expect(Number(p.markup_varejo)).toBe(1.5);
+    });
+  });
+
+  it("sem markups (null) → preços não são tocados (preserva um preço manual pré-existente)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const g = await um<any>(c, `insert into grupos_produto (tenant_id, nome) values ('${TENANT_TESTE}','Fem MK2 PATest') returning id`);
+      const cat = await um<any>(c, `insert into categorias_produto (tenant_id, nome) values ('${TENANT_TESTE}','Vestido MK2 PATest') returning id`);
+      const dados = { nome: "Vestido MK2", grupo_id: g.id, categoria_id: cat.id, qtd_total: 10, valor_unitario: 20, grade_proporcao: { UN: 1 } };
+      const variantes = [{ ordem: 0, peso: 1, qtd: 10 }];
+      const prod = await um<any>(c, `select salvar_produto_acabado(null, $1::jsonb, $2::jsonb) as id`, [JSON.stringify(dados), JSON.stringify(variantes)]);
+      const modelo = await um<any>(c, `select criar_card_produto_acabado($1) as id`, [prod.id]);
+
+      await c.query(`update modelos set preco_atacado = 77, preco_venda = 99 where id = $1`, [modelo.id]);
+
+      await c.query(`select salvar_produto_acabado($1, $2::jsonb, $3::jsonb)`, [prod.id, JSON.stringify(dados), JSON.stringify(variantes)]);
+
+      const m = await um<any>(c, `select preco_atacado, preco_venda from modelos where id = $1`, [modelo.id]);
+      expect(Number(m.preco_atacado)).toBe(77);
+      expect(Number(m.preco_venda)).toBe(99);
+    });
+  });
+
+  it("markup ≤ 0 rejeita (P0001)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const g = await um<any>(c, `insert into grupos_produto (tenant_id, nome) values ('${TENANT_TESTE}','Fem MK3 PATest') returning id`);
+      const cat = await um<any>(c, `insert into categorias_produto (tenant_id, nome) values ('${TENANT_TESTE}','Vestido MK3 PATest') returning id`);
+      const dados = { nome: "Vestido MK3", grupo_id: g.id, categoria_id: cat.id, markup_atacado: 0 };
+      await expect(
+        c.query(`select salvar_produto_acabado(null, $1::jsonb, '[]'::jsonb)`, [JSON.stringify(dados)]),
+      ).rejects.toThrow(/markup precisa ser maior que zero/);
+    });
+  });
+
+  it("salvar_markups_produto_acabado: grava só os 2 markups, sem mexer no resto do produto", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const g = await um<any>(c, `insert into grupos_produto (tenant_id, nome) values ('${TENANT_TESTE}','Fem MK4 PATest') returning id`);
+      const cat = await um<any>(c, `insert into categorias_produto (tenant_id, nome) values ('${TENANT_TESTE}','Vestido MK4 PATest') returning id`);
+      const dados = { nome: "Vestido MK4", grupo_id: g.id, categoria_id: cat.id, ref_fornecedor: "REF-MK4", qtd_total: 10, valor_unitario: 40, grade_proporcao: { UN: 1 } };
+      const variantes = [{ ordem: 0, peso: 1, qtd: 10 }];
+      const prod = await um<any>(c, `select salvar_produto_acabado(null, $1::jsonb, $2::jsonb) as id`, [JSON.stringify(dados), JSON.stringify(variantes)]);
+      const modelo = await um<any>(c, `select criar_card_produto_acabado($1) as id`, [prod.id]);
+
+      await c.query(`select salvar_markups_produto_acabado($1, $2, $3)`, [prod.id, 3, 1.2]);
+
+      const p = await um<any>(
+        c,
+        `select markup_atacado, markup_varejo, ref_fornecedor, grupo_id, categoria_id from produtos_acabados where id = $1`,
+        [prod.id],
+      );
+      expect(Number(p.markup_atacado)).toBe(3);
+      expect(Number(p.markup_varejo)).toBe(1.2);
+      expect(p.ref_fornecedor).toBe("REF-MK4"); // resto do produto intocado
+      expect(p.grupo_id).toBe(g.id);
+
+      // custo = 40 (sem desconto, sem insumos); atacado = 120; varejo = 144
+      const m = await um<any>(c, `select preco_atacado, preco_venda from modelos where id = $1`, [modelo.id]);
+      expect(Number(m.preco_atacado)).toBe(120);
+      expect(Number(m.preco_venda)).toBe(144);
+    });
+  });
+
+  it("salvar_markups_produto_acabado: produto inexistente → erro", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await expect(
+        c.query(`select salvar_markups_produto_acabado('00000000-0000-0000-0000-000000000000'::uuid, 2, 1.5)`),
+      ).rejects.toThrow(/não encontrado/);
+    });
+  });
+
+  it("salvar_markups_produto_acabado: markup ≤ 0 rejeita (P0001)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      const g = await um<any>(c, `insert into grupos_produto (tenant_id, nome) values ('${TENANT_TESTE}','Fem MK5 PATest') returning id`);
+      const cat = await um<any>(c, `insert into categorias_produto (tenant_id, nome) values ('${TENANT_TESTE}','Vestido MK5 PATest') returning id`);
+      const prod = await um<any>(c, `select salvar_produto_acabado(null, $1::jsonb, '[]'::jsonb) as id`, [
+        JSON.stringify({ nome: "Vestido MK5", grupo_id: g.id, categoria_id: cat.id }),
+      ]);
+      await expect(
+        c.query(`select salvar_markups_produto_acabado($1, -1, 1.5)`, [prod.id]),
+      ).rejects.toThrow(/markup precisa ser maior que zero/);
+    });
+  });
+});
+
 describe.skipIf(!hasDb)("Produto Acabado — excluir_produto_acabado (Task 6 fix round 1)", () => {
   async function novoProduto(c: any, sufixo: string) {
     const g = await um<any>(c, `insert into grupos_produto (tenant_id, nome) values ('${TENANT_TESTE}','Grupo excluir ${sufixo}') returning id`);

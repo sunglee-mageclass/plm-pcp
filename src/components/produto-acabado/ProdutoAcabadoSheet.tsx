@@ -105,6 +105,8 @@ function rowToDraft(row: any): ProdutoDraft {
     valor_unitario: Number(row.valor_unitario) || 0,
     desconto_pct: Number(row.desconto_pct) || 0,
     insumos_total: Number(row.insumos_total) || 0,
+    markup_atacado: row.markup_atacado != null ? Number(row.markup_atacado) : null,
+    markup_varejo: row.markup_varejo != null ? Number(row.markup_varejo) : null,
     modelo_id: row.modelo_id,
     variantes,
     modeloPrecoVenda: row.modelo?.preco_venda != null ? Number(row.modelo.preco_venda) : null,
@@ -128,7 +130,8 @@ function rowToDraft(row: any): ProdutoDraft {
 const SELECT_PRODUTO = `
   id, nome, ref, grupo_id, categoria_id, subcategoria1_id, subcategoria2_id,
   colecao_id, subcolecao, semana, empresa_id, representante_id, ref_fornecedor, composicao,
-  grade_proporcao, qtd_total, valor_unitario, desconto_pct, insumos_total, modelo_id,
+  grade_proporcao, qtd_total, valor_unitario, desconto_pct, insumos_total,
+  markup_atacado, markup_varejo, modelo_id,
   variantes:produto_acabado_variantes(ordem, cor_id, cor_apelido_id, peso, qtd),
   modelo:modelo_id(preco_venda, preco_atacado, linha_id),
   ocs:ocs_p_acabado(id, numero, status, qtd_total, valor_unitario_real, grade_detalhe, valor_unitario, desconto_pct)

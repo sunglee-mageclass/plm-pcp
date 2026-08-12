@@ -62,6 +62,12 @@ export type ProdutoDraft = {
   valor_unitario: number;
   desconto_pct: number;
   insumos_total: number;
+  // Markups digitáveis (item 3 do refino, ago/2026) — null = "não definido"; alimentam a
+  // cadeia custo×markup_atacado=PREÇO ATACADO, preço atacado×markup_varejo=PREÇO VAREJO,
+  // recomputada e persistida no servidor (`_pa_recomputar_precos_modelo`, chamada por
+  // `salvar_produto_acabado`) em `modelos.preco_atacado`/`preco_venda` do espelho.
+  markup_atacado: number | null;
+  markup_varejo: number | null;
   modelo_id: string | null;
   variantes: VarianteDraft[];
   // Enriquecimento read-only (embeds) — nunca editados aqui:
@@ -89,6 +95,8 @@ export function chaveDirty(p: ProdutoDraft) {
     qtd_total: p.qtd_total,
     valor_unitario: p.valor_unitario,
     desconto_pct: p.desconto_pct,
+    markup_atacado: p.markup_atacado,
+    markup_varejo: p.markup_varejo,
     variantes: p.variantes,
   };
 }
@@ -164,6 +172,8 @@ export function montarDadosProduto(p: ProdutoDraft): Record<string, unknown> {
     qtd_total: p.qtd_total,
     valor_unitario: p.oc ? p.oc.valor_unitario : p.valor_unitario,
     desconto_pct: p.oc ? p.oc.desconto_pct : p.desconto_pct,
+    markup_atacado: p.markup_atacado,
+    markup_varejo: p.markup_varejo,
     redistribuir: "false",
   };
 }

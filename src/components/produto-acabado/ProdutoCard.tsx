@@ -140,6 +140,20 @@ export function ProdutoCard({
   const base = unitReal + produto.insumos_total;
   const markupLinha = produto.modeloLinhaId ? linhasMarkup[produto.modeloLinhaId] ?? null : null;
 
+  // Markups digitáveis (item 3 do refino, ago/2026) — cadeia: custo total da peça (`base`) ×
+  // markup_atacado = PREÇO ATACADO; preço atacado × markup_varejo = PREÇO VAREJO. Espelha a
+  // MESMA fórmula do servidor (`_pa_recomputar_precos_modelo`, arredonda 2 casas em cada
+  // etapa) pra preview AO VIVO — só o Salvar persiste de verdade. Markup ausente → aquele
+  // preço fica "—" (nunca inventa um valor sem o markup correspondente).
+  const arred2 = (v: number) => Math.round(v * 100) / 100;
+  const precoAtacadoLive = produto.markup_atacado ? arred2(base * produto.markup_atacado) : null;
+  const precoVarejoLive = precoAtacadoLive != null && produto.markup_varejo ? arred2(precoAtacadoLive * produto.markup_varejo) : null;
+  // Pill-resumo: usa o derivado AO VIVO quando dá pra calcular; sem markup ainda configurado,
+  // cai pro último preço persistido no espelho (pode ser um preço herdado de antes desta
+  // feature, ou o resultado do último save com markup) — nunca fica em branco à toa.
+  const pillAtacado = precoAtacadoLive ?? produto.modeloPrecoAtacado;
+  const pillVarejo = precoVarejoLive ?? produto.modeloPrecoVenda;
+
   // ── ⋯ menu: criar card / aplicar ao modelo / excluir ──
   // Invalidação ampla é segura aqui (não sobrescreve os `drafts` em memória do Sheet — a
   // re-hidratação só acontece no 1º load, ver ProdutoAcabadoSheet), então cuida da higiene de
@@ -551,26 +565,68 @@ export function ProdutoCard({
               </AccordionContent>
             </AccordionItem>
 
-            {/* ── 2 · Preço (somente leitura) ──────────────────────── */}
+            {/* ── 2 · Preço — markups digitáveis, preços DERIVADOS (item 3 do refino) ── */}
             <AccordionItem value="preco">
               <AccordionTrigger className="text-xs font-semibold">
                 <span className="flex flex-1 items-center justify-between pr-2">
                   <span>2 · Preço</span>
                   <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium normal-case text-muted-foreground">
                     {produto.modelo_id
-                      ? `Varejo ${fmtMoney(produto.modeloPrecoVenda)} · Atacado ${fmtMoney(produto.modeloPrecoAtacado)} · custo/pç ${fmtMoney(base)}`
+                      ? `Varejo ${fmtMoney(pillVarejo)} · Atacado ${fmtMoney(pillAtacado)} · custo/pç ${fmtMoney(base)}`
                       : "sem espelho — crie o card"}
                   </span>
                 </span>
               </AccordionTrigger>
               <AccordionContent>
                 {produto.modelo_id ? (
-                  <InfoStrip itens={[
-                    { label: "V. unit. real", valor: fmtMoney(unitReal) },
-                    { label: "Σ insumos", valor: fmtMoney(produto.insumos_total) },
-                    { label: "Custo total da peça", hint: "(v. unit. real + insumos)", valor: fmtMoney(base), hi: true },
-                    { label: "Markup da linha", valor: markupLinha != null ? `${markupLinha.toFixed(2)}×` : "—" },
-                  ]} />
+                  <div className="space-y-3">
+                    <InfoStrip itens={[
+                      { label: "V. unit. real", valor: fmtMoney(unitReal) },
+                      { label: "Σ insumos", valor: fmtMoney(produto.insumos_total) },
+                      { label: "Custo total da peça", hint: "(v. unit. real + insumos)", valor: fmtMoney(base), hi: true },
+                      { label: "Markup da linha", valor: markupLinha != null ? `${markupLinha.toFixed(2)}×` : "—" },
+                    ]} />
+                    <div className="grid grid-cols-2 gap-3 rounded-md border p-3">
+                      <div className="space-y-1">
+                        <Label className="text-sm">Markup atacado</Label>
+                        <div className="relative">
+                          <NumberInput
+                            blankZero
+                            placeholder="2,50"
+                            className="pr-6"
+                            value={produto.markup_atacado ?? 0}
+                            onChange={(e) => onChange({ ...produto, markup_atacado: Number(e.target.value) > 0 ? Number(e.target.value) : null })}
+                          />
+                          <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
+                        </div>
+                        {markupLinha != null && <p className="text-[10px] text-muted-foreground">sugestão da linha: {markupLinha.toFixed(2)}×</p>}
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-sm">Markup varejo</Label>
+                        <div className="relative">
+                          <NumberInput
+                            blankZero
+                            placeholder="2,50"
+                            className="pr-6"
+                            value={produto.markup_varejo ?? 0}
+                            onChange={(e) => onChange({ ...produto, markup_varejo: Number(e.target.value) > 0 ? Number(e.target.value) : null })}
+                          />
+                          <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
+                        </div>
+                        {markupLinha != null && <p className="text-[10px] text-muted-foreground">sugestão da linha: {markupLinha.toFixed(2)}×</p>}
+                      </div>
+                      <div className="col-span-2 grid grid-cols-2 gap-3 border-t pt-3">
+                        <div>
+                          <p className="text-xs text-muted-foreground">Preço atacado</p>
+                          <p className="text-sm font-semibold tabular-nums">{precoAtacadoLive != null ? fmtMoney(precoAtacadoLive) : "—"}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Preço para venda</p>
+                          <p className="text-sm font-semibold tabular-nums">{precoVarejoLive != null ? fmtMoney(precoVarejoLive) : "—"}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">Preço e markup aparecem quando este produto tiver um card no Planejamento — crie o card no menu ⋯.</p>
                 )}
