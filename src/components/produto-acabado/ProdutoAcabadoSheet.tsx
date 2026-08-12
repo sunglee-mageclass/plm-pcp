@@ -9,7 +9,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Breadcrumb } from "@/components/shared/Breadcrumb";
-import { AgrupamentoExclusivoButton } from "@/components/shared/filters";
+import { AgrupamentoButton } from "@/components/shared/filters";
 import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/UnsavedChangesGuard";
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useOrcamento } from "@/components/otb/orcamento";
@@ -26,18 +26,29 @@ import type { EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 type SubRow = { id: string; nome: string; ordem: number };
 type SemanaRow = { subcolecao_id: string | null; qtd_planejada: number | null };
 
-// Agrupamento das lanes do canvas — 3 modos (item 2 do refino, ago/2026): "categoria" (default,
-// como sempre foi), "grupo" (só grupo) e "grupo-categoria" (ANINHADO — lane por Grupo, com
-// sub-seções por Categoria dentro; "Sem categoria" sempre por último). Persiste por navegador,
-// mesmo padrão de `GROUPBY_LS` em criacao.desenvolvimento.tsx (chave própria, try/catch, default
-// = valor atual do sistema antes desta feature = "categoria").
+// Agrupamento das lanes do canvas — COMBINÁVEL via checkboxes (item 1 do refino, ago/2026;
+// padrão do AgrupamentoButton — mesmo componente do Plan. Tecido): "Grupo" e "Categoria" são
+// marcáveis juntos → lane por Grupo, com sub-seções por Categoria dentro (Grupo › Categoria
+// aninhado, "Sem categoria" sempre por último); só "Grupo" → lanes de grupo; só "Categoria" →
+// lanes de categoria (comportamento padrão de sempre); NENHUM marcado → lista plana "Todos".
+// Persiste por navegador, mesmo padrão de `GROUPBY_LS` em criacao.desenvolvimento.tsx (chave
+// própria, try/catch) — formato novo é uma lista separada por vírgula das opções ativas
+// ("grupo", "categoria", "grupo,categoria" ou "" pra nenhuma); migra os 3 valores antigos
+// (exclusivos, pré-refino) sem quebrar a preferência já salva do usuário.
 const AGRUPAR_LS = "produto-acabado-agrupar";
-type AgruparPor = "categoria" | "grupo" | "grupo-categoria";
-function lerAgruparPorSalvo(): AgruparPor {
+type AgruparEstado = { grupo: boolean; categoria: boolean };
+function lerAgruparSalvo(): AgruparEstado {
   try {
     const v = localStorage.getItem(AGRUPAR_LS);
-    return v === "grupo" ? "grupo" : v === "grupo-categoria" ? "grupo-categoria" : "categoria";
-  } catch { return "categoria"; }
+    if (v === null) return { categoria: true, grupo: false }; // nunca usou o toggle — default histórico
+    if (v === "grupo-categoria") return { grupo: true, categoria: true }; // valor antigo (exclusivo)
+    if (v === "categoria") return { categoria: true, grupo: false }; // valor antigo (exclusivo)
+    if (v === "grupo") return { grupo: true, categoria: false }; // valor antigo (exclusivo)
+    const partes = v.split(",").filter(Boolean); // formato novo (combinável)
+    return { categoria: partes.includes("categoria"), grupo: partes.includes("grupo") };
+  } catch {
+    return { categoria: true, grupo: false };
+  }
 }
 
 // B1 (FIX WAVE, causa raiz): estas opções são gerenciadas no Cadastro (grupos/categorias/
@@ -145,11 +156,13 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   const [resumoAberto, setResumoAberto] = useState(true);
   const [novoOpen, setNovoOpen] = useState(false);
   const [pedidoPickerOpen, setPedidoPickerOpen] = useState(false);
-  const [agruparPor, setAgruparPorState] = useState<AgruparPor>(lerAgruparPorSalvo);
-  const setAgruparPor = (v: AgruparPor) => {
-    setAgruparPorState(v);
-    try { localStorage.setItem(AGRUPAR_LS, v); } catch { /* ignore */ }
-  };
+  const [agrupar, setAgruparState] = useState<AgruparEstado>(lerAgruparSalvo);
+  const setAgrupar = (patch: Partial<AgruparEstado>) =>
+    setAgruparState((s) => {
+      const next = { ...s, ...patch };
+      try { localStorage.setItem(AGRUPAR_LS, [next.grupo && "grupo", next.categoria && "categoria"].filter(Boolean).join(",")); } catch { /* ignore */ }
+      return next;
+    });
   const resolvedInicialRef = useRef({ done: false });
 
   const navPermitida = useCallback(
@@ -247,15 +260,20 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   });
   const categoriaNome = useCallback((id: string | null) => categorias.find((c) => c.id === id)?.nome ?? "?", [categorias]);
   const grupoNome = useCallback((id: string | null) => grupos.find((g) => g.id === id)?.nome ?? "?", [grupos]);
-  // Campo/rótulo/fallback do nível MACRO das lanes — item 2 do refino: "categoria" agrupa por
-  // categoria (como sempre); "grupo" E "grupo-categoria" (aninhado) agrupam a lane de TOPO por
-  // grupo (o nível fino de categoria, no modo aninhado, vira sub-seção DENTRO da lane — ver
-  // render abaixo). Produto sem a taxonomia usada pra agrupar cai numa lane de fallback
-  // ("Sem categoria"/"Sem grupo"), NUNCA some (ex. "Cinto Teste": grupo Acessório, categoria
-  // NULL — estado válido, vira sub-seção "Sem categoria" dentro da lane "Acessório" no modo
-  // aninhado). O Rail "Tipos de itens" (`ResumoRevendaPanel`) recebe esse MESMO nível macro,
-  // nunca o modo aninhado cru — mantém o tipo de prop existente (`"categoria" | "grupo"`).
-  const nivelMacro: "categoria" | "grupo" = agruparPor === "categoria" ? "categoria" : "grupo";
+  // Estado combinável (item 1 do refino, ago/2026): NENHUM marcado → lista plana "Todos";
+  // os dois marcados → Grupo › Categoria aninhado (lane de TOPO = Grupo, sub-seção = Categoria).
+  const semAgrupamento = !agrupar.grupo && !agrupar.categoria;
+  const agrupamentoAninhado = agrupar.grupo && agrupar.categoria;
+  // Campo/rótulo/fallback do nível MACRO das lanes: Grupo tem precedência quando os dois
+  // (ou só Grupo) estão ativos — a lane de TOPO é sempre Grupo no modo aninhado, Categoria
+  // vira sub-seção DENTRO dela (ver render abaixo); "nenhum" cai aqui também mas não é
+  // consumido pelas lanes (o flat "Todos" não usa `macroCampo`) — só alimenta o fallback do
+  // Rail "Tipos de itens" abaixo. Produto sem a taxonomia usada pra agrupar cai numa lane de
+  // fallback ("Sem categoria"/"Sem grupo"), NUNCA some (ex. "Cinto Teste": grupo Acessório,
+  // categoria NULL — estado válido, vira sub-seção "Sem categoria" dentro da lane "Acessório"
+  // no modo aninhado). O Rail "Tipos de itens" (`ResumoRevendaPanel`) recebe esse MESMO nível
+  // macro, nunca o modo aninhado cru — mantém o tipo de prop existente (`"categoria" | "grupo"`).
+  const nivelMacro: "categoria" | "grupo" = agrupar.grupo ? "grupo" : "categoria";
   const macroNome = nivelMacro === "grupo" ? grupoNome : categoriaNome;
   const macroFallback = nivelMacro === "grupo" ? "Sem grupo" : "Sem categoria";
   const macroCampo = useCallback(
@@ -469,8 +487,13 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                     onClick={() => abrirCanvasDe(sub)}>
                     <div className="font-medium">{sub.nome ?? "Sem subcoleção"}</div>
                     <div className="text-xs text-muted-foreground">
-                      <b className="text-foreground">{itens.length}</b> produto(s) · {pecas} pç{alvo ? ` (alvo ${alvo})` : ""}
-                      {vagas > 0 && <span className="ml-1 font-medium text-primary">· {vagas} disponíve{vagas === 1 ? "l" : "is"}</span>}
+                      {/* Item 2 do refino: `alvo`/`vagas` são OTB comprometido — contam MODELOS
+                          (cards), não peças (`pecas` aqui é Σ qtd das variantes, outra
+                          grandeza) — nunca rotular como "pç"; separado do "produto(s) · pç"
+                          com "·" em vez de parêntese colado no "pç" (não pode parecer que o
+                          alvo também é em peças). */}
+                      <b className="text-foreground">{itens.length}</b> produto(s) · {pecas} pç{alvo ? ` · alvo ${alvo} modelo${alvo === 1 ? "" : "s"}` : ""}
+                      {vagas > 0 && <span className="ml-1 font-medium text-primary">· {vagas} modelo{vagas === 1 ? "" : "s"} disponíve{vagas === 1 ? "l" : "is"}</span>}
                     </div>
                   </button>
                 );
@@ -504,15 +527,10 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <span className="text-sm text-muted-foreground">{produtosSub.length} produto(s) · {produtosSub.reduce((a, p) => a + somaPecas(p), 0)} pç</span>
                   <div className="flex items-center gap-2">
-                    <AgrupamentoExclusivoButton
-                      value={agruparPor}
-                      onChange={(v) => setAgruparPor(v as AgruparPor)}
-                      options={[
-                        { value: "categoria", label: "Categoria" },
-                        { value: "grupo", label: "Grupo" },
-                        { value: "grupo-categoria", label: "Grupo › Categoria" },
-                      ]}
-                    />
+                    <AgrupamentoButton groups={[
+                      { label: "Grupo", active: agrupar.grupo, onToggle: () => setAgrupar({ grupo: !agrupar.grupo }) },
+                      { label: "Categoria", active: agrupar.categoria, onToggle: () => setAgrupar({ categoria: !agrupar.categoria }) },
+                    ]} />
                     <Button size="sm" variant="outline" className="gap-1" onClick={() => setNovoOpen(true)}>
                       <Plus className="h-3.5 w-3.5" /> Novo produto
                     </Button>
@@ -524,7 +542,19 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                       Nenhum produto nesta subcoleção ainda — clique em "Novo produto".
                     </div>
                   )}
-                  {laneKeys.map((laneKey) => {
+                  {/* Nenhum checkbox marcado (item 1 do refino) → lista plana "Todos", sem lanes. */}
+                  {semAgrupamento && produtosSub.length > 0 && (
+                    <section>
+                      <div className="mb-1.5 flex items-center gap-2">
+                        <span className="text-sm font-semibold">Todos</span>
+                        <span className="rounded-full border px-2 text-[11px] text-muted-foreground">
+                          {produtosSub.length} produtos · {produtosSub.reduce((a, p) => a + somaPecas(p), 0)} pç
+                        </span>
+                      </div>
+                      {renderCardsRow(produtosSub)}
+                    </section>
+                  )}
+                  {!semAgrupamento && laneKeys.map((laneKey) => {
                     const itens = produtosSub.filter((p) => macroCampo(p) === laneKey);
                     if (itens.length === 0) return null;
                     const pecas = itens.reduce((a, p) => a + somaPecas(p), 0);
@@ -534,9 +564,10 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
                         <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{itens.length} produtos · {pecas} pç</span>
                       </div>
                     );
-                    // Modo "Grupo › Categoria" (item 2 do refino): lane de grupo com sub-seções
-                    // por categoria dentro — "Sem categoria" sempre por último (`subLaneKeysDe`).
-                    if (agruparPor !== "grupo-categoria") {
+                    // Grupo + Categoria combinados (item 1 do refino): lane de grupo com
+                    // sub-seções por categoria dentro — "Sem categoria" sempre por último
+                    // (`subLaneKeysDe`).
+                    if (!agrupamentoAninhado) {
                       return (
                         <section key={laneKey ?? "__sem__"}>
                           {header}

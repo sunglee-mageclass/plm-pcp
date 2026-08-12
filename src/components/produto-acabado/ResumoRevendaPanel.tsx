@@ -52,7 +52,14 @@ export function ResumoRevendaPanel({
   // Custo previsto = Σ valor com desconto (cadeia bruto→desconto da própria compra).
   const custoPrevisto = produtos.reduce((a, p) => a + cadeiaValores(p.qtd_total, p.valor_unitario, p.desconto_pct).totalDesc, 0);
 
-  const pctOtb = otbAlvo && otbAlvo > 0 ? Math.min(100, Math.round((totalPecas / otbAlvo) * 100)) : null;
+  // Item 2 do refino (ago/2026): o OTB comprometido é sobre MODELOS (cards), não peças —
+  // `otbAlvo` (Σ colecao_semanas.qtd_planejada) e o `realizado` de `otb_orcamento` (usado
+  // pelas "vagas" no Sheet) contam CARDS (`count(*) from modelos`, ver
+  // `_otb_orcamento_core`), a MESMA grandeza de `produtos.length` aqui — nunca `totalPecas`
+  // (Σ qtd das variantes, outra grandeza). Comparar peças com um alvo de modelos inflava/
+  // deflava a % em silêncio (achado ao auditar o rail).
+  const totalModelos = produtos.length;
+  const pctOtb = otbAlvo && otbAlvo > 0 ? Math.min(100, Math.round((totalModelos / otbAlvo) * 100)) : null;
 
   const tipoFallback = agruparPor === "grupo" ? "Sem grupo" : "Sem categoria";
   const tipoNome = agruparPor === "grupo" ? grupoNome : categoriaNome;
@@ -97,7 +104,7 @@ export function ResumoRevendaPanel({
         {otbAlvo != null ? (
           <div className="p-2">
             <div className="flex justify-between text-xs">
-              <span>{totalPecas} / {otbAlvo} pç</span>
+              <span>{totalModelos} de {otbAlvo} modelos</span>
               {pctOtb != null && <b className={pctOtb >= 100 ? "text-emerald-700" : "text-foreground"}>{pctOtb}%</b>}
             </div>
             <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
