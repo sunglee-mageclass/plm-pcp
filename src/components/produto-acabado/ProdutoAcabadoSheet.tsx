@@ -25,10 +25,17 @@ import type { EmpresaFornecedor } from "@/components/shared/FornecedorSelect";
 type SubRow = { id: string; nome: string; ordem: number };
 type SemanaRow = { subcolecao_id: string | null; qtd_planejada: number | null };
 
+// B1 (FIX WAVE, causa raiz): estas opções são gerenciadas no Cadastro (grupos/categorias/
+// subcategorias de produto, cores) — igual a `useOpts`/os `useQuery` de grupos_produto em
+// `criacao.planejamento.tsx`/`criacao.desenvolvimento.tsx`, que NÃO fixam staleTime (default
+// 0 → sempre stale → refetch a cada mount). Um `staleTime` de 5min aqui fazia um grupo recém
+// -criado no Cadastro não aparecer no dropdown do "+ Novo produto" se o Sheet fosse reaberto
+// dentro da janela de 5min (cache do QueryClient sobrevive ao fechar/reabrir o Sheet, só não
+// refaz o fetch enquanto "fresco") — reproduzido ao vivo, corrigido alinhando ao padrão das
+// telas irmãs (sem staleTime) em vez de inventar uma invalidação cruzada Cadastro→aqui.
 function useOpt(table: string) {
   return useQuery({
     queryKey: ["opt-produto-acabado", table],
-    staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const { data, error } = await supabase.from(table as any).select("id, nome").order("nome");
       if (error) throw error;
@@ -39,7 +46,6 @@ function useOpt(table: string) {
 function useOptCat(table: string, fk: string) {
   return useQuery({
     queryKey: ["opt-produto-acabado-cat", table, fk],
-    staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const { data, error } = await supabase.from(table as any).select(`id, nome, ${fk}`).order("nome");
       if (error) throw error;
