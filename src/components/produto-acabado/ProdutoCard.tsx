@@ -517,7 +517,7 @@ export function ProdutoCard({
                   <span>2 · Preço</span>
                   <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium normal-case text-muted-foreground">
                     {produto.modelo_id
-                      ? `Varejo ${fmtMoney(produto.modeloPrecoVenda)} · Atacado ${fmtMoney(produto.modeloPrecoAtacado)} · base ${fmtMoney(base)}`
+                      ? `Varejo ${fmtMoney(produto.modeloPrecoVenda)} · Atacado ${fmtMoney(produto.modeloPrecoAtacado)} · custo/pç ${fmtMoney(base)}`
                       : "sem espelho — crie o card"}
                   </span>
                 </span>
@@ -527,7 +527,7 @@ export function ProdutoCard({
                   <InfoStrip itens={[
                     { label: "V. unit. real", valor: fmtMoney(unitReal) },
                     { label: "Σ insumos", valor: fmtMoney(produto.insumos_total) },
-                    { label: "Base", valor: fmtMoney(base), hi: true },
+                    { label: "Custo total da peça", hint: "(v. unit. real + insumos)", valor: fmtMoney(base), hi: true },
                     { label: "Markup da linha", valor: markupLinha != null ? `${markupLinha.toFixed(2)}×` : "—" },
                   ]} />
                 ) : (
