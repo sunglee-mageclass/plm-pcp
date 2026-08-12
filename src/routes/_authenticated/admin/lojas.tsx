@@ -35,8 +35,27 @@ import { UnsavedChangesGuard, useUnsavedGuard } from "@/components/shared/Unsave
 import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
 import { useDirtySnapshot } from "@/hooks/useDirtySnapshot";
 
-// Toggles de módulo (chaves batem com tenant_config.modules e PAGES_CATALOG).
-const MODULE_TOGGLES = PAGES_CATALOG.map((m) => ({ key: m.module, label: m.label }));
+// Toggles de módulo (chaves batem com tenant_config.modules). Deriva de PAGES_CATALOG,
+// mas DEDUPLICA por `gate ?? module`: PCP e Expedição & Logística são 2 ModuleDef que
+// compartilham a MESMA flag de contratação `producao` (ver CLAUDE.md, bloco "PCP +
+// Expedição") — sem o dedup, viravam 2 switches soltos (`pcp`/`expedicao`) que não
+// batiam com nenhuma chave lida em lugar nenhum, e a flag real `producao` nunca
+// aparecia (bug latente desde o split de jul/2026, corrigido aqui de passagem).
+// `produto_acabado` não tem ModuleDef próprio no PAGES_CATALOG (é PageDef.gate dentro
+// de criacao/entrada_saida) — entra à mão, igual aos outros 7 (decisão do dono, ago/2026:
+// mora em Gerenciar Lojas junto dos demais, não mais em Config da Loja).
+const MODULE_TOGGLES: { key: string; label: string }[] = (() => {
+  const seen = new Set<string>();
+  const out: { key: string; label: string }[] = [];
+  for (const m of PAGES_CATALOG) {
+    const key = m.gate ?? m.module;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ key, label: m.label });
+  }
+  out.push({ key: "produto_acabado", label: "Produto Acabado (Revenda)" });
+  return out;
+})();
 // Descrição curta por módulo (o super_admin liga/desliga sabendo o que cada um faz).
 const MODULE_DESC: Record<string, string> = {
   cadastro: "Materiais, fornecedores, atributos e colaboradores.",
@@ -46,15 +65,12 @@ const MODULE_DESC: Record<string, string> = {
   producao: "CAD, Serviços, CQ, Direcionamento e Lançamentos.",
   financeiro: "Contas a pagar, calendário e resumo financeiro.",
   dashboard: "Painéis de coleção, estoque, produção, custos, comercial e leadtime.",
+  produto_acabado: "Compra de produto pronto para revenda — Produto Acabado e OC P. Acabado.",
 };
 const MODULE_DEFAULTS: Record<string, boolean> = {
   ...Object.fromEntries(MODULE_TOGGLES.map((m) => [m.key, true])),
   otb: false, // opt-in
-  // produto_acabado não tem ModuleDef próprio no PAGES_CATALOG (é PageDef.gate dentro de
-  // criacao/entrada_saida — sem toggle nesta tela; liga-se em Config da Loja pelo próprio
-  // tenant_admin), mas precisa constar aqui p/ o payload `{...modules, cadastro:true}` do
-  // save (l.565) não sobrescrever com `true` quando a config ainda não tem a chave.
-  produto_acabado: false, // opt-in
+  produto_acabado: false, // opt-in — mesmo padrão do otb
 };
 
 function TenantLogo({ path, alt }: { path: string | null; alt: string }) {
