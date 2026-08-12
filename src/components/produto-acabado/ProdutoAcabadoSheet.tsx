@@ -174,9 +174,26 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
     });
   const resolvedInicialRef = useRef({ done: false });
 
+  // Fix (dono, ago/2026 — "aviso de descarte 2x"): confirmar "Descartar" na saída REAL (fechar o
+  // Sheet / breadcrumb / Voltar) passa pelo `open` LOCAL do guarda (não pelo `useBlocker`) e, ao
+  // confirmar, chama `onClose` → o pai navega (`navigate({search:{}})`). Nesse instante o Sheet
+  // AINDA está montado (React só desmonta depois que o pai re-renderizar sem `colecao` na URL) —
+  // o MESMO `useBlocker` intercepta essa navegação de novo (ninguém tinha limpado `dirty`) e
+  // mostra um 2º aviso, imediatamente após o 1º já confirmado. `justClosingRef` marca "essa
+  // navegação É a consequência da minha própria confirmação, deixa passar" — via REF (não state)
+  // porque `navPermitida` roda SÍNCRONO dentro do mesmo clique que dispara `navigate()`, antes de
+  // qualquer re-render que um `setState` produziria; consome-se sozinho (1 leitura) pra não virar
+  // um bypass permanente do guarda.
+  const justClosingRef = useRef(false);
+
   const navPermitida = useCallback(
-    (next: { pathname?: string; search?: Record<string, unknown> }) =>
-      String(next?.pathname ?? "").includes("/criacao/produto-acabado") && next?.search?.colecao === colecaoId,
+    (next: { pathname?: string; search?: Record<string, unknown> }) => {
+      if (justClosingRef.current) {
+        justClosingRef.current = false;
+        return true;
+      }
+      return String(next?.pathname ?? "").includes("/criacao/produto-acabado") && next?.search?.colecao === colecaoId;
+    },
     [colecaoId],
   );
 
@@ -305,7 +322,21 @@ export function ProdutoAcabadoSheet({ colecaoId, subInicial = null, onSubChange,
   // demais cards abertos ao mesmo tempo.
   const [baseline, setBaseline] = useState<Record<string, string>>({});
   const dirty = (drafts ?? []).some((p) => JSON.stringify(chaveDirty(p)) !== baseline[p.id]);
-  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose, blockNav: true, navPermitida });
+  // Saída real confirmada ("Descartar"): arma `justClosingRef` (comentário acima, ao lado de
+  // `navPermitida`) ANTES de navegar — sem isso a navegação do próprio `onClose` seria bloqueada
+  // de novo pelo mesmo guarda. Também zera o dirty "de verdade" (baseline = estado atual dos
+  // drafts) — o Sheet está desmontando de qualquer forma, mas isso evita um flash de "ainda sujo"
+  // se por algum motivo o pai não desmontar na hora (ex.: outro guard segurando a navegação).
+  const fecharDeVez = useCallback(() => {
+    justClosingRef.current = true;
+    setBaseline((b) => {
+      if (!drafts) return b;
+      const limpo = Object.fromEntries(drafts.map((p) => [p.id, JSON.stringify(chaveDirty(p))]));
+      return { ...b, ...limpo };
+    });
+    onClose();
+  }, [drafts, onClose]);
+  const { requestClose, confirm } = useUnsavedGuard({ dirty, onClose: fecharDeVez, blockNav: true, navPermitida });
 
   const marcarProdutoLimpo = (p: ProdutoDraft) => setBaseline((b) => ({ ...b, [p.id]: JSON.stringify(chaveDirty(p)) }));
 
