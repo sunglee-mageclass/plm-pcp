@@ -11,6 +11,7 @@ export type OSItem = {
   grade?: { tamanhos: string[]; linhas: { label: string; valores: number[]; total: number }[] } | null;
   dataEnviado: string | null;
   dataPrevista: string | null;
+  dataEntregue: string | null;
   observacao: string;
   aviamentos: string[];
   tecidos: string[];
@@ -64,7 +65,7 @@ export function OrdemServicoTerceirizados({
             <div><b>Modelo:</b> {modelo?.ref ?? "—"} — {modelo?.nome ?? ""}{modelo?.colecao ? ` · ${modelo.colecao}` : ""}</div>
             <div><b>Responsável:</b> {it.responsavel}{it.interno ? " (interno)" : ""}</div>
             <div><b>Quantidade enviada:</b> {it.quantidade}</div>
-            <div><b>Data de envio:</b> {fmtDate(it.dataEnviado)} &nbsp;·&nbsp; <b>Prazo:</b> {fmtDate(it.dataPrevista)}</div>
+            <div><b>Data de envio:</b> {fmtDate(it.dataEnviado)} &nbsp;·&nbsp; <b>Prazo:</b> {fmtDate(it.dataPrevista)} &nbsp;·&nbsp; <b>Data de entrega:</b> {fmtDate(it.dataEntregue)}</div>
           </div>
 
           {it.detalhado && it.grade && it.grade.linhas.length > 0 && (

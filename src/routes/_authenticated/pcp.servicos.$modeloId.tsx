@@ -487,6 +487,7 @@ export function TerceirizadosDetail({
           : null,
         dataEnviado: b.data_enviado,
         dataPrevista: b.data_prevista,
+        dataEntregue: b.data_entregue,
         observacao: b.observacao ?? "",
         aviamentos: (b.aviamentos_enviados ?? []).map(aviLabel).filter(Boolean) as string[],
         tecidos: (b.tecidos_enviados ?? []).map(tecLabel).filter(Boolean) as string[],
