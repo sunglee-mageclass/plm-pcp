@@ -27,6 +27,19 @@ function novoMaterial(existentes: PtMaterial[], tipo: "tecido" | "forro"): PtMat
   return { artigo_id: null, tipo, numero, consumo: 0, loss_percent: 0, ordem: existentes.length, variantes: [] };
 }
 
+// Renumera `numero` 1..n POR TIPO (tecido/forro), preservando a ordem relativa — mesmo padrão já
+// usado p/ variantes (MaterialBlock.tsx `renum`, ordem 1..n em uq_plan_var). Sem isto, remover um
+// material do meio deixava um buraco no numero e o próximo "+ tecido"/"+ forro" (contagem, não
+// max+1) colidia com um numero já existente do MESMO slot → uq_plan_mat (slot_id,tipo,numero)
+// 23505 "valor duplicado" ao Salvar/Aplicar ao modelo (bug ago/2026).
+function renumMateriais(materiais: PtMaterial[]): PtMaterial[] {
+  const porTipo: Partial<Record<PtMaterial["tipo"], number>> = {};
+  return materiais.map((m) => {
+    const n = (porTipo[m.tipo] = (porTipo[m.tipo] ?? 0) + 1);
+    return m.numero === n ? m : { ...m, numero: n };
+  });
+}
+
 export function ModelCard({
   slot,
   onChange,
@@ -405,7 +418,7 @@ export function ModelCard({
                           onChange({ ...slot, materiais });
                         }}
                         onRemove={() =>
-                          onChange({ ...slot, materiais: slot.materiais.filter((_, j) => j !== i) })
+                          onChange({ ...slot, materiais: renumMateriais(slot.materiais.filter((_, j) => j !== i)) })
                         }
                       />
                     ))}
