@@ -132,7 +132,12 @@ export function useEstoqueTecidos(enabled: boolean) {
       g.rows.push(r);
       map.set(key, g);
     }
-    return Array.from(map.values());
+    // Cada TECIDO (grupo) sempre em ordem alfabética pelo nome do artigo — independe do sortKey das
+    // linhas (`sorted` pode estar por Recebido/Físico/etc.; a ordem de INSERÇÃO no Map então seguia a
+    // 1ª linha de cada tecido a aparecer nesse sort, não o nome do tecido — bug ago/2026).
+    return Array.from(map.values()).sort((a, b) =>
+      a.artigoNome.localeCompare(b.artigoNome, "pt-BR", { numeric: true, sensitivity: "base" }),
+    );
   }, [sorted]);
 
   // Descritores prontos p/ o <FilterButton> do header (filtros de estoque, não os da OC).
