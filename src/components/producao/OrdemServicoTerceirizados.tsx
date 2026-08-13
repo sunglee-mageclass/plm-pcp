@@ -19,11 +19,25 @@ export type OSItem = {
 
 const thTd: CSSProperties = { border: "1px solid #999", padding: "3px 6px", textAlign: "center", fontSize: 11 };
 
-function fmtDate(d: string | null) {
-  if (!d) return "—";
+// Linha p/ preenchimento a punho (~3cm) — usada no lugar de "—" quando a data ainda não
+// foi lançada no sistema: a OS impressa acompanha a peça e quem recebe/confere anota a
+// mão na hora. Mesma técnica visual do "Recebido por"/"Data" no rodapé (borderBottom
+// inline sobrevive ao @media print sem CSS extra).
+const linhaPunho: CSSProperties = { display: "inline-block", width: "3cm", borderBottom: "1px solid #000", height: 1, verticalAlign: "middle" };
+
+function fmtDate(d: string | null): string | null {
+  if (!d) return null;
   const s = d.split("T")[0];
   const [y, m, dd] = s.split("-");
   return dd && m && y ? `${dd}/${m}/${y}` : d;
+}
+
+// Campo de data no cabeçalho impresso: texto formatado quando preenchida; senão, uma
+// linha em branco para anotar a punho (não "—" — a OS é o documento físico que circula
+// com a peça, então o vazio é um convite a preencher, não um "sem dado").
+function DataImpressa({ d }: { d: string | null }) {
+  const f = fmtDate(d);
+  return f ? <>{f}</> : <span style={linhaPunho} />;
 }
 
 /**
@@ -65,7 +79,7 @@ export function OrdemServicoTerceirizados({
             <div><b>Modelo:</b> {modelo?.ref ?? "—"} — {modelo?.nome ?? ""}{modelo?.colecao ? ` · ${modelo.colecao}` : ""}</div>
             <div><b>Responsável:</b> {it.responsavel}{it.interno ? " (interno)" : ""}</div>
             <div><b>Quantidade enviada:</b> {it.quantidade}</div>
-            <div><b>Data de envio:</b> {fmtDate(it.dataEnviado)} &nbsp;·&nbsp; <b>Prazo:</b> {fmtDate(it.dataPrevista)} &nbsp;·&nbsp; <b>Data de entrega:</b> {fmtDate(it.dataEntregue)}</div>
+            <div><b>Data de envio:</b> <DataImpressa d={it.dataEnviado} /> &nbsp;·&nbsp; <b>Prazo:</b> <DataImpressa d={it.dataPrevista} /> &nbsp;·&nbsp; <b>Data de entrega:</b> <DataImpressa d={it.dataEntregue} /></div>
           </div>
 
           {it.detalhado && it.grade && it.grade.linhas.length > 0 && (
