@@ -236,7 +236,11 @@ unit + integração transacional de RPC — ver `tests/README.md`)
 - Não usar `localStorage` em lógica de auth/tenant — vem do contexto/Supabase.
 - **UI de edição — PADRÃO DO SISTEMA** (docs/design/ui-padroes.md §A/§G; NÃO reinventar; §K–§P =
   padrões do redesign ago/2026 — divisão por função/InfoStrip, ações de ciclo na tela + ⋯ no card,
-  canvas colapsável, grade/peso/variante·apelido, form padrão OC, rollout tela a tela):
+  canvas colapsável, grade/peso/variante·apelido, form padrão OC, rollout tela a tela; **§Q =
+  padrões v3 (cartilha ago/2026)** — toda tela/componente NOVO segue §Q via primitivos
+  compartilhados (Button/PageActionBar/DateField/MoneyInput/StatusBadge…), nunca valor solto (hex,
+  px fora da escala, toFixed manual); teste anti-drift em `tests/unit/ui-padroes-antidrift.test.ts`
+  (desligado até os tokens v3 entrarem)):
   - **Guarda de "alterações não salvas"**: todo form com Salvar usa `useUnsavedGuard({dirty,
     onClose?, blockNav?})` + `<UnsavedChangesGuard confirm message>` (só o AlertDialog "Descartar
     alterações?") de `@/components/shared/UnsavedChangesGuard`, e `useDirtySnapshot` (`@/hooks`) p/

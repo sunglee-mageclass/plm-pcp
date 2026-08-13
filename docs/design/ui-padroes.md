@@ -448,3 +448,176 @@ Aplicar §K–§O **de pouco em pouco, uma tela por vez** (cada adoção = rodad
 - [ ] Grade de proporção com TODAS as size-keys (0 placeholder); variante "cor base · apelido"; split auto por maior resto, células editáveis (§N).
 - [ ] Form de registro segue §O: Sheet 70vw + Dialog mesmo form + seções "N ·" com trilho de âncoras + anexos em chip.
 ```
+
+---
+
+## Q. Padrões v3 (cartilha) — referência rápida
+
+> **Status:** aprovado como direção pelo dono, ago/2026. Tokens/componentes da cartilha **ainda não
+> foram implementados** (camada 1 fica para depois) — até lá, **§Q vale para código NOVO**; código
+> existente segue §A–§P até a rodada de implementação alcançá-lo (rollout tela a tela, como §P).
+> Guia visual completo (12 padrões, demonstração Hoje→v3, "porquê" por padrão): artifact
+> [`d03a192e-79ff-4b70-9f58-a6d58e8e1cdd`](https://claude.ai/code/artifact/d03a192e-79ff-4b70-9f58-a6d58e8e1cdd).
+> Teste anti-drift (scanner, desligado até a implementação): `tests/unit/ui-padroes-antidrift.test.ts`.
+
+### Q1. Espaçamento — escala base-4, 10 degraus
+
+| Token | Valor |
+|---|---|
+| `--space-1` | 4px |
+| `--space-2` | 8px |
+| `--space-3` | 12px |
+| `--space-4` | 16px |
+| `--space-5` | 20px |
+| `--space-6` | 24px |
+| `--space-8` | 32px |
+| `--space-10` | 40px |
+| `--space-12` | 48px |
+| `--space-16` | 64px |
+
+Defaults: página 24 desktop / 16 mobile · padding de card confortável 16 / compacto 12 · entre
+seções 20–24 · label→controle 4 · entre campos 12–16 · ícone→texto 8 inline / 4 em chip. Nada fora
+da escala.
+
+### Q2. Títulos — hierarquia por papel, não por instinto
+
+| Papel | Tamanho | Peso | Família | Extra |
+|---|---|---|---|---|
+| H1 de página | 22px (`--text-xl`) | 600 | Outfit | tracking `-0.01em` |
+| Título Dialog/Sheet | 18px (`--text-lg`) | 600 | Outfit | |
+| Título de seção | 16px confortável / 13px compacto | 600 | Outfit | |
+| Label de campo | 13px (`--text-sm`) | 500 | Figtree | |
+| Caption/meta | 12px (`--text-xs`) | 400 | Figtree | `--muted-foreground` |
+| Eyebrow/badge/header de tabela | 11px (`--text-2xs`) | 600 | Figtree | UPPERCASE, tracking `.08em` ÚNICO |
+
+Hoje o protótipo varia entre `.04em/.05em/.06em/.08em/.09em/.1em/.14em` (7 valores) pro mesmo papel
+de "texto em caixa alta") — v3 fixa **`.08em`** único.
+
+### Q3. Cores — 3 camadas, disciplina não muda a paleta
+
+**Primitivo** (oklch bruto, nunca usado direto) → **semântico** (sempre `var(--…)`) → **componente**
+(derivado de tela). A paleta em si **não muda** — já é a de `src/styles.css`; o que muda é a
+disciplina: **zero hex solto** em componente fora de `src/components/ui/`.
+
+| Token semântico | oklch | Hex aprox. |
+|---|---|---|
+| `--primary` | `oklch(0.52 0.09 248)` | `#3b6fa0` |
+| `--background` / `--foreground` / `--card` / `--border` / `--muted` / `--accent` / `--destructive` / `--success` / `--warning` | (ver §0 no topo deste doc) | |
+
+### Q4. Botões
+
+- Altura **36px** (compacto **30px**), toque **44px** no mobile — **mantido**, já é regra hoje
+  (`max-md:h-11` em `button.tsx`). Raio **8px**.
+- Ordem FIXA na barra de ações: **Voltar** (outline, ícone `ArrowLeft`, esquerda) · **Excluir**
+  (destructive PREENCHIDO — nunca outline) · **Salvar** (primary preenchido, `ml-auto`, direita).
+- `disabled`: deixa de ser `opacity:.5` (hoje, `button.tsx:8`) → vira `background:var(--muted)` +
+  `color:var(--muted-foreground)`, sólido (motivo sempre visível).
+- Foco: `outline:2px solid var(--ring); outline-offset:2px` (hoje é `ring-1`, 1px sem offset).
+
+### Q5. Fontes — par mantido, escala fechada
+
+- **Figtree** (corpo, `--font-sans`) + **Outfit** (display/títulos/números-hero, `--font-display`) —
+  já é o par de `src/styles.css:43-44`.
+- Só **4 pesos**: 400 · 500 · 600 · 700.
+- Escala de **9 degraus**, razão ~1,2, arredondada a inteiro:
+
+| Token | px |
+|---|---|
+| `--text-2xs` | 11 |
+| `--text-xs` | 12 |
+| `--text-sm` | 13 |
+| `--text-base` | 14 |
+| `--text-md` | 16 |
+| `--text-lg` | 18 |
+| `--text-xl` | 22 |
+| `--text-2xl` | 28 |
+| `--text-3xl` | 34 |
+
+Hoje: tamanhos soltos por tela, incluindo fracionários (`13.5`/`12.5`/`11.5`/`10.5`/`9.5`px) — v3
+proíbe fracionário arbitrário fora da escala.
+
+### Q6. Tamanhos — dois modos nomeados
+
+| Modo | Controle | Padding de card | Uso |
+|---|---|---|---|
+| Confortável | 40px | 16 | forms / detalhe / dialogs |
+| Compacto | 30–32px desktop, linha 32–36px | 12 | tabelas / canvas / listas densas |
+
+Regra de ouro: nunca encolher um **INPUT de digitação** abaixo de 44px no toque, nem em modo
+compacto. Raio: `--radius` 10px base · `--radius-sm` 7px (chip pequeno) · `--radius-lg` 14px
+(Dialog/Sheet).
+
+### Q7. Elevação — 5 níveis com propósito
+
+| Nível | Sombra (claro) | Uso |
+|---|---|---|
+| 0 | flush (sem sombra) | input / tabela / célula |
+| 1 | `0 1px 2px oklch(.20 .04 265 / .06)` | card em repouso |
+| 2 | `0 2px 8px oklch(.20 .04 265 / .09)` | card em hover (+ `translate:0 -1px`) / dropdown |
+| 3 | `0 8px 24px oklch(.20 .04 265 / .13)` | popover, rail, **barra de ações sticky** |
+| 4 | `0 16px 48px oklch(.20 .04 265 / .20)` | Dialog / Sheet |
+
+No escuro a sombra some — todo nível ≥1 pareia com um hairline (`inset 0 1px 0 branco/.05–.08`).
+Hoje: 1 sombra plana única pra tudo (`shadow-sm`/`shadow` do shadcn).
+
+### Q8. Ícones — lucide, 4 tamanhos
+
+| Token | px | Uso |
+|---|---|---|
+| `--icon-xs` | 14 | badge |
+| `--icon-sm` | 16 | inline com texto, botão |
+| `--icon-md` | 20 | cabeçalho de página |
+| `--icon-lg` | 24 | chip / hero |
+
+`stroke-width:2` (1,75 em ≤14px). `color:currentColor`, nunca abaixo de 12px. Hoje: 8 tamanhos
+soltos no protótipo (11/13/15/16/17/18/19/20px).
+
+### Q9. Tons — fórmula única por tom
+
+5 tons de feedback — **success/warning/danger/info/neutral** — cada um com `bg`/`fg` por fórmula
+ÚNICA fixa: `color-mix(in oklab, tom X%, var(--card))` (fundo) e
+`color-mix(in oklab, tom Y%, var(--foreground))` (texto).
+
+| Tom | bg % (claro) | fg % (claro) | bg % (escuro) | fg % (escuro) |
+|---|---|---|---|---|
+| success | 15 | 62 | 20 | 66 |
+| warning | 22 | 46 | 20 | 72 |
+| danger | 13 | 66 | 20 | 70 |
+| info | 13 | 70 | 20 | 74 |
+| neutral | `--muted` direto | `--muted-foreground` direto | idem | idem |
+
+Hoje (`StatusBadge.tsx`) o fundo mistura contra `transparent`, não contra `--card` — a cor final
+depende do que está por trás e lava no tema escuro.
+
+### Q10. Estados — receita única por estado
+
+- **hover**: `bg:var(--accent)` ou elevação 2 + `translate:0 -1px`.
+- **focus-visible OBRIGATÓRIO** em todo interativo: `outline:2px solid var(--ring); outline-offset:2px`
+  (hoje: sem regra global de `:focus-visible` fora do `ring-1` do botão).
+- **disabled**: `bg:var(--muted)` + texto `--muted-foreground` + motivo sempre visível — **nunca
+  opacity**.
+- **loading**: skeleton com shimmer que para em `prefers-reduced-motion`.
+- **erro de carga**: `"—"` + `"tentar de novo"` — nunca `"0"`.
+
+### Q11. Placeholders — já é regra do dono (§D)
+
+Todo campo **EDITÁVEL** nasce **VAZIO** com placeholder — nunca pré-preenchido com 0/default. Vale
+no round-trip: 0 gravado no banco EXIBE vazio+placeholder (0 ≡ vazio na exibição; o dado gravado não
+muda). Placeholder mostra o **FORMATO** ("0,00" / "0" / "dd/mm/aaaa"), não substitui o label. Receita:
+`value={x || ""}` + `placeholder`; salvar grava 0 se vazio; dirty normaliza 0≡null (não quebra o
+selo de "não salvo"). §Q só formaliza visualmente o que §D já decidiu — sem mudança de regra.
+
+### Q12. Números — decimais e inteiros
+
+pt-BR sempre: milhar "." · decimal ",".
+
+| Tipo | Casas | Helper |
+|---|---|---|
+| Dinheiro | SEMPRE 2 | `brl()` / `fmtNum()` (`src/lib/format.ts`) |
+| Metragem/consumo | mínimo 2, até 4 sem arredondar alta precisão | `fmtNumEdit` |
+| Quantidade/peça | inteiro, sem casas | `NumberInput integer` |
+| % | **1 casa decimal (proposta — pendente confirmação do dono)** | sem helper central hoje |
+
+Toda célula numérica: `tabular-nums`, alinhada à **direita**, `nowrap` — dinheiro nunca quebra
+linha. Hoje isso já vale nos **inputs** (`MoneyInput`/`CampoRO`); v3 estende pra QUALQUER exibição
+numérica (tabela, badge, KPI) via classe `.num`.
