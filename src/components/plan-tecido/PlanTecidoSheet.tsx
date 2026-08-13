@@ -419,14 +419,29 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
     queryFn: async () => {
       type Art = { id: string | null; nome: string | null; categoria_tecido_id: string | null; cats: { categoria_tecido_id: string }[] | null };
       type Item = { cancelado: boolean | null; artigo: Art | null; variante: { artigo: Art | null } | null };
-      // Pool = TODAS as OCs vinculadas à coleção: aplicadas manualmente (plan_tecido_oc_aplicada) +
-      // GERADAS pelo Fazer pedido (plan_tecido_ocs). Antes lia só as aplicadas → o card não achava a
-      // OC gerada do seu próprio tecido ("Nenhuma OC deste tecido" com a OC gerada bem ali na lista).
-      const [apl, ger] = await Promise.all([
+      // Pool = TODAS as OCs vinculadas à coleção — invariante "união de fontes" (auditoria jul/2026,
+      // espelha _plan_tecido_situacao_ocs_core): aplicadas manualmente (plan_tecido_oc_aplicada) +
+      // GERADAS pelo Fazer pedido (plan_tecido_ocs) + VÍNCULOS do Desenvolvimento
+      // (modelo_tecido_oc_links dos modelos desta coleção) + HINTS já escolhidos em algum card
+      // (plan_tecido_slot_oc). Faltando a 3ª fonte, um card SEM vínculo próprio via SlotOcHint não
+      // achava a OC do seu tecido quando ela só estava linkada a OUTRO modelo da mesma coleção —
+      // "Nenhuma OC deste tecido" falso-negativo (bug ago/2026: Entretela Fina tinha 4 vínculos de
+      // Dev e 0 no pool de 2 fontes). Antes desta rodada já cobria só aplicada+gerada (a gerada
+      // sozinha foi o fix anterior — comentário histórico mantido pelo contexto).
+      const [apl, ger, dev, hint] = await Promise.all([
         supabase.from("plan_tecido_oc_aplicada" as any).select("oc_tecido_id").eq("colecao_id", colecaoId),
         supabase.from("plan_tecido_ocs" as any).select("oc_tecido_id").eq("colecao_id", colecaoId),
+        supabase.from("modelo_tecido_oc_links" as any)
+          .select("item:oc_tecido_item_id(oc_tecido_id), modelos!inner(colecao_id)")
+          .eq("modelos.colecao_id", colecaoId),
+        supabase.from("plan_tecido_slot_oc" as any).select("oc_tecido_id").eq("colecao_id", colecaoId),
       ]);
-      const ids = [...new Set([...(apl.data ?? []), ...(ger.data ?? [])].map((r: any) => r.oc_tecido_id as string))];
+      const ids = [...new Set([
+        ...(apl.data ?? []).map((r: any) => r.oc_tecido_id as string),
+        ...(ger.data ?? []).map((r: any) => r.oc_tecido_id as string),
+        ...(dev.data ?? []).map((r: any) => r.item?.oc_tecido_id as string | undefined).filter((x): x is string => !!x),
+        ...(hint.data ?? []).map((r: any) => r.oc_tecido_id as string),
+      ])];
       if (!ids.length) return [] as { id: string; numero_pedido: string | null; is_rolo: boolean; tecidos: string[]; categorias: string[]; artigos: string[] }[];
       const rows = (((await supabase.from("ocs_tecido" as any)
         .select("id, numero_pedido, is_rolo, itens:ocs_tecido_itens(cancelado, artigo:artigo_id(id, nome, categoria_tecido_id, cats:artigo_categorias_tecido(categoria_tecido_id)), variante:variante_tecido_id(artigo:artigo_id(id, nome, categoria_tecido_id, cats:artigo_categorias_tecido(categoria_tecido_id))))")
