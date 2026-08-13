@@ -178,6 +178,8 @@ export function VarianteSwatch({ row }: { row: any }) {
 
 **Uso:** formulários que misturam entradas e valores calculados. **Editável** = `Input`/`NumberInput` (fundo `card`/branco). **Derivado** (calculado, não editável) = caixa `bg-muted` via helper **`CampoRO`**. A convenção comunica, à distância, o que o usuário controla.
 
+**REGRA (ago/2026, decisão do dono): todo campo EDITÁVEL nasce VAZIO com placeholder — nunca pré-preenchido com 0/default.** Vale para valor novo E para round-trip: 0 gravado no banco EXIBE como vazio+placeholder (0 ≡ vazio na exibição; o dado gravado não muda). Placeholder mostra o formato esperado ("0,00", "0", "dd/mm/aaaa"). Receita: `value={x || ""}` + `placeholder="0,00"`; no save, vazio grava 0 (contrato do servidor inalterado). ⚠️ Não quebrar o dirty: normalizar 0≡null na comparação (padrão `moLinhasEqual`, `src/lib/mao-obra.ts`) — adicionar/remover item continua acendendo dirty; só o par (0↔vazio) do MESMO campo não oscila. Jurisprudência: MO por serviço (`32b90e3`), Produto Acabado qtd/valor/desconto/proporção. Telas novas obedecem desde o dia 1; existentes adotam no rollout §P.
+
 **Reutilizar:**
 - Helper `CampoRO`: **`src/routes/_authenticated/criacao.planejamento.tsx:1033`** (uso na "Simulação de custo" em `:1589`). É pequeno o bastante para copiar; se for reusado em 3+ telas, promover para `src/components/shared/`.
 - Input branco: **`src/components/ui/input.tsx`** — base `h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 ... max-md:h-11`.
@@ -441,6 +443,7 @@ Aplicar §K–§O **de pouco em pouco, uma tela por vez** (cada adoção = rodad
 - [ ] Formulário com Salvar: guarda de descarte via `useUnsavedGuard` + `<UnsavedChangesGuard>` (§A); nunca refazer à mão.
 - [ ] Componentes novos (Breadcrumb, VarianteSwatch): criar em `src/components/shared/`, não em `src/components/ui/`.
 - [ ] Dado de OUTRA tela = resumo em texto + ⧉ (§K), nunca input travado; campo só do que a tela é dona.
+- [ ] Editável nasce VAZIO com placeholder — nunca 0/default preenchido; 0 do banco exibe vazio (§D); dirty normaliza 0≡null.
 - [ ] Ações de ciclo (Voltar/Excluir/Salvar) = da TELA; card só ⧉ + menu ⋯ (§L). Excluir sempre preenchido.
 - [ ] Grade de proporção com TODAS as size-keys (0 placeholder); variante "cor base · apelido"; split auto por maior resto, células editáveis (§N).
 - [ ] Form de registro segue §O: Sheet 70vw + Dialog mesmo form + seções "N ·" com trilho de âncoras + anexos em chip.
