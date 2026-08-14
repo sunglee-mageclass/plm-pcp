@@ -34,7 +34,10 @@ import { UnsavedIndicator } from "@/components/shared/UnsavedIndicator";
  */
 
 type LinhaSub = { id: string; linhaId: string; aParte: boolean; profCor: number; cores: number; min: number; max: number; q: Record<string, number> };
-type Subcolecao = { id: string; nome: string; semanas: number[]; datasSemanas: Record<string, string>; linhas: LinhaSub[] };
+// `id` é um id LOCAL estável (nid) usado como key de React/estado; `dbId` é o id REAL da
+// subcoleção no banco (null enquanto não salva) — enviado no Save p/ o casamento por id
+// preservar a subcoleção (e sua árvore de Plan. Tecido) mesmo ao renomear.
+type Subcolecao = { id: string; dbId?: string | null; nome: string; semanas: number[]; datasSemanas: Record<string, string>; linhas: LinhaSub[] };
 
 let _seq = 0;
 const nid = (p: string) => `${p}-${++_seq}`;
@@ -234,7 +237,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
       const { ordinais: semanas, remap } = normalizar(rawSemanas);
       const datasSemanas = remapChaves((sc.datas_semanas ?? {}) as Record<string, string>, remap);
       const linhasNorm = linhas.map((l) => ({ ...l, q: remapChaves(l.q, remap) }));
-      return { id: nid("s"), nome: sc.nome, semanas, datasSemanas, linhas: linhasNorm };
+      return { id: nid("s"), dbId: sc.id ?? null, nome: sc.nome, semanas, datasSemanas, linhas: linhasNorm };
     });
     setSubs(mapped); setHydrated(true);
     // Re-baseline do snapshot com os dados carregados (evita falso-dirty ao abrir).
@@ -316,7 +319,7 @@ export function ColecaoPVSheet({ colecaoId, onClose, onSaved }: { colecaoId: str
   const salvarRaw = async (): Promise<string> => {
     const _header = { nome, mes_id: mesId || null, ano_id: anoId || null, mix_padrao_id: padraoId || null, poder_venda_meta: meta || null, perda_markup: perda };
     const _subcolecoes = subs.map((s) => ({
-      nome: s.nome, semanas: s.semanas,
+      id: s.dbId ?? null, nome: s.nome, semanas: s.semanas,
       // Data resolvida (override ?? default do calendário) p/ cada semana marcada.
       datas_semanas: Object.fromEntries(s.semanas.map((w) => [String(w), dataSemana(s, w)]).filter(([, v]) => v)),
       data_lancamento: s.semanas.length ? dataSemana(s, s.semanas[0]) || null : null,
