@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { semearArvore, mergeArvore, semearComModelos, comConsumoDoPlano, type ModeloReal } from "@/lib/plan-tecido/engine";
+import { semearArvore, mergeArvore, semearComModelos, comConsumoDoPlano, comVariantesDoPlano, slotDeModeloReal, type ModeloReal } from "@/lib/plan-tecido/engine";
 
 describe("plan-tecido/engine", () => {
   it("semeia N slots por bucket", () => {
@@ -245,5 +245,129 @@ describe("plan-tecido/engine", () => {
       const merged = mergeArvore(seed, salvo as never);
       expect(merged.subcolecoes[0].linhas[0].slots[0].materiais[0].consumo).toBe(3.1);
     });
+  });
+
+  // FIX 1 (ago/2026): a partição por artigo pode emitir 2+ materiais do MESMO tipo com o mesmo
+  // `numero` do bloco (bloco de forro com variantes de 2 artigos). slotDeModeloReal renumera 1..n
+  // POR TIPO → sem colisão em uq_plan_mat(slot_id,tipo,numero) no salvar_plan_tecido.
+  describe("slotDeModeloReal: numero 1..n por tipo (partição 2 artigos)", () => {
+    it("dois forros de artigos distintos (numero=1 do bloco) viram Forro 1 e Forro 2", () => {
+      const mr: ModeloReal = {
+        id: "M", ref: null, nome: "VESTIDO VALEN", subcolecao: null, subcolecao_id: null,
+        linha_id: null, categoria_id: null, proporcoes: null, grade: {},
+        materiais: [
+          // principal + substituto no MESMO bloco de forro → partição emite (forro, numero=1) 2x
+          { tipo: "forro", numero: 1, artigo_id: "d30bac25", consumo: 1.2, loss_percent: 0,
+            variantes: [{ variante_tecido_id: "vP", ordem: 1, multiplicador: 1 }] },
+          { tipo: "forro", numero: 1, artigo_id: "809ef37a", consumo: 1.2, loss_percent: 0,
+            variantes: [{ variante_tecido_id: "vS", ordem: 1, multiplicador: 1 }] },
+        ],
+      };
+      const slot = slotDeModeloReal(mr, 0);
+      expect(slot.materiais.map((m) => [m.tipo, m.numero])).toEqual([["forro", 1], ["forro", 2]]);
+      // o substituto (2º artigo) APARECE (pedido de UX) como Forro 2, com sua variante
+      expect(slot.materiais[1].artigo_id).toBe("809ef37a");
+      expect(slot.materiais[1].variantes[0].variante_tecido_id).toBe("vS");
+      // sem colisão de chave (slot_id,tipo,numero) dentro do mesmo tipo
+      const chaves = slot.materiais.map((m) => `${m.tipo}|${m.numero}`);
+      expect(new Set(chaves).size).toBe(chaves.length);
+    });
+
+    it("renumera cada tipo independente e preserva Tecido 1 = numero 1 (auto-categorização)", () => {
+      const mr: ModeloReal = {
+        id: "M", ref: null, nome: null, subcolecao: null, subcolecao_id: null,
+        linha_id: null, categoria_id: null, proporcoes: null, grade: {},
+        materiais: [
+          { tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0, variantes: [] },
+          { tipo: "forro", numero: 1, artigo_id: "F1", consumo: 1, loss_percent: 0, variantes: [] },
+          { tipo: "tecido", numero: 1, artigo_id: "B", consumo: 1, loss_percent: 0, variantes: [] },
+          { tipo: "forro", numero: 1, artigo_id: "F2", consumo: 1, loss_percent: 0, variantes: [] },
+        ],
+      };
+      const slot = slotDeModeloReal(mr, 0);
+      expect(slot.materiais.map((m) => [m.tipo, m.numero])).toEqual([
+        ["tecido", 1], ["forro", 1], ["tecido", 2], ["forro", 2],
+      ]);
+      const tec1 = slot.materiais.find((m) => m.tipo === "tecido" && m.numero === 1);
+      expect(tec1?.artigo_id).toBe("A"); // 1º tecido na ordem estável continua sendo o Tecido 1
+    });
+
+    it("card com forro de 2 artigos SALVA a coleção inteira sem colidir numero (repro VESTIDO VALEN)", () => {
+      const modelo: ModeloReal = {
+        id: "valen", ref: "REF", nome: "VESTIDO VALEN", subcolecao: null, subcolecao_id: "s1",
+        linha_id: "l1", categoria_id: null, proporcoes: null, grade: {},
+        materiais: [
+          { tipo: "forro", numero: 1, artigo_id: "d30bac25", consumo: 1.2, loss_percent: 0,
+            variantes: [{ variante_tecido_id: "vP", ordem: 1, multiplicador: 1 }] },
+          { tipo: "forro", numero: 1, artigo_id: "809ef37a", consumo: 1.2, loss_percent: 0,
+            variantes: [{ variante_tecido_id: "vS", ordem: 1, multiplicador: 1 }] },
+        ],
+      };
+      const arv = semearComModelos({ colecao_id: "c", tipo: "poder_venda",
+        buckets: [{ subcolecao_id: "s1", linha_id: "l1", categoria_id: null, qtd: 1 }], modelos: [modelo] });
+      const mats = arv.subcolecoes[0].linhas[0].slots[0].materiais;
+      const chaves = mats.map((m) => `${m.tipo}|${m.numero}`);
+      expect(new Set(chaves).size).toBe(chaves.length); // estado-completo salvável sem 23505
+    });
+  });
+
+  // FIX 2 (ago/2026): variantes digitadas no card e salvas (sem "Aplicar ao modelo") não podem sumir
+  // no reload. Mesmo princípio do comConsumoDoPlano: Dev vence só se preenchido, senão vale o plano.
+  describe("comVariantesDoPlano (Dev vence só se tem variantes, senão vale o plano)", () => {
+    const mat = (over: Record<string, unknown>) =>
+      ({ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [], ...over });
+    const vte = (id: string, ordem: number, over: Record<string, unknown> = {}) =>
+      ({ variante_tecido_id: id, ordem, multiplicador: 1, grades: {}, grade_total: 0, ...over });
+
+    it("BOM cheio vence: variantes do vivo mantidas, salvo ignorado", () => {
+      const out = comVariantesDoPlano(
+        [mat({ variantes: [vte("BOM", 1)] })],
+        [mat({ variantes: [vte("PLAN", 1)] })],
+      );
+      expect(out[0].variantes.map((v) => v.variante_tecido_id)).toEqual(["BOM"]);
+    });
+
+    it("BOM vazio + plano cheio: variantes do plano aparecem, renumeradas 1..n", () => {
+      const out = comVariantesDoPlano(
+        [mat({ variantes: [] })],
+        [mat({ variantes: [vte("c1", 5, { grade_total: 10 }), vte("c2", 9)] })],
+      );
+      expect(out[0].variantes.map((v) => [v.variante_tecido_id, v.ordem])).toEqual([["c1", 1], ["c2", 2]]);
+      expect(out[0].variantes[0].grade_total).toBe(10); // grades/pç preservados
+    });
+
+    it("os dois vazios → continua vazio", () => {
+      expect(comVariantesDoPlano([mat({ variantes: [] })], [mat({ variantes: [] })])[0].variantes).toEqual([]);
+      expect(comVariantesDoPlano([mat({ variantes: [] })], null)[0].variantes).toEqual([]);
+    });
+
+    it("só casa mesmo artigo+tipo; não vaza de forro/artigo diferente", () => {
+      expect(comVariantesDoPlano([mat({ variantes: [] })], [mat({ artigo_id: "B", variantes: [vte("x", 1)] })])[0].variantes).toEqual([]);
+      expect(comVariantesDoPlano([mat({ variantes: [] })], [mat({ tipo: "forro" as const, variantes: [vte("x", 1)] })])[0].variantes).toEqual([]);
+    });
+
+    it("não duplica cor (variante_tecido_id repetido)", () => {
+      const out = comVariantesDoPlano([mat({ variantes: [] })], [mat({ variantes: [vte("c1", 1), vte("c1", 2), vte("c2", 3)] })]);
+      expect(out[0].variantes.map((v) => v.variante_tecido_id)).toEqual(["c1", "c2"]);
+    });
+  });
+
+  it("mergeArvore: variantes salvas no plano sobrevivem quando o BOM vivo tem 0 variantes (FIX 2)", () => {
+    // Card real com BOM vivo SEM variantes (Dev não recebeu cores); o usuário digitou cores no card
+    // do Plan. Tecido e Salvou (sem Aplicar). No reload o BOM vivo não pode apagar as variantes salvas.
+    const modelo: ModeloReal = {
+      id: "m1", ref: "REF", nome: "Vestido", subcolecao: null, subcolecao_id: "s1",
+      linha_id: "l1", categoria_id: null, proporcoes: null, grade: {},
+      materiais: [{ tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1.4, loss_percent: 0, variantes: [] }],
+    };
+    const seed = semearComModelos({ colecao_id: "c", tipo: "poder_venda",
+      buckets: [{ subcolecao_id: "s1", linha_id: "l1", categoria_id: null, qtd: 1 }], modelos: [modelo] });
+    const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0,
+      slots: [{ modelo_id: "m1", slot_index: 0, materiais: [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1.4, loss_percent: 0, ordem: 0,
+        variantes: [{ variante_tecido_id: "cor1", ordem: 1, multiplicador: 1, grades: { M: 5 }, grade_total: 5 }] }] }] }] }] };
+    const merged = mergeArvore(seed, salvo as never);
+    const mm = merged.subcolecoes[0].linhas[0].slots[0].materiais[0];
+    expect(mm.variantes.map((v) => v.variante_tecido_id)).toEqual(["cor1"]);
+    expect(mm.variantes[0].grade_total).toBe(5);
   });
 });

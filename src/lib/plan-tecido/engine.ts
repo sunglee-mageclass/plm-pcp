@@ -49,7 +49,18 @@ const slotVazio = (i: number): PtSlot => ({ id: crypto.randomUUID(), modelo_id: 
 
 /** Converte um modelo real (BOM + grade) num slot pré-preenchido do Plan. Tecido. */
 export function slotDeModeloReal(mr: ModeloReal, slotIndex: number): PtSlot {
+  // numero POR TIPO 1..n na montagem: a partição por artigo (PlanTecidoSheet.modelosReais) pode
+  // emitir 2+ materiais do MESMO tipo com o MESMO `numero` do bloco — ex.: um bloco de forro com
+  // variantes de DOIS artigos (principal + substituto) vira dois materiais (forro, numero=1). Dois
+  // `(forro, numero=1)` colidem em uq_plan_mat(slot_id,tipo,numero) → 23505 ao salvar a coleção
+  // inteira (estado-completo, delete+reinsert). Renumeramos sequencial por tipo (tecido 1..n,
+  // forro 1..n) NA ORDEM ESTÁVEL dos materiais (= ordem de aparição na partição) — mesmo padrão do
+  // `renumMateriais`/variantes 1..n. Efeito UX: o substituto (2º artigo do bloco) passa a APARECER
+  // como "Forro 2" no card. numero é semântico ("Tecido N") — renumerado só aqui no front, NÃO no
+  // servidor. `numero=1` do Tecido 1 é preservado (1º tecido na ordem) → auto-categorização intacta.
+  const seqPorTipo: Partial<Record<PtMaterial["tipo"], number>> = {};
   const materiais: PtMaterial[] = mr.materiais.map((mat, mi) => {
+    const numero = (seqPorTipo[mat.tipo] = (seqPorTipo[mat.tipo] ?? 0) + 1);
     const variantes: PtVariante[] = mat.variantes
       .slice()
       .sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0))
@@ -72,7 +83,7 @@ export function slotDeModeloReal(mr: ModeloReal, slotIndex: number): PtSlot {
       rendimento: mat.artigo_rendimento ?? null,
       preco_por_metro: mat.preco_por_metro ?? null,
       tipo: mat.tipo,
-      numero: mat.numero,
+      numero,
       consumo: Number(mat.consumo) || 0,
       loss_percent: Number(mat.loss_percent) || 0,
       ordem: mi,
@@ -189,6 +200,33 @@ export function comConsumoDoPlano(vivos: PtMaterial[], salvos?: PtMaterial[] | n
   });
 }
 
+// Variantes EFETIVAS de card real (mesmo princípio do consumo acima — "Dev vence só se preenchido,
+// senão vale o plano"). O merge usa SEMPRE o BOM VIVO (materiais) do Desenvolvimento; mas quem digita
+// cores DIRETO no card do Plan. Tecido e Salva (sem "Aplicar ao modelo") grava variantes no PLANO, não
+// no BOM — e perdia tudo ao recarregar, porque o BOM vivo (0 variantes) sobrescrevia o salvo. Por
+// material (casado por artigo+tipo): se o vivo tem 0 variantes E o salvo (mesmo artigo+tipo) tem
+// variantes, usa as do plano (com grades/pç). Se o BOM tem variantes, o BOM VENCE (comportamento
+// atual — Dev é a fonte). `ordem` renumerada 1..n e cor (variante_tecido_id) não duplicada.
+export function comVariantesDoPlano(vivos: PtMaterial[], salvos?: PtMaterial[] | null): PtMaterial[] {
+  if (!salvos?.length) return vivos;
+  return vivos.map((m) => {
+    if ((m.variantes?.length ?? 0) > 0) return m; // BOM tem variantes → BOM vence
+    const s = salvos.find((x) => x.tipo === m.tipo && !!x.artigo_id && x.artigo_id === m.artigo_id && (x.variantes?.length ?? 0) > 0);
+    if (!s) return m;
+    const seen = new Set<string>();
+    const variantes: PtVariante[] = s.variantes
+      .filter((v) => {
+        // dedup por cor real (variante_tecido_id); cor PLANEJADA (id null) casa por cor+apelido
+        const k = v.variante_tecido_id ?? `plan:${v.cor_id ?? ""}:${v.cor_apelido_id ?? ""}`;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      })
+      .map((v, i) => ({ ...v, ordem: i + 1 }));
+    return { ...m, variantes };
+  });
+}
+
 export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
   if (!salvo) return seed;
   // BOM VIVO por modelo_id: cada slot de modelo do seed carrega o BOM atual do Desenvolvimento.
@@ -257,7 +295,7 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
             // pela posição), não o snapshot salvo — assim que o card avança/muda o BOM, o plano
             // reflete. Slot de planejamento (sem modelo) mantém o rascunho salvo.
             materiais: effModeloId
-              ? (live?.materiais?.length ? comConsumoDoPlano(live.materiais, saved.materiais) : (saved.materiais ?? []))
+              ? (live?.materiais?.length ? comVariantesDoPlano(comConsumoDoPlano(live.materiais, saved.materiais), saved.materiais) : (saved.materiais ?? []))
               : (saved.materiais?.length ? saved.materiais : slot.materiais),
           };
         }) };
