@@ -32,7 +32,7 @@ export const Route = createFileRoute("/_authenticated/otb/")({
 
 // Rótulo de GRUPO dentro do card (laudo do time: agrupar por assunto resolve a leitura).
 function GrpT({ children }: { children: React.ReactNode }) {
-  return <span className="text-[9.5px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">{children}</span>;
+  return <span className="text-[11px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">{children}</span>;
 }
 function KV({ k, v }: { k: React.ReactNode; v: React.ReactNode }) {
   return (
@@ -243,7 +243,7 @@ function OtbPage() {
                 {pvVazio ? (
                   /* Coleção confirmada sem mix = hint ACIONÁVEL, não casca de zeros (laudo UX#2). */
                   <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-                    <b className="block text-[12.5px] font-semibold text-foreground">Plano sem itens</b>
+                    <b className="block text-[13px] font-semibold text-foreground">Plano sem itens</b>
                     <span>O mix ainda não foi montado — os números aparecem quando houver linhas no plano.</span>
                     <span className="mt-1 block font-semibold text-primary">Abrir e montar o mix →</span>
                   </div>

@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Pencil, Trash2, Search, Loader2, PackageMinus, ScissorsLineDashed, ArrowLeft, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { fmtNumEdit } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import { artigoLabel } from "@/lib/artigo-label";
 import { labelVarianteRow } from "@/lib/variante";
@@ -53,7 +54,6 @@ const num = (s: any) => {
   const n = Number(String(s ?? "").replace(",", "."));
   return Number.isFinite(n) ? n : 0;
 };
-const fmtNum = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(2));
 const fmtDate = (s: string | null | undefined) => (s ? s.split("-").reverse().join("/") : "—");
 
 type ItemForm = { _key: string; itemId: string; reserva: string };
@@ -424,8 +424,8 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
                   <TableCell data-label="Solicitação" className="text-sm text-muted-foreground">{fmtDate(o.data_solicitacao)}</TableCell>
                   <TableCell data-label="Corte" className="text-sm text-muted-foreground">{fmtDate(o.data_corte)}</TableCell>
                   <TableCell data-label="Destino">{o.destino?.nome ?? "—"}</TableCell>
-                  <TableCell data-label="Reserva" className="text-right tabular-nums">{fmtNum(totReserva(o))}</TableCell>
-                  <TableCell data-label="Baixa" className="text-right tabular-nums">{o.baixado ? fmtNum(totBaixa(o)) : "—"}</TableCell>
+                  <TableCell data-label="Reserva" className="text-right tabular-nums">{fmtNumEdit(totReserva(o))}</TableCell>
+                  <TableCell data-label="Baixa" className="text-right tabular-nums">{o.baixado ? fmtNumEdit(totBaixa(o)) : "—"}</TableCell>
                   <TableCell data-label="Status">
                     {o.baixado
                       ? <Badge className="bg-emerald-500 hover:bg-emerald-600">Baixado</Badge>
@@ -567,8 +567,8 @@ export function OrdemSaidaPage({ tipo }: { tipo: Tipo }) {
                   <div className="min-w-0 flex-1">
                     <div className="text-sm truncate">{itemLabelById.get(it[cfg.itemFk]) ?? "—"}</div>
                     <div className="text-xs text-muted-foreground">
-                      Reserva: {fmtNum(num(it.reserva))} {unidadeQtd}
-                      {saldoDisp(it) != null && <> · Disponível: {fmtNum(saldoDisp(it)!)} {unidadeQtd}</>}
+                      Reserva: {fmtNumEdit(num(it.reserva))} {unidadeQtd}
+                      {saldoDisp(it) != null && <> · Disponível: {fmtNumEdit(saldoDisp(it)!)} {unidadeQtd}</>}
                     </div>
                     {excedeSaldo(it) && (
                       <div className="text-xs text-destructive">Acima do disponível.</div>

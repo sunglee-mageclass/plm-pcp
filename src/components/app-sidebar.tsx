@@ -361,7 +361,7 @@ export function AppSidebar() {
         ) : (
           /* Cartão de usuário (mockup aprovado): avatar + e-mail + ações em ícone. */
           <div className="flex items-center gap-2 rounded-[10px] bg-sidebar-accent/50 px-2 py-1.5">
-            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-sidebar-accent font-display text-[10.5px] font-semibold">
+            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-sidebar-accent font-display text-[11px] font-semibold">
               {userInitials}
             </span>
             <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">{user?.email}</span>

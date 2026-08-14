@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { varianteLabel } from "@/lib/variante";
+import { roundTo } from "@/lib/num";
 import { useActiveTenantId } from "@/hooks/useActiveTenantId";
 import type { TecidoRow, GradeRow, AviamentoRow, EtiquetaRow } from "./types";
 
@@ -175,7 +176,7 @@ export function useFichaData(modeloId: string): FichaData {
   );
 
   const aviamentos: AviamentoRow[] = useMemo(
-    () => (cadAviamentos as any[]).map((a) => { const consumo = num(a.consumo); const preco = num(a.aviamentos?.preco); return ({ id: a.id, numero: a.numero, aviamento_id: a.aviamento_id, aviamento_nome: a.aviamentos?.codigo_nome, consumo, grade_total: 0, quantidade_enviar: num(a.quantidade_enviar), quantidade_separar: num(a.quantidade_separar), preco, custo_cad: Number((consumo * preco).toFixed(2)) }); }),
+    () => (cadAviamentos as any[]).map((a) => { const consumo = num(a.consumo); const preco = num(a.aviamentos?.preco); return ({ id: a.id, numero: a.numero, aviamento_id: a.aviamento_id, aviamento_nome: a.aviamentos?.codigo_nome, consumo, grade_total: 0, quantidade_enviar: num(a.quantidade_enviar), quantidade_separar: num(a.quantidade_separar), preco, custo_cad: roundTo(consumo * preco, 2) }); }),
     [cadAviamentos],
   );
 

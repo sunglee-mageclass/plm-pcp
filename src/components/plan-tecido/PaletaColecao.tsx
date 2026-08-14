@@ -7,6 +7,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Button } from "@/components/ui/button";
 import { ChevronRight, X, Clock, Home } from "lucide-react";
 import { useArtigosTecido, type ArtigoTec } from "@/lib/plan-tecido/useArtigosTecido";
+import { fmtInt } from "@/lib/format";
 import { OcAplicadaPicker } from "./OcAplicadaPicker";
 
 type PaletaRow = { artigo_id: string; papel: string };
@@ -127,7 +128,7 @@ export function PaletaColecao({ colecaoId, emUso = [] }: { colecaoId: string; em
                 <div key={i} className="flex items-center gap-1 text-[11px]" title={o.status === "recebido" ? "Em casa (recebido)" : "Encomendado"}>
                   {o.status === "recebido" ? <Home className="h-3 w-3 text-emerald-600" /> : <Clock className="h-3 w-3 text-amber-600" />}
                   <span className="flex-1 truncate">{o.numero_pedido || "OC"}</span>
-                  <span className="text-muted-foreground">{o.m.toFixed(0)} m · {o.status === "recebido" ? "em casa" : "encomendado"}</span>
+                  <span className="text-muted-foreground">{fmtInt(o.m)} m · {o.status === "recebido" ? "em casa" : "encomendado"}</span>
                 </div>
               ))}
             </div>

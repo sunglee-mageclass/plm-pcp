@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
+import { fmtInt, fmtNum } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { DateField } from "@/components/shared/DateField";
@@ -233,7 +234,7 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
                   {pg.itens.map((it) => {
                     // artigo em kg → mostra "N m / K kg" (kg = metros ÷ rendimento)
                     const emKg = it.unidade_medida === "kg" && (it.rendimento ?? 0) > 0;
-                    const mkg = (m: number) => emKg ? `${m.toFixed(0)} m / ${(m / (it.rendimento || 1)).toFixed(0)} kg` : `${m.toFixed(0)} m`;
+                    const mkg = (m: number) => emKg ? `${fmtInt(m)} m / ${fmtInt(m / (it.rendimento || 1))} kg` : `${fmtInt(m)} m`;
                     return (
                     <tr key={keyItem(it)} className="border-t">
                       <td className="p-1.5">
@@ -251,7 +252,7 @@ export function FazerPedidoWizard({ previa, colecaoId, onClose }: { previa: Prev
                           title={emKg ? "Déficit arredondado p/ cima em lotes de 5 kg" : "Déficit arredondado p/ cima em lotes de 10 m"} />
                       </td>
                       <td className="p-1.5">{it.unidade}</td>
-                      <td className="p-1.5 text-right">{it.preco > 0 ? it.preco.toFixed(2) : "—"}</td>
+                      <td className="p-1.5 text-right">{it.preco > 0 ? fmtNum(it.preco) : "—"}</td>
                     </tr>
                     );
                   })}

@@ -1,3 +1,5 @@
+import { roundTo } from "@/lib/num";
+
 export type TipoTec = "tecido" | "forro" | "entretela";
 
 export type VarianteRow = {
@@ -72,7 +74,7 @@ export type EtiquetaRow = {
 };
 
 export function calcCusto(consumo: number, loss: number, preco: number) {
-  return Number((consumo * (1 + loss / 100) * preco).toFixed(2));
+  return roundTo(consumo * (1 + loss / 100) * preco, 2);
 }
 
 // Células das tabelas dos printáveis — compactas p/ caber na margem padrão do print.

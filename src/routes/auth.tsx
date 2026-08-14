@@ -76,7 +76,7 @@ function AuthPage() {
 
   // Estilo dos inputs do login: preenchido (bg-muted) + borda mais escura — a borda-token
   // padrão dava 1,23:1 sobre o card (laudo UI, WCAG 1.4.11).
-  const inputCls = "bg-muted border-[color:oklch(0.80_0.01_248)] dark:border-[color:oklch(1_0_0/25%)]";
+  const inputCls = "bg-muted border-[color:var(--auth-input-border)]";
 
   return (
     <div className="flex min-h-dvh flex-col bg-background md:flex-row">

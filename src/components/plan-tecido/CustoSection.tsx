@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { NumberInput } from "@/components/shared/NumberInput";
 import { precoInfo } from "@/lib/preco";
-import { brl } from "@/lib/format";
+import { brl, fmtNum } from "@/lib/format";
 import { AlertTriangle } from "lucide-react";
 import type { PtSlot } from "@/lib/plan-tecido/types";
 import { custoMateriaisPrevisto } from "@/lib/plan-tecido/calc";
@@ -69,7 +69,7 @@ export function CustoSection({ slot, onChange, maoObraEstado, maoObraServico }: 
           </div>
         )}
         <RO label="Custo total" value={brl(custoTotal)} />
-        <RO label="Markup (linha)" value={markup > 0 ? `${markup.toFixed(2)}×` : "—"} />
+        <RO label="Markup (linha)" value={markup > 0 ? `${fmtNum(markup)}×` : "—"} />
         <RO label="Preço sugerido" value={pi.sugerido > 0 ? brl(pi.sugerido) : "—"} />
         <div className="col-span-2"><div className="text-[10px] text-muted-foreground">Preço p/ venda</div>
           <NumberInput blankZero placeholder={pi.sugerido > 0 ? brl(pi.sugerido) : "0,00"} className="h-7 w-full text-right" value={slot.preco_venda ?? 0} onChange={(e) => onChange({ ...slot, preco_venda: Number(e.target.value) || 0 })} /></div>

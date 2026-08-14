@@ -46,9 +46,9 @@ export function FichaHeader({ title, modelo, logo }: { title: string; modelo: an
       {logo && <img src={logo} alt="logo" style={{ height: 44, objectFit: "contain" }} />}
       <div style={{ flex: 1, minWidth: 0 }}>
         <h1 style={{ fontSize: 18, fontWeight: 700, margin: "0 0 2px" }}>{title}</h1>
-        <div style={{ fontSize: 10.5, lineHeight: 1.45 }}>{linha(linha1)}</div>
-        <div style={{ fontSize: 10.5, lineHeight: 1.45 }}>{linha(linha2)}</div>
-        <div style={{ fontSize: 10.5, lineHeight: 1.45 }}>{linha(linha3)}</div>
+        <div style={{ fontSize: 11, lineHeight: 1.45 }}>{linha(linha1)}</div>
+        <div style={{ fontSize: 11, lineHeight: 1.45 }}>{linha(linha2)}</div>
+        <div style={{ fontSize: 11, lineHeight: 1.45 }}>{linha(linha3)}</div>
       </div>
     </div>
   );

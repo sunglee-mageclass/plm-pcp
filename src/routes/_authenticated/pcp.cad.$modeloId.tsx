@@ -6,6 +6,7 @@ import { useEtapasAfetadas, DownstreamConfirmDialog } from "@/components/desenvo
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { varianteLabel } from "@/lib/variante";
+import { roundTo } from "@/lib/num";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -438,7 +439,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
           quantidade_enviar: Number(a.quantidade_enviar ?? 0),
           quantidade_separar: Number(a.quantidade_separar ?? 0),
           preco,
-          custo_cad: Number((consumo * preco).toFixed(2)),
+          custo_cad: roundTo(consumo * preco, 2),
         };
       });
       // Vínculo Desenvolvimento → CAD: mescla aviamentos novos do modelo que
@@ -449,7 +450,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
         if (!ma.aviamento_id || haveAvi.has(ma.aviamento_id)) return;
         const consumo = Number(ma.consumo ?? 0);
         const preco = Number(ma.aviamentos?.preco ?? 0);
-        const qEnviar = Number((consumo * gradeTotalGeral).toFixed(4));
+        const qEnviar = roundTo(consumo * gradeTotalGeral, 4);
         initialAvi.push({
           numero: ++nextAviNum,
           aviamento_id: ma.aviamento_id,
@@ -459,14 +460,14 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
           quantidade_enviar: qEnviar,
           quantidade_separar: qEnviar,
           preco,
-          custo_cad: Number((consumo * preco).toFixed(2)),
+          custo_cad: roundTo(consumo * preco, 2),
         });
       });
     } else {
       initialAvi = (modeloAviamentos as any[]).map((ma) => {
         const consumo = Number(ma.consumo ?? 0);
         const preco = Number(ma.aviamentos?.preco ?? 0);
-        const qEnviar = Number((consumo * gradeTotalGeral).toFixed(4));
+        const qEnviar = roundTo(consumo * gradeTotalGeral, 4);
         return {
           numero: ma.numero,
           aviamento_id: ma.aviamento_id,
@@ -476,7 +477,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
           quantidade_enviar: qEnviar,
           quantidade_separar: qEnviar,
           preco,
-          custo_cad: Number((consumo * preco).toFixed(2)),
+          custo_cad: roundTo(consumo * preco, 2),
         };
       });
     }
@@ -587,7 +588,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
     setAviamentos((prev) => {
       const next = [...prev];
       const merged = { ...next[i], ...patch };
-      merged.custo_cad = Number(((Number(merged.consumo) || 0) * (Number(merged.preco) || 0)).toFixed(2));
+      merged.custo_cad = roundTo((Number(merged.consumo) || 0) * (Number(merged.preco) || 0), 2);
       next[i] = merged;
       return next;
     });
@@ -689,7 +690,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
               (v) => (v.tamanho ?? null) === t && (v.cor_id ?? null) === (e.cor_id ?? null));
             for (const t of gradeTamanhos) {
               if (!temVar(t)) continue;
-              const v = e.enviarPorTamanho[t] ?? Number((e.consumo * gradeSumByTamanho(t)).toFixed(2));
+              const v = e.enviarPorTamanho[t] ?? roundTo(e.consumo * gradeSumByTamanho(t), 2);
               enviarMap[t] = v;
               totalEnviar += v;
             }
@@ -699,8 +700,8 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
             cor_id: e.cor_id,
             consumo: e.consumo,
             // Total = consumo × grade total geral (o detalhamento por tamanho é a explosão).
-            quantidade_planejada: Number((e.consumo * gradeTotalGeral).toFixed(2)),
-            quantidade_enviar: Number(totalEnviar.toFixed(2)),
+            quantidade_planejada: roundTo(e.consumo * gradeTotalGeral, 2),
+            quantidade_enviar: roundTo(totalEnviar, 2),
             enviar_por_tamanho: enviarMap,
           };
         }),
@@ -841,7 +842,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
     [proporcoes],
   );
   const gradeTotalByNumero = (n: number) => grades.find((g) => g.variante_numero === n)?.grade_total ?? 0;
-  const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+  const round2 = (n: number) => roundTo(n, 2);
   // Cálculo automático GRAVA os valores no estado (prevalecem; ao desligar o
   // check eles ficam e podem ser ajustados à mão). Converge via guarda `changed`.
   useEffect(() => {
@@ -876,7 +877,7 @@ export function CadEditor({ modeloId, onAfterDelete, onClose }: { modeloId: stri
 
   useEffect(() => {
     setAviamentos((prev) => prev.map((a) => {
-      const qEnviar = Number((a.consumo * gradeTotalGeral).toFixed(4));
+      const qEnviar = roundTo(a.consumo * gradeTotalGeral, 4);
       return { ...a, grade_total: gradeTotalGeral, quantidade_enviar: qEnviar };
     }));
   }, [gradeTotalGeral]);

@@ -117,10 +117,10 @@ export function CadEtiquetasSection({
                         <tr className="border-t">
                           <td className="px-2 py-1" data-label="Tamanho">Geral</td>
                           <td className="px-2 py-1 text-center" data-label="Grade">{gradeTotalGeral}</td>
-                          <td className="px-2 py-1 text-center font-medium" data-label="Qtd planejada">{fmtNum(Number((e.consumo * gradeTotalGeral).toFixed(2)))}</td>
+                          <td className="px-2 py-1 text-center font-medium" data-label="Qtd planejada">{fmtNum(e.consumo * gradeTotalGeral)}</td>
                           <td className="px-2 py-1" data-label="Qtd a Enviar">
                             <NumberInput type="number" step="0.01" className="max-md:w-28"
-                              placeholder={fmtNum(Number((e.consumo * gradeTotalGeral).toFixed(2)))}
+                              placeholder={fmtNum(e.consumo * gradeTotalGeral)}
                               value={e.quantidade_enviar || ""}
                               onChange={(ev) => onUpdate(i, { quantidade_enviar: Number(ev.target.value) })} />
                           </td>
@@ -130,7 +130,7 @@ export function CadEtiquetasSection({
                       ) : (
                         gradeTamanhos.map((t) => {
                           const base = gradeSumByTamanho(t);
-                          const planej = Number((e.consumo * base).toFixed(2));
+                          const planej = e.consumo * base;
                           return (
                             <tr key={t} className="border-t">
                               <td className="px-2 py-1" data-label="Tamanho">

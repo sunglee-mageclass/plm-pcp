@@ -97,8 +97,8 @@ export function TenantSwitcher() {
             <span className="flex min-w-0 flex-1 items-center gap-2">
               <Store className="h-4 w-4 shrink-0 opacity-75" />
               <span className="flex min-w-0 flex-col items-start">
-                <span className="text-[8.5px] font-semibold uppercase leading-none tracking-[0.1em] opacity-60">Loja em visualização</span>
-                <span className="truncate text-[12.5px] font-semibold leading-tight"><SelectValue placeholder="Selecione a loja…" /></span>
+                <span className="text-[11px] font-semibold uppercase leading-none tracking-[0.1em] opacity-60">Loja em visualização</span>
+                <span className="truncate text-[13px] font-semibold leading-tight"><SelectValue placeholder="Selecione a loja…" /></span>
               </span>
             </span>
           </SelectTrigger>

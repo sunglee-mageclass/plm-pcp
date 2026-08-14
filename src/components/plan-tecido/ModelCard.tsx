@@ -7,6 +7,7 @@ import type { PtSlot, PtMaterial } from "@/lib/plan-tecido/types";
 import { ChevronRight, Lock } from "lucide-react";
 import type { DragHandle } from "./dnd";
 import { necessidadePorTecido, distribuirGrade, fmtMetros } from "@/lib/plan-tecido/calc";
+import { fmtInt } from "@/lib/format";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -270,7 +271,7 @@ export function ModelCard({
             <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
               {slot.ref && <span className="tabular-nums">{slot.ref}</span>}
               {!isRevenda && <span className="tabular-nums">{pieces} pç</span>}
-              {!isRevenda && <span className="tabular-nums">{total ? `${total.toFixed(0)} m` : "0 m"}</span>}
+              {!isRevenda && <span className="tabular-nums">{total ? `${fmtInt(total)} m` : "0 m"}</span>}
               {!isRevenda && usarEstoque && <span className="font-medium text-amber-700">estoque</span>}
             </div>
           </div>

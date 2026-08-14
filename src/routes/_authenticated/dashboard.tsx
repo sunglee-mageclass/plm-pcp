@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { brl, fmtNum } from "@/lib/format";
+import { brl, fmtNum, fmtPct, fmtInt } from "@/lib/format";
 import { precoInfo } from "@/lib/preco";
 import { normalizeKanbanStatuses } from "@/lib/kanban-status";
 import { useMemo, useState, type ReactNode } from "react";
@@ -16,7 +16,8 @@ import { FilterButton } from "@/components/shared/filters";
 import { useSort, SortTh } from "@/components/shared/sort";
 import { Button } from "@/components/ui/button";
 import { printWithImages } from "@/lib/print";
-import { RelatorioPrint, type RelSecao } from "@/components/shared/RelatorioPrint";
+import { RelatorioPrint, type RelSecao, REL_COR_SUCESSO, REL_COR_ALERTA, REL_COR_PERIGO } from "@/components/shared/RelatorioPrint";
+import { PBar, PBar2 } from "@/components/shared/PrintBarChart";
 import { PeriodoPicker, type Periodo } from "@/components/shared/PeriodoPicker";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
@@ -117,49 +118,7 @@ function DashError({ show }: { show?: boolean }) {
 
 /* ============================ COLEÇÃO ============================ */
 
-// Gráfico de barras de TAMANHO FIXO p/ impressão (ResponsiveContainer mede 0 em
-// display:none; isAnimationActive=false senão sai vazio escondido). Cor = paleta do
-// dashboard; rótulo de valor no topo; cantos arredondados.
-function PBar({ data, xKey, barKey, fmtL, color = PIE_COLORS[0], horizontal, height = 190, width = 680 }: { data: any[]; xKey: string; barKey: string; fmtL?: (v: any) => string; color?: string; horizontal?: boolean; height?: number; width?: number }) {
-  const lab = { fontSize: 9, fill: "#475569", fontWeight: 600 } as const;
-  if (horizontal) {
-    return (
-      <BarChart width={width} height={height} data={data} layout="vertical" margin={{ left: 2, right: 30, top: 2, bottom: 2 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#eef0f2" horizontal={false} />
-        <XAxis type="number" tick={{ fontSize: 9 }} tickFormatter={fmtL} axisLine={false} tickLine={false} />
-        <YAxis type="category" dataKey={xKey} width={132} tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
-        <Bar dataKey={barKey} fill={color} isAnimationActive={false} radius={[0, 3, 3, 0]}>
-          <LabelList dataKey={barKey} position="right" style={lab} formatter={fmtL} />
-        </Bar>
-      </BarChart>
-    );
-  }
-  return (
-    <BarChart width={width} height={height} data={data} margin={{ top: 16, right: 8, bottom: 2, left: 2 }}>
-      <CartesianGrid strokeDasharray="3 3" stroke="#eef0f2" vertical={false} />
-      <XAxis dataKey={xKey} tick={{ fontSize: 10 }} axisLine={{ stroke: "#ccc" }} tickLine={false} />
-      <YAxis tick={{ fontSize: 9 }} tickFormatter={fmtL} axisLine={false} tickLine={false} width={fmtL ? 42 : 28} />
-      <Bar dataKey={barKey} fill={color} isAnimationActive={false} radius={[3, 3, 0, 0]}>
-        <LabelList dataKey={barKey} position="top" style={lab} formatter={fmtL} />
-      </Bar>
-    </BarChart>
-  );
-}
-
 const nfInt = (n: any) => Number(n ?? 0).toLocaleString("pt-BR");
-// Duas mini-barras lado a lado (ex.: Modelos | Grade), p/ caber no A4.
-function PBar2({ a, b }: { a: { titulo: string; node: ReactNode }; b: { titulo: string; node: ReactNode } }) {
-  return (
-    <div style={{ display: "flex", gap: 18 }}>
-      {[a, b].map((c, i) => (
-        <div key={i} style={{ flex: 1 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 2 }}>{c.titulo}</div>
-          {c.node}
-        </div>
-      ))}
-    </div>
-  );
-}
 
 function ColecaoTab() {
   const [periodo, setPeriodo] = useState<Periodo>(undefined);
@@ -603,7 +562,7 @@ function ProducaoTab() {
       <div className="grid gap-4 lg:grid-cols-[1fr_1fr_1fr_260px]">
         <Kpi label="Entregas no prazo" value={kpiPrazo.noPrazo} icon={CheckCircle2} cor="hsl(142 71% 45%)" sub="entregas de Serviços" />
         <Kpi label="Atrasadas" value={kpiPrazo.atrasadas} icon={AlertTriangle} cor={Number(kpiPrazo.atrasadas) > 0 ? "hsl(0 84% 60%)" : undefined} sub={`${Math.round((Number(kpiPrazo.atrasadas) / Math.max(Number(kpiPrazo.noPrazo) + Number(kpiPrazo.atrasadas), 1)) * 100)}% do total`} />
-        <Kpi label="Defeito médio" value={`${defeitoMedio.toFixed(1)}%`} icon={Sparkles} cor="hsl(45 93% 47%)" sub="defeito ÷ recebido" />
+        <Kpi label="Defeito médio" value={fmtPct(defeitoMedio)} icon={Sparkles} cor="hsl(45 93% 47%)" sub="defeito ÷ recebido" />
         <Card className="p-4 flex flex-col">
           <span className="text-xs font-medium text-muted-foreground mb-1">% no prazo</span>
           <div className="flex-1 flex items-center justify-center">
@@ -729,11 +688,11 @@ function ProducaoTab() {
         subtitulo="Cortes, finalizações, SLA e defeitos da produção"
         dataStr={new Date().toLocaleDateString("pt-BR")}
         kpis={[
-          { label: "Entregas no prazo", valor: String(kpiPrazo.noPrazo ?? 0), cor: "#16a34a" },
-          { label: "Atrasadas", valor: String(kpiPrazo.atrasadas ?? 0), cor: Number(kpiPrazo.atrasadas) > 0 ? "#dc2626" : undefined },
-          { label: "Defeito médio", valor: `${defeitoMedio.toFixed(1)}%`, cor: "#ca8a04" },
+          { label: "Entregas no prazo", valor: String(kpiPrazo.noPrazo ?? 0), cor: REL_COR_SUCESSO },
+          { label: "Atrasadas", valor: String(kpiPrazo.atrasadas ?? 0), cor: Number(kpiPrazo.atrasadas) > 0 ? REL_COR_PERIGO : undefined },
+          { label: "Defeito médio", valor: fmtPct(defeitoMedio), cor: REL_COR_ALERTA },
         ]}
-        donut={{ pct: Math.round(Number(kpiPrazo.pct) || 0), cor: "#16a34a", titulo: "Entregas no prazo", legenda: `${kpiPrazo.noPrazo ?? 0} no prazo · ${kpiPrazo.atrasadas ?? 0} atrasadas` }}
+        donut={{ pct: Math.round(Number(kpiPrazo.pct) || 0), cor: REL_COR_SUCESSO, titulo: "Entregas no prazo", legenda: `${kpiPrazo.noPrazo ?? 0} no prazo · ${kpiPrazo.atrasadas ?? 0} atrasadas` }}
         secoes={[
           {
             titulo: "Qualidade — taxa de defeito por mês", icone: "◷",
@@ -928,10 +887,10 @@ function FinanceiroTab() {
         dataStr={new Date().toLocaleDateString("pt-BR")}
         kpis={[
           { label: "Investido em MP", valor: brl(investido) },
-          { label: "Total pago", valor: brl(pago), cor: "#16a34a" },
-          { label: "Total pendente", valor: brl(pendente), cor: "#ca8a04" },
+          { label: "Total pago", valor: brl(pago), cor: REL_COR_SUCESSO },
+          { label: "Total pendente", valor: brl(pendente), cor: REL_COR_ALERTA },
         ]}
-        donut={(pago + pendente) > 0 ? { pct: Math.round((pago / (pago + pendente)) * 100), cor: "#16a34a", titulo: "Pago do total", legenda: `${brl(pago)} pago · ${brl(pendente)} pendente` } : undefined}
+        donut={(pago + pendente) > 0 ? { pct: Math.round((pago / (pago + pendente)) * 100), cor: REL_COR_SUCESSO, titulo: "Pago do total", legenda: `${brl(pago)} pago · ${brl(pendente)} pendente` } : undefined}
         secoes={[
           {
             titulo: "Contas a pagar — projeção mensal", icone: "▦",
@@ -1069,9 +1028,9 @@ function CustosTab() {
         kpis={[
           { label: "Modelos analisados", valor: String((rows as any[]).length) },
           { label: "Variação média", valor: `${Math.round((rows as any[]).reduce((s, r) => s + (Number(r.pct) || 0), 0) / Math.max((rows as any[]).length, 1))}%` },
-          { label: "Acima do previsto", valor: String((rows as any[]).filter((r) => Number(r.pct) > 0).length), cor: "#dc2626" },
+          { label: "Acima do previsto", valor: String((rows as any[]).filter((r) => Number(r.pct) > 0).length), cor: REL_COR_PERIGO },
         ]}
-        donut={(rows as any[]).length > 0 ? { pct: Math.round(((rows as any[]).filter((r) => Number(r.pct) <= 0).length / (rows as any[]).length) * 100), cor: "#16a34a", titulo: "Dentro do previsto", legenda: `${(rows as any[]).filter((r) => Number(r.pct) <= 0).length} de ${(rows as any[]).length} modelos no custo previsto ou abaixo` } : undefined}
+        donut={(rows as any[]).length > 0 ? { pct: Math.round(((rows as any[]).filter((r) => Number(r.pct) <= 0).length / (rows as any[]).length) * 100), cor: REL_COR_SUCESSO, titulo: "Dentro do previsto", legenda: `${(rows as any[]).filter((r) => Number(r.pct) <= 0).length} de ${(rows as any[]).length} modelos no custo previsto ou abaixo` } : undefined}
         secoes={[
           {
             titulo: "Custo médio por peça por coleção", icone: "▣",
@@ -1109,7 +1068,9 @@ function CustosTab() {
 // + queries RLS por tenant. Espelha o "poder de venda" do Planejamento/Lançamentos.
 type ComRow = { key: string; nome: string; pvPlan: number; lucroPlan: number; pvReal: number; lucroReal: number; margemPlan: number; markupPlan: number; margemReal: number; markupReal: number };
 
-const fmtPct = (v: number) => (v > 0 ? `${v.toFixed(0)}%` : "—");
+// Nome PRÓPRIO (distinto do `fmtPct` de src/lib/format.ts, 1 casa decimal) — este é
+// 0 casas + fallback "—" p/ v<=0, usado só nesta aba Comercial.
+const fmtPctComercial = (v: number) => (v > 0 ? `${fmtInt(v)}%` : "—");
 const fmtMkp = (v: number) => (v > 0 ? `${v.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}×` : "—");
 
 // Tabela com DOIS grupos de colunas claramente separados: Planejado (orçamento, grade
@@ -1150,11 +1111,11 @@ function ComTable({ title, firstLabel, rows }: { title: string; firstLabel: stri
                 <td className="py-2 pr-3 font-medium">{r.nome}</td>
                 <td className={`py-2 px-2 text-right border-l ${plan}`} data-label="Plan · PV">{brl(r.pvPlan)}</td>
                 <td className={`py-2 px-2 text-right ${plan}`} data-label="Plan · Lucro">{brl(r.lucroPlan)}</td>
-                <td className={`py-2 px-2 text-right ${plan}`} data-label="Plan · Margem">{fmtPct(r.margemPlan)}</td>
+                <td className={`py-2 px-2 text-right ${plan}`} data-label="Plan · Margem">{fmtPctComercial(r.margemPlan)}</td>
                 <td className={`py-2 px-2 text-right ${plan}`} data-label="Plan · Markup">{fmtMkp(r.markupPlan)}</td>
                 <td className={`py-2 px-2 text-right border-l ${real}`} data-label="Real · PV">{brl(r.pvReal)}</td>
                 <td className={`py-2 px-2 text-right ${real}`} data-label="Real · Lucro">{brl(r.lucroReal)}</td>
-                <td className={`py-2 px-2 text-right ${real}`} data-label="Real · Margem">{fmtPct(r.margemReal)}</td>
+                <td className={`py-2 px-2 text-right ${real}`} data-label="Real · Margem">{fmtPctComercial(r.margemReal)}</td>
                 <td className={`py-2 px-2 text-right ${real}`} data-label="Real · Markup">{fmtMkp(r.markupReal)}</td>
               </tr>
             ))}
@@ -1280,7 +1241,7 @@ function ComercialTab() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Kpi label="Poder de venda" value={brl(tot.pvPlan)} icon={Tag} sub={`realizado ${brl(tot.pvReal)}`} />
         <Kpi label="Lucro bruto" value={brl(tot.lucroPlan)} icon={DollarSign} sub={`realizado ${brl(tot.lucroReal)}`} />
-        <Kpi label="Margem média" value={fmtPct(tot.margemPlan)} icon={Sparkles} sub={`realizado ${fmtPct(tot.margemReal)}`} />
+        <Kpi label="Margem média" value={fmtPctComercial(tot.margemPlan)} icon={Sparkles} sub={`realizado ${fmtPctComercial(tot.margemReal)}`} />
         <Kpi label="Markup médio" value={fmtMkp(tot.markupPlan)} icon={Layers} sub={`realizado ${fmtMkp(tot.markupReal)}`} />
       </div>
 

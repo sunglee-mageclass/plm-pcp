@@ -16,7 +16,7 @@ export function HomePage() {
   useApplySystemIdentity();
 
   return (
-    <div className="relative min-h-dvh overflow-hidden bg-background dark:[--color-foreground:oklch(0.93_0.012_248)] dark:[--color-primary:oklch(0.72_0.1_248)]">
+    <div className="relative min-h-dvh overflow-hidden bg-background dark:[--color-foreground:var(--sidebar-foreground)] dark:[--color-primary:var(--home-hero-primary)]">
       {/* Tecelagem de fundo */}
       <TecelagemAnimacao className="absolute inset-0 h-full w-full" opacity={1} />
       {/* Véu para legibilidade (centro mais limpo, bordas com o tecido aparecendo) */}

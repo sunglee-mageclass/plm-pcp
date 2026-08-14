@@ -602,7 +602,7 @@ function DesenvolvimentoPage() {
                   className="flex-1 w-9 flex flex-col items-center gap-2 py-3 hover:bg-muted/50"
                 >
                   <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: s.color ?? "#64748b" }} />
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: s.color ?? "var(--muted-foreground)" }} />
                   <span className="text-sm font-semibold whitespace-nowrap [writing-mode:vertical-rl] rotate-180">{s.label}</span>
                   <span className="text-xs text-muted-foreground">{cards.length}</span>
                 </button>
@@ -615,7 +615,7 @@ function DesenvolvimentoPage() {
                     title="Recolher coluna"
                     className="flex items-center gap-2 px-3 py-2.5 border-b hover:bg-muted/50 text-left"
                   >
-                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: s.color ?? "#64748b" }} />
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: s.color ?? "var(--muted-foreground)" }} />
                     <span className="text-sm font-semibold truncate">{s.label}</span>
                     <span className="ml-auto text-xs text-muted-foreground tabular-nums">{cards.length}</span>
                     <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60 rotate-90" />
@@ -659,7 +659,7 @@ function DesenvolvimentoPage() {
                 <AccordionTrigger className="py-2 hover:no-underline">
                   <div className="flex flex-1 items-center justify-between gap-2 pr-2">
                     <div className="flex min-w-0 items-center gap-2">
-                      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: s.color ?? "#64748b" }} />
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: s.color ?? "var(--muted-foreground)" }} />
                       <span className="truncate text-sm font-semibold">{s.label}</span>
                     </div>
                     <span className="text-xs text-muted-foreground shrink-0">{cards.length}</span>

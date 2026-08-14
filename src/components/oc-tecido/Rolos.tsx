@@ -145,7 +145,7 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
         const m = Number(metragemSep);
         if (!(m > 0)) throw new Error("Informe a metragem a separar.");
         if (m > item.disponivel_m + 1e-6)
-          throw new Error(`Só há ${item.disponivel_m.toFixed(2)}m disponíveis nessa OC.`);
+          throw new Error(`Só há ${fmtNum(item.disponivel_m)}m disponíveis nessa OC.`);
         const { error } = await supabase.rpc("criar_rolo" as any, {
           _codigo: codigo, _artigo_id: item.artigo_id,
           _variantes: [{ variante_tecido_id: item.variante_tecido_id, metragem: m }],
@@ -260,7 +260,7 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
                     <SelectContent>
                       {ocItems.map((it) => (
                         <SelectItem key={it.oc_tecido_item_id} value={it.oc_tecido_item_id}>
-                          {it.artigo_nome ?? "—"} · {it.variante} — {it.disponivel_m.toFixed(2)}m
+                          {it.artigo_nome ?? "—"} · {it.variante} — {fmtNum(it.disponivel_m)}m
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -273,7 +273,7 @@ export function RoloDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
                   <Input type="number" value={metragemSep} max={selectedItem.disponivel_m}
                     onChange={(e) => setMetragemSep(e.target.value)} placeholder="metros" />
                   <p className="text-xs text-muted-foreground">
-                    Disponível: {selectedItem.disponivel_m.toFixed(2)}m. A metragem sai do estoque
+                    Disponível: {fmtNum(selectedItem.disponivel_m)}m. A metragem sai do estoque
                     dessa OC e passa a ser o rolo.
                   </p>
                 </div>
@@ -756,7 +756,7 @@ export function RemoverMetragemDialog({ onClose }: { onClose: () => void }) {
       if (!selectedItem) throw new Error("Selecione o tecido / variante.");
       const m = Number(metragem);
       if (!(m > 0)) throw new Error("Informe a metragem a remover.");
-      if (m > selectedItem.disponivel_m + 1e-6) throw new Error(`Só há ${selectedItem.disponivel_m.toFixed(2)}m disponíveis.`);
+      if (m > selectedItem.disponivel_m + 1e-6) throw new Error(`Só há ${fmtNum(selectedItem.disponivel_m)}m disponíveis.`);
       if (!motivo.trim()) throw new Error("Informe o motivo.");
       const { error } = await supabase.rpc("remover_metragem_oc" as any, {
         _oc_tecido_item_id: ocItemId, _metragem: m, _motivo: motivo,
@@ -798,7 +798,7 @@ export function RemoverMetragemDialog({ onClose }: { onClose: () => void }) {
                 <SelectContent>
                   {ocItems.map((it) => (
                     <SelectItem key={it.oc_tecido_item_id} value={it.oc_tecido_item_id}>
-                      {it.artigo_nome ?? "—"} · {it.variante} — {it.disponivel_m.toFixed(2)}m
+                      {it.artigo_nome ?? "—"} · {it.variante} — {fmtNum(it.disponivel_m)}m
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -811,7 +811,7 @@ export function RemoverMetragemDialog({ onClose }: { onClose: () => void }) {
                 <Label>Metragem a remover (m)</Label>
                 <Input type="number" value={metragem} max={selectedItem.disponivel_m}
                   onChange={(e) => setMetragem(e.target.value)} placeholder="metros" />
-                <p className="text-xs text-muted-foreground">Disponível: {selectedItem.disponivel_m.toFixed(2)}m.</p>
+                <p className="text-xs text-muted-foreground">Disponível: {fmtNum(selectedItem.disponivel_m)}m.</p>
               </div>
               <div className="space-y-1.5">
                 <Label>Motivo</Label>

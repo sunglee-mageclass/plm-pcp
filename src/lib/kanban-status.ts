@@ -8,21 +8,26 @@
 
 export type KanbanStatus = { key: string; label: string; color?: string };
 
+// Cores via token (§Q3, varredura onda 2, ago/2026): "aprovado"/"reprovado"/"stand by"/
+// "em ajuste" reusam os tons de feedback do tema (--success/--destructive/--muted-foreground/
+// --warning — reagem a claro/escuro). Os estágios do MEIO do pipeline não têm tom de
+// feedback correspondente — usam a paleta categórica própria (--kanban-*, mesmos hex de
+// antes) declarada em src/styles.css.
 export const DEFAULT_STATUSES: KanbanStatus[] = [
-  { key: "em_modelagem", label: "Em Modelagem", color: "#3b82f6" },
-  { key: "corte_piloto_1", label: "Corte de Piloto I", color: "#6366f1" },
-  { key: "corte_piloto_2", label: "Corte de Piloto II", color: "#6366f1" },
-  { key: "corte_piloto_3", label: "Corte de Piloto III", color: "#6366f1" },
-  { key: "em_pilotagem", label: "Em Pilotagem", color: "#8b5cf6" },
-  { key: "prova_roupa_1", label: "Prova de Roupa I", color: "#a855f7" },
-  { key: "prova_roupa_2", label: "Prova de Roupa II", color: "#a855f7" },
-  { key: "prova_roupa_3", label: "Prova de Roupa III", color: "#a855f7" },
-  { key: "prova_roupa_4", label: "Prova de Roupa IV", color: "#a855f7" },
-  { key: "prova_roupa_5", label: "Prova de Roupa V", color: "#a855f7" },
-  { key: "em_ajuste", label: "Em Ajuste", color: "#f59e0b" },
-  { key: "stand_by", label: "Stand By", color: "#64748b" },
-  { key: "reprovado", label: "Reprovado", color: "#ef4444" },
-  { key: "aprovado", label: "Aprovado", color: "#10b981" },
+  { key: "em_modelagem", label: "Em Modelagem", color: "var(--kanban-blue)" },
+  { key: "corte_piloto_1", label: "Corte de Piloto I", color: "var(--kanban-indigo)" },
+  { key: "corte_piloto_2", label: "Corte de Piloto II", color: "var(--kanban-indigo)" },
+  { key: "corte_piloto_3", label: "Corte de Piloto III", color: "var(--kanban-indigo)" },
+  { key: "em_pilotagem", label: "Em Pilotagem", color: "var(--kanban-violet)" },
+  { key: "prova_roupa_1", label: "Prova de Roupa I", color: "var(--kanban-purple)" },
+  { key: "prova_roupa_2", label: "Prova de Roupa II", color: "var(--kanban-purple)" },
+  { key: "prova_roupa_3", label: "Prova de Roupa III", color: "var(--kanban-purple)" },
+  { key: "prova_roupa_4", label: "Prova de Roupa IV", color: "var(--kanban-purple)" },
+  { key: "prova_roupa_5", label: "Prova de Roupa V", color: "var(--kanban-purple)" },
+  { key: "em_ajuste", label: "Em Ajuste", color: "var(--warning)" },
+  { key: "stand_by", label: "Stand By", color: "var(--muted-foreground)" },
+  { key: "reprovado", label: "Reprovado", color: "var(--destructive)" },
+  { key: "aprovado", label: "Aprovado", color: "var(--success)" },
 ];
 
 // Chave snake do status "aprovado" (gatilho de Enviar ao CAD). Fixa, NÃO "último item".

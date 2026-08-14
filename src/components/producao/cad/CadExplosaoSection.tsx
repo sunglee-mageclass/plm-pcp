@@ -1,5 +1,6 @@
 import { Package } from "lucide-react";
 import { fmtNum } from "@/lib/format";
+import { roundTo } from "@/lib/num";
 import { Card } from "@/components/ui/card";
 import { NumberInput } from "@/components/shared/NumberInput";
 import type { AviamentoRow } from "./types";
@@ -42,7 +43,7 @@ export function CadExplosaoSection({ aviamentos, gradeTotalGeral, updateAvi }: P
                   <td className="px-2 py-1">{a.aviamento_nome ?? "—"}</td>
                   <td className="px-2 py-1" data-label="Consumo">
                     <NumberInput type="number" step="0.0001" className="max-md:w-28" placeholder="0,00" value={a.consumo || ""}
-                      onChange={(e) => { const c = Math.max(0, Number(e.target.value)); updateAvi(i, { consumo: c, quantidade_enviar: Number((c * gradeTotalGeral).toFixed(4)) }); }} />
+                      onChange={(e) => { const c = Math.max(0, Number(e.target.value)); updateAvi(i, { consumo: c, quantidade_enviar: roundTo(c * gradeTotalGeral, 4) }); }} />
                   </td>
                   <td className="px-2 py-1 text-center text-muted-foreground" data-label="Preço (R$)">{fmtNum(a.preco)}</td>
                   <td className="px-2 py-1 text-center font-medium" data-label="Custo CAD (R$)">{fmtNum(a.custo_cad)}</td>

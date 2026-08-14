@@ -157,9 +157,34 @@
   --tone-info-fg: color-mix(in oklab, var(--primary) 70%, var(--foreground));
   --tone-neutral-bg: var(--muted);
   --tone-neutral-fg: var(--muted-foreground);
+
+  /* Q3 · Tokens de COMPONENTE — valor específico de uma tela, promovido a variável p/
+     sair do componente (varredura onda 2, ago/2026). Cada um documentado por origem;
+     "aprovado"/"reprovado"/"stand by"/"em ajuste" reusam os tons de feedback (Q9)
+     direto no consumidor (var(--success)/var(--destructive)/var(--muted-foreground)/
+     var(--warning)) — não precisam de token próprio aqui. */
+
+  /* Kanban de Desenvolvimento (src/lib/kanban-status.ts) — estágios do MEIO do pipeline
+     (em_modelagem, corte_piloto I–III, em_pilotagem, prova_roupa I–V) não têm tom de
+     feedback correspondente (não são sucesso/alerta/erro — só precisam de cor DISTINTA
+     por estágio pro dot de status). Paleta categórica própria, MESMOS hex de hoje (zero
+     drift visual) — só sai do .ts solto pra cá. */
+  --kanban-blue: #3b82f6; /* em_modelagem */
+  --kanban-indigo: #6366f1; /* corte_piloto I/II/III */
+  --kanban-violet: #8b5cf6; /* em_pilotagem */
+  --kanban-purple: #a855f7; /* prova_roupa I–V */
+
+  /* Início (HomePage) + Login (auth.tsx) — tecelagem canvas no fundo NAVY escuro precisa
+     de um traço mais claro que --primary p/ ficar legível (o canvas lê a cor computada
+     via sonda de classe, não dá pra usar color-mix ali sem arriscar o tom). */
+  --home-hero-primary: oklch(0.72 0.1 248);
+  /* Login — borda do input mais escura que --input padrão (contraste 1,23:1 era baixo
+     demais contra o card, laudo WCAG 1.4.11); troca por tema via seletor .dark abaixo. */
+  --auth-input-border: oklch(0.8 0.01 248);
 }
 
 .dark {
+  --auth-input-border: oklch(1 0 0 / 25%);
   --background: oklch(0.16 0.025 265);
   --foreground: oklch(0.95 0.008 248);
   --card: oklch(0.21 0.035 265);

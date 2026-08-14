@@ -7,6 +7,14 @@ import { useTenantBranding } from "@/hooks/useTenantBranding";
 // (tabela simples OU seções com ícone/gráfico/tabela) + rodapé institucional.
 
 const TINTA = "#1a1a1a";
+
+// Paleta fixa de acento p/ KPI/donut do relatório — impressão é sempre fundo claro com
+// cores FIXAS de propósito (nunca token de tema, ver exceção de impressão §Q3): exportadas
+// p/ os chamadores (dashboard.tsx, financeiro.tsx) montarem `kpis`/`donut` sem reintroduzir
+// hex solto fora daqui.
+export const REL_COR_SUCESSO = "#16a34a";
+export const REL_COR_ALERTA = "#ca8a04";
+export const REL_COR_PERIGO = "#dc2626";
 const cellH: CSSProperties = { borderBottom: "2px solid #333", padding: "6px 8px", background: "#f0f0f0", fontWeight: 700, fontSize: 10, letterSpacing: 0.3, textTransform: "uppercase", color: TINTA };
 const cell: CSSProperties = { borderBottom: "1px solid #e6e6e6", padding: "5px 8px", fontSize: 11, color: TINTA };
 
@@ -53,7 +61,7 @@ function SecaoHeader({ icone, titulo, descricao }: { icone?: string; titulo: str
     <div style={{ marginBottom: 8 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 9, borderBottom: "1px solid #ccc", paddingBottom: 4 }}>
         {icone && <Icone ch={icone} />}
-        <div style={{ fontSize: 12.5, fontWeight: 700, letterSpacing: 0.2, textTransform: "uppercase" }}>{titulo}</div>
+        <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: 0.2, textTransform: "uppercase" }}>{titulo}</div>
       </div>
       {descricao && <div style={{ fontSize: 10, color: "#666", marginTop: 5 }}>{descricao}</div>}
     </div>
@@ -95,14 +103,14 @@ export function RelatorioPrint({
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             {loja.logoUrl && <img src={loja.logoUrl} alt="" style={{ maxHeight: 38, maxWidth: 96, objectFit: "contain" }} />}
-            <div style={{ fontSize: 12.5, color: "#444" }}>
+            <div style={{ fontSize: 12, color: "#444" }}>
               <b style={{ color: TINTA }}>{nomeLoja}</b>{loja.cnpj ? ` · CNPJ ${loja.cnpj}` : ""}{loja.contato ? ` · ${loja.contato}` : ""}
             </div>
           </div>
-          <div style={{ fontSize: 9.5, color: "#888" }}>Emitido em {dataStr}</div>
+          <div style={{ fontSize: 11, color: "#888" }}>Emitido em {dataStr}</div>
         </div>
         <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: -0.4, lineHeight: 1.1 }}>{titulo}</div>
-        {subtitulo && <div style={{ fontSize: 11.5, color: "#555", marginTop: 2 }}>{subtitulo}</div>}
+        {subtitulo && <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>{subtitulo}</div>}
         <div style={{ height: 5, background: TINTA, margin: "10px 0 16px" }} />
 
         {/* Faixa de KPIs */}
@@ -110,7 +118,7 @@ export function RelatorioPrint({
           <div className="print-section" style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
             {kpis.map((k, i) => (
               <div key={i} style={{ flex: "1 1 0", minWidth: 110, border: "1px solid #ddd", borderRadius: 8, padding: "9px 13px" }}>
-                <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#888" }}>{k.label}</div>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 0.4, textTransform: "uppercase", color: "#888" }}>{k.label}</div>
                 <div style={{ fontSize: 22, fontWeight: 800, marginTop: 3, color: k.cor ?? TINTA }}>{k.valor}</div>
               </div>
             ))}
@@ -147,7 +155,7 @@ export function RelatorioPrint({
         )}
 
         {/* Rodapé institucional */}
-        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 20, paddingTop: 6, borderTop: "1px solid #ddd", fontSize: 8.5, color: "#999" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 20, paddingTop: 6, borderTop: "1px solid #ddd", fontSize: 11, color: "#999" }}>
           <span>Relatório gerado pelo sisTrama</span>
           <span>{nomeLoja} · {dataStr}</span>
         </div>

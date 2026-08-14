@@ -23,6 +23,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { varianteLabel } from "@/lib/variante";
 import { ehGrupoAcessorio, cadeiaValores } from "@/lib/produto-acabado";
+import { fmtNum } from "@/lib/format";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { ModeloResumoFoto } from "@/components/shared/ModeloResumoFoto";
 import {
@@ -696,7 +697,7 @@ export function ProdutoCard({
                       { label: "V. unit. real", valor: fmtMoney(unitReal) },
                       { label: "Σ insumos", valor: fmtMoney(produto.insumos_total) },
                       { label: "Custo total da peça", hint: "(v. unit. real + insumos)", valor: fmtMoney(base), hi: true },
-                      { label: "Markup da linha", valor: markupLinha != null ? `${markupLinha.toFixed(2)}×` : "—" },
+                      { label: "Markup da linha", valor: markupLinha != null ? `${fmtNum(markupLinha)}×` : "—" },
                     ]} />
                     <div className="grid grid-cols-2 gap-3 rounded-md border p-3">
                       <div className="space-y-1">
@@ -711,7 +712,7 @@ export function ProdutoCard({
                           />
                           <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
                         </div>
-                        {markupLinha != null && <p className="text-[10px] text-muted-foreground">sugestão da linha: {markupLinha.toFixed(2)}×</p>}
+                        {markupLinha != null && <p className="text-[10px] text-muted-foreground">sugestão da linha: {fmtNum(markupLinha)}×</p>}
                       </div>
                       <div className="space-y-1">
                         <Label className="text-sm">Markup varejo</Label>
@@ -725,7 +726,7 @@ export function ProdutoCard({
                           />
                           <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">×</span>
                         </div>
-                        {markupLinha != null && <p className="text-[10px] text-muted-foreground">sugestão da linha: {markupLinha.toFixed(2)}×</p>}
+                        {markupLinha != null && <p className="text-[10px] text-muted-foreground">sugestão da linha: {fmtNum(markupLinha)}×</p>}
                       </div>
                       <div className="col-span-2 grid grid-cols-2 gap-3 border-t pt-3">
                         <div>
