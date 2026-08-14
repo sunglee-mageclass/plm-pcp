@@ -5,7 +5,9 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 disabled:cursor-not-allowed [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  // Padrões v3 §Q4/§Q10: foco = outline 2px + offset (era ring-1 sem respiro);
+  // disabled = SÓLIDO via token muted (motivo sempre visível), NUNCA opacity.
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium cursor-pointer transition-colors focus-visible:[outline:2px_solid_var(--ring)] focus-visible:outline-offset-2 disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground disabled:border-transparent disabled:shadow-none [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
@@ -18,8 +20,10 @@ const buttonVariants = cva(
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {
+        // §Q4/§Q6: padrão 36px · compacto (sm) 30px · confortável (lg) 40px.
+        // Toque 44px no mobile (max-md:h-11) mantido em todos.
         default: "h-9 px-4 py-2 max-md:h-11",
-        sm: "h-8 rounded-md px-3 text-xs max-md:h-11",
+        sm: "h-[30px] rounded-md px-3 text-xs max-md:h-11",
         lg: "h-10 rounded-md px-8 max-md:h-11",
         icon: "h-9 w-9 max-md:h-11 max-md:w-11",
         // Ícone compacto p/ AÇÕES DENTRO DE TABELAS (editar/excluir na linha): 32px em

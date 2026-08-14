@@ -16,6 +16,26 @@ export function brl(n: number | string | null | undefined): string {
 }
 
 /**
+ * Percentual pt-BR com 1 casa decimal (ex.: 12,5%) — padrão §Q12 (adotado; ajustável).
+ * Recebe o valor JÁ em pontos percentuais (50 → "50,0%"), não a fração (0,5).
+ */
+export function fmtPct(n: number | string | null | undefined): string {
+  const v = typeof n === "string" ? Number(n) : (n ?? 0);
+  if (n === "" || v === null || v === undefined || Number.isNaN(v as number)) return "0,0%";
+  return `${(v as number).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+}
+
+/**
+ * Quantidade/peça: inteiro pt-BR, sem casas, com separador de milhar (ex.: 1.234).
+ * Para EXIBIÇÃO (a entrada usa <NumberInput integer>).
+ */
+export function fmtInt(n: number | string | null | undefined): string {
+  const v = typeof n === "string" ? Number(n) : (n ?? 0);
+  if (n === "" || v === null || v === undefined || Number.isNaN(v as number)) return "0";
+  return Math.round(v as number).toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+}
+
+/**
  * Máscara de CNPJ — padroniza com pontos/barra/traço (00.000.000/0000-00),
  * independente de como o usuário digita (aceita só os dígitos e formata).
  * Formata parcial enquanto digita; ignora não-dígitos e limita a 14 dígitos.

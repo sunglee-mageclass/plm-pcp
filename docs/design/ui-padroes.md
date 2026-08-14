@@ -453,12 +453,19 @@ Aplicar §K–§O **de pouco em pouco, uma tela por vez** (cada adoção = rodad
 
 ## Q. Padrões v3 (cartilha) — referência rápida
 
-> **Status:** aprovado como direção pelo dono, ago/2026. Tokens/componentes da cartilha **ainda não
-> foram implementados** (camada 1 fica para depois) — até lá, **§Q vale para código NOVO**; código
-> existente segue §A–§P até a rodada de implementação alcançá-lo (rollout tela a tela, como §P).
-> Guia visual completo (12 padrões, demonstração Hoje→v3, "porquê" por padrão): artifact
-> [`d03a192e-79ff-4b70-9f58-a6d58e8e1cdd`](https://claude.ai/code/artifact/d03a192e-79ff-4b70-9f58-a6d58e8e1cdd).
-> Teste anti-drift (scanner, desligado até a implementação): `tests/unit/ui-padroes-antidrift.test.ts`.
+> **Status:** **tokens/componentes implementados (onda 1) — varredura de telas pendente (onda 2)**
+> (ago/2026). A fundação já está no código: tokens em `src/styles.css` (Q1 espaçamento `--space-*`,
+> Q5 tipografia `--text-*`/`--tracking-*`, Q6 raios `--radius-chip`/`--radius-modal`, Q7 elevação
+> `--elevation-0..4` com hairline no escuro, Q8 ícones `--icon-*`, Q9 tons `--tone-*-bg/-fg`), botão v3
+> (`button.tsx`: 36px padrão / 30px compacto / `iconSm` 32px preservado, disabled SÓLIDO via `muted`,
+> foco `outline:2px + offset`), `:focus-visible` global em `styles.css`, `StatusBadge` na fórmula
+> `color-mix` contra `--card` (claro+escuro), `fmtPct`/`fmtInt` + classe `.num` (Q12), e
+> `src/lib/icon-size.ts` (espelho TS de Q8). A **adoção tela a tela** (trocar valor solto pelo token)
+> é a **onda 2** — até lá o código existente segue §A–§P e **§Q vale para código NOVO** (via primitivos
+> compartilhados). Guia visual completo (12 padrões, demonstração Hoje→v3, "porquê" por padrão):
+> artifact [`d03a192e-79ff-4b70-9f58-a6d58e8e1cdd`](https://claude.ai/code/artifact/d03a192e-79ff-4b70-9f58-a6d58e8e1cdd).
+> Teste anti-drift (scanner sempre-ativo que loga contagens; asserções desligadas até a onda 2):
+> `tests/unit/ui-padroes-antidrift.test.ts`.
 
 ### Q1. Espaçamento — escala base-4, 10 degraus
 
@@ -544,8 +551,10 @@ proíbe fracionário arbitrário fora da escala.
 | Compacto | 30–32px desktop, linha 32–36px | 12 | tabelas / canvas / listas densas |
 
 Regra de ouro: nunca encolher um **INPUT de digitação** abaixo de 44px no toque, nem em modo
-compacto. Raio: `--radius` 10px base · `--radius-sm` 7px (chip pequeno) · `--radius-lg` 14px
-(Dialog/Sheet).
+compacto. Raio: `--radius` 10px base (já shipado) · chip pequeno 7px · Dialog/Sheet 14px. **Na
+implementação (onda 1)** os dois últimos entraram como `--radius-chip`/`--radius-modal` — os nomes
+`--radius-sm`/`--radius-lg` da cartilha colidiriam com a escala Tailwind `rounded-*` (`@theme inline`
+em `styles.css`), mantida INTOCADA p/ não alterar o visual das ~44 telas que a usam.
 
 ### Q7. Elevação — 5 níveis com propósito
 
@@ -616,7 +625,7 @@ pt-BR sempre: milhar "." · decimal ",".
 | Dinheiro | SEMPRE 2 | `brl()` / `fmtNum()` (`src/lib/format.ts`) |
 | Metragem/consumo | mínimo 2, até 4 sem arredondar alta precisão | `fmtNumEdit` |
 | Quantidade/peça | inteiro, sem casas | `NumberInput integer` |
-| % | **1 casa decimal (proposta — pendente confirmação do dono)** | sem helper central hoje |
+| % | **1 casa decimal (adotado; ajustável)** | `fmtPct()` (`src/lib/format.ts`) |
 
 Toda célula numérica: `tabular-nums`, alinhada à **direita**, `nowrap` — dinheiro nunca quebra
 linha. Hoje isso já vale nos **inputs** (`MoneyInput`/`CampoRO`); v3 estende pra QUALQUER exibição

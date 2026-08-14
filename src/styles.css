@@ -94,6 +94,69 @@
   --sidebar-accent-foreground: oklch(0.99 0.003 248);
   --sidebar-border: oklch(1 0 0 / 8%);
   --sidebar-ring: oklch(0.52 0.09 248);
+
+  /* ── Padrões v3 (Navy Trust) · §Q — tokens de FUNDAÇÃO (onda 1) ─────────────────
+     Escala, elevação, tons, raios e ícones da cartilha aprovada. A paleta oklch acima
+     NÃO muda; estes são tokens novos que as telas passam a herdar (adoção = onda 2). */
+
+  /* Q1 · Espaçamento — base-4, 10 degraus (nada fora da escala) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Q5 · Escala tipográfica — 9 degraus inteiros (razão ~1,2); sem fracionário arbitrário */
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 16px;
+  --text-lg: 18px;
+  --text-xl: 22px;
+  --text-2xl: 28px;
+  --text-3xl: 34px;
+  --tracking-tight: -0.01em;
+  --tracking-eyebrow: 0.08em; /* valor ÚNICO p/ todo texto em caixa alta (eyebrow/badge/th) */
+
+  /* Q8 · Ícones — 4 tamanhos (lucide). Espelho em TS: src/lib/icon-size.ts */
+  --icon-xs: 14px;
+  --icon-sm: 16px;
+  --icon-md: 20px;
+  --icon-lg: 24px;
+
+  /* Q6 · Raios — a base já é --radius (0.625rem = 10px). Chip e Dialog/Sheet ganham
+     tokens próprios: os nomes --radius-sm/--radius-lg da cartilha colidiriam com a
+     escala Tailwind rounded-* (@theme inline acima, usada em ~44 telas), que fica
+     INTOCADA na onda 1 p/ não alterar o visual herdado. */
+  --radius-chip: 7px; /* §Q radius-sm — chip pequeno */
+  --radius-modal: 14px; /* §Q radius-lg — Dialog/Sheet */
+
+  /* Q7 · Elevação — 5 níveis com propósito (tema claro). No .dark a sombra some e
+     cada nível ≥1 pareia com um hairline (inset branco). */
+  --elevation-0: none;
+  --elevation-1: 0 1px 2px oklch(0.20 0.04 265 / 0.06);
+  --elevation-2: 0 2px 8px oklch(0.20 0.04 265 / 0.09);
+  --elevation-3: 0 8px 24px oklch(0.20 0.04 265 / 0.13);
+  --elevation-4: 0 16px 48px oklch(0.20 0.04 265 / 0.20);
+
+  /* Q9 · Tons de feedback — fórmula ÚNICA por tom:
+     bg = color-mix(tom X%, var(--card)) · fg = color-mix(tom Y%, var(--foreground)). */
+  --tone-success-bg: color-mix(in oklab, var(--success) 15%, var(--card));
+  --tone-success-fg: color-mix(in oklab, var(--success) 62%, var(--foreground));
+  --tone-warning-bg: color-mix(in oklab, var(--warning) 22%, var(--card));
+  --tone-warning-fg: color-mix(in oklab, var(--warning) 46%, var(--foreground));
+  --tone-danger-bg: color-mix(in oklab, var(--destructive) 13%, var(--card));
+  --tone-danger-fg: color-mix(in oklab, var(--destructive) 66%, var(--foreground));
+  --tone-info-bg: color-mix(in oklab, var(--primary) 13%, var(--card));
+  --tone-info-fg: color-mix(in oklab, var(--primary) 70%, var(--foreground));
+  --tone-neutral-bg: var(--muted);
+  --tone-neutral-fg: var(--muted-foreground);
 }
 
 .dark {
@@ -128,6 +191,25 @@
   --sidebar-accent-foreground: oklch(0.95 0.008 248);
   --sidebar-border: oklch(1 0 0 / 8%);
   --sidebar-ring: oklch(0.62 0.1 248);
+
+  /* Padrões v3 §Q — overrides do tema escuro (Q7 elevação com hairline + Q9 tons).
+     Espaçamento/tipografia/ícones/raios são independentes de tema (só no :root). */
+  --elevation-0: none;
+  --elevation-1: 0 1px 2px oklch(0 0 0 / 0.40), inset 0 1px 0 oklch(1 0 0 / 0.05);
+  --elevation-2: 0 2px 10px oklch(0 0 0 / 0.45), inset 0 1px 0 oklch(1 0 0 / 0.06);
+  --elevation-3: 0 8px 28px oklch(0 0 0 / 0.55), inset 0 1px 0 oklch(1 0 0 / 0.07);
+  --elevation-4: 0 18px 52px oklch(0 0 0 / 0.60), inset 0 1px 0 oklch(1 0 0 / 0.08);
+
+  --tone-success-bg: color-mix(in oklab, var(--success) 20%, var(--card));
+  --tone-success-fg: color-mix(in oklab, var(--success) 66%, var(--foreground));
+  --tone-warning-bg: color-mix(in oklab, var(--warning) 20%, var(--card));
+  --tone-warning-fg: color-mix(in oklab, var(--warning) 72%, var(--foreground));
+  --tone-danger-bg: color-mix(in oklab, var(--destructive) 20%, var(--card));
+  --tone-danger-fg: color-mix(in oklab, var(--destructive) 70%, var(--foreground));
+  --tone-info-bg: color-mix(in oklab, var(--primary) 20%, var(--card));
+  --tone-info-fg: color-mix(in oklab, var(--primary) 74%, var(--foreground));
+  --tone-neutral-bg: var(--muted);
+  --tone-neutral-fg: var(--muted-foreground);
 }
 
 
@@ -174,10 +256,41 @@
     -moz-appearance: textfield;
     appearance: textfield;
   }
+
+  /* Q10 · Foco visível — baseline global p/ interativos "crus" (links, botões e
+     elementos com tabindex sem estilo de foco próprio). :where() = especificidade 0,
+     então NUNCA sobrepõe componentes que já definem o próprio foco (input/select/
+     checkbox shadcn já trazem focus-visible:ring-1) — só preenche a lacuna dos
+     elementos sem foco. O botão (button.tsx) traz o seu explícito (2px + offset). */
+  :where(
+    a,
+    button,
+    input,
+    select,
+    textarea,
+    summary,
+    [role="button"],
+    [role="tab"],
+    [role="menuitem"],
+    [role="option"],
+    [tabindex]:not([tabindex="-1"])
+  ):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
 }
 
 
 .print-area { display: none; }
+
+/* Q12 · Célula numérica — dígitos de largura fixa, à direita, sem quebra (dinheiro
+   nunca quebra linha). Usar em QUALQUER exibição numérica fora de input (tabela/badge/
+   KPI). Nos inputs a tabular-nums já vem do MoneyInput/CampoRO. */
+.num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
 
 @media print {
   /* A .print-area é portal no <body>. Esconder TODO o resto (app + portais Radix)

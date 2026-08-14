@@ -3,20 +3,16 @@ import { cn } from "@/lib/utils";
 
 export type StatusTone = "success" | "warning" | "danger" | "info" | "neutral";
 
-// Texto ESCURECIDO via color-mix com o foreground: no tema claro puxa pro escuro (AA) e no
-// escuro o foreground é claro, então puxa pro claro — o mesmo mix serve aos dois temas.
-// (Q2 do laudo UX: success puro dava 2,9:1 sobre o tint no claro; warning já tinha o fix.)
+// Padrões v3 §Q9: fórmula ÚNICA de tom, centralizada em src/styles.css como tokens
+// --tone-<tom>-bg/-fg. O fundo mistura contra var(--card) (não mais contra transparent,
+// que lavava no tema escuro e dependia do que estava atrás); o texto mistura contra
+// var(--foreground) p/ contraste AA. Cada tema (:root / .dark) tem seus %.
 const toneClasses: Record<StatusTone, string> = {
-  success:
-    "border-transparent bg-[color:color-mix(in_oklab,var(--color-success)_15%,transparent)] text-[color:color-mix(in_oklab,var(--color-success)_62%,var(--color-foreground)_38%)]",
-  warning:
-    "border-transparent bg-[color:color-mix(in_oklab,var(--color-warning)_20%,transparent)] text-[color:color-mix(in_oklab,var(--color-warning)_46%,var(--color-foreground)_54%)]",
-  danger:
-    "border-transparent bg-[color:color-mix(in_oklab,var(--color-destructive)_15%,transparent)] text-[color:color-mix(in_oklab,var(--color-destructive)_66%,var(--color-foreground)_34%)]",
-  info:
-    "border-transparent bg-primary/10 text-[color:color-mix(in_oklab,var(--color-primary)_70%,var(--color-foreground)_30%)]",
-  neutral:
-    "border-transparent bg-muted text-muted-foreground",
+  success: "border-transparent bg-[var(--tone-success-bg)] text-[var(--tone-success-fg)]",
+  warning: "border-transparent bg-[var(--tone-warning-bg)] text-[var(--tone-warning-fg)]",
+  danger: "border-transparent bg-[var(--tone-danger-bg)] text-[var(--tone-danger-fg)]",
+  info: "border-transparent bg-[var(--tone-info-bg)] text-[var(--tone-info-fg)]",
+  neutral: "border-transparent bg-[var(--tone-neutral-bg)] text-[var(--tone-neutral-fg)]",
 };
 
 type Props = {
