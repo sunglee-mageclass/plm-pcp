@@ -453,19 +453,25 @@ Aplicar §K–§O **de pouco em pouco, uma tela por vez** (cada adoção = rodad
 
 ## Q. Padrões v3 (cartilha) — referência rápida
 
-> **Status:** **tokens/componentes implementados (onda 1) — varredura de telas pendente (onda 2)**
-> (ago/2026). A fundação já está no código: tokens em `src/styles.css` (Q1 espaçamento `--space-*`,
-> Q5 tipografia `--text-*`/`--tracking-*`, Q6 raios `--radius-chip`/`--radius-modal`, Q7 elevação
-> `--elevation-0..4` com hairline no escuro, Q8 ícones `--icon-*`, Q9 tons `--tone-*-bg/-fg`), botão v3
-> (`button.tsx`: 36px padrão / 30px compacto / `iconSm` 32px preservado, disabled SÓLIDO via `muted`,
-> foco `outline:2px + offset`), `:focus-visible` global em `styles.css`, `StatusBadge` na fórmula
-> `color-mix` contra `--card` (claro+escuro), `fmtPct`/`fmtInt` + classe `.num` (Q12), e
-> `src/lib/icon-size.ts` (espelho TS de Q8). A **adoção tela a tela** (trocar valor solto pelo token)
-> é a **onda 2** — até lá o código existente segue §A–§P e **§Q vale para código NOVO** (via primitivos
-> compartilhados). Guia visual completo (12 padrões, demonstração Hoje→v3, "porquê" por padrão):
-> artifact [`d03a192e-79ff-4b70-9f58-a6d58e8e1cdd`](https://claude.ai/code/artifact/d03a192e-79ff-4b70-9f58-a6d58e8e1cdd).
-> Teste anti-drift (scanner sempre-ativo que loga contagens; asserções desligadas até a onda 2):
-> `tests/unit/ui-padroes-antidrift.test.ts`.
+> **Status: implementado + anti-drift ATIVO** (ago/2026, onda 3). Fundação (onda 1): tokens em
+> `src/styles.css` (Q1 espaçamento `--space-*`, Q5 tipografia `--text-*`/`--tracking-*`, Q6 raios
+> `--radius-chip`/`--radius-modal`, Q7 elevação `--elevation-0..4` com hairline no escuro, Q8 ícones
+> `--icon-*`, Q9 tons `--tone-*-bg/-fg`), botão v3 (`button.tsx`: 36px padrão / 30px compacto /
+> `iconSm` 32px preservado, disabled SÓLIDO via `muted`, foco `outline:2px + offset`),
+> `:focus-visible` global em `styles.css`, `StatusBadge` na fórmula `color-mix` contra `--card`
+> (claro+escuro), `fmtPct`/`fmtInt` + classe `.num` (Q12), e `src/lib/icon-size.ts` (espelho TS de
+> Q8). **Varredura de telas (onda 2):** cores fora da exceção de impressão migradas p/ token
+> (`dashboard.tsx`/`financeiro.tsx` KPIs, `kanban-status.ts`, `HomePage`/`auth.tsx`), `.toFixed`
+> de exibição trocado pelos helpers de `src/lib/format.ts` (o de CÁLCULO/precisão interna foi p/
+> `src/lib/num.ts::roundTo`), fontes fracionárias arredondadas pro degrau inteiro da escala Q5.
+> Detalhe completo da migração de cor (hex→token por arquivo) e do `.toFixed` caso a caso: retorno
+> da tarefa (onda 2/3, ago/2026) — não duplicado aqui. Guia visual completo (12 padrões,
+> demonstração Hoje→v3, "porquê" por padrão): artifact
+> [`d03a192e-79ff-4b70-9f58-a6d58e8e1cdd`](https://claude.ai/code/artifact/d03a192e-79ff-4b70-9f58-a6d58e8e1cdd).
+> **Teste anti-drift LIGADO** (`ANTIDRIFT_LIGADO = true`): `tests/unit/ui-padroes-antidrift.test.ts`
+> — regras a/b/c/d/e em ZERO. Regra (a) respeita a **exceção de impressão** (ver §Q3) — telas/
+> componentes NOVOS continuam proibidos de introduzir hex/oklch solto, `.toFixed` de exibição fora
+> de `src/lib/`, ou fonte fracionária fora da escala; quebrar isso reprova o teste.
 
 ### Q1. Espaçamento — escala base-4, 10 degraus
 
@@ -510,6 +516,34 @@ disciplina: **zero hex solto** em componente fora de `src/components/ui/`.
 |---|---|---|
 | `--primary` | `oklch(0.52 0.09 248)` | `#3b6fa0` |
 | `--background` / `--foreground` / `--card` / `--border` / `--muted` / `--accent` / `--destructive` / `--success` / `--warning` | (ver §0 no topo deste doc) | |
+
+**Exceção de impressão (decisão do dono, onda 2, ago/2026):** componentes cujo propósito é gerar
+HTML **impresso** (`.print-area`/`<PrintArea>` — Ficha Técnica, Ficha de Corte, Ordem de Serviço de
+Terceirizados, Romaneio, Relatório executivo, comprovantes, etiquetas de rolo, gráficos fixos de
+relatório…) ficam **FORA da regra de cor**: impressão é **sempre fundo claro com cores fixas de
+propósito** — não reage a tema claro/escuro (o papel não tem "modo escuro"), então forçar
+`var(--…)` ali seria semanticamente errado (ex.: imprimir com tema escuro ativo não pode deixar o
+relatório ilegível). O scanner anti-drift (`tests/unit/ui-padroes-antidrift.test.ts`, regra `a`)
+mantém uma lista `EXCECAO_IMPRESSAO` (por caminho de arquivo) com os componentes 100% dedicados a
+print; onde um arquivo misturava conteúdo interativo + um bloco de impressão (ex.: `financeiro.tsx`
+tinha o "Comprovante de Pagamento" inline, `dashboard.tsx` tinha os gráficos `PBar`/`PBar2` só
+usados dentro do relatório), o bloco de impressão foi **extraído pra um componente dedicado**
+(`ComprovantePagamentoPrint.tsx`, `PrintBarChart.tsx`) — granularidade do scanner é por ARQUIVO,
+não por linha, então mistura de conteúdo interativo + print no mesmo arquivo não é isenta como um
+todo. KPIs/donut de `<RelatorioPrint>` alimentados por `dashboard.tsx`/`financeiro.tsx` (arquivos
+que NÃO são print puro) usam constantes nomeadas exportadas por `RelatorioPrint.tsx`
+(`REL_COR_SUCESSO`/`REL_COR_ALERTA`/`REL_COR_PERIGO`, mesmos hex de sempre) em vez de repetir hex
+solto no chamador. **Fontes fracionárias NÃO são exceção de impressão** — mesmo componente 100%
+print (`RelatorioPrint.tsx`, `FichaHeader.tsx`) teve os `fontSize` fracionários arredondados pro
+degrau inteiro (regra `e` do scanner não tem exceção nenhuma).
+
+**Segunda exceção, não-impressão (dado real, não decoração):** `src/lib/cor-hex.ts` (dicionário
+nome-da-cor→hex do TECIDO/produto, usado no swatch da variante — é a cor REAL da peça, não um
+acento de UI; não tem equivalente em `--primary`/`--success`/etc. sem mudar a cor exibida do
+produto) e `src/lib/error-page.ts` (página de fallback do Worker — `src/start.ts`/`src/server.ts` —
+renderizada ANTES/fora do bundle React; não tem acesso a `styles.css` nesse ponto, precisa ser
+100% autocontida). Ambos documentados como `EXCECAO_DADO_REAL` no scanner, separados da exceção de
+impressão por terem um racional diferente.
 
 ### Q4. Botões
 

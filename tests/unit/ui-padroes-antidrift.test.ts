@@ -7,10 +7,9 @@ import { fileURLToPath } from "node:url";
 // (fs síncrono, sem banco, sem servidor). Cada regra é um grep conservador — poucos
 // falsos positivos — que caça valor solto fora do token/primitivo esperado pelo §Q.
 //
-// §Q ainda não tem tokens/componentes implementados (é só a cartilha aprovada como
-// direção). Ligar as asserções abaixo SÓ depois da implementação v3 + limpeza do
-// legado — até lá, o repo reprovaria em massa por débito conhecido e não por bug novo.
-const ANTIDRIFT_LIGADO = false;
+// Onda 2 (ago/2026) varreu os hits e ligou o gate abaixo. Regras a/d/e em ZERO fora
+// das exceções documentadas (regra a) — ver docs/design/ui-padroes.md §Q3.
+const ANTIDRIFT_LIGADO = true;
 
 const THIS_FILE = fileURLToPath(import.meta.url);
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
@@ -18,6 +17,44 @@ const SRC = path.join(ROOT, "src");
 const UI_DIR = path.join(SRC, "components", "ui");
 const LIB_DIR = path.join(SRC, "lib");
 const STYLES_CSS = path.join(SRC, "styles.css");
+
+// Regra (a) — exceção de IMPRESSÃO (decisão do dono, onda 2 §Q3): componentes cujo
+// propósito é gerar HTML impresso (.print-area) usam cores FIXAS de propósito (fundo
+// sempre claro, tinta sempre escura) — nunca reagem a tema claro/escuro, então não
+// fazem sentido como token semântico. Cada arquivo abaixo é 100% print (ou, quando
+// mistura conteúdo interativo + print, teve o bloco de impressão EXTRAÍDO pra um
+// arquivo dedicado só de print) — ver §Q3 pro racional completo por arquivo.
+const EXCECAO_IMPRESSAO = [
+  "src/components/producao/FichaHeader.tsx",
+  "src/components/producao/FichaTecnica.tsx",
+  "src/components/producao/OrdemServicoTerceirizados.tsx",
+  "src/components/producao/RomaneioDirecionamento.tsx",
+  "src/components/producao/cad/CadFichaCorte.tsx",
+  "src/components/producao/cad/shared.tsx", // ModeloPhotoPrint
+  "src/components/producao/cad/types.ts", // cellH/cell — estilo das tabelas do printável
+  "src/components/shared/RelatorioPrint.tsx",
+  "src/components/shared/EtiquetaLavagemArtigo.tsx", // EtiquetaLavagemArtigoPrint (mesmo arquivo)
+  "src/components/oc-tecido/Rolos.tsx", // EtiquetaRolo — etiqueta de rolo p/ imprimir
+  "src/components/shared/PrintBarChart.tsx", // PBar/PBar2 — gráfico de tamanho fixo p/ impressão
+  "src/components/financeiro/ComprovantePagamentoPrint.tsx",
+  "src/routes/_authenticated/pcp.oficina.$modeloId.tsx", // Ficha de Oficina — Impressão (PrintArea)
+].map((p) => path.join(ROOT, p));
+
+// Regra (a) — segunda exceção, NÃO impressão: cor literal que representa um valor de
+// DADO real (não decoração de UI), onde forçar um token semântico do tema seria
+// semanticamente ERRADO ou tecnicamente inviável:
+//  - cor-hex.ts: dicionário nome-da-cor→hex do TECIDO/produto (swatch da variante) —
+//    é a cor REAL da peça, não um acento de UI; não tem equivalente em --primary/
+//    --success/etc. (isso mudaria a cor exibida do produto, não só o estilo).
+//  - error-page.ts: página de fallback renderizada pelo Worker (src/start.ts,
+//    src/server.ts) ANTES/fora do bundle React — não tem acesso a styles.css
+//    (`:root`/`.dark`) nesse ponto, então precisa ser 100% autocontida.
+const EXCECAO_DADO_REAL = [
+  "src/lib/cor-hex.ts",
+  "src/lib/error-page.ts",
+].map((p) => path.join(ROOT, p));
+
+const EXCECAO_COR = new Set([...EXCECAO_IMPRESSAO, ...EXCECAO_DADO_REAL]);
 
 function walk(dir: string, acc: string[] = []): string[] {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -39,6 +76,7 @@ function isScannable(file: string): boolean {
 
 const ALL_FILES = walk(SRC).filter(isScannable);
 const FILES_NO_LIB = ALL_FILES.filter((f) => !f.startsWith(LIB_DIR + path.sep));
+const FILES_SEM_EXCECAO_COR = ALL_FILES.filter((f) => !EXCECAO_COR.has(f));
 
 // Linha de comentário (// … | JSDoc/bloco * … | abertura /* …) fica de fora do grep —
 // reduz falso-positivo grosseiro (ex.: "(React #185)" batendo na regra de hex dentro
@@ -57,8 +95,8 @@ const ICON_SIZES_OK = new Set([14, 16, 20, 24]);
 
 const RULES: Record<RuleId, { label: string; files: string[]; find: (line: string) => string[] }> = {
   a: {
-    label: "cor literal (#hex 3/6 díg ou oklch()) fora de src/components/ui/ e styles.css",
-    files: ALL_FILES,
+    label: "cor literal (#hex 3/6 díg ou oklch()) fora de src/components/ui/, styles.css e da exceção de impressão/dado real (§Q3)",
+    files: FILES_SEM_EXCECAO_COR,
     find: (line) => {
       const m = line.match(/#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b|oklch\(/g);
       return m ?? [];
@@ -123,7 +161,7 @@ function fmtHits(hits: Hit[]): string {
 }
 
 // Sempre ativo — nunca falha. Roda o scanner e deixa o débito visível a cada `npm test`,
-// mesmo com ANTIDRIFT_LIGADO=false.
+// independente do valor de ANTIDRIFT_LIGADO.
 describe("ui-padroes anti-drift — scanner v3 (§Q)", () => {
   it("reporta a contagem de débito por regra (console.info, não falha)", () => {
     const counts: Record<RuleId, number> = { a: 0, b: 0, c: 0, d: 0, e: 0 };
@@ -137,8 +175,10 @@ describe("ui-padroes anti-drift — scanner v3 (§Q)", () => {
   });
 });
 
-// Ligar após implementação v3 + limpeza do legado (ANTIDRIFT_LIGADO = true).
-describe.skipIf(!ANTIDRIFT_LIGADO)("ui-padroes anti-drift — asserções (§Q, desligado até v3)", () => {
+// Ligado (onda 3, ago/2026) — varredura completa; regra a respeita a exceção de
+// impressão/dado real (§Q3). `describe.skipIf` fica como cinto de segurança pra
+// religar rápido se um caso legítimo novo precisar de exceção temporária.
+describe.skipIf(!ANTIDRIFT_LIGADO)("ui-padroes anti-drift — asserções (§Q, gate ATIVO)", () => {
   for (const id of Object.keys(RULES) as RuleId[]) {
     const rule = RULES[id];
     it(`(${id}) ${rule.label}`, () => {
