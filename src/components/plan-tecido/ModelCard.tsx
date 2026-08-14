@@ -112,6 +112,9 @@ export function ModelCard({
   const [confirmGrade, setConfirmGrade] = useState(false);
   const [aplicandoGrade, setAplicandoGrade] = useState(false);
   const [criandoCard, setCriandoCard] = useState(false);
+  // Guarda vazio-sobre-preenchido (backend RAISE P0001, hint 'plan_tecido_sobrescrita'):
+  // guarda a mensagem PT do banco p/ o 2º AlertDialog de confirmação.
+  const [sobrescritaMsg, setSobrescritaMsg] = useState<string | null>(null);
 
   // "Criar card" no Planejamento: só p/ slot ainda não ligado a um modelo, com nome ou tecido.
   const podeCriarCard = !slot.modelo_id && (!!slot.nome || slot.materiais.some((m) => m.artigo_id));
@@ -216,7 +219,7 @@ export function ModelCard({
           ? "Modelo já enviado ao CAD (travado) — destrave no Desenvolvimento para alterar"
           : undefined;
 
-  async function aplicarAoModelo() {
+  async function aplicarAoModelo(confirmarSobrescrita = false) {
     if (!slot.id) { setConfirmGrade(false); return; }
     setAplicandoGrade(true);
     try {
@@ -224,12 +227,20 @@ export function ModelCard({
       const { error } = await supabase.rpc("plan_tecido_aplicar_ao_modelo" as any, {
         _slot_id: slot.id,
         _materiais: buildMateriais(),
+        ...(confirmarSobrescrita ? { _confirmar_sobrescrita: true } : {}),
       });
       if (error) throw error;
       toast.success("Aplicado ao modelo (tecidos, variantes, consumo e grade).");
+      setSobrescritaMsg(null);
       invalidarModelo();
-    } catch (e) {
-      toast.error(mensagemErro(e, "Não foi possível aplicar ao modelo."));
+    } catch (e: any) {
+      // Guarda vazio-sobre-preenchido: em vez de toastar o erro, abre confirmação e re-chama
+      // com _confirmar_sobrescrita=true. hint estável evita casar por texto (i18n-safe).
+      if (e?.hint === "plan_tecido_sobrescrita") {
+        setSobrescritaMsg(mensagemErro(e, "Aplicar sobrescreveria dados já cadastrados no modelo."));
+      } else {
+        toast.error(mensagemErro(e, "Não foi possível aplicar ao modelo."));
+      }
     } finally {
       setAplicandoGrade(false);
       setConfirmGrade(false);
@@ -482,8 +493,26 @@ export function ModelCard({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={aplicandoGrade}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction disabled={aplicandoGrade} onClick={aplicarAoModelo}>
+            <AlertDialogAction disabled={aplicandoGrade} onClick={() => aplicarAoModelo()}>
               Aplicar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* 2º passo: o backend barrou (apagaria cores/grade já cadastradas). Confirma a sobrescrita. */}
+      <AlertDialog open={!!sobrescritaMsg} onOpenChange={(o) => { if (!o) setSobrescritaMsg(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Sobrescrever dados do modelo?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {sobrescritaMsg} Isso substitui o BOM de tecido do modelo pelo deste item.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={aplicandoGrade}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction disabled={aplicandoGrade} onClick={() => aplicarAoModelo(true)}>
+              Aplicar mesmo assim
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
