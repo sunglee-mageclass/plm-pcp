@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { semearArvore, mergeArvore, semearComModelos, comConsumoDoPlano, comVariantesDoPlano, slotDeModeloReal, type ModeloReal } from "@/lib/plan-tecido/engine";
+import { semearArvore, mergeArvore, semearComModelos, comConsumoDoPlano, comVariantesDoPlano, comGradeDoPlano, slotDeModeloReal, type ModeloReal } from "@/lib/plan-tecido/engine";
 
 describe("plan-tecido/engine", () => {
   it("semeia N slots por bucket", () => {
@@ -369,5 +369,139 @@ describe("plan-tecido/engine", () => {
     const mm = merged.subcolecoes[0].linhas[0].slots[0].materiais[0];
     expect(mm.variantes.map((v) => v.variante_tecido_id)).toEqual(["cor1"]);
     expect(mm.variantes[0].grade_total).toBe(5);
+  });
+
+  // A grade do Dev (modelo_grades) só descreve o TECIDO 1 (chave = ordem da variante do Tecido 1).
+  // slotDeModeloReal não deve aplicá-la por `ordem` a forro/Tecido 2 (cross-read do Tecido 1).
+  describe("slotDeModeloReal: grade do Dev só no Tecido 1 (não vaza p/ forro/Tecido 2)", () => {
+    const base = { id: "m", ref: null, nome: null, subcolecao: null, subcolecao_id: null,
+      linha_id: null, categoria_id: null, proporcoes: null } as const;
+
+    it("Tecido 1 puxa a grade do Dev por ordem=variante_numero", () => {
+      const mr: ModeloReal = { ...base,
+        materiais: [{ tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0,
+          variantes: [{ variante_tecido_id: "t1", ordem: 1, multiplicador: 1 }, { variante_tecido_id: "t2", ordem: 2, multiplicador: 1 }] }],
+        grade: { 1: { grades: { M: 10 }, grade_total: 10 }, 2: { grades: { M: 20 }, grade_total: 20 } } };
+      const slot = slotDeModeloReal(mr, 0);
+      expect(slot.materiais[0].variantes.map((v) => v.grade_total)).toEqual([10, 20]);
+    });
+
+    it("FORRO NÃO puxa a grade do Dev (nasce sem pç — vem do plano depois)", () => {
+      const mr: ModeloReal = { ...base,
+        materiais: [
+          { tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0,
+            variantes: [{ variante_tecido_id: "t1", ordem: 1, multiplicador: 1 }] },
+          // forro com variantes de ordem 1,2 — antes cross-lia grade[1]=10, grade[2]=20 do Tecido 1
+          { tipo: "forro", numero: 1, artigo_id: "F", consumo: 0.4, loss_percent: 0,
+            variantes: [{ variante_tecido_id: "f1", ordem: 1, multiplicador: 1 }, { variante_tecido_id: "f2", ordem: 2, multiplicador: 1 }] },
+        ],
+        grade: { 1: { grades: { M: 10 }, grade_total: 10 }, 2: { grades: { M: 20 }, grade_total: 20 } } };
+      const slot = slotDeModeloReal(mr, 0);
+      const forro = slot.materiais.find((m) => m.tipo === "forro")!;
+      expect(forro.variantes.map((v) => v.grade_total)).toEqual([0, 0]);
+      expect(forro.variantes.map((v) => v.grades)).toEqual([{}, {}]);
+    });
+
+    it("Tecido 2 NÃO puxa a grade do Dev do Tecido 1", () => {
+      const mr: ModeloReal = { ...base,
+        materiais: [
+          { tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0,
+            variantes: [{ variante_tecido_id: "t1", ordem: 1, multiplicador: 1 }] },
+          { tipo: "tecido", numero: 2, artigo_id: "B", consumo: 1, loss_percent: 0,
+            variantes: [{ variante_tecido_id: "b1", ordem: 1, multiplicador: 1 }] },
+        ],
+        grade: { 1: { grades: { M: 10 }, grade_total: 10 } } };
+      const slot = slotDeModeloReal(mr, 0);
+      const tec2 = slot.materiais.find((m) => m.numero === 2 && m.tipo === "tecido")!;
+      expect(tec2.variantes[0].grade_total).toBe(0);
+    });
+  });
+
+  // pç (grade) por variante do plano quando o vivo (Dev) não tem — forro/Tecido 2 ou variante nova.
+  describe("comGradeDoPlano (Dev vence só se tem pç, senão vale o plano)", () => {
+    const mat = (over: Record<string, unknown>) =>
+      ({ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [], ...over });
+    const vte = (id: string, over: Record<string, unknown> = {}) =>
+      ({ variante_tecido_id: id, ordem: 1, multiplicador: 1, grades: {}, grade_total: 0, ...over });
+
+    it("vivo SEM pç + plano COM pç → usa a pç do plano (casada por variante_tecido_id)", () => {
+      const out = comGradeDoPlano(
+        [mat({ tipo: "forro" as const, artigo_id: "F", variantes: [vte("f1"), vte("f2")] })],
+        [mat({ tipo: "forro" as const, artigo_id: "F", variantes: [vte("f1", { grades: { M: 7 }, grade_total: 7 }), vte("f2", { grades: { M: 3 }, grade_total: 3 })] })],
+      );
+      expect(out[0].variantes.map((v) => v.grade_total)).toEqual([7, 3]);
+      expect(out[0].variantes[0].grades).toEqual({ M: 7 });
+    });
+
+    it("vivo COM pç → vivo VENCE (não sobrescreve pelo plano)", () => {
+      const out = comGradeDoPlano(
+        [mat({ variantes: [vte("t1", { grade_total: 64, grades: { M: 64 } })] })],
+        [mat({ variantes: [vte("t1", { grade_total: 99, grades: { M: 99 } })] })],
+      );
+      expect(out[0].variantes[0].grade_total).toBe(64);
+    });
+
+    it("cor PLANEJADA (variante_tecido_id null) casa por cor_id+apelido", () => {
+      const out = comGradeDoPlano(
+        [mat({ variantes: [{ variante_tecido_id: null, cor_id: "c1", cor_apelido_id: "a1", ordem: 1, multiplicador: 1, grades: {}, grade_total: 0 }] })],
+        [mat({ variantes: [{ variante_tecido_id: null, cor_id: "c1", cor_apelido_id: "a1", ordem: 1, multiplicador: 1, grades: { M: 5 }, grade_total: 5 }] })],
+      );
+      expect(out[0].variantes[0].grade_total).toBe(5);
+    });
+
+    it("só casa mesmo artigo+tipo; plano nulo/vazio = passthrough", () => {
+      expect(comGradeDoPlano([mat({ variantes: [vte("t1")] })], [mat({ artigo_id: "B", variantes: [vte("t1", { grade_total: 5 })] })])[0].variantes[0].grade_total).toBe(0);
+      expect(comGradeDoPlano([mat({ variantes: [vte("t1")] })], null)[0].variantes[0].grade_total).toBe(0);
+      expect(comGradeDoPlano([mat({ variantes: [vte("t1")] })], [])[0].variantes[0].grade_total).toBe(0);
+    });
+  });
+
+  it("mergeArvore: pç do FORRO salva no plano sobrevive (Dev não tem grade de forro)", () => {
+    // Card real: Tecido 1 com grade do Dev; forro com pç digitada no card (só no plano). O reload não
+    // pode zerar a pç do forro — o Dev não tem grade de forro, então o plano é a fonte.
+    const modelo: ModeloReal = {
+      id: "m1", ref: "REF", nome: "Vestido", subcolecao: null, subcolecao_id: "s1",
+      linha_id: "l1", categoria_id: null, proporcoes: null,
+      materiais: [
+        { tipo: "tecido", numero: 1, artigo_id: "A", consumo: 2, loss_percent: 0, variantes: [{ variante_tecido_id: "t1", ordem: 1, multiplicador: 1 }] },
+        { tipo: "forro", numero: 1, artigo_id: "F", consumo: 0.5, loss_percent: 0, variantes: [{ variante_tecido_id: "f1", ordem: 1, multiplicador: 1 }] },
+      ],
+      grade: { 1: { grades: { M: 30 }, grade_total: 30 } },
+    };
+    const seed = semearComModelos({ colecao_id: "c", tipo: "poder_venda",
+      buckets: [{ subcolecao_id: "s1", linha_id: "l1", categoria_id: null, qtd: 1 }], modelos: [modelo] });
+    const salvo = { colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0,
+      slots: [{ modelo_id: "m1", slot_index: 0, materiais: [
+        { artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 2, loss_percent: 0, ordem: 0, variantes: [{ variante_tecido_id: "t1", ordem: 1, multiplicador: 1, grades: { M: 999 }, grade_total: 999 }] },
+        { artigo_id: "F", tipo: "forro" as const, numero: 1, consumo: 0.5, loss_percent: 0, ordem: 1, variantes: [{ variante_tecido_id: "f1", ordem: 1, multiplicador: 1, grades: { M: 30 }, grade_total: 30 }] },
+      ] }] }] }] };
+    const merged = mergeArvore(seed, salvo as never);
+    const mats = merged.subcolecoes[0].linhas[0].slots[0].materiais;
+    const tec = mats.find((m) => m.tipo === "tecido")!;
+    const forro = mats.find((m) => m.tipo === "forro")!;
+    expect(tec.variantes[0].grade_total).toBe(30);  // Tecido 1: Dev VENCE (não os 999 do plano)
+    expect(forro.variantes[0].grade_total).toBe(30); // Forro: pç do PLANO (Dev não tem grade de forro)
+  });
+
+  describe("mergeArvore proporção: Dev vence se preenchido, plano é fallback", () => {
+    const mkModelo = (proporcoes: Record<string, number> | null): ModeloReal => ({
+      id: "m1", ref: "R", nome: "V", subcolecao: null, subcolecao_id: "s1",
+      linha_id: "l1", categoria_id: null, proporcoes,
+      materiais: [{ tipo: "tecido", numero: 1, artigo_id: "A", consumo: 1, loss_percent: 0, variantes: [] }], grade: {},
+    });
+    const mkSalvo = (proporcoes: Record<string, number>) => ({ colecao_id: "c", subcolecoes: [{ subcolecao_id: "s1", ordem: 0, linhas: [{ linha_id: "l1", categoria_id: null, ordem: 0,
+      slots: [{ modelo_id: "m1", slot_index: 0, proporcoes, materiais: [{ artigo_id: "A", tipo: "tecido" as const, numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [] }] }] }] }] });
+    const seedOf = (m: ModeloReal) => semearComModelos({ colecao_id: "c", tipo: "poder_venda",
+      buckets: [{ subcolecao_id: "s1", linha_id: "l1", categoria_id: null, qtd: 1 }], modelos: [m] });
+
+    it("modelo COM proporção + plano com proporção VAZIA ({}) → usa a do MODELO", () => {
+      const merged = mergeArvore(seedOf(mkModelo({ "40|M": 2, "42|G": 1 })), mkSalvo({}) as never);
+      expect(merged.subcolecoes[0].linhas[0].slots[0].proporcoes).toEqual({ "40|M": 2, "42|G": 1 });
+    });
+
+    it("modelo SEM proporção → cai no plano salvo (fallback)", () => {
+      const merged = mergeArvore(seedOf(mkModelo(null)), mkSalvo({ "40|M": 3 }) as never);
+      expect(merged.subcolecoes[0].linhas[0].slots[0].proporcoes).toEqual({ "40|M": 3 });
+    });
   });
 });

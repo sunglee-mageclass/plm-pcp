@@ -61,11 +61,18 @@ export function slotDeModeloReal(mr: ModeloReal, slotIndex: number): PtSlot {
   const seqPorTipo: Partial<Record<PtMaterial["tipo"], number>> = {};
   const materiais: PtMaterial[] = mr.materiais.map((mat, mi) => {
     const numero = (seqPorTipo[mat.tipo] = (seqPorTipo[mat.tipo] ?? 0) + 1);
+    // A grade planejada do Dev (`mr.grade` = modelo_grades, chaveada por variante_numero = ordem da
+    // variante do TECIDO 1) só descreve o Tecido 1. Aplicá-la por `ordem` a FORRO/Tecido 2 é
+    // casamento errado: lê a grade do Tecido 1 na MESMA posição (cross-read) e ignora a identidade da
+    // variante (variante_tecido_id). Só o Tecido 1 puxa a grade do Dev; forro/Tecido 2 nascem SEM
+    // grade e recebem a pç do PLANO salvo (comGradeDoPlano no merge) — "Dev vence só se preenchido;
+    // forro tem grade própria (do plano)". `mat.numero` aqui é o número do BLOCO (Tecido 1 = 1).
+    const puxaGradeDev = mat.tipo === "tecido" && Number(mat.numero) === 1;
     const variantes: PtVariante[] = mat.variantes
       .slice()
       .sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0))
       .map((v, vi) => {
-        const g = mr.grade[v.ordem];
+        const g = puxaGradeDev ? mr.grade[v.ordem] : undefined;
         return {
           variante_tecido_id: v.variante_tecido_id,
           ordem: vi + 1, // renumera 1..n (uq_plan_var em material_id, ordem)
@@ -227,6 +234,35 @@ export function comVariantesDoPlano(vivos: PtMaterial[], salvos?: PtMaterial[] |
   });
 }
 
+// pç (grade por variante) EFETIVA — mesmo princípio do consumo/variantes ("Dev vence só se
+// preenchido, senão vale o plano"). A grade do Dev (`modelo_grades`) só existe pro TECIDO 1 (ver
+// slotDeModeloReal): forro e Tecido 2 nascem SEM grade, e a pç deles é DIGITADA no card → mora só no
+// PLANO. Também um Tecido 1 pode ter variante nova ainda SEM grade no Dev, com a pç já no plano.
+// Por variante casada (variante_tecido_id, ou cor planejada por cor_id+apelido — mesma chave do
+// comVariantesDoPlano/calc.varKey): se a do VIVO está VAZIA (grade_total 0 E grades {}) e o plano tem
+// pç pra mesma variante, usa a do plano. Se o vivo tem pç, o vivo VENCE (Dev é a fonte do Tecido 1).
+export function comGradeDoPlano(vivos: PtMaterial[], salvos?: PtMaterial[] | null): PtMaterial[] {
+  if (!salvos?.length) return vivos;
+  const keyV = (v: PtVariante) => v.variante_tecido_id ?? `plan:${v.cor_id ?? ""}:${v.cor_apelido_id ?? ""}`;
+  const temGrade = (v: { grade_total?: number; grades?: Record<string, number> }) =>
+    (Number(v.grade_total) || 0) > 0 || Object.keys(v.grades ?? {}).length > 0;
+  return vivos.map((m) => {
+    if (!m.variantes?.length) return m;
+    const s = salvos.find((x) => x.tipo === m.tipo && (x.artigo_id ?? null) === (m.artigo_id ?? null) && (x.variantes?.length ?? 0) > 0);
+    if (!s) return m;
+    const salvaPorKey = new Map<string, PtVariante>(s.variantes.map((v) => [keyV(v), v]));
+    let mudou = false;
+    const variantes = m.variantes.map((v) => {
+      if (temGrade(v)) return v; // vivo já tem pç → vivo vence
+      const sv = salvaPorKey.get(keyV(v));
+      if (!sv || !temGrade(sv)) return v;
+      mudou = true;
+      return { ...v, grades: sv.grades ?? {}, grade_total: Number(sv.grade_total) || 0 };
+    });
+    return mudou ? { ...m, variantes } : m;
+  });
+}
+
 export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
   if (!salvo) return seed;
   // BOM VIVO por modelo_id: cada slot de modelo do seed carrega o BOM atual do Desenvolvimento.
@@ -286,7 +322,15 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
             // reabrir, e uma categorização manual do usuário é preservada.
             categoria_tecido_id: saved.categoria_tecido_id ?? slot.categoria_tecido_id,
             linha_id: saved.linha_id ?? slot.linha_id,
-            proporcoes: saved.proporcoes ?? slot.proporcoes,
+            // proporção: "Dev vence se preenchido" (mesmo princípio do consumo). A proporção do
+            // MODELO (`slot` = seed = modelos.proporcoes) vence quando tem tamanhos; senão cai no
+            // plano salvo. Sem isso, um plano salvo com proporção VAZIA ({}) apagava a proporção do
+            // modelo no dado do slot — o display se salvava pela busca própria do GradeSection, mas o
+            // cálculo de distribuição por tamanho (distribuirGrade) ficava sem proporção (grade por
+            // tamanho vazia na hora de gerar a OC).
+            proporcoes: (slot.proporcoes && Object.keys(slot.proporcoes).length)
+              ? slot.proporcoes
+              : (saved.proporcoes ?? slot.proporcoes),
             // custo de materiais (aviamentos/insumos) pré-preenchido do BOM não é apagado por save
             // antigo (null). NÃO forçamos o vivo aqui: o editor "Custo & Preço" do plano pode ter
             // ajustado esse custo (o salvo vence); só o BOM de TECIDO (materiais) puxa o vivo.
@@ -294,8 +338,12 @@ export function mergeArvore(seed: PtArvore, salvo: PtArvore | null): PtArvore {
             // Consistência (a.1): modelo REAL usa o BOM VIVO do Desenvolvimento (por modelo_id, não
             // pela posição), não o snapshot salvo — assim que o card avança/muda o BOM, o plano
             // reflete. Slot de planejamento (sem modelo) mantém o rascunho salvo.
+            // Ordem dos fallbacks (todos "Dev vence só se preenchido"): consumo → variantes → pç.
+            // comGradeDoPlano por ÚLTIMO porque depende das variantes já resolvidas (as que vieram do
+            // plano via comVariantesDoPlano já trazem a pç; as que vieram do Dev sem grade — forro/
+            // Tecido 2 ou variante nova do Tecido 1 — recebem a pç do plano aqui).
             materiais: effModeloId
-              ? (live?.materiais?.length ? comVariantesDoPlano(comConsumoDoPlano(live.materiais, saved.materiais), saved.materiais) : (saved.materiais ?? []))
+              ? (live?.materiais?.length ? comGradeDoPlano(comVariantesDoPlano(comConsumoDoPlano(live.materiais, saved.materiais), saved.materiais), saved.materiais) : (saved.materiais ?? []))
               : (saved.materiais?.length ? saved.materiais : slot.materiais),
           };
         }) };
