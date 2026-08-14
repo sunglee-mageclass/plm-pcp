@@ -23,15 +23,22 @@ import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 
 function novoMaterial(existentes: PtMaterial[], tipo: "tecido" | "forro"): PtMaterial {
-  const numero = existentes.filter((m) => m.tipo === tipo).length + 1;
+  // numero = MAX(numero do mesmo tipo) + 1 — NUNCA por CONTAGEM. O material vindo do BOM (partição
+  // por artigo real em PlanTecidoSheet.modelosReais) pode chegar com numero NÃO-contíguo por tipo
+  // (ex.: dois blocos do MESMO forro colapsam num material só que herda o numero do 1º bloco na
+  // ordem do PostgREST — pode ser 2, sem que exista forro#1). Contagem+1 recalculava um numero já
+  // existente → colisão em uq_plan_mat (slot_id,tipo,numero) → 23505 "valor duplicado" ao Salvar/
+  // Aplicar ao modelo (regressão ago/2026 — o renumMateriais anterior só cobria remover-e-readicionar,
+  // NÃO o load-com-buraco). max+1 é seguro para qualquer configuração de numero (contígua ou com buraco).
+  const maxNum = existentes.reduce((mx, m) => (m.tipo === tipo ? Math.max(mx, Number(m.numero) || 0) : mx), 0);
+  const numero = maxNum + 1;
   return { artigo_id: null, tipo, numero, consumo: 0, loss_percent: 0, ordem: existentes.length, variantes: [] };
 }
 
 // Renumera `numero` 1..n POR TIPO (tecido/forro), preservando a ordem relativa — mesmo padrão já
-// usado p/ variantes (MaterialBlock.tsx `renum`, ordem 1..n em uq_plan_var). Sem isto, remover um
-// material do meio deixava um buraco no numero e o próximo "+ tecido"/"+ forro" (contagem, não
-// max+1) colidia com um numero já existente do MESMO slot → uq_plan_mat (slot_id,tipo,numero)
-// 23505 "valor duplicado" ao Salvar/Aplicar ao modelo (bug ago/2026).
+// usado p/ variantes (MaterialBlock.tsx `renum`, ordem 1..n em uq_plan_var). Mantém os numeros
+// contíguos ao remover um material do meio (complementa o max+1 do novoMaterial acima; ambos
+// protegem uq_plan_mat (slot_id,tipo,numero) do 23505 "valor duplicado").
 function renumMateriais(materiais: PtMaterial[]): PtMaterial[] {
   const porTipo: Partial<Record<PtMaterial["tipo"], number>> = {};
   return materiais.map((m) => {
