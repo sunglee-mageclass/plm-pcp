@@ -42,7 +42,17 @@ export function SlotOcHint({
       const { error } = await supabase.rpc("plan_tecido_set_slot_oc" as any, { _colecao_id: colecaoId, _slot_id: slotId, _oc_ids: ids });
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["plan-tecido-slot-oc", colecaoId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["plan-tecido-slot-oc", colecaoId] });
+      // O hint de slot (plan_tecido_slot_oc) É fonte de COBERTURA na prévia (has_card=true no
+      // _plan_tecido_previa_pedido_core) — atribuir/remover OC do card muda o "a comprar" e a
+      // Demanda/Sobra por OC. Sem estas invalidações o painel do Resumo só atualizava ao refocar a
+      // janela (bug ago/2026: simétrico ao desvincular do Resumo, que já invalida a prévia). O pool
+      // do dropdown (oc-aplicada-lista) também lista os hints de slot → mantê-lo em dia.
+      qc.invalidateQueries({ queryKey: ["plan-tecido-previa", colecaoId] });
+      qc.invalidateQueries({ queryKey: ["plan-tecido-situacao-ocs", colecaoId] });
+      qc.invalidateQueries({ queryKey: ["plan-tecido-oc-aplicada-lista", colecaoId] });
+    },
     onError: (e) => toast.error(mensagemErro(e, "Não foi possível salvar a OC do card.")),
   });
 

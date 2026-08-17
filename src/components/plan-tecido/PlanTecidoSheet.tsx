@@ -734,6 +734,12 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
   const invalidarBomVivo = (modeloIds: string[]) => {
     void qc.invalidateQueries({ queryKey: ["plan-tecido-modelos", colecaoId] });
     void qc.invalidateQueries({ queryKey: ["plan-tecido-vinculos", colecaoId] });
+    // O auto-aplicar (aplicar_ao_modelo) SINCRONIZA os hints de slot em modelo_tecido_oc_links, que
+    // É fonte de COBERTURA da prévia (has_card=true). Como esse write acontece DEPOIS da invalidação
+    // da prévia no salvarMut.onSuccess (fire-and-forget), a prévia precisa ser re-invalidada AQUI —
+    // ao fim dos applies — senão o "a comprar" fica defasado até o refoco da janela (suspeita "a" do
+    // bug #2: a invalidação da prévia dispara ANTES dos aplicar_ao_modelo terminarem).
+    void qc.invalidateQueries({ queryKey: ["plan-tecido-previa", colecaoId] });
     for (const mid of new Set(modeloIds)) {
       void qc.invalidateQueries({ queryKey: ["modelo-detail", mid] });
       void qc.invalidateQueries({ queryKey: ["modelo-tecidos", mid] });

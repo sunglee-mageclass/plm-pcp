@@ -143,6 +143,9 @@ export function ModelCard({
     }
     // Chips "OC do Desenvolvimento" no card do plano refletem na hora (senão só ao refocar a janela).
     if (colecaoId) void qc.invalidateQueries({ queryKey: ["plan-tecido-vinculos", colecaoId] });
+    // Aplicar/Criar SINCRONIZA os hints de slot em modelo_tecido_oc_links, fonte de COBERTURA da
+    // prévia (has_card=true) → o "a comprar" do Resumo muda. Sem isto só atualizava ao refocar (bug #2).
+    if (colecaoId) void qc.invalidateQueries({ queryKey: ["plan-tecido-previa", colecaoId] });
   };
 
   async function criarCard() {
