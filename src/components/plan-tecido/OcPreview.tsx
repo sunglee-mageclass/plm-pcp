@@ -7,6 +7,7 @@ import { labelVarianteRow } from "@/lib/variante";
 import { fmtMetros } from "@/lib/plan-tecido/calc";
 import { cn } from "@/lib/utils";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
+import { OcOrigemBadge } from "@/components/plan-tecido/OcOrigemBadge";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
@@ -116,7 +117,7 @@ function AnexoPreview({ path }: { path: string | null }) {
  * Popover só monta o conteúdo ao abrir), cacheado por queryKey (`plan-tecido-oc-preview:<ocId>`)
  * — nunca pré-busca pra lista inteira de OCs.
  */
-export function OcPreviewCard({ ocId }: { ocId: string }) {
+export function OcPreviewCard({ ocId, owned }: { ocId: string; owned?: boolean }) {
   const { data, isLoading, isError } = useQuery({
     queryKey: ["plan-tecido-oc-preview", ocId],
     staleTime: 60_000,
@@ -142,11 +143,7 @@ export function OcPreviewCard({ ocId }: { ocId: string }) {
           <span className="h-3 w-24 animate-pulse rounded bg-muted" aria-hidden />
         ) : (
           <>
-            {data?.is_rolo && (
-              <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary">
-                Rolo
-              </span>
-            )}
+            <OcOrigemBadge owned={data?.is_rolo ? undefined : owned} isRolo={data?.is_rolo} />
             <span className="truncate">{data?.numero_pedido || (data?.is_rolo ? "Rolo s/ nº" : "OC s/ nº")}</span>
           </>
         )}
@@ -188,13 +185,15 @@ export function OcPreviewCard({ ocId }: { ocId: string }) {
  * Popover leve — sem hover em touch). `children` é o gatilho do HoverCard (precisa aceitar
  * ref/props — ex. um `<span>`/`<div>`).
  */
-export function OcHoverInfo({ ocId, children, className }: { ocId: string; children: ReactNode; className?: string }) {
+export function OcHoverInfo({ ocId, owned, isRolo, children, className }: { ocId: string; owned?: boolean; isRolo?: boolean | null; children: ReactNode; className?: string }) {
+  // rolo nunca é "do plano" — não passa owned pro preview (o próprio card também detecta is_rolo).
+  const ownedPreview = isRolo ? undefined : owned;
   return (
     <>
       <HoverCard openDelay={200} closeDelay={100}>
         <HoverCardTrigger asChild>{children}</HoverCardTrigger>
         <HoverCardContent align="start" className="hidden w-auto p-0 md:block">
-          <OcPreviewCard ocId={ocId} />
+          <OcPreviewCard ocId={ocId} owned={ownedPreview} />
         </HoverCardContent>
       </HoverCard>
       <Popover>
@@ -215,7 +214,7 @@ export function OcHoverInfo({ ocId, children, className }: { ocId: string; child
           </button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-auto p-0" onClick={(e) => e.stopPropagation()}>
-          <OcPreviewCard ocId={ocId} />
+          <OcPreviewCard ocId={ocId} owned={ownedPreview} />
         </PopoverContent>
       </Popover>
     </>

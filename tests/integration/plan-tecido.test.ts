@@ -103,7 +103,7 @@ describe.skipIf(!hasDb)("plan_tecido — salvar + ler árvore", () => {
 // Cobertura de OC na prévia do "Fazer pedido" — DECISÃO DO DONO ago/2026, OPÇÃO B:
 // cobertura de OC aplicada NÃO-própria só sai quando há USO PLANEJADO REAL (card do Dev vinculado à
 // OC OU hint de slot). A "aplicada" pura (só marcada no seletor) vira acompanhamento: supply 0.
-// OC própria (Fazer pedido) e rolo (saldo) e usar_estoque INALTERADOS.
+// OC própria (Fazer pedido) e rolo (saldo) INALTERADOS. Flag usar_estoque APOSENTADO 17/ago (cenário e).
 // nec da coleção = consumo(1) × grade_total(100) × mult(1) = 100 m; deficit = nec − supply − rolo
 // (o estoque previsto NÃO entra no deficit — é info à parte).
 describe.skipIf(!hasDb)("plan_tecido — cobertura de OC exige uso real (opção B)", () => {
@@ -188,16 +188,24 @@ describe.skipIf(!hasDb)("plan_tecido — cobertura de OC exige uso real (opção
     });
   });
 
-  it("(e) card usar_estoque fica FORA da necessidade — INALTERADO", async () => {
+  // (e) OBSOLETO — o flag "usar estoque existente" foi APOSENTADO (decisão do dono 17/ago/2026): um
+  // card antes-flagado NÃO some mais da necessidade. Régua única: vinculou = cobertura abate; não
+  // vinculou = compra (sem sub-compra silenciosa). Substitui o antigo "(e) fica FORA da necessidade".
+  it("(e) card ANTES-flagado (usar_estoque=true legado) ENTRA na necessidade e é coberto pelo vínculo — flag aposentado 17/ago", async () => {
     await withTx(async (c) => {
       await comoUsuario(c); await ligarCriacao(c);
       const av = await metroVar(c); if (!av) return;
-      const col = await novaColComPlano(c, "B-e-estoque", av.art, av.var);
-      // marca o slot como usar_estoque → sai da nec (variante some da cobertura → deficit null)
+      const col = await novaColComPlano(c, "B-e-exflag", av.art, av.var);
+      // legado: marca o slot como usar_estoque=true (o estado de um card antes-flagado)
       await um(c, `update plan_tecido_slots s set usar_estoque=true
                    from plan_tecido_linhas l, plan_tecido_subcolecoes sc, plan_tecido p
                    where s.linha_ref_id=l.id and l.sub_id=sc.id and sc.plan_id=p.id and p.colecao_id=$1`, [col]);
-      expect(await deficitDe(c, col, av.var)).toBeNull();
+      // ANTES sairia da nec (deficit null); AGORA entra: SEM vínculo → deficit = nec cheia 100 (vira COMPRA)
+      expect(await deficitDe(c, col, av.var)).toBe(100);
+      // vincula uma OC PRÓPRIA (Fazer pedido desta coleção) pedida 30 → nec INCLUI o card E a cobertura abate
+      const { ocId } = await novaOc(c, false, 30, av.art, av.var);
+      await um(c, `insert into plan_tecido_ocs (tenant_id,colecao_id,oc_tecido_id) values ($1,$2,$3)`, [TENANT_TESTE, col, ocId]);
+      expect(await deficitDe(c, col, av.var)).toBe(70); // 100 − 30 = a-comprar líquido honesto
     });
   });
 });

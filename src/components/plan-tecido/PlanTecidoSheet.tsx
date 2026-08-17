@@ -436,13 +436,16 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
           .eq("modelos.colecao_id", colecaoId),
         supabase.from("plan_tecido_slot_oc" as any).select("oc_tecido_id").eq("colecao_id", colecaoId),
       ]);
+      // GERADAS pelo Fazer pedido DESTA coleção (plan_tecido_ocs) → `owned` p/ o selo "do plano" dos
+      // seletores (decisão do dono 17/ago/2026). Reusa `ger` (já buscado acima), sem query extra.
+      const gerSet = new Set((ger.data ?? []).map((r: any) => r.oc_tecido_id as string));
       const ids = [...new Set([
         ...(apl.data ?? []).map((r: any) => r.oc_tecido_id as string),
         ...(ger.data ?? []).map((r: any) => r.oc_tecido_id as string),
         ...(dev.data ?? []).map((r: any) => r.item?.oc_tecido_id as string | undefined).filter((x): x is string => !!x),
         ...(hint.data ?? []).map((r: any) => r.oc_tecido_id as string),
       ])];
-      if (!ids.length) return [] as { id: string; numero_pedido: string | null; is_rolo: boolean; tecidos: string[]; categorias: string[]; artigos: string[]; fornecedor: string | null }[];
+      if (!ids.length) return [] as { id: string; numero_pedido: string | null; is_rolo: boolean; tecidos: string[]; categorias: string[]; artigos: string[]; fornecedor: string | null; owned: boolean }[];
       const rows = (((await supabase.from("ocs_tecido" as any)
         .select("id, numero_pedido, is_rolo, empresa:empresa_id(nome_fantasia), itens:ocs_tecido_itens(cancelado, artigo:artigo_id(id, nome, categoria_tecido_id, cats:artigo_categorias_tecido(categoria_tecido_id)), variante:variante_tecido_id(artigo:artigo_id(id, nome, categoria_tecido_id, cats:artigo_categorias_tecido(categoria_tecido_id))))")
         .in("id", ids)).data ?? []) as unknown as { id: string; numero_pedido: string | null; is_rolo: boolean | null; empresa: { nome_fantasia: string | null } | null; itens: Item[] | null }[]);
@@ -461,7 +464,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
           if (a.categoria_tecido_id) categorias.add(a.categoria_tecido_id);
           for (const c of a.cats ?? []) categorias.add(c.categoria_tecido_id);
         }
-        return { id: oc.id, numero_pedido: oc.numero_pedido ?? null, is_rolo: oc.is_rolo ?? false, tecidos: [...nomes], categorias: [...categorias], artigos: [...artigos], fornecedor: oc.empresa?.nome_fantasia ?? null };
+        return { id: oc.id, numero_pedido: oc.numero_pedido ?? null, is_rolo: oc.is_rolo ?? false, tecidos: [...nomes], categorias: [...categorias], artigos: [...artigos], fornecedor: oc.empresa?.nome_fantasia ?? null, owned: gerSet.has(oc.id) };
       });
     },
   });

@@ -200,8 +200,11 @@ export function ResumoPanel({
   });
   const maoObraSlot = (slot: PtSlot) => (slot.modelo_id ? (moTotalMap[slot.modelo_id] ?? 0) : 0);
 
-  // ---- A comprar (encomenda), por CATEGORIA de tecido (subcoleção) ----
-  const enc = slots.filter((s) => !(s.usar_estoque ?? false));
+  // ---- A comprar (necessidade), por CATEGORIA de tecido (subcoleção) ----
+  // Régua única (dono 17/ago/2026, flag usar_estoque APOSENTADO): TODO card entra na necessidade;
+  // a cobertura por vínculo é quem abate o "a comprar" (no servidor). Espelha o
+  // _plan_tecido_nec_variante_core (que também deixou de filtrar usar_estoque).
+  const enc = slots;
   const slotsCat = (cid: string | null) => enc.filter((s) => (s.categoria_tecido_id ?? null) === cid);
   const catTecMetros = (cid: string | null) => slotsCat(cid).reduce((a, s) => a + slotMetros(s, "tecido"), 0);
   const catStatus = (cid: string | null): "g" | "a" | "n" => {
@@ -224,7 +227,8 @@ export function ResumoPanel({
   }
   const necPorArtigo = (arv: PtArvore) => {
     const m = new Map<string, number>();
-    for (const t of necessidadePorTecido(arv, (s) => !(s.usar_estoque ?? false))) m.set(t.artigo_id, t.totalMetros);
+    // sem filtro de card (flag usar_estoque aposentado): a necessidade é de TODOS os cards.
+    for (const t of necessidadePorTecido(arv)) m.set(t.artigo_id, t.totalMetros);
     return m;
   };
   const necSubArt = necPorArtigo(arvore);
@@ -262,7 +266,7 @@ export function ResumoPanel({
     if (!v) { v = new Set(); ocVariantes.set(r.oc_tecido_id, v); }
     if (r.variante_tecido_id) v.add(r.variante_tecido_id);
   }
-  const { reservPorOc, comprometidoPorOc, estoquePorOc, nPorOc } = detalheOc(colecaoArvore, vinculoOcMap, slotOcMap, enviadoCadSet, ocArtigos, ocVariantes);
+  const { reservPorOc, comprometidoPorOc, nPorOc } = detalheOc(colecaoArvore, vinculoOcMap, slotOcMap, enviadoCadSet, ocArtigos, ocVariantes);
 
   // ---- Pendências (subcoleção) ----
   const semCategoria = slots.filter((s) => !s.categoria_tecido_id).length;
@@ -306,7 +310,7 @@ export function ResumoPanel({
       {/* A comprar (encomenda) — por categoria. `nec.` = necessidade (viva do plano); `a comprar` =
           déficit EXATO da prévia (necessidade − OCs vinculadas), o MESMO número do "Fazer pedido" →
           cai depois do pedido. Vermelho = falta comprar; verde = coberto. */}
-      <Secao title="A comprar (encomenda)" right={<Detalhar onClick={() => onDetalhar("comprar")} />}>
+      <Secao title="A comprar" right={<Detalhar onClick={() => onDetalhar("comprar")} />}>
         {catsSub.length === 0 && semCatMetros === 0 ? (
           <div className="p-2 text-[10px] text-muted-foreground">Nenhuma categoria ainda.</div>
         ) : (
@@ -416,7 +420,6 @@ export function ResumoPanel({
             {g.itens.map((o) => {
               const reservadaTotal = reservPorOc.get(o.oc_tecido_id) ?? 0;
               const comprometido = comprometidoPorOc.get(o.oc_tecido_id) ?? 0; // enviado à explosão (laranja)
-              const doEstoque = estoquePorOc.get(o.oc_tecido_id) ?? 0; // parcela "usar estoque existente" (consome físico, não gera compra)
               // Contabilidade via fonte única (mesma fn do Drawer): usado (comprometido OU baixa) sai da reservada.
               const { reservadaLivre: reservada, usada, sobra, baixaDomina } = contabilizarOc(reservadaTotal, comprometido, o.usada, o.entregue);
               return (
@@ -447,11 +450,6 @@ export function ResumoPanel({
                     </span>
                   </div>
                   <div className="flex justify-between pl-2.5 text-muted-foreground"><span>reservada (livre)</span><span>{nMet(reservada)} m</span></div>
-                  {doEstoque > 0 && (
-                    <div className="flex justify-between pl-2.5 text-muted-foreground" title="Parcela da demanda que sairá do estoque existente — não entra no 'A comprar'">
-                      <span>do estoque</span><span className="font-medium text-sky-700">{nMet(doEstoque)} m</span>
-                    </div>
-                  )}
                   <div className={`mt-0.5 flex justify-between border-t pt-0.5 font-display font-semibold ${sobraCls(sobra)}`}><span>Sobra</span><span>{sobra > 0 ? "+" : ""}{nMet(sobra)} m</span></div>
                 </div>
               );
@@ -460,7 +458,7 @@ export function ResumoPanel({
         )) : (
           <div className="p-2 text-[10px] text-muted-foreground">Sem OC ainda — gere um pedido ou vincule uma OC existente.</div>
         )}
-        <div className="p-2 text-[10px] leading-snug text-muted-foreground"><b className="font-semibold">Demanda</b> = tudo que consome o físico (em produção + reservada livre), <b className="font-semibold">incluindo</b> os cards "usar estoque existente" (a linha <b className="font-semibold">do estoque</b>) — eles não geram compra, mas consomem o entregue. <b className="font-semibold">Sobra</b> = Entregue − Demanda (o físico que sobra de fato) — negativa = ainda não chegou tecido suficiente.</div>
+        <div className="p-2 text-[10px] leading-snug text-muted-foreground"><b className="font-semibold">Demanda</b> = o que os cards vinculados a esta OC planejam usar (em produção + reservada livre). <b className="font-semibold">Sobra</b> = Entregue − Demanda (o físico que sobra de fato) — negativa = ainda não chegou tecido suficiente.</div>
       </Secao>
     </div>
   );

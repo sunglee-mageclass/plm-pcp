@@ -1,6 +1,8 @@
 // variante_tecido_id null = cor PLANEJADA (base+apelido) sem variante real ainda (tecido s/ fornecedor)
 export type PtVariante = { id?: string; variante_tecido_id: string | null; cor_id?: string | null; cor_apelido_id?: string | null; label?: string; cor_nome?: string | null; ordem: number; multiplicador: number; grades: Record<string, number>; grade_total: number };
 export type PtMaterial = { id?: string; artigo_id: string | null; artigo_nome?: string | null; unidade_medida?: string | null; rendimento?: number | null; preco_por_metro?: number | null; tipo: "tecido" | "forro"; numero: number; consumo: number; loss_percent: number; ordem: number; variantes: PtVariante[] };
+// usar_estoque: flag "Usar estoque existente" APOSENTADO (dono 17/ago/2026) — coluna INERTE, mantida
+// só p/ o round-trip do save preservar o valor legado; a UI não expõe mais nem filtra por ela.
 export type PtSlot = { id?: string; modelo_id: string | null; slot_index?: number; ref?: string | null; nome?: string | null; thumb_path?: string | null; proporcoes?: Record<string, number> | null; custo_simulado?: unknown; custo_terceirizados_previsto?: number | null; custos_adicionais?: { descricao: string; valor: number }[]; preco_venda?: number | null; categoria_id?: string | null; categoria_tecido_id?: string | null; linha_id?: string | null; usar_estoque?: boolean; materiais: PtMaterial[] };
 export type PtLinha = { id?: string; linha_id: string | null; categoria_id: string | null; ordem: number; slots: PtSlot[] };
 export type PtSub = { id?: string; subcolecao_id: string | null; ordem: number; categorias_tecido?: string[]; linhas: PtLinha[] };

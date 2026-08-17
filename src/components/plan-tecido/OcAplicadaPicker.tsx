@@ -13,6 +13,7 @@ import {
 import { semAcento } from "@/lib/busca";
 import { ocSearchValue } from "@/lib/plan-tecido/oc-busca";
 import { OcHoverInfo } from "@/components/plan-tecido/OcPreview";
+import { OcOrigemBadge } from "@/components/plan-tecido/OcOrigemBadge";
 
 type OcItem = { artigo: { nome: string | null } | null; cancelado: boolean | null };
 type OcRow = {
@@ -55,6 +56,17 @@ export function OcAplicadaPicker({ colecaoId }: { colecaoId: string }) {
       ocSearchValue({ numero_pedido: oc.numero_pedido, fornecedor: oc.empresa?.nome_fantasia ?? null, tecidos: tecidosDaOc(oc) }).includes(q),
     );
   }, [ocs, busca]);
+
+  // OCs GERADAS pelo "Fazer pedido" DESTA coleção (plan_tecido_ocs) → selo "do plano" no seletor;
+  // as demais (avulsas/de outra coleção) recebem "já existia" (decisão do dono 17/ago/2026).
+  const { data: geradasSet = new Set<string>() } = useQuery({
+    queryKey: ["plan-tecido-ocs-geradas", colecaoId],
+    queryFn: async () =>
+      new Set(
+        (((await supabase.from("plan_tecido_ocs" as any).select("oc_tecido_id").eq("colecao_id", colecaoId)).data ?? []) as unknown as { oc_tecido_id: string }[])
+          .map((r) => r.oc_tecido_id),
+      ),
+  });
 
   // seleção já aplicada (persistida)
   const { data: aplicadas = [] } = useQuery({
@@ -114,10 +126,11 @@ export function OcAplicadaPicker({ colecaoId }: { colecaoId: string }) {
           <DialogHeader>
             <DialogTitle>Vincular OC / Rolo ao plano</DialogTitle>
             <DialogDescription>
-              Escolha OCs de tecido ou <b>Rolos</b> (estoque físico). Uma <b>OC aplicada</b> é
-              acompanhamento: só abate o "a comprar" quando há um <b>card desta coleção vinculado</b>{" "}
-              a ela (ou quando foi gerada pelo Fazer pedido). Um <b>rolo</b> abate o "a comprar" pelo
-              seu <b>saldo</b> (metragem não separada).
+              Escolha OCs de tecido ou <b>Rolos</b> (estoque físico). O selo mostra a origem:{" "}
+              <b>do plano</b> (gerada pelo Fazer pedido desta coleção) ou <b>já existia</b> (avulsa /
+              de outra coleção). Uma <b>OC aplicada</b> é acompanhamento: só abate o "a comprar"
+              quando há um <b>card desta coleção vinculado</b> a ela (ou quando foi <b>do plano</b>).
+              Um <b>rolo</b> abate o "a comprar" pelo seu <b>saldo</b> (metragem não separada).
             </DialogDescription>
           </DialogHeader>
           <div className="relative">
@@ -138,12 +151,10 @@ export function OcAplicadaPicker({ colecaoId }: { colecaoId: string }) {
               ocsFiltradas.map((oc) => (
                 <label key={oc.id} className="flex cursor-pointer items-start gap-2 border-b px-3 py-2 text-xs last:border-b-0">
                   <Checkbox checked={sel.has(oc.id)} onCheckedChange={() => toggle(oc.id)} className="mt-0.5 h-4 w-4" />
-                  <OcHoverInfo ocId={oc.id} className="mt-0.5">
+                  <OcHoverInfo ocId={oc.id} owned={geradasSet.has(oc.id)} isRolo={oc.is_rolo} className="mt-0.5">
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-2">
-                        {oc.is_rolo && (
-                          <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary">Rolo</span>
-                        )}
+                        <OcOrigemBadge owned={geradasSet.has(oc.id)} isRolo={oc.is_rolo} />
                         <span className="flex-1 truncate">{oc.numero_pedido || (oc.is_rolo ? "Rolo s/ nº" : "OC s/ nº")}</span>
                         <span className="shrink-0 text-[10px] text-muted-foreground">{oc.is_rolo ? "estoque" : statusLabel(oc.status)}</span>
                       </span>

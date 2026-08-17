@@ -82,7 +82,7 @@ export function ModelCard({
   subcolecaoId?: string | null;
   paleta?: { artigo_id: string; papel: string }[];
   tamanhos?: string[];
-  ocsAplicadas?: { id: string; numero_pedido: string | null; is_rolo?: boolean; tecidos: string[]; categorias?: string[]; artigos?: string[]; fornecedor?: string | null }[];
+  ocsAplicadas?: { id: string; numero_pedido: string | null; is_rolo?: boolean; tecidos: string[]; categorias?: string[]; artigos?: string[]; fornecedor?: string | null; owned?: boolean }[];
   slotOcIds?: string[];
   vinculos?: { oc_id: string; numero_pedido: string | null; tecidos: string | null }[];
   lancado?: boolean;
@@ -199,13 +199,16 @@ export function ModelCard({
   });
   const total = necTecidos.reduce((s, t) => s + t.totalMetros, 0);
   const temGrade = slot.materiais.some((m) => m.variantes.some((v) => v.grade_total > 0));
-  const usarEstoque = slot.usar_estoque ?? false;
+  // Flag "Usar estoque existente" APOSENTADO (decisão do dono 17/ago/2026): a coluna
+  // plan_tecido_slots.usar_estoque fica INERTE — o save segue preservando o valor existente (round-trip
+  // do arvore), mas a UI não expõe mais o checkbox nem sinaliza o card (borda/selo). Régua única agora:
+  // vinculou OC/rolo = consome o físico daquela fonte; não vinculou = compra.
   // Espelho de revenda: NÃO planeja tecido (card informativo, ocupa a vaga do bucket — não
   // filtrar/esconder o card em si, só os controles de tecido dentro dele).
   const isRevenda = origem === "revenda";
   // peças = grade total do Tecido 1 (base do modelo)
   const pieces = (slot.materiais.find((m) => m.tipo === "tecido" && m.numero === 1)?.variantes ?? []).reduce((s, v) => s + (v.grade_total || 0), 0);
-  const borderClass = open ? "border-primary" : usarEstoque ? "border-amber-500" : "";
+  const borderClass = open ? "border-primary" : "";
 
   // Estado do botão "Aplicar ao modelo" (empurra o BOM completo). Bloqueia só se lançado.
   const gradeDisabled = !slot.id || !slot.modelo_id || !!lancado || !!travado || aplicandoGrade;
@@ -283,7 +286,6 @@ export function ModelCard({
               {slot.ref && <span className="tabular-nums">{slot.ref}</span>}
               {!isRevenda && <span className="tabular-nums">{pieces} pç</span>}
               {!isRevenda && <span className="tabular-nums">{total ? `${fmtInt(total)} m` : "0 m"}</span>}
-              {!isRevenda && usarEstoque && <span className="font-medium text-amber-700">estoque</span>}
             </div>
           </div>
           {!isRevenda && fornecTotal ? (
@@ -337,23 +339,8 @@ export function ModelCard({
                 ))}
               </select>
             </div>
-            {/* "Usar estoque existente" é sobre estoque de TECIDO — sem sentido pra revenda. */}
-            {!isRevenda && (
-              <div className="border-t px-2 py-1 flex items-center gap-2">
-                <label
-                  className="flex cursor-pointer items-center gap-2 text-xs select-none"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <Checkbox
-                    id={`usar-estoque-${slot.id ?? slot.modelo_id ?? "new"}`}
-                    checked={usarEstoque}
-                    onCheckedChange={(v) => onChange({ ...slot, usar_estoque: !!v })}
-                    className="h-4 w-4"
-                  />
-                  <span>Usar estoque existente</span>
-                </label>
-              </div>
-            )}
+            {/* Flag "Usar estoque existente" APOSENTADO (dono 17/ago/2026) — checkbox removido. A régua
+                única agora é por VÍNCULO (OC/rolo abaixo, no hint), não por um flag de card. */}
             {/* "Aplicar ao modelo"/"Criar card" empurram BOM de TECIDO + o hint de OC de tecido —
                 nenhum dos dois se aplica a um espelho de revenda (sem BOM de tecido). */}
             {colecaoId && !isRevenda && (

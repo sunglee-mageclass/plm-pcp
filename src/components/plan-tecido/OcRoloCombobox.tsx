@@ -6,8 +6,11 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { semAcento } from "@/lib/busca";
 import { ocSearchValue, type OcBuscavel } from "@/lib/plan-tecido/oc-busca";
 import { OcHoverInfo } from "@/components/plan-tecido/OcPreview";
+import { OcOrigemBadge } from "@/components/plan-tecido/OcOrigemBadge";
 
-export type OcComboOption = OcBuscavel & { id: string; is_rolo?: boolean | null };
+/** `owned` = OC gerada pelo Fazer pedido DESTA coleção (plan_tecido_ocs) → selo "do plano"; senão
+ *  "já existia" (undefined = origem desconhecida → sem selo de OC). */
+export type OcComboOption = OcBuscavel & { id: string; is_rolo?: boolean | null; owned?: boolean };
 
 /**
  * Combobox de "Adicionar OC/Rolo" com busca ÚNICA (nº · fornecedor · tecido) — substitui o
@@ -52,13 +55,9 @@ export function OcRoloCombobox({
                   value={`${ocSearchValue(oc)} ${oc.id}`}
                   onSelect={() => { onSelect(oc.id); setOpen(false); }}
                 >
-                  <OcHoverInfo ocId={oc.id}>
+                  <OcHoverInfo ocId={oc.id} owned={oc.owned} isRolo={oc.is_rolo}>
                     <span className="flex min-w-0 flex-1 items-center gap-2">
-                      {oc.is_rolo && (
-                        <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary">
-                          Rolo
-                        </span>
-                      )}
+                      <OcOrigemBadge owned={oc.owned} isRolo={oc.is_rolo} />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate">{oc.numero_pedido || (oc.is_rolo ? "Rolo s/ nº" : "OC s/ nº")}</span>
                         {oc.tecidos.length > 0 && (

@@ -14,7 +14,7 @@ const nMet = fmtMetros;
 const cmpPt = (a: string, b: string) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }); // ordem alfabética pt-BR (dono)
 const sobraCls = (s: number) => (s < 0 ? "text-red-600" : "text-emerald-700");
 
-type Linha = { key: string; label: string; cor_nome: string | null; reservada: number; pedida: number; entregue: number; usada: number; comprometida: number; estoque: number; aComprar: number };
+type Linha = { key: string; label: string; cor_nome: string | null; reservada: number; pedida: number; entregue: number; usada: number; comprometida: number; aComprar: number };
 type Grupo = { artigo_id: string; artigo: string; variantes: Linha[] };
 
 export function PlanTecidoDrawer({
@@ -40,12 +40,12 @@ export function PlanTecidoDrawer({
     const devOc = s.modelo_id ? (vinculoOcMap[s.modelo_id] ?? []) : [];
     return devOc.length > 0 || (!!s.id && (slotOcMap[s.id]?.length ?? 0) > 0);
   };
-  // RÉGUA (report do dono, ago/2026): a demanda que ABATE a Sobra do físico = cards VINCULADOS a OC
-  // (a OC foi comprada pra eles) OU marcados "usar estoque existente" (consomem o que já está em casa).
-  // Card SEM vínculo E SEM usar_estoque = intenção de COMPRAR → NÃO abate o físico; aparece à parte
-  // como "a comprar" (o painel A comprar/servidor é quem dá o número líquido). Sem essa distinção, o
-  // "Detalhe por variante" confundia compra futura com uso do estoque.
-  const fisico = (s: PtSlot) => vinculado(s) || !!(s.usar_estoque ?? false);
+  // RÉGUA ÚNICA (dono 17/ago/2026, flag "usar estoque existente" APOSENTADO): a demanda que ABATE a
+  // Sobra do físico = cards VINCULADOS a OC/rolo (a fonte foi comprada/existe pra eles). Card SEM
+  // vínculo = intenção de COMPRAR → NÃO abate o físico; aparece à parte como "a comprar" (o painel A
+  // comprar/servidor dá o número líquido). Sem essa distinção, o "Detalhe por variante" confundia
+  // compra futura com uso do estoque.
+  const fisico = (s: PtSlot) => vinculado(s);
 
   // Somatórios por variante — usados SÓ no painel colecao-wide 'oc' (o 'ocnum' vem da fonte única
   // detalheOc; o 'comprar' tem conta própria via RPC).
@@ -57,7 +57,6 @@ export function PlanTecidoDrawer({
   };
   const necByVar = kind === "oc" ? somaPorVar(fisico) : new Map<string, number>();                                 // Demanda FÍSICA (abate a Sobra)
   const comprometidoByVar = kind === "oc" ? somaPorVar((s) => enviadoCad(s) && fisico(s)) : new Map<string, number>(); // enviado à explosão (laranja) ⊆ física
-  const estoqueByVar = kind === "oc" ? somaPorVar((s) => !!(s.usar_estoque ?? false)) : new Map<string, number>();     // parcela "do estoque" (split)
   const aComprarByVar = kind === "oc" ? somaPorVar((s) => !fisico(s)) : new Map<string, number>();                     // à parte: NÃO abate — só informa
 
   // Por OC (kind='ocnum') a reservada/comprometida vêm da FONTE ÚNICA detalheOc — a MESMA fn do Resumo
@@ -79,11 +78,7 @@ export function PlanTecidoDrawer({
   const comprometidaVar = (vid: string): number =>
     kind === "comprar" ? 0
       : kind === "ocnum" && arg ? (det.comprometidoPorOcVar.get(`${arg}|${vid}`) ?? 0) : (comprometidoByVar.get(vid) ?? 0);
-  // Parcela "do estoque" (cards usar_estoque) — split informativo DENTRO da Demanda física.
-  const estoqueVar = (vid: string): number =>
-    kind === "comprar" ? 0
-      : kind === "ocnum" && arg ? (det.estoquePorOcVar.get(`${arg}|${vid}`) ?? 0) : (estoqueByVar.get(vid) ?? 0);
-  // Parcela "a comprar" (cards sem vínculo E sem estoque) — FORA da Demanda física; só o 'oc'
+  // Parcela "a comprar" (cards sem vínculo) — FORA da Demanda física; só o 'oc'
   // agregado mostra (o 'ocnum' por-OC só tem cards vinculados, todos físicos → 0).
   const aComprarVar = (vid: string): number => (kind === "oc" ? (aComprarByVar.get(vid) ?? 0) : 0);
 
@@ -120,7 +115,7 @@ export function PlanTecidoDrawer({
         const nec = Number(r.nec_m) || 0, deficit = Number(r.deficit_m) || 0;
         total += deficit;
         return { key: r.variante_tecido_id ?? `${artigo_id}|${r.label}`, label: r.label ?? "", cor_nome: null,
-          reservada: nec, pedida: Math.max(0, nec - deficit), entregue: Number(r.estoque_m) || 0, usada: deficit, comprometida: 0, estoque: 0, aComprar: 0 };
+          reservada: nec, pedida: Math.max(0, nec - deficit), entregue: Number(r.estoque_m) || 0, usada: deficit, comprometida: 0, aComprar: 0 };
       }),
     }));
   } else {
@@ -129,7 +124,7 @@ export function PlanTecidoDrawer({
     for (const r of situRows) {
       let g = porArtigo.get(r.artigo_id);
       if (!g) { g = { nome: r.artigo_nome, vm: new Map() }; porArtigo.set(r.artigo_id, g); }
-      const cur = g.vm.get(r.variante_tecido_id) ?? { key: r.variante_tecido_id, label: r.variante_label ?? "", cor_nome: null, reservada: reservaVar(r.variante_tecido_id), pedida: 0, entregue: 0, usada: 0, comprometida: comprometidaVar(r.variante_tecido_id), estoque: estoqueVar(r.variante_tecido_id), aComprar: aComprarVar(r.variante_tecido_id) };
+      const cur = g.vm.get(r.variante_tecido_id) ?? { key: r.variante_tecido_id, label: r.variante_label ?? "", cor_nome: null, reservada: reservaVar(r.variante_tecido_id), pedida: 0, entregue: 0, usada: 0, comprometida: comprometidaVar(r.variante_tecido_id), aComprar: aComprarVar(r.variante_tecido_id) };
       cur.pedida += r.pedida_m; cur.entregue += r.entregue_m; cur.usada += r.usada_m; // reservada/comprometida vêm do front (detalheOc), não da RPC
       g.vm.set(r.variante_tecido_id, cur);
     }
@@ -294,22 +289,17 @@ export function PlanTecidoDrawer({
                           </td>
                           {/* Demanda FÍSICA = max(reserva física, usada) — só o que consome o Entregue,
                               garante Entregue − Demanda = Sobra EXATO. Sub-infos: EM PRODUÇÃO (âmbar =
-                              enviado à explosão; vermelho = corte baixado), DO ESTOQUE (usar_estoque,
-                              azul) e A COMPRAR (vermelho, à parte — NÃO abate a Sobra; é intenção de
-                              compra dos cards sem OC e sem estoque, o número líquido está em A comprar). */}
+                              enviado à explosão; vermelho = corte baixado) e A COMPRAR (vermelho, à
+                              parte — NÃO abate a Sobra; é intenção de compra dos cards sem vínculo, o
+                              número líquido está em A comprar). */}
                           <td
                             className="whitespace-nowrap p-1.5 text-right align-top"
-                            title={`Demanda física (consome o entregue): ${nMet(usada)} em produção + ${nMet(reservadaLivre)} reservada (livre)${v.estoque > 0 ? ` · ${nMet(v.estoque)} do estoque` : ""}${v.aComprar > 0 ? ` — além disso ${nMet(v.aComprar)} m são intenção de COMPRA (não abate o físico; ver A comprar)` : ""}`}
+                            title={`Demanda física (consome o entregue): ${nMet(usada)} em produção + ${nMet(reservadaLivre)} reservada (livre)${v.aComprar > 0 ? ` — além disso ${nMet(v.aComprar)} m são intenção de COMPRA (não abate o físico; ver A comprar)` : ""}`}
                           >
                             <div>{nMet(Math.max(v.reservada, usada))}</div>
                             {usada > 0 && (
                               <div className={`text-[10px] font-medium ${baixaDomina ? "text-red-700" : "text-amber-700"}`}>
                                 {nMet(usada)} em produção
-                              </div>
-                            )}
-                            {v.estoque > 0 && (
-                              <div className="text-[10px] font-medium text-sky-700" title="Parcela da demanda que sairá do estoque existente — não entra no 'A comprar'">
-                                {nMet(v.estoque)} do estoque
                               </div>
                             )}
                             {v.aComprar > 0 && (
@@ -339,12 +329,11 @@ export function PlanTecidoDrawer({
         {kind !== "comprar" && grupos.length > 0 && (
           <p className="border-t px-1.5 py-2 text-[10px] leading-snug text-muted-foreground">
             <b className="font-semibold">Demanda</b> = só o que CONSOME o físico (abate a Sobra): cards
-            <b className="font-semibold"> vinculados a uma OC</b> (a OC foi comprada pra eles) ou marcados
-            <b className="font-semibold"> "usar estoque existente"</b> (usam o que já está em casa). Sub-infos:
-            <b className="font-semibold"> em produção</b> (âmbar/vermelho), <b className="font-semibold">do estoque</b>
-            (azul). <b className="font-semibold text-red-600">a comprar</b> (vermelho) = cards SEM OC e SEM estoque
-            — intenção de compra, fica <b className="font-semibold">à parte</b>, NÃO abate a Sobra (o líquido está
-            no painel "A comprar"). A <b className="font-semibold">Sobra</b> = Entregue − Demanda física (o que
+            <b className="font-semibold"> vinculados a uma OC/rolo</b> (a fonte foi comprada/existe pra eles).
+            Sub-info: <b className="font-semibold">em produção</b> (âmbar/vermelho).
+            <b className="font-semibold text-red-600"> a comprar</b> (vermelho) = cards SEM vínculo — intenção
+            de compra, fica <b className="font-semibold">à parte</b>, NÃO abate a Sobra (o líquido está no
+            painel "A comprar"). A <b className="font-semibold">Sobra</b> = Entregue − Demanda física (o que
             sobra de fato) — negativa = falta chegar.
             {kind === "oc" && <> Painel da <b className="font-semibold">coleção inteira</b> (a cor × tudo que as
             OCs entregaram); para o recorte de UMA OC, abra "Situação por OC".</>}
