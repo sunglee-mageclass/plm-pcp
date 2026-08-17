@@ -1336,7 +1336,7 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
               {resumoAberto && (
                 <aside className="hidden w-80 shrink-0 flex-col overflow-hidden border-r md:flex lg:w-96">
                   <div className="flex-1 overflow-y-auto p-3">
-                    <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={openDrawer} />
+                    <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={openDrawer} temRascunho={dirty} />
                   </div>
                 </aside>
               )}
@@ -1344,19 +1344,19 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                   em tablet os botões do trilho acendiam e NADA abria — ação sem feedback (laudo). */}
               {drawer && (
                 <aside className="hidden w-[420px] shrink-0 overflow-hidden border-r md:flex">
-                  <PlanTecidoDrawer state={drawer} subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} enviadoCadSet={enviadoCadSet} ocNumeroDe={ocNumeroDe} onClose={() => setDrawer(null)} />
+                  <PlanTecidoDrawer state={drawer} subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} enviadoCadSet={enviadoCadSet} ocNumeroDe={ocNumeroDe} onClose={() => setDrawer(null)} temRascunho={dirty} />
                 </aside>
               )}
               {/* mobile: painéis full-width das abas (reusam os MESMOS componentes do desktop) */}
               <div className={`flex-1 overflow-y-auto p-3 md:hidden ${mobileTab === "resumo" ? "" : "hidden"}`}>
-                <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={detalharMobile} />
+                <ResumoPanel arvore={subArvore} colecaoArvore={arvore} colecaoId={colecaoId} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} enviadoCadSet={enviadoCadSet} catTecidoNome={catTecidoNome} onDetalhar={detalharMobile} temRascunho={dirty} />
               </div>
               {(mobileTab === "comprar" || mobileTab === "oc") && (
                 <div className="flex-1 overflow-hidden md:hidden">
                   <PlanTecidoDrawer
                     state={drawer && (mobileTab === "comprar" ? drawer.kind === "comprar" : drawer.kind !== "comprar") ? drawer : { kind: mobileTab === "comprar" ? "comprar" : "oc", arg: null }}
                     subArvore={subArvore} colecaoArvore={arvore} situacao={situacaoRows} slotOcMap={slotOcMap} vinculoOcMap={vinculoOcMap} enviadoCadSet={enviadoCadSet} ocNumeroDe={ocNumeroDe}
-                    onClose={() => setMobileTab("canvas")} />
+                    onClose={() => setMobileTab("canvas")} temRascunho={dirty} />
                 </div>
               )}
               <main className={`flex-1 overflow-y-auto p-3 ${mobileTab !== "canvas" ? "max-md:hidden" : ""}`}>

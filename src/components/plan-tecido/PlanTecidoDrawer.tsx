@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
-import { necessidadePorTecido, detalheOc, fmtMetros, contabilizarOc } from "@/lib/plan-tecido/calc";
+import { necessidadePorTecido, detalheOc, fmtMetros, contabilizarOc, coberturaVar, aComprarVivoVar, necVivoPorVariante } from "@/lib/plan-tecido/calc";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import type { SituacaoOcRow } from "@/lib/plan-tecido/useSituacaoOcs";
 
@@ -18,7 +18,7 @@ type Linha = { key: string; label: string; cor_nome: string | null; reservada: n
 type Grupo = { artigo_id: string; artigo: string; variantes: Linha[] };
 
 export function PlanTecidoDrawer({
-  state, subArvore, colecaoArvore, situacao, slotOcMap, vinculoOcMap = {}, enviadoCadSet, ocNumeroDe, onClose,
+  state, subArvore, colecaoArvore, situacao, slotOcMap, vinculoOcMap = {}, enviadoCadSet, ocNumeroDe, onClose, temRascunho = false,
 }: {
   state: DrawerState;
   subArvore: PtArvore;
@@ -31,6 +31,8 @@ export function PlanTecidoDrawer({
   enviadoCadSet?: Set<string>;
   ocNumeroDe: (ocId: string) => string | null;
   onClose: () => void;
+  /** Rascunho não salvo influenciando o "a comprar" AO VIVO (só acende indicação leve no subtítulo). */
+  temRascunho?: boolean;
 }) {
   const { kind, arg } = state;
   const enviadoCad = (s: PtSlot) => !!s.modelo_id && !!enviadoCadSet?.has(s.modelo_id);
@@ -85,9 +87,13 @@ export function PlanTecidoDrawer({
   const situRows = kind === "ocnum" && arg ? situacao.filter((r) => r.oc_tecido_id === arg) : situacao;
 
   // 'comprar' = a MESMA conta do Fazer pedido, por variante, com a equação nas colunas:
-  // Nec − Coberto (OC) = A comprar (padrão aprovado do drawer Situação). A cobertura vem
-  // da prévia do servidor (chave 'cobertura', TODAS as linhas — inclusive déficit 0, que é
-  // a parte satisfatória de ver). Escopo = COLEÇÃO (igual ao pedido); a nota explica.
+  // Nec − Coberto (OC) = A comprar (padrão aprovado do drawer Situação). A COBERTURA vem
+  // da prévia do servidor (chave 'cobertura', TODAS as linhas — inclusive déficit 0), mas a
+  // NECESSIDADE é AO VIVO do rascunho (item 2): Nec = nec_viva, Coberto = max(0, nec_servidor −
+  // deficit_servidor) (estável entre saves), A comprar = max(0, nec_viva − Coberto). Assim mudar a
+  // quantidade no card move as 3 colunas na hora; ao salvar converge com o refetch (nec_viva ==
+  // nec_servidor ⇒ A comprar == deficit_servidor). Fonte ÚNICA c/ o painel Resumo (calc.ts).
+  // Escopo = COLEÇÃO (igual ao pedido); a nota explica.
   const { data: previaDrawer } = useQuery({
     queryKey: ["plan-tecido-previa", colecaoArvore.colecao_id],
     enabled: kind === "comprar",
@@ -95,16 +101,20 @@ export function PlanTecidoDrawer({
   });
   type CobRow = { artigo_id: string; artigo_nome: string; variante_tecido_id: string | null; label: string | null; nec_m: number; estoque_m: number; deficit_m: number };
   const cobertura = ((previaDrawer as any)?.cobertura ?? []) as CobRow[];
+  // nec VIVA do rascunho por variante (coleção) — casa com a cobertura por variante_tecido_id.
+  const necVivoColByVar = kind === "comprar" ? necVivoPorVariante(colecaoArvore) : new Map<string, number>();
 
   // 'oc'/'ocnum' = dirigido pelos ITENS DA OC (mostra o pedido mesmo sem card atribuído) + reservada.
   let grupos: Grupo[];
   let total = 0;
   if (kind === "comprar") {
-    // Mapeamento dos campos da Linha p/ a equação: reservada=Nec · pedida=Coberto(OC) ·
-    // entregue=estoque (só title) · usada=A comprar (déficit).
+    // Mapeamento dos campos da Linha p/ a equação: reservada=Nec (VIVA) · pedida=Coberto (estável) ·
+    // entregue=estoque (só title) · usada=A comprar (= max(0, nec_viva − coberto)).
+    const necVivoRow = (r: CobRow) => (r.variante_tecido_id ? (necVivoColByVar.get(r.variante_tecido_id) ?? 0) : (Number(r.nec_m) || 0));
     const porArt = new Map<string, { nome: string; rows: CobRow[] }>();
     for (const r of cobertura) {
-      if ((Number(r.nec_m) || 0) <= 0 && (Number(r.deficit_m) || 0) <= 0) continue; // linha 0−0=0 é ruído
+      const nv = necVivoRow(r);
+      if (nv <= 0 && (Number(r.deficit_m) || 0) <= 0) continue; // linha 0−0=0 é ruído (usa a nec VIVA)
       let g = porArt.get(r.artigo_id);
       if (!g) { g = { nome: r.artigo_nome, rows: [] }; porArt.set(r.artigo_id, g); }
       g.rows.push(r);
@@ -112,10 +122,12 @@ export function PlanTecidoDrawer({
     grupos = [...porArt.entries()].map(([artigo_id, g]) => ({
       artigo_id, artigo: g.nome,
       variantes: [...g.rows].sort((a, b) => cmpPt(a.label ?? "", b.label ?? "")).map((r) => {  // variantes alfabéticas (dono)
-        const nec = Number(r.nec_m) || 0, deficit = Number(r.deficit_m) || 0;
-        total += deficit;
+        const nec = necVivoRow(r);                                   // necessidade AO VIVO do rascunho
+        const coberto = coberturaVar(r.nec_m, r.deficit_m);          // cobertura estável do servidor
+        const aComprar = aComprarVivoVar(nec, r.nec_m, r.deficit_m); // = max(0, nec_viva − coberto) (clamp por variante)
+        total += aComprar;
         return { key: r.variante_tecido_id ?? `${artigo_id}|${r.label}`, label: r.label ?? "", cor_nome: null,
-          reservada: nec, pedida: Math.max(0, nec - deficit), entregue: Number(r.estoque_m) || 0, usada: deficit, comprometida: 0, aComprar: 0 };
+          reservada: nec, pedida: coberto, entregue: Number(r.estoque_m) || 0, usada: aComprar, comprometida: 0, aComprar: 0 };
       }),
     }));
   } else {
@@ -181,7 +193,10 @@ export function PlanTecidoDrawer({
       <div className="flex items-center gap-2 border-b p-3">
         <div className="min-w-0">
           <h3 className="truncate font-display text-sm font-semibold">{titulo}</h3>
-          <div className="truncate text-[11px] text-muted-foreground">{sub}</div>
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            {kind === "comprar" && temRascunho && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" title="Inclui alterações não salvas — a Nec. e o A comprar já refletem o rascunho" />}
+            <span className="truncate">{sub}</span>
+          </div>
         </div>
         <button type="button" onClick={onClose} className="ml-auto shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground" title="Fechar">
           <X className="h-4 w-4" />
@@ -196,8 +211,8 @@ export function PlanTecidoDrawer({
             {kind === "comprar" ? (
               <tr>
                 <th className="w-full p-1.5 text-left font-medium">Tecido / variante</th>
-                <th className="whitespace-nowrap p-1.5 text-right font-medium" title="Necessidade da coleção (consumo × grade, plano salvo)">Nec.</th>
-                <th className="whitespace-nowrap p-1.5 text-right font-medium" title="Cobertura desta cor: OC com card desta coleção vinculado (ou gerada pelo Fazer pedido) + saldo de rolo vinculado">− Coberto</th>
+                <th className="whitespace-nowrap p-1.5 text-right font-medium" title="Necessidade da coleção AO VIVO (consumo × grade do rascunho — muda ao editar o card, sem salvar)">Nec.</th>
+                <th className="whitespace-nowrap p-1.5 text-right font-medium" title="Cobertura desta cor (estável entre saves): OC com card desta coleção vinculado (ou gerada pelo Fazer pedido) + saldo de rolo vinculado">− Coberto</th>
                 <th className="whitespace-nowrap p-1.5 text-right font-medium">= A comprar</th>
               </tr>
             ) : (

@@ -222,6 +222,63 @@ export function detalheOc(
   return { reservPorOc, comprometidoPorOc, nPorOc, reservPorOcVar, comprometidoPorOcVar };
 }
 
+// ─── "A comprar" AO VIVO (real-time) ──────────────────────────────────────────────────────────────
+// O painel "A comprar" (Resumo) e o drawer 'comprar' mostravam o déficit do plano SALVO (prévia do
+// servidor). O dono quer que MUDAR A QUANTIDADE no card mova o "a comprar" NA HORA, sem salvar.
+// Desenho híbrido: necessidade AO VIVO do rascunho (front) − COBERTURA do servidor (estável entre
+// saves, muda só com vínculos/OC/estoque, que já invalidam a prévia). Fonte ÚNICA p/ Resumo E drawer.
+
+/** Linha de cobertura por variante vinda da prévia do servidor (chave `cobertura` de
+ *  plan_tecido_previa_pedido) — TODAS as variantes reais da coleção, inclusive déficit 0. */
+export type CoberturaVarRow = {
+  artigo_id: string;
+  variante_tecido_id: string | null;
+  nec_m: number;
+  deficit_m: number;
+};
+
+/** Cobertura ESTÁVEL de UMA variante, derivada da prévia do servidor: `max(0, nec_servidor −
+ *  deficit_servidor)`. Como `deficit = max(0, nec − supply − rolo)`, isto é `min(nec_salvo, supply+rolo)`
+ *  — depende só de OC/rolo/estoque (muda quando a prévia é invalidada), NÃO do rascunho de grade. */
+export const coberturaVar = (necServidor: number, deficitServidor: number): number =>
+  Math.max(0, (Number(necServidor) || 0) - (Number(deficitServidor) || 0));
+
+/** "A comprar" AO VIVO de UMA variante: `max(0, nec_vivo − cobertura)`. Clampa em ≥0 POR VARIANTE
+ *  (antes de qualquer soma — `Σ max(0,·) ≠ max(0,Σ)`). Quando `nec_vivo == nec_servidor` (rascunho ==
+ *  salvo) devolve EXATAMENTE o `deficit_servidor` (paridade provada no teste). Unidade = METROS nos
+ *  dois lados (o servidor mantém nec/deficit em metros; kg→m só entra no `qtd` do pedido). */
+export const aComprarVivoVar = (necVivo: number, necServidor: number, deficitServidor: number): number =>
+  Math.max(0, (Number(necVivo) || 0) - coberturaVar(necServidor, deficitServidor));
+
+/** Necessidade VIVA do rascunho por `variante_tecido_id` (só cor REAL — cor planejada sem id fica de
+ *  fora, igual à prévia do servidor, que não a cobre). Chave = a mesma do `varKey` p/ cor real. */
+export function necVivoPorVariante(arvore: PtArvore): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const t of necessidadePorTecido(arvore))
+    for (const v of t.variantes)
+      if (v.variante_tecido_id) m.set(v.variante_tecido_id, (m.get(v.variante_tecido_id) ?? 0) + v.metros);
+  return m;
+}
+
+/** "A comprar" AO VIVO agregado por ARTIGO: soma, POR VARIANTE (clamp antes de somar), o
+ *  `aComprarVivoVar` de cada linha de cobertura do servidor, usando a necessidade viva do rascunho.
+ *  Variante planejada por cor (sem `variante_tecido_id`) fica de fora — paridade com o servidor.
+ *  Quando o rascunho == salvo, cada linha rende o próprio `deficit_m` ⇒ o total por artigo == o
+ *  déficit do servidor por artigo (teste `paridade`). */
+export function aComprarVivoPorArtigo(
+  cobertura: CoberturaVarRow[],
+  necVivoPorVar: Map<string, number>,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const c of cobertura) {
+    if (!c.variante_tecido_id) continue;
+    const ac = aComprarVivoVar(necVivoPorVar.get(c.variante_tecido_id) ?? 0, c.nec_m, c.deficit_m);
+    if (ac <= 0) continue;
+    out.set(c.artigo_id, (out.get(c.artigo_id) ?? 0) + ac);
+  }
+  return out;
+}
+
 /** Rateio do déficit da COLEÇÃO para uma SUBCOLEÇÃO, por artigo: parte proporcional à necessidade
  *  da sub sobre a da coleção, limitada à necessidade da sub. nec 0 ⇒ 0 (a sub não deve nada);
  *  Σ dos rateios das subs = déficit da coleção. (Auditoria jul/2026: "nec 0 · a comprar 1.591,68"

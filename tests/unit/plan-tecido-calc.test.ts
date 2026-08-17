@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { necessidadeVariante, necessidadePorTecido, metrosParaKg, abaterEstoque, custoMateriaisPrevisto, distribuirGrade, detalheOc, contabilizarOc, rateioDeficitSub, dedupVariantes, buildMateriaisAplicar } from "@/lib/plan-tecido/calc";
+import { necessidadeVariante, necessidadePorTecido, metrosParaKg, abaterEstoque, custoMateriaisPrevisto, distribuirGrade, detalheOc, contabilizarOc, rateioDeficitSub, dedupVariantes, buildMateriaisAplicar, coberturaVar, aComprarVivoVar, aComprarVivoPorArtigo, necVivoPorVariante, type CoberturaVarRow } from "@/lib/plan-tecido/calc";
 import type { PtArvore, PtSlot, PtVariante } from "@/lib/plan-tecido/types";
 
 describe("plan-tecido/calc", () => {
@@ -451,5 +451,104 @@ describe("buildMateriaisAplicar (payload do 'Aplicar ao modelo' / auto-aplicar d
     expect({ tipo: m.tipo, numero: m.numero, artigo_id: m.artigo_id, consumo: m.consumo, loss_percent: m.loss_percent })
       .toEqual({ tipo: "forro", numero: 2, artigo_id: "A", consumo: 0.8, loss_percent: 5 });
     expect(m.variantes[0]).toMatchObject({ variante_tecido_id: "vX", ordem: 3, multiplicador: 2, grade_total: 4 });
+  });
+});
+
+// ─── "A comprar" AO VIVO (item 2) ─────────────────────────────────────────────────────────────────
+describe('plan-tecido/calc — "a comprar" AO VIVO', () => {
+  // Espelha a prévia do servidor (chave `cobertura`): supply = max(0, nec_servidor − deficit_servidor).
+  it("coberturaVar = max(0, nec_servidor − deficit_servidor); clampa em ≥0", () => {
+    expect(coberturaVar(331.68, 31.68)).toBeCloseTo(300, 5); // caso real Ave Rara: OC cobre 300
+    expect(coberturaVar(398.72, 398.72)).toBe(0);            // sem cobertura
+    expect(coberturaVar(0, 0)).toBe(0);
+    expect(coberturaVar(100, 200)).toBe(0);                  // deficit não pode passar da nec, mas clampa
+  });
+
+  it("aComprarVivoVar = max(0, nec_vivo − cobertura); nec_vivo==nec_servidor ⇒ == deficit_servidor (PARIDADE)", () => {
+    // partially-covered (cobertura=300): editar a grade move o a comprar na hora
+    expect(aComprarVivoVar(331.68, 331.68, 31.68)).toBeCloseTo(31.68, 5); // rascunho==salvo → paridade
+    expect(aComprarVivoVar(400, 331.68, 31.68)).toBeCloseTo(100, 5);      // bumpou a grade → +
+    expect(aComprarVivoVar(250, 331.68, 31.68)).toBe(0);                  // baixou abaixo da cobertura → 0
+    // uncovered (cobertura=0): a comprar = a própria nec viva
+    expect(aComprarVivoVar(398.72, 398.72, 398.72)).toBeCloseTo(398.72, 5);
+    expect(aComprarVivoVar(450, 398.72, 398.72)).toBeCloseTo(450, 5);
+  });
+
+  it("PARIDADE por artigo: rascunho==salvo ⇒ Σ por artigo == déficit do servidor por artigo", () => {
+    const cobertura: CoberturaVarRow[] = [
+      { artigo_id: "A", variante_tecido_id: "v1", nec_m: 331.68, deficit_m: 31.68 }, // supply 300
+      { artigo_id: "A", variante_tecido_id: "v2", nec_m: 398.72, deficit_m: 398.72 }, // supply 0
+      { artigo_id: "B", variante_tecido_id: "v3", nec_m: 200, deficit_m: 0 },          // supply 200 (coberto)
+    ];
+    // nec VIVA == nec do servidor → paridade exata com o servidor (Σ deficit por artigo)
+    const necVivo = new Map([["v1", 331.68], ["v2", 398.72], ["v3", 200]]);
+    const out = aComprarVivoPorArtigo(cobertura, necVivo);
+    expect(out.get("A")).toBeCloseTo(31.68 + 398.72, 4); // = Σ deficit do artigo A no servidor
+    expect(out.has("B")).toBe(false);                    // deficit 0 → não entra (paridade)
+  });
+
+  it("CLAMP POR VARIANTE antes de somar (Σ max(0,·) ≠ max(0,Σ))", () => {
+    // v1: nec_vivo 250 < cobertura 300 → 0 (NÃO deixa o excedente abater a v2)
+    // v2: nec_vivo 450 > cobertura 0   → 450
+    const cobertura: CoberturaVarRow[] = [
+      { artigo_id: "A", variante_tecido_id: "v1", nec_m: 331.68, deficit_m: 31.68 }, // supply 300
+      { artigo_id: "A", variante_tecido_id: "v2", nec_m: 398.72, deficit_m: 398.72 }, // supply 0
+    ];
+    const out = aComprarVivoPorArtigo(cobertura, new Map([["v1", 250], ["v2", 450]]));
+    // clamp por variante: max(0,250−300)=0 + max(0,450−0)=450 = 450 (não 400 = max(0,(250+450)−300))
+    expect(out.get("A")).toBeCloseTo(450, 4);
+  });
+
+  it("convergência ao salvar: valor vivo muda na digitação e, quando rascunho vira salvo, == servidor", () => {
+    const cobertura: CoberturaVarRow[] = [{ artigo_id: "A", variante_tecido_id: "v1", nec_m: 300, deficit_m: 100 }]; // supply 200
+    // durante a edição (rascunho 360, ainda não salvo)
+    const vivo = aComprarVivoPorArtigo(cobertura, new Map([["v1", 360]]));
+    expect(vivo.get("A")).toBeCloseTo(160, 4); // max(0, 360 − 200)
+    // ao salvar, o servidor recomputa: nec_servidor=360, supply=200 (OC inalterada) → deficit=160.
+    const coberturaSalva: CoberturaVarRow[] = [{ artigo_id: "A", variante_tecido_id: "v1", nec_m: 360, deficit_m: 160 }];
+    const posSave = aComprarVivoPorArtigo(coberturaSalva, new Map([["v1", 360]]));
+    expect(posSave.get("A")).toBeCloseTo(vivo.get("A")!, 4); // CONVERGE — mesmos números
+  });
+
+  it("variante planejada por cor (sem variante_tecido_id) fica FORA — igual à prévia do servidor", () => {
+    const cobertura: CoberturaVarRow[] = [
+      { artigo_id: "A", variante_tecido_id: null, nec_m: 100, deficit_m: 100 }, // planejada por cor → servidor não cobre
+      { artigo_id: "A", variante_tecido_id: "v1", nec_m: 100, deficit_m: 100 },
+    ];
+    const out = aComprarVivoPorArtigo(cobertura, new Map([["v1", 100]]));
+    expect(out.get("A")).toBeCloseTo(100, 4); // só a variante REAL entra
+  });
+
+  it("kg→m: helper trabalha só em METROS; nec viva (metros) casa com nec_servidor (metros) mesmo p/ tecido kg", () => {
+    // artigo em kg: o servidor mantém nec/deficit em METROS (consumo m/pç × grade); kg só entra no
+    // `qtd` do pedido. A necessidadePorTecido também devolve METROS. Logo o helper nunca divide por
+    // rendimento — paridade de unidade garantida. Aqui um artigo "kg" com nec/deficit em metros.
+    const arv: PtArvore = { colecao_id: "c", subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [{ linha_id: null, categoria_id: null, ordem: 0, slots: [
+      { modelo_id: null, materiais: [
+        { artigo_id: "MALHA", artigo_nome: "Malha", unidade_medida: "kg", rendimento: 3, tipo: "tecido", numero: 1, consumo: 1.5, loss_percent: 0, ordem: 0,
+          variantes: [{ variante_tecido_id: "vk", label: "Preto", ordem: 1, multiplicador: 1, grades: {}, grade_total: 100 }] } ] },
+    ] }] }] };
+    const necVivo = necVivoPorVariante(arv); // 1.5 × 100 = 150 m (METROS, não kg)
+    expect(necVivo.get("vk")).toBeCloseTo(150, 5);
+    const cobertura: CoberturaVarRow[] = [{ artigo_id: "MALHA", variante_tecido_id: "vk", nec_m: 150, deficit_m: 60 }]; // servidor em metros; supply 90
+    const out = aComprarVivoPorArtigo(cobertura, necVivo);
+    expect(out.get("MALHA")).toBeCloseTo(60, 4); // rascunho==salvo → paridade (60 m, NÃO 20 kg)
+  });
+
+  it("necVivoPorVariante soma por variante_tecido_id e ignora cor sem id", () => {
+    const arv: PtArvore = { colecao_id: "c", subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [{ linha_id: null, categoria_id: null, ordem: 0, slots: [
+      { modelo_id: null, materiais: [
+        { artigo_id: "A", artigo_nome: "Viscose", unidade_medida: "metro", rendimento: null, tipo: "tecido", numero: 1, consumo: 1, loss_percent: 0, ordem: 0,
+          variantes: [
+            { variante_tecido_id: "v1", label: "x", ordem: 1, multiplicador: 1, grades: {}, grade_total: 90 },
+            { variante_tecido_id: null, cor_id: "corX", label: "planejada", ordem: 2, multiplicador: 1, grades: {}, grade_total: 50 },
+          ] } ] },
+      { modelo_id: null, materiais: [
+        { artigo_id: "A", artigo_nome: "Viscose", unidade_medida: "metro", rendimento: null, tipo: "tecido", numero: 1, consumo: 1, loss_percent: 0, ordem: 0,
+          variantes: [{ variante_tecido_id: "v1", label: "x", ordem: 1, multiplicador: 1, grades: {}, grade_total: 10 }] } ] },
+    ] }] }] };
+    const m = necVivoPorVariante(arv);
+    expect(m.get("v1")).toBeCloseTo(100, 5); // 90 + 10
+    expect(m.size).toBe(1);                  // a cor planejada (sem id) não entra
   });
 });

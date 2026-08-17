@@ -22,10 +22,18 @@ export type PreviaFornecedorRpc = {
   empresa_id: string; representante_id: string | null; empresa_nome: string; representante_nome: string | null;
   itens: PreviaItemRpc[];
 };
+// Cobertura por variante (chave `cobertura`): TODAS as variantes reais da coleção, inclusive
+// deficit 0 — base do "a comprar" AO VIVO (supply = nec_m − deficit_m). O wizard não usa, mas
+// Resumo/Drawer sim (fonte única).
+export type PreviaCoberturaRpc = {
+  artigo_id: string; artigo_nome: string; variante_tecido_id: string | null; label: string | null;
+  nec_m: number; estoque_m: number; deficit_m: number;
+};
 export type PreviaRpc = {
   fornecedores: PreviaFornecedorRpc[];
   sem_fornecedor: { artigo_id: string; artigo_nome: string }[];
   bloqueios: { artigo_nome: string; motivo: string }[];
+  cobertura?: PreviaCoberturaRpc[];
 };
 
 type Pagina = { fornecedor: PreviaFornecedorRpc; itens: PreviaItemRpc[] };

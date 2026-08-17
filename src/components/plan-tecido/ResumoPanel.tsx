@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
-import { custoMateriaisPrevisto, slotMetros, detalheOc, fmtMetros, contabilizarOc, necessidadePorTecido, rateioDeficitSub } from "@/lib/plan-tecido/calc";
+import { custoMateriaisPrevisto, slotMetros, detalheOc, fmtMetros, contabilizarOc, necessidadePorTecido, rateioDeficitSub, aComprarVivoPorArtigo, necVivoPorVariante } from "@/lib/plan-tecido/calc";
 import { useSituacaoOcs, agruparPorOc } from "@/lib/plan-tecido/useSituacaoOcs";
 import type { PreviaRpc } from "@/components/plan-tecido/FazerPedidoWizard";
 import { precoInfo } from "@/lib/preco";
@@ -71,7 +71,7 @@ function GrupoTecidoOc({ tecido, count, open, onToggle, children }: { tecido: st
 }
 
 export function ResumoPanel({
-  arvore, colecaoArvore, colecaoId, slotOcMap, vinculoOcMap = {}, enviadoCadSet, catTecidoNome, onDetalhar,
+  arvore, colecaoArvore, colecaoId, slotOcMap, vinculoOcMap = {}, enviadoCadSet, catTecidoNome, onDetalhar, temRascunho = false,
 }: {
   arvore: PtArvore;
   colecaoArvore: PtArvore;
@@ -84,6 +84,9 @@ export function ResumoPanel({
   enviadoCadSet?: Set<string>;
   catTecidoNome: (id: string) => string | null | undefined;
   onDetalhar: (kind: "comprar" | "oc" | "ocnum", arg?: string) => void;
+  /** Há edição de rascunho não salva influenciando os números vivos (necessidade/"a comprar")? Só
+   *  acende uma indicação leve (ponto âmbar + title) — o valor já é vivo de qualquer forma. */
+  temRascunho?: boolean;
 }) {
   const slots = arvore.subcolecoes.flatMap((sub) => sub.linhas.flatMap((ln) => ln.slots));
   const firstTec = (slot: PtSlot) => slot.materiais.find((m) => m.tipo === "tecido");
@@ -215,16 +218,21 @@ export function ResumoPanel({
   const totTec = enc.reduce((a, s) => a + slotMetros(s, "tecido"), 0);
   const totForro = enc.reduce((a, s) => a + slotMetros(s, "forro"), 0);
   const semCatMetros = catTecMetros(null);
-  // A COMPRAR da SUBCOLEÇÃO (decisão do dono, auditoria jul/2026): o déficit da prévia é da
-  // COLEÇÃO (necessidade − OCs vinculadas, plano salvo) — exibi-lo cru aqui produzia "nec 0 ·
-  // a comprar 1.591,68" (o déficit era de outras subcoleções). Agora cada artigo entra com a
-  // PARTE desta subcoleção (rateioDeficitSub: proporcional à necessidade, limitado à nec da sub).
+  // A COMPRAR da SUBCOLEÇÃO (decisão do dono, auditoria jul/2026): o déficit é da COLEÇÃO
+  // (necessidade − cobertura) — exibi-lo cru aqui produzia "nec 0 · a comprar 1.591,68" (o déficit
+  // era de outras subcoleções). Cada artigo entra com a PARTE desta subcoleção (rateioDeficitSub:
+  // proporcional à necessidade, limitado à nec da sub).
+  // ⚠️ AO VIVO (item 2): o déficit por artigo NÃO é mais lido cru da prévia salva — é recomputado no
+  // front por variante = max(0, nec_VIVA_do_rascunho − cobertura_do_servidor), onde
+  // cobertura = max(0, nec_servidor − deficit_servidor) (estável entre saves; muda só com vínculo/OC/
+  // rolo, que já invalidam a prévia). Assim mudar a QUANTIDADE no card move o "a comprar" na hora, e
+  // ao salvar converge com o refetch (quando rascunho==salvo, cada variante rende o próprio
+  // deficit_servidor → paridade exata; ver aComprarVivoPorArtigo + teste). Fonte ÚNICA c/ o drawer
+  // 'comprar' (usa `cobertura`, TODAS as variantes reais — inclusive as com fornecedor pendente).
   const catDeArtigo = new Map<string, string>();
   for (const s of slots) { if (!s.categoria_tecido_id) continue; for (const m of s.materiais) if (m.tipo === "tecido" && m.artigo_id) catDeArtigo.set(m.artigo_id, s.categoria_tecido_id); }
-  const deficitPorArtigo = new Map<string, number>();
-  for (const f of previa?.fornecedores ?? []) for (const it of f.itens) {
-    if (it.deficit_m > 0) deficitPorArtigo.set(it.artigo_id, (deficitPorArtigo.get(it.artigo_id) ?? 0) + it.deficit_m);
-  }
+  const necVivoColByVar = necVivoPorVariante(colecaoArvore); // nec viva do rascunho por variante_tecido_id
+  const deficitVivoPorArtigo = aComprarVivoPorArtigo(previa?.cobertura ?? [], necVivoColByVar);
   const necPorArtigo = (arv: PtArvore) => {
     const m = new Map<string, number>();
     // sem filtro de card (flag usar_estoque aposentado): a necessidade é de TODOS os cards.
@@ -234,7 +242,7 @@ export function ResumoPanel({
   const necSubArt = necPorArtigo(arvore);
   const necColArt = necPorArtigo(colecaoArvore);
   const aComprarArtigo = (aid: string) =>
-    rateioDeficitSub(deficitPorArtigo.get(aid) ?? 0, necSubArt.get(aid) ?? 0, necColArt.get(aid) ?? 0);
+    rateioDeficitSub(deficitVivoPorArtigo.get(aid) ?? 0, necSubArt.get(aid) ?? 0, necColArt.get(aid) ?? 0);
   const deficitPorCat = new Map<string, number>();
   for (const aid of necSubArt.keys()) {
     const parte = aComprarArtigo(aid);
@@ -310,7 +318,12 @@ export function ResumoPanel({
       {/* A comprar (encomenda) — por categoria. `nec.` = necessidade (viva do plano); `a comprar` =
           déficit EXATO da prévia (necessidade − OCs vinculadas), o MESMO número do "Fazer pedido" →
           cai depois do pedido. Vermelho = falta comprar; verde = coberto. */}
-      <Secao title="A comprar" right={<Detalhar onClick={() => onDetalhar("comprar")} />}>
+      <Secao title="A comprar" right={
+        <span className="ml-auto flex items-center gap-1.5">
+          {temRascunho && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" title="Inclui alterações não salvas — o 'a comprar' já reflete o rascunho; salve p/ gerar o pedido com estes números" />}
+          <Detalhar onClick={() => onDetalhar("comprar")} />
+        </span>
+      }>
         {catsSub.length === 0 && semCatMetros === 0 ? (
           <div className="p-2 text-[10px] text-muted-foreground">Nenhuma categoria ainda.</div>
         ) : (
