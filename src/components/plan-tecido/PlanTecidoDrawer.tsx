@@ -187,19 +187,24 @@ export function PlanTecidoDrawer({
                   const { reservadaLivre, usada, sobra, baixaDomina } = contabilizarOc(v.reservada, v.comprometida, v.usada, v.entregue);
                   return (
                     <tr key={v.key} className="border-t">
-                      <td className="w-full max-w-0 p-1.5">
-                        <span className="flex min-w-0 items-center gap-1">
-                          <VarianteSwatch nome={v.cor_nome ?? v.label} /><span className="truncate">{v.label || v.cor_nome || "—"}</span>
+                      {/* Rótulo da variante (cor base + cor apelido, `src/lib/variante.ts`) NÃO trunca
+                          mais (dono ago/2026) — quebra linha (`whitespace-normal break-words`) em vez
+                          de reticências, senão a cor apelido some. `align-top` casa com as colunas
+                          numéricas ao lado (Entregue/Demanda também têm 2 linhas via sub-info). */}
+                      <td className="w-full max-w-0 p-1.5 align-top">
+                        <span className="flex min-w-0 items-start gap-1">
+                          <VarianteSwatch nome={v.cor_nome ?? v.label} className="mt-0.5 shrink-0" />
+                          <span className="whitespace-normal break-words">{v.label || v.cor_nome || "—"}</span>
                         </span>
                       </td>
                       {kind === "comprar" ? (
                         <>
-                          <td className="whitespace-nowrap p-1.5 text-right">{nMet(v.reservada)}</td>
-                          <td className={`whitespace-nowrap p-1.5 text-right ${v.pedida > 0 ? "font-medium text-emerald-700" : "text-muted-foreground"}`}
+                          <td className="whitespace-nowrap p-1.5 text-right align-top">{nMet(v.reservada)}</td>
+                          <td className={`whitespace-nowrap p-1.5 text-right align-top ${v.pedida > 0 ? "font-medium text-emerald-700" : "text-muted-foreground"}`}
                               title={v.entregue > 0 ? `Estoque previsto: ${nMet(v.entregue)} m (não abate o déficit)` : undefined}>
                             {nMet(v.pedida)}
                           </td>
-                          <td className={`whitespace-nowrap p-1.5 text-right font-medium ${v.usada > 0 ? "text-red-700" : "text-emerald-700"}`}>{nMet(v.usada)}</td>
+                          <td className={`whitespace-nowrap p-1.5 text-right align-top font-medium ${v.usada > 0 ? "text-red-700" : "text-emerald-700"}`}>{nMet(v.usada)}</td>
                         </>
                       ) : (
                         <>

@@ -45,6 +45,31 @@ function Secao({ title, right, defaultOpen = true, children }: { title: string; 
   );
 }
 
+/** Grupo POR TECIDO dentro de "Situação da OC — por OC" (dono ago/2026, mesmo idioma de accordion
+ *  do "por nome" do canvas — chevron + rótulo). Diferenças de propósito: (1) o HEADER INTEIRO é
+ *  clicável (não só o ícone) com `min-h-11` (44px) — toque confortável no mobile, onde o chevron
+ *  sozinho do canvas é pequeno demais pro dedo; (2) aqui o open/closed é lido por PRESENÇA na Set
+ *  de abertos (não de recolhidos) — grupo ausente = fechado por padrão, sem precisar semear nada
+ *  (o canvas semeia `lanesRecolhidas` num useEffect pq ele guarda o COLAPSADO; aqui invertemos o
+ *  sentido de propósito pra "Set vazio" já significar "tudo recolhido", pedido do dono). */
+function GrupoTecidoOc({ tecido, count, open, onToggle, children }: { tecido: string; count: number; open: boolean; onToggle: () => void; children: ReactNode }) {
+  return (
+    <div className="border-b last:border-b-0">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex min-h-11 w-full items-center gap-2 px-2 py-2 text-left text-xs font-medium hover:bg-muted/50"
+        title={open ? "Recolher" : "Expandir"}
+      >
+        {open ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+        <span className="min-w-0 flex-1 truncate" title={tecido}>{tecido}</span>
+        <span className="shrink-0 rounded-full border px-1.5 text-[10px] font-normal text-muted-foreground">{count} OC{count === 1 ? "" : "s"}</span>
+      </button>
+      {open && <div>{children}</div>}
+    </div>
+  );
+}
+
 export function ResumoPanel({
   arvore, colecaoArvore, colecaoId, slotOcMap, vinculoOcMap = {}, enviadoCadSet, catTecidoNome, onDetalhar,
 }: {
@@ -75,6 +100,16 @@ export function ResumoPanel({
   const cmpPt = (a: string, b: string) => a.localeCompare(b, "pt-BR", { sensitivity: "base" });
   const ocs = agruparPorOc(situacao).sort((a, b) =>
     cmpPt(a.tecidos[0] ?? "￿", b.tecidos[0] ?? "￿") || cmpPt(a.numero ?? "", b.numero ?? ""));
+  // "Situação da OC" agrupada POR TECIDO (dono ago/2026): usa o mesmo 1º tecido já usado pra
+  // ordenar `ocs` acima — uma OC com vários tecidos entra só no grupo do seu 1º (evita duplicá-la
+  // em vários grupos). Map preserva a ordem de inserção → grupos saem na MESMA ordem alfabética
+  // de `ocs`, sem precisar re-ordenar.
+  const gruposTecidoOcMap = new Map<string, typeof ocs>();
+  for (const o of ocs) {
+    const tecido = o.tecidos[0] ?? "Sem tecido";
+    (gruposTecidoOcMap.get(tecido) ?? gruposTecidoOcMap.set(tecido, []).get(tecido)!).push(o);
+  }
+  const gruposTecidoOc = [...gruposTecidoOcMap.entries()].map(([tecido, itens]) => ({ tecido, itens }));
 
   // "A comprar" EXATO = déficit da MESMA conta do "Fazer pedido" (necessidade − cobertura das OCs
   // vinculadas). Lê o plano SALVO no servidor; invalidado no salvar/pedido. (queryKey própria —
@@ -104,6 +139,15 @@ export function ResumoPanel({
   // Desvincular mexe no "a comprar" da coleção inteira → AlertDialog curto (padrão do sistema
   // p/ ação sensível; laudo jul/2026 — reversível, mas confirmação evita o clique acidental).
   const [desvincularAlvo, setDesvincularAlvo] = useState<{ id: string; numero: string | null } | null>(null);
+  // Grupos de "Situação da OC" abertos (por tecido) — ausente da Set = FECHADO. Nasce vazia de
+  // propósito: default RECOLHIDO (dono ago/2026), estado só de sessão (sem persistência; cada
+  // visita à tela começa com tudo fechado, e tecidos novos entram fechados sem precisar semear).
+  const [tecidosAbertos, setTecidosAbertos] = useState<Set<string>>(new Set());
+  const toggleTecidoOc = (tecido: string) => setTecidosAbertos((prev) => {
+    const next = new Set(prev);
+    next.has(tecido) ? next.delete(tecido) : next.add(tecido);
+    return next;
+  });
   const desvincularAplicada = useMutation({
     mutationFn: async (ocId: string) => {
       const restantes = aplicadas.filter((id) => id !== ocId);
@@ -362,45 +406,52 @@ export function ResumoPanel({
         )}
       </Secao>
 
-      {/* Situação da OC — por OC */}
+      {/* Situação da OC — por OC, AGRUPADA POR TECIDO (dono ago/2026): cada tecido é um grupo
+          colapsável (chevron, header inteiro clicável), RECOLHIDO por padrão — evita a rolagem
+          longa de todas as OCs abertas de uma vez. A conta de cada OC (Pedida/Entregue/Demanda/
+          Sobra) continua EXATAMENTE a mesma de antes, só a apresentação foi reorganizada. */}
       <Secao title="Situação da OC — por OC" right={<Detalhar onClick={() => onDetalhar("oc")} />}>
-        {ocs.length ? ocs.map((o) => {
-          const reservadaTotal = reservPorOc.get(o.oc_tecido_id) ?? 0;
-          const comprometido = comprometidoPorOc.get(o.oc_tecido_id) ?? 0; // enviado à explosão (laranja)
-          // Contabilidade via fonte única (mesma fn do Drawer): usado (comprometido OU baixa) sai da reservada.
-          const { reservadaLivre: reservada, usada, sobra, baixaDomina } = contabilizarOc(reservadaTotal, comprometido, o.usada, o.entregue);
-          return (
-            <div key={o.oc_tecido_id} className="border-b p-2 text-xs last:border-b-0">
-              <div className="mb-0.5 flex items-center gap-2">
-                <b>{o.numero ?? "OC"}</b>
-                <span className="text-[10px] text-muted-foreground">{nPorOc.get(o.oc_tecido_id) ?? 0} modelo(s)</span>
-                <Detalhar onClick={() => onDetalhar("ocnum", o.oc_tecido_id)} />
-              </div>
-              {o.tecidos.length > 0 && <div className="mb-1 truncate text-[10px] text-muted-foreground" title={o.tecidos.join(" · ")}>{o.tecidos.join(" · ")}</div>}
-              {/* Vocabulário ÚNICO com o drawer aprovado (laudo jul/2026): Demanda (total) com
-                  "em produção" + "reservada (livre)" como sub-linhas — nada de "Usada" ambígua.
-                  Cores em -700 (âmbar/verde-600 dava 3,2:1 em texto pequeno — reprovava AA). */}
-              <div className="flex justify-between text-muted-foreground"><span>Pedida</span><span>{nMet(o.pedida)} m</span></div>
-              <div className="flex justify-between text-muted-foreground"><span>Entregue</span>
-                {o.pedida > 0 && o.entregue >= o.pedida ? (
-                  <span className="font-medium text-emerald-700" title="Entrega completa — nada a chegar">{nMet(o.entregue)} ✓</span>
-                ) : (
-                  <span className="font-medium text-amber-700" title={`Falta chegar ${nMet(Math.max(0, o.pedida - o.entregue))} m`}>{nMet(o.entregue)} de {nMet(o.pedida)} m</span>
-                )}
-              </div>
-              <div className="flex justify-between text-muted-foreground" title="O que os modelos vinculados planejam usar desta OC"><span>Demanda</span><span className="font-medium text-foreground">{nMet(Math.max(reservadaTotal, usada))} m</span></div>
-              <div className="flex justify-between pl-2.5 text-muted-foreground">
-                <span>em produção</span>
-                <span className={usada <= 0 ? "" : baixaDomina ? "font-medium text-red-700" : "font-medium text-amber-700"}
-                      title={usada <= 0 ? undefined : baixaDomina ? "Baixa real (corte enviado)" : "Comprometido — enviado à explosão"}>
-                  {nMet(usada)} m
-                </span>
-              </div>
-              <div className="flex justify-between pl-2.5 text-muted-foreground"><span>reservada (livre)</span><span>{nMet(reservada)} m</span></div>
-              <div className={`mt-0.5 flex justify-between border-t pt-0.5 font-display font-semibold ${sobraCls(sobra)}`}><span>Sobra</span><span>{sobra > 0 ? "+" : ""}{nMet(sobra)} m</span></div>
-            </div>
-          );
-        }) : (
+        {ocs.length ? gruposTecidoOc.map((g) => (
+          <GrupoTecidoOc key={g.tecido} tecido={g.tecido} count={g.itens.length} open={tecidosAbertos.has(g.tecido)} onToggle={() => toggleTecidoOc(g.tecido)}>
+            {g.itens.map((o) => {
+              const reservadaTotal = reservPorOc.get(o.oc_tecido_id) ?? 0;
+              const comprometido = comprometidoPorOc.get(o.oc_tecido_id) ?? 0; // enviado à explosão (laranja)
+              // Contabilidade via fonte única (mesma fn do Drawer): usado (comprometido OU baixa) sai da reservada.
+              const { reservadaLivre: reservada, usada, sobra, baixaDomina } = contabilizarOc(reservadaTotal, comprometido, o.usada, o.entregue);
+              return (
+                <div key={o.oc_tecido_id} className="border-b p-2 text-xs last:border-b-0">
+                  <div className="mb-0.5 flex items-center gap-2">
+                    <b>{o.numero ?? "OC"}</b>
+                    <span className="text-[10px] text-muted-foreground">{nPorOc.get(o.oc_tecido_id) ?? 0} modelo(s)</span>
+                    <Detalhar onClick={() => onDetalhar("ocnum", o.oc_tecido_id)} />
+                  </div>
+                  {o.tecidos.length > 0 && <div className="mb-1 truncate text-[10px] text-muted-foreground" title={o.tecidos.join(" · ")}>{o.tecidos.join(" · ")}</div>}
+                  {/* Vocabulário ÚNICO com o drawer aprovado (laudo jul/2026): Demanda (total) com
+                      "em produção" + "reservada (livre)" como sub-linhas — nada de "Usada" ambígua.
+                      Cores em -700 (âmbar/verde-600 dava 3,2:1 em texto pequeno — reprovava AA). */}
+                  <div className="flex justify-between text-muted-foreground"><span>Pedida</span><span>{nMet(o.pedida)} m</span></div>
+                  <div className="flex justify-between text-muted-foreground"><span>Entregue</span>
+                    {o.pedida > 0 && o.entregue >= o.pedida ? (
+                      <span className="font-medium text-emerald-700" title="Entrega completa — nada a chegar">{nMet(o.entregue)} ✓</span>
+                    ) : (
+                      <span className="font-medium text-amber-700" title={`Falta chegar ${nMet(Math.max(0, o.pedida - o.entregue))} m`}>{nMet(o.entregue)} de {nMet(o.pedida)} m</span>
+                    )}
+                  </div>
+                  <div className="flex justify-between text-muted-foreground" title="O que os modelos vinculados planejam usar desta OC"><span>Demanda</span><span className="font-medium text-foreground">{nMet(Math.max(reservadaTotal, usada))} m</span></div>
+                  <div className="flex justify-between pl-2.5 text-muted-foreground">
+                    <span>em produção</span>
+                    <span className={usada <= 0 ? "" : baixaDomina ? "font-medium text-red-700" : "font-medium text-amber-700"}
+                          title={usada <= 0 ? undefined : baixaDomina ? "Baixa real (corte enviado)" : "Comprometido — enviado à explosão"}>
+                      {nMet(usada)} m
+                    </span>
+                  </div>
+                  <div className="flex justify-between pl-2.5 text-muted-foreground"><span>reservada (livre)</span><span>{nMet(reservada)} m</span></div>
+                  <div className={`mt-0.5 flex justify-between border-t pt-0.5 font-display font-semibold ${sobraCls(sobra)}`}><span>Sobra</span><span>{sobra > 0 ? "+" : ""}{nMet(sobra)} m</span></div>
+                </div>
+              );
+            })}
+          </GrupoTecidoOc>
+        )) : (
           <div className="p-2 text-[10px] text-muted-foreground">Sem OC ainda — gere um pedido ou vincule uma OC existente.</div>
         )}
         <div className="p-2 text-[10px] leading-snug text-muted-foreground"><b className="font-semibold">Demanda</b> = em produção + reservada (livre). <b className="font-semibold">Sobra</b> = Entregue − Demanda (o físico que sobra do que já chegou) — negativa = ainda não chegou tecido suficiente.</div>
