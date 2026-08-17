@@ -46,6 +46,40 @@ describe.skipIf(!hasDb)("plan_tecido — salvar + ler árvore", () => {
     });
   });
 
+  it("DEDUP: variante repetida no mesmo material colapsa em 1 (mantém maior grade, não soma)", async () => {
+    await withTx(async (c) => {
+      await comoUsuario(c);
+      await ligarCriacao(c);
+      const col = await um<{ id: string }>(c, `insert into colecoes (nome, status) values ('C-PT-DUP','rascunho') returning id`, []);
+      const av = await um<{ art: string; var: string } | undefined>(
+        c, `select a.id art, v.id var from variantes_tecido v join artigos a on a.id=v.artigo_id where a.tenant_id=$1 limit 1`, [TENANT_TESTE]);
+      if (!av) return;
+      // MESMA variante 2× no material (grades 30 e 60) — como o bug da Loja Teste
+      const arvore = { subcolecoes: [{ subcolecao_id: null, ordem: 0, linhas: [{ linha_id: null, categoria_id: null, ordem: 0,
+        slots: [{ modelo_id: null, slot_index: 0, custos_adicionais: [], materiais: [
+          { artigo_id: av.art, tipo: "tecido", numero: 1, consumo: 1, loss_percent: 0, ordem: 0, variantes: [
+            { variante_tecido_id: av.var, ordem: 1, multiplicador: 1, grades: { P: 30 }, grade_total: 30 },
+            { variante_tecido_id: av.var, ordem: 2, multiplicador: 1, grades: { P: 60 }, grade_total: 60 },
+          ] }] }] }] }] };
+      await um(c, `select public.salvar_plan_tecido($1,$2::jsonb) id`, [col.id, JSON.stringify(arvore)]);
+      // grava só 1 linha na tabela
+      const n = await um<{ n: string }>(c,
+        `select count(*) n from plan_tecido_variantes v
+           join plan_tecido_materiais m on m.id=v.material_id
+           join plan_tecido_slots s on s.id=m.slot_id
+           join plan_tecido_linhas l on l.id=s.linha_ref_id
+           join plan_tecido_subcolecoes sc on sc.id=l.sub_id
+           join plan_tecido p on p.id=sc.plan_id
+          where p.colecao_id=$1 and v.variante_tecido_id=$2`, [col.id, av.var]);
+      expect(Number(n.n)).toBe(1);
+      // e a releitura traz a de MAIOR grade (60), nunca a soma (90)
+      const arv = (await um<{ a: any }>(c, `select public.plan_tecido_arvore($1) a`, [col.id])).a;
+      const vars = arv.subcolecoes[0].linhas[0].slots[0].materiais[0].variantes;
+      expect(vars).toHaveLength(1);
+      expect(vars[0].grade_total).toBe(60);
+    });
+  });
+
   it("necessidade por tecido bate com consumo×grade após salvar+ler", async () => {
     await withTx(async (c) => {
       await comoUsuario(c);

@@ -55,6 +55,31 @@ export const abaterEstoque = (necessidadeMetros: number, estoqueMetros: number):
 export const varKey = (v: PtVariante): string =>
   v.variante_tecido_id ?? `plan:${v.cor_id ?? ""}|${v.cor_apelido_id ?? ""}`;
 
+/** Colapsa variantes duplicadas de UM material — mantém a de MAIOR grade_total (empate → a 1ª),
+ *  renumerando `ordem` 1..n. Rede de proteção do FRONT que ESPELHA o dedup do servidor em
+ *  `_salvar_plan_tecido_core` (migração 20260817130000): o auto-upgrade de cor planejada→real do
+ *  MaterialBlock pode remapear 2 linhas distintas pra MESMA variante_tecido_id — sem colapsar, o card
+ *  exibia/contava a cor 2× (inflava a Demanda dos painéis). Colapsa por identidade (mesma chave do
+ *  `varKey`): cor real → variante_tecido_id; cor planejada → cor_id+cor_apelido_id. Linha SEM
+ *  identidade (variante E cor ambos nulos) NUNCA colapsa — mantém linhas em branco sendo editadas.
+ *  NUNCA soma grade_total (somar recriaria a inflação: a duplicata é uma anomalia "mesma cor 2×"). */
+export function dedupVariantes(vs: PtVariante[]): PtVariante[] {
+  const byKey = new Map<string, PtVariante>();
+  const ordem: string[] = [];
+  vs.forEach((v, i) => {
+    const temIdentidade = !!v.variante_tecido_id || !!v.cor_id || !!v.cor_apelido_id;
+    const k = temIdentidade ? varKey(v) : `__blank__:${i}`;
+    const prev = byKey.get(k);
+    if (!prev) {
+      byKey.set(k, v);
+      ordem.push(k);
+    } else if ((Number(v.grade_total) || 0) > (Number(prev.grade_total) || 0)) {
+      byKey.set(k, v);
+    }
+  });
+  return ordem.map((k, i) => ({ ...byKey.get(k)!, ordem: i + 1 }));
+}
+
 export type NecTecido = {
   artigo_id: string;
   artigo_nome: string;

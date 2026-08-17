@@ -9,7 +9,7 @@ import { corApelidoLabel } from "@/lib/variante";
 import { VarianteSwatch } from "@/components/shared/VarianteSwatch";
 import { useArtigosTecido } from "@/lib/plan-tecido/useArtigosTecido";
 import { useCoresCombos } from "@/lib/plan-tecido/useCoresCombos";
-import { varKey, fmtMetros } from "@/lib/plan-tecido/calc";
+import { varKey, fmtMetros, dedupVariantes } from "@/lib/plan-tecido/calc";
 import type { PtMaterial, PtVariante } from "@/lib/plan-tecido/types";
 
 type VarRow = { id: string; nome_variante: string | null; codigo_variante: string | null; cor_id: string | null; cor_apelido_id: string | null; cor: { nome: string | null } | null; apelido: { nome: string | null } | null };
@@ -66,7 +66,10 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }:
       }
       return v;
     });
-    if (changed) onChange({ ...material, variantes: next });
+    // Guarda anti-duplicata (espelha o dedup do servidor): o upgrade acima pode remapear 2 linhas
+    // distintas pra MESMA variante real — colapsa aqui pra não exibir/contar a cor 2× no card.
+    const deduped = dedupVariantes(next);
+    if (changed || deduped.length !== material.variantes.length) onChange({ ...material, variantes: deduped });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [variantesArtigo, material.artigo_id, material.variantes.length]);
 

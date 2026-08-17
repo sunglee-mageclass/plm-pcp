@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { necessidadeVariante, necessidadePorTecido, metrosParaKg, abaterEstoque, custoMateriaisPrevisto, distribuirGrade, detalheOc, contabilizarOc, rateioDeficitSub } from "@/lib/plan-tecido/calc";
-import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
+import { necessidadeVariante, necessidadePorTecido, metrosParaKg, abaterEstoque, custoMateriaisPrevisto, distribuirGrade, detalheOc, contabilizarOc, rateioDeficitSub, dedupVariantes } from "@/lib/plan-tecido/calc";
+import type { PtArvore, PtSlot, PtVariante } from "@/lib/plan-tecido/types";
 
 describe("plan-tecido/calc", () => {
   it("necessidadeVariante = consumo × grade_total × mult (sem perda)", () => {
@@ -382,5 +382,56 @@ describe("plan-tecido/calc — usar_estoque NÃO some da Demanda (report ago/202
     expect(cell(vincNENHUM, false)).toEqual({ demanda: 0, estoque: 0, aComprar: 183, sobra: expect.closeTo(555.55, 2) });
     // 5) SEM OC + estoque ON → Demanda 183 · do estoque 183 · Sobra +372,55
     expect(cell(vincNENHUM, true)).toEqual({ demanda: 183, estoque: 183, aComprar: 0, sobra: expect.closeTo(372.55, 2) });
+  });
+});
+
+describe("plan-tecido/calc dedupVariantes (espelho do dedup do servidor)", () => {
+  const v = (o: Partial<PtVariante>): PtVariante => ({ variante_tecido_id: null, cor_id: null, cor_apelido_id: null, ordem: 0, multiplicador: 1, grades: {}, grade_total: 0, ...o });
+
+  it("colapsa a MESMA variante real 2× → 1 linha, mantém a de MAIOR grade_total (NÃO soma)", () => {
+    // reproduz o bug da Loja Teste: bf3d513f 2× (grades 30 e 60) no mesmo material
+    const out = dedupVariantes([
+      v({ variante_tecido_id: "bf3d513f", grade_total: 30 }),
+      v({ variante_tecido_id: "bf3d513f", grade_total: 60 }),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].variante_tecido_id).toBe("bf3d513f");
+    expect(out[0].grade_total).toBe(60); // maior, nunca 90 (não soma)
+    expect(out[0].ordem).toBe(1);
+  });
+
+  it("preserva variantes distintas e renumera ordem 1..n", () => {
+    const out = dedupVariantes([
+      v({ variante_tecido_id: "a", grade_total: 40, ordem: 5 }),
+      v({ variante_tecido_id: "a", grade_total: 60, ordem: 6 }),
+      v({ variante_tecido_id: "b", grade_total: 10, ordem: 7 }),
+    ]);
+    expect(out.map((x) => x.variante_tecido_id)).toEqual(["a", "b"]);
+    expect(out.map((x) => x.ordem)).toEqual([1, 2]);
+    expect(out[0].grade_total).toBe(60);
+  });
+
+  it("cor PLANEJADA (sem variante) colapsa por cor_id+cor_apelido_id", () => {
+    const out = dedupVariantes([
+      v({ cor_id: "c1", cor_apelido_id: "ap", grade_total: 5 }),
+      v({ cor_id: "c1", cor_apelido_id: "ap", grade_total: 7 }),
+      v({ cor_id: "c1", cor_apelido_id: "outro", grade_total: 3 }), // apelido diferente → distinta
+    ]);
+    expect(out).toHaveLength(2);
+    expect(out[0].grade_total).toBe(7);
+    expect(out[1].cor_apelido_id).toBe("outro");
+  });
+
+  it("linhas SEM identidade (variante e cor nulos) NUNCA colapsam", () => {
+    const out = dedupVariantes([v({ grade_total: 0 }), v({ grade_total: 0 })]);
+    expect(out).toHaveLength(2);
+    expect(out.map((x) => x.ordem)).toEqual([1, 2]);
+  });
+
+  it("lista sem duplicata volta com o mesmo conteúdo (só renumera ordem)", () => {
+    const out = dedupVariantes([v({ variante_tecido_id: "x", grade_total: 12, ordem: 3 })]);
+    expect(out).toHaveLength(1);
+    expect(out[0].ordem).toBe(1);
+    expect(out[0].grade_total).toBe(12);
   });
 });
