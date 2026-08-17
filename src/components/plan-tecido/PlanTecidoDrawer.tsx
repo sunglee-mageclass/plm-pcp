@@ -129,10 +129,32 @@ export function PlanTecidoDrawer({
   grupos.sort((a, b) => cmpPt(a.artigo, b.artigo)); // tecidos (artigos) em ordem alfabética (dono) — Situação e A comprar
   const nCols = 4;
 
-  // "Detalhe por variante" (kind='oc'): grupos de tecido expansíveis, RECOLHIDOS por default
-  // (dono ago/2026 — mesmo idioma do Resumo). Ausente da Set = fechado. 'comprar'/'ocnum'
-  // seguem sempre expandidos (listas curtas/da própria OC).
-  const colapsavel = kind === "oc";
+  // Cor base / cor apelido em LINHAS separadas (dono ago/2026): o rótulo composto ("cor - apelido")
+  // não é separável por string com segurança (nomes de cor podem conter " - "), então busca os
+  // nomes REAIS por variante. Fallback = rótulo composto numa linha (variante sem id/cor).
+  const varIds = [...new Set(grupos.flatMap((g) => g.variantes.map((v) => v.key)).filter((k) => k && !k.includes("|")))];
+  const { data: coresVar } = useQuery({
+    queryKey: ["drawer-variantes-cores", [...varIds].sort().join(",")],
+    enabled: varIds.length > 0,
+    queryFn: async () => ((await supabase
+      .from("variantes_tecido")
+      .select("id, cor:cor_id(nome), apelido:cor_apelido_id(nome)")
+      .in("id", varIds)).data ?? []) as { id: string; cor: { nome: string | null } | null; apelido: { nome: string | null } | null }[],
+  });
+  const corDe = new Map((coresVar ?? []).map((r) => [r.id, { cor: r.cor?.nome ?? null, apelido: r.apelido?.nome ?? null }]));
+  // Reordena por cor base → apelido quando os nomes reais chegam (equivale ao rótulo composto,
+  // mas nunca desempata errado quando a cor contém " - ").
+  if (corDe.size > 0)
+    for (const g of grupos)
+      g.variantes.sort((a, b) => {
+        const ca = corDe.get(a.key), cb = corDe.get(b.key);
+        return cmpPt(ca?.cor ?? a.label, cb?.cor ?? b.label) || cmpPt(ca?.apelido ?? "", cb?.apelido ?? "");
+      });
+
+  // Grupos de tecido expansíveis, RECOLHIDOS por default (dono ago/2026 — mesmo idioma do
+  // Resumo): "Detalhe por variante" (oc) e "A comprar" (comprar). 'ocnum' (itens de UMA OC)
+  // segue sempre expandido.
+  const colapsavel = kind === "oc" || kind === "comprar";
   const [tecidosAbertos, setTecidosAbertos] = useState<Set<string>>(new Set());
   const toggleTecido = (id: string) =>
     setTecidosAbertos((prev) => {
@@ -221,9 +243,20 @@ export function PlanTecidoDrawer({
                           de reticências, senão a cor apelido some. `align-top` casa com as colunas
                           numéricas ao lado (Entregue/Demanda também têm 2 linhas via sub-info). */}
                       <td className="w-full max-w-0 p-1.5 align-top">
+                        {/* 1ª linha = cor base, 2ª linha = cor apelido (dono ago/2026); sem os
+                            nomes reais (variante sem id), cai no rótulo composto numa linha. */}
                         <span className="flex min-w-0 items-start gap-1">
-                          <VarianteSwatch nome={v.cor_nome ?? v.label} className="mt-0.5 shrink-0" />
-                          <span className="whitespace-normal break-words">{v.label || v.cor_nome || "—"}</span>
+                          <VarianteSwatch nome={corDe.get(v.key)?.cor ?? v.cor_nome ?? v.label} className="mt-0.5 shrink-0" />
+                          {corDe.get(v.key)?.cor ? (
+                            <span className="min-w-0">
+                              <span className="block whitespace-normal break-words">{corDe.get(v.key)!.cor}</span>
+                              {corDe.get(v.key)!.apelido && (
+                                <span className="block whitespace-normal break-words text-[10px] text-muted-foreground">{corDe.get(v.key)!.apelido}</span>
+                              )}
+                            </span>
+                          ) : (
+                            <span className="whitespace-normal break-words">{v.label || v.cor_nome || "—"}</span>
+                          )}
                         </span>
                       </td>
                       {kind === "comprar" ? (
