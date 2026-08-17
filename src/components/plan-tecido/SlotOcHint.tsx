@@ -69,7 +69,7 @@ export function SlotOcHint({
       {!slotId ? (
         <div className="text-[10px] text-muted-foreground">Salve o plano para atribuir OC a este card.</div>
       ) : ocsAplicadas.length === 0 ? (
-        <div className="text-[10px] text-muted-foreground">Nenhuma OC/rolo vinculado à coleção — use "vincular OC / rolo" no Resumo (ou gere pelo Fazer pedido).</div>
+        <div className="text-[10px] text-muted-foreground">Nenhuma OC/rolo vinculada à coleção — use "vincular OC / rolo" no Resumo (ou gere pelo Fazer pedido).</div>
       ) : (
         <div className="space-y-1">
           {selected.length > 0 && (

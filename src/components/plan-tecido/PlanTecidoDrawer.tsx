@@ -202,7 +202,7 @@ export function PlanTecidoDrawer({
               <tr>
                 <th className="w-full p-1.5 text-left font-medium">Tecido / variante</th>
                 <th className="whitespace-nowrap p-1.5 text-right font-medium" title="Necessidade da coleção (consumo × grade, plano salvo)">Nec.</th>
-                <th className="whitespace-nowrap p-1.5 text-right font-medium" title="Sobra das OCs vinculadas que cobre esta cor">− Coberto</th>
+                <th className="whitespace-nowrap p-1.5 text-right font-medium" title="Sobra das OCs vinculadas que cobrem esta cor">− Coberto</th>
                 <th className="whitespace-nowrap p-1.5 text-right font-medium">= A comprar</th>
               </tr>
             ) : (
@@ -330,7 +330,7 @@ export function PlanTecidoDrawer({
         </table>
         {kind === "comprar" && grupos.length > 0 && (
           <p className="border-t px-1.5 py-2 text-[10px] leading-snug text-muted-foreground">
-            <b className="font-semibold">Coberto</b> = sobra das OCs vinculadas que serve esta cor.
+            <b className="font-semibold">Coberto</b> = sobra das OCs vinculadas que servem esta cor.
             <b className="font-semibold"> A comprar</b> = o que o Fazer pedido vai pedir (nunca negativo).
             Escopo = coleção inteira; o painel ao lado mostra a parte desta subcoleção (rateio).
           </p>
