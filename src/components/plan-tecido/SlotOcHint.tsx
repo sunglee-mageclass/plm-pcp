@@ -3,8 +3,12 @@ import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { X } from "lucide-react";
+import { OcRoloCombobox } from "./OcRoloCombobox";
 
-type OcLite = { id: string; numero_pedido: string | null; is_rolo?: boolean; tecidos: string[]; categorias?: string[]; artigos?: string[] };
+type OcLite = {
+  id: string; numero_pedido: string | null; is_rolo?: boolean; tecidos: string[];
+  categorias?: string[]; artigos?: string[]; fornecedor?: string | null;
+};
 
 /**
  * OC (planejamento) por card, chaveado por SLOT: dropdown p/ escolher a(s) OC(s) — mostra o nº da OC
@@ -81,15 +85,13 @@ export function SlotOcHint({
               })}
             </div>
           )}
-          <select
-            className="w-full rounded border bg-background px-2 py-1 text-xs"
-            value=""
-            disabled={salvar.isPending || disponiveis.length === 0}
-            onChange={(e) => { add(e.target.value); e.currentTarget.value = ""; }}
-          >
-            <option value="">{disponiveis.length ? "Adicionar OC / Rolo…" : vazioMsg}</option>
-            {disponiveis.map((oc) => (<option key={oc.id} value={oc.id}>{label(oc)}</option>))}
-          </select>
+          <OcRoloCombobox
+            options={disponiveis}
+            onSelect={add}
+            disabled={salvar.isPending}
+            placeholder="Adicionar OC / Rolo…"
+            emptyMessage={vazioMsg}
+          />
         </div>
       )}
     </div>

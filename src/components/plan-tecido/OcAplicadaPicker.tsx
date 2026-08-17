@@ -1,17 +1,24 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Plus } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Plus, Search } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
+import { semAcento } from "@/lib/busca";
+import { ocSearchValue } from "@/lib/plan-tecido/oc-busca";
+import { OcHoverInfo } from "@/components/plan-tecido/OcPreview";
 
 type OcItem = { artigo: { nome: string | null } | null; cancelado: boolean | null };
-type OcRow = { id: string; numero_pedido: string | null; status: string | null; is_rolo: boolean | null; itens: OcItem[] | null };
+type OcRow = {
+  id: string; numero_pedido: string | null; status: string | null; is_rolo: boolean | null;
+  itens: OcItem[] | null; empresa: { nome_fantasia: string | null } | null;
+};
 
 /**
  * "Aplicar OC" (Fase C, atribuição): escolhe OCs reais cujo consumo é DESTACADO no Resumo
@@ -21,6 +28,7 @@ export function OcAplicadaPicker({ colecaoId }: { colecaoId: string }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [sel, setSel] = useState<Set<string>>(new Set());
+  const [busca, setBusca] = useState("");
 
   // OCs de tecido da loja + ROLOS (estoque físico) p/ escolher — o rolo credita cobertura
   // pelo SEU SALDO (dono, ago/2026), no mesmo seletor, rotulado como "Rolo".
@@ -29,12 +37,22 @@ export function OcAplicadaPicker({ colecaoId }: { colecaoId: string }) {
     queryFn: async () =>
       ((await supabase
         .from("ocs_tecido")
-        .select("id, numero_pedido, status, is_rolo, itens:ocs_tecido_itens(cancelado, artigo:artigo_id(nome))")
+        .select("id, numero_pedido, status, is_rolo, empresa:empresa_id(nome_fantasia), itens:ocs_tecido_itens(cancelado, artigo:artigo_id(nome))")
         .order("data_pedido", { ascending: false })).data ?? []) as unknown as OcRow[],
   });
   // tecidos (artigos) que cada OC contém — distinct, ignorando itens cancelados
   const tecidosDaOc = (oc: OcRow) =>
     [...new Set((oc.itens ?? []).filter((i) => !i.cancelado && i.artigo?.nome).map((i) => i.artigo!.nome as string))];
+
+  // Busca ÚNICA por tecido/artigo, nº da OC ou fornecedor (dono — muitas OCs do mesmo tecido,
+  // achar mais rápido). Client-side, sem acento (mesmo padrão de entrada-saida.oc-tecido.tsx).
+  const ocsFiltradas = useMemo(() => {
+    const q = semAcento(busca.trim());
+    if (!q) return ocs;
+    return ocs.filter((oc) =>
+      ocSearchValue({ numero_pedido: oc.numero_pedido, fornecedor: oc.empresa?.nome_fantasia ?? null, tecidos: tecidosDaOc(oc) }).includes(q),
+    );
+  }, [ocs, busca]);
 
   // seleção já aplicada (persistida)
   const { data: aplicadas = [] } = useQuery({
@@ -44,9 +62,9 @@ export function OcAplicadaPicker({ colecaoId }: { colecaoId: string }) {
         .map((r) => r.oc_tecido_id),
   });
 
-  // ao abrir, pré-marca as já aplicadas
+  // ao abrir, pré-marca as já aplicadas e limpa a busca da vez anterior
   useEffect(() => {
-    if (open) setSel(new Set(aplicadas));
+    if (open) { setSel(new Set(aplicadas)); setBusca(""); }
   }, [open, aplicadas]);
 
   const salvar = useMutation({
@@ -99,27 +117,40 @@ export function OcAplicadaPicker({ colecaoId }: { colecaoId: string }) {
               não separada); a OC é informativa (já está no estoque previsto).
             </DialogDescription>
           </DialogHeader>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por tecido, nº da OC ou fornecedor…"
+              className="h-8 pl-8 text-xs"
+            />
+          </div>
           <div className="max-h-72 overflow-y-auto rounded border">
             {ocs.length === 0 ? (
               <div className="p-3 text-xs text-muted-foreground">Nenhuma OC ou rolo cadastrado.</div>
+            ) : ocsFiltradas.length === 0 ? (
+              <div className="p-3 text-xs text-muted-foreground">Nenhuma OC encontrada para "{busca}".</div>
             ) : (
-              ocs.map((oc) => (
+              ocsFiltradas.map((oc) => (
                 <label key={oc.id} className="flex cursor-pointer items-start gap-2 border-b px-3 py-2 text-xs last:border-b-0">
                   <Checkbox checked={sel.has(oc.id)} onCheckedChange={() => toggle(oc.id)} className="mt-0.5 h-4 w-4" />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-2">
-                      {oc.is_rolo && (
-                        <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary">Rolo</span>
-                      )}
-                      <span className="flex-1 truncate">{oc.numero_pedido || (oc.is_rolo ? "Rolo s/ nº" : "OC s/ nº")}</span>
-                      <span className="shrink-0 text-[10px] text-muted-foreground">{oc.is_rolo ? "estoque" : statusLabel(oc.status)}</span>
-                    </span>
-                    {tecidosDaOc(oc).length > 0 && (
-                      <span className="block truncate text-[10px] text-muted-foreground" title={tecidosDaOc(oc).join(", ")}>
-                        {tecidosDaOc(oc).join(" · ")}
+                  <OcHoverInfo ocId={oc.id} className="mt-0.5">
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2">
+                        {oc.is_rolo && (
+                          <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary">Rolo</span>
+                        )}
+                        <span className="flex-1 truncate">{oc.numero_pedido || (oc.is_rolo ? "Rolo s/ nº" : "OC s/ nº")}</span>
+                        <span className="shrink-0 text-[10px] text-muted-foreground">{oc.is_rolo ? "estoque" : statusLabel(oc.status)}</span>
                       </span>
-                    )}
-                  </span>
+                      {tecidosDaOc(oc).length > 0 && (
+                        <span className="block truncate text-[10px] text-muted-foreground" title={tecidosDaOc(oc).join(", ")}>
+                          {tecidosDaOc(oc).join(" · ")}
+                        </span>
+                      )}
+                    </span>
+                  </OcHoverInfo>
                 </label>
               ))
             )}

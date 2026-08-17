@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fmtNum } from "@/lib/format";
+import { semAcento } from "@/lib/busca";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Scissors, Plus, Minus, ArrowLeft, Trash2, Printer, Check, AlertTriangle } from "lucide-react";
@@ -216,7 +217,6 @@ function OcTecidoPage() {
   });
 
   // Busca por nº, fornecedor ou tecido (não existia — laudo). Client-side, sem acento.
-  const semAcento = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   const ocsFiltradas = useMemo(() => {
     const q = semAcento(busca.trim());
     if (!q) return ocs;
