@@ -1,7 +1,7 @@
 import { createFileRoute, Navigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Settings, Plus, GripVertical, Trash2, Save, Loader2, ArrowLeft } from "lucide-react";
+import { Settings, Plus, GripVertical, Trash2, Save, Loader2, ArrowLeft, Send } from "lucide-react";
 import { toast } from "sonner";
 import { mensagemErro } from "@/lib/erro-mensagem";
 import {
@@ -229,6 +229,15 @@ function ConfiguracoesLojaPage() {
   if (loading) return <div className="p-6 text-muted-foreground">Carregando…</div>;
   if (!isTenantAdmin && !isSuperAdmin) return <Navigate to="/" />;
 
+  // Envio à Explosão: derivado do próprio status_kanban (marcador POR LINHA no bloco do
+  // kanban, não mais um card separado — feedback do dono, ago/2026). Espelha a mesma
+  // regra "" ⇒ 'aprovado' (histórico) + coluna órfã de `podeEnviarExplosao`/`_explosao_envio_gate`.
+  const explosaoKanbanOptions = normalizeKanbanStatuses(cfg.status_kanban);
+  const explosaoOptionKeys = new Set(explosaoKanbanOptions.map((o) => o.key));
+  const explosaoCfgSet = !!(cfg.explosao_envio_status ?? "").trim();
+  const explosaoEffectiveKey = explosaoCfgSet ? (cfg.explosao_envio_status as string).trim() : APROVADO_KEY;
+  const explosaoOrphan = !explosaoOptionKeys.has(explosaoEffectiveKey);
+
   return (
     <div className="container mx-auto p-3 sm:p-6 space-y-6 pb-24">
       <Button asChild variant="ghost" size="sm" className="max-sm:hidden -ml-2 w-fit text-muted-foreground">
@@ -289,32 +298,72 @@ function ConfiguracoesLojaPage() {
           A Config NÃO gerencia mais esses campos (ver exclusão no payload do save). */}
       <SortableListCard
         title="Status do Kanban"
-        description="Colunas do painel de Desenvolvimento. Em cada status, defina os Requisitos: o que um card precisa ter preenchido para poder ENTRAR nele."
+        description="Colunas do painel de Desenvolvimento. Em cada status, defina os Requisitos (o que um card precisa ter preenchido para ENTRAR nele) e, se for a etapa a partir da qual libera o Envio à Explosão, marque-a."
         items={cfg.status_kanban}
-        onChange={(items) => setCfg({ ...cfg, status_kanban: items })}
+        // Updater FUNCIONAL (não `{ ...cfg, ... }` sobre o `cfg` capturado no closure):
+        // `onItemRemoved` (abaixo) já dispara um `setCfg` funcional pra limpar o Envio à
+        // Explosão ANTES deste `onChange` rodar, no MESMO handler síncrono de excluir — um
+        // `setCfg({ ...cfg, ... })` aqui usaria o `cfg` stale (de antes da limpeza) e
+        // sobrescreveria a limpeza (regressão real, pega em QA interativo).
+        onChange={(items) => setCfg((c) => ({ ...c, status_kanban: items }))}
         placeholder="Ex: Em Modelagem"
         renderItemExtra={(label) => {
           const key = resolveStatusKey(label);
+          const checked = !explosaoOrphan && key === explosaoEffectiveKey;
+          const ghost = checked && !explosaoCfgSet;
           return (
-            <RequisitosStatusButton
-              label={label}
-              requisitos={cfg.kanban_requisitos?.[key] ?? []}
-              onChange={(next) =>
-                setCfg((c) => {
-                  const map = { ...(c.kanban_requisitos ?? {}) };
-                  if (next.length) map[key] = next; else delete map[key];
-                  return { ...c, kanban_requisitos: map };
-                })
-              }
-            />
+            <>
+              <RequisitosStatusButton
+                label={label}
+                requisitos={cfg.kanban_requisitos?.[key] ?? []}
+                onChange={(next) =>
+                  setCfg((c) => {
+                    const map = { ...(c.kanban_requisitos ?? {}) };
+                    if (next.length) map[key] = next; else delete map[key];
+                    return { ...c, kanban_requisitos: map };
+                  })
+                }
+              />
+              <EnvioExplosaoToggle
+                label={label}
+                checked={checked}
+                ghost={ghost}
+                onToggle={(nextOn) =>
+                  setCfg((c) => ({
+                    ...c,
+                    explosao_envio_status: nextOn ? (key === APROVADO_KEY ? "" : key) : "",
+                  }))
+                }
+              />
+            </>
           );
         }}
-      />
-
-      <EnvioExplosaoCard
-        statusKanban={cfg.status_kanban}
-        value={cfg.explosao_envio_status}
-        onChange={(v) => setCfg((c) => ({ ...c, explosao_envio_status: v }))}
+        onItemRemoved={(label) => {
+          const removedKey = resolveStatusKey(label);
+          const cfgValue = (cfg.explosao_envio_status ?? "").trim();
+          if (cfgValue && removedKey === cfgValue) {
+            setCfg((c) => ({ ...c, explosao_envio_status: "" }));
+            toast.warning(
+              'Etapa marcada para Envio à Explosão foi excluída — a marcação voltou ao padrão (Aprovado).',
+            );
+          }
+        }}
+        footer={
+          <div className="space-y-1.5 border-t pt-3">
+            <p className="text-xs text-muted-foreground">
+              <Send className="mr-1 inline h-3.5 w-3.5 align-text-bottom" />
+              Modelos podem ser enviados à Explosão a partir da etapa marcada (ou de
+              etapas posteriores). Padrão: <span className="font-medium">Aprovado</span>.
+            </p>
+            {explosaoOrphan && (
+              <p className="text-xs text-amber-700 dark:text-amber-300">
+                {explosaoCfgSet
+                  ? `A etapa marcada para Envio à Explosão ("${explosaoEffectiveKey.replace(/_/g, " ")}") não existe mais nas colunas do kanban. Enquanto não marcar outra, o envio volta a exigir "Aprovado".`
+                  : `Esta loja não tem a coluna "Aprovado" no kanban. Marque a etapa a partir da qual liberar o envio à Explosão.`}
+              </p>
+            )}
+          </div>
+        }
       />
 
       <LeadtimeConfigCard
@@ -491,57 +540,42 @@ type LtEtapa = { key: string; tipo: LtTipo; idealDias: number };
 type LtConfig = { etapas: LtEtapa[]; slaServico: string | null };
 type LtItem = { key: string; tipo?: LtTipo; label?: string; indent?: boolean; caption?: string };
 
-// Envio à Explosão: a partir de qual coluna do kanban (DA LOJA) um modelo pode ser
-// enviado à Explosão (materializa o CAD, `enviado_cad=true`). Default (ausência) =
-// Aprovado. Espelha `podeEnviarExplosao`/`_explosao_envio_gate` (front+RPC).
-function EnvioExplosaoCard({
-  statusKanban,
-  value,
-  onChange,
+// Envio à Explosão: marcador POR LINHA dentro do bloco "Status do Kanban" (não é mais
+// card separado — feedback do dono, ago/2026: "quer a escolha DENTRO do bloco que já
+// configura os status do kanban"). Escolha ÚNICA (semântica "a partir DESTA etapa"): marcar
+// uma linha desmarca a anterior — ver o `onToggle` armado em `ConfiguracoesLojaPage`, que
+// grava a chave (ou "" pra 'aprovado', mantendo o default histórico limpo no payload).
+// `ghost` = esta é a linha "Aprovado" servindo de PADRÃO (nenhuma marcação explícita) —
+// visualmente distinta de uma marcação real (outline tingido vs. preenchido) e de "off"
+// (outline neutro). Espelha `podeEnviarExplosao`/`_explosao_envio_gate` (front+RPC).
+function EnvioExplosaoToggle({
+  label,
+  checked,
+  ghost,
+  onToggle,
 }: {
-  statusKanban: string[];
-  value: string;
-  onChange: (v: string) => void;
+  label: string;
+  checked: boolean;
+  ghost: boolean;
+  onToggle: (nextOn: boolean) => void;
 }) {
-  const options = normalizeKanbanStatuses(statusKanban); // {key,label}[] em ordem do board
-  const optionKeys = new Set(options.map((o) => o.key));
-  const cfgSet = !!(value ?? "").trim();
-  const effectiveKey = cfgSet ? (value as string).trim() : APROVADO_KEY;
-  const isOrphan = !optionKeys.has(effectiveKey);
+  const stateTxt = ghost ? "padrão — Aprovado" : checked ? "marcado" : "desmarcado";
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Envio à Explosão</CardTitle>
-        <CardDescription>
-          Modelos podem ser enviados à Explosão a partir desta etapa (ou de qualquer etapa
-          posterior). Padrão: <span className="font-medium">Aprovado</span>.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-2">
-        <Label>Enviar à Explosão a partir de</Label>
-        <Select value={isOrphan ? "" : effectiveKey} onValueChange={onChange}>
-          <SelectTrigger className="w-full md:w-96">
-            <SelectValue placeholder="Selecione uma etapa" />
-          </SelectTrigger>
-          <SelectContent>
-            {options.map((o) => (
-              <SelectItem key={o.key} value={o.key}>{o.label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {isOrphan && (
-          <p className="text-xs text-amber-700 dark:text-amber-300">
-            {cfgSet
-              ? `A etapa configurada ("${effectiveKey.replace(/_/g, " ")}") não existe mais nas colunas do kanban. Enquanto não escolher outra, o envio volta a exigir "Aprovado".`
-              : `Esta loja não tem a coluna "Aprovado" no kanban. Escolha a etapa a partir da qual liberar o envio à Explosão.`}
-          </p>
-        )}
-        <p className="text-xs text-muted-foreground">
-          No card de Desenvolvimento, o botão <span className="font-medium">Enviar</span> só
-          habilita quando o modelo está nesta etapa (ou posterior).
-        </p>
-      </CardContent>
-    </Card>
+    <Button
+      type="button"
+      variant={checked ? (ghost ? "outline" : "default") : "outline"}
+      size="sm"
+      className={
+        "h-8 shrink-0 max-md:h-11 max-md:w-11 max-md:p-0" +
+        (ghost ? " border-primary text-primary" : "")
+      }
+      aria-pressed={checked}
+      aria-label={`Envio à Explosão a partir de "${label}" (${stateTxt})`}
+      onClick={() => onToggle(!checked)}
+    >
+      <Send className="h-4 w-4 sm:mr-1" />
+      <span className="max-sm:sr-only">{ghost ? "Padrão" : "Explosão"}</span>
+    </Button>
   );
 }
 
@@ -737,6 +771,8 @@ function SortableListCard({
   onChange,
   placeholder,
   renderItemExtra,
+  onItemRemoved,
+  footer,
 }: {
   title: string;
   description?: string;
@@ -744,6 +780,11 @@ function SortableListCard({
   onChange: (items: string[]) => void;
   placeholder?: string;
   renderItemExtra?: (label: string, index: number) => React.ReactNode;
+  // Chamado ANTES de remover, com o item que está saindo — p/ limpar config derivada
+  // (ex.: Envio à Explosão) que apontava pra essa linha.
+  onItemRemoved?: (label: string, index: number) => void;
+  // Conteúdo extra abaixo da lista (legenda/avisos do bloco).
+  footer?: React.ReactNode;
 }) {
   const [draft, setDraft] = useState("");
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -777,6 +818,7 @@ function SortableListCard({
   };
 
   const remove = (index: number) => {
+    onItemRemoved?.(items[index], index);
     onChange(items.filter((_, i) => i !== index));
   };
 
@@ -823,6 +865,7 @@ function SortableListCard({
             </ul>
           </SortableContext>
         </DndContext>
+        {footer}
       </CardContent>
     </Card>
   );
@@ -849,30 +892,38 @@ function SortableItem({
     transition,
     opacity: isDragging ? 0.6 : 1,
   };
+  const trashButton = (
+    <Button type="button" size="icon" variant="ghost" onClick={onRemove} aria-label="Excluir item">
+      <Trash2 className="h-4 w-4 text-destructive" />
+    </Button>
+  );
   return (
-    <li
-      ref={setNodeRef}
-      style={style}
-      className="flex items-center gap-2 rounded-md border bg-card p-2"
-    >
-      <button
-        type="button"
-        className="flex shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground touch-none hover:text-foreground max-md:min-h-11 max-md:min-w-10"
-        {...attributes}
-        {...listeners}
-        aria-label="Arrastar"
-      >
-        <GripVertical className="h-4 w-4" />
-      </button>
-      <Input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-8 border-0 shadow-none focus-visible:ring-1 max-md:h-11"
-      />
-      {extra}
-      <Button type="button" size="icon" variant="ghost" onClick={onRemove}>
-        <Trash2 className="h-4 w-4 text-destructive" />
-      </Button>
+    <li ref={setNodeRef} style={style} className="rounded-md border bg-card p-2">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          className="flex shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground touch-none hover:text-foreground max-md:min-h-11 max-md:min-w-10"
+          {...attributes}
+          {...listeners}
+          aria-label="Arrastar"
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+        <Input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-8 border-0 shadow-none focus-visible:ring-1 max-md:h-11"
+        />
+        {/* Sem ações extras (ex.: outras listas sem `extra`): Excluir fica sempre inline —
+            só 1 botão, não precisa de 2ª linha no mobile. Com `extra` (Status do Kanban:
+            Requisitos + Explosão + Excluir), a linha fica estreita demais no mobile p/ os
+            3 controles de 44px ao lado do rótulo — desce pra 2ª linha (abaixo). */}
+        {!extra && trashButton}
+        {extra && <div className="hidden shrink-0 items-center gap-2 md:flex">{extra}{trashButton}</div>}
+      </div>
+      {extra && (
+        <div className="mt-2 flex items-center justify-end gap-2 md:hidden">{extra}{trashButton}</div>
+      )}
     </li>
   );
 }
