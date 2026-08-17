@@ -1295,10 +1295,11 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                     return (
                       <div key={nome}>
                         <div className="mb-1 flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                          <button type="button" onClick={() => toggleLane(nomeKey)} title={nomeRecolhido ? "Expandir" : "Recolher"} className="rounded p-0.5 hover:bg-muted hover:text-foreground">
+                          {/* nome DENTRO do botão: expandir/recolher clicando no nome também (dono ago/2026) */}
+                          <button type="button" onClick={() => toggleLane(nomeKey)} title={nomeRecolhido ? "Expandir" : "Recolher"} className="flex items-center gap-1 rounded p-0.5 text-left hover:bg-muted hover:text-foreground">
                             {nomeRecolhido ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                            <span>{nome}</span>
                           </button>
-                          <span>{nome}</span>
                           <span className="rounded-full border px-1.5 text-[10px]">{items.length}{nomeMetros > 0 ? ` · ${fmtMetros(nomeMetros)} m` : ""}</span>
                         </div>
                         {!nomeRecolhido && <div className="flex items-start gap-3 overflow-x-auto">{renderCards(items, draggable)}</div>}
@@ -1397,10 +1398,11 @@ export function PlanTecidoSheet({ colecaoId, subInicial = null, onSubChange, onC
                       return (
                         <section key={cid ?? "__sem__"}>
                           <div className="mb-1 flex items-center gap-2">
-                            <button type="button" onClick={() => toggleLane(laneKey)} title={laneRecolhida ? "Expandir" : "Recolher"} className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground">
+                            {/* nome DENTRO do botão: expandir/recolher clicando no nome também (dono ago/2026) */}
+                            <button type="button" onClick={() => toggleLane(laneKey)} title={laneRecolhida ? "Expandir" : "Recolher"} className="flex items-center gap-2 rounded p-0.5 text-left text-muted-foreground hover:bg-muted hover:text-foreground">
                               {laneRecolhida ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                              <span className={`text-sm font-semibold ${cid ? "text-foreground" : "text-muted-foreground"}`}>{cid ? (catTecidoNome(cid) ?? "?") : "Sem categoria"}</span>
                             </button>
-                            <span className={`text-sm font-semibold ${cid ? "" : "text-muted-foreground"}`}>{cid ? (catTecidoNome(cid) ?? "?") : "Sem categoria"}</span>
                             <span className="rounded-full border px-2 text-[11px] text-muted-foreground">{slots.length} modelo(s){laneMetros > 0 ? ` · ${fmtMetros(laneMetros)} m` : ""}</span>
                             {cid && <button type="button" className="ml-1 rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" title="Remover categoria" onClick={() => removeCategoria(cid)}><X className="h-3.5 w-3.5" /></button>}
                           </div>

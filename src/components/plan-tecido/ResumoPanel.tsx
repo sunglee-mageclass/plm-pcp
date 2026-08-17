@@ -34,10 +34,11 @@ function Secao({ title, right, defaultOpen = true, children }: { title: string; 
   return (
     <div className="rounded-lg border">
       <div className="flex items-center border-b p-2 font-display text-xs font-semibold">
-        <button type="button" onClick={() => setOpen((o) => !o)} className="mr-1 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground" title={open ? "Recolher" : "Expandir"}>
-          {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        {/* título DENTRO do botão: expandir/recolher clicando no nome também (dono ago/2026) */}
+        <button type="button" onClick={() => setOpen((o) => !o)} className="flex min-w-0 flex-1 items-center gap-1 rounded p-0.5 text-left hover:bg-muted" title={open ? "Recolher" : "Expandir"}>
+          {open ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />}
+          <span className="min-w-0 flex-1 truncate">{title}</span>
         </button>
-        <span className="flex-1">{title}</span>
         {right}
       </div>
       {open && children}
