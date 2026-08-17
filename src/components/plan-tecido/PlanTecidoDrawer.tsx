@@ -1,6 +1,6 @@
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { X } from "lucide-react";
+import { ChevronRight, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import type { PtArvore, PtSlot } from "@/lib/plan-tecido/types";
 import { necessidadePorTecido, detalheOc, fmtMetros, contabilizarOc } from "@/lib/plan-tecido/calc";
@@ -129,6 +129,18 @@ export function PlanTecidoDrawer({
   grupos.sort((a, b) => cmpPt(a.artigo, b.artigo)); // tecidos (artigos) em ordem alfabética (dono) — Situação e A comprar
   const nCols = 4;
 
+  // "Detalhe por variante" (kind='oc'): grupos de tecido expansíveis, RECOLHIDOS por default
+  // (dono ago/2026 — mesmo idioma do Resumo). Ausente da Set = fechado. 'comprar'/'ocnum'
+  // seguem sempre expandidos (listas curtas/da própria OC).
+  const colapsavel = kind === "oc";
+  const [tecidosAbertos, setTecidosAbertos] = useState<Set<string>>(new Set());
+  const toggleTecido = (id: string) =>
+    setTecidosAbertos((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+
   const titulo =
     kind === "comprar" ? "A comprar — por tecido e variante"
       : kind === "ocnum" ? `${(arg && ocNumeroDe(arg)) || "OC"} — por tecido e variante`
@@ -181,8 +193,25 @@ export function PlanTecidoDrawer({
               </td></tr>
             ) : grupos.map((g) => (
               <Fragment key={g.artigo_id}>
-                <tr className="border-t bg-muted/40"><td className="p-1.5 font-medium" colSpan={nCols}>{g.artigo}</td></tr>
-                {g.variantes.map((v) => {
+                {colapsavel ? (
+                  <tr className="border-t bg-muted/40">
+                    <td className="p-0" colSpan={nCols}>
+                      <button
+                        type="button"
+                        onClick={() => toggleTecido(g.artigo_id)}
+                        aria-expanded={tecidosAbertos.has(g.artigo_id)}
+                        className="flex min-h-11 w-full items-center gap-1 px-1.5 text-left font-medium hover:bg-muted/60"
+                      >
+                        <ChevronRight className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${tecidosAbertos.has(g.artigo_id) ? "rotate-90" : ""}`} />
+                        <span className="min-w-0 flex-1 truncate">{g.artigo}</span>
+                        <span className="shrink-0 text-[10px] font-normal text-muted-foreground">{g.variantes.length} variante{g.variantes.length === 1 ? "" : "s"}</span>
+                      </button>
+                    </td>
+                  </tr>
+                ) : (
+                  <tr className="border-t bg-muted/40"><td className="p-1.5 font-medium" colSpan={nCols}>{g.artigo}</td></tr>
+                )}
+                {(!colapsavel || tecidosAbertos.has(g.artigo_id)) && g.variantes.map((v) => {
                   // Contabilidade via fonte única (mesma fn do Resumo): usado sai da reservada.
                   const { reservadaLivre, usada, sobra, baixaDomina } = contabilizarOc(v.reservada, v.comprometida, v.usada, v.entregue);
                   return (
