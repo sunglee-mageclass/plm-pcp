@@ -110,7 +110,7 @@ export function OcAplicadaPicker({ colecaoId }: { colecaoId: string }) {
       <Dialog open={open} onOpenChange={(o) => { if (!salvar.isPending) setOpen(o); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Aplicar OC / Rolo ao plano</DialogTitle>
+            <DialogTitle>Vincular OC / Rolo ao plano</DialogTitle>
             <DialogDescription>
               Escolha OCs de tecido ou <b>Rolos</b> (estoque físico). O Resumo destaca quanto cada um
               cobre por variante. Um <b>rolo</b> abate o "a comprar" pelo seu <b>saldo</b> (metragem
