@@ -91,12 +91,40 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }:
     return v.label || v.cor_nome || "—";
   };
 
+  // Cor base / cor apelido SEPARADOS (dono ago/2026: 1ª linha cor base, 2ª linha apelido — igual
+  // aos painéis do Resumo). Variante real → nomes do artigo; planejada → cor_nome + apelido via
+  // coresCombos (fallback: sufixo do label composto).
+  const apelidoDeCombo = new Map(coresCombos.map((c) => [c.cor_apelido_id, c.apelido_nome]));
+  const corEApelido = (v: PtVariante): { cor: string; apelido: string | null } => {
+    if (v.variante_tecido_id) {
+      const r = realById.get(v.variante_tecido_id);
+      if (r) return { cor: r.cor?.nome || v.cor_nome || "—", apelido: r.apelido?.nome || null };
+    }
+    const cor = v.cor_nome || v.label || "—";
+    const apelido =
+      (v.cor_apelido_id ? apelidoDeCombo.get(v.cor_apelido_id) : null) ??
+      (v.label && v.cor_nome && v.label.startsWith(`${v.cor_nome} - `) ? v.label.slice(v.cor_nome.length + 3) : null);
+    return { cor, apelido: apelido || null };
+  };
+  const cmpVar = (a: PtVariante, b: PtVariante) => {
+    const ca = corEApelido(a), cb = corEApelido(b);
+    return ca.cor.localeCompare(cb.cor, "pt-BR", { sensitivity: "base" }) ||
+      (ca.apelido ?? "").localeCompare(cb.apelido ?? "", "pt-BR", { sensitivity: "base" });
+  };
+
   const [menuOpen, setMenuOpen] = useState(false);
   const usados = new Set(material.variantes.map((v) => varKey(v)));
   const usadosCombo = new Set(material.variantes.map((v) => comboKey(v.cor_id, v.cor_apelido_id)).filter((k) => k !== "|"));
-  // opções: com artigo → variantes do tecido ainda não usadas; sem artigo → todas as combinações
-  const opcoesArtigo = variantesArtigo.filter((v) => !usados.has(v.id) && !usadosCombo.has(comboKey(v.cor_id, v.cor_apelido_id)));
-  const opcoesCombo = coresCombos.filter((c) => !usadosCombo.has(comboKey(c.cor_id, c.cor_apelido_id)));
+  // opções: com artigo → variantes do tecido ainda não usadas; sem artigo → todas as combinações.
+  // Em ordem ALFABÉTICA cor base → apelido (dono ago/2026).
+  const cmpNome = (a: string | null | undefined, b: string | null | undefined) =>
+    (a ?? "").localeCompare(b ?? "", "pt-BR", { sensitivity: "base" });
+  const opcoesArtigo = variantesArtigo
+    .filter((v) => !usados.has(v.id) && !usadosCombo.has(comboKey(v.cor_id, v.cor_apelido_id)))
+    .sort((a, b) => cmpNome(a.cor?.nome, b.cor?.nome) || cmpNome(a.apelido?.nome, b.apelido?.nome));
+  const opcoesCombo = coresCombos
+    .filter((c) => !usadosCombo.has(comboKey(c.cor_id, c.cor_apelido_id)))
+    .sort((a, b) => cmpNome(a.cor_nome, b.cor_nome) || cmpNome(a.apelido_nome, b.apelido_nome));
 
   const addDoArtigo = (v: VarRow) => {
     const nova: PtVariante = {
@@ -160,15 +188,20 @@ export function MaterialBlock({ material, onChange, onRemove, laneCategoriaId }:
         {material.variantes.length === 0 ? (
           <div className="rounded border border-dashed p-2 text-center text-[10px] italic text-muted-foreground">Nenhuma cor. “+ adicionar cor” para escolher as variantes.</div>
         ) : (
-          // Variantes em ordem ALFABÉTICA só na EXIBIÇÃO (dono, jul/2026) — copia p/ ordenar, sem
-          // mexer no material.variantes salvo (não suja o form nem renumera).
-          [...material.variantes].sort((a, b) => nomeVariante(a).localeCompare(nomeVariante(b), "pt-BR", { sensitivity: "base" })).map((v) => {
+          // Variantes em ordem ALFABÉTICA (cor base → apelido) só na EXIBIÇÃO (dono, jul/2026) —
+          // copia p/ ordenar, sem mexer no material.variantes salvo (não suja o form nem renumera).
+          [...material.variantes].sort(cmpVar).map((v) => {
             const div = divergente(v);
             const planejada = !v.variante_tecido_id;
+            const { cor, apelido } = corEApelido(v);
             return (
               <div key={varKey(v)} className={`flex items-center gap-2 border-t border-dashed py-1 text-xs first:border-t-0 ${div ? "rounded bg-red-50" : ""}`}>
                 <VarianteSwatch nome={v.cor_nome ?? v.label ?? undefined} />
-                <span className="min-w-0 flex-1 truncate" title={nomeVariante(v)}>{nomeVariante(v)}</span>
+                {/* 1ª linha cor base, 2ª linha cor apelido (dono ago/2026 — igual aos painéis) */}
+                <span className="min-w-0 flex-1" title={nomeVariante(v)}>
+                  <span className="block truncate">{cor}</span>
+                  {apelido && <span className="block truncate text-[10px] leading-tight text-muted-foreground">{apelido}</span>}
+                </span>
                 {div ? (
                   <span className="flex shrink-0 items-center gap-0.5 text-[9px] font-medium text-red-600" title="Cor não existe nas variantes do tecido"><AlertTriangle className="h-3 w-3" />divergente</span>
                 ) : planejada ? (
